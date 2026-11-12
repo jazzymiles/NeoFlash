@@ -30,7 +30,11 @@ pub enum NetworkPreset {
     /// Slow 3G mobile connection (~400 kbps, 400 ms RTT).
     Slow3G,
     /// Broadband cable connection (~5 Mbps, 28 ms RTT).
+    #[serde(alias = "cable")]
     Cable5Mbps,
+    /// Offline / local loopback connection (~100 Mbps, 0 ms RTT).
+    #[serde(alias = "offline", alias = "local")]
+    OfflineLocal,
     /// User-defined bandwidth in kilobits per second and round-trip latency in milliseconds.
     Custom {
         bandwidth_kbps: u32,
@@ -39,7 +43,12 @@ pub enum NetworkPreset {
 }
 
 impl NetworkPreset {
-    pub const ALL_PRESETS: [Self; 3] = [Self::Fast3G, Self::Slow3G, Self::Cable5Mbps];
+    pub const ALL_PRESETS: [Self; 4] = [
+        Self::Slow3G,
+        Self::Fast3G,
+        Self::Cable5Mbps,
+        Self::OfflineLocal,
+    ];
 
     /// Effective download bandwidth in kilobits per second (1 kbps = 1000 bits/s = 125 bytes/s).
     pub fn bandwidth_kbps(self) -> u32 {
@@ -47,6 +56,7 @@ impl NetworkPreset {
             Self::Fast3G => 1_600,
             Self::Slow3G => 400,
             Self::Cable5Mbps => 5_000,
+            Self::OfflineLocal => 100_000,
             Self::Custom { bandwidth_kbps, .. } => bandwidth_kbps.max(1),
         }
     }
@@ -57,6 +67,7 @@ impl NetworkPreset {
             Self::Fast3G => 150,
             Self::Slow3G => 400,
             Self::Cable5Mbps => 28,
+            Self::OfflineLocal => 0,
             Self::Custom { latency_ms, .. } => latency_ms,
         }
     }
@@ -79,7 +90,84 @@ impl NetworkPreset {
             Self::Fast3G => "Fast 3G (1.6 Mbps / 150 ms)",
             Self::Slow3G => "Slow 3G (400 kbps / 400 ms)",
             Self::Cable5Mbps => "Cable (5 Mbps / 28 ms)",
+            Self::OfflineLocal => "Offline / Local (100 Mbps / 0 ms)",
             Self::Custom { .. } => "Custom",
+        }
+    }
+
+    /// Concise preset label used in compact UI selectors.
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::Slow3G => "Slow 3G",
+            Self::Fast3G => "Fast 3G",
+            Self::Cable5Mbps => "Cable",
+            Self::OfflineLocal => "Offline / Local",
+            Self::Custom { .. } => "Custom",
+        }
+    }
+
+    /// Canonical CLI flag token for this preset.
+    pub fn cli_name(self) -> String {
+        match self {
+            Self::Slow3G => "slow-3g".to_string(),
+            Self::Fast3G => "fast-3g".to_string(),
+            Self::Cable5Mbps => "cable".to_string(),
+            Self::OfflineLocal => "offline-local".to_string(),
+            Self::Custom {
+                bandwidth_kbps,
+                latency_ms,
+            } => format!("{bandwidth_kbps}/{latency_ms}"),
+        }
+    }
+
+    /// Parse a CLI or UI preset identifier (`fast-3g`, `slow-3g`, `cable`, `offline-local`, or
+    /// custom `<kbps>/<rtt_ms>` / `<kbps>:<rtt_ms>`).
+    pub fn parse(raw: &str) -> Result<Self, ExportError> {
+        let normalized = raw.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "fast-3g" | "fast3g" | "fast_3g" | "fast 3g" => Ok(Self::Fast3G),
+            "slow-3g" | "slow3g" | "slow_3g" | "slow 3g" => Ok(Self::Slow3G),
+            "cable" | "cable-5mbps" | "cable5mbps" | "cable_5mbps" | "5mbps" => {
+                Ok(Self::Cable5Mbps)
+            }
+            "offline-local" | "offline_local" | "offline" | "local" | "offline / local" => {
+                Ok(Self::OfflineLocal)
+            }
+            _ => {
+                let parts: Vec<&str> = normalized.split(['/', ':', ',']).collect();
+                if parts.len() == 2
+                    && let (Ok(kbps), Ok(rtt)) = (
+                        parts[0]
+                            .trim()
+                            .trim_end_matches("kbps")
+                            .trim()
+                            .parse::<u32>(),
+                        parts[1].trim().trim_end_matches("ms").trim().parse::<u32>(),
+                    )
+                    && kbps > 0
+                {
+                    return Ok(Self::Custom {
+                        bandwidth_kbps: kbps,
+                        latency_ms: rtt,
+                    });
+                }
+                if parts.len() == 1
+                    && let Ok(kbps) = parts[0]
+                        .trim()
+                        .trim_end_matches("kbps")
+                        .trim()
+                        .parse::<u32>()
+                    && kbps > 0
+                {
+                    return Ok(Self::Custom {
+                        bandwidth_kbps: kbps,
+                        latency_ms: 0,
+                    });
+                }
+                Err(ExportError::Options(format!(
+                    "Unsupported network preset '{raw}' (expected fast-3g, slow-3g, cable, offline-local, or <kbps>/<rtt_ms>)"
+                )))
+            }
         }
     }
 }
@@ -460,6 +548,28 @@ pub struct NetworkSimulationReport {
     pub recommended_preload_ms: f64,
     /// Recommended number of frames worth of preloading at the project's frame rate.
     pub recommended_preload_frames: u32,
+}
+
+/// Alias for [`NetworkSimulationReport`] used by CLI and UI startup estimators (`T-272`).
+pub type NetworkStartupEstimate = NetworkSimulationReport;
+
+impl NetworkSimulationReport {
+    /// Format a compact single-line summary for CLI and UI status readouts.
+    pub fn summary_line(&self) -> String {
+        format!(
+            "{} ({} kbps, {} ms RTT): bootstrap {:.0} ms ({} B), total {:.0} ms ({} B), {} underrun frame(s), preload {:.0} ms ({} frame(s))",
+            self.preset.short_label(),
+            self.effective_bandwidth_kbps,
+            self.latency_ms,
+            self.initial_html_js_wasm_ms,
+            self.initial_html_js_wasm_bytes,
+            self.total_download_ms,
+            self.load_summary.data_bytes,
+            self.buffer_underrun_frames.len(),
+            self.recommended_preload_ms,
+            self.recommended_preload_frames
+        )
+    }
 }
 
 /// Compute exact size report and [`LoadSummary`] for `project` under `options`, reusing the

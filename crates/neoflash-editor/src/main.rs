@@ -1,3 +1,5 @@
+#[allow(dead_code)]
+mod ai_connections;
 mod app;
 mod authoring_modify;
 mod authoring_symbols;

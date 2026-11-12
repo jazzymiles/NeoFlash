@@ -48,9 +48,11 @@ pub mod bitmap_trace;
 mod clipboard;
 mod demo;
 mod evaluate;
+pub mod extensions;
 mod filters;
 mod geometry;
 mod history;
+pub mod i18n;
 pub mod ik_puppet_3d;
 pub mod jsfl;
 mod library_folders;
@@ -104,6 +106,17 @@ pub use evaluate::{
     placement_start, property_value, sample_layer, sample_layer_at_fps, sample_layer_in,
     sample_layer_in_at_fps, sample_timeline_camera, transform_matrix,
 };
+pub use extensions::{
+    CURRENT_EXTENSION_API_VERSION, CURRENT_HOST_VERSION, CompatibilityReport, CompatibilityStatus,
+    ContributedCommand, ContributedFilter, ContributedMenuItem, ContributedShortcut,
+    ExportedExtensionArtifact, ExtensionArchiveEntry, ExtensionCapability, ExtensionContributions,
+    ExtensionEntryKind, ExtensionError, ExtensionHostContextSnapshot, ExtensionHostInvocationGate,
+    ExtensionPackageArchive, ExtensionPackageManifest, ExtensionSandboxPolicy, ForbiddenCapability,
+    HostApiCall, HostApiResponse, NFEXT_FORMAT_MAGIC, NFEXT_PACKAGE_EXTENSION,
+    ProposedDocumentTransaction, SandboxAuditEntry, SemVer, check_api_compatibility,
+    check_api_compatibility_with_host, compute_archive_entries_sha256, is_valid_reverse_dns_id,
+    parse_capability_token, sha256_digest, sha256_hex, validate_manifest,
+};
 pub use filters::{
     FilterError, FilterPadding, FilterSpec, IDENTITY_COLOR_MATRIX, MAX_FILTER_PIXELS,
     MAX_OBJECT_FILTERS, adjust_color_matrix, filter_padding, filter_rgba, validate_filters,
@@ -119,6 +132,14 @@ pub use geometry::{
 pub use history::{
     AuthoringCommandStep, AuthoringExtensionManifest, ExtensionPermission, History,
     MAX_COMMAND_STEPS, SavedCommand, apply_command_steps_to_elements,
+};
+pub use i18n::{
+    CORE_UI_TRANSLATION_KEYS, CatalogCompletenessReport, DEFAULT_FALLBACK_LOCALE_TAG,
+    LocaleFallbackChain, LocaleId, LocalizationError, LocalizationLookupResult,
+    LocalizationRegistry, LocalizedMessage, MissingPluralForm, PlaceholderMismatch, PluralCategory,
+    TranslationCatalog, builtin_en_us_catalog, builtin_localization_registry,
+    builtin_ru_ru_catalog, extract_placeholders, interpolate_template, is_valid_translation_key,
+    required_plural_categories_for_language, select_plural_category, verify_catalog_completeness,
 };
 pub use ik_puppet_3d::{
     DecoEffectKind, IkBoneWeight, IkJointSpec, IkShapeSkin, IkVertexBinding, SprayBrushConfig,

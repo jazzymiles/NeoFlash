@@ -1071,8 +1071,11 @@ impl Editor {
                         ui, &p, origin, mapping, &scene, &response,
                     ) || self.take_empty_stage_exit_release(ui, &response));
                 if !preview_consumed && !quick_stage_exit {
-                    let sticky_consumed =
-                        self.stage_sticky_workflow_step(ui, &p, origin, mapping, rect, &scene);
+                    let live_deform_consumed = self.stage_live_deform_gizmos_and_gestures(
+                        ui, &p, origin, mapping, rect, &scene,
+                    );
+                    let sticky_consumed = live_deform_consumed
+                        || self.stage_sticky_workflow_step(ui, &p, origin, mapping, rect, &scene);
                     let extended_tool = sticky_consumed
                         || self.authoring_tool_stage(ui, &p, origin, mapping, rect, &scene);
                     if self.tool == Tool::Lasso {
@@ -2975,6 +2978,731 @@ impl Editor {
             }
         }
     }
+
+    // =========================================================================
+    // Live Stage Gizmos & Gestures: Envelope (4x4), Perspective (2x2),
+    // Asset Warp Pins, and IK Bone/Bind (`T-271`)
+    // =========================================================================
+
+    pub(crate) fn stage_live_deform_gizmos_and_gestures(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        origin: Pos2,
+        mapping: StageMapping,
+        canvas_rect: Rect,
+        _scene: &[DrawItem],
+    ) -> bool {
+        use crate::vector::{FreeTransformSubmode, StageLiveDeformDrag, StageLiveDeformKind};
+
+        let zoom = self.zoom.max(0.01);
+        let to_screen = |pt: [f64; 2]| -> Pos2 {
+            mapping.edit_to_screen(origin, zoom, Pos2::new(pt[0] as f32, pt[1] as f32))
+        };
+        let to_stage = |pos: Pos2| -> [f64; 2] {
+            let local = mapping.screen_to_edit(origin, zoom, pos);
+            [f64::from(local.x), f64::from(local.y)]
+        };
+        let hit_tol_stage = f64::from(10.0 / zoom);
+        let events = ui.input(|i| i.events.clone());
+
+        // 1. Free Transform (`Tool::Transform` / `Tool::FreeTransform`) Envelope (4x4) & Perspective (2x2)
+        if self.tool == Tool::Transform {
+            let submode = self.free_transform_submode();
+            let mode = self.authoring_tools.transform_mode;
+            let envelope_active = submode == FreeTransformSubmode::Envelope
+                || mode == crate::authoring_tools::FreeTransformMode::Envelope
+                || self.selected_envelope_warp().is_some();
+            let perspective_active = submode == FreeTransformSubmode::Perspective;
+
+            if envelope_active {
+                self.paint_envelope_4x4_stage_gizmo(painter, origin, mapping);
+            } else if perspective_active {
+                self.paint_perspective_2x2_stage_gizmo(painter, origin, mapping);
+            }
+
+            if envelope_active || perspective_active {
+                let mut consumed = false;
+                for event in &events {
+                    match *event {
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: true,
+                            ..
+                        } if canvas_rect.contains(pos) => {
+                            let stage_pt = to_stage(pos);
+                            if envelope_active {
+                                let hit =
+                                    self.hit_test_envelope_warp_handle(stage_pt, hit_tol_stage);
+                                let accept_hit = match hit {
+                                    Some((r, c)) => {
+                                        submode == FreeTransformSubmode::Envelope
+                                            || (1..3).contains(&r)
+                                            || (1..3).contains(&c)
+                                    }
+                                    None => false,
+                                };
+                                if let Some((row, col)) = hit
+                                    && accept_hit
+                                {
+                                    self.history.begin(&self.project);
+                                    self.vector.live_deform_drag = Some(StageLiveDeformDrag {
+                                        kind: StageLiveDeformKind::EnvelopeHandle { row, col },
+                                        before_project: self.project.clone(),
+                                        press_stage: stage_pt,
+                                        last_stage: stage_pt,
+                                        changed: false,
+                                    });
+                                    consumed = true;
+                                }
+                            } else if perspective_active
+                                && let Some(corner) =
+                                    self.hit_test_perspective_corner(stage_pt, hit_tol_stage)
+                            {
+                                self.history.begin(&self.project);
+                                self.vector.live_deform_drag = Some(StageLiveDeformDrag {
+                                    kind: StageLiveDeformKind::PerspectiveCorner { corner },
+                                    before_project: self.project.clone(),
+                                    press_stage: stage_pt,
+                                    last_stage: stage_pt,
+                                    changed: false,
+                                });
+                                consumed = true;
+                            }
+                        }
+                        egui::Event::PointerMoved(pos) => {
+                            let stage_pt = to_stage(pos);
+                            let shift = ui.input(|i| i.modifiers.shift);
+                            let active_kind = self
+                                .vector
+                                .live_deform_drag
+                                .as_ref()
+                                .map(|d| d.kind.clone());
+                            match active_kind {
+                                Some(StageLiveDeformKind::EnvelopeHandle { row, col }) => {
+                                    let did_change = self
+                                        .apply_envelope_warp_handle_in_place(row, col, stage_pt);
+                                    if let Some(drag) = self.vector.live_deform_drag.as_mut() {
+                                        drag.last_stage = stage_pt;
+                                        drag.changed |= did_change;
+                                    }
+                                    consumed = true;
+                                }
+                                Some(StageLiveDeformKind::PerspectiveCorner { corner }) => {
+                                    let did_change = self
+                                        .apply_perspective_corner_in_place(corner, stage_pt, shift);
+                                    if let Some(drag) = self.vector.live_deform_drag.as_mut() {
+                                        drag.last_stage = stage_pt;
+                                        drag.changed |= did_change;
+                                    }
+                                    consumed = true;
+                                }
+                                _ => {}
+                            }
+                        }
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: false,
+                            modifiers,
+                        } => {
+                            let is_ft_drag =
+                                self.vector.live_deform_drag.as_ref().is_some_and(|d| {
+                                    matches!(
+                                        d.kind,
+                                        StageLiveDeformKind::EnvelopeHandle { .. }
+                                            | StageLiveDeformKind::PerspectiveCorner { .. }
+                                    )
+                                });
+                            if is_ft_drag
+                                && let Some(mut drag) = self.vector.live_deform_drag.take()
+                            {
+                                let stage_pt = to_stage(pos);
+                                match drag.kind {
+                                    StageLiveDeformKind::EnvelopeHandle { row, col } => {
+                                        if (stage_pt[0] - drag.last_stage[0])
+                                            .hypot(stage_pt[1] - drag.last_stage[1])
+                                            > 1e-4
+                                        {
+                                            drag.changed |= self
+                                                .apply_envelope_warp_handle_in_place(
+                                                    row, col, stage_pt,
+                                                );
+                                        }
+                                        if drag.changed {
+                                            self.commit_history();
+                                        }
+                                    }
+                                    StageLiveDeformKind::PerspectiveCorner { corner } => {
+                                        if (stage_pt[0] - drag.last_stage[0])
+                                            .hypot(stage_pt[1] - drag.last_stage[1])
+                                            > 1e-4
+                                        {
+                                            drag.changed |= self.apply_perspective_corner_in_place(
+                                                corner,
+                                                stage_pt,
+                                                modifiers.shift,
+                                            );
+                                        }
+                                        if drag.changed {
+                                            self.commit_history();
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                                consumed = true;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if self.vector.live_deform_drag.as_ref().is_some_and(|d| {
+                    matches!(
+                        d.kind,
+                        StageLiveDeformKind::EnvelopeHandle { .. }
+                            | StageLiveDeformKind::PerspectiveCorner { .. }
+                    )
+                }) {
+                    consumed = true;
+                }
+                if envelope_active {
+                    self.paint_envelope_4x4_stage_gizmo(painter, origin, mapping);
+                } else if perspective_active {
+                    self.paint_perspective_2x2_stage_gizmo(painter, origin, mapping);
+                }
+                if consumed || perspective_active || submode == FreeTransformSubmode::Envelope {
+                    return true;
+                }
+            }
+        }
+
+        // 2. Asset Warp (`Tool::AssetWarp`) direct Stage pin creation, selection, dragging & mesh overlay
+        if self.tool == Tool::AssetWarp {
+            for event in &events {
+                match *event {
+                    egui::Event::Key {
+                        key: egui::Key::Delete | egui::Key::Backspace,
+                        pressed: true,
+                        ..
+                    } => {
+                        if let Some(pin_id) = self.vector.selected_warp_pin.clone() {
+                            let _ = self.remove_asset_warp_pin(&pin_id);
+                        }
+                    }
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers,
+                    } if canvas_rect.contains(pos) => {
+                        let stage_pt = to_stage(pos);
+                        if let Some(hit_pin_id) =
+                            self.hit_test_asset_warp_pin(stage_pt, hit_tol_stage)
+                        {
+                            if modifiers.alt {
+                                let _ = self.remove_asset_warp_pin(&hit_pin_id);
+                            } else {
+                                self.history.begin(&self.project);
+                                self.vector.selected_warp_pin = Some(hit_pin_id.clone());
+                                let element_id = self
+                                    .selected_element()
+                                    .map(|e| e.id.clone())
+                                    .unwrap_or_default();
+                                self.vector.live_deform_drag = Some(StageLiveDeformDrag {
+                                    kind: StageLiveDeformKind::AssetWarpPin {
+                                        pin_id: hit_pin_id,
+                                        element_id,
+                                        created_on_press: false,
+                                    },
+                                    before_project: self.project.clone(),
+                                    press_stage: stage_pt,
+                                    last_stage: stage_pt,
+                                    changed: false,
+                                });
+                            }
+                        } else if !modifiers.alt {
+                            let before_project = self.project.clone();
+                            self.history.begin(&self.project);
+                            if let Some(new_pin_id) = self.add_asset_warp_pin_in_place(stage_pt) {
+                                let element_id = self
+                                    .selected_element()
+                                    .map(|e| e.id.clone())
+                                    .unwrap_or_default();
+                                self.vector.live_deform_drag = Some(StageLiveDeformDrag {
+                                    kind: StageLiveDeformKind::AssetWarpPin {
+                                        pin_id: new_pin_id,
+                                        element_id,
+                                        created_on_press: true,
+                                    },
+                                    before_project,
+                                    press_stage: stage_pt,
+                                    last_stage: stage_pt,
+                                    changed: true,
+                                });
+                            }
+                        }
+                    }
+                    egui::Event::PointerMoved(pos) => {
+                        let stage_pt = to_stage(pos);
+                        let pin_drag = self.vector.live_deform_drag.as_ref().and_then(|d| match &d
+                            .kind
+                        {
+                            StageLiveDeformKind::AssetWarpPin {
+                                pin_id,
+                                created_on_press,
+                                ..
+                            } => Some((pin_id.clone(), *created_on_press, d.press_stage)),
+                            _ => None,
+                        });
+                        if let Some((pin_id, created_on_press, press_stage)) = pin_drag {
+                            let moved_dist =
+                                (stage_pt[0] - press_stage[0]).hypot(stage_pt[1] - press_stage[1]);
+                            if !created_on_press || moved_dist > 2.0 {
+                                let did_move =
+                                    self.apply_asset_warp_pin_in_place(&pin_id, stage_pt);
+                                if let Some(drag) = self.vector.live_deform_drag.as_mut() {
+                                    drag.last_stage = stage_pt;
+                                    drag.changed |= did_move;
+                                }
+                            }
+                        }
+                    }
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        ..
+                    } => {
+                        let is_pin_drag = self.vector.live_deform_drag.as_ref().is_some_and(|d| {
+                            matches!(d.kind, StageLiveDeformKind::AssetWarpPin { .. })
+                        });
+                        if is_pin_drag
+                            && let Some(mut drag) = self.vector.live_deform_drag.take()
+                            && let StageLiveDeformKind::AssetWarpPin {
+                                pin_id,
+                                created_on_press,
+                                ..
+                            } = drag.kind
+                        {
+                            let stage_pt = to_stage(pos);
+                            let moved_dist = (stage_pt[0] - drag.press_stage[0])
+                                .hypot(stage_pt[1] - drag.press_stage[1]);
+                            if (!created_on_press || moved_dist > 2.0)
+                                && (stage_pt[0] - drag.last_stage[0])
+                                    .hypot(stage_pt[1] - drag.last_stage[1])
+                                    > 1e-4
+                            {
+                                drag.changed |=
+                                    self.apply_asset_warp_pin_in_place(&pin_id, stage_pt);
+                            }
+                            if drag.changed {
+                                self.commit_history();
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            self.paint_asset_warp_stage_gizmos(painter, origin, mapping);
+            return true;
+        }
+
+        // 3. IK Bone (`Tool::Bone`) & Bind (`Tool::Bind`) live Stage gizmos and gestures
+        if self.tool == Tool::Bone || self.tool == Tool::Bind {
+            for event in &events {
+                match *event {
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers,
+                    } if canvas_rect.contains(pos) => {
+                        let stage_pt = to_stage(pos);
+                        if self.tool == Tool::Bone {
+                            if let Some((arm_id, bone_id, _)) =
+                                self.hit_test_ik_bone_gizmo(stage_pt, hit_tol_stage * 1.4)
+                            {
+                                self.history.begin(&self.project);
+                                self.vector.selected_ik_bone = Some(bone_id.clone());
+                                self.vector.live_deform_drag = Some(StageLiveDeformDrag {
+                                    kind: StageLiveDeformKind::IkBoneEffector {
+                                        armature_id: arm_id,
+                                        bone_id,
+                                    },
+                                    before_project: self.project.clone(),
+                                    press_stage: stage_pt,
+                                    last_stage: stage_pt,
+                                    changed: false,
+                                });
+                            } else {
+                                self.vector.live_deform_drag = Some(StageLiveDeformDrag {
+                                    kind: StageLiveDeformKind::IkBoneCreate {
+                                        start_stage: stage_pt,
+                                        current_stage: stage_pt,
+                                    },
+                                    before_project: self.project.clone(),
+                                    press_stage: stage_pt,
+                                    last_stage: stage_pt,
+                                    changed: false,
+                                });
+                            }
+                        } else {
+                            // Tool::Bind: bind or unbind shape contour points / instances
+                            let before_project = self.project.clone();
+                            self.history.begin(&self.project);
+                            let did_bind =
+                                self.apply_bind_stage_point_in_place(stage_pt, modifiers.alt);
+                            self.vector.live_deform_drag = Some(StageLiveDeformDrag {
+                                kind: StageLiveDeformKind::IkBindSweep {
+                                    unbind: modifiers.alt,
+                                },
+                                before_project,
+                                press_stage: stage_pt,
+                                last_stage: stage_pt,
+                                changed: did_bind,
+                            });
+                        }
+                    }
+                    egui::Event::PointerMoved(pos) => {
+                        let stage_pt = to_stage(pos);
+                        let active_kind = self
+                            .vector
+                            .live_deform_drag
+                            .as_ref()
+                            .map(|d| d.kind.clone());
+                        match active_kind {
+                            Some(StageLiveDeformKind::IkBoneEffector {
+                                armature_id,
+                                bone_id,
+                            }) => {
+                                let did_pose = self.apply_ik_bone_effector_in_place(
+                                    &armature_id,
+                                    &bone_id,
+                                    stage_pt,
+                                );
+                                if let Some(drag) = self.vector.live_deform_drag.as_mut() {
+                                    drag.last_stage = stage_pt;
+                                    drag.changed |= did_pose;
+                                }
+                            }
+                            Some(StageLiveDeformKind::IkBoneCreate { start_stage, .. }) => {
+                                if let Some(drag) = self.vector.live_deform_drag.as_mut() {
+                                    drag.kind = StageLiveDeformKind::IkBoneCreate {
+                                        start_stage,
+                                        current_stage: stage_pt,
+                                    };
+                                    drag.last_stage = stage_pt;
+                                }
+                            }
+                            Some(StageLiveDeformKind::IkBindSweep { unbind }) => {
+                                let did_bind =
+                                    self.apply_bind_stage_point_in_place(stage_pt, unbind);
+                                if let Some(drag) = self.vector.live_deform_drag.as_mut() {
+                                    drag.last_stage = stage_pt;
+                                    drag.changed |= did_bind;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        ..
+                    } => {
+                        let is_ik_drag = self.vector.live_deform_drag.as_ref().is_some_and(|d| {
+                            matches!(
+                                d.kind,
+                                StageLiveDeformKind::IkBoneEffector { .. }
+                                    | StageLiveDeformKind::IkBoneCreate { .. }
+                                    | StageLiveDeformKind::IkBindSweep { .. }
+                            )
+                        });
+                        if is_ik_drag && let Some(mut drag) = self.vector.live_deform_drag.take() {
+                            let stage_pt = to_stage(pos);
+                            match drag.kind {
+                                StageLiveDeformKind::IkBoneEffector {
+                                    armature_id,
+                                    bone_id,
+                                } => {
+                                    if (stage_pt[0] - drag.last_stage[0])
+                                        .hypot(stage_pt[1] - drag.last_stage[1])
+                                        > 1e-4
+                                    {
+                                        drag.changed |= self.apply_ik_bone_effector_in_place(
+                                            &armature_id,
+                                            &bone_id,
+                                            stage_pt,
+                                        );
+                                    }
+                                    if drag.changed {
+                                        self.commit_history();
+                                    }
+                                }
+                                StageLiveDeformKind::IkBoneCreate { start_stage, .. } => {
+                                    if (stage_pt[0] - start_stage[0])
+                                        .hypot(stage_pt[1] - start_stage[1])
+                                        >= 4.0
+                                    {
+                                        let _ = self.create_ik_bone_on_stage(start_stage, stage_pt);
+                                    }
+                                }
+                                StageLiveDeformKind::IkBindSweep { .. } if drag.changed => {
+                                    self.commit_history();
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            self.paint_ik_bone_and_bind_stage_gizmos(painter, origin, mapping, to_screen);
+            return true;
+        }
+
+        false
+    }
+
+    fn paint_envelope_4x4_stage_gizmo(
+        &self,
+        painter: &egui::Painter,
+        origin: Pos2,
+        mapping: StageMapping,
+    ) {
+        let handles = self.envelope_warp_handles();
+        if handles.len() != 16 {
+            return;
+        }
+        let zoom = self.zoom.max(0.01);
+        let to_screen = |pt: [f64; 2]| -> Pos2 {
+            mapping.edit_to_screen(origin, zoom, Pos2::new(pt[0] as f32, pt[1] as f32))
+        };
+        let nf = neoflash_ui::palette(painter.ctx());
+        let grid_stroke = Stroke::new(1.0_f32, nf.accent_default);
+        for r in 0..4 {
+            for c in 0..3 {
+                let p0 = to_screen(handles[r * 4 + c].2);
+                let p1 = to_screen(handles[r * 4 + c + 1].2);
+                painter.line_segment([p0, p1], grid_stroke);
+            }
+        }
+        for c in 0..4 {
+            for r in 0..3 {
+                let p0 = to_screen(handles[r * 4 + c].2);
+                let p1 = to_screen(handles[(r + 1) * 4 + c].2);
+                painter.line_segment([p0, p1], grid_stroke);
+            }
+        }
+        for (r, c, pos) in handles {
+            let sp = to_screen(pos);
+            let is_interior = (1..3).contains(&r) && (1..3).contains(&c);
+            if is_interior {
+                painter.circle_filled(sp, 4.0, nf.bg_raised);
+                painter.circle_stroke(sp, 4.0, Stroke::new(1.5_f32, nf.accent_default));
+            } else {
+                let handle_rect = Rect::from_center_size(sp, Vec2::splat(7.0));
+                painter.rect_filled(handle_rect, 1.0, nf.bg_raised);
+                painter.rect_stroke(
+                    handle_rect,
+                    1.0,
+                    Stroke::new(1.5_f32, nf.accent_default),
+                    StrokeKind::Inside,
+                );
+            }
+        }
+    }
+
+    fn paint_perspective_2x2_stage_gizmo(
+        &self,
+        painter: &egui::Painter,
+        origin: Pos2,
+        mapping: StageMapping,
+    ) {
+        let Some(corners) = self.perspective_corners() else {
+            return;
+        };
+        let zoom = self.zoom.max(0.01);
+        let to_screen = |pt: [f64; 2]| -> Pos2 {
+            mapping.edit_to_screen(origin, zoom, Pos2::new(pt[0] as f32, pt[1] as f32))
+        };
+        let nf = neoflash_ui::palette(painter.ctx());
+        let pts = corners.map(to_screen);
+        let edge_stroke = Stroke::new(1.5_f32, nf.accent_default);
+        let diag_stroke = Stroke::new(1.0_f32, nf.guide);
+        for i in 0..4 {
+            painter.line_segment([pts[i], pts[(i + 1) % 4]], edge_stroke);
+        }
+        painter.line_segment([pts[0], pts[2]], diag_stroke);
+        painter.line_segment([pts[1], pts[3]], diag_stroke);
+        for sp in pts {
+            let handle_rect = Rect::from_center_size(sp, Vec2::splat(7.0));
+            painter.rect_filled(handle_rect, 1.0, nf.bg_raised);
+            painter.rect_stroke(
+                handle_rect,
+                1.0,
+                Stroke::new(1.5_f32, nf.accent_default),
+                StrokeKind::Inside,
+            );
+        }
+    }
+
+    fn paint_asset_warp_stage_gizmos(
+        &self,
+        painter: &egui::Painter,
+        origin: Pos2,
+        mapping: StageMapping,
+    ) {
+        let zoom = self.zoom.max(0.01);
+        let to_screen = |pt: [f64; 2]| -> Pos2 {
+            mapping.edit_to_screen(origin, zoom, Pos2::new(pt[0] as f32, pt[1] as f32))
+        };
+        let nf = neoflash_ui::palette(painter.ctx());
+        let pins = self.asset_warp_stage_pins();
+        if let Some(el) = self.selected_element() {
+            let warp_pins: Vec<WarpPin> = pins
+                .iter()
+                .map(|(id, pos, kind)| WarpPin {
+                    id: id.clone(),
+                    kind: *kind,
+                    pos: *pos,
+                    rest_pos: *pos,
+                    rotation: 0.0,
+                    stiffness: 0.5,
+                })
+                .collect();
+            let rig = AssetWarpRig {
+                element_id: el.id.clone(),
+                pins: warp_pins,
+                envelop_subdivisions: 4,
+            };
+            if let Some(mesh) = neoflash_core::ik_puppet_3d::build_asset_warp_mesh(el, &rig) {
+                let mesh_stroke = Stroke::new(1.0_f32, nf.border_subtle);
+                for tri in &mesh.triangles {
+                    let p0 = to_screen(mesh.deformed_vertices[tri[0]]);
+                    let p1 = to_screen(mesh.deformed_vertices[tri[1]]);
+                    let p2 = to_screen(mesh.deformed_vertices[tri[2]]);
+                    painter.line_segment([p0, p1], mesh_stroke);
+                    painter.line_segment([p1, p2], mesh_stroke);
+                    painter.line_segment([p2, p0], mesh_stroke);
+                }
+            }
+        }
+        let selected_pin = self.vector.selected_warp_pin.as_deref();
+        for (id, pos, _kind) in &pins {
+            let sp = to_screen(*pos);
+            let is_sel = selected_pin == Some(id.as_str());
+            let radius = if is_sel { 7.0 } else { 5.5 };
+            painter.circle_filled(sp, radius, nf.bg_raised);
+            painter.circle_stroke(
+                sp,
+                radius,
+                Stroke::new(if is_sel { 2.0_f32 } else { 1.5_f32 }, nf.accent_default),
+            );
+            painter.circle_filled(sp, 2.5, nf.accent_default);
+        }
+    }
+
+    fn paint_ik_bone_and_bind_stage_gizmos(
+        &self,
+        painter: &egui::Painter,
+        origin: Pos2,
+        mapping: StageMapping,
+        to_screen: impl Fn([f64; 2]) -> Pos2,
+    ) {
+        let nf = neoflash_ui::palette(painter.ctx());
+        let selected_bone = self.vector.selected_ik_bone.as_deref();
+        let poses = self.ik_bone_stage_poses();
+        for (_arm_id, bone_id, head, tail, _angle) in &poses {
+            let hs = to_screen(*head);
+            let ts = to_screen(*tail);
+            let is_sel = selected_bone == Some(bone_id.as_str());
+            let stroke = Stroke::new(if is_sel { 2.2_f32 } else { 1.6_f32 }, nf.accent_default);
+            let dir = ts - hs;
+            let len = dir.length();
+            if len > 4.0 {
+                let unit = dir / len;
+                let perp = Vec2::new(-unit.y, unit.x);
+                let wing = (len * 0.14).clamp(3.0, 9.0);
+                let mid = hs + dir * 0.25;
+                let left = mid + perp * wing;
+                let right = mid - perp * wing;
+                painter.line_segment([hs, left], stroke);
+                painter.line_segment([left, ts], stroke);
+                painter.line_segment([ts, right], stroke);
+                painter.line_segment([right, hs], stroke);
+            } else {
+                painter.line_segment([hs, ts], stroke);
+            }
+            painter.circle_filled(hs, 5.0, nf.bg_raised);
+            painter.circle_stroke(hs, 5.0, stroke);
+            painter.circle_filled(ts, if is_sel { 5.5 } else { 4.0 }, nf.accent_default);
+        }
+
+        if let Some(drag) = &self.vector.live_deform_drag
+            && let crate::vector::StageLiveDeformKind::IkBoneCreate {
+                start_stage,
+                current_stage,
+            } = drag.kind
+        {
+            let hs = to_screen(start_stage);
+            let ts = to_screen(current_stage);
+            let preview_stroke = Stroke::new(1.5_f32, nf.guide);
+            painter.line_segment([hs, ts], preview_stroke);
+            painter.circle_stroke(hs, 4.5, preview_stroke);
+            painter.circle_filled(ts, 4.0, nf.guide);
+        }
+
+        if self.tool == Tool::Bind
+            && let Some(el) = self.selected_element()
+            && let Some(cmds) = crate::vector::editable_element_commands(el)
+                .or_else(|| el.to_path_commands().map(|(c, _)| c))
+        {
+            let mat = transform_matrix(el.transform);
+            let zoom = self.zoom.max(0.01);
+            let bound_bone_id =
+                selected_bone.or_else(|| poses.first().map(|(_, b, _, _, _)| b.as_str()));
+            let bound_indices = bound_bone_id
+                .map(|bid| self.bound_vertices_for_bone(&el.id, bid))
+                .unwrap_or_default();
+            let mut v_idx = 0_usize;
+            for cmd in cmds {
+                let pt = match cmd {
+                    PathCommand::MoveTo { x, y }
+                    | PathCommand::LineTo { x, y }
+                    | PathCommand::QuadraticTo { x, y, .. }
+                    | PathCommand::CubicTo { x, y, .. } => Some(Pos2::new(x as f32, y as f32)),
+                    PathCommand::Close => None,
+                };
+                if let Some(local_pt) = pt {
+                    let sp = mapping.edit_to_screen(origin, zoom, affine(mat, local_pt));
+                    let is_bound = bound_indices.contains(&v_idx);
+                    if is_bound {
+                        painter.rect_filled(
+                            Rect::from_center_size(sp, Vec2::splat(7.0)),
+                            1.0,
+                            nf.accent_default,
+                        );
+                    } else {
+                        painter.rect_filled(
+                            Rect::from_center_size(sp, Vec2::splat(6.0)),
+                            1.0,
+                            nf.bg_raised,
+                        );
+                        painter.rect_stroke(
+                            Rect::from_center_size(sp, Vec2::splat(6.0)),
+                            1.0,
+                            Stroke::new(1.2_f32, nf.accent_default),
+                            StrokeKind::Inside,
+                        );
+                    }
+                    v_idx += 1;
+                }
+            }
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -3952,6 +4680,370 @@ mod stage_tools_and_context_menu_tests {
             editor.symbol().timeline.layers[0].keyframes.len() > 2,
             "ApplyMotionWiggler should materialize intermediate motion keys"
         );
+        assert!(editor.project.validate().is_ok());
+    }
+
+    fn stage_screen_pos_for_test(editor: &Editor, stage_pt: [f64; 2]) -> Pos2 {
+        let canvas_rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0));
+        let page = Rect::from_center_size(
+            canvas_rect.center() + editor.pan,
+            Vec2::new(editor.project.width as f32, editor.project.height as f32) * editor.zoom,
+        );
+        page.min + Vec2::new(stage_pt[0] as f32, stage_pt[1] as f32) * editor.zoom
+    }
+
+    fn run_stage_pointer_drag(
+        ctx: &egui::Context,
+        editor: &mut Editor,
+        from_stage: [f64; 2],
+        to_stage: [f64; 2],
+        modifiers: egui::Modifiers,
+    ) {
+        let warmup = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0))),
+            ..egui::RawInput::default()
+        };
+        let _ = ctx.run(warmup, |ctx| editor.stage(ctx));
+        let from_screen = stage_screen_pos_for_test(editor, from_stage);
+        let mid_screen = from_screen.lerp(stage_screen_pos_for_test(editor, to_stage), 0.5);
+        let to_screen = stage_screen_pos_for_test(editor, to_stage);
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0))),
+            modifiers,
+            events: vec![
+                egui::Event::PointerMoved(from_screen),
+                egui::Event::PointerButton {
+                    pos: from_screen,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers,
+                },
+                egui::Event::PointerMoved(mid_screen),
+                egui::Event::PointerMoved(to_screen),
+                egui::Event::PointerButton {
+                    pos: to_screen,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers,
+                },
+            ],
+            ..egui::RawInput::default()
+        };
+        let _ = ctx.run(input, |ctx| editor.stage(ctx));
+    }
+
+    fn run_stage_pointer_click(
+        ctx: &egui::Context,
+        editor: &mut Editor,
+        at_stage: [f64; 2],
+        modifiers: egui::Modifiers,
+    ) {
+        run_stage_pointer_drag(ctx, editor, at_stage, at_stage, modifiers);
+    }
+
+    #[test]
+    fn t271_live_stage_envelope_4x4_and_perspective_2x2_gizmos_drag_and_one_step_undo() {
+        use crate::vector::FreeTransformSubmode;
+
+        let mut editor = make_test_editor();
+        editor.stage_view.prefs.objects_snap = false;
+        editor.stage_view.prefs.grid_snap = false;
+        editor.stage_view.prefs.guides_snap = false;
+        editor.stage_view.prefs.pixels_snap = false;
+        let root_id = editor.project.root.clone();
+        {
+            let sym = editor.project.symbol_mut(&root_id).unwrap();
+            sym.timeline.layers[0].keyframes[0].elements.clear();
+            sym.timeline.layers[0].keyframes[0]
+                .elements
+                .push(make_test_element(
+                    "warp-rect",
+                    "WarpRect",
+                    100.0,
+                    100.0,
+                    ElementKind::Rectangle {
+                        width: 240.0,
+                        height: 120.0,
+                        fill: [70, 140, 230, 255],
+                        stroke: [20, 30, 50, 255],
+                        stroke_width: 2.0,
+                    },
+                ));
+        }
+        let target = sel_target(&editor, "warp-rect");
+        editor.set_selection(vec![target]);
+        editor.tool = Tool::FreeTransform;
+        editor.set_free_transform_submode(FreeTransformSubmode::Envelope);
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+
+        // 1. Verify 16 (4x4) Envelope lattice handles are exposed and hit-testable
+        let handles_before = editor.envelope_warp_handles();
+        assert_eq!(handles_before.len(), 16);
+        let h_1_1 = handles_before
+            .iter()
+            .find(|&&(r, c, _)| r == 1 && c == 1)
+            .expect("(1,1) lattice handle")
+            .2;
+        assert_eq!(
+            editor.hit_test_envelope_warp_handle(h_1_1, 8.0),
+            Some((1, 1))
+        );
+
+        // Drag interior handle (1, 1) on the live Stage and verify deformation + 1-step Undo
+        let target_1_1 = [h_1_1[0] + 36.0, h_1_1[1] - 28.0];
+        run_stage_pointer_drag(&ctx, &mut editor, h_1_1, target_1_1, egui::Modifiers::NONE);
+
+        let handles_after = editor.envelope_warp_handles();
+        let moved_1_1 = handles_after
+            .iter()
+            .find(|&&(r, c, _)| r == 1 && c == 1)
+            .unwrap()
+            .2;
+        assert!(
+            (moved_1_1[0] - target_1_1[0]).hypot(moved_1_1[1] - target_1_1[1]) < 1.0,
+            "expected handle (1,1) at {target_1_1:?}, got {moved_1_1:?}"
+        );
+        assert!(matches!(
+            editor.selected_element().unwrap().kind,
+            ElementKind::Path { .. } | ElementKind::PaintedPath { .. }
+        ));
+
+        // 1-step Undo restores unwarped rectangle and original 4x4 lattice handles
+        editor.undo();
+        assert!(matches!(
+            editor.selected_element().unwrap().kind,
+            ElementKind::Rectangle { .. }
+        ));
+        let handles_undone = editor.envelope_warp_handles();
+        let restored_1_1 = handles_undone
+            .iter()
+            .find(|&&(r, c, _)| r == 1 && c == 1)
+            .unwrap()
+            .2;
+        assert!((restored_1_1[0] - h_1_1[0]).hypot(restored_1_1[1] - h_1_1[1]) < 1e-4);
+
+        // 2. Switch to Perspective (2x2 corner handles) and drag corner 0 (TL) on the live Stage
+        editor.set_free_transform_submode(FreeTransformSubmode::Perspective);
+        let corners_before = editor.perspective_corners().expect("4 perspective corners");
+        assert_eq!(
+            editor.hit_test_perspective_corner(corners_before[0], 8.0),
+            Some(0)
+        );
+        let new_tl = [corners_before[0][0] + 30.0, corners_before[0][1] + 22.0];
+        run_stage_pointer_drag(
+            &ctx,
+            &mut editor,
+            corners_before[0],
+            new_tl,
+            egui::Modifiers::NONE,
+        );
+
+        let corners_after = editor
+            .perspective_corners()
+            .expect("corners after perspective drag");
+        assert!(
+            (corners_after[0][0] - new_tl[0]).hypot(corners_after[0][1] - new_tl[1]) < 1.0,
+            "expected corner 0 at {new_tl:?}, got {:?}",
+            corners_after[0]
+        );
+
+        // 1-step Undo restores initial rectangle and corners
+        editor.undo();
+        let corners_restored = editor.perspective_corners().expect("corners restored");
+        assert!(
+            (corners_restored[0][0] - corners_before[0][0])
+                .hypot(corners_restored[0][1] - corners_before[0][1])
+                < 1e-4
+        );
+        assert!(editor.project.validate().is_ok());
+    }
+
+    #[test]
+    fn t271_live_stage_asset_warp_pin_creation_drag_deformation_delete_and_undo() {
+        let mut editor = make_test_editor();
+        let root_id = editor.project.root.clone();
+        {
+            let sym = editor.project.symbol_mut(&root_id).unwrap();
+            sym.timeline.layers[0].keyframes[0].elements.clear();
+            sym.timeline.layers[0].keyframes[0]
+                .elements
+                .push(make_test_element(
+                    "puppet-shape",
+                    "PuppetShape",
+                    120.0,
+                    120.0,
+                    ElementKind::Rectangle {
+                        width: 200.0,
+                        height: 120.0,
+                        fill: [220, 100, 60, 255],
+                        stroke: [30, 30, 30, 255],
+                        stroke_width: 2.0,
+                    },
+                ));
+        }
+        let target = sel_target(&editor, "puppet-shape");
+        editor.set_selection(vec![target]);
+        editor.tool = Tool::AssetWarp;
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+
+        // 1. Click inside shape on Stage to create first WarpPin
+        let pin1_pos = [160.0, 180.0];
+        run_stage_pointer_click(&ctx, &mut editor, pin1_pos, egui::Modifiers::NONE);
+        let pins = editor.asset_warp_stage_pins();
+        assert_eq!(pins.len(), 1, "expected 1 WarpPin after Stage click");
+        assert!(editor.hit_test_asset_warp_pin(pin1_pos, 8.0).is_some());
+
+        // 2. Click inside shape away from pin1 to create second WarpPin
+        let pin2_pos = [280.0, 180.0];
+        run_stage_pointer_click(&ctx, &mut editor, pin2_pos, egui::Modifiers::NONE);
+        assert_eq!(editor.asset_warp_stage_pins().len(), 2);
+
+        // 3. Drag pin2 on Stage to deform the shape mesh
+        let pin2_dragged = [325.0, 225.0];
+        run_stage_pointer_drag(
+            &ctx,
+            &mut editor,
+            pin2_pos,
+            pin2_dragged,
+            egui::Modifiers::NONE,
+        );
+        let pins_after_drag = editor.asset_warp_stage_pins();
+        assert!(
+            (pins_after_drag[1].1[0] - pin2_dragged[0])
+                .hypot(pins_after_drag[1].1[1] - pin2_dragged[1])
+                < 1.0
+        );
+        assert!(
+            matches!(
+                editor.selected_element().unwrap().kind,
+                ElementKind::Path { .. } | ElementKind::PaintedPath { .. }
+            ),
+            "dragging a WarpPin on Stage should deform the vector shape"
+        );
+
+        // 4. 1-step Undo restores pin2 to its pre-drag position
+        editor.undo();
+        let pins_after_undo = editor.asset_warp_stage_pins();
+        assert!(
+            (pins_after_undo[1].1[0] - pin2_pos[0]).hypot(pins_after_undo[1].1[1] - pin2_pos[1])
+                < 1.0
+        );
+
+        // 5. Alt/Option-click on pin2 removes it in 1 Undo step
+        run_stage_pointer_click(&ctx, &mut editor, pin2_pos, egui::Modifiers::ALT);
+        assert_eq!(editor.asset_warp_stage_pins().len(), 1);
+        editor.undo();
+        assert_eq!(editor.asset_warp_stage_pins().len(), 2);
+        assert!(editor.project.validate().is_ok());
+    }
+
+    #[test]
+    fn t271_live_stage_ik_bone_creation_effector_drag_bind_tool_and_undo() {
+        let mut editor = make_test_editor();
+        let root_id = editor.project.root.clone();
+        {
+            let sym = editor.project.symbol_mut(&root_id).unwrap();
+            sym.timeline.layers[0].keyframes[0].elements.clear();
+            sym.timeline.layers[0].keyframes[0]
+                .elements
+                .push(make_test_element(
+                    "limb-shape",
+                    "Limb",
+                    100.0,
+                    140.0,
+                    ElementKind::Rectangle {
+                        width: 220.0,
+                        height: 60.0,
+                        fill: [90, 190, 120, 255],
+                        stroke: [25, 45, 30, 255],
+                        stroke_width: 2.0,
+                    },
+                ));
+        }
+        let target = sel_target(&editor, "limb-shape");
+        editor.set_selection(vec![target]);
+        editor.tool = Tool::Bone;
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+
+        // 1. Drag with Tool::Bone on Stage to create a bone between [120, 170] and [280, 170]
+        let bone_start = [120.0, 170.0];
+        let bone_end = [280.0, 170.0];
+        run_stage_pointer_drag(
+            &ctx,
+            &mut editor,
+            bone_start,
+            bone_end,
+            egui::Modifiers::NONE,
+        );
+        let poses = editor.ik_bone_stage_poses();
+        assert_eq!(poses.len(), 1, "expected 1 IkBone created by Stage drag");
+        let (arm_id, bone_id, _head, tail, angle_before) = poses[0].clone();
+        assert_eq!(
+            editor.hit_test_ik_bone_gizmo(tail, 10.0),
+            Some((arm_id.clone(), bone_id.clone(), true))
+        );
+
+        // 2. Switch to Tool::Bind and click near top-right corner [320, 140] to bind vertex 1
+        editor.tool = Tool::Bind;
+        assert!(
+            editor
+                .bound_vertices_for_bone("limb-shape", &bone_id)
+                .is_empty()
+        );
+        run_stage_pointer_click(&ctx, &mut editor, [318.0, 142.0], egui::Modifiers::NONE);
+        let bound_verts = editor.bound_vertices_for_bone("limb-shape", &bone_id);
+        assert!(
+            !bound_verts.is_empty(),
+            "Tool::Bind click should bind nearest shape contour vertex to active bone"
+        );
+
+        // Undo and Redo the Tool::Bind vertex binding
+        editor.undo();
+        assert!(
+            editor
+                .bound_vertices_for_bone("limb-shape", &bone_id)
+                .is_empty(),
+            "1-step Undo should revert Tool::Bind vertex binding"
+        );
+        editor.redo();
+        assert_eq!(
+            editor.bound_vertices_for_bone("limb-shape", &bone_id),
+            bound_verts
+        );
+
+        // 3. Switch back to Tool::Bone and drag the bone effector from [280, 170] to [250, 240]
+        editor.tool = Tool::Bone;
+        run_stage_pointer_drag(
+            &ctx,
+            &mut editor,
+            tail,
+            [250.0, 240.0],
+            egui::Modifiers::NONE,
+        );
+        let poses_after = editor.ik_bone_stage_poses();
+        let angle_after = poses_after[0].4;
+        assert!(
+            (angle_after - angle_before).abs() > 5.0,
+            "dragging IK effector on Stage should rotate bone (before={angle_before}, after={angle_after})"
+        );
+        assert!(
+            matches!(
+                editor.selected_element().unwrap().kind,
+                ElementKind::Path { .. } | ElementKind::PaintedPath { .. }
+            ),
+            "posing IK bone should deform bound shape"
+        );
+
+        // 4. 1-step Undo restores the pre-drag bone angle and shape geometry
+        editor.undo();
+        let poses_undone = editor.ik_bone_stage_poses();
+        assert!((poses_undone[0].4 - angle_before).abs() < 1e-4);
         assert!(editor.project.validate().is_ok());
     }
 }

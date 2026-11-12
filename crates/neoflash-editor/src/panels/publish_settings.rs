@@ -9,9 +9,11 @@ use crate::{
 use eframe::egui::{self, Ui};
 use neoflash_export::{
     AtlasFormat, AtlasImageFormat, AudioExportPolicy, BannerOptions, FontExportPolicy,
-    HtmlScaleMode, HtmlStageAlign, HtmlTemplate, ImageExportFormat, SequencePublishPolicy,
+    HtmlScaleMode, HtmlStageAlign, HtmlTemplate, ImageExportFormat, NetworkPreset,
+    NetworkSimulationProfile, NetworkStartupEstimate, PublishProfile, SequencePublishPolicy,
     SizeEstimate, SizeLevel, VideoAudioBitrate, VideoCodec, VideoFormat, VideoOptions,
-    VideoStopMode,
+    VideoStopMode, duplicate_profile, export_profile_json, import_profile_json,
+    load_profiles_from_project, simulate_network_startup, store_profiles_in_project,
 };
 use neoflash_ui::{
     components as c,
@@ -28,10 +30,15 @@ pub(crate) struct PublishSettingsDraft {
     /// Keep the URL while trying another level. Only Shared serializes it.
     runtime_url: String,
     error: Option<String>,
+    pub(crate) custom_profiles: Vec<PublishProfile>,
+    pub(crate) active_custom_profile_id: Option<String>,
+    pub(crate) profiles_dirty: bool,
+    pub(crate) network_preset: NetworkPreset,
+    pub(crate) network_estimate: Option<NetworkStartupEstimate>,
 }
 
 impl PublishSettingsDraft {
-    fn new(settings: PublishPrefs) -> Self {
+    pub(crate) fn new(settings: PublishPrefs) -> Self {
         let runtime_url = match &settings.options.size {
             SizeLevel::Shared(url) => url.clone(),
             _ => String::new(),
@@ -42,7 +49,150 @@ impl PublishSettingsDraft {
             selected_target,
             runtime_url,
             error: None,
+            custom_profiles: Vec::new(),
+            active_custom_profile_id: None,
+            profiles_dirty: false,
+            network_preset: NetworkPreset::Fast3G,
+            network_estimate: None,
         }
+    }
+
+    pub(crate) fn new_for_project(
+        settings: PublishPrefs,
+        project: &neoflash_core::Project,
+    ) -> Self {
+        let mut draft = Self::new(settings);
+        if let Ok((profiles, active_id)) = load_profiles_from_project(project) {
+            draft.custom_profiles = profiles;
+            if let Some(ref act) = active_id
+                && let Some(found) = draft.custom_profiles.iter().find(|p| p.id == *act).cloned()
+            {
+                draft.active_custom_profile_id = Some(found.id.clone());
+                draft.network_preset = found.network_profile.preset;
+            }
+        }
+        let _ = draft.simulate_network(project);
+        draft
+    }
+
+    pub(crate) fn active_profile_label(&self) -> String {
+        if let Some(ref act_id) = self.active_custom_profile_id
+            && let Some(found) = self.custom_profiles.iter().find(|p| p.id == *act_id)
+        {
+            return format!("Profile: {}", found.name);
+        }
+        self.settings.profile.select_label().to_string()
+    }
+
+    pub(crate) fn to_publish_profile(&self) -> PublishProfile {
+        if let Some(ref act_id) = self.active_custom_profile_id
+            && let Some(found) = self.custom_profiles.iter().find(|p| p.id == *act_id)
+        {
+            let mut profile = found.clone();
+            profile.options = self.settings.options.clone();
+            profile.network_profile.preset = self.network_preset;
+            return profile;
+        }
+        PublishProfile {
+            id: format!(
+                "profile-{}",
+                self.settings
+                    .profile
+                    .label()
+                    .to_ascii_lowercase()
+                    .replace(' ', "-")
+            ),
+            name: self.settings.profile.label().to_string(),
+            options: self.settings.options.clone(),
+            html_template: None,
+            network_profile: NetworkSimulationProfile {
+                preset: self.network_preset,
+                delayed_assets: Vec::new(),
+                extra_asset_delay_ms: 0,
+            },
+        }
+    }
+
+    pub(crate) fn select_custom_profile(&mut self, profile_id: &str) -> bool {
+        let Some(found) = self
+            .custom_profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+        else {
+            return false;
+        };
+        self.active_custom_profile_id = Some(found.id);
+        self.settings.options = found.options;
+        self.runtime_url = match &self.settings.options.size {
+            SizeLevel::Shared(url) => url.clone(),
+            _ => self.runtime_url.clone(),
+        };
+        self.network_preset = found.network_profile.preset;
+        self.error = None;
+        true
+    }
+
+    pub(crate) fn duplicate_active_profile(&mut self, new_name: Option<&str>) -> PublishProfile {
+        let base = self.to_publish_profile();
+        let duplicated = duplicate_profile(&base, new_name);
+        self.custom_profiles.push(duplicated.clone());
+        self.active_custom_profile_id = Some(duplicated.id.clone());
+        self.profiles_dirty = true;
+        self.error = None;
+        duplicated
+    }
+
+    pub(crate) fn export_active_profile_json(&self) -> Result<String, String> {
+        let profile = self.to_publish_profile();
+        export_profile_json(&profile).map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn export_active_profile_to_path(&self, path: &Path) -> Result<(), String> {
+        let json = self.export_active_profile_json()?;
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(path, json).map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn import_profile_from_json(
+        &mut self,
+        json: &str,
+    ) -> Result<PublishProfile, String> {
+        let imported = import_profile_json(json).map_err(|e| e.to_string())?;
+        if let Some(existing) = self
+            .custom_profiles
+            .iter_mut()
+            .find(|p| p.id == imported.id)
+        {
+            *existing = imported.clone();
+        } else {
+            self.custom_profiles.push(imported.clone());
+        }
+        let _ = self.select_custom_profile(&imported.id);
+        self.profiles_dirty = true;
+        Ok(imported)
+    }
+
+    pub(crate) fn import_profile_from_path(
+        &mut self,
+        path: &Path,
+    ) -> Result<PublishProfile, String> {
+        let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        self.import_profile_from_json(&raw)
+    }
+
+    pub(crate) fn simulate_network(
+        &mut self,
+        project: &neoflash_core::Project,
+    ) -> Result<NetworkStartupEstimate, String> {
+        let profile = self.to_publish_profile();
+        let report = simulate_network_startup(project, &profile).map_err(|e| e.to_string())?;
+        self.network_estimate = Some(report.clone());
+        Ok(report)
     }
 
     fn custom(&self) -> bool {
@@ -164,7 +314,10 @@ impl Editor {
     pub(crate) fn open_publish_settings(&mut self) {
         self.finish_edits();
         self.publish_controller.cancel();
-        self.publish_settings = Some(PublishSettingsDraft::new(self.workspace.publish.clone()));
+        self.publish_settings = Some(PublishSettingsDraft::new_for_project(
+            self.workspace.publish.clone(),
+            &self.project,
+        ));
     }
 
     pub(crate) fn publish_settings_dialog(&mut self, ctx: &egui::Context) {
@@ -175,6 +328,8 @@ impl Editor {
         let mut save = false;
         let mut publish = false;
         let mut export_runtime = false;
+        let mut import_profile_dialog = false;
+        let mut export_profile_dialog = false;
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let p = neoflash_ui::palette(ctx);
         let mut estimate = self.request_publish_estimate(ctx, &draft.settings).clone();
@@ -197,24 +352,73 @@ impl Editor {
                                 ui.set_width(260.0);
                                 ui.spacing_mut().item_spacing.y = 2.0;
                                 ui.spacing_mut().item_spacing.x = space::S2;
+                                let profile_label = draft.active_profile_label();
                                 c::Select::new(
                                     ui.id().with("publish-settings-profile"),
-                                    draft.settings.profile.select_label(),
+                                    &profile_label,
                                 )
                                 .width(260.0)
                                 .show(ui, |ui| {
                                     for preset in PublishProfilePreset::ALL {
+                                        let is_checked = draft.active_custom_profile_id.is_none()
+                                            && draft.settings.profile == preset;
                                         if ui
                                             .add(
                                                 c::MenuItem::new(preset.select_label())
-                                                    .checked(draft.settings.profile == preset),
+                                                    .checked(is_checked),
                                             )
                                             .clicked()
                                         {
+                                            draft.active_custom_profile_id = None;
                                             draft.settings.apply_profile(preset);
+                                            let _ = draft.simulate_network(&self.project);
                                             draft.error = None;
                                             ui.close();
                                         }
+                                    }
+                                    let custom_snapshot = draft.custom_profiles.clone();
+                                    for custom_prof in custom_snapshot {
+                                        let is_checked = draft.active_custom_profile_id.as_deref()
+                                            == Some(custom_prof.id.as_str());
+                                        let item_label = format!("Profile: {}", custom_prof.name);
+                                        if ui
+                                            .add(
+                                                c::MenuItem::new(&item_label).checked(is_checked),
+                                            )
+                                            .clicked()
+                                        {
+                                            draft.select_custom_profile(&custom_prof.id);
+                                            let _ = draft.simulate_network(&self.project);
+                                            ui.close();
+                                        }
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .add(c::Button::ghost("Duplicate"))
+                                        .on_hover_text("Duplicate active publish profile")
+                                        .clicked()
+                                    {
+                                        let dup = draft.duplicate_active_profile(None);
+                                        let _ = draft.simulate_network(&self.project);
+                                        self.message(format!(
+                                            "Duplicated publish profile: {}",
+                                            dup.name
+                                        ));
+                                    }
+                                    if ui
+                                        .add(c::Button::ghost("Import JSON"))
+                                        .on_hover_text("Import PublishProfile JSON")
+                                        .clicked()
+                                    {
+                                        import_profile_dialog = true;
+                                    }
+                                    if ui
+                                        .add(c::Button::ghost("Export JSON"))
+                                        .on_hover_text("Export PublishProfile JSON")
+                                        .clicked()
+                                    {
+                                        export_profile_dialog = true;
                                     }
                                 });
                                 for (target, icon, label) in [
@@ -593,6 +797,65 @@ impl Editor {
                                                 "Minify",
                                             ));
                                         });
+                                        group(ui, "Network Startup Simulator");
+                                        ui.horizontal(|ui| {
+                                            let net_label = format!(
+                                                "Network: {}",
+                                                draft.network_preset.short_label()
+                                            );
+                                            c::Select::new(
+                                                ui.id().with("publish-network-preset"),
+                                                &net_label,
+                                            )
+                                            .width(260.0)
+                                            .show(ui, |ui| {
+                                                for preset in NetworkPreset::ALL_PRESETS {
+                                                    if ui
+                                                        .add(
+                                                            c::MenuItem::new(preset.label())
+                                                                .checked(
+                                                                    draft.network_preset == preset,
+                                                                ),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        draft.network_preset = preset;
+                                                        let _ =
+                                                            draft.simulate_network(&self.project);
+                                                        ui.close();
+                                                    }
+                                                }
+                                            });
+                                        });
+                                        if draft.network_estimate.is_none() {
+                                            let _ = draft.simulate_network(&self.project);
+                                        }
+                                        if let Some(ref sim) = draft.network_estimate {
+                                            let bootstrap_str = format!(
+                                                "{:.0} ms ({})",
+                                                sim.initial_html_js_wasm_ms,
+                                                bytes_label(sim.initial_html_js_wasm_bytes)
+                                            );
+                                            let total_str = format!("{:.0} ms", sim.total_download_ms);
+                                            let preload_str = if sim.buffer_underrun_frames.is_empty() {
+                                                "0 stalls (ready)".to_string()
+                                            } else {
+                                                format!(
+                                                    "{} stalls · {:.0} ms ({} f)",
+                                                    sim.buffer_underrun_frames.len(),
+                                                    sim.recommended_preload_ms,
+                                                    sim.recommended_preload_frames
+                                                )
+                                            };
+                                            c::weight_totals(
+                                                ui,
+                                                &[
+                                                    ("Bootstrap", &bootstrap_str),
+                                                    ("Total download", &total_str),
+                                                    ("Preload / Stalls", &preload_str),
+                                                ],
+                                            );
+                                        }
                                         if let Some(error) = &draft.error { ui.add(c::InlineMessage::error(error)); }
                                     }
                                 }
@@ -664,7 +927,13 @@ impl Editor {
                     });
                 });
             });
-        if !close && !save && !publish && !export_runtime {
+        if !close
+            && !save
+            && !publish
+            && !export_runtime
+            && !import_profile_dialog
+            && !export_profile_dialog
+        {
             match kb.resolve(ctx, &modal, draft.url_error().is_none()) {
                 super::dialog_helpers::DialogKeyboardOutcome::Cancel => close = true,
                 super::dialog_helpers::DialogKeyboardOutcome::Confirm => save = true,
@@ -673,10 +942,24 @@ impl Editor {
         }
         if !close && save {
             draft.settings.sanitize();
+            if draft.profiles_dirty {
+                let _ = store_profiles_in_project(
+                    &mut self.project,
+                    &draft.custom_profiles,
+                    draft.active_custom_profile_id.as_deref(),
+                );
+            }
             self.workspace.publish = draft.settings.clone();
             close = true;
         } else if !close && publish {
             draft.settings.sanitize();
+            if draft.profiles_dirty {
+                let _ = store_profiles_in_project(
+                    &mut self.project,
+                    &draft.custom_profiles,
+                    draft.active_custom_profile_id.as_deref(),
+                );
+            }
             if !draft.settings.has_any_enabled_target() {
                 draft.settings.enable_target(draft.selected_target);
                 draft.settings.default_target = draft.selected_target;
@@ -747,6 +1030,32 @@ impl Editor {
                 } else {
                     draft.error = Some(self.status.clone());
                 }
+            }
+        } else if !close
+            && import_profile_dialog
+            && let Some(path) = rfd::FileDialog::new()
+                .set_title("Import Publish Profile JSON")
+                .add_filter("JSON Profile", &["json"])
+                .pick_file()
+        {
+            match draft.import_profile_from_path(&path) {
+                Ok(prof) => {
+                    let _ = draft.simulate_network(&self.project);
+                    self.message(format!("Imported publish profile: {}", prof.name));
+                }
+                Err(error) => draft.error = Some(error),
+            }
+        } else if !close
+            && export_profile_dialog
+            && let Some(path) = rfd::FileDialog::new()
+                .set_title("Export Publish Profile JSON")
+                .set_file_name("publish-profile.json")
+                .add_filter("JSON Profile", &["json"])
+                .save_file()
+        {
+            match draft.export_active_profile_to_path(&path) {
+                Ok(()) => self.message(format!("Exported publish profile: {}", path.display())),
+                Err(error) => draft.error = Some(error),
             }
         } else if !close
             && export_runtime
@@ -1475,3 +1784,87 @@ fn ready_weight(ui: &mut Ui, estimate: &SizeEstimate) {
 #[cfg(test)]
 #[path = "publish_settings_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod profile_and_network_sim_tests {
+    use super::*;
+    use neoflash_core::{Project, new_id};
+
+    #[test]
+    fn publish_settings_profile_duplicate_json_import_export_and_network_simulator() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        editor.open_publish_settings();
+
+        let draft = editor
+            .publish_settings
+            .as_mut()
+            .expect("publish settings draft opened");
+        draft.settings.options.size = SizeLevel::Compact;
+        draft.settings.options.fonts = FontExportPolicy::Subset;
+        draft.settings.options.audio = AudioExportPolicy::Mp3_96;
+        draft.network_preset = NetworkPreset::Slow3G;
+
+        // 1. Duplicate profile inside PublishSettingsDraft
+        let duplicated = draft.duplicate_active_profile(Some("Studio Compact Copy"));
+        assert_eq!(duplicated.name, "Studio Compact Copy");
+        assert_eq!(
+            draft.active_custom_profile_id.as_deref(),
+            Some(duplicated.id.as_str())
+        );
+        assert!(draft.profiles_dirty);
+        assert_eq!(draft.active_profile_label(), "Profile: Studio Compact Copy");
+
+        // 2. Export & Import profile JSON round-trip via filesystem
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "neoflash-publish-settings-profile-{}-{}",
+            std::process::id(),
+            new_id("prof")
+        ));
+        let json_path = tmp_dir.join("studio-compact.json");
+        draft
+            .export_active_profile_to_path(&json_path)
+            .expect("export profile JSON to path");
+        assert!(json_path.is_file());
+
+        let mut fresh_draft =
+            PublishSettingsDraft::new_for_project(PublishPrefs::default(), &editor.project);
+        assert_eq!(fresh_draft.settings.options.size, SizeLevel::Full);
+        let imported = fresh_draft
+            .import_profile_from_path(&json_path)
+            .expect("import profile JSON from path");
+        assert_eq!(imported.name, "Studio Compact Copy");
+        assert_eq!(fresh_draft.settings.options.size, SizeLevel::Compact);
+        assert_eq!(fresh_draft.settings.options.fonts, FontExportPolicy::Subset);
+        assert_eq!(
+            fresh_draft.settings.options.audio,
+            AudioExportPolicy::Mp3_96
+        );
+        assert_eq!(fresh_draft.network_preset, NetworkPreset::Slow3G);
+
+        // 3. Network Startup Simulator across Slow 3G, Fast 3G, Cable, and Offline / Local
+        let mut bootstrap_times = Vec::new();
+        for preset in [
+            NetworkPreset::Slow3G,
+            NetworkPreset::Fast3G,
+            NetworkPreset::Cable5Mbps,
+            NetworkPreset::OfflineLocal,
+        ] {
+            fresh_draft.network_preset = preset;
+            let report = fresh_draft
+                .simulate_network(&editor.project)
+                .expect("simulate network startup");
+            assert_eq!(report.preset, preset);
+            assert!(report.initial_html_js_wasm_bytes > 0);
+            bootstrap_times.push(report.initial_html_js_wasm_ms);
+        }
+        assert!(
+            bootstrap_times[0] > bootstrap_times[1]
+                && bootstrap_times[1] > bootstrap_times[2]
+                && bootstrap_times[2] > bootstrap_times[3],
+            "expected monotonic decrease in bootstrap download time from Slow 3G to Offline/Local: {bootstrap_times:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(tmp_dir);
+    }
+}

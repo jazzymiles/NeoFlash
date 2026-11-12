@@ -346,13 +346,19 @@ impl Editor {
             })
             .collect();
         for bp in self.breakpoints_for(&tab_key) {
-            if !markers.iter().any(|(line, _)| *line == bp.line) {
+            if bp.enabled && !markers.iter().any(|(line, _)| *line == bp.line) {
                 markers.push((bp.line, Severity::Info));
             }
         }
         let message_count = feedback.as_ref().map_or(0, |(_, _, d)| d.len().max(1));
         let bar_h = neoflash_ui::metrics::script_tab() + 2.;
         let full = ui.available_rect_before_wrap();
+        let show_dbg = self.actions_debugger_inspector_visible(&tab_key);
+        let dbg_h = if show_dbg {
+            240.0_f32.min(full.height() * 0.50)
+        } else {
+            0.0
+        };
         let diag_h = if message_count == 0 {
             0.
         } else {
@@ -362,11 +368,19 @@ impl Editor {
         };
         let bar =
             egui::Rect::from_min_max(egui::pos2(full.left(), full.bottom() - bar_h), full.max);
-        let diag = egui::Rect::from_min_max(
-            egui::pos2(full.left(), bar.top() - diag_h),
+        let dbg_rect = egui::Rect::from_min_max(
+            egui::pos2(full.left(), bar.top() - dbg_h),
             egui::pos2(full.right(), bar.top()),
         );
-        let gap = if diag_h > 0. { space::S2 } else { 0. };
+        let diag = egui::Rect::from_min_max(
+            egui::pos2(full.left(), dbg_rect.top() - diag_h),
+            egui::pos2(full.right(), dbg_rect.top()),
+        );
+        let gap = if diag_h > 0. || dbg_h > 0. {
+            space::S2
+        } else {
+            0.
+        };
         let code = egui::Rect::from_min_max(
             full.min,
             egui::pos2(full.right(), (diag.top() - gap).max(full.top() + 60.)),
@@ -395,7 +409,8 @@ impl Editor {
             .inner;
         if let Some((clicked_line, shift_held)) = gutter_click {
             if shift_held {
-                self.toggle_fold_line_for(&tab_key, clicked_line);
+                let fold_key = self.active_fold_tab_key();
+                self.toggle_fold_line_for(&fold_key, clicked_line);
             } else {
                 self.toggle_breakpoint(&tab_key, clicked_line);
             }
@@ -455,6 +470,19 @@ impl Editor {
             });
         }
         let p = neoflash_ui::palette(ui.ctx());
+        if show_dbg {
+            ui.painter().hline(
+                dbg_rect.x_range(),
+                dbg_rect.top() + 0.5,
+                egui::Stroke::new(1.0_f32, p.border_subtle),
+            );
+            ui.scope_builder(
+                egui::UiBuilder::new().max_rect(dbg_rect.shrink2(egui::vec2(space::S2, 2.0))),
+                |ui| {
+                    self.actions_debugger_inspector_ui(ui, &tab_key);
+                },
+            );
+        }
         ui.painter().hline(
             bar.x_range(),
             bar.top() + 0.5,
@@ -2334,6 +2362,8 @@ pub struct BreakpointSpec {
     pub line: usize,
     pub condition: Option<String>,
     pub hit_count: u32,
+    pub hit_count_target: Option<u32>,
+    pub enabled: bool,
     pub watch_property: Option<String>,
 }
 
@@ -2344,6 +2374,8 @@ impl BreakpointSpec {
             line: line.max(1),
             condition: None,
             hit_count: 0,
+            hit_count_target: None,
+            enabled: true,
             watch_property: None,
         }
     }
@@ -2352,6 +2384,18 @@ impl BreakpointSpec {
     pub fn with_condition(mut self, condition: impl Into<String>) -> Self {
         let condition = condition.into();
         self.condition = (!condition.trim().is_empty()).then(|| condition.trim().to_owned());
+        self
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn with_hit_count_target(mut self, target: u32) -> Self {
+        self.hit_count_target = (target > 0).then_some(target);
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
         self
     }
 
@@ -2777,6 +2821,11 @@ struct DebuggerAuthoringState {
     paused_scopes: Vec<DebuggerScope>,
     folded_lines_by_tab: std::collections::BTreeMap<String, std::collections::BTreeSet<usize>>,
     preferred_script_language: Option<ScriptLanguage>,
+    actions_debugger_open: bool,
+    watch_draft: String,
+    var_path_draft: String,
+    var_value_draft: String,
+    expanded_var_paths: std::collections::BTreeSet<String>,
 }
 
 static DEBUGGER_AUTHORING_STATES: std::sync::LazyLock<
@@ -3367,8 +3416,108 @@ impl Editor {
         self.with_authoring_state(|state| state.breakpoints.get(&key).cloned().unwrap_or_default())
     }
 
-    /// Evaluate whether execution should pause at `(path, line)`, checking any breakpoint condition
-    /// and data/property-change watch, and incrementing `hit_count` when triggered.
+    pub fn set_breakpoint_condition(
+        &mut self,
+        path: &str,
+        line: usize,
+        condition: Option<String>,
+    ) -> bool {
+        let key = Self::normalize_breakpoint_key(path);
+        let line = line.max(1);
+        let normalized = condition
+            .map(|c| c.trim().to_owned())
+            .filter(|c| !c.is_empty());
+        self.with_authoring_state_mut(|state| {
+            let Some(list) = state.breakpoints.get_mut(&key) else {
+                return false;
+            };
+            let Some(bp) = list.iter_mut().find(|bp| bp.line == line) else {
+                return false;
+            };
+            bp.condition = normalized;
+            true
+        })
+    }
+
+    pub fn set_breakpoint_hit_count_target(
+        &mut self,
+        path: &str,
+        line: usize,
+        target: Option<u32>,
+    ) -> bool {
+        let key = Self::normalize_breakpoint_key(path);
+        let line = line.max(1);
+        let normalized = target.filter(|&t| t > 0);
+        self.with_authoring_state_mut(|state| {
+            let Some(list) = state.breakpoints.get_mut(&key) else {
+                return false;
+            };
+            let Some(bp) = list.iter_mut().find(|bp| bp.line == line) else {
+                return false;
+            };
+            bp.hit_count_target = normalized;
+            true
+        })
+    }
+
+    pub fn set_breakpoint_enabled(&mut self, path: &str, line: usize, enabled: bool) -> bool {
+        let key = Self::normalize_breakpoint_key(path);
+        let line = line.max(1);
+        let updated = self.with_authoring_state_mut(|state| {
+            let Some(list) = state.breakpoints.get_mut(&key) else {
+                return false;
+            };
+            let Some(bp) = list.iter_mut().find(|bp| bp.line == line) else {
+                return false;
+            };
+            bp.enabled = enabled;
+            true
+        });
+        if updated {
+            if enabled {
+                if !self
+                    .debugger
+                    .breakpoints
+                    .iter()
+                    .any(|bp| bp.source == key && bp.line == line)
+                {
+                    self.debugger
+                        .breakpoints
+                        .push(crate::debugger_protocol::AuthoredBreakpoint {
+                            source: key,
+                            line,
+                            column: None,
+                        });
+                }
+            } else {
+                self.debugger
+                    .breakpoints
+                    .retain(|bp| !(bp.source == key && bp.line == line));
+            }
+        }
+        updated
+    }
+
+    pub fn actions_debugger_open(&self) -> bool {
+        self.with_authoring_state(|state| state.actions_debugger_open)
+    }
+
+    #[allow(dead_code)]
+    pub fn set_actions_debugger_open(&mut self, open: bool) {
+        self.with_authoring_state_mut(|state| {
+            state.actions_debugger_open = open;
+        });
+    }
+
+    pub fn actions_debugger_inspector_visible(&self, tab_key: &str) -> bool {
+        self.actions_debugger_open()
+            || !self.breakpoints_for(tab_key).is_empty()
+            || !self.debugger_watches().is_empty()
+            || !self.paused_debugger_scopes().is_empty()
+    }
+
+    /// Evaluate whether execution should pause at `(path, line)`, checking breakpoint enabled status,
+    /// condition, data/property-change watch, and hit-count target, and incrementing `hit_count`.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn should_pause_at_breakpoint(&mut self, path: &str, line: usize) -> bool {
         let key = Self::normalize_breakpoint_key(path);
@@ -3376,6 +3525,9 @@ impl Editor {
         let Some(spec) = self.breakpoint_spec(&key, line) else {
             return false;
         };
+        if !spec.enabled {
+            return false;
+        }
 
         if let Some(cond) = spec.condition.as_deref() {
             let scopes = self.effective_debugger_scopes();
@@ -3405,13 +3557,19 @@ impl Editor {
             }
         }
 
-        self.with_authoring_state_mut(|state| {
+        let new_hits = self.with_authoring_state_mut(|state| {
             if let Some(list) = state.breakpoints.get_mut(&key)
                 && let Some(bp) = list.iter_mut().find(|bp| bp.line == line)
             {
                 bp.hit_count = bp.hit_count.saturating_add(1);
+                bp.hit_count
+            } else {
+                1
             }
         });
+        if let Some(target) = spec.hit_count_target.filter(|&t| t > 0) {
+            return new_hits >= target;
+        }
         true
     }
 
@@ -3568,6 +3726,309 @@ impl Editor {
                 watch.is_error = is_err;
             }
         });
+    }
+
+    #[allow(dead_code)]
+    pub fn set_debugger_watch_draft(&mut self, draft: impl Into<String>) {
+        let text = draft.into();
+        self.with_authoring_state_mut(|state| {
+            state.watch_draft = text;
+        });
+    }
+
+    #[allow(dead_code)]
+    pub fn set_debugger_variable_edit_draft(
+        &mut self,
+        var_path: impl Into<String>,
+        var_value: impl Into<String>,
+    ) {
+        let path = var_path.into();
+        let val = var_value.into();
+        self.with_authoring_state_mut(|state| {
+            state.var_path_draft = path;
+            state.var_value_draft = val;
+        });
+    }
+
+    pub(crate) fn actions_debugger_inspector_ui(&mut self, ui: &mut egui::Ui, tab_key: &str) {
+        use neoflash_ui::icons::i16;
+        egui::ScrollArea::vertical()
+            .id_salt(("actions-debugger-inspector", tab_key))
+            .auto_shrink([false, false])
+            .themed()
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = space::S1;
+
+                // 1. Conditional & hit-count breakpoints for the current script tab
+                let breakpoints = self.breakpoints_for(tab_key);
+                nf::SectionHeader::new("Breakpoints")
+                    .id_salt(("actions-dbg-bps", tab_key))
+                    .show(ui, |ui| {
+                        for bp in breakpoints {
+                            let mut enabled = bp.enabled;
+                            let mut cond_text = bp.condition.clone().unwrap_or_default();
+                            let mut hit_target = bp.hit_count_target.unwrap_or(0) as f64;
+                            let mut remove_clicked = false;
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S2;
+                                let label = format!("Line {}", bp.line);
+                                if ui.add(nf::Checkbox::new(&mut enabled, &label)).changed() {
+                                    self.set_breakpoint_enabled(tab_key, bp.line, enabled);
+                                }
+                                if ui
+                                    .add(
+                                        nf::TextField::new(&mut cond_text, "Breakpoint condition")
+                                            .prefix("if")
+                                            .hint("Condition")
+                                            .mono()
+                                            .width(170.0),
+                                    )
+                                    .changed()
+                                {
+                                    let cond = (!cond_text.trim().is_empty())
+                                        .then(|| cond_text.trim().to_owned());
+                                    self.set_breakpoint_condition(tab_key, bp.line, cond);
+                                }
+                                if ui
+                                    .add(
+                                        nf::Field::new(&mut hit_target, "Hit count target")
+                                            .prefix("Hit >=")
+                                            .range(0.0..=10_000.0)
+                                            .step(1.0)
+                                            .decimals(0)
+                                            .width(96.0),
+                                    )
+                                    .changed()
+                                {
+                                    let target_u32 = hit_target.round().max(0.0) as u32;
+                                    self.set_breakpoint_hit_count_target(
+                                        tab_key,
+                                        bp.line,
+                                        (target_u32 > 0).then_some(target_u32),
+                                    );
+                                }
+                                let hits_badge = format!("Hits: {}", bp.hit_count);
+                                ui.add(nf::Badge::new(&hits_badge, nf::BadgeType::Neutral));
+                                if ui
+                                    .add(nf::IconButton::new(i16::TRASH, "Remove breakpoint"))
+                                    .clicked()
+                                {
+                                    remove_clicked = true;
+                                }
+                            });
+                            if remove_clicked {
+                                self.toggle_breakpoint(tab_key, bp.line);
+                            }
+                        }
+                    });
+
+                // 2. Watch expressions (add / remove / evaluate)
+                let mut watch_draft = self.with_authoring_state(|state| state.watch_draft.clone());
+                let watches = self.debugger_watches();
+                nf::SectionHeader::new("Watch")
+                    .id_salt(("actions-dbg-watch", tab_key))
+                    .show(ui, |ui| {
+                        let mut add_watch_now = false;
+                        let mut refresh_now = false;
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = space::S2;
+                            let tf = ui.add(
+                                nf::TextField::new(&mut watch_draft, "Watch expression")
+                                    .prefix("Expr")
+                                    .hint("Expression")
+                                    .mono()
+                                    .width(180.0),
+                            );
+                            if tf.changed() {
+                                self.with_authoring_state_mut(|state| {
+                                    state.watch_draft = watch_draft.clone();
+                                });
+                            }
+                            if ui
+                                .add_enabled(
+                                    !watch_draft.trim().is_empty(),
+                                    nf::Button::new("Add watch").icon(i16::PLUS),
+                                )
+                                .clicked()
+                            {
+                                add_watch_now = true;
+                            }
+                            if ui
+                                .add(nf::IconButton::new(i16::REFRESH, "Evaluate watches"))
+                                .clicked()
+                            {
+                                refresh_now = true;
+                            }
+                        });
+                        if add_watch_now {
+                            let expr = watch_draft.trim().to_owned();
+                            if !expr.is_empty() {
+                                self.add_debugger_watch(expr);
+                                self.with_authoring_state_mut(|state| state.watch_draft.clear());
+                            }
+                        }
+                        if refresh_now {
+                            self.refresh_debugger_watches();
+                        }
+                        let mut remove_watch_idx = None;
+                        let cols = &[0.0, 0.45];
+                        for (idx, watch) in watches.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S2;
+                                ui.add(nf::TableRow {
+                                    cells: &[&watch.expression, &watch.last_value],
+                                    kind: nf::TableRowKind::Row,
+                                    columns: cols,
+                                });
+                                if ui
+                                    .add(nf::IconButton::new(i16::TRASH, "Remove watch"))
+                                    .clicked()
+                                {
+                                    remove_watch_idx = Some(idx);
+                                }
+                            });
+                        }
+                        if let Some(idx) = remove_watch_idx {
+                            self.remove_debugger_watch(idx);
+                        }
+                    });
+
+                // 3. Paused scope variables (nested inspection + live value editing)
+                let scopes = self.paused_debugger_scopes();
+                if !scopes.is_empty() {
+                    let (mut var_path_draft, mut var_value_draft, expanded) = self
+                        .with_authoring_state(|state| {
+                            (
+                                state.var_path_draft.clone(),
+                                state.var_value_draft.clone(),
+                                state.expanded_var_paths.clone(),
+                            )
+                        });
+                    nf::SectionHeader::new("Variables")
+                        .id_salt(("actions-dbg-vars", tab_key))
+                        .show(ui, |ui| {
+                            let mut apply_var_edit = false;
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S2;
+                                if ui
+                                    .add(
+                                        nf::TextField::new(&mut var_path_draft, "Variable path")
+                                            .prefix("Path")
+                                            .hint("player.stats.hp")
+                                            .mono()
+                                            .width(160.0),
+                                    )
+                                    .changed()
+                                {
+                                    self.with_authoring_state_mut(|state| {
+                                        state.var_path_draft = var_path_draft.clone();
+                                    });
+                                }
+                                if ui
+                                    .add(
+                                        nf::TextField::new(&mut var_value_draft, "Variable value")
+                                            .prefix("=")
+                                            .hint("Value")
+                                            .mono()
+                                            .width(120.0),
+                                    )
+                                    .changed()
+                                {
+                                    self.with_authoring_state_mut(|state| {
+                                        state.var_value_draft = var_value_draft.clone();
+                                    });
+                                }
+                                if ui
+                                    .add_enabled(
+                                        !var_path_draft.trim().is_empty(),
+                                        nf::Button::new("Set value"),
+                                    )
+                                    .clicked()
+                                {
+                                    apply_var_edit = true;
+                                }
+                            });
+                            if apply_var_edit {
+                                let _ = self.set_debugger_variable_value(
+                                    0,
+                                    var_path_draft.trim(),
+                                    &var_value_draft,
+                                );
+                            }
+                            for (scope_idx, scope) in scopes.iter().enumerate() {
+                                self.render_debugger_variable_nodes(
+                                    ui,
+                                    scope_idx,
+                                    "",
+                                    &scope.variables,
+                                    0,
+                                    &expanded,
+                                );
+                            }
+                        });
+                }
+            });
+    }
+
+    fn render_debugger_variable_nodes(
+        &mut self,
+        ui: &mut egui::Ui,
+        scope_idx: usize,
+        parent_path: &str,
+        variables: &[DebuggerVariable],
+        depth: usize,
+        expanded: &std::collections::BTreeSet<String>,
+    ) {
+        use neoflash_ui::icons::i16;
+        for var in variables {
+            let full_path = if parent_path.is_empty() {
+                var.name.clone()
+            } else {
+                format!("{parent_path}.{}", var.name)
+            };
+            let has_children = !var.children.is_empty();
+            let is_open = expanded.contains(&full_path);
+            let kind = if has_children {
+                if is_open {
+                    nf::TreeItemType::FolderOpen
+                } else {
+                    nf::TreeItemType::FolderClosed
+                }
+            } else {
+                nf::TreeItemType::Symbol(i16::VARIABLE)
+            };
+            let label = format!("{} = {}", var.name, var.value);
+            let row = nf::TreeItem::new(&label, kind)
+                .depth(depth)
+                .meta(&var.kind)
+                .show(ui);
+            if row.toggle || row.row.clicked() {
+                let inspected = self
+                    .inspect_debugger_variable_path(scope_idx, &full_path)
+                    .unwrap_or_else(|| var.clone());
+                self.with_authoring_state_mut(|state| {
+                    state.var_path_draft = full_path.clone();
+                    state.var_value_draft = inspected.value.clone();
+                    if has_children {
+                        if state.expanded_var_paths.contains(&full_path) {
+                            state.expanded_var_paths.remove(&full_path);
+                        } else {
+                            state.expanded_var_paths.insert(full_path.clone());
+                        }
+                    }
+                });
+            }
+            if has_children && is_open {
+                self.render_debugger_variable_nodes(
+                    ui,
+                    scope_idx,
+                    &full_path,
+                    &var.children,
+                    depth + 1,
+                    expanded,
+                );
+            }
+        }
     }
 
     fn active_fold_tab_key(&self) -> String {

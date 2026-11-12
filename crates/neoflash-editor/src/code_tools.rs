@@ -774,12 +774,36 @@ pub(crate) fn auto_delete_pair(text: &str, caret: usize) -> Option<Edit> {
     Some((out, (caret - 1, caret - 1)))
 }
 
-/// Apply a `neoflash_script::QuickFix` to `text`, returning the new text and updated caret position.
-pub(crate) fn apply_quick_fix_edit(text: &str, fix: &neoflash_script::QuickFix) -> Option<Edit> {
-    let out = fix.try_apply(text)?;
-    if out == text {
+/// Suggest deterministic, char-boundary-safe `QuickFix` actions for `diagnostic` against `source`.
+pub(crate) fn suggest_quick_fixes_for_diagnostic(
+    diagnostic: &neoflash_script::Diagnostic,
+    source: &str,
+) -> Vec<neoflash_script::QuickFix> {
+    diagnostic
+        .quick_fixes(source)
+        .into_iter()
+        .filter(|fix| apply_quick_fix(source, fix).is_some())
+        .collect()
+}
+
+/// Apply a `neoflash_script::QuickFix` to `source` with Unicode char-boundary safety,
+/// returning `Some(new_source)` only when the span is valid and changes `source`.
+pub(crate) fn apply_quick_fix(source: &str, fix: &neoflash_script::QuickFix) -> Option<String> {
+    let (start, end) = fix.span;
+    if start > end
+        || end > source.len()
+        || !source.is_char_boundary(start)
+        || !source.is_char_boundary(end)
+    {
         return None;
     }
+    let out = fix.try_apply(source)?;
+    (out != source).then_some(out)
+}
+
+/// Apply a `neoflash_script::QuickFix` to `text`, returning the new text and updated caret position.
+pub(crate) fn apply_quick_fix_edit(text: &str, fix: &neoflash_script::QuickFix) -> Option<Edit> {
+    let out = apply_quick_fix(text, fix)?;
     let caret = text[..fix.span.0].chars().count() + fix.replacement.chars().count();
     Some((out, (caret, caret)))
 }

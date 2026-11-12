@@ -24,6 +24,7 @@ pub(crate) struct CompilerDiagnosticItem {
     pub script: Option<ScriptLocation>,
     pub line: usize,
     pub column: usize,
+    pub quick_fixes: Vec<neoflash_script::QuickFix>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -137,6 +138,11 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
             .path
             .as_deref()
             .and_then(|path| project.sources.iter().find(|unit| unit.path == path));
+        let quick_fixes = unit
+            .map(|unit| {
+                crate::code_tools::suggest_quick_fixes_for_diagnostic(&diagnostic, &unit.source)
+            })
+            .unwrap_or_default();
         items.push(CompilerDiagnosticItem {
             is_error: diagnostic.severity == neoflash_script::DiagnosticSeverity::Error,
             message: diagnostic_message(&diagnostic),
@@ -148,6 +154,7 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
             script: unit.map(|unit| ScriptLocation::Source(unit.id.clone())),
             line: diagnostic.line,
             column: diagnostic.column,
+            quick_fixes,
         });
     }
 
@@ -182,6 +189,10 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
             };
             {
                 for err in script_diagnostics(&fs.script, result) {
+                    let quick_fixes = crate::code_tools::suggest_quick_fixes_for_diagnostic(
+                        &err,
+                        &fs.script.source,
+                    );
                     let location_label = match actions_layer {
                         Some(layer_name) => format!(
                             "{} · layer {:?} · frame {} · Line {}",
@@ -207,6 +218,7 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
                         }),
                         line: err.line,
                         column: err.column,
+                        quick_fixes,
                     });
                 }
             }
@@ -230,6 +242,11 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
                                 el.name.as_str()
                             };
                             for err in script_diagnostics(&os.script, result) {
+                                let quick_fixes =
+                                    crate::code_tools::suggest_quick_fixes_for_diagnostic(
+                                        &err,
+                                        &os.script.source,
+                                    );
                                 items.push(CompilerDiagnosticItem {
                                     is_error: err.severity
                                         == neoflash_script::DiagnosticSeverity::Error,
@@ -250,6 +267,7 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
                                     }),
                                     line: err.line,
                                     column: err.column,
+                                    quick_fixes,
                                 });
                             }
                         }
@@ -267,6 +285,7 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
             script: None,
             line: 1,
             column: 1,
+            quick_fixes: Vec::new(),
         });
     }
 
@@ -284,6 +303,7 @@ impl Editor {
         use neoflash_script::DiagnosticSeverity;
         self.refresh_compiler_diagnostics();
         if let Some(location) = self.current_script_location() {
+            let source_text = self.script_source_for(&location).unwrap_or_default();
             let label = match &location {
                 ScriptLocation::Source(id) => self
                     .project
@@ -344,6 +364,8 @@ impl Editor {
                 }) {
                     continue;
                 }
+                let quick_fixes =
+                    crate::code_tools::suggest_quick_fixes_for_diagnostic(diagnostic, &source_text);
                 self.compiler_errors.items.push(CompilerDiagnosticItem {
                     is_error,
                     message,
@@ -351,6 +373,7 @@ impl Editor {
                     script: Some(location.clone()),
                     line: diagnostic.line,
                     column: diagnostic.column,
+                    quick_fixes,
                 });
             }
         }
@@ -427,6 +450,85 @@ impl Editor {
         true
     }
 
+    /// Apply a Quick-Fix from a diagnostic row in `Compiler errors`, recording a single 1-step
+    /// Undo entry (`"Apply quick fix"`), opening the script in `Actions`, and refreshing diagnostics.
+    pub(crate) fn apply_compiler_diagnostic_quick_fix(
+        &mut self,
+        ctx: &egui::Context,
+        diag_idx: usize,
+        fix_idx: usize,
+    ) -> bool {
+        self.refresh_compiler_diagnostics();
+        let Some(item) = self.compiler_errors.items.get(diag_idx).cloned() else {
+            return false;
+        };
+        let Some(loc) = item.script.clone() else {
+            return false;
+        };
+        let Some(fix) = item.quick_fixes.get(fix_idx).cloned() else {
+            return false;
+        };
+        let Some(current_source) = self.script_source_for(&loc) else {
+            return false;
+        };
+        let Some((updated_source, (caret, _))) =
+            crate::code_tools::apply_quick_fix_edit(&current_source, &fix)
+        else {
+            return false;
+        };
+
+        let loc_for_edit = loc.clone();
+        let updated_for_edit = updated_source.clone();
+        self.transact_named("Apply quick fix", move |ed| match &loc_for_edit {
+            ScriptLocation::Frame { symbol, frame } => {
+                if let Some(sym) = ed.project.symbols.iter_mut().find(|s| s.id == *symbol)
+                    && let Some(fs) = sym
+                        .timeline
+                        .scripts
+                        .iter_mut()
+                        .find(|fs| fs.frame == *frame)
+                {
+                    fs.script.source = updated_for_edit;
+                }
+            }
+            ScriptLocation::Object {
+                symbol,
+                frame,
+                element,
+                event,
+            } => {
+                if let Some(sym) = ed.project.symbols.iter_mut().find(|s| s.id == *symbol) {
+                    for layer in &mut sym.timeline.layers {
+                        let Some(kf_frame) = layer.key_at(*frame).map(|k| k.frame) else {
+                            continue;
+                        };
+                        if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == kf_frame)
+                            && let Some(el) = key.elements.iter_mut().find(|e| e.id == *element)
+                            && let Some(os) = el.scripts.iter_mut().find(|os| os.event == *event)
+                        {
+                            os.script.source = updated_for_edit;
+                            break;
+                        }
+                    }
+                }
+            }
+            ScriptLocation::Source(id) => {
+                if let Some(unit) = ed.project.sources.iter_mut().find(|u| u.id == *id) {
+                    unit.source = updated_for_edit;
+                }
+            }
+        });
+
+        self.open_script_location(loc);
+        self.open_actions();
+        let editor_id = self.actions_editor_id();
+        let (line, col) = c::code::line_col(&updated_source, caret);
+        crate::sources::jump_to(ctx, editor_id, &updated_source, line, col);
+        self.refresh_compiler_diagnostics();
+        self.message(format!("Applied quick fix: {}", fix.title));
+        true
+    }
+
     pub(crate) fn compiler_errors_panel_ui(&mut self, ui: &mut Ui) {
         self.refresh_compiler_diagnostics();
         let nf = neoflash_ui::palette(ui.ctx());
@@ -465,6 +567,7 @@ impl Editor {
         }
 
         let mut jump_target = None;
+        let mut quick_fix_target = None;
         egui::ScrollArea::vertical()
             .id_salt("compiler-errors-scroll")
             .auto_shrink([false, false])
@@ -506,12 +609,26 @@ impl Editor {
                             {
                                 jump_target = Some(idx);
                             }
+                            if let Some(first_fix) = item.quick_fixes.first()
+                                && ui
+                                    .add_enabled(
+                                        can_jump,
+                                        c::IconButton::new(i16::WAND, &first_fix.title),
+                                    )
+                                    .on_hover_text(format!("Quick Fix: {}", first_fix.title))
+                                    .clicked()
+                            {
+                                quick_fix_target = Some((idx, 0));
+                            }
                         });
                     });
                 }
             });
 
-        if let Some(idx) = jump_target {
+        if let Some((diag_idx, fix_idx)) = quick_fix_target {
+            let ctx = ui.ctx().clone();
+            self.apply_compiler_diagnostic_quick_fix(&ctx, diag_idx, fix_idx);
+        } else if let Some(idx) = jump_target {
             let ctx = ui.ctx().clone();
             self.jump_to_compiler_diagnostic(&ctx, idx);
         }
@@ -617,5 +734,87 @@ mod tests {
                 .unwrap()
                 .contains("Informational hints remain in Actions")
         );
+    }
+
+    #[test]
+    fn compiler_errors_panel_applies_quick_fixes_with_single_step_undo() {
+        let ctx = egui::Context::default();
+        let bad_frame_script = "let score: number = 10;\nscr = 20;";
+        let bad_source_unit = "export function check(a: boolean, b: boolean): boolean {\n    let unusedFlag: number = 1;\n    return a && b;\n}\n";
+        let mut project = Project::blank();
+        project.format_version = 8;
+        project.symbols[0].timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::TypeScript,
+                source: bad_frame_script.into(),
+            },
+        });
+        project.sources.push(neoflash_core::SourceUnit {
+            id: "src-check".into(),
+            path: "check.ts".into(),
+            language: ScriptLanguage::TypeScript,
+            source: bad_source_unit.into(),
+        });
+        project.validate().unwrap();
+
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.refresh_compiler_diagnostics();
+
+        // 1. Frame script typo diagnostic has a QuickFix ("Replace 'scr' with 'score'")
+        let frame_diag_idx = editor
+            .compiler_errors
+            .items
+            .iter()
+            .position(|item| {
+                item.message.contains("Did you mean 'score'") && !item.quick_fixes.is_empty()
+            })
+            .expect("expected frame script typo diagnostic with quick fix");
+        assert!(editor.apply_compiler_diagnostic_quick_fix(&ctx, frame_diag_idx, 0));
+        assert_eq!(
+            editor.project.symbols[0].timeline.scripts[0].script.source,
+            "let score: number = 10;\nscore = 20;"
+        );
+        assert!(editor.history.can_undo());
+        assert_eq!(editor.history.undo_label(), Some("Apply quick fix"));
+        assert!(
+            !editor
+                .compiler_errors
+                .items
+                .iter()
+                .any(|item| item.message.contains("Did you mean 'score'"))
+        );
+
+        // 1-step Undo restores the exact original frame script and diagnostic
+        editor.undo();
+        assert_eq!(
+            editor.project.symbols[0].timeline.scripts[0].script.source,
+            bad_frame_script
+        );
+        editor.refresh_compiler_diagnostics();
+        assert!(
+            editor
+                .compiler_errors
+                .items
+                .iter()
+                .any(|item| item.message.contains("Did you mean 'score'"))
+        );
+
+        // 2. Project SourceUnit unused variable warning has a QuickFix ("Prefix with '_'")
+        let src_diag_idx = editor
+            .compiler_errors
+            .items
+            .iter()
+            .position(|item| item.message.contains("unusedFlag") && !item.quick_fixes.is_empty())
+            .expect("expected source unit unused variable warning with quick fix");
+        assert!(editor.apply_compiler_diagnostic_quick_fix(&ctx, src_diag_idx, 0));
+        assert!(
+            editor.project.sources[0]
+                .source
+                .contains("let _unusedFlag: number = 1;")
+        );
+        editor.undo();
+        assert_eq!(editor.project.sources[0].source, bad_source_unit);
+        editor.project.validate().unwrap();
     }
 }

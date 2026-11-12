@@ -736,6 +736,84 @@ pub(crate) struct PointDrag {
     pub element: String,
     pub pull_tangent: bool,
 }
+
+/// Submode for `Tool::Transform` (`Tool::FreeTransform`) on the live Stage (`T-271`).
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FreeTransformSubmode {
+    #[default]
+    ScaleRotateSkew,
+    Envelope,
+    Perspective,
+    Distort,
+}
+
+#[allow(non_upper_case_globals, dead_code)]
+impl Tool {
+    /// Alias for `Tool::Transform` matching the Free Transform tool name (`T-271`).
+    pub const FreeTransform: Self = Self::Transform;
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct EnvelopeLatticeSession {
+    pub symbol_id: Id,
+    pub layer_idx: usize,
+    pub frame: u32,
+    pub element_ids: Vec<Id>,
+    pub baseline_bounds: [f64; 4],
+    pub baseline_elements: Vec<(Id, Element)>,
+    pub handles_by_hash: HashMap<u64, [[f64; 2]; 16]>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PerspectiveQuadSession {
+    pub symbol_id: Id,
+    pub layer_idx: usize,
+    pub frame: u32,
+    pub element_ids: Vec<Id>,
+    pub baseline_bounds: [f64; 4],
+    pub baseline_elements: Vec<(Id, Element)>,
+    pub corners_by_hash: HashMap<u64, [[f64; 2]; 4]>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub(crate) enum StageLiveDeformKind {
+    EnvelopeHandle {
+        row: usize,
+        col: usize,
+    },
+    PerspectiveCorner {
+        corner: usize,
+    },
+    AssetWarpPin {
+        pin_id: Id,
+        element_id: Id,
+        created_on_press: bool,
+    },
+    IkBoneEffector {
+        armature_id: Id,
+        bone_id: Id,
+    },
+    IkBoneCreate {
+        start_stage: [f64; 2],
+        current_stage: [f64; 2],
+    },
+    IkBindSweep {
+        unbind: bool,
+    },
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub(crate) struct StageLiveDeformDrag {
+    pub kind: StageLiveDeformKind,
+    pub before_project: Project,
+    pub press_stage: [f64; 2],
+    pub last_stage: [f64; 2],
+    pub changed: bool,
+}
+
 #[derive(Default)]
 pub(crate) struct VectorState {
     pub draft: Option<PathDraft>,
@@ -744,6 +822,23 @@ pub(crate) struct VectorState {
     pub selected_anchors: Option<(Id, Vec<usize>)>,
     /// Active Subselection (`Tool::Subselect`) marquee box `(press_screen, current_screen)`.
     pub subselect_marquee: Option<(Pos2, Pos2)>,
+    /// Active Free Transform submode (`T-271`).
+    pub free_transform_submode: FreeTransformSubmode,
+    /// Cached 4x4 Envelope lattice session (`T-271`).
+    pub envelope_lattice_session: Option<EnvelopeLatticeSession>,
+    /// Cached 2x2 Perspective quad session (`T-271`).
+    pub perspective_quad_session: Option<PerspectiveQuadSession>,
+    /// Undeformed base shapes for Asset Warp pin deformation `(symbol_id, frame, element_id)` (`T-271`).
+    pub asset_warp_base_elements: HashMap<(Id, u32, Id), Element>,
+    /// Currently selected `WarpPin` ID on Stage (`T-271`).
+    pub selected_warp_pin: Option<Id>,
+    /// Currently selected `IkBone` ID on Stage (`T-271`).
+    pub selected_ik_bone: Option<Id>,
+    /// Undeformed base shapes and rest bone poses for IK deformation `(symbol_id, frame, element_id)` (`T-271`).
+    #[allow(clippy::type_complexity)]
+    pub ik_base_elements: HashMap<(Id, u32, Id), (Element, Vec<(Id, [f64; 2], [f64; 2], f64)>)>,
+    /// Active live Stage drag transaction for `Envelope`, `Perspective`, `AssetWarp`, `Bone`, `Bind` (`T-271`).
+    pub live_deform_drag: Option<StageLiveDeformDrag>,
 }
 
 pub(crate) fn handles(commands: &[PathCommand]) -> Vec<PathHandle> {
@@ -5440,6 +5535,1817 @@ impl Editor {
             return Some(PerspectiveGridHandle::Horizon);
         }
         None
+    }
+}
+
+fn bernstein3(index: usize, t: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    let u = 1.0 - t;
+    match index {
+        0 => u * u * u,
+        1 => 3.0 * t * u * u,
+        2 => 3.0 * t * t * u,
+        3 => t * t * t,
+        _ => 0.0,
+    }
+}
+
+fn default_envelope_4x4_handles(bounds: [f64; 4]) -> [[f64; 2]; 16] {
+    let [min_x, min_y, max_x, max_y] = bounds;
+    let w = (max_x - min_x).max(1.0);
+    let h = (max_y - min_y).max(1.0);
+    let mut out = [[0.0; 2]; 16];
+    for r in 0..4 {
+        for c in 0..4 {
+            out[r * 4 + c] = [min_x + (c as f64 / 3.0) * w, min_y + (r as f64 / 3.0) * h];
+        }
+    }
+    out
+}
+
+fn default_perspective_2x2_corners(bounds: [f64; 4]) -> [[f64; 2]; 4] {
+    let [min_x, min_y, max_x, max_y] = bounds;
+    [
+        [min_x, min_y],
+        [max_x, min_y],
+        [max_x, max_y],
+        [min_x, max_y],
+    ]
+}
+
+fn evaluate_envelope_4x4_ffd(
+    pt: [f64; 2],
+    baseline_bounds: [f64; 4],
+    handles: &[[f64; 2]; 16],
+) -> [f64; 2] {
+    let [min_x, min_y, max_x, max_y] = baseline_bounds;
+    let w = (max_x - min_x).max(1.0);
+    let h = (max_y - min_y).max(1.0);
+    let u = ((pt[0] - min_x) / w).clamp(0.0, 1.0);
+    let v = ((pt[1] - min_y) / h).clamp(0.0, 1.0);
+    let rest_handles = default_envelope_4x4_handles(baseline_bounds);
+    let mut dx = 0.0;
+    let mut dy = 0.0;
+    for r in 0..4 {
+        let bv = bernstein3(r, v);
+        for c in 0..4 {
+            let weight = bv * bernstein3(c, u);
+            let idx = r * 4 + c;
+            dx += weight * (handles[idx][0] - rest_handles[idx][0]);
+            dy += weight * (handles[idx][1] - rest_handles[idx][1]);
+        }
+    }
+    [pt[0] + dx, pt[1] + dy]
+}
+
+fn evaluate_perspective_quad_map(
+    pt: [f64; 2],
+    baseline_bounds: [f64; 4],
+    corners: &[[f64; 2]; 4],
+) -> [f64; 2] {
+    let [min_x, min_y, max_x, max_y] = baseline_bounds;
+    let w = (max_x - min_x).max(1.0);
+    let h = (max_y - min_y).max(1.0);
+    let u = (pt[0] - min_x) / w;
+    let v = (pt[1] - min_y) / h;
+    let top_x = corners[0][0] + (corners[1][0] - corners[0][0]) * u;
+    let top_y = corners[0][1] + (corners[1][1] - corners[0][1]) * u;
+    let bot_x = corners[3][0] + (corners[2][0] - corners[3][0]) * u;
+    let bot_y = corners[3][1] + (corners[2][1] - corners[3][1]) * u;
+    [top_x + (bot_x - top_x) * v, top_y + (bot_y - top_y) * v]
+}
+
+fn subdivide_cubic_commands(commands: &[PathCommand], splits: usize) -> Vec<PathCommand> {
+    let splits = splits.max(1);
+    let mut out = Vec::with_capacity(commands.len() * splits);
+    let mut cur = [0.0_f64; 2];
+    let mut start = [0.0_f64; 2];
+    let split_once = |p0: [f64; 2],
+                      p1: [f64; 2],
+                      p2: [f64; 2],
+                      p3: [f64; 2],
+                      t: f64|
+     -> ([[f64; 2]; 4], [[f64; 2]; 4]) {
+        let lerp =
+            |a: [f64; 2], b: [f64; 2], s: f64| [a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s];
+        let p01 = lerp(p0, p1, t);
+        let p12 = lerp(p1, p2, t);
+        let p23 = lerp(p2, p3, t);
+        let p012 = lerp(p01, p12, t);
+        let p123 = lerp(p12, p23, t);
+        let p0123 = lerp(p012, p123, t);
+        ([p0, p01, p012, p0123], [p0123, p123, p23, p3])
+    };
+    let append_subdivided = |out: &mut Vec<PathCommand>,
+                             p0: [f64; 2],
+                             p1: [f64; 2],
+                             p2: [f64; 2],
+                             p3: [f64; 2],
+                             n: usize| {
+        let mut rem_p0 = p0;
+        let mut rem_p1 = p1;
+        let mut rem_p2 = p2;
+        let mut rem_p3 = p3;
+        for i in 0..n {
+            let rem = n - i;
+            if rem <= 1 {
+                out.push(PathCommand::CubicTo {
+                    cx1: rem_p1[0],
+                    cy1: rem_p1[1],
+                    cx2: rem_p2[0],
+                    cy2: rem_p2[1],
+                    x: rem_p3[0],
+                    y: rem_p3[1],
+                });
+                break;
+            }
+            let t = 1.0 / (rem as f64);
+            let (left, right) = split_once(rem_p0, rem_p1, rem_p2, rem_p3, t);
+            out.push(PathCommand::CubicTo {
+                cx1: left[1][0],
+                cy1: left[1][1],
+                cx2: left[2][0],
+                cy2: left[2][1],
+                x: left[3][0],
+                y: left[3][1],
+            });
+            rem_p0 = right[0];
+            rem_p1 = right[1];
+            rem_p2 = right[2];
+            rem_p3 = right[3];
+        }
+    };
+    for &cmd in commands {
+        match cmd {
+            PathCommand::MoveTo { x, y } => {
+                cur = [x, y];
+                start = [x, y];
+                out.push(cmd);
+            }
+            PathCommand::LineTo { x, y } => {
+                let p0 = cur;
+                let p3 = [x, y];
+                let p1 = [p0[0] + (p3[0] - p0[0]) / 3.0, p0[1] + (p3[1] - p0[1]) / 3.0];
+                let p2 = [
+                    p0[0] + (p3[0] - p0[0]) * 2.0 / 3.0,
+                    p0[1] + (p3[1] - p0[1]) * 2.0 / 3.0,
+                ];
+                append_subdivided(&mut out, p0, p1, p2, p3, splits);
+                cur = p3;
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                let p0 = cur;
+                let p3 = [x, y];
+                let p1 = [
+                    p0[0] + (cx - p0[0]) * 2.0 / 3.0,
+                    p0[1] + (cy - p0[1]) * 2.0 / 3.0,
+                ];
+                let p2 = [
+                    p3[0] + (cx - p3[0]) * 2.0 / 3.0,
+                    p3[1] + (cy - p3[1]) * 2.0 / 3.0,
+                ];
+                append_subdivided(&mut out, p0, p1, p2, p3, splits);
+                cur = p3;
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                append_subdivided(&mut out, cur, [cx1, cy1], [cx2, cy2], [x, y], splits);
+                cur = [x, y];
+            }
+            PathCommand::Close => {
+                if (cur[0] - start[0]).hypot(cur[1] - start[1]) > 1e-4 {
+                    let p0 = cur;
+                    let p3 = start;
+                    let p1 = [p0[0] + (p3[0] - p0[0]) / 3.0, p0[1] + (p3[1] - p0[1]) / 3.0];
+                    let p2 = [
+                        p0[0] + (p3[0] - p0[0]) * 2.0 / 3.0,
+                        p0[1] + (p3[1] - p0[1]) * 2.0 / 3.0,
+                    ];
+                    append_subdivided(&mut out, p0, p1, p2, p3, splits);
+                    cur = start;
+                }
+                out.push(PathCommand::Close);
+            }
+        }
+    }
+    out
+}
+
+fn map_element_stage_points(
+    base_element: &Element,
+    subdivide: usize,
+    map_stage: impl Fn([f64; 2]) -> [f64; 2],
+) -> Option<Element> {
+    let raw_cmds = editable_element_commands(base_element)
+        .or_else(|| base_element.to_path_commands().map(|(c, _)| c))?;
+    let commands = if subdivide > 1 && raw_cmds.len() <= 16 {
+        subdivide_cubic_commands(&raw_cmds, subdivide)
+    } else {
+        subdivide_cubic_commands(&raw_cmds, 1)
+    };
+    let mat = transform_matrix(base_element.transform);
+    let to_local = |stage_pt: [f64; 2]| -> [f64; 2] {
+        if let Some((lx, ly)) = inverse_f64(mat, stage_pt[0], stage_pt[1]) {
+            [lx, ly]
+        } else {
+            [
+                stage_pt[0] - base_element.transform.x,
+                stage_pt[1] - base_element.transform.y,
+            ]
+        }
+    };
+    let map_local = |lx: f64, ly: f64| -> [f64; 2] {
+        let sx = mat[0] * lx + mat[2] * ly + mat[4];
+        let sy = mat[1] * lx + mat[3] * ly + mat[5];
+        to_local(map_stage([sx, sy]))
+    };
+    let mut warped = Vec::with_capacity(commands.len());
+    for cmd in commands {
+        let mapped = match cmd {
+            PathCommand::MoveTo { x, y } => {
+                let [nx, ny] = map_local(x, y);
+                PathCommand::MoveTo { x: nx, y: ny }
+            }
+            PathCommand::LineTo { x, y } => {
+                let [nx, ny] = map_local(x, y);
+                PathCommand::LineTo { x: nx, y: ny }
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                let [ncx, ncy] = map_local(cx, cy);
+                let [nx, ny] = map_local(x, y);
+                PathCommand::QuadraticTo {
+                    cx: ncx,
+                    cy: ncy,
+                    x: nx,
+                    y: ny,
+                }
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                let [nc1x, nc1y] = map_local(cx1, cy1);
+                let [nc2x, nc2y] = map_local(cx2, cy2);
+                let [nx, ny] = map_local(x, y);
+                PathCommand::CubicTo {
+                    cx1: nc1x,
+                    cy1: nc1y,
+                    cx2: nc2x,
+                    cy2: nc2y,
+                    x: nx,
+                    y: ny,
+                }
+            }
+            PathCommand::Close => PathCommand::Close,
+        };
+        warped.push(mapped);
+    }
+    let mut updated = base_element.clone();
+    write_editable_element_commands(&mut updated, warped);
+    Some(updated)
+}
+
+fn element_stage_bounds(el: &Element) -> Option<[f64; 4]> {
+    let (cmds, _) = el.to_path_commands()?;
+    let mat = transform_matrix(el.transform);
+    let stage_cmds = map_commands_forward(&cmds, mat);
+    let b = neoflash_core::path_bounds(&stage_cmds).ok().flatten()?;
+    Some([b.x_min, b.y_min, b.x_max, b.y_max])
+}
+
+fn elements_hash(elements: &[Element]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for el in elements {
+        el.id.hash(&mut hasher);
+        el.transform.x.to_bits().hash(&mut hasher);
+        el.transform.y.to_bits().hash(&mut hasher);
+        el.transform.scale_x.to_bits().hash(&mut hasher);
+        el.transform.scale_y.to_bits().hash(&mut hasher);
+        el.transform.rotation.to_bits().hash(&mut hasher);
+        el.transform.skew.to_bits().hash(&mut hasher);
+        if let Some((cmds, _)) = el.to_path_commands() {
+            cmds.len().hash(&mut hasher);
+            for cmd in cmds {
+                match cmd {
+                    PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+                        x.to_bits().hash(&mut hasher);
+                        y.to_bits().hash(&mut hasher);
+                    }
+                    PathCommand::QuadraticTo { cx, cy, x, y } => {
+                        cx.to_bits().hash(&mut hasher);
+                        cy.to_bits().hash(&mut hasher);
+                        x.to_bits().hash(&mut hasher);
+                        y.to_bits().hash(&mut hasher);
+                    }
+                    PathCommand::CubicTo {
+                        cx1,
+                        cy1,
+                        cx2,
+                        cy2,
+                        x,
+                        y,
+                    } => {
+                        cx1.to_bits().hash(&mut hasher);
+                        cy1.to_bits().hash(&mut hasher);
+                        cx2.to_bits().hash(&mut hasher);
+                        cy2.to_bits().hash(&mut hasher);
+                        x.to_bits().hash(&mut hasher);
+                        y.to_bits().hash(&mut hasher);
+                    }
+                    PathCommand::Close => 99_u8.hash(&mut hasher),
+                }
+            }
+        }
+    }
+    hasher.finish()
+}
+
+fn deform_stage_point_with_asset_warp_pins(
+    point: [f64; 2],
+    pins: &[WarpPin],
+    falloff_radius: f64,
+) -> [f64; 2] {
+    if pins.is_empty() {
+        return point;
+    }
+    if pins.len() == 1 {
+        let pin = &pins[0];
+        let dx = point[0] - pin.rest_pos[0];
+        let dy = point[1] - pin.rest_pos[1];
+        let d2 = dx * dx + dy * dy;
+        let r2 = falloff_radius.max(20.0).powi(2);
+        let w = 1.0 / (1.0 + d2 / r2);
+        let (rx, ry) = if pin.rotation.abs() > 1e-6 && pin.kind != WarpPinKind::Fixed {
+            let rad = pin.rotation.to_radians();
+            let c = rad.cos();
+            let s = rad.sin();
+            (dx * c - dy * s, dx * s + dy * c)
+        } else {
+            (dx, dy)
+        };
+        let target_x = pin.pos[0] + rx;
+        let target_y = pin.pos[1] + ry;
+        return [
+            point[0] + (target_x - point[0]) * w,
+            point[1] + (target_y - point[1]) * w,
+        ];
+    }
+    let mut sum_w = 0.0;
+    let mut acc_x = 0.0;
+    let mut acc_y = 0.0;
+    for pin in pins {
+        let dx = point[0] - pin.rest_pos[0];
+        let dy = point[1] - pin.rest_pos[1];
+        let d2 = dx * dx + dy * dy;
+        let w = pin.stiffness.clamp(0.05, 1.0) / (d2 + 16.0);
+        let (rx, ry) = if pin.rotation.abs() > 1e-6 && pin.kind != WarpPinKind::Fixed {
+            let rad = pin.rotation.to_radians();
+            let c = rad.cos();
+            let s = rad.sin();
+            (dx * c - dy * s, dx * s + dy * c)
+        } else {
+            (dx, dy)
+        };
+        let target_pos = if pin.kind == WarpPinKind::Fixed {
+            pin.rest_pos
+        } else {
+            pin.pos
+        };
+        acc_x += (target_pos[0] + rx) * w;
+        acc_y += (target_pos[1] + ry) * w;
+        sum_w += w;
+    }
+    if sum_w > 1e-9 {
+        [acc_x / sum_w, acc_y / sum_w]
+    } else {
+        point
+    }
+}
+
+impl Editor {
+    /// Return the active Free Transform submode (`ScaleRotateSkew`, `Envelope`, `Perspective`, `Distort`) (`T-271`).
+    pub fn free_transform_submode(&self) -> FreeTransformSubmode {
+        self.vector.free_transform_submode
+    }
+
+    /// Switch the active Free Transform submode and synchronize `FreeTransformMode` (`T-271`).
+    #[allow(dead_code)]
+    pub fn set_free_transform_submode(&mut self, submode: FreeTransformSubmode) {
+        self.vector.free_transform_submode = submode;
+        self.authoring_tools.transform_mode = match submode {
+            FreeTransformSubmode::ScaleRotateSkew => {
+                crate::authoring_tools::FreeTransformMode::FreeTransform
+            }
+            FreeTransformSubmode::Envelope => crate::authoring_tools::FreeTransformMode::Envelope,
+            FreeTransformSubmode::Perspective | FreeTransformSubmode::Distort => {
+                crate::authoring_tools::FreeTransformMode::Distort
+            }
+        };
+    }
+
+    fn selected_vector_elements_on_active_key(&self) -> Vec<Element> {
+        let Some(layer) = self.symbol().timeline.layers.get(self.layer) else {
+            return Vec::new();
+        };
+        let Some(key) = layer.key_at(self.frame) else {
+            return Vec::new();
+        };
+        let mut ids: Vec<Id> = self
+            .selection
+            .targets
+            .iter()
+            .filter(|t| t.layer == layer.id)
+            .map(|t| t.element.clone())
+            .collect();
+        if ids.is_empty()
+            && let Some(el) = self.selected_element()
+        {
+            ids.push(el.id.clone());
+        }
+        if ids.is_empty() && key.elements.len() == 1 {
+            ids.push(key.elements[0].id.clone());
+        }
+        key.elements
+            .iter()
+            .filter(|el| {
+                ids.contains(&el.id)
+                    && !key.controller_elements.contains(&el.id)
+                    && el.to_path_commands().is_some()
+            })
+            .cloned()
+            .collect()
+    }
+
+    pub(crate) fn selected_vector_bounds_on_stage(&self) -> Option<[f64; 4]> {
+        let els = self.selected_vector_elements_on_active_key();
+        if els.is_empty() {
+            return None;
+        }
+        let mut min_x = f64::INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        for el in &els {
+            if let Some([x0, y0, x1, y1]) = element_stage_bounds(el) {
+                min_x = min_x.min(x0);
+                min_y = min_y.min(y0);
+                max_x = max_x.max(x1);
+                max_y = max_y.max(y1);
+            }
+        }
+        (min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite())
+            .then_some([min_x, min_y, max_x, max_y])
+    }
+
+    /// Return the 16 (`4x4`) interactive `Envelope` lattice handles `(row, col, [stage_x, stage_y])`
+    /// for the selected vector shape(s) on Stage (`T-271`).
+    pub fn envelope_warp_handles(&self) -> Vec<(usize, usize, [f64; 2])> {
+        let els = self.selected_vector_elements_on_active_key();
+        if els.is_empty() {
+            return Vec::new();
+        }
+        let cur_hash = elements_hash(&els);
+        let el_ids: Vec<Id> = els.iter().map(|e| e.id.clone()).collect();
+        let handles_16 = if let Some(session) = &self.vector.envelope_lattice_session
+            && session.symbol_id == self.symbol_id()
+            && session.layer_idx == self.layer
+            && session.frame == self.frame
+            && session.element_ids == el_ids
+            && let Some(saved) = session.handles_by_hash.get(&cur_hash)
+        {
+            *saved
+        } else if let Some(bounds) = self.selected_vector_bounds_on_stage() {
+            default_envelope_4x4_handles(bounds)
+        } else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(16);
+        for r in 0..4 {
+            for c in 0..4 {
+                out.push((r, c, handles_16[r * 4 + c]));
+            }
+        }
+        out
+    }
+
+    /// Hit-test a Stage-space point against the 16 (`4x4`) `Envelope` lattice handles (`T-271`).
+    pub fn hit_test_envelope_warp_handle(
+        &self,
+        stage_pt: [f64; 2],
+        tolerance: f64,
+    ) -> Option<(usize, usize)> {
+        let tol_sq = tolerance.max(1.5).powi(2);
+        self.envelope_warp_handles()
+            .into_iter()
+            .filter_map(|(r, c, pos)| {
+                let d2 = (pos[0] - stage_pt[0]).powi(2) + (pos[1] - stage_pt[1]).powi(2);
+                (d2 <= tol_sq).then_some((r, c, d2))
+            })
+            .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(r, c, _)| (r, c))
+    }
+
+    pub(crate) fn apply_envelope_warp_handle_in_place(
+        &mut self,
+        row: usize,
+        col: usize,
+        target_stage: [f64; 2],
+    ) -> bool {
+        if row >= 4 || col >= 4 || !target_stage[0].is_finite() || !target_stage[1].is_finite() {
+            return false;
+        }
+        let els = self.selected_vector_elements_on_active_key();
+        if els.is_empty() {
+            return false;
+        }
+        let symbol_id = self.symbol_id().to_owned();
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let el_ids: Vec<Id> = els.iter().map(|e| e.id.clone()).collect();
+        let cur_hash = elements_hash(&els);
+
+        let needs_init = self
+            .vector
+            .envelope_lattice_session
+            .as_ref()
+            .is_none_or(|s| {
+                s.symbol_id != symbol_id
+                    || s.layer_idx != layer_idx
+                    || s.frame != frame
+                    || s.element_ids != el_ids
+                    || !s.handles_by_hash.contains_key(&cur_hash)
+            });
+        if needs_init {
+            let Some(bounds) = self.selected_vector_bounds_on_stage() else {
+                return false;
+            };
+            let initial_handles = default_envelope_4x4_handles(bounds);
+            let mut handles_by_hash = HashMap::new();
+            handles_by_hash.insert(cur_hash, initial_handles);
+            self.vector.envelope_lattice_session = Some(EnvelopeLatticeSession {
+                symbol_id: symbol_id.clone(),
+                layer_idx,
+                frame,
+                element_ids: el_ids.clone(),
+                baseline_bounds: bounds,
+                baseline_elements: els.iter().map(|e| (e.id.clone(), e.clone())).collect(),
+                handles_by_hash,
+            });
+        }
+
+        let Some(session) = self.vector.envelope_lattice_session.as_ref() else {
+            return false;
+        };
+        let baseline_bounds = session.baseline_bounds;
+        let baseline_elements = session.baseline_elements.clone();
+        let mut handles = session
+            .handles_by_hash
+            .get(&cur_hash)
+            .copied()
+            .unwrap_or_else(|| default_envelope_4x4_handles(baseline_bounds));
+        let idx = row * 4 + col;
+        if (handles[idx][0] - target_stage[0]).hypot(handles[idx][1] - target_stage[1]) <= 1e-6 {
+            return false;
+        }
+        handles[idx] = target_stage;
+
+        let bw = (baseline_bounds[2] - baseline_bounds[0]).max(1.0);
+        let bh = (baseline_bounds[3] - baseline_bounds[1]).max(1.0);
+        let uv_points: Vec<[f64; 2]> = handles
+            .iter()
+            .map(|[sx, sy]| {
+                [
+                    ((sx - baseline_bounds[0]) / bw).clamp(-4.0, 5.0),
+                    ((sy - baseline_bounds[1]) / bh).clamp(-4.0, 5.0),
+                ]
+            })
+            .collect();
+
+        let symbol = self.symbol_mut();
+        let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+            return false;
+        };
+        let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
+        let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) else {
+            return false;
+        };
+        let mut updated_els = Vec::new();
+        for (id, base_el) in &baseline_elements {
+            let Some(warped_el) = map_element_stage_points(base_el, 4, |pt| {
+                evaluate_envelope_4x4_ffd(pt, baseline_bounds, &handles)
+            }) else {
+                continue;
+            };
+            if let Some(slot) = key.elements.iter_mut().find(|e| &e.id == id) {
+                *slot = warped_el.clone();
+                updated_els.push(warped_el);
+            }
+            let mut fx = key
+                .vector_effects(id)
+                .cloned()
+                .unwrap_or(ElementVectorEffects {
+                    element_id: id.clone(),
+                    ..Default::default()
+                });
+            fx.envelope_warp = Some(EnvelopeWarp {
+                preset: EnvelopeWarpPreset::CustomGrid,
+                rows: 3,
+                cols: 3,
+                control_points: uv_points.clone(),
+                ..EnvelopeWarp::default()
+            });
+            key.set_vector_effects(fx);
+        }
+        if updated_els.is_empty() {
+            return false;
+        }
+        let new_hash = elements_hash(&updated_els);
+        if let Some(session) = self.vector.envelope_lattice_session.as_mut() {
+            session.handles_by_hash.insert(new_hash, handles);
+        }
+        true
+    }
+
+    /// Move a `(row, col)` handle of the `4x4` `Envelope` lattice to `target_stage` in 1 Undo step (`T-271`).
+    #[allow(dead_code)]
+    pub fn move_envelope_warp_handle(
+        &mut self,
+        row: usize,
+        col: usize,
+        target_stage: [f64; 2],
+    ) -> bool {
+        self.history.begin(&self.project);
+        if !self.apply_envelope_warp_handle_in_place(row, col, target_stage) {
+            return false;
+        }
+        self.commit_history();
+        true
+    }
+
+    /// Return the 4 (`2x2`) interactive `Perspective` corner handles `[TL, TR, BR, BL]` in Stage
+    /// coordinates for the selected vector shape(s) (`T-271`).
+    pub fn perspective_corners(&self) -> Option<[[f64; 2]; 4]> {
+        let els = self.selected_vector_elements_on_active_key();
+        if els.is_empty() {
+            return None;
+        }
+        let cur_hash = elements_hash(&els);
+        let el_ids: Vec<Id> = els.iter().map(|e| e.id.clone()).collect();
+        if let Some(session) = &self.vector.perspective_quad_session
+            && session.symbol_id == self.symbol_id()
+            && session.layer_idx == self.layer
+            && session.frame == self.frame
+            && session.element_ids == el_ids
+            && let Some(saved) = session.corners_by_hash.get(&cur_hash)
+        {
+            return Some(*saved);
+        }
+        let bounds = self.selected_vector_bounds_on_stage()?;
+        Some(default_perspective_2x2_corners(bounds))
+    }
+
+    /// Hit-test a Stage-space point against the 4 (`2x2`) `Perspective` corner handles (`0..4`) (`T-271`).
+    pub fn hit_test_perspective_corner(&self, stage_pt: [f64; 2], tolerance: f64) -> Option<usize> {
+        let corners = self.perspective_corners()?;
+        let tol_sq = tolerance.max(1.5).powi(2);
+        corners
+            .iter()
+            .enumerate()
+            .filter_map(|(i, pos)| {
+                let d2 = (pos[0] - stage_pt[0]).powi(2) + (pos[1] - stage_pt[1]).powi(2);
+                (d2 <= tol_sq).then_some((i, d2))
+            })
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, _)| i)
+    }
+
+    pub(crate) fn apply_perspective_corner_in_place(
+        &mut self,
+        corner: usize,
+        target_stage: [f64; 2],
+        symmetric_taper: bool,
+    ) -> bool {
+        if corner >= 4 || !target_stage[0].is_finite() || !target_stage[1].is_finite() {
+            return false;
+        }
+        let els = self.selected_vector_elements_on_active_key();
+        if els.is_empty() {
+            return false;
+        }
+        let symbol_id = self.symbol_id().to_owned();
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let el_ids: Vec<Id> = els.iter().map(|e| e.id.clone()).collect();
+        let cur_hash = elements_hash(&els);
+
+        let needs_init = self
+            .vector
+            .perspective_quad_session
+            .as_ref()
+            .is_none_or(|s| {
+                s.symbol_id != symbol_id
+                    || s.layer_idx != layer_idx
+                    || s.frame != frame
+                    || s.element_ids != el_ids
+                    || !s.corners_by_hash.contains_key(&cur_hash)
+            });
+        if needs_init {
+            let Some(bounds) = self.selected_vector_bounds_on_stage() else {
+                return false;
+            };
+            let initial_corners = default_perspective_2x2_corners(bounds);
+            let mut corners_by_hash = HashMap::new();
+            corners_by_hash.insert(cur_hash, initial_corners);
+            self.vector.perspective_quad_session = Some(PerspectiveQuadSession {
+                symbol_id: symbol_id.clone(),
+                layer_idx,
+                frame,
+                element_ids: el_ids.clone(),
+                baseline_bounds: bounds,
+                baseline_elements: els.iter().map(|e| (e.id.clone(), e.clone())).collect(),
+                corners_by_hash,
+            });
+        }
+
+        let Some(session) = self.vector.perspective_quad_session.as_ref() else {
+            return false;
+        };
+        let baseline_bounds = session.baseline_bounds;
+        let baseline_elements = session.baseline_elements.clone();
+        let mut corners = session
+            .corners_by_hash
+            .get(&cur_hash)
+            .copied()
+            .unwrap_or_else(|| default_perspective_2x2_corners(baseline_bounds));
+        if (corners[corner][0] - target_stage[0]).hypot(corners[corner][1] - target_stage[1])
+            <= 1e-6
+        {
+            return false;
+        }
+        let prev = corners[corner];
+        corners[corner] = target_stage;
+        if symmetric_taper {
+            let dx = target_stage[0] - prev[0];
+            let dy = target_stage[1] - prev[1];
+            let horiz_mirror = match corner {
+                0 => 1,
+                1 => 0,
+                2 => 3,
+                _ => 2,
+            };
+            let vert_mirror = match corner {
+                0 => 3,
+                1 => 2,
+                2 => 1,
+                _ => 0,
+            };
+            if dx.abs() >= dy.abs() {
+                corners[horiz_mirror][0] -= dx;
+                corners[horiz_mirror][1] += dy;
+            } else {
+                corners[vert_mirror][0] += dx;
+                corners[vert_mirror][1] -= dy;
+            }
+        }
+
+        let symbol = self.symbol_mut();
+        let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+            return false;
+        };
+        let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
+        let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) else {
+            return false;
+        };
+        let mut updated_els = Vec::new();
+        for (id, base_el) in &baseline_elements {
+            let Some(warped_el) = map_element_stage_points(base_el, 2, |pt| {
+                evaluate_perspective_quad_map(pt, baseline_bounds, &corners)
+            }) else {
+                continue;
+            };
+            if let Some(slot) = key.elements.iter_mut().find(|e| &e.id == id) {
+                *slot = warped_el.clone();
+                updated_els.push(warped_el);
+            }
+        }
+        if updated_els.is_empty() {
+            return false;
+        }
+        let new_hash = elements_hash(&updated_els);
+        if let Some(session) = self.vector.perspective_quad_session.as_mut() {
+            session.corners_by_hash.insert(new_hash, corners);
+        }
+        true
+    }
+
+    /// Move corner `corner` (`0..4`: TL, TR, BR, BL) of the `2x2` `Perspective` quad to `target_stage`
+    /// in 1 Undo step (`T-271`).
+    #[allow(dead_code)]
+    pub fn move_perspective_corner(&mut self, corner: usize, target_stage: [f64; 2]) -> bool {
+        self.history.begin(&self.project);
+        if !self.apply_perspective_corner_in_place(corner, target_stage, false) {
+            return false;
+        }
+        self.commit_history();
+        true
+    }
+
+    fn active_asset_warp_element_id(&self) -> Option<Id> {
+        if let Some(el) = self.selected_element() {
+            return Some(el.id.clone());
+        }
+        if let Some(target) = self.selection.targets.first() {
+            return Some(target.element.clone());
+        }
+        let layer = self.symbol().timeline.layers.get(self.layer)?;
+        let key = layer.key_at(self.frame)?;
+        key.elements
+            .iter()
+            .find(|e| !key.controller_elements.contains(&e.id))
+            .map(|e| e.id.clone())
+    }
+
+    /// Return the Stage-space `WarpPin`s `(pin_id, [stage_x, stage_y], kind)` for the selected
+    /// element (`T-271`).
+    pub fn asset_warp_stage_pins(&self) -> Vec<(Id, [f64; 2], WarpPinKind)> {
+        let Some(target_id) = self.active_asset_warp_element_id() else {
+            return Vec::new();
+        };
+        if let Some(layer) = self.symbol().timeline.layers.get(self.layer)
+            && let Some(key) = layer.key_at(self.frame)
+            && let Some(rig) = key.asset_warp(&target_id)
+        {
+            return rig
+                .pins
+                .iter()
+                .map(|p| (p.id.clone(), p.pos, p.kind))
+                .collect();
+        }
+        Vec::new()
+    }
+
+    /// Hit-test a Stage-space point against the active `WarpPin` handles (`T-271`).
+    pub fn hit_test_asset_warp_pin(&self, stage_pt: [f64; 2], tolerance: f64) -> Option<Id> {
+        let tol_sq = tolerance.max(1.5).powi(2);
+        self.asset_warp_stage_pins()
+            .into_iter()
+            .filter_map(|(id, pos, _)| {
+                let d2 = (pos[0] - stage_pt[0]).powi(2) + (pos[1] - stage_pt[1]).powi(2);
+                (d2 <= tol_sq).then_some((id, d2))
+            })
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(id, _)| id)
+    }
+
+    /// Re-evaluate the mesh deformation of `element_id` from its undeformed base shape and
+    /// active `WarpPin`s (`T-271`).
+    pub fn deform_shape_with_warp_pins(&mut self, element_id: &str) -> bool {
+        let symbol_id = self.symbol_id().to_owned();
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let pins: Vec<WarpPin> = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+            .and_then(|k| k.asset_warp(element_id))
+            .map(|r| r.pins.clone())
+            .unwrap_or_default();
+
+        let current_el = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+            .and_then(|k| k.elements.iter().find(|e| e.id == element_id))
+            .cloned();
+        let Some(current_el) = current_el else {
+            return false;
+        };
+        let base_key = (symbol_id, frame, element_id.to_owned());
+        let base_el = self
+            .vector
+            .asset_warp_base_elements
+            .entry(base_key)
+            .or_insert_with(|| current_el.clone())
+            .clone();
+
+        let warped_el = if pins.is_empty() {
+            base_el
+        } else {
+            let radius = element_stage_bounds(&base_el)
+                .map(|[x0, y0, x1, y1]| (x1 - x0).max(y1 - y0).max(40.0) * 0.75)
+                .unwrap_or(100.0);
+            let Some(el) = map_element_stage_points(&base_el, 4, |pt| {
+                deform_stage_point_with_asset_warp_pins(pt, &pins, radius)
+            }) else {
+                return false;
+            };
+            el
+        };
+
+        let symbol = self.symbol_mut();
+        let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+            return false;
+        };
+        let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
+        let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) else {
+            return false;
+        };
+        if let Some(slot) = key.elements.iter_mut().find(|e| e.id == element_id) {
+            *slot = warped_el;
+            return true;
+        }
+        false
+    }
+
+    pub(crate) fn add_asset_warp_pin_in_place(&mut self, stage_pt: [f64; 2]) -> Option<Id> {
+        if !stage_pt[0].is_finite() || !stage_pt[1].is_finite() {
+            return None;
+        }
+        let target_id = self.active_asset_warp_element_id()?;
+        let symbol_id = self.symbol_id().to_owned();
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        if let Some(el) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+            .and_then(|k| k.elements.iter().find(|e| e.id == target_id))
+            .cloned()
+        {
+            let has_existing_pins = self
+                .symbol()
+                .timeline
+                .layers
+                .get(layer_idx)
+                .and_then(|l| l.key_at(frame))
+                .and_then(|k| k.asset_warp(&target_id))
+                .is_some_and(|r| !r.pins.is_empty());
+            if !has_existing_pins {
+                self.vector
+                    .asset_warp_base_elements
+                    .insert((symbol_id, frame, target_id.clone()), el);
+            } else {
+                self.vector
+                    .asset_warp_base_elements
+                    .entry((symbol_id, frame, target_id.clone()))
+                    .or_insert(el);
+            }
+        }
+
+        let pin_id = new_id("wpin");
+        let new_pin = WarpPin {
+            id: pin_id.clone(),
+            kind: WarpPinKind::Open,
+            rest_pos: stage_pt,
+            pos: stage_pt,
+            rotation: 0.0,
+            stiffness: 1.0,
+        };
+        let symbol = self.symbol_mut();
+        let layer = symbol.timeline.layers.get_mut(layer_idx)?;
+        let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
+        let key = layer.keyframes.iter_mut().find(|k| k.frame == key_frame)?;
+        if let Some(rig) = key.asset_warp_mut(&target_id) {
+            if rig.pins.len() >= WarpPin::MAX_PINS {
+                return None;
+            }
+            rig.pins.push(new_pin);
+        } else {
+            key.set_asset_warp(AssetWarpRig {
+                element_id: target_id,
+                pins: vec![new_pin],
+                envelop_subdivisions: 4,
+            });
+        }
+        self.vector.selected_warp_pin = Some(pin_id.clone());
+        Some(pin_id)
+    }
+
+    /// Add a new `WarpPin` at `stage_pt` on the selected shape/element in 1 Undo step (`T-271`).
+    #[allow(dead_code)]
+    pub fn add_asset_warp_pin(&mut self, stage_pt: [f64; 2]) -> Option<Id> {
+        self.history.begin(&self.project);
+        let pin_id = self.add_asset_warp_pin_in_place(stage_pt)?;
+        self.commit_history();
+        Some(pin_id)
+    }
+
+    pub(crate) fn apply_asset_warp_pin_in_place(
+        &mut self,
+        pin_id: &str,
+        stage_pt: [f64; 2],
+    ) -> bool {
+        if !stage_pt[0].is_finite() || !stage_pt[1].is_finite() {
+            return false;
+        }
+        let symbol_id = self.symbol_id().to_owned();
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let mut target_element_id: Option<Id> = None;
+
+        if let Some(el_id) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+            .and_then(|k| {
+                k.asset_warps
+                    .iter()
+                    .find(|r| r.pins.iter().any(|p| p.id == pin_id))
+                    .map(|r| r.element_id.clone())
+            })
+            && let Some(el) = self
+                .symbol()
+                .timeline
+                .layers
+                .get(layer_idx)
+                .and_then(|l| l.key_at(frame))
+                .and_then(|k| k.elements.iter().find(|e| e.id == el_id))
+                .cloned()
+        {
+            self.vector
+                .asset_warp_base_elements
+                .entry((symbol_id, frame, el_id))
+                .or_insert(el);
+        }
+
+        let mut moved = false;
+        {
+            let symbol = self.symbol_mut();
+            if let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) {
+                let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
+                if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                    for rig in &mut key.asset_warps {
+                        if let Some(pin) = rig.pins.iter_mut().find(|p| p.id == pin_id) {
+                            if (pin.pos[0] - stage_pt[0]).hypot(pin.pos[1] - stage_pt[1]) > 1e-6 {
+                                pin.pos = stage_pt;
+                                moved = true;
+                            }
+                            target_element_id = Some(rig.element_id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        if !moved {
+            return false;
+        }
+        self.vector.selected_warp_pin = Some(pin_id.to_owned());
+        if let Some(el_id) = target_element_id {
+            let _ = self.deform_shape_with_warp_pins(&el_id);
+        }
+        true
+    }
+
+    /// Move an existing `WarpPin` to `stage_pt` and deform the bound shape in 1 Undo step (`T-271`).
+    #[allow(dead_code)]
+    pub fn move_asset_warp_pin(&mut self, pin_id: &str, stage_pt: [f64; 2]) -> bool {
+        self.history.begin(&self.project);
+        if !self.apply_asset_warp_pin_in_place(pin_id, stage_pt) {
+            return false;
+        }
+        self.commit_history();
+        true
+    }
+
+    /// Remove `pin_id` from the active `AssetWarpRig` and update the shape mesh in 1 Undo step (`T-271`).
+    pub fn remove_asset_warp_pin(&mut self, pin_id: &str) -> bool {
+        self.history.begin(&self.project);
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let mut target_element_id: Option<Id> = None;
+        let mut removed = false;
+        {
+            let symbol = self.symbol_mut();
+            if let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) {
+                let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
+                if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                    for rig in &mut key.asset_warps {
+                        let before_len = rig.pins.len();
+                        rig.pins.retain(|p| p.id != pin_id);
+                        if rig.pins.len() != before_len {
+                            removed = true;
+                            target_element_id = Some(rig.element_id.clone());
+                        }
+                    }
+                    key.asset_warps.retain(|r| !r.pins.is_empty());
+                }
+            }
+        }
+        if !removed {
+            return false;
+        }
+        if self.vector.selected_warp_pin.as_deref() == Some(pin_id) {
+            self.vector.selected_warp_pin = None;
+        }
+        if let Some(el_id) = target_element_id {
+            let _ = self.deform_shape_with_warp_pins(&el_id);
+        }
+        self.commit_history();
+        true
+    }
+
+    /// Return `(armature_id, bone_id, head_stage, tail_stage, world_angle_deg)` for all `IkBone`s
+    /// on the active keyframe (`T-271`).
+    #[allow(clippy::type_complexity)]
+    pub fn ik_bone_stage_poses(&self) -> Vec<(Id, Id, [f64; 2], [f64; 2], f64)> {
+        let Some(layer) = self.symbol().timeline.layers.get(self.layer) else {
+            return Vec::new();
+        };
+        let Some(key) = layer.key_at(self.frame) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for arm in &key.ik_armatures {
+            for (bone_id, head, tail, world_angle) in compute_bone_world_poses(arm, &key.elements) {
+                out.push((arm.id.clone(), bone_id, head, tail, world_angle));
+            }
+        }
+        out
+    }
+
+    /// Hit-test a Stage-space point against `IkBone` gizmos, returning
+    /// `Some((armature_id, bone_id, is_tail_effector))` (`T-271`).
+    pub fn hit_test_ik_bone_gizmo(
+        &self,
+        stage_pt: [f64; 2],
+        tolerance: f64,
+    ) -> Option<(Id, Id, bool)> {
+        let tol = tolerance.max(2.0);
+        let tol_sq = tol * tol;
+        let poses = self.ik_bone_stage_poses();
+        // 1. Prioritize bone tails / effectors
+        if let Some((arm_id, bone_id, _)) = poses
+            .iter()
+            .filter_map(|(arm_id, bone_id, _, tail, _)| {
+                let d2 = (tail[0] - stage_pt[0]).powi(2) + (tail[1] - stage_pt[1]).powi(2);
+                (d2 <= tol_sq).then_some((arm_id.clone(), bone_id.clone(), d2))
+            })
+            .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
+        {
+            return Some((arm_id, bone_id, true));
+        }
+        // 2. Next check bone heads / joints
+        if let Some((arm_id, bone_id, _)) = poses
+            .iter()
+            .filter_map(|(arm_id, bone_id, head, _, _)| {
+                let d2 = (head[0] - stage_pt[0]).powi(2) + (head[1] - stage_pt[1]).powi(2);
+                (d2 <= tol_sq).then_some((arm_id.clone(), bone_id.clone(), d2))
+            })
+            .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
+        {
+            return Some((arm_id, bone_id, false));
+        }
+        // 3. Check bone body segment distance
+        poses
+            .into_iter()
+            .filter_map(|(arm_id, bone_id, head, tail, _)| {
+                let vx = tail[0] - head[0];
+                let vy = tail[1] - head[1];
+                let len_sq = vx * vx + vy * vy;
+                let t = if len_sq > 1e-9 {
+                    (((stage_pt[0] - head[0]) * vx + (stage_pt[1] - head[1]) * vy) / len_sq)
+                        .clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let proj = [head[0] + vx * t, head[1] + vy * t];
+                let d2 = (proj[0] - stage_pt[0]).powi(2) + (proj[1] - stage_pt[1]).powi(2);
+                (d2 <= tol_sq).then_some((arm_id, bone_id, t >= 0.5, d2))
+            })
+            .min_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(arm_id, bone_id, is_tail, _)| (arm_id, bone_id, is_tail))
+    }
+
+    /// Create a new `IkBone` between `start_stage` and `end_stage` in 1 Undo step (`T-271`).
+    pub fn create_ik_bone_on_stage(
+        &mut self,
+        start_stage: [f64; 2],
+        end_stage: [f64; 2],
+    ) -> Option<(Id, Id)> {
+        if !start_stage[0].is_finite()
+            || !start_stage[1].is_finite()
+            || !end_stage[0].is_finite()
+            || !end_stage[1].is_finite()
+        {
+            return None;
+        }
+        let dx = end_stage[0] - start_stage[0];
+        let dy = end_stage[1] - start_stage[1];
+        let length = dx.hypot(dy).max(16.0);
+        let world_angle = dy.atan2(dx).to_degrees();
+
+        self.history.begin(&self.project);
+        let parent_hit = self
+            .ik_bone_stage_poses()
+            .into_iter()
+            .filter_map(|(arm_id, bone_id, _head, tail, _angle)| {
+                let d = (tail[0] - start_stage[0]).hypot(tail[1] - start_stage[1]);
+                (d <= 28.0).then_some((arm_id, bone_id, d))
+            })
+            .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let bone_id = new_id("ikbone");
+        let bone_el_id = new_id("ikjoint");
+
+        let arm_id = {
+            let symbol = self.symbol_mut();
+            let layer = symbol.timeline.layers.get_mut(layer_idx)?;
+            let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
+            let key = layer.keyframes.iter_mut().find(|k| k.frame == key_frame)?;
+
+            key.elements.push(Element {
+                id: bone_el_id.clone(),
+                name: format!("Bone {}", key.controller_elements.len() + 1),
+                transform: Transform {
+                    x: start_stage[0],
+                    y: start_stage[1],
+                    rotation: world_angle,
+                    alpha: 0.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Path {
+                    commands: vec![
+                        PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                        PathCommand::LineTo { x: 1.0, y: 0.0 },
+                    ],
+                    fill_rule: FillRule::NonZero,
+                    fill: [0, 0, 0, 0],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            });
+            key.controller_elements.push(bone_el_id.clone());
+
+            if let Some((arm_id, parent_id, _)) = parent_hit
+                && let Some(arm) = key.ik_armatures.iter_mut().find(|a| a.id == arm_id)
+            {
+                arm.bones.push(IkBone {
+                    id: bone_id.clone(),
+                    element_id: bone_el_id,
+                    parent_bone_id: Some(parent_id),
+                    length,
+                    min_angle: None,
+                    max_angle: None,
+                    stiffness: 1.0,
+                });
+                arm.effector_bone_id = bone_id.clone();
+                arm.target_pos = end_stage;
+                arm_id
+            } else if let Some(arm) = key.ik_armatures.first_mut() {
+                let last_bone_id = arm.bones.last().map(|b| b.id.clone());
+                arm.bones.push(IkBone {
+                    id: bone_id.clone(),
+                    element_id: bone_el_id,
+                    parent_bone_id: last_bone_id,
+                    length,
+                    min_angle: None,
+                    max_angle: None,
+                    stiffness: 1.0,
+                });
+                arm.effector_bone_id = bone_id.clone();
+                arm.target_pos = end_stage;
+                arm.id.clone()
+            } else {
+                let new_arm_id = new_id("arm");
+                key.ik_armatures.push(IkArmature {
+                    id: new_arm_id.clone(),
+                    name: "Armature 1".into(),
+                    bones: vec![IkBone {
+                        id: bone_id.clone(),
+                        element_id: bone_el_id,
+                        parent_bone_id: None,
+                        length,
+                        min_angle: None,
+                        max_angle: None,
+                        stiffness: 1.0,
+                    }],
+                    effector_bone_id: bone_id.clone(),
+                    target_pos: end_stage,
+                    pole_pos: None,
+                });
+                new_arm_id
+            }
+        };
+
+        let poses: Vec<(Id, [f64; 2], [f64; 2], f64)> = self
+            .ik_bone_stage_poses()
+            .into_iter()
+            .filter(|(a_id, _, _, _, _)| a_id == &arm_id)
+            .map(|(_, b_id, h, t, ang)| (b_id, h, t, ang))
+            .collect();
+        let symbol_id = self.symbol_id().to_owned();
+        for el in self.selected_vector_elements_on_active_key() {
+            self.vector.ik_base_elements.insert(
+                (symbol_id.clone(), frame, el.id.clone()),
+                (el, poses.clone()),
+            );
+        }
+
+        self.vector.selected_ik_bone = Some(bone_id.clone());
+        self.commit_history();
+        Some((arm_id, bone_id))
+    }
+
+    fn parse_armature_bound_vertices(arm_name: &str) -> HashMap<Id, Vec<(usize, Id, f64, f64)>> {
+        let mut out: HashMap<Id, Vec<(usize, Id, f64, f64)>> = HashMap::new();
+        let Some((_, meta)) = arm_name.split_once("|bind:") else {
+            return out;
+        };
+        for entry in meta.split(';') {
+            let parts: Vec<&str> = entry.split(',').collect();
+            if parts.len() == 5
+                && let Ok(v_idx) = parts[1].parse::<usize>()
+                && let Ok(ox) = parts[3].parse::<f64>()
+                && let Ok(oy) = parts[4].parse::<f64>()
+            {
+                out.entry(parts[0].to_owned()).or_default().push((
+                    v_idx,
+                    parts[2].to_owned(),
+                    ox,
+                    oy,
+                ));
+            }
+        }
+        out
+    }
+
+    fn encode_armature_bound_vertices(
+        base_name: &str,
+        bindings: &HashMap<Id, Vec<(usize, Id, f64, f64)>>,
+    ) -> String {
+        let clean_base = base_name
+            .split_once("|bind:")
+            .map(|(b, _)| b)
+            .unwrap_or(base_name);
+        let mut entries = Vec::new();
+        let mut shape_ids: Vec<&Id> = bindings.keys().collect();
+        shape_ids.sort();
+        for shape_id in shape_ids {
+            if let Some(list) = bindings.get(shape_id) {
+                for (v_idx, bone_id, ox, oy) in list {
+                    entries.push(format!("{shape_id},{v_idx},{bone_id},{ox:.4},{oy:.4}"));
+                }
+            }
+        }
+        if entries.is_empty() {
+            clean_base.to_owned()
+        } else {
+            format!("{clean_base}|bind:{}", entries.join(";"))
+        }
+    }
+
+    fn apply_ik_pose_to_scene_in_place(&mut self, armature_id: &str) {
+        let symbol_id = self.symbol_id().to_owned();
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let Some(key_snapshot) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+            .cloned()
+        else {
+            return;
+        };
+        let Some(arm) = key_snapshot
+            .ik_armatures
+            .iter()
+            .find(|a| a.id == armature_id)
+            .cloned()
+        else {
+            return;
+        };
+        let current_poses = compute_bone_world_poses(&arm, &key_snapshot.elements);
+        if current_poses.is_empty() {
+            return;
+        }
+        let explicit_vertex_bindings = Self::parse_armature_bound_vertices(&arm.name);
+
+        let mut deformed_shapes: Vec<(Id, Element)> = Vec::new();
+        for el in &key_snapshot.elements {
+            if key_snapshot.controller_elements.contains(&el.id) || el.to_path_commands().is_none()
+            {
+                continue;
+            }
+            let base_key = (symbol_id.clone(), frame, el.id.clone());
+            let (base_el, rest_poses) = self
+                .vector
+                .ik_base_elements
+                .entry(base_key)
+                .or_insert_with(|| (el.clone(), current_poses.clone()))
+                .clone();
+
+            if let Some(v_bindings) = explicit_vertex_bindings.get(&el.id)
+                && !v_bindings.is_empty()
+            {
+                let Some(mut cmds) = editable_element_commands(&base_el)
+                    .or_else(|| base_el.to_path_commands().map(|(c, _)| c))
+                else {
+                    continue;
+                };
+                let mat = transform_matrix(base_el.transform);
+                let anchor_cmds: Vec<usize> = cmds
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, cmd)| (!matches!(cmd, PathCommand::Close)).then_some(i))
+                    .collect();
+                for &(v_idx, ref bone_id, rest_ox, rest_oy) in v_bindings {
+                    let Some(&cmd_idx) = anchor_cmds.get(v_idx).or(Some(&v_idx)) else {
+                        continue;
+                    };
+                    let Some((_, head, _, world_angle)) =
+                        current_poses.iter().find(|(id, _, _, _)| id == bone_id)
+                    else {
+                        continue;
+                    };
+                    let rad = world_angle.to_radians();
+                    let c = rad.cos();
+                    let s = rad.sin();
+                    let stage_x = head[0] + rest_ox * c - rest_oy * s;
+                    let stage_y = head[1] + rest_ox * s + rest_oy * c;
+                    let [lx, ly] = if let Some((lx, ly)) = inverse_f64(mat, stage_x, stage_y) {
+                        [lx, ly]
+                    } else {
+                        [stage_x - base_el.transform.x, stage_y - base_el.transform.y]
+                    };
+                    if let Some(cur_anchor) = crate::vector::handles(&cmds)
+                        .into_iter()
+                        .find(|h| h.command == cmd_idx && h.role == PointRole::Anchor)
+                    {
+                        let delta = Pos2::new(lx as f32, ly as f32) - cur_anchor.point;
+                        move_selected_anchors(&mut cmds, &[cmd_idx], delta);
+                    }
+                }
+                let mut updated = base_el.clone();
+                write_editable_element_commands(&mut updated, cmds);
+                deformed_shapes.push((el.id.clone(), updated));
+                continue;
+            }
+
+            if !rest_poses.is_empty() {
+                let Some(warped) = map_element_stage_points(&base_el, 4, |pt| {
+                    let mut w_sum = 0.0;
+                    let mut out_x = 0.0;
+                    let mut out_y = 0.0;
+                    for (bone_id, cur_head, _, cur_angle) in &current_poses {
+                        let Some((_, rest_head, rest_tail, rest_angle)) =
+                            rest_poses.iter().find(|(id, _, _, _)| id == bone_id)
+                        else {
+                            continue;
+                        };
+                        let vx = rest_tail[0] - rest_head[0];
+                        let vy = rest_tail[1] - rest_head[1];
+                        let len_sq = vx * vx + vy * vy;
+                        let t = if len_sq > 1e-9 {
+                            (((pt[0] - rest_head[0]) * vx + (pt[1] - rest_head[1]) * vy) / len_sq)
+                                .clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        };
+                        let proj = [rest_head[0] + vx * t, rest_head[1] + vy * t];
+                        let d2 = (pt[0] - proj[0]).powi(2) + (pt[1] - proj[1]).powi(2);
+                        let w = 1.0 / (d2 + 16.0);
+                        let r_rad = rest_angle.to_radians();
+                        let rc = r_rad.cos();
+                        let rs = r_rad.sin();
+                        let rel_x = pt[0] - rest_head[0];
+                        let rel_y = pt[1] - rest_head[1];
+                        let local_x = rel_x * rc + rel_y * rs;
+                        let local_y = -rel_x * rs + rel_y * rc;
+                        let c_rad = cur_angle.to_radians();
+                        let cc = c_rad.cos();
+                        let cs = c_rad.sin();
+                        let mapped_x = cur_head[0] + local_x * cc - local_y * cs;
+                        let mapped_y = cur_head[1] + local_x * cs + local_y * cc;
+                        out_x += mapped_x * w;
+                        out_y += mapped_y * w;
+                        w_sum += w;
+                    }
+                    if w_sum > 1e-9 {
+                        [out_x / w_sum, out_y / w_sum]
+                    } else {
+                        pt
+                    }
+                }) else {
+                    continue;
+                };
+                deformed_shapes.push((el.id.clone(), warped));
+            }
+        }
+
+        let symbol = self.symbol_mut();
+        let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+            return;
+        };
+        let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
+        let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) else {
+            return;
+        };
+        for (id, warped) in deformed_shapes {
+            if let Some(slot) = key.elements.iter_mut().find(|e| e.id == id) {
+                *slot = warped;
+            }
+        }
+    }
+
+    pub(crate) fn apply_ik_bone_effector_in_place(
+        &mut self,
+        armature_id: &str,
+        bone_id: &str,
+        target_stage: [f64; 2],
+    ) -> bool {
+        if !target_stage[0].is_finite() || !target_stage[1].is_finite() {
+            return false;
+        }
+        let initial_poses: Vec<(Id, [f64; 2], [f64; 2], f64)> = self
+            .ik_bone_stage_poses()
+            .into_iter()
+            .filter(|(a_id, _, _, _, _)| a_id == armature_id)
+            .map(|(_, b_id, h, t, ang)| (b_id, h, t, ang))
+            .collect();
+        let symbol_id = self.symbol_id().to_owned();
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        for el in self.selected_vector_elements_on_active_key() {
+            self.vector
+                .ik_base_elements
+                .entry((symbol_id.clone(), frame, el.id.clone()))
+                .or_insert_with(|| (el, initial_poses.clone()));
+        }
+
+        let solved = {
+            let symbol = self.symbol_mut();
+            let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+                return false;
+            };
+            let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
+            let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) else {
+                return false;
+            };
+            let Some(arm) = key.ik_armatures.iter_mut().find(|a| a.id == armature_id) else {
+                return false;
+            };
+            if !arm.bones.iter().any(|b| b.id == bone_id) {
+                return false;
+            }
+            arm.effector_bone_id = bone_id.to_owned();
+            arm.target_pos = target_stage;
+            let arm_clone = arm.clone();
+            solve_ik_armature_fabrik_ccd(&mut key.elements, &arm_clone, &[]);
+            true
+        };
+        if !solved {
+            return false;
+        }
+        self.vector.selected_ik_bone = Some(bone_id.to_owned());
+        self.apply_ik_pose_to_scene_in_place(armature_id);
+        true
+    }
+
+    /// Drag an `IkBone` joint/effector to `target_stage`, solve inverse kinematics, and update
+    /// bound elements/shapes in 1 Undo step (`T-271`).
+    #[allow(dead_code)]
+    pub fn move_ik_bone_effector(
+        &mut self,
+        armature_id: &str,
+        bone_id: &str,
+        target_stage: [f64; 2],
+    ) -> bool {
+        self.history.begin(&self.project);
+        if !self.apply_ik_bone_effector_in_place(armature_id, bone_id, target_stage) {
+            return false;
+        }
+        self.commit_history();
+        true
+    }
+
+    /// Solve IK for `armature_id`'s active or leaf effector bone toward `target_stage` in 1 Undo step (`T-271`).
+    #[allow(dead_code)]
+    pub fn pose_ik_armature(&mut self, armature_id: &str, target_stage: [f64; 2]) -> bool {
+        let poses = self.ik_bone_stage_poses();
+        let bone_id = self
+            .vector
+            .selected_ik_bone
+            .clone()
+            .filter(|sel| {
+                poses
+                    .iter()
+                    .any(|(a_id, b_id, _, _, _)| a_id == armature_id && b_id == sel)
+            })
+            .or_else(|| {
+                poses
+                    .iter()
+                    .rev()
+                    .find(|(a_id, _, _, _, _)| a_id == armature_id)
+                    .map(|(_, b_id, _, _, _)| b_id.clone())
+            });
+        let Some(bone_id) = bone_id else {
+            return false;
+        };
+        self.move_ik_bone_effector(armature_id, &bone_id, target_stage)
+    }
+
+    /// Solve the active IK chain toward `target_stage` in 1 Undo step (`T-271`).
+    #[allow(dead_code)]
+    pub fn solve_ik_chain(&mut self, target_stage: [f64; 2]) -> bool {
+        let Some((arm_id, _, _, _, _)) = self.ik_bone_stage_poses().into_iter().next() else {
+            return false;
+        };
+        self.pose_ik_armature(&arm_id, target_stage)
+    }
+
+    pub(crate) fn apply_bind_stage_point_in_place(
+        &mut self,
+        stage_pt: [f64; 2],
+        unbind: bool,
+    ) -> bool {
+        if !stage_pt[0].is_finite() || !stage_pt[1].is_finite() {
+            return false;
+        }
+        let poses = self.ik_bone_stage_poses();
+        if poses.is_empty() {
+            return false;
+        }
+
+        let chosen_bone = self
+            .vector
+            .selected_ik_bone
+            .as_ref()
+            .and_then(|sel| poses.iter().find(|(_, b_id, _, _, _)| b_id == sel).cloned())
+            .or_else(|| {
+                poses
+                    .iter()
+                    .map(|pose| {
+                        let (_, _, head, tail, _) = pose;
+                        let vx = tail[0] - head[0];
+                        let vy = tail[1] - head[1];
+                        let len_sq = vx * vx + vy * vy;
+                        let t = if len_sq > 1e-9 {
+                            (((stage_pt[0] - head[0]) * vx + (stage_pt[1] - head[1]) * vy) / len_sq)
+                                .clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        };
+                        let proj = [head[0] + vx * t, head[1] + vy * t];
+                        let d2 = (proj[0] - stage_pt[0]).powi(2) + (proj[1] - stage_pt[1]).powi(2);
+                        (pose.clone(), d2)
+                    })
+                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(p, _)| p)
+            });
+        let Some((arm_id, bone_id, bone_head, _bone_tail, bone_angle)) = chosen_bone else {
+            return false;
+        };
+        self.vector.selected_ik_bone = Some(bone_id.clone());
+
+        let els = self.selected_vector_elements_on_active_key();
+        let Some(el) = els.first().cloned() else {
+            return false;
+        };
+        let Some(cmds) =
+            editable_element_commands(&el).or_else(|| el.to_path_commands().map(|(c, _)| c))
+        else {
+            return false;
+        };
+        let mat = transform_matrix(el.transform);
+        let mut anchor_pts: Vec<(usize, [f64; 2])> = Vec::new();
+        for cmd in &cmds {
+            let pt = match *cmd {
+                PathCommand::MoveTo { x, y }
+                | PathCommand::LineTo { x, y }
+                | PathCommand::QuadraticTo { x, y, .. }
+                | PathCommand::CubicTo { x, y, .. } => {
+                    let sx = mat[0] * x + mat[2] * y + mat[4];
+                    let sy = mat[1] * x + mat[3] * y + mat[5];
+                    Some([sx, sy])
+                }
+                PathCommand::Close => None,
+            };
+            if let Some(p) = pt {
+                let idx = anchor_pts.len();
+                anchor_pts.push((idx, p));
+            }
+        }
+        let Some(&(v_idx, v_pos)) = anchor_pts.iter().min_by(|a, b| {
+            let da = (a.1[0] - stage_pt[0]).powi(2) + (a.1[1] - stage_pt[1]).powi(2);
+            let db = (b.1[0] - stage_pt[0]).powi(2) + (b.1[1] - stage_pt[1]).powi(2);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        }) else {
+            return false;
+        };
+
+        let symbol_id = self.symbol_id().to_owned();
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let arm_poses: Vec<(Id, [f64; 2], [f64; 2], f64)> = poses
+            .into_iter()
+            .filter(|(a, _, _, _, _)| a == &arm_id)
+            .map(|(_, b, h, t, ang)| (b, h, t, ang))
+            .collect();
+        self.vector
+            .ik_base_elements
+            .entry((symbol_id, frame, el.id.clone()))
+            .or_insert_with(|| (el.clone(), arm_poses));
+
+        let rad = bone_angle.to_radians();
+        let c = rad.cos();
+        let s = rad.sin();
+        let rel_x = v_pos[0] - bone_head[0];
+        let rel_y = v_pos[1] - bone_head[1];
+        let rest_offset_x = rel_x * c + rel_y * s;
+        let rest_offset_y = -rel_x * s + rel_y * c;
+
+        let symbol = self.symbol_mut();
+        let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+            return false;
+        };
+        let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
+        let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) else {
+            return false;
+        };
+        let Some(arm) = key.ik_armatures.iter_mut().find(|a| a.id == arm_id) else {
+            return false;
+        };
+        let mut map = Self::parse_armature_bound_vertices(&arm.name);
+        let list = map.entry(el.id.clone()).or_default();
+        let mut changed = false;
+        if unbind {
+            let before_len = list.len();
+            list.retain(|(vi, bid, _, _)| !(*vi == v_idx && bid == &bone_id));
+            changed = list.len() != before_len;
+        } else if let Some(existing) = list.iter_mut().find(|(vi, _, _, _)| *vi == v_idx) {
+            if existing.1 != bone_id {
+                existing.1 = bone_id;
+                existing.2 = rest_offset_x;
+                existing.3 = rest_offset_y;
+                changed = true;
+            }
+        } else {
+            list.push((v_idx, bone_id, rest_offset_x, rest_offset_y));
+            changed = true;
+        }
+        if changed {
+            arm.name = Self::encode_armature_bound_vertices(&arm.name, &map);
+        }
+        changed
+    }
+
+    /// Bind or unbind the nearest contour vertex of the selected shape at `stage_pt` to the
+    /// active/nearest `IkBone` in 1 Undo step (`T-271`).
+    #[allow(dead_code)]
+    pub fn bind_stage_point_to_bone(&mut self, stage_pt: [f64; 2], unbind: bool) -> bool {
+        self.history.begin(&self.project);
+        if !self.apply_bind_stage_point_in_place(stage_pt, unbind) {
+            return false;
+        }
+        self.commit_history();
+        true
+    }
+
+    /// Return the sorted list of contour vertex indices of `shape_id` bound to `bone_id` (`T-271`).
+    pub fn bound_vertices_for_bone(&self, shape_id: &str, bone_id: &str) -> Vec<usize> {
+        let Some(layer) = self.symbol().timeline.layers.get(self.layer) else {
+            return Vec::new();
+        };
+        let Some(key) = layer.key_at(self.frame) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for arm in &key.ik_armatures {
+            let map = Self::parse_armature_bound_vertices(&arm.name);
+            if let Some(list) = map.get(shape_id) {
+                for (v_idx, bid, _, _) in list {
+                    if bid == bone_id {
+                        out.push(*v_idx);
+                    }
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
     }
 }
 

@@ -1106,4 +1106,340 @@ mod tests {
             "TypeScript toolbox should include `interface` entry"
         );
     }
+
+    #[test]
+    fn actions_live_debugger_conditional_breakpoints_watch_expressions_and_variable_editing() {
+        use crate::sources::{BreakpointSpec, DebuggerScope, DebuggerVariable};
+
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut project = Project::blank();
+        project.symbols[0].timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "var score:Number = 0;\nif (score >= 10) {\n    trace(score);\n}\n".into(),
+            },
+        });
+        let mut editor = Editor::from_project(&ctx, project);
+        let tab_key = format!("{} : Frame 1", editor.symbol().name);
+
+        // 1. Configure conditional breakpoint with hit-count threshold in the open script tab
+        assert!(editor.toggle_breakpoint(&tab_key, 3));
+        assert!(editor.set_breakpoint_condition(&tab_key, 3, Some("score >= 10".into())));
+        assert!(editor.set_breakpoint_hit_count_target(&tab_key, 3, Some(2)));
+        assert_eq!(
+            editor.breakpoint_spec(&tab_key, 3),
+            Some(
+                BreakpointSpec::new(3)
+                    .with_condition("score >= 10")
+                    .with_hit_count_target(2)
+            )
+        );
+
+        // 2. Stepping while condition is false (`score == 5`) does not pause and does not increment hit count
+        assert!(!editor.evaluate_debugger_step(
+            &tab_key,
+            3,
+            vec![DebuggerScope {
+                name: "Local".into(),
+                variables: vec![
+                    DebuggerVariable::scalar("score", "5", "Number"),
+                    DebuggerVariable::object(
+                        "player",
+                        "Object",
+                        vec![DebuggerVariable::object(
+                            "stats",
+                            "Object",
+                            vec![DebuggerVariable::scalar("hp", "80", "Number")],
+                        )],
+                    ),
+                ],
+            }],
+        ));
+        assert_eq!(editor.breakpoint_spec(&tab_key, 3).unwrap().hit_count, 0);
+
+        // 3. First hit where condition is true (`score == 12`) increments hit_count to 1, below target 2 -> no pause
+        assert!(!editor.evaluate_debugger_step(
+            &tab_key,
+            3,
+            vec![DebuggerScope {
+                name: "Local".into(),
+                variables: vec![
+                    DebuggerVariable::scalar("score", "12", "Number"),
+                    DebuggerVariable::object(
+                        "player",
+                        "Object",
+                        vec![DebuggerVariable::object(
+                            "stats",
+                            "Object",
+                            vec![DebuggerVariable::scalar("hp", "80", "Number")],
+                        )],
+                    ),
+                ],
+            }],
+        ));
+        assert_eq!(editor.breakpoint_spec(&tab_key, 3).unwrap().hit_count, 1);
+
+        // 4. Second hit where condition is true (`score == 15`) reaches hit_count_target == 2 -> pauses!
+        assert!(editor.evaluate_debugger_step(
+            &tab_key,
+            3,
+            vec![DebuggerScope {
+                name: "Local".into(),
+                variables: vec![
+                    DebuggerVariable::scalar("score", "15", "Number"),
+                    DebuggerVariable::object(
+                        "player",
+                        "Object",
+                        vec![DebuggerVariable::object(
+                            "stats",
+                            "Object",
+                            vec![DebuggerVariable::scalar("hp", "80", "Number")],
+                        )],
+                    ),
+                ],
+            }],
+        ));
+        assert_eq!(editor.breakpoint_spec(&tab_key, 3).unwrap().hit_count, 2);
+
+        // Disabling the breakpoint prevents pausing even when condition & hit target are met
+        assert!(editor.set_breakpoint_enabled(&tab_key, 3, false));
+        assert!(!editor.should_pause_at_breakpoint(&tab_key, 3));
+        assert!(editor.set_breakpoint_enabled(&tab_key, 3, true));
+
+        // 5. Watch expressions & live variable editing through the Actions debugger UI
+        editor.set_debugger_watch_draft("player.stats.hp + score");
+        editor.set_debugger_variable_edit_draft("player.stats.hp", "100");
+
+        let render = |ed: &mut Editor, events: Vec<egui::Event>| -> egui::FullOutput {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 720.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ed.actions_contents(ui);
+                    });
+                },
+            )
+        };
+
+        let out = render(&mut editor, vec![]);
+        let find_button_center = |output: &egui::FullOutput, label: &str| -> egui::Pos2 {
+            let b = output
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some(label))
+                .unwrap_or_else(|| panic!("expected button `{label}` in Actions debugger UI"))
+                .1
+                .bounds()
+                .unwrap();
+            egui::pos2(((b.x0 + b.x1) * 0.5) as f32, ((b.y0 + b.y1) * 0.5) as f32)
+        };
+
+        // Click "Add watch" button in the Actions debugger UI
+        let add_pos = find_button_center(&out, "Add watch");
+        let _ = render(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(add_pos),
+                egui::Event::PointerButton {
+                    pos: add_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let out = render(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: add_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert_eq!(editor.debugger_watches().len(), 1);
+        assert_eq!(editor.debugger_watches()[0].last_value, "95");
+
+        // Click "Set value" button in the Actions debugger UI to mutate `player.stats.hp` to 100
+        let set_pos = find_button_center(&out, "Set value");
+        let _ = render(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(set_pos),
+                egui::Event::PointerButton {
+                    pos: set_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let _ = render(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: set_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert_eq!(
+            editor
+                .inspect_debugger_variable_path(0, "player.stats.hp")
+                .unwrap()
+                .value,
+            "100"
+        );
+        assert_eq!(editor.debugger_watches()[0].last_value, "115");
+        editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn actions_code_folding_and_code_assist_triggers_end_to_end() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let src = "function update():void {\n    if (true) {\n        trace(1);\n    }\n}\n";
+        let mut project = Project::blank();
+        project.symbols[0].timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: src.into(),
+            },
+        });
+        let mut editor = Editor::from_project(&ctx, project);
+
+        let render = |ed: &mut Editor, events: Vec<egui::Event>| -> egui::FullOutput {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 640.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ed.actions_contents(ui);
+                    });
+                },
+            )
+        };
+
+        let out = render(&mut editor, vec![]);
+        let button_center = |output: &egui::FullOutput, label: &str| -> egui::Pos2 {
+            let b = output
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some(label))
+                .unwrap_or_else(|| panic!("expected `{label}` button in Actions toolbar"))
+                .1
+                .bounds()
+                .unwrap();
+            egui::pos2(((b.x0 + b.x1) * 0.5) as f32, ((b.y0 + b.y1) * 0.5) as f32)
+        };
+
+        // 1. Click "Collapse between braces" in the Actions toolbar
+        let collapse_pos = button_center(&out, "Collapse between braces");
+        let _ = render(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(collapse_pos),
+                egui::Event::PointerButton {
+                    pos: collapse_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let out = render(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: collapse_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(!editor.folded_lines().is_empty());
+        assert!(editor.visible_source_lines(src).len() < src.lines().count());
+
+        // 2. Click "Expand all" in the Actions toolbar
+        let expand_pos = button_center(&out, "Expand all");
+        let _ = render(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(expand_pos),
+                egui::Event::PointerButton {
+                    pos: expand_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let out = render(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: expand_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(editor.folded_lines().is_empty());
+
+        // 3. Click "Show code hint" in the Actions toolbar and insert via Script assist
+        let hint_pos = button_center(&out, "Show code hint");
+        let _ = render(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(hint_pos),
+                egui::Event::PointerButton {
+                    pos: hint_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let _ = render(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: hint_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(
+            editor.insert_script_assist_snippet(crate::sources::ScriptAssistTemplate::StopTimeline)
+        );
+        assert!(
+            editor.project.symbols[0].timeline.scripts[0]
+                .script
+                .source
+                .ends_with("stop();\n")
+        );
+        editor.project.validate().unwrap();
+    }
 }

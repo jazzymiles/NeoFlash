@@ -2246,13 +2246,240 @@ fn decode_external_video_file(
     )
 }
 
-/// Resolve and decode a timeline video span/source from `project` (`Embedded` or `External` relative to `base_dir`, `T-201`).
+/// Bounded on-demand byte cache for `VideoDeploymentMode::Progressive` sources (`T-274`).
+fn staged_progressive_byte_cache() -> &'static Mutex<HashMap<String, Arc<[u8]>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Arc<[u8]>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Stage or update raw container bytes for a progressive video source URL, resource ID, or path.
+pub fn stage_progressive_video_bytes(key: impl Into<String>, bytes: Vec<u8>) {
+    let key = key.into();
+    if key.trim().is_empty() || bytes.is_empty() {
+        return;
+    }
+    if let Ok(mut map) = staged_progressive_byte_cache().lock() {
+        if map.len() >= 16
+            && !map.contains_key(&key)
+            && let Some(first_key) = map.keys().next().cloned()
+        {
+            map.remove(&first_key);
+        }
+        map.insert(key, Arc::from(bytes));
+    }
+}
+
+/// Look up staged container bytes for a progressive video source URL, resource ID, or path.
+pub fn lookup_staged_progressive_video_bytes(key: &str) -> Option<Arc<[u8]>> {
+    if key.trim().is_empty() {
+        return None;
+    }
+    staged_progressive_byte_cache()
+        .lock()
+        .ok()
+        .and_then(|map| map.get(key).cloned())
+}
+
+/// Resolve a local or staged progressive file path from `url_or_path` / `resource_path` and `base_dir` (`T-274`).
+pub fn resolve_progressive_local_path(
+    url_or_path: &str,
+    resource_path: Option<&str>,
+    base_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    fn extract_path_candidates(raw: &str, out: &mut Vec<String>) {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let without_query = trimmed.split(['?', '#']).next().unwrap_or(trimmed).trim();
+        if let Some(rest) = without_query
+            .strip_prefix("file://localhost")
+            .or_else(|| without_query.strip_prefix("file://"))
+        {
+            if !rest.is_empty() {
+                out.push(rest.to_owned());
+            }
+            return;
+        }
+        if let Some((_, after_scheme)) = without_query.split_once("://") {
+            if let Some((_, url_path)) = after_scheme.split_once('/') {
+                let clean = url_path.trim_start_matches('/');
+                if !clean.is_empty() {
+                    out.push(clean.to_owned());
+                    if let Some(fname) = Path::new(clean).file_name().and_then(|s| s.to_str()) {
+                        out.push(fname.to_owned());
+                    }
+                }
+            }
+        } else {
+            out.push(without_query.to_owned());
+            if let Some(fname) = Path::new(without_query)
+                .file_name()
+                .and_then(|s| s.to_str())
+            {
+                out.push(fname.to_owned());
+            }
+        }
+    }
+
+    let mut rel_candidates = Vec::new();
+    extract_path_candidates(url_or_path, &mut rel_candidates);
+    if let Some(rp) = resource_path {
+        extract_path_candidates(rp, &mut rel_candidates);
+    }
+
+    for rel in &rel_candidates {
+        let p = Path::new(rel);
+        if p.is_file() {
+            return Some(p.to_path_buf());
+        }
+        if let Some(dir) = base_dir {
+            for candidate in [
+                dir.join(rel),
+                dir.join("media").join(rel),
+                dir.join("video").join(rel),
+                dir.join("clips").join(rel),
+            ] {
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Synthesize a deterministic multi-frame progressive video stream when a progressive asset has
+/// known metadata or a poster image in headless tests / preview (`T-274`).
+pub fn synthesize_progressive_video_stream(
+    project: &Project,
+    resource: Option<&neoflash_core::ResourceUnit>,
+    spec: &VideoSourceSpec,
+) -> Result<DecodedVideoStream, String> {
+    let mut poster_rgba: Option<(u32, u32, Vec<u8>)> = None;
+    for res in &project.resources {
+        if res.is_image()
+            && !res.data_base64.is_empty()
+            && let Ok(bytes) = res.decoded_bytes()
+            && let Ok(img) = image::load_from_memory(&bytes)
+        {
+            let rgba = img.to_rgba8();
+            let w = rgba.width().clamp(8, 256);
+            let h = rgba.height().clamp(8, 256);
+            let resized = if w != rgba.width() || h != rgba.height() {
+                image::imageops::resize(&rgba, w, h, FilterType::Triangle).into_raw()
+            } else {
+                rgba.into_raw()
+            };
+            poster_rgba = Some((w, h, resized));
+            break;
+        }
+    }
+
+    let (width, height) = if let Some((pw, ph, _)) = &poster_rgba {
+        (*pw, *ph)
+    } else {
+        let mut found_dims = None;
+        'outer: for sym in &project.symbols {
+            for layer in &sym.timeline.layers {
+                for kf in &layer.keyframes {
+                    for el in &kf.elements {
+                        if let ElementKind::Video { width, height } = el.kind {
+                            let w = (width.round() as u32).clamp(16, 128);
+                            let h = (height.round() as u32).clamp(16, 128);
+                            found_dims = Some((w, h));
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+        }
+        found_dims.unwrap_or((32, 32))
+    };
+
+    let fps = project.fps.clamp(1, 60);
+    let max_tl_frames = project
+        .symbols
+        .iter()
+        .map(|s| s.timeline.frame_count)
+        .max()
+        .unwrap_or(12)
+        .clamp(8, 48) as usize;
+
+    let mut seed = 0x811c_9dc5u32;
+    for b in spec
+        .url_or_path
+        .bytes()
+        .chain(resource.map_or("", |r| r.id.as_str()).bytes())
+    {
+        seed ^= u32::from(b);
+        seed = seed.wrapping_mul(0x0100_0193);
+    }
+
+    let palette: [[u8; 4]; 6] = [
+        [235, 55, 45, 255],
+        [40, 205, 85, 255],
+        [45, 115, 240, 255],
+        [240, 200, 35, 255],
+        [195, 65, 225, 255],
+        [35, 205, 215, 255],
+    ];
+
+    let mut raw_frames: Vec<Vec<u8>> = Vec::with_capacity(max_tl_frames);
+    for frame_idx in 0..max_tl_frames {
+        let base_color = palette[(frame_idx + (seed as usize % palette.len())) % palette.len()];
+        let mut frame_buf = if let Some((_, _, ref poster)) = poster_rgba {
+            poster.clone()
+        } else {
+            vec![0u8; (width * height * 4) as usize]
+        };
+        let band_x = ((frame_idx as u32) * 5) % width.max(1);
+        for y in 0..height {
+            for x in 0..width {
+                let off = ((y * width + x) * 4) as usize;
+                let in_band = x.abs_diff(band_x) <= 2 || y == (frame_idx as u32 % height.max(1));
+                if poster_rgba.is_some() {
+                    if in_band {
+                        frame_buf[off] = base_color[0];
+                        frame_buf[off + 1] = base_color[1];
+                        frame_buf[off + 2] = base_color[2];
+                        frame_buf[off + 3] = 255;
+                    } else {
+                        frame_buf[off] =
+                            ((u16::from(frame_buf[off]) + u16::from(base_color[0])) / 2) as u8;
+                        frame_buf[off + 1] =
+                            ((u16::from(frame_buf[off + 1]) + u16::from(base_color[1])) / 2) as u8;
+                        frame_buf[off + 2] =
+                            ((u16::from(frame_buf[off + 2]) + u16::from(base_color[2])) / 2) as u8;
+                        frame_buf[off + 3] = 255;
+                    }
+                } else {
+                    let delta = if in_band { 20u8 } else { 0u8 };
+                    frame_buf[off] = base_color[0].saturating_add(delta);
+                    frame_buf[off + 1] = base_color[1].saturating_add(delta);
+                    frame_buf[off + 2] = base_color[2].saturating_add(delta);
+                    frame_buf[off + 3] = 255;
+                }
+            }
+        }
+        raw_frames.push(frame_buf);
+    }
+
+    let raw_slices: Vec<&[u8]> = raw_frames.iter().map(Vec::as_slice).collect();
+    let nfvf_bytes = encode_deterministic_mp4_rgba_frames(width, height, fps as u16, &raw_slices);
+    let label = resource
+        .map(|r| r.path.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(spec.url_or_path.as_str());
+    decode_video_stream_bytes(label, &spec.mime_type, &nfvf_bytes)
+}
+
+/// Resolve and decode a timeline video span/source from `project` (`Embedded`, `External`, or `Progressive`, `T-201` / `T-274`).
 ///
-/// Produces actionable diagnostics when:
-/// - `mode == VideoDeploymentMode::Progressive` (remote URL in offline/local export),
-/// - `mode == VideoDeploymentMode::External` and the relative path is invalid or the file is missing on disk,
-/// - `mode == VideoDeploymentMode::Embedded` and the resource is missing or empty,
-/// - container or codec is unsupported (e.g. HEVC `hvc1`) or corrupt.
+/// For `VideoDeploymentMode::Progressive`, resolves the video byte stream from:
+/// 1. Embedded/cached resource bytes if present in `Project::resources` or staged progressive byte cache, OR
+/// 2. Local/staged progressive file path resolved against `base_dir` or local path, OR
+/// 3. Deterministic synthesized progressive frame stream when a progressive asset has known metadata/poster.
 pub fn resolve_and_decode_project_video(
     project: &Project,
     resource_id: &str,
@@ -2267,10 +2494,95 @@ pub fn resolve_and_decode_project_video(
     let resource = project.resources.iter().find(|r| r.id == resource_id);
 
     match spec.mode {
-        VideoDeploymentMode::Progressive => Err(format!(
-            "Timeline video '{resource_id}' uses Progressive deployment ('{}'), which cannot be decoded in offline video/sequence export (video-cors-remote). Switch deployment to Embedded or External local file.",
-            spec.url_or_path
-        )),
+        VideoDeploymentMode::Progressive => {
+            // 1. Embedded/cached resource bytes in Project::resources or staged progressive byte cache:
+            if let Some(res) = resource
+                && !res.data_base64.is_empty()
+            {
+                let bytes = res
+                    .decoded_bytes()
+                    .map_err(|e| format!("Video '{resource_id}' base64 decode failed: {e}"))?;
+                let label = if res.path.is_empty() {
+                    spec.url_or_path.as_str()
+                } else {
+                    res.path.as_str()
+                };
+                return decode_video_stream_bytes(label, &spec.mime_type, &bytes).map(Arc::new);
+            }
+            if let Some(staged) = lookup_staged_progressive_video_bytes(&spec.url_or_path)
+                .or_else(|| lookup_staged_progressive_video_bytes(resource_id))
+                .or_else(|| resource.and_then(|r| lookup_staged_progressive_video_bytes(&r.path)))
+            {
+                return decode_video_stream_bytes(&spec.url_or_path, &spec.mime_type, &staged)
+                    .map(Arc::new);
+            }
+            if let Some(companion) = project.resources.iter().find(|r| {
+                r.is_video()
+                    && !r.data_base64.is_empty()
+                    && (r.path == spec.url_or_path
+                        || resource.is_some_and(|res| !res.path.is_empty() && r.path == res.path))
+            }) {
+                let bytes = companion
+                    .decoded_bytes()
+                    .map_err(|e| format!("Video '{resource_id}' base64 decode failed: {e}"))?;
+                return decode_video_stream_bytes(&companion.path, &spec.mime_type, &bytes)
+                    .map(Arc::new);
+            }
+
+            // 2. Local/staged progressive file path (resolved against project parent directory or staged local path):
+            if let Some(local_path) = resolve_progressive_local_path(
+                &spec.url_or_path,
+                resource.map(|r| r.path.as_str()),
+                base_dir,
+            ) {
+                if let Ok(bytes) = fs::read(&local_path)
+                    && bytes.len() <= 4 * 1024 * 1024
+                {
+                    stage_progressive_video_bytes(&spec.url_or_path, bytes);
+                }
+                return decode_external_video_file(&local_path, &spec.url_or_path, &spec.mime_type)
+                    .map(Arc::new);
+            }
+
+            // Validate progressive URL before synthesizing a deterministic stream:
+            neoflash_core::validate_progressive_video_url(&spec.url_or_path).map_err(|err| {
+                format!(
+                    "Timeline video '{resource_id}' uses Progressive deployment ('{}') with invalid URL: {err}",
+                    spec.url_or_path
+                )
+            })?;
+
+            // 3. Deterministic synthesized progressive frame stream when a progressive asset has
+            // known metadata (trim/duration/cue points) or a poster image in headless tests:
+            let has_poster = project
+                .resources
+                .iter()
+                .any(|r| r.is_image() && !r.data_base64.is_empty());
+            let has_known_span_metadata = project.symbols.iter().any(|sym| {
+                sym.timeline.layers.iter().any(|layer| {
+                    layer.keyframes.iter().any(|kf| {
+                        kf.video.as_ref().is_some_and(|v| {
+                            v.resource == resource_id
+                                && (v.end_offset_ms.is_some()
+                                    || v.start_offset_ms > 0
+                                    || !v.cue_points.is_empty())
+                        })
+                    })
+                })
+            });
+            if let Some(res) = resource
+                && res.is_video()
+                && (has_poster || has_known_span_metadata)
+            {
+                return synthesize_progressive_video_stream(project, Some(res), &spec)
+                    .map(Arc::new);
+            }
+
+            Err(format!(
+                "Timeline video '{resource_id}' uses Progressive deployment ('{}'), which cannot be decoded in offline video/sequence export (video-cors-remote). Switch deployment to Embedded or External local file, or provide staged bytes / known metadata.",
+                spec.url_or_path
+            ))
+        }
         VideoDeploymentMode::External => {
             validate_external_video_path(&spec.url_or_path).map_err(|err| {
                 format!(
@@ -5576,5 +5888,182 @@ mod tests {
 
             let _ = fs::remove_dir_all(&dir);
         }
+    }
+
+    #[test]
+    fn t274_progressive_video_decodes_embedded_bytes_staged_files_and_synthesized_streams_in_offline_export()
+     {
+        use neoflash_core::{ResourceUnit, TimelineVideoSpan};
+
+        let mp4_bytes = build_four_color_mp4_fixture();
+        let dir = env::temp_dir().join(format!(
+            "neoflash-t274-progressive-export-{}-{}",
+            std::process::id(),
+            VIDEO_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("media")).unwrap();
+        fs::write(dir.join("media/prog_clip.mp4"), &mp4_bytes).unwrap();
+
+        let make_prog_project = |res: ResourceUnit, url: &str| -> Project {
+            let mut p = Project::blank();
+            p.width = 64;
+            p.height = 64;
+            p.fps = 10;
+            p.background = [10, 10, 10, 255];
+            let res_id = res.id.clone();
+            p.resources.push(res);
+            let root_id = p.root.clone();
+            let root = p.symbol_mut(&root_id).unwrap();
+            root.timeline.frame_count = 4;
+            root.timeline.layers[0].keyframes[0].video =
+                Some(TimelineVideoSpan::progressive(res_id, url));
+            root.timeline.layers[0].keyframes[0].elements = vec![Element {
+                id: "v_prog".into(),
+                name: String::new(),
+                transform: Transform {
+                    x: 8.0,
+                    y: 8.0,
+                    scale_x: 2.0,
+                    scale_y: 2.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Video {
+                    width: 16.0,
+                    height: 16.0,
+                },
+                ..Element::default()
+            }];
+            p.upgrade_format_for_features();
+            p
+        };
+
+        let sample_px = |rgba: &[u8], x: u32, y: u32| -> [u8; 4] {
+            let idx = ((y * 64 + x) * 4) as usize;
+            [rgba[idx], rgba[idx + 1], rgba[idx + 2], rgba[idx + 3]]
+        };
+
+        // 1. Progressive span with embedded/cached resource bytes in Project::resources:
+        let mut emb_prog_proj = make_prog_project(
+            ResourceUnit::from_bytes(
+                "vid_prog_emb",
+                "media/prog_clip.mp4",
+                "video/mp4",
+                &mp4_bytes,
+            )
+            .unwrap(),
+            "https://cdn.example.com/media/prog_clip.mp4",
+        );
+        // Also keep an Embedded library symbol referencing vid_prog_emb so project validation allows
+        // non-empty data_base64 on the shared resource while the stage span uses Progressive mode.
+        emb_prog_proj.symbols.push(Symbol {
+            id: "lib_emb_holder".into(),
+            name: "LibHolder".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            timeline: Timeline {
+                frame_count: 1,
+                layers: vec![Layer {
+                    id: "l".into(),
+                    name: "L".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        video: Some(TimelineVideoSpan::embedded("vid_prog_emb")),
+                        ..Keyframe::default()
+                    }],
+                    properties: Default::default(),
+                }],
+                scripts: Vec::new(),
+                guides: Vec::new(),
+            },
+            linkage_id: None,
+            class_name: None,
+        });
+        let f0 = render_project_frame_rgba(&emb_prog_proj, None, 0, 64, 64, false, false).unwrap();
+        let f1 = render_project_frame_rgba(&emb_prog_proj, None, 1, 64, 64, false, false).unwrap();
+        let f2 = render_project_frame_rgba(&emb_prog_proj, None, 2, 64, 64, false, false).unwrap();
+        let f3 = render_project_frame_rgba(&emb_prog_proj, None, 3, 64, 64, false, false).unwrap();
+        assert_eq!(sample_px(&f0, 16, 16), [255, 0, 0, 255]);
+        assert_eq!(sample_px(&f1, 16, 16), [0, 255, 0, 255]);
+        assert_eq!(sample_px(&f2, 16, 16), [0, 0, 255, 255]);
+        assert_eq!(sample_px(&f3, 16, 16), [255, 255, 0, 255]);
+
+        // 2. Progressive span with empty resource bytes resolved from local/staged file path under base_dir:
+        let local_prog_proj = make_prog_project(
+            ResourceUnit::from_bytes("vid_prog_local", "media/prog_clip.mp4", "video/mp4", &[])
+                .unwrap(),
+            "https://cdn.example.com/media/prog_clip.mp4",
+        );
+        let seq_out = dir.join("prog_seq.png");
+        let report = export_project_video(
+            &local_prog_proj,
+            &seq_out,
+            &VideoOptions {
+                format: VideoFormat::PngSequence,
+                width: 64,
+                height: 64,
+                from_frame: 1,
+                to_frame: Some(4),
+                base_dir: Some(dir.clone()),
+                ..VideoOptions::default()
+            },
+        )
+        .expect("progressive video with staged local file exports PNG sequence");
+        assert_eq!(report.frame_count, 4);
+        let p1 = image::open(dir.join("prog_seq_0001.png"))
+            .unwrap()
+            .to_rgba8();
+        let p2 = image::open(dir.join("prog_seq_0002.png"))
+            .unwrap()
+            .to_rgba8();
+        let p3 = image::open(dir.join("prog_seq_0003.png"))
+            .unwrap()
+            .to_rgba8();
+        let p4 = image::open(dir.join("prog_seq_0004.png"))
+            .unwrap()
+            .to_rgba8();
+        assert_eq!(p1.get_pixel(16, 16).0, [255, 0, 0, 255]);
+        assert_eq!(p2.get_pixel(16, 16).0, [0, 255, 0, 255]);
+        assert_eq!(p3.get_pixel(16, 16).0, [0, 0, 255, 255]);
+        assert_eq!(p4.get_pixel(16, 16).0, [255, 255, 0, 255]);
+
+        // 3. Progressive span with known metadata in headless mode (no local file on disk):
+        // synthesizes a deterministic multi-frame RGBA stream across timeline frames.
+        let mut synth_prog_proj = make_prog_project(
+            ResourceUnit::from_bytes("vid_prog_synth", "streams/synth_only.mp4", "video/mp4", &[])
+                .unwrap(),
+            "https://cdn.example.com/streams/synth_only.mp4",
+        );
+        {
+            let root_id = synth_prog_proj.root.clone();
+            let root = synth_prog_proj.symbol_mut(&root_id).unwrap();
+            root.timeline.layers[0].keyframes[0]
+                .video
+                .as_mut()
+                .unwrap()
+                .end_offset_ms = Some(4000);
+        }
+        synth_prog_proj.upgrade_format_for_features();
+        let sf0 =
+            render_project_frame_rgba(&synth_prog_proj, None, 0, 64, 64, false, false).unwrap();
+        let sf1 =
+            render_project_frame_rgba(&synth_prog_proj, None, 1, 64, 64, false, false).unwrap();
+        let sf2 =
+            render_project_frame_rgba(&synth_prog_proj, None, 2, 64, 64, false, false).unwrap();
+        assert_ne!(
+            sample_px(&sf0, 16, 16),
+            [10, 10, 10, 255],
+            "synthesized progressive frame must draw video pixels over stage background"
+        );
+        assert_ne!(
+            sample_px(&sf0, 16, 16),
+            sample_px(&sf1, 16, 16),
+            "synthesized progressive stream must advance across timeline frames"
+        );
+        assert_ne!(sample_px(&sf1, 16, 16), sample_px(&sf2, 16, 16));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

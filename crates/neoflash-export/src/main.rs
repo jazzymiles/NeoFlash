@@ -2,19 +2,39 @@ use neoflash_core::Project;
 use neoflash_export::{
     AepOptions, AtlasFormat, AtlasOptions, AudioExportOptions, AudioExportPolicy, AudioFormat,
     BannerOptions, FontExportPolicy, HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign,
-    ImageExportFormat, ImageExportOptions, ImageExportRange, LottieOptions, PublishOptions,
-    SizeLevel, SvgOptions, VideoFormat, VideoOptions,
+    ImageExportFormat, ImageExportOptions, ImageExportRange, LottieOptions, NetworkPreset,
+    NetworkStartupEstimate, PublishOptions, PublishProfile, SizeLevel, SvgOptions, VideoFormat,
+    VideoOptions, export_profile_json, export_project_with_profile, import_profile_json,
+    load_profiles_from_project, simulate_network_startup,
 };
 use std::{env, fs, path::PathBuf};
 
+/// Structured output returned by [`run_with_args`] for CLI execution and integration tests.
+#[derive(Clone, Debug, Default)]
+pub struct CliRunOutput {
+    pub exported_index: Option<PathBuf>,
+    pub exported_profile_path: Option<PathBuf>,
+    pub active_profile: Option<PublishProfile>,
+    pub network_estimate: Option<NetworkStartupEstimate>,
+}
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let mut args = env::args().skip(1);
+    run_with_args(env::args().skip(1)).map(|_| ())
+}
+
+pub fn run_with_args<I, S>(raw_args: I) -> Result<CliRunOutput, Box<dyn std::error::Error>>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let mut args = raw_args.into_iter().map(Into::into);
     let mut source = None;
     let mut demo = false;
     let mut clean = false;
     let mut size_report = false;
     let mut size_estimate = false;
     let mut has_output = false;
+    let mut has_size_level = false;
     let mut level = "full".to_owned();
     let mut runtime_url = None;
     let mut shared_runtime = None;
@@ -38,6 +58,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut allow_fullscreen: Option<bool> = None;
     let mut pack_sprite_sheets = false;
     let mut assets_folder = false;
+    let mut export_profile_path: Option<PathBuf> = None;
+    let mut import_profile_path: Option<PathBuf> = None;
+    let mut profile_selector: Option<String> = None;
+    let mut simulate_network_preset: Option<NetworkPreset> = None;
     let mut output = PathBuf::from("dist/html5");
     let mut runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime");
     while let Some(arg) = args.next() {
@@ -47,6 +71,30 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "--size-report" => size_report = true,
             "--size-estimate" => size_estimate = true,
             "--pretty" => lottie_pretty = true,
+            "--export-profile" => {
+                export_profile_path = Some(PathBuf::from(
+                    args.next()
+                        .ok_or("--export-profile requires an output .json file path")?,
+                ));
+            }
+            "--import-profile" => {
+                import_profile_path = Some(PathBuf::from(
+                    args.next()
+                        .ok_or("--import-profile requires an input .json file path")?,
+                ));
+            }
+            "--profile" => {
+                profile_selector = Some(
+                    args.next()
+                        .ok_or("--profile requires a profile name or ID")?,
+                );
+            }
+            "--simulate-network" => {
+                let raw = args.next().ok_or(
+                    "--simulate-network requires a preset (fast-3g|slow-3g|cable|offline-local|<kbps>/<rtt_ms>)",
+                )?;
+                simulate_network_preset = Some(NetworkPreset::parse(&raw)?);
+            }
             "--desktop" => {
                 desktop_output = Some(PathBuf::from(
                     args.next()
@@ -141,7 +189,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "--runtime" => {
                 runtime = PathBuf::from(args.next().ok_or("--runtime requires a directory")?)
             }
-            "--size-level" => level = args.next().ok_or("--size-level requires a level")?,
+            "--size-level" => {
+                has_size_level = true;
+                level = args.next().ok_or("--size-level requires a level")?;
+            }
             "--runtime-url" => {
                 runtime_url = Some(args.next().ok_or("--runtime-url requires a URL")?)
             }
@@ -183,9 +234,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "--assets-folder" => assets_folder = true,
             "--help" | "-h" => {
                 println!(
-                    "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR] [--size-report]\n  [--size-level full|balanced|compact|shared] [--runtime-url URL] [--size-estimate]\n  [--lottie FILE.json] [--video FILE.mp4|.webm|.mov|.gif|.png] [--audio FILE.wav|.mp3|.ogg|.aac] [--audio-format wav|mp3|ogg|aac] [--symbol ID_OR_NAME] [--pretty]\nneoflash-export --shared-runtime DIR [--runtime DIR]"
+                    "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR] [--size-report]\n  [--size-level full|balanced|compact|shared] [--runtime-url URL] [--size-estimate]\n  [--export-profile FILE.json] [--import-profile FILE.json] [--profile NAME_OR_ID]\n  [--simulate-network fast-3g|slow-3g|cable|offline-local|<kbps>/<rtt_ms>]\n  [--lottie FILE.json] [--video FILE.mp4|.webm|.mov|.gif|.png] [--audio FILE.wav|.mp3|.ogg|.aac] [--audio-format wav|mp3|ogg|aac] [--symbol ID_OR_NAME] [--pretty]\nneoflash-export --shared-runtime DIR [--runtime DIR]"
                 );
-                return Ok(());
+                return Ok(CliRunOutput::default());
             }
             _ if arg.starts_with('-') => return Err(format!("Unknown option: {arg}").into()),
             _ => {
@@ -198,7 +249,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(dir) = shared_runtime {
         let folder = neoflash_export::export_shared_runtime(&dir, &runtime)?;
         println!("Shared HTML5 runtime: {}", folder.display());
-        return Ok(());
+        return Ok(CliRunOutput::default());
     }
     if demo && source.is_some() {
         return Err("Choose a project or --demo".into());
@@ -236,7 +287,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             &HtmlPublishConfig::clean_publish_default(),
         )?;
         println!("Desktop app export: {}", app_dir.display());
-        return Ok(());
+        return Ok(CliRunOutput::default());
     }
     if let Some(svg_path) = svg_output {
         let report = neoflash_export::export_project_svg(
@@ -255,7 +306,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             report.width,
             report.height
         );
-        return Ok(());
+        return Ok(CliRunOutput::default());
     }
     if let Some(banner_path) = banner_output {
         let mut opts = BannerOptions::default();
@@ -270,7 +321,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             report.gzip_bytes,
             report.frame_count
         );
-        return Ok(());
+        return Ok(CliRunOutput::default());
     }
     if let Some(aep_path) = aep_output {
         let report = neoflash_export::export_project_aep(
@@ -298,7 +349,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         for diag in &report.diagnostics {
             eprintln!("Note [{} @ {}]: {}", diag.code, diag.location, diag.message);
         }
-        return Ok(());
+        return Ok(CliRunOutput::default());
     }
     if let Some(seq_path) = sequence_output {
         let ext = seq_path
@@ -341,7 +392,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             report.height,
             report.format.label()
         );
-        return Ok(());
+        return Ok(CliRunOutput::default());
     }
     if let Some(atlas_path) = atlas_output {
         let ext = atlas_path
@@ -373,7 +424,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             report.frame_count,
             report.unique_sprites
         );
-        return Ok(());
+        return Ok(CliRunOutput::default());
     }
     if let Some(lottie_path) = lottie_output {
         let report = neoflash_export::export_project_lottie(
@@ -395,7 +446,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         for warning in &report.warnings {
             eprintln!("Note: {warning}");
         }
-        return Ok(());
+        return Ok(CliRunOutput::default());
     }
     if let Some(video_path) = video_output {
         let format = VideoFormat::from_path(&video_path).unwrap_or(VideoFormat::Mp4);
@@ -420,7 +471,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         for warning in &report.warnings {
             eprintln!("Note: {warning}");
         }
-        return Ok(());
+        return Ok(CliRunOutput::default());
     }
     if let Some(audio_path) = audio_output {
         let inferred_format = audio_format.unwrap_or_else(|| {
@@ -447,7 +498,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             report.channels,
             report.format.label()
         );
-        return Ok(());
+        return Ok(CliRunOutput::default());
     }
     if size_estimate {
         let url = runtime_url
@@ -460,17 +511,85 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             url,
         )?;
         println!("{}", serde_json::to_string_pretty(&estimates)?);
-        return Ok(());
+        return Ok(CliRunOutput::default());
     }
     if size_report && !has_output {
         print!("{}", neoflash_export::format_size_report(&project)?);
-        return Ok(());
+        return Ok(CliRunOutput::default());
     }
-    let options = PublishOptions {
-        fonts: FontExportPolicy::Embed,
-        size: SizeLevel::parse(&level, runtime_url.as_deref())?,
-        audio: AudioExportPolicy::Original,
+
+    // Resolve active PublishProfile from --import-profile, stored project profiles, or CLI flags.
+    let mut loaded_stored_profile = false;
+    let mut active_profile = if let Some(ref import_path) = import_profile_path {
+        let raw_json = fs::read_to_string(import_path)?;
+        loaded_stored_profile = true;
+        import_profile_json(&raw_json)?
+    } else {
+        let (stored_profiles, active_id) = load_profiles_from_project(&project)?;
+        if let Some(ref selector) = profile_selector {
+            loaded_stored_profile = true;
+            stored_profiles
+                .into_iter()
+                .find(|p| p.id == *selector || p.name.eq_ignore_ascii_case(selector))
+                .ok_or_else(|| format!("Publish profile '{selector}' not found in project"))?
+        } else if let Some(ref act_id) = active_id {
+            if let Some(found) = stored_profiles
+                .iter()
+                .find(|p| p.id == *act_id)
+                .cloned()
+                .or_else(|| stored_profiles.into_iter().next())
+            {
+                loaded_stored_profile = true;
+                found
+            } else {
+                PublishProfile::default()
+            }
+        } else if let Some(first) = stored_profiles.into_iter().next() {
+            loaded_stored_profile = true;
+            first
+        } else {
+            PublishProfile::default()
+        }
     };
+
+    if has_size_level || !loaded_stored_profile {
+        active_profile.options.size = SizeLevel::parse(&level, runtime_url.as_deref())?;
+    }
+    if let Some(preset) = simulate_network_preset {
+        active_profile.network_profile.preset = preset;
+    }
+
+    let mut cli_out = CliRunOutput {
+        active_profile: Some(active_profile.clone()),
+        ..CliRunOutput::default()
+    };
+
+    if let Some(ref profile_out_path) = export_profile_path {
+        let json = export_profile_json(&active_profile)?;
+        if let Some(parent) = profile_out_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(profile_out_path, &json)?;
+        println!("Publish profile JSON: {}", profile_out_path.display());
+        cli_out.exported_profile_path = Some(profile_out_path.clone());
+        if !has_output && simulate_network_preset.is_none() {
+            return Ok(cli_out);
+        }
+    }
+
+    if let Some(preset) = simulate_network_preset {
+        active_profile.network_profile.preset = preset;
+        let sim_report = simulate_network_startup(&project, &active_profile)?;
+        println!("Network startup simulation: {}", sim_report.summary_line());
+        cli_out.network_estimate = Some(sim_report);
+        if !has_output && !runtime.join("neoflash_web.js").is_file() {
+            return Ok(cli_out);
+        }
+    }
+
+    let options = active_profile.options.clone();
     let has_custom_html_cfg = clean
         || scale_mode.is_some()
         || stage_align.is_some()
@@ -499,10 +618,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             cfg.assets_folder = true;
         }
         neoflash_export::export_project_with_config(&project, &output, &runtime, &options, &cfg)?
+    } else if import_profile_path.is_some()
+        || profile_selector.is_some()
+        || active_profile.html_template.is_some()
+    {
+        export_project_with_profile(&project, &output, &runtime, &active_profile)?
     } else {
         neoflash_export::export_project_with_options(&project, &output, &runtime, &options)?
     };
+    if let Some(ref estimate) = cli_out.network_estimate {
+        let sim_path = output.join("network-simulation.json");
+        fs::write(&sim_path, serde_json::to_string_pretty(estimate)?)?;
+    }
     println!("HTML5 export: {}", index.display());
+    cli_out.exported_index = Some(index);
     if size_report {
         let report = neoflash_export::format_size_report(&project)?;
         print!("{report}");
@@ -510,12 +639,133 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     for warning in neoflash_export::export_warnings(&project) {
         eprintln!("Note: {warning}");
     }
-    Ok(())
+    Ok(cli_out)
 }
 
 fn main() {
     if let Err(error) = run() {
         eprintln!("{error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use neoflash_core::new_id;
+    use neoflash_export::{NetworkSimulationProfile, store_profiles_in_project};
+
+    #[test]
+    fn cli_export_import_profile_and_simulate_network_alongside_package() {
+        let tmp = env::temp_dir().join(format!(
+            "neoflash-cli-profile-sim-{}-{}",
+            std::process::id(),
+            new_id("cli")
+        ));
+        let rt_dir = tmp.join("runtime");
+        let out_dir = tmp.join("dist");
+        fs::create_dir_all(&rt_dir).unwrap();
+        fs::write(rt_dir.join("neoflash_web.js"), "var NeoFlashWasm;").unwrap();
+        fs::write(rt_dir.join("neoflash_web_bg.wasm"), b"\0asm\x01\0\0\0").unwrap();
+
+        let mut project = Project::demo();
+        let mut custom_profile = PublishProfile::new(
+            "Studio Compact",
+            PublishOptions {
+                fonts: FontExportPolicy::Subset,
+                size: SizeLevel::Compact,
+                audio: AudioExportPolicy::Mp3_96,
+            },
+        );
+        custom_profile.html_template = Some(
+            "<!doctype html><html><head><title>Profile:$TITLE</title>$SCRIPT_BUNDLE\n$RUNTIME_SCRIPT</head><body><canvas id=\"stage\" width=\"$WIDTH\" height=\"$HEIGHT\"></canvas></body></html>"
+                .into(),
+        );
+        custom_profile.network_profile = NetworkSimulationProfile {
+            preset: NetworkPreset::Slow3G,
+            delayed_assets: Vec::new(),
+            extra_asset_delay_ms: 0,
+        };
+        store_profiles_in_project(
+            &mut project,
+            std::slice::from_ref(&custom_profile),
+            Some(&custom_profile.id),
+        )
+        .unwrap();
+
+        let proj_path = tmp.join("project.nflash");
+        fs::write(&proj_path, serde_json::to_string_pretty(&project).unwrap()).unwrap();
+
+        // 1. Export active profile JSON via --export-profile
+        let exported_profile_json_path = tmp.join("exported-profile.json");
+        let export_res = run_with_args([
+            proj_path.to_str().unwrap(),
+            "--export-profile",
+            exported_profile_json_path.to_str().unwrap(),
+        ])
+        .expect("CLI --export-profile");
+        assert_eq!(
+            export_res.exported_profile_path.as_deref(),
+            Some(exported_profile_json_path.as_path())
+        );
+        let roundtrip_profile =
+            import_profile_json(&fs::read_to_string(&exported_profile_json_path).unwrap())
+                .expect("valid exported profile JSON");
+        assert_eq!(roundtrip_profile.name, "Studio Compact");
+        assert_eq!(roundtrip_profile.options.size, SizeLevel::Compact);
+
+        // 2. Import profile JSON via --import-profile and simulate network startup (--simulate-network)
+        // alongside exported HTML5 package
+        let blank_proj_path = tmp.join("blank.nflash");
+        fs::write(
+            &blank_proj_path,
+            serde_json::to_string_pretty(&Project::demo()).unwrap(),
+        )
+        .unwrap();
+
+        for (preset_flag, expected_preset) in [
+            ("slow-3g", NetworkPreset::Slow3G),
+            ("fast-3g", NetworkPreset::Fast3G),
+            ("cable", NetworkPreset::Cable5Mbps),
+            ("offline-local", NetworkPreset::OfflineLocal),
+            (
+                "2400/60",
+                NetworkPreset::Custom {
+                    bandwidth_kbps: 2400,
+                    latency_ms: 60,
+                },
+            ),
+        ] {
+            let sub_out = out_dir.join(preset_flag.replace('/', "_"));
+            let run_out = run_with_args([
+                blank_proj_path.to_str().unwrap(),
+                "--import-profile",
+                exported_profile_json_path.to_str().unwrap(),
+                "--simulate-network",
+                preset_flag,
+                "--output",
+                sub_out.to_str().unwrap(),
+                "--runtime",
+                rt_dir.to_str().unwrap(),
+            ])
+            .expect("CLI --import-profile and --simulate-network");
+
+            let index_path = run_out.exported_index.expect("exported index.html");
+            assert!(index_path.is_file());
+            let html = fs::read_to_string(&index_path).unwrap();
+            assert!(
+                html.contains("<title>Profile:"),
+                "imported profile HTML template must be applied"
+            );
+
+            let estimate = run_out
+                .network_estimate
+                .expect("NetworkStartupEstimate returned");
+            assert_eq!(estimate.preset, expected_preset);
+            assert!(estimate.initial_html_js_wasm_bytes > 0);
+            assert!(sub_out.join("network-simulation.json").is_file());
+        }
+
+        let _ = fs::remove_dir_all(tmp);
     }
 }

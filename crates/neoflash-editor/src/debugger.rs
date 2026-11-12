@@ -335,6 +335,20 @@ impl Editor {
                 if !snapshot.reason.is_empty() {
                     self.message(snapshot.reason.clone());
                 }
+                if snapshot.state == DebugState::Paused {
+                    self.refresh_debugger_watches();
+                    if !snapshot.command_pending
+                        && let Some(loc) = snapshot
+                            .selected_frame
+                            .and_then(|idx| snapshot.frames.get(idx))
+                            .or_else(|| snapshot.frames.first())
+                            .and_then(|f| f.location.as_ref())
+                        && self.has_breakpoint(&loc.source, loc.line)
+                        && !self.should_pause_at_breakpoint(&loc.source, loc.line)
+                    {
+                        self.debug_command(DebugCommand::Resume);
+                    }
+                }
             }
             // Protocol notes can arrive without changing Paused/Running. The
             // bounded list can roll over, so compare suffix/prefix overlap.
@@ -481,19 +495,24 @@ impl Editor {
             self.message("Choose an authored script in Actions before toggling a breakpoint.");
             return;
         };
-        if let Some(index) = self
-            .debugger
-            .breakpoints
-            .iter()
-            .position(|p| p.source == point.source && p.line == point.line)
-        {
-            self.debugger.breakpoints.remove(index);
-        } else {
-            self.debugger.breakpoints.push(point);
-        }
+        self.toggle_breakpoint(&point.source, point.line);
         self.debug_command(DebugCommand::SetBreakpoints(
             self.debugger.breakpoints.clone(),
         ));
+    }
+
+    /// Evaluate a live debugger step/run arrival at `(source, line)` with `scopes`, updating
+    /// paused scopes, refreshing watches, and returning `true` when breakpoint conditions and
+    /// hit-count targets dictate pausing at `(source, line)`.
+    #[allow(dead_code)]
+    pub(crate) fn evaluate_debugger_step(
+        &mut self,
+        source: &str,
+        line: usize,
+        scopes: Vec<crate::sources::DebuggerScope>,
+    ) -> bool {
+        self.set_paused_debugger_scopes(scopes);
+        self.should_pause_at_breakpoint(source, line)
     }
 }
 

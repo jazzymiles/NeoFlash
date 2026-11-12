@@ -1001,16 +1001,42 @@ impl Context<'_> {
             }
         };
         let in_trimmed = f.sound_in_point.unwrap_or(0) > 0;
-        let out_point = f.sound_out_point.unwrap_or(0);
-        let out_trimmed = out_point > 0
-            && out_point < 0x3fff_ffff
+        let out_raw = f.sound_out_point.unwrap_or(0);
+        let out_trimmed = out_raw > 0
+            && out_raw < 0x3fff_ffff
             && asset.duration_44 > 0
-            && out_point.saturating_add(8) < asset.duration_44;
-        if in_trimmed || out_trimmed {
+            && out_raw.saturating_add(8) < asset.duration_44;
+        let mut trim_invalid = false;
+        let in_point = if in_trimmed {
+            let sec = f64::from(f.sound_in_point.unwrap_or(0)) / 44_100.0;
+            if sec.is_finite() && (0.0..=FrameSound::MAX_SOUND_TRIM_SECONDS).contains(&sec) {
+                Some(sec)
+            } else {
+                trim_invalid = true;
+                None
+            }
+        } else {
+            None
+        };
+        let out_point = if out_trimmed {
+            let sec = f64::from(out_raw) / 44_100.0;
+            if sec.is_finite()
+                && (0.0..=FrameSound::MAX_SOUND_TRIM_SECONDS).contains(&sec)
+                && in_point.is_none_or(|inp| sec > inp)
+            {
+                Some(sec)
+            } else {
+                trim_invalid = true;
+                None
+            }
+        } else {
+            None
+        };
+        if trim_invalid {
             self.report.warning(
                 "fla_frame_sound",
                 at,
-                "Frame-sound in/out trim points are not applied yet; the full sound resource plays and trim offsets remain in the embedded source.",
+                "Frame-sound in/out trim points are outside the supported range and were omitted; trim offsets remain in the embedded source.",
             );
         }
         Some(FrameSound {
@@ -1020,8 +1046,8 @@ impl Context<'_> {
             loop_forever,
             effect,
             envelope,
-            in_point: None,
-            out_point: None,
+            in_point,
+            out_point,
         })
     }
     fn actions(
@@ -1209,9 +1235,6 @@ impl Context<'_> {
                     cursor + 1
                 );
                 let sound = self.frame_sound(s, f, &at);
-                if f.rotation_mode.unwrap_or(0) != 0 || f.rotation_count.unwrap_or(0) != 0 {
-                    self.report.warning("fla_tween_rotation",&at,"Directed tween rotation (clockwise/counter-clockwise turns) is interpolated along the shortest angle.");
-                }
                 if f.motion_xml
                     .as_ref()
                     .is_some_and(|v| v.data.end > v.data.start)
@@ -1223,6 +1246,9 @@ impl Context<'_> {
                     );
                 }
                 let mut elements = Vec::new();
+                let mut bitmap_fills = Vec::new();
+                let mut appearances = Vec::new();
+                let mut vector_effects = Vec::new();
                 let provenance_start = self.provenance.len();
                 for (slot, child) in frame.children.iter().enumerate() {
                     elements.push(self.element_or_placeholder(
@@ -1234,13 +1260,19 @@ impl Context<'_> {
                     self.provenance.push(serde_json::json!({"stream":s.index,"object":child,"layer":layer.id,"frame":cursor,"slot":slot}));
                 }
                 if let Some(index) = frame.shape_index {
-                    match shape::convert_shape(
+                    match shape::convert_shape_with_effects(
                         &s.shapes[index].record,
                         &format!("fla-{}-{}-shape-{frame_id}", s.index, id),
+                        &self.bitmaps,
                         self.report,
                         &format!("stream #{} frame {cursor}", s.index),
                     ) {
-                        Ok(paths) => elements.extend(paths),
+                        Ok(converted) => {
+                            elements.extend(converted.elements);
+                            bitmap_fills.extend(converted.bitmap_fills);
+                            appearances.extend(converted.appearances);
+                            vector_effects.extend(converted.vector_effects);
+                        }
                         Err(e) => self.report.warning("fla_shape_skipped",&at,format!("Frame artwork was not converted: {e}. It remains in the embedded source.")),
                     }
                 }
@@ -1260,6 +1292,30 @@ impl Context<'_> {
                         )
                     }
                 };
+                let is_classic_tween = tween.is_some() && tween_kind == TweenKind::Classic;
+                let mode = f.key_mode.unwrap_or(0);
+                let orient_to_path = is_classic_tween && (mode & 0x100) != 0;
+                let sync_symbols = is_classic_tween && (mode & 0x800) != 0;
+                let snap_to_guide = is_classic_tween && (mode & 0x1000) != 0;
+                let raw_rot_mode = f.rotation_mode.unwrap_or(0);
+                let raw_rot_turns = f.rotation_count.unwrap_or(0);
+                let (classic_rotate_dir, classic_rotate_turns) = if is_classic_tween {
+                    if raw_rot_mode > 2 || raw_rot_turns > Keyframe::MAX_ROTATE_TURNS {
+                        self.report.warning(
+                            "fla_tween_rotation",
+                            &at,
+                            "Directed tween rotation exceeds supported mode/turn bounds and was clamped.",
+                        );
+                    }
+                    let dir = match raw_rot_mode {
+                        1 => ClassicRotateDirection::Cw,
+                        2 => ClassicRotateDirection::Ccw,
+                        _ => ClassicRotateDirection::Auto,
+                    };
+                    (dir, raw_rot_turns.min(Keyframe::MAX_ROTATE_TURNS))
+                } else {
+                    (ClassicRotateDirection::Auto, 0)
+                };
                 if let Some(previous) = layer.keyframes.last_mut() {
                     for (a, b) in previous.elements.iter().zip(elements.iter_mut()) {
                         if placement_matches(a, b) {
@@ -1278,6 +1334,11 @@ impl Context<'_> {
                             || previous.elements[0].id != elements[0].id)
                     {
                         previous.tween = None;
+                        previous.orient_to_path = false;
+                        previous.sync_symbols = false;
+                        previous.snap_to_guide = false;
+                        previous.classic_rotate_dir = ClassicRotateDirection::Auto;
+                        previous.classic_rotate_turns = 0;
                         self.report.warning("fla_tween_dropped",&at,"This classic motion tween does not connect one stable symbol placement, so the frames hold their keyframe poses.");
                     }
                 }
@@ -1295,7 +1356,15 @@ impl Context<'_> {
                     elements,
                     tween,
                     tween_kind,
+                    orient_to_path,
+                    sync_symbols,
+                    snap_to_guide,
+                    classic_rotate_dir,
+                    classic_rotate_turns,
                     sound,
+                    bitmap_fills,
+                    appearances,
+                    vector_effects,
                     label: optional_text(&s.original_bytes, f.label.as_ref())?,
                     ..Default::default()
                 });
@@ -1310,6 +1379,11 @@ impl Context<'_> {
                 // Flash shows an unterminated tween as a held pose.
                 last.tween = None;
                 last.tween_kind = TweenKind::Classic;
+                last.orient_to_path = false;
+                last.sync_symbols = false;
+                last.snap_to_guide = false;
+                last.classic_rotate_dir = ClassicRotateDirection::Auto;
+                last.classic_rotate_turns = 0;
             }
             for (key_idx, morph_id) in pending_morphs {
                 if key_idx + 1 < layer.keyframes.len()
@@ -1517,6 +1591,25 @@ impl Context<'_> {
                             element.transform = projected;
                         }
                     }
+                } else if let Some([rx, ry, rz]) = i.rotation_3d
+                    && [rx, ry, rz].iter().all(|v| v.is_finite())
+                    && (rx.abs() > 1e-6 || ry.abs() > 1e-6 || rz.abs() > 1e-6)
+                {
+                    self.report.warning("fla_3d_transform",&location,"3D transforms are not rendered; the instance uses its 2D placement matrix.");
+                    let sx = element.transform.scale_x * ry.to_radians().cos();
+                    let sy = element.transform.scale_y * rx.to_radians().cos();
+                    let rot = element.transform.rotation + rz;
+                    if sx.is_finite()
+                        && sy.is_finite()
+                        && rot.is_finite()
+                        && sx.abs() <= 1e4
+                        && sy.abs() <= 1e4
+                        && rot.abs() <= 1e9
+                    {
+                        element.transform.scale_x = sx;
+                        element.transform.scale_y = sy;
+                        element.transform.rotation = rot;
+                    }
                 }
                 if let Some(c) = &i.color_transform {
                     let mut value = color_transform(c)?;
@@ -1621,6 +1714,9 @@ impl Context<'_> {
             }
             Some(TimelinePayload::Shape) => {
                 let mut members = Vec::new();
+                let mut bitmap_fills = Vec::new();
+                let mut appearances = Vec::new();
+                let mut vector_effects = Vec::new();
                 for (slot, child) in o.children.iter().enumerate() {
                     members.push(self.element_or_placeholder(
                         s,
@@ -1630,26 +1726,169 @@ impl Context<'_> {
                     ))
                 }
                 if let Some(index) = o.shape_index {
-                    match shape::convert_shape(
+                    match shape::convert_shape_with_effects(
                         &s.shapes[index].record,
                         &format!("{id}-paint"),
+                        &self.bitmaps,
                         self.report,
                         &location,
                     ) {
-                        Ok(paths) => members.extend(paths),
+                        Ok(converted) => {
+                            members.extend(converted.elements);
+                            bitmap_fills.extend(converted.bitmap_fills);
+                            appearances.extend(converted.appearances);
+                            vector_effects.extend(converted.vector_effects);
+                        }
                         Err(e) => self.report.warning("fla_shape_skipped",&location,format!("Group artwork was not converted: {e}. It remains in the embedded source.")),
                     }
                 }
                 // A one-frame graphic keeps group membership and vector paint order editable.
                 let symbol_id = format!("{id}-group");
-                self.generated.push(group_symbol(
+                self.generated.push(group_symbol_with_effects(
                     &symbol_id,
                     format!("Source group {object_id}"),
                     members,
+                    bitmap_fills,
+                    appearances,
+                    vector_effects,
                 ));
                 element.kind = ElementKind::Instance {
                     symbol_id,
                     playback: InstancePlayback::SingleFrame(0),
+                };
+            }
+            Some(TimelinePayload::Primitive(prim)) => {
+                if o.children.is_empty()
+                    && let Some(index) = o.shape_index
+                    && let Some(shape_rec) = s.shapes.get(index)
+                    && let Some((transform, _origin, kind)) =
+                        shape::try_convert_primitive(o.class, prim, &shape_rec.record)
+                {
+                    element.transform = transform;
+                    element.kind = kind;
+                } else {
+                    let mut members = Vec::new();
+                    let mut bitmap_fills = Vec::new();
+                    let mut appearances = Vec::new();
+                    let mut vector_effects = Vec::new();
+                    for (slot, child) in o.children.iter().enumerate() {
+                        members.push(self.element_or_placeholder(
+                            s,
+                            *child,
+                            &format!("{id}-member-{slot}"),
+                            depth + 1,
+                        ));
+                    }
+                    if let Some(index) = o.shape_index
+                        && let Some(shape_rec) = s.shapes.get(index)
+                    {
+                        match shape::convert_shape_with_effects(
+                            &shape_rec.record,
+                            &format!("{id}-paint"),
+                            &self.bitmaps,
+                            self.report,
+                            &location,
+                        ) {
+                            Ok(converted) => {
+                                members.extend(converted.elements);
+                                bitmap_fills.extend(converted.bitmap_fills);
+                                appearances.extend(converted.appearances);
+                                vector_effects.extend(converted.vector_effects);
+                            }
+                            Err(e) => self.report.warning("fla_shape_skipped",&location,format!("Primitive artwork was not converted: {e}. It remains in the embedded source.")),
+                        }
+                    }
+                    let symbol_id = format!("{id}-group");
+                    self.generated.push(group_symbol_with_effects(
+                        &symbol_id,
+                        format!("Source primitive {object_id}"),
+                        members,
+                        bitmap_fills,
+                        appearances,
+                        vector_effects,
+                    ));
+                    element.kind = ElementKind::Instance {
+                        symbol_id,
+                        playback: InstancePlayback::SingleFrame(0),
+                    };
+                }
+            }
+            Some(TimelinePayload::Video(v)) => {
+                element.name = optional_text(&s.original_bytes, v.instance_name.as_ref())?;
+                let matrix = shape::matrix(v.matrix_words.ok_or("Missing video matrix")?);
+                element.transform = Transform::from_matrix(matrix).ok_or("Invalid video matrix")?;
+                let mut width = 160.0;
+                let mut height = 120.0;
+                if let Some([left, right, top, bottom]) = v.bounds_words
+                    && left != i32::MIN
+                {
+                    let x = f64::from(left) / 20.0;
+                    let y = f64::from(top) / 20.0;
+                    let w = (f64::from(right) - f64::from(left)) / 20.0;
+                    let h = (f64::from(bottom) - f64::from(top)) / 20.0;
+                    let tx = element.transform.x + matrix[0] * x + matrix[2] * y;
+                    let ty = element.transform.y + matrix[1] * x + matrix[3] * y;
+                    if tx.is_finite() && ty.is_finite() && tx.abs() <= 1e12 && ty.abs() <= 1e12 {
+                        element.transform.x = tx;
+                        element.transform.y = ty;
+                    }
+                    if w.is_finite() && w > 0.0 {
+                        width = w.clamp(1.0, 8192.0);
+                    }
+                    if h.is_finite() && h > 0.0 {
+                        height = h.clamp(1.0, 8192.0);
+                    }
+                }
+                element.kind = ElementKind::Video { width, height };
+            }
+            Some(TimelinePayload::CompiledClip(c)) => {
+                element.name = optional_text(&s.original_bytes, c.instance_name.as_ref())?;
+                element.transform = Transform::from_matrix(shape::matrix(
+                    c.matrix_words.ok_or("Missing compiled clip matrix")?,
+                ))
+                .ok_or("Invalid compiled clip matrix")?;
+                if c.property_count.is_some_and(|v| v != 0) {
+                    self.report.warning(
+                        "fla_instance_settings",
+                        &location,
+                        "Component parameters or per-instance animation settings are not imported; they remain in the embedded source.",
+                    );
+                }
+                if let Some(script) = self.actions(s, c.actions.as_ref())? {
+                    element.scripts.push(ObjectScript {
+                        event: ObjectEvent::Load,
+                        script,
+                    });
+                }
+                if c.accessibility.as_ref().is_some_and(|a| a.revision != 0) {
+                    self.report.warning(
+                        "fla_accessibility_metadata",
+                        &location,
+                        "Source accessibility metadata remains embedded; no inferred role was assigned.",
+                    );
+                }
+                let symbol_id = if let Some(media) = c.media_id {
+                    let sym_id = format!("fla-compiled-clip-{media}");
+                    if !self.generated.iter().any(|g| g.id == sym_id) {
+                        let mut sym =
+                            group_symbol(&sym_id, format!("Compiled clip #{media}"), vec![]);
+                        sym.kind = SymbolKind::MovieClip;
+                        self.generated.push(sym);
+                    }
+                    sym_id
+                } else {
+                    if !self.generated.iter().any(|g| g.id == PLACEHOLDER) {
+                        self.generated.push(group_symbol(
+                            PLACEHOLDER,
+                            "Unsupported source object (see import report)".into(),
+                            vec![],
+                        ));
+                    }
+                    PLACEHOLDER.to_owned()
+                };
+                element.kind = ElementKind::Instance {
+                    symbol_id,
+                    playback: InstancePlayback::Independent,
                 };
             }
             _ => {
@@ -1867,6 +2106,16 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
     })
 }
 fn group_symbol(id: &str, name: String, elements: Vec<Element>) -> Symbol {
+    group_symbol_with_effects(id, name, elements, Vec::new(), Vec::new(), Vec::new())
+}
+fn group_symbol_with_effects(
+    id: &str,
+    name: String,
+    elements: Vec<Element>,
+    bitmap_fills: Vec<AuthoredBitmapFill>,
+    appearances: Vec<ElementAppearance>,
+    vector_effects: Vec<ElementVectorEffects>,
+) -> Symbol {
     Symbol {
         id: id.into(),
         name,
@@ -1883,6 +2132,9 @@ fn group_symbol(id: &str, name: String, elements: Vec<Element>) -> Symbol {
                 keyframes: vec![Keyframe {
                     frame: 0,
                     elements,
+                    bitmap_fills,
+                    appearances,
+                    vector_effects,
                     tween: None,
                     label: String::new(),
                     ..Default::default()
@@ -2345,15 +2597,19 @@ fn shed_audio_resources(project: &mut Project, report: &mut ImportReport, excess
 
 fn shed_bitmap_resources(project: &mut Project, report: &mut ImportReport, excess: usize) -> bool {
     let mut placement_counts = BTreeMap::<String, usize>::new();
-    for element in project
+    for key in project
         .symbols
         .iter()
         .flat_map(|s| &s.timeline.layers)
         .flat_map(|l| &l.keyframes)
-        .flat_map(|k| &k.elements)
     {
-        if let ElementKind::Bitmap { resource_id, .. } = &element.kind {
-            *placement_counts.entry(resource_id.clone()).or_default() += 1;
+        for element in &key.elements {
+            if let ElementKind::Bitmap { resource_id, .. } = &element.kind {
+                *placement_counts.entry(resource_id.clone()).or_default() += 1;
+            }
+        }
+        for bf in &key.bitmap_fills {
+            *placement_counts.entry(bf.resource_id.clone()).or_default() += 1;
         }
     }
     let mut candidates: Vec<(usize, u16, String)> = project
@@ -2411,6 +2667,7 @@ fn shed_bitmap_resources(project: &mut Project, report: &mut ImportReport, exces
             let can_nest = allowed_leaf.contains(&symbol.id);
             for layer in &mut symbol.timeline.layers {
                 for key in &mut layer.keyframes {
+                    key.bitmap_fills.retain(|bf| &bf.resource_id != res_id);
                     for element in &mut key.elements {
                         if matches!(
                             &element.kind,
@@ -2550,6 +2807,18 @@ fn degrade_excess_vector_shapes(
                         .sum();
                     if is_group_symbol {
                         key.elements.retain(|e| !is_vector_path(e));
+                        let kept_ids: std::collections::HashSet<&str> = key
+                            .elements
+                            .iter()
+                            .filter(|e| is_vector_path(e))
+                            .map(|e| e.id.as_str())
+                            .collect();
+                        key.bitmap_fills
+                            .retain(|bf| kept_ids.contains(bf.element_id.as_str()));
+                        key.appearances
+                            .retain(|app| kept_ids.contains(app.element_id.as_str()));
+                        key.vector_effects
+                            .retain(|fx| kept_ids.contains(fx.element_id.as_str()));
                         report.warning(
                             "fla_shape_approximated",
                             &symbol.name,
@@ -2603,6 +2872,18 @@ fn degrade_excess_vector_shapes(
                                 false
                             }
                         });
+                        let kept_ids: std::collections::HashSet<&str> = key
+                            .elements
+                            .iter()
+                            .filter(|e| is_vector_path(e))
+                            .map(|e| e.id.as_str())
+                            .collect();
+                        key.bitmap_fills
+                            .retain(|bf| kept_ids.contains(bf.element_id.as_str()));
+                        key.appearances
+                            .retain(|app| kept_ids.contains(app.element_id.as_str()));
+                        key.vector_effects
+                            .retain(|fx| kept_ids.contains(fx.element_id.as_str()));
                         report.warning(
                             "fla_shape_approximated",
                             format!("{} layer {} frame {}", symbol.name, layer.name, key.frame + 1),

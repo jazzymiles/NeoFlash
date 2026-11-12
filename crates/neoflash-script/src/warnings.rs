@@ -735,7 +735,8 @@ impl<'a> JsTsWarningCollector<'a> {
             if let BindingPatternKind::BindingIdentifier(ident) = &decl.id.kind {
                 let name = ident.name.as_str().to_string();
                 self.known_names.insert(name.clone());
-                let ident_span = (ident.span.start as usize, ident.span.end as usize);
+                let start = ident.span.start as usize;
+                let ident_span = (start, (start + name.len()).min(self.source.len()));
                 let inferred_type = decl.init.as_ref().and_then(infer_simple_literal_type);
                 self.declared_vars.push(DeclaredVar {
                     local: self.function_depth > 0,

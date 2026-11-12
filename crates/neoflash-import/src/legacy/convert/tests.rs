@@ -525,8 +525,7 @@ fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_
     assert_eq!(legacy_preset.effect, SoundEffect::LeftChannel);
     assert!(context.report.diagnostics.is_empty());
 
-    // Non-preset custom envelope imports as SoundEffect::Custom without envelope warning,
-    // while in/out trim points still emit one fla_frame_sound warning:
+    // Non-preset custom envelope and in/out trim points convert directly without warnings:
     frame.sound_effect = Some(7); // 7 = Custom
     let mut custom_env = Vec::new();
     for (p, l, r) in [
@@ -546,6 +545,7 @@ fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_
         end: stream.original_bytes.len(),
     });
     frame.sound_in_point = Some(1_000);
+    frame.sound_out_point = Some(22_050);
     let custom = context
         .frame_sound(&stream, &frame, "Page 1#layer:Audio#frame:0")
         .unwrap();
@@ -556,14 +556,9 @@ fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_
     assert!((env_pts[1][0] - (20_000.0 / 44_100.0)).abs() < 1e-12);
     assert_eq!((env_pts[1][1], env_pts[1][2]), (1.0, 0.25));
     assert_eq!(env_pts[2], [1.0, 0.0, 0.0]);
-    assert_eq!(context.report.diagnostics.len(), 1);
-    assert!(
-        context
-            .report
-            .diagnostics
-            .iter()
-            .all(|d| d.code == "fla_frame_sound")
-    );
+    assert!((custom.in_point.unwrap() - (1_000.0 / 44_100.0)).abs() < 1e-12);
+    assert!((custom.out_point.unwrap() - 0.5).abs() < 1e-12);
+    assert!(context.report.diagnostics.is_empty());
 
     // Missing/unimported sound media ID emits fla_frame_sound warning and returns None:
     frame.sound_media_id = Some(99);
@@ -572,7 +567,7 @@ fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_
             .frame_sound(&stream, &frame, "Page 1#layer:Audio#frame:0")
             .is_none()
     );
-    assert_eq!(context.report.diagnostics.len(), 2);
+    assert_eq!(context.report.diagnostics.len(), 1);
 }
 
 #[test]
@@ -1451,4 +1446,304 @@ fn flash8_single_run_fields_and_multibyte_metadata_keep_authored_semantics() {
     format
         .validate()
         .expect("static text metadata is also byte-bounded");
+}
+
+#[test]
+fn gradient_extensions_bitmap_fills_and_procedural_strokes_convert_without_approximation_warnings()
+{
+    let mut edges = vec![];
+    for (points, fill_idx) in [
+        ([[0, 0], [20, 0], [20, 20], [0, 20]], 1),
+        ([[30, 0], [50, 0], [50, 20], [30, 20]], 2),
+    ] {
+        for i in 0..4 {
+            edges.push(edge(points[i], points[(i + 1) % 4], 0, fill_idx, 0, None));
+        }
+    }
+    edges.extend([
+        edge([0, 30], [20, 30], 0, 0, 1, None),
+        edge([0, 40], [20, 40], 0, 0, 2, None),
+        edge([0, 50], [20, 50], 0, 0, 3, None),
+        edge([0, 60], [20, 60], 0, 0, 4, None),
+        edge([0, 70], [20, 70], 0, 0, 5, None),
+    ]);
+    let shape = BinaryShapeRecord {
+        shape_revision: 6,
+        data_revision: 5,
+        matrix_words: [65536, 0, 0, 65536, 0, 0],
+        metadata: 0,
+        fills: vec![
+            BinaryFill {
+                packed_value: 0,
+                encoding: BinaryFillEncoding::Extended {
+                    flags: 0x12,
+                    secondary_flags: 0,
+                    payload: BinaryFillPayload::Gradient {
+                        matrix_words: [65536, 0, 0, 65536, 0, 0],
+                        extension: Some(BinaryGradientExtension {
+                            flags: 1 | 4, // linearRGB + Reflect spread
+                            focal_point: 128,
+                        }),
+                        stops: vec![
+                            BinaryGradientStop {
+                                ratio: 0,
+                                color_word: 0xffff0000,
+                            },
+                            BinaryGradientStop {
+                                ratio: 255,
+                                color_word: 0xff0000ff,
+                            },
+                        ],
+                    },
+                },
+            },
+            BinaryFill {
+                packed_value: 0,
+                encoding: BinaryFillEncoding::Extended {
+                    flags: 0x40, // repeating + smoothed bitmap fill
+                    secondary_flags: 0,
+                    payload: BinaryFillPayload::Bitmap {
+                        matrix_words: [65536 * 20, 0, 0, 65536 * 20, 40, 80],
+                        media_id: 7,
+                    },
+                },
+            },
+        ],
+        strokes: vec![
+            // 1 = Dashed
+            BinaryStroke {
+                color_word: 0xff112233,
+                width_word: 40,
+                style_words: [120, 60],
+                extension: None,
+            },
+            // 2 = Dotted
+            BinaryStroke {
+                color_word: 0xff223344,
+                width_word: 20,
+                style_words: [0, 2 | (80 << 3)],
+                extension: None,
+            },
+            // 3 = Ragged
+            BinaryStroke {
+                color_word: 0xff334455,
+                width_word: 20,
+                style_words: [0, 3 | (1 << 3) | (2 << 6) | (1 << 8)],
+                extension: None,
+            },
+            // 4 = Stipple
+            BinaryStroke {
+                color_word: 0xff445566,
+                width_word: 20,
+                style_words: [0, 4 | (1 << 3) | (2 << 5) | (1 << 7)],
+                extension: None,
+            },
+            // 5 = Hatched
+            BinaryStroke {
+                color_word: 0xff556677,
+                width_word: 20,
+                style_words: [0, 5 | (1 << 3) | (2 << 5) | (1 << 13)],
+                extension: None,
+            },
+        ],
+        edges,
+        auxiliary: vec![],
+        original_bytes: vec![],
+    };
+    let mut bitmaps = BTreeMap::new();
+    bitmaps.insert(
+        7,
+        assets::BitmapAsset {
+            resource_id: "legacy-bitmap-7".into(),
+            width: 16.0,
+            height: 16.0,
+            smoothing: true,
+        },
+    );
+    let mut rep = report();
+    let converted =
+        shape::convert_shape_with_effects(&shape, "shape", &bitmaps, &mut rep, "synthetic")
+            .unwrap();
+    assert!(
+        !rep.diagnostics
+            .iter()
+            .any(|d| d.code == "fla_shape_approximated"),
+        "gradient spread/linearRGB, resolved bitmap fills, and procedural strokes should not emit fla_shape_approximated"
+    );
+    let ElementKind::PaintedPath { fill_gradient, .. } = &converted.elements[0].kind else {
+        panic!("expected gradient path");
+    };
+    let grad = fill_gradient.as_ref().unwrap();
+    assert_eq!(grad.spread, GradientSpread::Reflect);
+    assert!(grad.linear_rgb);
+    assert!((grad.focal_point_ratio - (128.0 / 255.0)).abs() < 1e-9);
+    assert_eq!(converted.bitmap_fills.len(), 1);
+    assert_eq!(converted.bitmap_fills[0].element_id, "shape-fill-1");
+    assert_eq!(converted.bitmap_fills[0].resource_id, "legacy-bitmap-7");
+    assert!(converted.bitmap_fills[0].repeat);
+    assert!(converted.bitmap_fills[0].smoothing);
+    assert_eq!(converted.appearances.len(), 2);
+    assert_eq!(converted.vector_effects.len(), 3);
+}
+
+#[test]
+fn classic_tween_rotation_direction_turns_and_flags_convert_cleanly() {
+    let mut source = timeline_fixture();
+    if let Some(TimelinePayload::Frame(frame)) = &mut source
+        .objects
+        .iter_mut()
+        .find(|o| o.object_id == 10)
+        .unwrap()
+        .payload
+    {
+        frame.key_mode = Some(1 | 0x100 | 0x800 | 0x1000);
+        frame.rotation_mode = Some(2); // CCW
+        frame.rotation_count = Some(3);
+    }
+    let (timeline, rep) = convert_timeline_reporting(&source).unwrap();
+    assert!(
+        !rep.diagnostics
+            .iter()
+            .any(|d| d.code == "fla_tween_rotation")
+    );
+    let key = &timeline.layers[0].keyframes[0];
+    assert_eq!(key.classic_rotate_dir, ClassicRotateDirection::Ccw);
+    assert_eq!(key.classic_rotate_turns, 3);
+    assert!(key.orient_to_path);
+    assert!(key.sync_symbols);
+    assert!(key.snap_to_guide);
+}
+
+#[test]
+fn primitive_video_and_compiled_clip_records_convert_without_placeholders() {
+    let mut source = timeline_fixture();
+    let mut rect_edges = Vec::new();
+    let pts = [[0, 0], [40, 0], [40, 20], [0, 20]];
+    for i in 0..4 {
+        rect_edges.push(edge(pts[i], pts[(i + 1) % 4], 0, 1, 1, None));
+    }
+    source.shapes.push(LocatedBinaryShape {
+        offset: 0,
+        record: BinaryShapeRecord {
+            shape_revision: 6,
+            data_revision: 5,
+            matrix_words: [65536, 0, 0, 65536, 200, 400],
+            metadata: 0,
+            fills: vec![BinaryFill {
+                packed_value: 0xff112233,
+                encoding: BinaryFillEncoding::Legacy { word: 0 },
+            }],
+            strokes: vec![BinaryStroke {
+                color_word: 0xff445566,
+                width_word: 40,
+                style_words: [0, 0],
+                extension: None,
+            }],
+            edges: rect_edges,
+            auxiliary: vec![],
+            original_bytes: vec![],
+        },
+    });
+    source.objects.push(TimelineObject {
+        object_id: 90,
+        class: TimelineClass::Rect,
+        schema: 1,
+        introduced_by_pointer: 0,
+        owner: Some(10),
+        children: vec![],
+        encoded: TimelineByteSpan { start: 0, end: 1 },
+        body_offset: 0,
+        complete: true,
+        base: Some(TimelineBase::default()),
+        payload: Some(TimelinePayload::Primitive(Box::new(TimelinePrimitive {
+            revision: Some(1),
+            flags: Some(1),
+            corner_radii: Some([100, 100, 100, 100]),
+            ..Default::default()
+        }))),
+        shape_index: Some(0),
+    });
+    source.objects.push(TimelineObject {
+        object_id: 91,
+        class: TimelineClass::VideoStream,
+        schema: 1,
+        introduced_by_pointer: 0,
+        owner: Some(10),
+        children: vec![],
+        encoded: TimelineByteSpan { start: 0, end: 1 },
+        body_offset: 0,
+        complete: true,
+        base: Some(TimelineBase::default()),
+        payload: Some(TimelinePayload::Video(Box::new(TimelineVideo {
+            revision: Some(4),
+            matrix_words: Some([65536, 0, 0, 65536, 0, 0]),
+            bounds_words: Some([0, 6400, 0, 4800]),
+            media_present: Some(1),
+            media_id: Some(3),
+            ..Default::default()
+        }))),
+        shape_index: None,
+    });
+    source.objects.push(TimelineObject {
+        object_id: 92,
+        class: TimelineClass::CompiledClip,
+        schema: 1,
+        introduced_by_pointer: 0,
+        owner: Some(10),
+        children: vec![],
+        encoded: TimelineByteSpan { start: 0, end: 1 },
+        body_offset: 0,
+        complete: true,
+        base: Some(TimelineBase::default()),
+        payload: Some(TimelinePayload::CompiledClip(Box::new(
+            TimelineCompiledClip {
+                revision: Some(7),
+                matrix_words: Some([65536, 0, 0, 65536, 100, 200]),
+                media_present: Some(1),
+                media_id: Some(5),
+                ..Default::default()
+            },
+        ))),
+        shape_index: None,
+    });
+    if let Some(frame_obj) = source.objects.iter_mut().find(|o| o.object_id == 10) {
+        frame_obj.children.extend([90, 91, 92]);
+    }
+    let (timeline, rep) = convert_timeline_reporting(&source).unwrap();
+    assert!(
+        !rep.diagnostics
+            .iter()
+            .any(|d| d.code == "fla_object_placeholder"),
+        "Rect, VideoStream, and CompiledClip should not emit fla_object_placeholder"
+    );
+    let elems = &timeline.layers[0].keyframes[0].elements;
+    assert!(matches!(
+        elems[1].kind,
+        ElementKind::Rectangle {
+            width: 40.0,
+            height: 20.0,
+            ..
+        }
+    ));
+    assert_eq!(
+        elems[1].transform.primitive,
+        Some(PrimitiveOptions::Rectangle(RectangleOptions {
+            corner_radii: [5.0; 4],
+            corners_locked: true,
+        }))
+    );
+    assert_eq!(
+        elems[2].kind,
+        ElementKind::Video {
+            width: 320.0,
+            height: 240.0,
+        }
+    );
+    assert_eq!(
+        elems[3].kind,
+        ElementKind::Instance {
+            symbol_id: "fla-compiled-clip-5".into(),
+            playback: InstancePlayback::Independent,
+        }
+    );
 }

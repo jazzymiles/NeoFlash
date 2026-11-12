@@ -170,14 +170,27 @@ fn placement_cache_key(placement: &ResolvedVideoPlacement, base_dir: Option<&Pat
 }
 
 fn external_video_stamp(
+    project: &Project,
     placement: &ResolvedVideoPlacement,
     base_dir: Option<&Path>,
 ) -> Option<ExternalVideoStamp> {
     let source = placement.source.as_ref()?;
-    if source.mode != VideoDeploymentMode::External {
-        return None;
-    }
-    let path = base_dir?.join(&source.url_or_path);
+    let path = match source.mode {
+        VideoDeploymentMode::External => base_dir?.join(&source.url_or_path),
+        VideoDeploymentMode::Progressive => {
+            let res_path = project
+                .resources
+                .iter()
+                .find(|r| r.id == placement.resource)
+                .map(|r| r.path.as_str());
+            neoflash_export::resolve_progressive_local_path(
+                &source.url_or_path,
+                res_path,
+                base_dir,
+            )?
+        }
+        VideoDeploymentMode::Embedded => return None,
+    };
     let metadata = std::fs::metadata(&path).ok()?;
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
@@ -197,6 +210,10 @@ struct CachedFrameTexture {
     bytes: usize,
     image: Arc<egui::ColorImage>,
 }
+
+/// Alias for [`VideoTextures`] representing the native Stage video frame cache (`T-274`).
+#[allow(dead_code)]
+pub type VideoFrameCache = VideoTextures;
 
 #[derive(Default)]
 pub struct VideoTextures {
@@ -298,7 +315,7 @@ impl VideoTextures {
             cached.last_external_check.elapsed() >= EXTERNAL_VIDEO_RECHECK_INTERVAL
         });
         let external_stamp = if check_external {
-            external_video_stamp(placement, base_dir)
+            external_video_stamp(project, placement, base_dir)
         } else {
             self.streams
                 .get(&cache_key)
@@ -973,6 +990,109 @@ mod tests {
             .frame_for_placement(&project, Some(&dir), &placement)
             .unwrap();
         assert_eq!(&refreshed.image.rgba[..4], &[9, 88, 177, 255]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn t274_progressive_video_spans_decode_and_scrub_in_native_stage_cache() {
+        let dir = std::env::temp_dir().join(format!(
+            "neoflash-video-cache-t274-progressive-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("media")).unwrap();
+
+        // 240-frame progressive stream (> MAX_EAGER_VIDEO_FRAMES = 180) so it decodes on-demand
+        // via WindowedFrameRing.
+        let raw_frames: Vec<Vec<u8>> = (0..240usize)
+            .map(|idx| [idx as u8, ((idx * 5) & 0xFF) as u8, 120, 255].repeat(16))
+            .collect();
+        let raw_slices: Vec<&[u8]> = raw_frames.iter().map(Vec::as_slice).collect();
+        let long_mp4 = encode_deterministic_mp4_rgba_frames(4, 4, 20, &raw_slices);
+        std::fs::write(dir.join("media/prog_long.mp4"), &long_mp4).unwrap();
+
+        let mut project = Project::blank();
+        project.resources.push(
+            ResourceUnit::from_bytes("prog-res", "media/prog_long.mp4", "video/mp4", &[]).unwrap(),
+        );
+        let mut cache = VideoFrameCache::default();
+        let mut placement = ResolvedVideoPlacement {
+            channel: "video".into(),
+            target_path: vec!["prog-video-el".into()],
+            layer_id: "video-layer".into(),
+            resource: "prog-res".into(),
+            source: Some(VideoSourceSpec {
+                mode: VideoDeploymentMode::Progressive,
+                url_or_path: "https://cdn.example.com/media/prog_long.mp4".into(),
+                mime_type: "video/mp4".into(),
+            }),
+            sync: VideoSyncMode::Stream,
+            time_ms: 0,
+            in_point_ms: 0,
+            out_point_ms: None,
+            playing: false,
+            loop_video: false,
+            muted: false,
+            stopped: false,
+        };
+
+        // 1. Progressive span backed by staged local file decodes into WindowedFrameRing
+        let stream = cache
+            .stream_for_placement(&project, Some(&dir), &placement)
+            .expect("progressive stream resolves and decodes");
+        assert!(stream.on_demand.is_some());
+        assert_eq!(stream.logical_frame_count(), 240);
+
+        for &seek_idx in &[0usize, 15, 199, 239, 42, 0] {
+            placement.time_ms = (seek_idx as u32) * 50;
+            let (got_idx, frame) = cache
+                .frame_for_placement(&project, Some(&dir), &placement)
+                .expect("progressive frame at scrubbed timestamp");
+            assert_eq!(got_idx, seek_idx);
+            assert_eq!(
+                &frame.image.rgba[..4],
+                &[seek_idx as u8, ((seek_idx * 5) & 0xFF) as u8, 120, 255]
+            );
+        }
+
+        // 2. Progressive span with known metadata in headless mode (no local file on disk)
+        // synthesizes deterministic RGBA frames across timeline scrubbing
+        let mut synth_project = Project::blank();
+        synth_project.resources.push(
+            ResourceUnit::from_bytes("prog-synth", "streams/headless.mp4", "video/mp4", &[])
+                .unwrap(),
+        );
+        {
+            let root_id = synth_project.root.clone();
+            let root = synth_project.symbol_mut(&root_id).unwrap();
+            let mut span = neoflash_core::TimelineVideoSpan::progressive(
+                "prog-synth",
+                "https://cdn.example.com/streams/headless.mp4",
+            );
+            span.end_offset_ms = Some(4000);
+            root.timeline.layers[0].keyframes[0].video = Some(span);
+        }
+        let mut synth_placement = placement.clone();
+        synth_placement.resource = "prog-synth".into();
+        synth_placement.source = Some(VideoSourceSpec {
+            mode: VideoDeploymentMode::Progressive,
+            url_or_path: "https://cdn.example.com/streams/headless.mp4".into(),
+            mime_type: "video/mp4".into(),
+        });
+        synth_placement.time_ms = 0;
+        let (_, f0) = cache
+            .frame_for_placement(&synth_project, None, &synth_placement)
+            .expect("synthesized progressive frame 0");
+        synth_placement.time_ms = 100;
+        let (_, f1) = cache
+            .frame_for_placement(&synth_project, None, &synth_placement)
+            .expect("synthesized progressive frame 1");
+        assert_ne!(
+            &f0.image.rgba[..4],
+            &f1.image.rgba[..4],
+            "progressive synthesized stream must advance across timeline scrubbing"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
