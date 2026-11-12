@@ -1,0 +1,144 @@
+#!/usr/bin/env pwsh
+# NeoFlash 0.1.0-beta.1 Windows 11 x64 Technical Preview Packaging Script (T-282).
+# Produces:
+#   - dist/NeoFlash-0.1.0-beta.1-windows-x64-preview/
+#   - dist/NeoFlash-0.1.0-beta.1-windows-x64-preview.zip
+#   - dist/NeoFlash-0.1.0-beta.1-windows-x64-preview.msix (when NEOFLASH_WINDOWS_CERT_THUMBPRINT is set)
+#   - dist/NeoFlash-0.1.0-beta.1-windows-x64-SHA256SUMS.txt
+
+param(
+    [ValidateSet("release", "debug")]
+    [string]$Profile = "release",
+    [switch]$AllowDirty
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+Push-Location $ProjectRoot
+try {
+    if (-not $AllowDirty) {
+        git diff --quiet
+        if ($LASTEXITCODE -ne 0) {
+            throw "Refusing to package tracked changes that are not committed."
+        }
+        git diff --cached --quiet
+        if ($LASTEXITCODE -ne 0) {
+            throw "Refusing to package staged changes that are not committed."
+        }
+    }
+
+    $Commit = (git rev-parse --verify HEAD).Trim()
+    $BuildNumber = (git rev-list --count HEAD).Trim()
+    $Version = "0.1.0-beta.1"
+    $PackageName = "NeoFlash-$Version-windows-x64-preview"
+
+    # 1. Build Web Runtime (target/web-runtime)
+    rustup target add wasm32-unknown-unknown
+    if (-not (Get-Command wasm-bindgen -ErrorAction SilentlyContinue) -or ((wasm-bindgen --version) -ne "wasm-bindgen 0.2.129")) {
+        cargo install wasm-bindgen-cli --version 0.2.129 --locked
+    }
+    cargo build --locked --release -p neoflash-web --target wasm32-unknown-unknown
+    wasm-bindgen --target no-modules --no-modules-global NeoFlashWasm --out-name neoflash_web --out-dir target/web-runtime target/wasm32-unknown-unknown/release/neoflash_web.wasm
+
+    # 2. Build Native Windows x64 Editor (target/release/neoflash-editor.exe)
+    if ($Profile -eq "release") {
+        cargo build --locked --release -p neoflash-editor
+        $ExeSource = Join-Path $ProjectRoot "target/release/neoflash-editor.exe"
+    } else {
+        cargo build --locked -p neoflash-editor
+        $ExeSource = Join-Path $ProjectRoot "target/debug/neoflash-editor.exe"
+    }
+
+    if (-not (Test-Path $ExeSource)) {
+        throw "Expected Windows executable not found at $ExeSource"
+    }
+
+    # 3. Stage portable preview layout
+    $DistDir = Join-Path $ProjectRoot "dist"
+    $StageDir = Join-Path $DistDir $PackageName
+    $RuntimeStageDir = Join-Path $StageDir "runtime"
+    $MediaBinStageDir = Join-Path $StageDir "media/bin"
+    $LicensesStageDir = Join-Path $StageDir "licenses"
+
+    if (Test-Path $StageDir) {
+        Remove-Item -Recurse -Force $StageDir
+    }
+    New-Item -ItemType Directory -Force -Path $StageDir, $RuntimeStageDir, $MediaBinStageDir, $LicensesStageDir | Out-Null
+
+    Copy-Item -Force $ExeSource (Join-Path $StageDir "neoflash-editor.exe")
+    Copy-Item -Force (Join-Path $ProjectRoot "target/web-runtime/neoflash_web.js") (Join-Path $RuntimeStageDir "neoflash_web.js")
+    Copy-Item -Force (Join-Path $ProjectRoot "target/web-runtime/neoflash_web_bg.wasm") (Join-Path $RuntimeStageDir "neoflash_web_bg.wasm")
+    Copy-Item -Force (Join-Path $ProjectRoot "THIRD_PARTY_NOTICES.txt") (Join-Path $StageDir "THIRD_PARTY_NOTICES.txt")
+    Copy-Item -Force (Join-Path $ProjectRoot "THIRD_PARTY_NOTICES.txt") (Join-Path $LicensesStageDir "THIRD_PARTY_NOTICES.txt")
+
+    # 4. Stage bundled FFmpeg / FFprobe media helpers (T-283)
+    $MediaSourceDir = if ($env:NEOFLASH_WINDOWS_MEDIA_BIN_DIR) {
+        $env:NEOFLASH_WINDOWS_MEDIA_BIN_DIR
+    } else {
+        Join-Path $ProjectRoot "target/media-bundle/windows-x64/bin"
+    }
+    $FfmpegSrc = Join-Path $MediaSourceDir "ffmpeg.exe"
+    $FfprobeSrc = Join-Path $MediaSourceDir "ffprobe.exe"
+    if (Test-Path $FfmpegSrc) {
+        Copy-Item -Force $FfmpegSrc (Join-Path $MediaBinStageDir "ffmpeg.exe")
+    }
+    if (Test-Path $FfprobeSrc) {
+        Copy-Item -Force $FfprobeSrc (Join-Path $MediaBinStageDir "ffprobe.exe")
+    }
+
+    # 5. Write build provenance metadata
+    $Metadata = [ordered]@{
+        name         = "NeoFlash"
+        version      = $Version
+        channel      = "windows-x64-technical-preview"
+        profile      = $Profile
+        commit       = $Commit
+        build_number = [int]$BuildNumber
+        target       = "x86_64-pc-windows-msvc"
+    }
+    $Metadata | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 (Join-Path $StageDir "BUILD_METADATA.json")
+
+    # 6. Optional Authenticode signing & MSIX packaging when NEOFLASH_WINDOWS_CERT_THUMBPRINT is provided
+    $CertThumbprint = $env:NEOFLASH_WINDOWS_CERT_THUMBPRINT
+    if (-not [string]::IsNullOrWhiteSpace($CertThumbprint)) {
+        signtool.exe sign /fd SHA256 /sha1 $CertThumbprint /tr http://timestamp.digicert.com /td SHA256 (Join-Path $StageDir "neoflash-editor.exe")
+        if (Test-Path (Join-Path $MediaBinStageDir "ffmpeg.exe")) {
+            signtool.exe sign /fd SHA256 /sha1 $CertThumbprint /tr http://timestamp.digicert.com /td SHA256 (Join-Path $MediaBinStageDir "ffmpeg.exe")
+        }
+        if (Test-Path (Join-Path $MediaBinStageDir "ffprobe.exe")) {
+            signtool.exe sign /fd SHA256 /sha1 $CertThumbprint /tr http://timestamp.digicert.com /td SHA256 (Join-Path $MediaBinStageDir "ffprobe.exe")
+        }
+    }
+
+    # 7. Produce portable ZIP archive
+    $ZipPath = Join-Path $DistDir "NeoFlash-0.1.0-beta.1-windows-x64-preview.zip"
+    if (Test-Path $ZipPath) {
+        Remove-Item -Force $ZipPath
+    }
+    Compress-Archive -Path (Join-Path $StageDir "*") -DestinationPath $ZipPath -Force
+
+    # 8. Optional MSIX package with .nflash file association
+    $MsixPath = Join-Path $DistDir "NeoFlash-0.1.0-beta.1-windows-x64-preview.msix"
+    if (-not [string]::IsNullOrWhiteSpace($CertThumbprint)) {
+        Copy-Item -Force (Join-Path $ProjectRoot "scripts/windows-appxmanifest.xml") (Join-Path $StageDir "AppxManifest.xml")
+        makeappx.exe pack /o /d $StageDir /p $MsixPath
+        signtool.exe sign /fd SHA256 /sha1 $CertThumbprint /tr http://timestamp.digicert.com /td SHA256 $MsixPath
+    }
+
+    # 9. Emit SHA-256 checksum manifest
+    $ShaFile = Join-Path $DistDir "NeoFlash-0.1.0-beta.1-windows-x64-SHA256SUMS.txt"
+    $HashLines = @()
+    foreach ($Artifact in @($ZipPath, $MsixPath, (Join-Path $StageDir "neoflash-editor.exe"))) {
+        if (Test-Path $Artifact) {
+            $Hash = (Get-FileHash -Algorithm SHA256 -Path $Artifact).Hash.ToLowerInvariant()
+            $Leaf = Split-Path -Leaf $Artifact
+            $HashLines += "$Hash  $Leaf"
+        }
+    }
+    $HashLines | Set-Content -Encoding UTF8 $ShaFile
+    Write-Output $ZipPath
+} finally {
+    Pop-Location
+}

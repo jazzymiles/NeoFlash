@@ -3392,8 +3392,11 @@ impl Editor {
                             logo(ui, 40.);
                             ui.vertical(|ui| {
                                 ui.label(
-                                    rich("NeoFlash 0.1 — development preview", TextStyle::Title)
-                                        .color(p.text_primary),
+                                    rich(
+                                        format!("NeoFlash {} — macOS Beta 1", env!("CARGO_PKG_VERSION")),
+                                        TextStyle::Title,
+                                    )
+                                    .color(p.text_primary),
                                 );
                                 ui.label(
                                     rich("Open source · MIT OR Apache-2.0", TextStyle::Small)

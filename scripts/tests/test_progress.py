@@ -262,6 +262,18 @@ class ProgressTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Incomplete historical inventory"):
             progress.history(self.root, "HEAD")
 
+    def test_historical_rust_module_decomposition_resolves_mod_rs_evidence(self):
+        self.inventory()
+        self.write("src/module/mod.rs", "pub fn decomposed() {}\n")
+        manifest_path = self.root / "docs/progress/product.json"
+        data = json.loads(manifest_path.read_text())
+        data["features"][0]["evidence"] = ["src/module.rs"]
+        manifest_path.write_text(json.dumps(data) + "\n")
+        rev = self.commit("decomposed module into mod.rs")
+        self.assertTrue(progress.revision_has_evidence_blob(self.root, rev, "src/module.rs"))
+        records = progress.history(self.root, rev)
+        self.assertEqual(len(records), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

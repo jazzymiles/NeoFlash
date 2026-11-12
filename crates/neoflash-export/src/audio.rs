@@ -1389,19 +1389,19 @@ pub fn encode_wav(
     out
 }
 
-fn find_ffmpeg() -> Option<&'static str> {
-    [
-        "/opt/homebrew/bin/ffmpeg",
-        "/usr/local/bin/ffmpeg",
-        "ffmpeg",
-    ]
-    .into_iter()
-    .find(|&candidate| {
-        Command::new(candidate)
-            .arg("-version")
-            .output()
-            .is_ok_and(|o| o.status.success())
-    })
+fn find_ffmpeg() -> Option<std::path::PathBuf> {
+    crate::video::detect_ffmpeg()
+}
+
+fn configure_audio_ffmpeg_command(cmd: &mut Command, binary: &Path) {
+    if crate::video::is_bundled_media_binary(binary)
+        || std::env::var("NEOFLASH_DISABLE_SYSTEM_FFMPEG")
+            .ok()
+            .as_deref()
+            == Some("1")
+    {
+        cmd.env("PATH", "");
+    }
 }
 
 fn temp_audio_pair(ext: &str) -> (std::path::PathBuf, std::path::PathBuf) {
@@ -1433,7 +1433,9 @@ pub fn encode_mp3(
                 SoundExportQuality::Medium => "5",
                 SoundExportQuality::Fast => "9",
             };
-            let status = Command::new(ffmpeg)
+            let mut cmd = Command::new(&ffmpeg);
+            configure_audio_ffmpeg_command(&mut cmd, &ffmpeg);
+            let status = cmd
                 .args([
                     "-y",
                     "-loglevel",
@@ -1581,7 +1583,9 @@ pub fn encode_ogg(
                 225..=288 => "8",
                 _ => "10",
             };
-            let status = Command::new(ffmpeg)
+            let mut cmd = Command::new(&ffmpeg);
+            configure_audio_ffmpeg_command(&mut cmd, &ffmpeg);
+            let status = cmd
                 .args([
                     "-y",
                     "-loglevel",
@@ -1751,40 +1755,13 @@ pub fn encode_aac(
     channels: AudioChannels,
     bit_rate_kbps: u32,
 ) -> Result<Vec<u8>, ExportError> {
-    let (in_wav, out_m4a) = temp_audio_pair("m4a");
     let wav_bytes = encode_wav(frames, sample_rate, channels, AudioBitDepth::Bit16);
-    if fs::write(&in_wav, &wav_bytes).is_ok() {
-        let status = Command::new("/usr/bin/afconvert")
-            .args([
-                "-f",
-                "m4af",
-                "-d",
-                "aac",
-                "-b",
-                &(bit_rate_kbps.clamp(64, 320) * 1000).to_string(),
-                in_wav.to_str().unwrap_or_default(),
-                out_m4a.to_str().unwrap_or_default(),
-            ])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        let result = if status.is_ok_and(|s| s.success()) {
-            fs::read(&out_m4a).ok()
-        } else {
-            None
-        };
-        let _ = fs::remove_file(&in_wav);
-        let _ = fs::remove_file(&out_m4a);
-        if let Some(bytes) = result
-            && !bytes.is_empty()
-        {
-            return Ok(bytes);
-        }
-    }
     if let Some(ffmpeg) = find_ffmpeg() {
         let (in_wav, out_m4a) = temp_audio_pair("m4a");
         if fs::write(&in_wav, &wav_bytes).is_ok() {
-            let status = Command::new(ffmpeg)
+            let mut cmd = Command::new(&ffmpeg);
+            configure_audio_ffmpeg_command(&mut cmd, &ffmpeg);
+            let status = cmd
                 .args([
                     "-y",
                     "-loglevel",
@@ -1817,6 +1794,35 @@ pub fn encode_aac(
             {
                 return Ok(bytes);
             }
+        }
+    }
+    let (in_wav, out_m4a) = temp_audio_pair("m4a");
+    if fs::write(&in_wav, &wav_bytes).is_ok() {
+        let status = Command::new("/usr/bin/afconvert")
+            .args([
+                "-f",
+                "m4af",
+                "-d",
+                "aac",
+                "-b",
+                &(bit_rate_kbps.clamp(64, 320) * 1000).to_string(),
+                in_wav.to_str().unwrap_or_default(),
+                out_m4a.to_str().unwrap_or_default(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        let result = if status.is_ok_and(|s| s.success()) {
+            fs::read(&out_m4a).ok()
+        } else {
+            None
+        };
+        let _ = fs::remove_file(&in_wav);
+        let _ = fs::remove_file(&out_m4a);
+        if let Some(bytes) = result
+            && !bytes.is_empty()
+        {
+            return Ok(bytes);
         }
     }
     Ok(encode_adts_aac_fallback(

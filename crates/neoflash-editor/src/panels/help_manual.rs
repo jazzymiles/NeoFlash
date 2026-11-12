@@ -409,6 +409,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Ruler guides can be dragged from either ruler, moved on the Pasteboard, locked, hidden or removed by dropping them back on a ruler.",
         "Object, pixel, grid, guide and alignment snapping can be combined; visible snap rings identify the winning target.",
         "Switch between Animator, Classic, Designer, Developer, Small Screen and Premiere montage workspaces, four NF2 themes (Dark, Light, Mid Neutral Gray, Dark Graphite) and three densities (Comfortable, Compact, Classic Flash).",
+        "NeoFlash 0.1.0-beta.1 targets macOS 15+ (Apple Silicon) with Windows 11 x64 Technical Preview portability in progress; manual updates replace NeoFlash.app in /Applications while preserving ~/Library/Application Support/NeoFlash preferences, custom workspaces and crash recovery.",
     ],
     &[
         "Merge Drawing lets fills and strokes cut, join and reshape each other; Object Drawing keeps every stroke or fill isolated until Break Apart.",
@@ -429,7 +430,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Pencil modes Straighten, Smooth and Ink choose how aggressively the captured stroke is simplified.",
     ],
     &[
-        "Brush (B) supports normal, fill, behind, selection and inside paint modes together with pressure, tilt, size, shape and Lock Fill.",
+        "Brush (B) supports normal, fill, behind, selection and inside paint modes together with pressure, tilt, size, shape and Lock Fill; physical graphics-tablet pressure (0.05..=1.0), tilt-to-nib-angle mapping and pen-tip/eraser switching are experimental in 0.1.0-beta.1 (deterministic event-level pipeline verified; Wacom and Apple Sidecar hardware certification is tracked under T-235).",
         "Paint Bucket (K) closes configurable gaps, applies solid or gradient fills and can drag a gradient direction directly on the Stage.",
         "Gradient Transform (F) edits linear and radial boundaries, width, radius, rotation, centre and focal point handles.",
         "Eraser (E) includes normal, fills, lines, selected fills, inside and whole-object modes plus round or square tips and Faucet behavior.",
@@ -465,6 +466,8 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Import accepts legacy FLA, XFL, SWF, layered Figma (.fig / .figma.json), PSD/PSB, AI, SVG, PDF, WAV/MP3/OGG/FLAC, MP4/WebM/AVI, WebP/GIF/BMP/TIFF and numbered image sequences with located diagnostics.",
         "Publish and export targets include HTML5 plus WebAssembly (with 9-anchor Stage.align, Fullscreen and per-bitmap WebP/JPEG/PNG settings), zero-WASM Web Banner Native, 5-format Texture Atlases, AI/SVG/PNG/JPEG/WebP/GIF/BMP frame sequences, SWF, Lottie, audio/video and Adobe After Effects (.aep / .aepx / .jsx) with AE JavaScript Expressions.",
         "Core shortcuts include C for Razor, F5/F6/F7 for Timeline frames, F8 for Convert to Symbol, Command-B for Break Apart, F9 for Actions, Option-Shift-Command-A for After Effects export and Shift-F12 for Publish.",
+        "Packaged NeoFlash.app (0.1.0-beta.1 for macOS 15+ Apple Silicon) bundles self-contained ffmpeg and ffprobe media helpers in Contents/Resources/media/bin/ requiring zero Homebrew or PATH setup (with optional NEOFLASH_FFMPEG override); keep versioned .nflash JSON backups in Git and attach a minimal .nflash repro, Output diagnostics and the About NeoFlash commit when reporting bugs.",
+        "Beta 1 Known Issues & Limitations: native macOS VoiceOver accessibility tree (platform-accessibility) is deferred to post-Beta (keyboard focus navigation with keyboardFocusActive focus rings and published HTML5 stage-a11y-overlay ARIA DOM role/aria-label/tabindex work now), Intel (x86_64) macOS builds and built-in automatic updater are omitted, legacy FLA/SWF/ActionScript compatibility is bounded, and physical tablet hardware is experimental (T-235).",
     ],
     &[
         "ActionScript 1.0 and 2.0 execute on the AVM1 timeline and target-path hierarchy (_level0, _root, _parent, this) with 1-based frame indexing.",
@@ -521,6 +524,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Network requests via fetch(url, init) and JSON parsing obey browser CORS, Content-Security-Policy (CSP), and HTTPS mixed-content rules.",
         "Web Audio (AudioContext) and HTMLMediaElement playback require a user gesture (pointer click or key press) before audio unmutes in modern browsers.",
         "Persistent client state uses window.localStorage and sessionStorage scoped to the page origin; filesystem (fs) and raw TCP/UDP sockets do not exist in the browser sandbox.",
+        "Published HTML5 packages in NeoFlash 0.1.0-beta.1 emit a synchronized stage-a11y-overlay ARIA DOM (role, aria-label, tabindex and keyboardFocusActive keyboard-only focus rings) while native macOS VoiceOver (platform-accessibility), Intel (x86_64) macOS builds, auto-update and physical Wacom/Sidecar tablet certification (T-235) remain documented Beta 1 boundaries.",
     ],
 ];
 
@@ -2963,6 +2967,25 @@ fn chapter_scripting_import_and_publish(
         ],
     );
 
+    section_overline(
+        ui,
+        "NeoFlash 0.1.0-beta.1 — Install, Manual Update, Bundled Media, Backups & Known Issues",
+    );
+    mode_card(
+        ui,
+        Some(i16::DESKTOP),
+        "NeoFlash 0.1.0-beta.1 (macOS 15+ Apple Silicon) — Release Operations & Boundaries",
+        "0.1.0-beta.1",
+        BadgeType::Accent,
+        "About NeoFlash / F2",
+        &[
+            "Release Identity & Manual Update: NeoFlash 0.1.0-beta.1 targets macOS 15+ (Apple Silicon) with Windows 11 x64 Technical Preview portability in progress. To update, quit NeoFlash and replace NeoFlash.app in /Applications; preferences, custom workspaces, recent files, and crash-recovery snapshots under ~/Library/Application Support/NeoFlash are preserved.",
+            "Bundled Media Helpers (Zero External Setup): Packaged NeoFlash.app includes self-contained ffmpeg and ffprobe binaries in Contents/Resources/media/bin/ (with third-party notices in Contents/Resources/licenses/), requiring no Homebrew or PATH setup. Set NEOFLASH_FFMPEG / NEOFLASH_FFPROBE only when overriding with a custom binary.",
+            "Project Backups & Bug Reporting: Keep versioned .nflash JSON projects in Git or regular file backups. When reporting a bug, attach a minimal .nflash reproduction project, diagnostics copied from the Output panel (F2), and the version/commit identifier from NeoFlash ▸ About NeoFlash.",
+            "Beta 1 Known Issues & Limitations: Native macOS VoiceOver accessibility tree (platform-accessibility) for custom-painted NF2 controls is deferred to post-Beta (keyboard focus navigation with keyboardFocusActive focus rings and published HTML5 stage-a11y-overlay ARIA DOM role/aria-label/tabindex work now); Intel (x86_64) macOS builds and a built-in automatic updater are not included; legacy binary FLA, SWF, and ActionScript compatibility is bounded; and physical graphics-tablet hardware is experimental (T-235: deterministic event-level pressure/tilt/eraser pipeline verified, physical Wacom/Apple Sidecar hardware check tracked externally).",
+        ],
+    );
+
     section_overline(ui, "Essential Keyboard Shortcuts Quick Reference");
     sub_bullet(
         ui,
@@ -3440,5 +3463,316 @@ mod tests {
             std::fs::write(dir.join("help-manual.html"), authoring)
                 .expect("write help-manual.html");
         }
+    }
+
+    #[test]
+    fn t278_beta1_help_golden_examples_and_accessibility_smoke() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+
+        // 1. Native Help & Scripting Reference + portable `file://` Browser HTML across all 4 NF2 themes.
+        for theme in neoflash_ui::Theme::ALL {
+            neoflash_ui::theme::apply_visuals(&ctx, theme);
+            for mode in [
+                HelpManualMode::AuthoringHelp,
+                HelpManualMode::ScriptingReference,
+            ] {
+                set_help_manual_mode(&ctx, mode);
+                for page in mode.chapter_range() {
+                    set_help_manual_page(&ctx, page);
+                    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                        editor.help_manual_dialog(ctx);
+                    });
+                }
+
+                let page = mode.chapter_range().start;
+                let (html_path, file_url) =
+                    write_help_browser_document(theme, mode, page, None).expect("write help html");
+                assert!(
+                    file_url.starts_with("file://"),
+                    "expected portable file:// URL, got {file_url}"
+                );
+                let disk_html =
+                    std::fs::read_to_string(&html_path).expect("read generated browser help html");
+                assert!(!disk_html.contains("<script"));
+                for needle in [
+                    "0.1.0-beta.1",
+                    "macOS 15+",
+                    "Apple Silicon",
+                    "Windows 11",
+                    "~/Library/Application Support/NeoFlash",
+                    "Contents/Resources/media/bin/",
+                    "NEOFLASH_FFMPEG",
+                    "About NeoFlash",
+                    ".nflash",
+                    "Output",
+                    "platform-accessibility",
+                    "x86_64",
+                    "T-235",
+                    "experimental",
+                    "stage-a11y-overlay",
+                ] {
+                    assert!(
+                        disk_html.contains(needle),
+                        "browser help HTML ({theme:?}, {mode:?}) missing synchronized Beta 1 section token: {needle}"
+                    );
+                }
+            }
+        }
+
+        // 2. Representative golden examples load, validate, evaluate, and publish cleanly to HTML5.
+        let workspace_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("canonical workspace root");
+        let temp_root = std::env::temp_dir().join(format!(
+            "neoflash-t278-smoke-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let runtime_dir = temp_root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("create runtime dir");
+        std::fs::write(runtime_dir.join("neoflash_web.js"), "var NeoFlashWasm;")
+            .expect("write dummy neoflash_web.js");
+        std::fs::write(runtime_dir.join("neoflash_web_bg.wasm"), b"\0asm\x01\0\0\0")
+            .expect("write dummy neoflash_web_bg.wasm");
+
+        let golden_examples = [
+            ("timeline-tweens", "examples/timeline-tweens.nflash"),
+            ("text-form", "examples/text-form.nflash"),
+            ("timeline-sound", "examples/timeline-sound.nflash"),
+            ("video-playback", "examples/video-playback.nflash"),
+            (
+                "as2-arcade",
+                "examples/as2/08-interactive-arcade-miniapp.nflash",
+            ),
+            (
+                "as3-arcade",
+                "examples/as3/08-interactive-arcade-miniapp.nflash",
+            ),
+        ];
+
+        for (slug, rel_path) in golden_examples {
+            let full_path = workspace_root.join(rel_path);
+            let raw = std::fs::read_to_string(&full_path)
+                .unwrap_or_else(|e| panic!("failed to read {rel_path}: {e}"));
+            let project: Project = serde_json::from_str(&raw)
+                .unwrap_or_else(|e| panic!("failed to parse {rel_path}: {e}"));
+            project
+                .validate()
+                .unwrap_or_else(|e| panic!("{rel_path} failed validation: {e}"));
+
+            let frame0 = neoflash_core::evaluate(&project, &project.root, 0);
+            assert!(
+                !frame0.is_empty() || !project.symbols.is_empty(),
+                "{rel_path} evaluated empty symbol table"
+            );
+            let mut player = neoflash_core::Player::new(&project);
+            player.tick(&project);
+
+            let out_dir = temp_root.join(format!("pub-{slug}"));
+            let index_path = neoflash_export::export_project_with_config(
+                &project,
+                &out_dir,
+                &runtime_dir,
+                &neoflash_export::PublishOptions::default(),
+                &neoflash_export::HtmlPublishConfig::default(),
+            )
+            .unwrap_or_else(|e| panic!("failed to publish {rel_path} to HTML5: {e}"));
+            assert!(index_path.exists(), "missing index.html for {rel_path}");
+            assert!(
+                out_dir.join("bundle.js").exists(),
+                "missing bundle.js for {rel_path}"
+            );
+            assert!(
+                out_dir.join("runtime.js").exists(),
+                "missing runtime.js for {rel_path}"
+            );
+            assert!(
+                out_dir.join("stage.js").exists(),
+                "missing stage.js for {rel_path}"
+            );
+            assert!(
+                out_dir.join("accessibility.js").exists(),
+                "missing accessibility.js for {rel_path}"
+            );
+            let index_html = std::fs::read_to_string(&index_path).expect("read index.html");
+            assert!(
+                index_html.contains("id=\"stage-a11y-overlay\""),
+                "{rel_path} published index.html must include stage-a11y-overlay"
+            );
+        }
+
+        // 2(f). Public FLA -> editable project -> HTML5 round-trip.
+        let fla_path =
+            workspace_root.join("examples/fla-corpus/upstream/ruffle/avm1-frame-labels/test.fla");
+        let imported = neoflash_import::import_project(&fla_path)
+            .expect("import public FLA fixture into editable project");
+        imported
+            .validate()
+            .expect("imported public FLA project must validate");
+        let _fla_frame0 = neoflash_core::evaluate(&imported, &imported.root, 0);
+        let mut fla_player = neoflash_core::Player::new(&imported);
+        fla_player.tick(&imported);
+
+        let fla_out_dir = temp_root.join("pub-public-fla");
+        let fla_index = neoflash_export::export_project_with_config(
+            &imported,
+            &fla_out_dir,
+            &runtime_dir,
+            &neoflash_export::PublishOptions::default(),
+            &neoflash_export::HtmlPublishConfig::default(),
+        )
+        .expect("export imported public FLA project to HTML5");
+        assert!(fla_index.exists());
+        assert!(fla_out_dir.join("bundle.js").exists());
+
+        // 3. Keyboard-only focus navigation, focus-ring gating (`keyboardFocusActive`), and
+        // published `stage-a11y-overlay` ARIA DOM (`role`, `aria-label`, `tabindex`) smoke check.
+        let btn_id = egui::Id::new("t278-focus-smoke-btn");
+        let mut focus_ring_on_click = true;
+        let _ = ctx.run(
+            egui::RawInput {
+                events: vec![egui::Event::PointerButton {
+                    pos: egui::pos2(24.0, 24.0),
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let (_, resp) =
+                        ui.allocate_exact_size(egui::vec2(80.0, 28.0), egui::Sense::click());
+                    ctx.memory_mut(|m| m.request_focus(resp.id));
+                    focus_ring_on_click = neoflash_ui::theme::keyboard_focus(ui, &resp);
+                });
+            },
+        );
+        assert!(
+            !focus_ring_on_click,
+            "pointer press must clear keyboard-only focus ring gating"
+        );
+
+        let mut focus_ring_on_tab = false;
+        let _ = ctx.run(
+            egui::RawInput {
+                events: vec![egui::Event::Key {
+                    key: egui::Key::Tab,
+                    physical_key: Some(egui::Key::Tab),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let rect =
+                        egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(80.0, 28.0));
+                    let resp = ui.interact(rect, btn_id, egui::Sense::click());
+                    ctx.memory_mut(|m| m.request_focus(btn_id));
+                    focus_ring_on_tab = neoflash_ui::theme::keyboard_focus(ui, &resp);
+                });
+            },
+        );
+        assert!(
+            focus_ring_on_tab,
+            "Tab key navigation must enable keyboard focus ring"
+        );
+
+        let mut a11y_editor = Editor::from_project(&ctx, Project::blank());
+        a11y_editor
+            .project
+            .set_document_accessibility(&neoflash_core::DocumentAccessibility {
+                accessible: true,
+                title: "Beta 1 Accessible Stage".to_string(),
+                description: "Keyboard focusable interactive canvas".to_string(),
+                auto_label: true,
+                language: "en".to_string(),
+                reading_order_top_down: true,
+                focus_ring_visible: true,
+            });
+        a11y_editor.add_element(
+            neoflash_core::ElementKind::Rectangle {
+                width: 120.0,
+                height: 36.0,
+                fill: [60, 107, 240, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            48.0,
+            48.0,
+        );
+        a11y_editor.set_accessibility(Some(neoflash_core::Accessibility {
+            name: "Launch Game".to_string(),
+            description: "Starts the interactive level".to_string(),
+            role: neoflash_core::model::AccessibleRole::Button,
+            tab_order: 1,
+            disabled: false,
+        }));
+        let a11y_proj = a11y_editor.project.clone();
+
+        let read_order_diags =
+            neoflash_export::validate_published_accessibility_read_order(&a11y_proj, None, 0);
+        assert!(
+            read_order_diags.is_empty(),
+            "accessible project read order must validate cleanly, got {read_order_diags:?}"
+        );
+        let a11y_nodes =
+            neoflash_export::resolve_published_accessibility_overlay_nodes(&a11y_proj, None, 0);
+        assert!(
+            a11y_nodes.iter().any(|n| {
+                n.role == "button"
+                    && n.aria_label.as_deref() == Some("Launch Game")
+                    && n.tab_index == 1
+            }),
+            "expected resolved accessible button node in overlay, got {a11y_nodes:?}"
+        );
+        let overlay_html = neoflash_export::render_accessibility_overlay_html(&a11y_proj, None, 0);
+        assert!(overlay_html.contains("id=\"stage-a11y-overlay\""));
+        assert!(overlay_html.contains("role=\"region\""));
+        assert!(overlay_html.contains("aria-label=\"Stage accessibility overlay\""));
+        assert!(overlay_html.contains("role=\"button\""));
+        assert!(overlay_html.contains("aria-label=\"Launch Game\""));
+        assert!(overlay_html.contains("tabindex=\"1\""));
+        assert!(overlay_html.contains("data-focus-policy=\"keyboard-distinct\""));
+
+        let a11y_out_dir = temp_root.join("pub-a11y-smoke");
+        neoflash_export::export_project_with_config(
+            &a11y_proj,
+            &a11y_out_dir,
+            &runtime_dir,
+            &neoflash_export::PublishOptions::default(),
+            &neoflash_export::HtmlPublishConfig::default(),
+        )
+        .expect("export accessible project");
+        let stage_js = std::fs::read_to_string(a11y_out_dir.join("stage.js"))
+            .expect("read published stage.js");
+        let runtime_js = std::fs::read_to_string(a11y_out_dir.join("runtime.js"))
+            .expect("read published runtime.js");
+        let accessibility_js = std::fs::read_to_string(a11y_out_dir.join("accessibility.js"))
+            .expect("read published accessibility.js");
+        assert!(
+            stage_js.contains("keyboardFocusRing") && stage_js.contains("focusReason === 'key'"),
+            "published stage.js must gate focus ring on keyboardFocusRing / focusReason === 'key'"
+        );
+        assert!(
+            stage_js.contains("syncAccessibilityOverlay")
+                && stage_js.contains("aria-label")
+                && stage_js.contains("tabindex")
+                && runtime_js.contains("stage-a11y-overlay"),
+            "published stage.js and runtime.js must manage stage-a11y-overlay ARIA DOM attributes"
+        );
+        assert!(
+            !accessibility_js.is_empty(),
+            "published accessibility.js must be present and non-empty"
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_root);
     }
 }

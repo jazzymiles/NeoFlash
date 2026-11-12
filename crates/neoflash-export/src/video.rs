@@ -375,7 +375,77 @@ pub struct VideoExportReport {
     pub warnings: Vec<String>,
 }
 
-/// Locate an `ffmpeg` binary on the host (`NEOFLASH_FFMPEG`, `PATH`, or standard macOS/Unix paths).
+fn detect_bundled_media_tool(tool_stem: &str) -> Option<PathBuf> {
+    let tool_names = if cfg!(windows) {
+        [format!("{tool_stem}.exe"), tool_stem.to_owned()]
+    } else {
+        [tool_stem.to_owned(), format!("{tool_stem}.exe")]
+    };
+
+    let mut search_dirs: Vec<PathBuf> = Vec::new();
+    if let Ok(exe_path) = env::current_exe()
+        && let Some(exe_dir) = exe_path.parent()
+    {
+        // 1. macOS .app bundle (`Contents/MacOS/<exe>` -> `Contents/Resources/media/bin` or `Contents/Helpers/media/bin`)
+        search_dirs.push(exe_dir.join("../Resources/media/bin"));
+        search_dirs.push(exe_dir.join("../Helpers/media/bin"));
+        // 2. Windows / portable bundle (`<exe_dir>/media/bin`)
+        search_dirs.push(exe_dir.join("media/bin"));
+        // 3. Ancestor target/bundled-media/bin (for CLI/dev/test binaries under target/)
+        for ancestor in exe_dir.ancestors().take(6) {
+            search_dirs.push(ancestor.join("bundled-media/bin"));
+            search_dirs.push(ancestor.join("target/bundled-media/bin"));
+        }
+    }
+    search_dirs.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/bundled-media/bin"));
+
+    for dir in search_dirs {
+        for name in &tool_names {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Some(candidate.canonicalize().unwrap_or(candidate));
+            }
+        }
+    }
+    None
+}
+
+/// Locate the self-contained `ffmpeg` helper bundled with NeoFlash (`T-283`).
+pub fn detect_bundled_ffmpeg() -> Option<PathBuf> {
+    detect_bundled_media_tool("ffmpeg")
+}
+
+/// Locate the self-contained `ffprobe` helper bundled with NeoFlash (`T-283`).
+pub fn detect_bundled_ffprobe() -> Option<PathBuf> {
+    detect_bundled_media_tool("ffprobe")
+}
+
+/// Returns `true` when `binary` points inside a NeoFlash self-contained media bundle (`.../media/bin/*` or `.../bundled-media/bin/*`).
+pub fn is_bundled_media_binary(binary: &Path) -> bool {
+    let Some(bin_dir) = binary.parent() else {
+        return false;
+    };
+    if bin_dir.file_name().and_then(|s| s.to_str()) != Some("bin") {
+        return false;
+    }
+    let Some(bundle_root) = bin_dir.parent() else {
+        return false;
+    };
+    matches!(
+        bundle_root.file_name().and_then(|s| s.to_str()),
+        Some("media" | "bundled-media" | "bundled-media-lgpl")
+    )
+}
+
+fn configure_media_subprocess_command(cmd: &mut Command, binary: &Path) {
+    if is_bundled_media_binary(binary)
+        || env::var("NEOFLASH_DISABLE_SYSTEM_FFMPEG").ok().as_deref() == Some("1")
+    {
+        cmd.env("PATH", "");
+    }
+}
+
+/// Locate an `ffmpeg` binary (`NEOFLASH_FFMPEG`, bundled `Resources/media/bin/ffmpeg`, `PATH`, or system fallbacks).
 pub fn detect_ffmpeg() -> Option<PathBuf> {
     if let Ok(custom) = env::var("NEOFLASH_FFMPEG") {
         let trimmed = custom.trim();
@@ -386,11 +456,19 @@ pub fn detect_ffmpeg() -> Option<PathBuf> {
             }
         }
     }
+    if let Some(bundled) = detect_bundled_ffmpeg() {
+        return Some(bundled);
+    }
+    if env::var("NEOFLASH_DISABLE_SYSTEM_FFMPEG").ok().as_deref() == Some("1") {
+        return None;
+    }
     if let Some(path_var) = env::var_os("PATH") {
         for dir in env::split_paths(&path_var) {
-            let candidate = dir.join("ffmpeg");
-            if candidate.is_file() {
-                return Some(candidate);
+            for name in ["ffmpeg", "ffmpeg.exe"] {
+                let candidate = dir.join(name);
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
             }
         }
     }
@@ -398,6 +476,7 @@ pub fn detect_ffmpeg() -> Option<PathBuf> {
         "/opt/homebrew/bin/ffmpeg",
         "/usr/local/bin/ffmpeg",
         "/usr/bin/ffmpeg",
+        r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
     ] {
         let p = PathBuf::from(fallback);
         if p.is_file() {
@@ -405,6 +484,96 @@ pub fn detect_ffmpeg() -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Probe and cache the set of encoder names supported by `ffmpeg` (`T-283`).
+pub fn probe_ffmpeg_encoders(ffmpeg: &Path) -> HashSet<String> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, HashSet<String>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = ffmpeg
+        .canonicalize()
+        .unwrap_or_else(|_| ffmpeg.to_path_buf());
+    if let Ok(guard) = cache.lock()
+        && let Some(existing) = guard.get(&key)
+    {
+        return existing.clone();
+    }
+    let mut encoders = HashSet::new();
+    let mut cmd = Command::new(ffmpeg);
+    configure_media_subprocess_command(&mut cmd, ffmpeg);
+    if let Ok(output) = cmd
+        .args(["-hide_banner", "-encoders"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        && output.status.success()
+    {
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            let trimmed = line.trim_start();
+            let mut parts = trimmed.split_whitespace();
+            if let (Some(flags), Some(name)) = (parts.next(), parts.next())
+                && flags.len() == 6
+                && (flags.starts_with('V') || flags.starts_with('A'))
+            {
+                encoders.insert(name.to_owned());
+            }
+        }
+    }
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(key, encoders.clone());
+    }
+    encoders
+}
+
+/// Select the primary `(encoder_name, is_hardware)` for `codec` given the capabilities of `ffmpeg` (`T-283`).
+///
+/// When `prefer_hardware` is `true` (or when the software encoder is absent, as in an LGPL-only build),
+/// selects Apple `VideoToolbox` (`h264_videotoolbox` / `hevc_videotoolbox` / `prores_videotoolbox`) or
+/// Windows `Media Foundation` (`h264_mf` / `hevc_mf`) if present, with software fallback to
+/// `libx264` / `libx265` / `prores_ks`.
+pub fn select_video_encoder(
+    ffmpeg: &Path,
+    codec: VideoCodec,
+    prefer_hardware: bool,
+) -> (&'static str, bool) {
+    let encoders = probe_ffmpeg_encoders(ffmpeg);
+    match codec {
+        VideoCodec::H264 => {
+            if prefer_hardware || !encoders.contains("libx264") {
+                if encoders.contains("h264_videotoolbox") {
+                    return ("h264_videotoolbox", true);
+                }
+                if encoders.contains("h264_mf") {
+                    return ("h264_mf", true);
+                }
+            }
+            ("libx264", false)
+        }
+        VideoCodec::H265 => {
+            if prefer_hardware || !encoders.contains("libx265") {
+                if encoders.contains("hevc_videotoolbox") {
+                    return ("hevc_videotoolbox", true);
+                }
+                if encoders.contains("hevc_mf") {
+                    return ("hevc_mf", true);
+                }
+            }
+            ("libx265", false)
+        }
+        VideoCodec::ProRes => {
+            if (prefer_hardware || !encoders.contains("prores_ks"))
+                && encoders.contains("prores_videotoolbox")
+            {
+                return ("prores_videotoolbox", true);
+            }
+            ("prores_ks", false)
+        }
+        VideoCodec::Vp9 => ("libvpx-vp9", false),
+        VideoCodec::Av1 => ("libsvtav1", false),
+        VideoCodec::GifLzw => ("gif", false),
+        VideoCodec::PngLossless => ("png", false),
+    }
 }
 
 struct PreparedTimeline {
@@ -1589,7 +1758,8 @@ fn read_bounded_process_diagnostics(
     Ok(BoundedProcessDiagnostics { head, tail })
 }
 
-fn detect_ffprobe(ffmpeg: &Path) -> Option<PathBuf> {
+/// Locate an `ffprobe` binary (`NEOFLASH_FFPROBE`, sibling of `ffmpeg`, bundled `Resources/media/bin/ffprobe`, `PATH`, or system fallbacks).
+pub fn detect_ffprobe(ffmpeg: &Path) -> Option<PathBuf> {
     if let Ok(custom) = env::var("NEOFLASH_FFPROBE") {
         let trimmed = custom.trim();
         if !trimmed.is_empty() {
@@ -1599,15 +1769,25 @@ fn detect_ffprobe(ffmpeg: &Path) -> Option<PathBuf> {
             }
         }
     }
-    let sibling = ffmpeg.with_file_name("ffprobe");
-    if sibling.is_file() {
-        return Some(sibling);
+    for sibling_name in ["ffprobe", "ffprobe.exe"] {
+        let sibling = ffmpeg.with_file_name(sibling_name);
+        if sibling.is_file() {
+            return Some(sibling);
+        }
+    }
+    if let Some(bundled) = detect_bundled_ffprobe() {
+        return Some(bundled);
+    }
+    if env::var("NEOFLASH_DISABLE_SYSTEM_FFMPEG").ok().as_deref() == Some("1") {
+        return None;
     }
     if let Some(path_var) = env::var_os("PATH") {
         for dir in env::split_paths(&path_var) {
-            let candidate = dir.join("ffprobe");
-            if candidate.is_file() {
-                return Some(candidate);
+            for name in ["ffprobe", "ffprobe.exe"] {
+                let candidate = dir.join(name);
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
             }
         }
     }
@@ -1615,6 +1795,7 @@ fn detect_ffprobe(ffmpeg: &Path) -> Option<PathBuf> {
         "/opt/homebrew/bin/ffprobe",
         "/usr/local/bin/ffprobe",
         "/usr/bin/ffprobe",
+        r"C:\Program Files\ffmpeg\bin\ffprobe.exe",
     ] {
         let path = PathBuf::from(fallback);
         if path.is_file() {
@@ -1739,7 +1920,9 @@ fn probe_stream_metadata(
     let Some(ffprobe) = detect_ffprobe(ffmpeg) else {
         return Ok(None);
     };
-    let mut child = Command::new(ffprobe)
+    let mut cmd = Command::new(&ffprobe);
+    configure_media_subprocess_command(&mut cmd, &ffprobe);
+    let mut child = cmd
         .arg("-v")
         .arg("error")
         .arg("-select_streams")
@@ -1808,6 +1991,7 @@ fn decode_ffmpeg_pam_window(
     expected_dims: Option<(u32, u32)>,
 ) -> Result<PamFrameSet, String> {
     let mut cmd = Command::new(ffmpeg);
+    configure_media_subprocess_command(&mut cmd, ffmpeg);
     cmd.arg("-hide_banner")
         .arg("-nostdin")
         .arg("-max_pixels")
@@ -1955,7 +2139,9 @@ fn decode_ffmpeg_backing(
         checked_decoded_video_payload_len(meta.width, meta.height, meta.frame_count.unwrap_or(1))?;
     }
 
-    let mut child = Command::new(&ffmpeg)
+    let mut cmd = Command::new(&ffmpeg);
+    configure_media_subprocess_command(&mut cmd, &ffmpeg);
+    let mut child = cmd
         .arg("-hide_banner")
         .arg("-nostdin")
         .arg("-max_pixels")
@@ -4490,7 +4676,8 @@ fn encode_png_sequence(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn encode_with_ffmpeg(
+fn run_ffmpeg_encode_attempt(
+    ffmpeg: &Path,
     output_path: &Path,
     options: &VideoOptions,
     frames: &[Vec<u8>],
@@ -4498,22 +4685,11 @@ fn encode_with_ffmpeg(
     height: u32,
     fps: f32,
     transparent_bg: bool,
-    wav_audio: Option<&[u8]>,
-    warnings: Vec<String>,
-) -> Result<VideoExportReport, ExportError> {
-    let ffmpeg = detect_ffmpeg().ok_or_else(|| {
-        ExportError::Options(
-            "FFmpeg was not found. Install ffmpeg (e.g. `brew install ffmpeg`), set NEOFLASH_FFMPEG, or export as GIF / PNG seq."
-                .into(),
-        )
-    })?;
-
-    let staged_audio = wav_audio
-        .map(|wav| StagedMediaFile::create("timeline audio", "wav", wav))
-        .transpose()
-        .map_err(ExportError::Options)?;
-
-    let mut cmd = Command::new(&ffmpeg);
+    staged_audio_path: Option<&Path>,
+    video_encoder: &str,
+) -> Result<(), ExportError> {
+    let mut cmd = Command::new(ffmpeg);
+    configure_media_subprocess_command(&mut cmd, ffmpeg);
     cmd.arg("-y")
         .arg("-hide_banner")
         .arg("-loglevel")
@@ -4529,42 +4705,45 @@ fn encode_with_ffmpeg(
         .arg("-i")
         .arg("pipe:0");
 
-    if let Some(wav_file) = &staged_audio {
-        cmd.arg("-i").arg(wav_file.path());
+    if let Some(wav_path) = staged_audio_path {
+        cmd.arg("-i").arg(wav_path);
     }
 
     let codec = options.resolved_codec();
     let q = i32::from(options.quality.clamp(1, 100));
     let crf_h264 = (51 - (q * 35) / 100).clamp(14, 45);
     let crf_vp9 = (63 - (q * 48) / 100).clamp(15, 55);
+    let target_kbps = ((options.target_bitrate_mbps(width, height, fps) * 1000.0).round() as u32)
+        .clamp(200, 80_000);
 
     match (options.format, codec) {
         (VideoFormat::Mp4, VideoCodec::H265) | (VideoFormat::Mov, VideoCodec::H265) => {
-            cmd.arg("-c:v")
-                .arg("libx265")
-                .arg("-crf")
-                .arg(crf_h264.to_string())
-                .arg("-pix_fmt")
-                .arg("yuv420p")
-                .arg("-tag:v")
-                .arg("hvc1");
+            cmd.arg("-c:v").arg(video_encoder);
+            if video_encoder == "libx265" {
+                cmd.arg("-crf").arg(crf_h264.to_string());
+            } else {
+                cmd.arg("-b:v").arg(format!("{target_kbps}k"));
+            }
+            cmd.arg("-pix_fmt").arg("yuv420p").arg("-tag:v").arg("hvc1");
         }
         (VideoFormat::Mp4, _) | (VideoFormat::Mov, VideoCodec::H264) => {
-            cmd.arg("-c:v")
-                .arg("libx264")
-                .arg("-preset")
-                .arg("medium")
-                .arg("-crf")
-                .arg(crf_h264.to_string())
-                .arg("-pix_fmt")
-                .arg("yuv420p");
+            cmd.arg("-c:v").arg(video_encoder);
+            if video_encoder == "libx264" {
+                cmd.arg("-preset")
+                    .arg("medium")
+                    .arg("-crf")
+                    .arg(crf_h264.to_string());
+            } else {
+                cmd.arg("-b:v").arg(format!("{target_kbps}k"));
+            }
+            cmd.arg("-pix_fmt").arg("yuv420p");
             if options.format == VideoFormat::Mp4 {
                 cmd.arg("-movflags").arg("+faststart");
             }
         }
         (VideoFormat::Mov, VideoCodec::ProRes) => {
             cmd.arg("-c:v")
-                .arg("prores_ks")
+                .arg(video_encoder)
                 .arg("-profile:v")
                 .arg(if transparent_bg { "4" } else { "3" })
                 .arg("-pix_fmt")
@@ -4576,7 +4755,7 @@ fn encode_with_ffmpeg(
         }
         (VideoFormat::WebM, VideoCodec::Av1) => {
             cmd.arg("-c:v")
-                .arg("libsvtav1")
+                .arg(video_encoder)
                 .arg("-crf")
                 .arg(crf_vp9.to_string())
                 .arg("-pix_fmt")
@@ -4584,7 +4763,7 @@ fn encode_with_ffmpeg(
         }
         (VideoFormat::WebM, _) => {
             cmd.arg("-c:v")
-                .arg("libvpx-vp9")
+                .arg(video_encoder)
                 .arg("-b:v")
                 .arg("0")
                 .arg("-crf")
@@ -4599,7 +4778,7 @@ fn encode_with_ffmpeg(
         _ => {}
     }
 
-    if staged_audio.is_some() {
+    if staged_audio_path.is_some() {
         match (options.format, options.audio_bitrate) {
             (VideoFormat::WebM, _) | (_, VideoAudioBitrate::Opus160) => {
                 cmd.arg("-c:a").arg("libopus").arg("-b:a").arg("160k");
@@ -4646,13 +4825,91 @@ fn encode_with_ffmpeg(
         let _ = fs::remove_file(output_path);
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(ExportError::Options(format!(
-            "ffmpeg encoding failed: {}",
+            "ffmpeg encoding failed ({video_encoder}): {}",
             stderr.trim()
         )));
     }
     if let Some(e) = write_err {
         let _ = fs::remove_file(output_path);
         return Err(ExportError::Io(e));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn encode_with_ffmpeg(
+    output_path: &Path,
+    options: &VideoOptions,
+    frames: &[Vec<u8>],
+    width: u32,
+    height: u32,
+    fps: f32,
+    transparent_bg: bool,
+    wav_audio: Option<&[u8]>,
+    mut warnings: Vec<String>,
+) -> Result<VideoExportReport, ExportError> {
+    let ffmpeg = detect_ffmpeg().ok_or_else(|| {
+        ExportError::Options(
+            "FFmpeg was not found. Install ffmpeg (e.g. `brew install ffmpeg`), set NEOFLASH_FFMPEG, or export as GIF / PNG seq."
+                .into(),
+        )
+    })?;
+
+    let staged_audio = wav_audio
+        .map(|wav| StagedMediaFile::create("timeline audio", "wav", wav))
+        .transpose()
+        .map_err(ExportError::Options)?;
+    let staged_audio_path = staged_audio.as_ref().map(|s| s.path());
+
+    let codec = options.resolved_codec();
+    let prefer_hardware = match env::var("NEOFLASH_VIDEO_ENCODER_MODE")
+        .ok()
+        .as_deref()
+        .map(str::trim)
+    {
+        Some("hardware") => true,
+        Some("software") => false,
+        _ => false,
+    };
+    let (primary_encoder, is_hw) = select_video_encoder(&ffmpeg, codec, prefer_hardware);
+
+    if let Err(primary_err) = run_ffmpeg_encode_attempt(
+        &ffmpeg,
+        output_path,
+        options,
+        frames,
+        width,
+        height,
+        fps,
+        transparent_bg,
+        staged_audio_path,
+        primary_encoder,
+    ) {
+        if is_hw {
+            let (sw_encoder, _) = select_video_encoder(&ffmpeg, codec, false);
+            if sw_encoder != primary_encoder && probe_ffmpeg_encoders(&ffmpeg).contains(sw_encoder)
+            {
+                warnings.push(format!(
+                    "Hardware video encoder '{primary_encoder}' was unavailable for this configuration; fell back to software encoder '{sw_encoder}'."
+                ));
+                run_ffmpeg_encode_attempt(
+                    &ffmpeg,
+                    output_path,
+                    options,
+                    frames,
+                    width,
+                    height,
+                    fps,
+                    transparent_bg,
+                    staged_audio_path,
+                    sw_encoder,
+                )?;
+            } else {
+                return Err(primary_err);
+            }
+        } else {
+            return Err(primary_err);
+        }
     }
 
     let bytes = fs::metadata(output_path).map(|m| m.len()).unwrap_or(0);
@@ -6063,6 +6320,282 @@ mod tests {
             "synthesized progressive stream must advance across timeline frames"
         );
         assert_ne!(sample_px(&sf1, 16, 16), sample_px(&sf2, 16, 16));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn t283_bundled_ffmpeg_and_ffprobe_work_without_path_for_h264_h265_webm_and_audio() {
+        use crate::audio::{
+            AudioBitRate, AudioChannels, AudioExportOptions, AudioFormat, AudioSampleRate,
+            encode_aac, encode_mp3, export_project_audio,
+        };
+
+        let Some(bundled_ffmpeg) = detect_bundled_ffmpeg() else {
+            panic!(
+                "Expected staged bundled ffmpeg at target/bundled-media/bin/ffmpeg (run `python3 scripts/stage-bundled-media.py`)."
+            );
+        };
+        let Some(bundled_ffprobe) = detect_bundled_ffprobe() else {
+            panic!("Expected staged bundled ffprobe at target/bundled-media/bin/ffprobe.");
+        };
+
+        // 1. Bundled helpers are discovered before PATH and marked as bundled media binaries:
+        assert!(is_bundled_media_binary(&bundled_ffmpeg));
+        assert!(is_bundled_media_binary(&bundled_ffprobe));
+        if env::var("NEOFLASH_FFMPEG")
+            .ok()
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
+            assert_eq!(detect_ffmpeg().as_ref(), Some(&bundled_ffmpeg));
+        }
+        if env::var("NEOFLASH_FFPROBE")
+            .ok()
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
+            assert_eq!(
+                detect_ffprobe(&bundled_ffmpeg).and_then(|p| p.canonicalize().ok()),
+                Some(bundled_ffprobe.clone())
+            );
+        }
+
+        // 2. On macOS, verify otool -L has zero /opt/homebrew, /usr/local, or @rpath references:
+        if cfg!(target_os = "macos") {
+            let lib_dir = bundled_ffmpeg
+                .parent()
+                .and_then(|p| p.parent())
+                .map(|p| p.join("lib"))
+                .expect("bundled lib dir");
+            assert!(
+                lib_dir.is_dir(),
+                "expected bundled dylib directory at {lib_dir:?}"
+            );
+
+            let mut binaries_to_inspect = vec![bundled_ffmpeg.clone(), bundled_ffprobe.clone()];
+            for entry in fs::read_dir(&lib_dir).unwrap().flatten() {
+                if entry.path().extension().and_then(|s| s.to_str()) == Some("dylib") {
+                    binaries_to_inspect.push(entry.path());
+                }
+            }
+            for bin_path in &binaries_to_inspect {
+                let otool_out = Command::new("/usr/bin/otool")
+                    .arg("-L")
+                    .arg(bin_path)
+                    .output()
+                    .expect("run /usr/bin/otool -L");
+                assert!(otool_out.status.success());
+                let text = String::from_utf8_lossy(&otool_out.stdout);
+                for line in text.lines().skip(1) {
+                    let dep = line.trim();
+                    assert!(
+                        !dep.starts_with("/opt/homebrew")
+                            && !dep.starts_with("/usr/local")
+                            && !dep.starts_with("@rpath"),
+                        "Bundled binary {bin_path:?} still references external/unrelocated path: {dep}"
+                    );
+                }
+            }
+
+            // Provenance & SBOM files exist alongside the bundle:
+            let bundle_root = bundled_ffmpeg.parent().unwrap().parent().unwrap();
+            assert!(bundle_root.join("provenance/media-sbom.json").is_file());
+            assert!(
+                bundle_root
+                    .join("provenance/ffmpeg-buildconf.txt")
+                    .is_file()
+            );
+            assert!(bundle_root.join("provenance/ffmpeg-license.txt").is_file());
+            assert!(bundle_root.join("provenance/SHA256SUMS.txt").is_file());
+            assert!(
+                bundle_root
+                    .join("licenses/README-CORRESPONDING-SOURCE.txt")
+                    .is_file()
+            );
+        }
+
+        // 3. Direct invocation with cleared environment (`env_clear()` + `PATH=""`):
+        let ffmpeg_ver = Command::new(&bundled_ffmpeg)
+            .env_clear()
+            .env("PATH", "")
+            .arg("-version")
+            .output()
+            .expect("launch bundled ffmpeg with empty env");
+        assert!(
+            ffmpeg_ver.status.success(),
+            "bundled ffmpeg failed with empty env: {}",
+            String::from_utf8_lossy(&ffmpeg_ver.stderr)
+        );
+        let ffprobe_ver = Command::new(&bundled_ffprobe)
+            .env_clear()
+            .env("PATH", "")
+            .arg("-version")
+            .output()
+            .expect("launch bundled ffprobe with empty env");
+        assert!(
+            ffprobe_ver.status.success(),
+            "bundled ffprobe failed with empty env: {}",
+            String::from_utf8_lossy(&ffprobe_ver.stderr)
+        );
+
+        // 4. Capability detection and hardware/software encoder selection:
+        let encoders = probe_ffmpeg_encoders(&bundled_ffmpeg);
+        assert!(encoders.contains("libx264"));
+        assert!(encoders.contains("libx265"));
+        assert!(encoders.contains("libvpx-vp9"));
+        assert!(encoders.contains("libopus"));
+        assert!(encoders.contains("libmp3lame"));
+        assert_eq!(
+            select_video_encoder(&bundled_ffmpeg, VideoCodec::H264, false),
+            ("libx264", false)
+        );
+        assert_eq!(
+            select_video_encoder(&bundled_ffmpeg, VideoCodec::H265, false),
+            ("libx265", false)
+        );
+        if cfg!(target_os = "macos") && encoders.contains("h264_videotoolbox") {
+            assert_eq!(
+                select_video_encoder(&bundled_ffmpeg, VideoCodec::H264, true),
+                ("h264_videotoolbox", true)
+            );
+        }
+        if cfg!(target_os = "macos") && encoders.contains("hevc_videotoolbox") {
+            assert_eq!(
+                select_video_encoder(&bundled_ffmpeg, VideoCodec::H265, true),
+                ("hevc_videotoolbox", true)
+            );
+        }
+
+        // 5. End-to-end export + decode round-trip for MP4 (H.264), MP4 (H.265), WebM (VP9+Opus), and MP3/AAC audio:
+        let dir = env::temp_dir().join(format!(
+            "neoflash-t283-bundled-media-{}-{}",
+            std::process::id(),
+            VIDEO_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let mut project = Project::demo();
+        let mut samples = Vec::with_capacity(4410);
+        for i in 0..4410 {
+            let v = ((i as f32 * 440.0 * std::f32::consts::TAU / 44_100.0).sin()) * 0.4;
+            samples.push([v, v]);
+        }
+        let wav_bytes = encode_wav_pcm16(&samples, 44_100);
+        project.resources.push(
+            ResourceUnit::from_bytes("snd_t283", "audio/tone.wav", "audio/wav", &wav_bytes)
+                .unwrap(),
+        );
+        let root_id = project.root.clone();
+        let mut snd = FrameSound::new("snd_t283");
+        snd.sync = SoundSync::Event;
+        project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0].sound = Some(snd);
+        project.upgrade_format_for_features();
+
+        // 5a. MP4 (H.264 + AAC) export & decode:
+        let h264_path = dir.join("out_h264.mp4");
+        let h264_report = export_project_video(
+            &project,
+            &h264_path,
+            &VideoOptions {
+                format: VideoFormat::Mp4,
+                codec: VideoCodec::H264,
+                width: 128,
+                height: 96,
+                from_frame: 1,
+                to_frame: Some(3),
+                include_audio: true,
+                ..VideoOptions::default()
+            },
+        )
+        .expect("export H.264 MP4 with bundled ffmpeg");
+        assert!(h264_report.audio_included);
+        let h264_decoded =
+            decode_video_stream_bytes("out_h264.mp4", "video/mp4", &fs::read(&h264_path).unwrap())
+                .expect("decode H.264 MP4 with bundled ffmpeg/ffprobe");
+        assert_eq!((h264_decoded.width, h264_decoded.height), (128, 96));
+        assert!(h264_decoded.logical_frame_count() >= 3);
+
+        // 5b. MP4 (H.265 / HEVC) export & probe:
+        let h265_path = dir.join("out_h265.mp4");
+        let h265_report = export_project_video(
+            &project,
+            &h265_path,
+            &VideoOptions {
+                format: VideoFormat::Mp4,
+                codec: VideoCodec::H265,
+                width: 128,
+                height: 96,
+                from_frame: 1,
+                to_frame: Some(3),
+                include_audio: false,
+                ..VideoOptions::default()
+            },
+        )
+        .expect("export H.265 MP4 with bundled ffmpeg");
+        assert!(h265_report.bytes > 128);
+        let h265_meta = probe_stream_metadata(&bundled_ffmpeg, &h265_path)
+            .expect("probe H.265 MP4 with bundled ffprobe")
+            .expect("stream metadata present");
+        assert_eq!((h265_meta.width, h265_meta.height), (128, 96));
+
+        // 5c. WebM (VP9 + Opus) export & decode:
+        let webm_path = dir.join("out_vp9.webm");
+        let webm_report = export_project_video(
+            &project,
+            &webm_path,
+            &VideoOptions {
+                format: VideoFormat::WebM,
+                codec: VideoCodec::Vp9,
+                width: 128,
+                height: 96,
+                from_frame: 1,
+                to_frame: Some(3),
+                include_audio: true,
+                audio_bitrate: VideoAudioBitrate::Opus160,
+                ..VideoOptions::default()
+            },
+        )
+        .expect("export VP9 WebM with bundled ffmpeg");
+        assert!(webm_report.audio_included);
+        let webm_decoded =
+            decode_video_stream_bytes("out_vp9.webm", "video/webm", &fs::read(&webm_path).unwrap())
+                .expect("decode VP9 WebM with bundled ffmpeg/ffprobe");
+        assert_eq!((webm_decoded.width, webm_decoded.height), (128, 96));
+        assert!(webm_decoded.logical_frame_count() >= 3);
+
+        // 5d. MP3 & AAC audio export via bundled ffmpeg:
+        let mp3_bytes = encode_mp3(
+            &samples,
+            44_100,
+            AudioChannels::Stereo,
+            192,
+            neoflash_core::SoundExportQuality::Best,
+        )
+        .expect("encode MP3 via bundled ffmpeg");
+        assert!(mp3_bytes.len() > 128);
+        let aac_bytes = encode_aac(&samples, 44_100, AudioChannels::Stereo, 192)
+            .expect("encode AAC via bundled ffmpeg");
+        assert!(aac_bytes.len() > 128);
+
+        let mp3_out_path = dir.join("mix.mp3");
+        let mp3_report = export_project_audio(
+            &project,
+            &mp3_out_path,
+            &AudioExportOptions {
+                format: AudioFormat::Mp3,
+                sample_rate: AudioSampleRate::Hz44100,
+                bit_rate: AudioBitRate::Kbps192,
+                channels: AudioChannels::Stereo,
+                ..AudioExportOptions::default()
+            },
+        )
+        .expect("export project MP3 audio");
+        assert!(mp3_report.bytes > 128);
+        assert!(mp3_out_path.is_file());
 
         let _ = fs::remove_dir_all(&dir);
     }

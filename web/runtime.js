@@ -1870,24 +1870,8 @@
     function stopTimelineSounds(){if(typeof player.stop_all_sounds==='function'){player.stop_all_sounds();drainSounds();}}
     function stopAllSounds(){audioHost?.stopAllLegacySounds();stopTimelineSounds();}
     const SoundMixer=Object.freeze({stopAll(){audioHost?.stopAllChannels();stopTimelineSounds();},areSoundsInaccessible(){return false;}});
-    function resize() { preview.resize(); }
-    function font(kind) { return `${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`; }
-    function bitmapMatrix(item){
-      if(item.kind.type!=='bitmap_pixels')return item.transform;
-      const [width,height]=logicalSize(),[ox,oy]=stageOrigin(),sx=canvas.width/width,sy=canvas.height/height,[a,b,c,d,e,f]=item.transform;
-      const m=bitmapHost.cache.transform([a*sx,b*sy,c*sx,d*sy,(e+ox)*sx,(f+oy)*sy],item.kind.pixel_snapping);
-      return [m[0]/sx,m[1]/sy,m[2]/sx,m[3]/sy,m[4]/sx-ox,m[5]/sy-oy];
-    }
-    let measuredFps = 0;
-    let lastTickNow = null;
-    const fpsIntervals = [];
-    function resetMeasuredFps() {
-      measuredFps = 0;
-      lastTickNow = null;
-      fpsIntervals.length = 0;
-    }
     function syncStageAccessibilityOverlay(semNodes = []) {
-      if (!a11yOverlay || !global.NeoFlashStage?.syncAccessibilityOverlay) return;
+      if (typeof a11yOverlay === 'undefined' || !a11yOverlay || !global.NeoFlashStage?.syncAccessibilityOverlay) return;
       const currentFrame = typeof player.current_frame === 'function' ? player.current_frame() : 0;
       const entries = global.NeoFlashStage.collectProjectAccessibilityEntries
         ? global.NeoFlashStage.collectProjectAccessibilityEntries(project, currentFrame, {
@@ -1938,6 +1922,22 @@
       } else {
         global.NeoFlashStage.syncAccessibilityOverlay(a11yOverlay, entries);
       }
+    }
+    function resize() { preview.resize(); }
+    function font(kind) { return `${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`; }
+    function bitmapMatrix(item){
+      if(item.kind.type!=='bitmap_pixels')return item.transform;
+      const [width,height]=logicalSize(),[ox,oy]=stageOrigin(),sx=canvas.width/width,sy=canvas.height/height,[a,b,c,d,e,f]=item.transform;
+      const m=bitmapHost.cache.transform([a*sx,b*sy,c*sx,d*sy,(e+ox)*sx,(f+oy)*sy],item.kind.pixel_snapping);
+      return [m[0]/sx,m[1]/sy,m[2]/sx,m[3]/sy,m[4]/sx-ox,m[5]/sy-oy];
+    }
+    let measuredFps = 0;
+    let lastTickNow = null;
+    const fpsIntervals = [];
+    function resetMeasuredFps() {
+      measuredFps = 0;
+      lastTickNow = null;
+      fpsIntervals.length = 0;
     }
     function render() {
       flushStageRender();

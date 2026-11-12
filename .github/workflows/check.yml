@@ -14,3 +14,32 @@ jobs:
         run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy --target wasm32-unknown-unknown
       - name: Validate Rust, WASM and HTML5
         run: ./scripts/check.sh
+
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Rust (x86_64-pc-windows-msvc + wasm32-unknown-unknown)
+        shell: pwsh
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal --component rustfmt,clippy --target x86_64-pc-windows-msvc,wasm32-unknown-unknown
+          rustup default stable-x86_64-pc-windows-msvc
+          if (-not (Get-Command wasm-bindgen -ErrorAction SilentlyContinue) -or ((wasm-bindgen --version) -ne "wasm-bindgen 0.2.129")) {
+            cargo install wasm-bindgen-cli --version 0.2.129 --locked
+          }
+      - name: Build web runtime
+        shell: pwsh
+        run: |
+          cargo build --locked --release -p neoflash-web --target wasm32-unknown-unknown
+          wasm-bindgen --target no-modules --no-modules-global NeoFlashWasm --out-name neoflash_web --out-dir target/web-runtime target/wasm32-unknown-unknown/release/neoflash_web.wasm
+      - name: Clippy on Windows x64 MSVC
+        shell: pwsh
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Run portable and Windows platform test suites
+        shell: pwsh
+        run: |
+          cargo test --locked -p neoflash-core -p neoflash-script -p neoflash-import -p neoflash-export
+          cargo test --locked -p neoflash-editor --bin neoflash-editor windows_platform

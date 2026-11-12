@@ -7,7 +7,7 @@ use eframe::egui;
 use neoflash_core::Project;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::io::{Read as _, Write as _};
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -1334,13 +1334,14 @@ impl Editor {
 }
 
 pub(crate) fn canonical_or_normalized_path(path: &Path) -> PathBuf {
-    if let Ok(canon) = std::fs::canonicalize(path) {
+    let normalized = crate::windows_platform::normalize_windows_path(path);
+    if let Ok(canon) = std::fs::canonicalize(&normalized) {
         return canon;
     }
-    let abs = if path.is_absolute() {
-        path.to_path_buf()
+    let abs = if normalized.is_absolute() {
+        normalized
     } else {
-        std::env::current_dir().unwrap_or_default().join(path)
+        std::env::current_dir().unwrap_or_default().join(normalized)
     };
     if let (Some(parent), Some(name)) = (abs.parent(), abs.file_name())
         && let Ok(canon_parent) = std::fs::canonicalize(parent)
@@ -1822,11 +1823,7 @@ fn file_mtime_unix_secs(path: &Path) -> u64 {
 }
 
 fn atomic_write(tmp: &Path, dst: &Path, bytes: &[u8]) -> Result<(), String> {
-    let mut file = std::fs::File::create(tmp).map_err(|e| e.to_string())?;
-    file.write_all(bytes).map_err(|e| e.to_string())?;
-    file.sync_all().map_err(|e| e.to_string())?;
-    drop(file);
-    std::fs::rename(tmp, dst).map_err(|e| e.to_string())
+    crate::windows_platform::atomic_write_with_staging_path(tmp, dst, bytes)
 }
 
 fn remove_id_files(dir: &Path, id: &str) -> Vec<String> {

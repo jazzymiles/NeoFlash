@@ -12,6 +12,60 @@ use std::rc::Rc;
 const DEVICE: TouchDeviceId = TouchDeviceId(0x4e46_5441_424c_4554);
 const MAX_SAMPLES: usize = 8192;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) enum TabletPointerKind {
+    #[default]
+    PenTip,
+    Eraser,
+}
+
+/// Maps normalized tablet tilt (`tilt_x`, `tilt_y` in `-1.0..=1.0`) to a calligraphic nib
+/// azimuth angle in radians (`[-PI, PI]`). Returns `None` when the stylus is upright or inputs
+/// are non-finite.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn tilt_to_nib_angle_rad(tilt_x: f32, tilt_y: f32) -> Option<f32> {
+    if !tilt_x.is_finite() || !tilt_y.is_finite() {
+        return None;
+    }
+    let tx = tilt_x.clamp(-1.0, 1.0);
+    let ty = tilt_y.clamp(-1.0, 1.0);
+    if tx.hypot(ty) < 1e-4 {
+        return None;
+    }
+    Some(ty.atan2(tx))
+}
+
+/// Maps normalized tablet tilt (`tilt_x`, `tilt_y` in `-1.0..=1.0`) to a nib angle in degrees
+/// (`[0.0, 360.0)`). Returns `None` when the stylus is upright or inputs are non-finite.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn tilt_to_nib_angle_deg(tilt_x: f32, tilt_y: f32) -> Option<f32> {
+    tilt_to_nib_angle_rad(tilt_x, tilt_y).map(|rad| rad.to_degrees().rem_euclid(360.0))
+}
+
+/// Maps normalized tablet tilt (`tilt_x`, `tilt_y`) to the nearest NF2 calligraphic brush nib
+/// orientation, falling back to `BrushShapeKind::Round` when the pen is held upright.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn tilt_to_brush_shape(
+    tilt_x: f32,
+    tilt_y: f32,
+) -> neoflash_ui::components::BrushShapeKind {
+    use neoflash_ui::components::BrushShapeKind;
+    let Some(deg) = tilt_to_nib_angle_deg(tilt_x, tilt_y) else {
+        return BrushShapeKind::Round;
+    };
+    let folded = deg.rem_euclid(180.0);
+    if !(22.5..157.5).contains(&folded) {
+        BrushShapeKind::OvalH
+    } else if folded < 67.5 {
+        BrushShapeKind::Slash
+    } else if folded < 112.5 {
+        BrushShapeKind::OvalV
+    } else {
+        BrushShapeKind::Backslash
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Sample {
     id: TouchId,
@@ -19,6 +73,10 @@ struct Sample {
     /// Top-left content-view coordinates, in native logical points (before egui UI zoom).
     position: Pos2,
     force: f32,
+    #[cfg_attr(not(test), allow(dead_code))]
+    tilt: [f32; 2],
+    #[cfg_attr(not(test), allow(dead_code))]
+    pointer_kind: TabletPointerKind,
 }
 
 #[derive(Default)]
@@ -30,7 +88,29 @@ struct Samples {
 
 impl Samples {
     fn record(&mut self, phase: TouchPhase, position: Pos2, force: f32) {
-        if !position.is_finite() || !force.is_finite() {
+        self.record_with_pen_state(
+            phase,
+            position,
+            force,
+            [0.0, 0.0],
+            TabletPointerKind::PenTip,
+        );
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn record_with_pen_state(
+        &mut self,
+        phase: TouchPhase,
+        position: Pos2,
+        force: f32,
+        tilt: [f32; 2],
+        pointer_kind: TabletPointerKind,
+    ) {
+        if !position.is_finite()
+            || !force.is_finite()
+            || !tilt[0].is_finite()
+            || !tilt[1].is_finite()
+        {
             return;
         }
         let id = if phase == TouchPhase::Start {
@@ -47,6 +127,8 @@ impl Samples {
             phase,
             position,
             force: force.clamp(0., 1.),
+            tilt: [tilt[0].clamp(-1., 1.), tilt[1].clamp(-1., 1.)],
+            pointer_kind,
         };
         if self.queued.len() >= MAX_SAMPLES {
             self.abort(sample);
@@ -109,6 +191,35 @@ impl TabletInput {
             ..input
         };
         input
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn active_tilt(&self) -> Option<[f32; 2]> {
+        self.forwarded_contact
+            .or_else(|| self.samples.borrow().contact)
+            .map(|c| c.tilt)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn active_nib_angle_deg(&self) -> Option<f32> {
+        let [tx, ty] = self.active_tilt()?;
+        tilt_to_nib_angle_deg(tx, ty)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn active_pointer_kind(&self) -> TabletPointerKind {
+        self.forwarded_contact
+            .or_else(|| self.samples.borrow().contact)
+            .map_or(TabletPointerKind::PenTip, |c| c.pointer_kind)
+    }
+
+    /// Maps the tablet's active pointer end (`PenTip` vs `Eraser`) to the matching drawing tool.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn tool_for_pointer_kind(kind: TabletPointerKind) -> crate::app::Tool {
+        match kind {
+            TabletPointerKind::PenTip => crate::app::Tool::Brush,
+            TabletPointerKind::Eraser => crate::app::Tool::Eraser,
+        }
     }
 
     /// Called from eframe::App::raw_input_hook, before egui processes this frame's input.
@@ -221,11 +332,21 @@ fn insert_samples(
                     if *phase == TouchPhase::Start
                         || forwarded_contact.is_some_and(|contact| contact.id == *id)
                     {
+                        let matched = samples
+                            .iter()
+                            .rfind(|s| s.id == *id && s.phase == *phase)
+                            .copied();
                         *forwarded_contact = Some(Sample {
                             id: *id,
                             phase: *phase,
                             position: *pos * zoom,
                             force: force.unwrap_or(1.),
+                            tilt: matched
+                                .or(*forwarded_contact)
+                                .map_or([0.0, 0.0], |s| s.tilt),
+                            pointer_kind: matched
+                                .or(*forwarded_contact)
+                                .map_or(TabletPointerKind::PenTip, |s| s.pointer_kind),
                         });
                     }
                 }
@@ -566,5 +687,396 @@ mod tests {
             input.append_events(&egui::Context::default(), &mut mouse);
             assert_eq!(mouse.events, [Event::PointerGone]);
         }
+    }
+
+    fn path_y_span_near_x(
+        commands: &[neoflash_core::PathCommand],
+        origin_x: f64,
+        origin_y: f64,
+        target_x: f64,
+        tolerance: f64,
+    ) -> f64 {
+        let mut min_y = f64::INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        for cmd in commands {
+            let (x, y) = match *cmd {
+                neoflash_core::PathCommand::MoveTo { x, y }
+                | neoflash_core::PathCommand::LineTo { x, y }
+                | neoflash_core::PathCommand::QuadraticTo { x, y, .. }
+                | neoflash_core::PathCommand::CubicTo { x, y, .. } => (origin_x + x, origin_y + y),
+                neoflash_core::PathCommand::Close => continue,
+            };
+            if (x - target_x).abs() <= tolerance {
+                min_y = min_y.min(y);
+                max_y = max_y.max(y);
+            }
+        }
+        if min_y.is_finite() && max_y.is_finite() {
+            max_y - min_y
+        } else {
+            0.0
+        }
+    }
+
+    fn path_max_x(commands: &[neoflash_core::PathCommand], origin_x: f64) -> f64 {
+        let mut max_x = f64::NEG_INFINITY;
+        for cmd in commands {
+            match *cmd {
+                neoflash_core::PathCommand::MoveTo { x, .. }
+                | neoflash_core::PathCommand::LineTo { x, .. }
+                | neoflash_core::PathCommand::QuadraticTo { x, .. }
+                | neoflash_core::PathCommand::CubicTo { x, .. } => {
+                    max_x = max_x.max(origin_x + x);
+                }
+                neoflash_core::PathCommand::Close => {}
+            }
+        }
+        max_x
+    }
+
+    #[test]
+    fn t235_tablet_pressure_tilt_consecutive_strokes_eraser_switch_undo_and_save_reopen() {
+        use neoflash_ui::components::BrushShapeKind;
+
+        // 1. Tilt-to-angle mapping (`tilt_x`, `tilt_y` -> nib angle and BrushShapeKind).
+        assert_eq!(tilt_to_nib_angle_rad(0.0, 0.0), None);
+        assert_eq!(tilt_to_nib_angle_deg(0.0, 0.0), None);
+        assert_eq!(tilt_to_nib_angle_rad(f32::NAN, 0.5), None);
+        assert_eq!(tilt_to_brush_shape(0.0, 0.0), BrushShapeKind::Round);
+
+        let deg_h = tilt_to_nib_angle_deg(0.8, 0.0).expect("horizontal tilt angle");
+        assert!((deg_h - 0.0).abs() < 1e-3);
+        assert_eq!(tilt_to_brush_shape(0.8, 0.0), BrushShapeKind::OvalH);
+
+        let deg_dr = tilt_to_nib_angle_deg(0.6, 0.6).expect("diagonal right tilt angle");
+        assert!((deg_dr - 45.0).abs() < 1e-3);
+        assert_eq!(tilt_to_brush_shape(0.6, 0.6), BrushShapeKind::Slash);
+
+        let deg_v = tilt_to_nib_angle_deg(0.0, 0.9).expect("vertical tilt angle");
+        assert!((deg_v - 90.0).abs() < 1e-3);
+        assert_eq!(tilt_to_brush_shape(0.0, 0.9), BrushShapeKind::OvalV);
+
+        let deg_dl = tilt_to_nib_angle_deg(-0.7, 0.7).expect("diagonal left tilt angle");
+        assert!((deg_dl - 135.0).abs() < 1e-3);
+        assert_eq!(tilt_to_brush_shape(-0.7, 0.7), BrushShapeKind::Backslash);
+
+        // 2. Pressure retention across a multi-sample stroke (`pressure` in `0.05..=1.0`).
+        let (mut editor, ctx, page) = crate::tests::rectangle_stage();
+        editor.set_tool(crate::app::Tool::Brush);
+        editor.authoring_tools.brush_pressure = true;
+        editor.authoring_tools.brush_size = 24.0;
+        let baseline_count = editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len();
+
+        let mut input = TabletInput::default();
+        let stroke1_samples = [
+            (
+                TouchPhase::Start,
+                page.min + egui::vec2(60.0, 120.0),
+                0.05_f32,
+                [0.5_f32, 0.5_f32],
+            ),
+            (
+                TouchPhase::Move,
+                page.min + egui::vec2(100.0, 120.0),
+                0.25_f32,
+                [0.5_f32, 0.5_f32],
+            ),
+            (
+                TouchPhase::Move,
+                page.min + egui::vec2(140.0, 120.0),
+                0.60_f32,
+                [0.5_f32, 0.5_f32],
+            ),
+            (
+                TouchPhase::Move,
+                page.min + egui::vec2(180.0, 120.0),
+                1.00_f32,
+                [0.5_f32, 0.5_f32],
+            ),
+            (
+                TouchPhase::End,
+                page.min + egui::vec2(220.0, 120.0),
+                0.35_f32,
+                [0.5_f32, 0.5_f32],
+            ),
+        ];
+
+        let mut raw_events = Vec::new();
+        for (phase, pos, force, tilt) in stroke1_samples {
+            input.samples.borrow_mut().record_with_pen_state(
+                phase,
+                pos,
+                force,
+                tilt,
+                TabletPointerKind::PenTip,
+            );
+            match phase {
+                TouchPhase::Start => {
+                    raw_events.push(Event::PointerMoved(pos));
+                    raw_events.push(pointer(pos, true));
+                }
+                TouchPhase::Move => {
+                    raw_events.push(Event::PointerMoved(pos));
+                }
+                TouchPhase::End => {
+                    raw_events.push(Event::PointerMoved(pos));
+                    raw_events.push(pointer(pos, false));
+                }
+                TouchPhase::Cancel => {}
+            }
+        }
+
+        // Before End is processed, contact carries tilt and PenTip state.
+        let mut raw = egui::RawInput {
+            events: raw_events,
+            ..Default::default()
+        };
+        input.append_events(&ctx, &mut raw);
+
+        let recorded_forces: Vec<f32> = raw
+            .events
+            .iter()
+            .filter_map(|ev| match ev {
+                Event::Touch { force, .. } => *force,
+                _ => None,
+            })
+            .collect();
+        assert_eq!(recorded_forces, vec![0.05, 0.25, 0.60, 1.00, 0.35]);
+        assert!(
+            input.forwarded_contact.is_none(),
+            "completed stroke must release forwarded tablet contact"
+        );
+
+        crate::tests::stage_input_frame(&mut editor, &ctx, 1.0, raw.events);
+        assert!(
+            !editor.authoring_tools.is_drawing(),
+            "completed tablet stroke must not stay in drawing state"
+        );
+
+        let elements = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+        assert_eq!(elements.len(), baseline_count + 1);
+        let first_stroke = elements.last().expect("first pressure brush stroke");
+        let neoflash_core::ElementKind::Path { commands, .. } = &first_stroke.kind else {
+            panic!("expected vector Path element from pressure brush stroke");
+        };
+        // Verify pressure profile tapered the stroke: span near x=180 (force=1.0) > span near x=60 (force=0.05).
+        let thin_span = path_y_span_near_x(
+            commands,
+            first_stroke.transform.x,
+            first_stroke.transform.y,
+            60.0,
+            12.0,
+        );
+        let thick_span = path_y_span_near_x(
+            commands,
+            first_stroke.transform.x,
+            first_stroke.transform.y,
+            180.0,
+            12.0,
+        );
+        assert!(
+            thick_span > thin_span * 1.8,
+            "expected pressure=1.0 segment height ({thick_span:.2}) to exceed pressure=0.05 segment height ({thin_span:.2})"
+        );
+        assert!(
+            path_max_x(commands, first_stroke.transform.x) >= 218.0,
+            "final segment at x=220 must not be dropped"
+        );
+
+        // 3. Fast consecutive strokes without dropped final segments or hangs.
+        for (stroke_idx, y_off) in [(1_usize, 180.0_f32), (2_usize, 240.0_f32)] {
+            let p0 = page.min + egui::vec2(60.0, y_off);
+            let p1 = page.min + egui::vec2(150.0, y_off);
+            let p2 = page.min + egui::vec2(260.0, y_off);
+            input.samples.borrow_mut().record_with_pen_state(
+                TouchPhase::Start,
+                p0,
+                0.15,
+                [0.0, 0.8],
+                TabletPointerKind::PenTip,
+            );
+            input.samples.borrow_mut().record_with_pen_state(
+                TouchPhase::Move,
+                p1,
+                0.75,
+                [0.0, 0.8],
+                TabletPointerKind::PenTip,
+            );
+            assert_eq!(input.active_pointer_kind(), TabletPointerKind::PenTip);
+            assert!((input.active_nib_angle_deg().unwrap() - 90.0).abs() < 1e-3);
+            input.samples.borrow_mut().record_with_pen_state(
+                TouchPhase::End,
+                p2,
+                0.95,
+                [0.0, 0.8],
+                TabletPointerKind::PenTip,
+            );
+            let mut stroke_raw = egui::RawInput {
+                events: vec![
+                    Event::PointerMoved(p0),
+                    pointer(p0, true),
+                    Event::PointerMoved(p1),
+                    Event::PointerMoved(p2),
+                    pointer(p2, false),
+                ],
+                ..Default::default()
+            };
+            input.append_events(&ctx, &mut stroke_raw);
+            crate::tests::stage_input_frame(&mut editor, &ctx, 1.0, stroke_raw.events);
+            assert!(!editor.authoring_tools.is_drawing());
+            assert!(input.forwarded_contact.is_none());
+
+            let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+            assert_eq!(els.len(), baseline_count + 1 + stroke_idx);
+            let latest = els.last().unwrap();
+            let neoflash_core::ElementKind::Path { commands: cmds, .. } = &latest.kind else {
+                panic!("expected Path element for consecutive stroke {stroke_idx}");
+            };
+            let end_x = path_max_x(cmds, latest.transform.x);
+            assert!(
+                end_x >= 258.0,
+                "consecutive stroke {stroke_idx} dropped its final segment (max_x={end_x:.2})"
+            );
+        }
+
+        // 4. Pen-tip to Eraser switching and pointer-capture release cleanup.
+        // First verify mid-stroke PointerGone + tool switch cleans up without committing garbage.
+        let count_before_abort = editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len();
+        let abort_pos = page.min + egui::vec2(80.0, 300.0);
+        input.samples.borrow_mut().record_with_pen_state(
+            TouchPhase::Start,
+            abort_pos,
+            0.6,
+            [-0.5, 0.5],
+            TabletPointerKind::PenTip,
+        );
+        let mut down_raw = egui::RawInput {
+            events: vec![Event::PointerMoved(abort_pos), pointer(abort_pos, true)],
+            ..Default::default()
+        };
+        input.append_events(&ctx, &mut down_raw);
+        assert!(input.forwarded_contact.is_some());
+        crate::tests::stage_input_frame(&mut editor, &ctx, 1.0, down_raw.events);
+        assert!(editor.authoring_tools.is_drawing());
+
+        // PointerGone releases tablet contact and cancels the active stroke cleanly.
+        let mut gone_raw = egui::RawInput {
+            events: vec![Event::PointerGone],
+            ..Default::default()
+        };
+        input.append_events(&ctx, &mut gone_raw);
+        assert!(input.forwarded_contact.is_none());
+        crate::tests::stage_input_frame(&mut editor, &ctx, 1.0, gone_raw.events);
+        assert!(!editor.authoring_tools.is_drawing());
+        assert_eq!(
+            editor.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .len(),
+            count_before_abort
+        );
+
+        // Switch from PenTip -> Eraser end and run an eraser pass across the third stroke (y=240).
+        editor.set_tool(TabletInput::tool_for_pointer_kind(
+            TabletPointerKind::Eraser,
+        ));
+        assert_eq!(editor.tool, crate::app::Tool::Eraser);
+        let before_erase = editor.project.clone();
+        let e0 = page.min + egui::vec2(150.0, 210.0);
+        let e1 = page.min + egui::vec2(150.0, 240.0);
+        let e2 = page.min + egui::vec2(150.0, 270.0);
+        input.samples.borrow_mut().record_with_pen_state(
+            TouchPhase::Start,
+            e0,
+            0.8,
+            [0.0, 0.0],
+            TabletPointerKind::Eraser,
+        );
+        input.samples.borrow_mut().record_with_pen_state(
+            TouchPhase::Move,
+            e1,
+            0.9,
+            [0.0, 0.0],
+            TabletPointerKind::Eraser,
+        );
+        assert_eq!(input.active_pointer_kind(), TabletPointerKind::Eraser);
+        input.samples.borrow_mut().record_with_pen_state(
+            TouchPhase::End,
+            e2,
+            0.4,
+            [0.0, 0.0],
+            TabletPointerKind::Eraser,
+        );
+        let mut erase_raw = egui::RawInput {
+            events: vec![
+                Event::PointerMoved(e0),
+                pointer(e0, true),
+                Event::PointerMoved(e1),
+                Event::PointerMoved(e2),
+                pointer(e2, false),
+            ],
+            ..Default::default()
+        };
+        input.append_events(&ctx, &mut erase_raw);
+        crate::tests::stage_input_frame(&mut editor, &ctx, 1.0, erase_raw.events);
+        assert!(!editor.authoring_tools.is_drawing());
+        assert!(input.forwarded_contact.is_none());
+        assert_ne!(
+            editor.project, before_erase,
+            "eraser stroke must modify the stage artwork"
+        );
+
+        // Switch back to PenTip (`Tool::Brush`).
+        editor.set_tool(TabletInput::tool_for_pointer_kind(
+            TabletPointerKind::PenTip,
+        ));
+        assert_eq!(editor.tool, crate::app::Tool::Brush);
+
+        // 5. Single-step Undo and `.nflash` save/reopen round-trip of pressure-sensitive strokes.
+        editor.undo();
+        assert_eq!(
+            editor.project, before_erase,
+            "single-step Undo must revert the eraser pass"
+        );
+
+        let before_third_stroke_undo = editor.project.clone();
+        editor.undo();
+        assert_eq!(
+            editor.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .len(),
+            baseline_count + 2,
+            "single-step Undo must remove the third pressure brush stroke"
+        );
+        editor.redo();
+        assert_eq!(editor.project, before_third_stroke_undo);
+
+        let saved_json =
+            serde_json::to_string_pretty(&editor.project).expect("serialize .nflash project");
+        let reopened_project: neoflash_core::Project =
+            serde_json::from_str(&saved_json).expect("deserialize .nflash project");
+        reopened_project
+            .validate()
+            .expect("reopened .nflash project must validate");
+        let orig_els = &editor.project.symbols[0].timeline.layers[0].keyframes[0].elements;
+        let reop_els = &reopened_project.symbols[0].timeline.layers[0].keyframes[0].elements;
+        assert_eq!(reop_els.len(), orig_els.len());
+        for (a, b) in orig_els.iter().zip(reop_els.iter()) {
+            assert_eq!(a.id, b.id);
+            assert_eq!(a.name, b.name);
+            if let (
+                neoflash_core::ElementKind::Path { commands: ca, .. },
+                neoflash_core::ElementKind::Path { commands: cb, .. },
+            ) = (&a.kind, &b.kind)
+            {
+                assert_eq!(ca.len(), cb.len());
+            }
+        }
+
+        let reopened_editor = crate::app::Editor::from_project(&ctx, reopened_project.clone());
+        assert_eq!(reopened_editor.project, reopened_project);
     }
 }

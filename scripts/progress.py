@@ -82,6 +82,21 @@ def validate_items(feature):
                          "(implemented = all working, planned = all planned, otherwise partial)")
 
 
+def revision_has_evidence_blob(root, revision, path):
+    candidates = [path]
+    if path.endswith(".rs"):
+        candidates.append(f"{path[:-3]}/mod.rs")
+    for candidate in candidates:
+        res = subprocess.run(
+            ["git", "-C", str(root), "cat-file", "-t", f"{revision}:{candidate}"],
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode == 0 and res.stdout.strip() == "blob":
+            return True
+    return False
+
+
 def validate_inventory(root, categories, features, revision=None, require_items=False):
     ids, feature_ids, paths = set(), set(), set()
     for category in categories:
@@ -114,7 +129,7 @@ def validate_inventory(root, categories, features, revision=None, require_items=
         raise ValueError("Every category must contain at least one capability")
     for path in sorted(paths):
         if revision:
-            if git(root, "cat-file", "-t", f"{revision}:{path}") != "blob":
+            if not revision_has_evidence_blob(root, revision, path):
                 raise ValueError(f"Evidence must be a file: {path}")
         elif not (root / path).is_file():
             raise ValueError(f"Missing evidence: {path}")

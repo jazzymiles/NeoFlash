@@ -938,3 +938,654 @@ fn t231_shared_library_external_nflash_mount_and_disk_url_sync_are_collision_saf
     assert!(!editor.project.symbols.iter().any(|s| s.name == "DonorLeaf"));
     editor.project.validate().unwrap();
 }
+
+#[test]
+fn t276_fresh_profile_authoring_conflict_recovery_test_movie_and_publish_journey() {
+    use crate::recovery::ExternalFileChange;
+    use crate::selection::SelectionTarget;
+    use neoflash_core::{
+        Element, ElementKind, FrameScript, InstancePlayback, Keyframe, Layer, ObjectEvent,
+        ObjectScript, ResourceUnit, Script, ScriptLanguage, Symbol, SymbolKind, TextAlign,
+        TextFormat, Transform, TweenKind, evaluate_scene,
+    };
+
+    let ctx = egui::Context::default();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/t006-documents/t276-fresh-profile");
+    let _ = std::fs::remove_dir_all(&dir);
+    let profile_dir = dir.join("Profile");
+    let recovery_root = profile_dir.join("Recovery");
+    let work_dir = dir.join("Workspace");
+    let publish_dir = dir.join("Publish");
+    std::fs::create_dir_all(&recovery_root).unwrap();
+    std::fs::create_dir_all(&work_dir).unwrap();
+    std::fs::create_dir_all(&publish_dir).unwrap();
+
+    // 1. Fresh document in an isolated workspace/recovery root.
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.recovery.set_dir(Some(recovery_root.clone()));
+    editor.workspace.general.autosave = true;
+    editor.workspace.general.autosave_minutes = 1;
+    assert_eq!(editor.project.name, Project::blank().name);
+    assert!(!editor.dirty());
+    assert_eq!(editor.edit_depth(), 1);
+    editor.project.validate().expect("blank project validates");
+
+    // 2. Vector & Text authoring.
+    let root_layer_id = editor.symbol().timeline.layers[0].id.clone();
+    editor.transact_named("Draw vector shape", |ed| {
+        let root_id = ed.project.root.clone();
+        let kf = &mut ed.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0];
+        kf.elements.push(Element {
+            id: "vec-hero".into(),
+            name: "HeroRect".into(),
+            transform: Transform {
+                x: 180.0,
+                y: 160.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 140.0,
+                height: 80.0,
+                fill: [46, 134, 222, 255],
+                stroke: [20, 40, 80, 255],
+                stroke_width: 2.0,
+            },
+            ..Element::default()
+        });
+    });
+    editor.set_selection(vec![SelectionTarget {
+        layer: root_layer_id.clone(),
+        element: "vec-hero".into(),
+    }]);
+
+    editor.transact_named("Place formatted text box", |ed| {
+        let root_id = ed.project.root.clone();
+        let kf = &mut ed.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0];
+        kf.elements.push(Element {
+            id: "txt-banner".into(),
+            name: "BannerText".into(),
+            transform: Transform {
+                x: 320.0,
+                y: 90.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::TextBox {
+                width: 220.0,
+                height: 48.0,
+                text: "Beta 1 Fresh Journey".into(),
+                format: TextFormat {
+                    font: "Inter".into(),
+                    size: 22.0,
+                    bold: true,
+                    color: 0xF5F7FA,
+                    align: TextAlign::Center,
+                    ..TextFormat::default()
+                },
+                word_wrap: true,
+                multiline: false,
+            },
+            ..Element::default()
+        });
+    });
+    editor
+        .project
+        .validate()
+        .expect("project validates after vector & text authoring");
+
+    // 3. Symbol Enter & One-Level Exit (Root -> OuterClip -> InnerClip, depth 3 -> 2 -> 1).
+    let blank_tl = Project::blank().symbols[0].timeline.clone();
+    editor.transact_named("Create nested MovieClip hierarchy", |ed| {
+        let mut inner_tl = blank_tl.clone();
+        inner_tl.layers = vec![Layer {
+            id: "layer-inner".into(),
+            name: "Inner Layer".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![Element {
+                    id: "el-inner-dot".into(),
+                    name: "InnerDot".into(),
+                    transform: Transform {
+                        x: 220.0,
+                        y: 180.0,
+                        ..Transform::default()
+                    },
+                    kind: ElementKind::Rectangle {
+                        width: 16.0,
+                        height: 16.0,
+                        fill: [250, 180, 40, 255],
+                        stroke: [0, 0, 0, 0],
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }],
+                ..Keyframe::default()
+            }],
+            properties: Default::default(),
+        }];
+        ed.project.symbols.push(Symbol {
+            id: "sym-inner".into(),
+            name: "InnerClip".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            class_name: None,
+            linkage_id: None,
+            timeline: inner_tl,
+        });
+
+        let mut outer_tl = blank_tl.clone();
+        outer_tl.layers = vec![Layer {
+            id: "layer-outer".into(),
+            name: "Outer Layer".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![Element {
+                    id: "inst-inner".into(),
+                    name: "innerMc".into(),
+                    transform: Transform {
+                        x: 10.0,
+                        y: 10.0,
+                        ..Transform::default()
+                    },
+                    kind: ElementKind::Instance {
+                        symbol_id: "sym-inner".into(),
+                        playback: InstancePlayback::Independent,
+                    },
+                    ..Element::default()
+                }],
+                ..Keyframe::default()
+            }],
+            properties: Default::default(),
+        }];
+        ed.project.symbols.push(Symbol {
+            id: "sym-outer".into(),
+            name: "OuterClip".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            class_name: None,
+            linkage_id: None,
+            timeline: outer_tl,
+        });
+
+        let root_id = ed.project.root.clone();
+        let kf = &mut ed.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0];
+        kf.elements.push(Element {
+            id: "inst-outer".into(),
+            name: "outerMc".into(),
+            transform: Transform {
+                x: 420.0,
+                y: 260.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: "sym-outer".into(),
+                playback: InstancePlayback::Independent,
+            },
+            ..Element::default()
+        });
+    });
+
+    editor.set_selection(vec![SelectionTarget {
+        layer: root_layer_id.clone(),
+        element: "inst-outer".into(),
+    }]);
+    assert!(editor.enter_selected_symbol_in_place());
+    assert_eq!(editor.edit_depth(), 2);
+    assert_eq!(editor.symbol_id(), "sym-outer");
+
+    editor.set_selection(vec![SelectionTarget {
+        layer: "layer-outer".into(),
+        element: "inst-inner".into(),
+    }]);
+    assert!(editor.enter_selected_symbol_in_place());
+    assert_eq!(editor.edit_depth(), 3);
+    assert_eq!(editor.symbol_id(), "sym-inner");
+
+    // Warm up Stage layout and perform empty-Stage double-click.
+    let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+    let mut warmup_input = egui::RawInput {
+        screen_rect: Some(screen_rect),
+        time: Some(10.0),
+        ..Default::default()
+    };
+    let _ = ctx.run(warmup_input.take(), |ctx| {
+        editor.stage(ctx);
+    });
+    let empty_pos = egui::pos2(80.0, 120.0);
+
+    let double_click_empty_stage =
+        |editor: &mut Editor, ctx: &egui::Context, base_time: f64, pos: egui::Pos2| {
+            for (dt, events) in [
+                (
+                    0.0,
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: true,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: false,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                ),
+                (
+                    0.12,
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: true,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                ),
+                (
+                    0.16,
+                    vec![egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        modifiers: egui::Modifiers::NONE,
+                    }],
+                ),
+            ] {
+                let mut raw = egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    time: Some(base_time + dt),
+                    events,
+                    ..Default::default()
+                };
+                let _ = ctx.run(raw.take(), |ctx| {
+                    editor.stage(ctx);
+                });
+            }
+        };
+
+    // First empty-Stage double-click exits ONE level: depth 3 (InnerClip) -> depth 2 (OuterClip).
+    double_click_empty_stage(&mut editor, &ctx, 11.0, empty_pos);
+    assert_eq!(
+        editor.edit_depth(),
+        2,
+        "double-clicking empty Stage at depth 3 must exit exactly one level to depth 2"
+    );
+    assert_eq!(editor.symbol_id(), "sym-outer");
+
+    // Second empty-Stage double-click exits from depth 2 (OuterClip) -> depth 1 (Root).
+    double_click_empty_stage(&mut editor, &ctx, 12.5, empty_pos);
+    assert_eq!(
+        editor.edit_depth(),
+        1,
+        "second empty-Stage double-click at depth 2 must exit to depth 1 (Root)"
+    );
+    assert_eq!(editor.symbol_id(), editor.project.root);
+
+    // 4. Tween & Frame/Object Script.
+    editor.layer = 0;
+    editor.frame = 9;
+    editor.make_key(false);
+    editor.transact_named("Move outer instance at frame 10", |ed| {
+        let root_id = ed.project.root.clone();
+        let kf = ed.project.symbol_mut(&root_id).unwrap().timeline.layers[0]
+            .keyframes
+            .iter_mut()
+            .find(|k| k.frame == 9)
+            .unwrap();
+        let inst = kf
+            .elements
+            .iter_mut()
+            .find(|el| el.id == "inst-outer")
+            .unwrap();
+        inst.transform.x = 620.0;
+        inst.transform.y = 340.0;
+    });
+    editor.frame = 0;
+    editor.create_tween(TweenKind::Classic);
+
+    editor.transact_named("Attach frame and instance scripts", |ed| {
+        let root_id = ed.project.root.clone();
+        let root_sym = ed.project.symbol_mut(&root_id).unwrap();
+        root_sym.timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "trace(\"t276_frame_ok\");".into(),
+            },
+        });
+        let kf = &mut root_sym.timeline.layers[0].keyframes[0];
+        let inst = kf
+            .elements
+            .iter_mut()
+            .find(|el| el.id == "inst-outer")
+            .unwrap();
+        inst.scripts.push(ObjectScript {
+            event: ObjectEvent::Click,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "trace(\"t276_click_ok\");".into(),
+            },
+        });
+    });
+
+    let mid_scene = evaluate_scene(&editor.project, &editor.project.root, 5, false, true);
+    let mid_outer = mid_scene
+        .draws
+        .iter()
+        .find(|d| d.item.instance_path.first().map(String::as_str) == Some("inst-outer"))
+        .expect("outer instance rendered at frame 5");
+    assert!(
+        mid_outer.item.transform[4] > 420.0,
+        "classic tween interpolates X at mid-span ({})",
+        mid_outer.item.transform[4]
+    );
+    editor
+        .project
+        .validate()
+        .expect("project validates after tween & scripts");
+
+    // 5. Multi-step Undo / Redo across authoring operations.
+    let authored_snapshot = editor.project.clone();
+    for step in 0..5 {
+        assert!(editor.history.can_undo(), "can undo step {step}");
+        editor.undo();
+        editor
+            .project
+            .validate()
+            .expect("project validates after undo");
+    }
+    assert_ne!(editor.project, authored_snapshot);
+    for step in 0..5 {
+        assert!(editor.history.can_redo(), "can redo step {step}");
+        editor.redo();
+        editor
+            .project
+            .validate()
+            .expect("project validates after redo");
+    }
+    assert_eq!(editor.project, authored_snapshot);
+
+    // 6. Bitmap & Video Import in single Undo steps.
+    let mut rgba_img = image::RgbaImage::new(4, 4);
+    for pixel in rgba_img.pixels_mut() {
+        *pixel = image::Rgba([32, 201, 151, 255]);
+    }
+    let mut png_bytes = Vec::new();
+    image::DynamicImage::ImageRgba8(rgba_img)
+        .write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    let bitmap_unit =
+        ResourceUnit::from_bytes("res-badge", "badge.png", "image/png", &png_bytes).unwrap();
+    editor
+        .add_resource_units(vec![bitmap_unit])
+        .expect("import PNG bitmap resource");
+    editor
+        .place_graphic_resource("res-badge", Some([120.0, 300.0]))
+        .expect("place bitmap on stage");
+    editor
+        .project
+        .validate()
+        .expect("validates after bitmap placement");
+    editor.undo();
+    editor.redo();
+    editor
+        .project
+        .validate()
+        .expect("validates after bitmap undo/redo");
+
+    let before_video = editor.project.clone();
+    let frame_a = [40u8, 120, 240, 255].repeat(16 * 16);
+    let frame_b = [240u8, 120, 40, 255].repeat(16 * 16);
+    let mp4_bytes =
+        neoflash_export::encode_deterministic_mp4_rgba_frames(16, 16, 12, &[&frame_a, &frame_b]);
+    let mp4_path = work_dir.join("clip.mp4");
+    std::fs::write(&mp4_path, &mp4_bytes).unwrap();
+    editor
+        .import_video_path_at(&ctx, &mp4_path, [260.0, 300.0])
+        .expect("import MP4 video onto stage");
+    editor
+        .project
+        .validate()
+        .expect("validates after MP4 import");
+    assert!(
+        editor.project.resources.iter().any(|r| r.is_video()),
+        "video resource added"
+    );
+    // Single-step Undo removes the entire video import transaction cleanly.
+    editor.undo();
+    assert_eq!(editor.project.resources.len(), before_video.resources.len());
+    editor.project.validate().unwrap();
+    editor.redo();
+    assert!(editor.project.resources.iter().any(|r| r.is_video()));
+    editor.project.validate().unwrap();
+
+    // 7. Save -> Unsaved-close prompt protection -> Quit -> Reopen with 100% fidelity.
+    let doc_path = work_dir.join("Beta1Journey.nflash");
+    assert!(editor.save_to_path(doc_path.clone()));
+    assert!(!editor.dirty());
+    assert!(doc_path.is_file());
+
+    editor.transact_named("Post-save title edit", |ed| {
+        ed.project.name = "Beta1Journey Saved".into();
+    });
+    assert!(editor.dirty());
+
+    // Unsaved-close prompt protection: Cancel preserves dirty state and blocks quit.
+    editor.request_quit(&ctx);
+    assert_eq!(editor.confirm, Some(Pending::Close));
+    assert!(!editor.allow_close);
+    editor.cancel_confirmation(&ctx);
+    assert!(editor.confirm.is_none());
+    assert!(!editor.allow_close);
+    assert!(editor.dirty());
+
+    // Unsaved-close prompt protection: Save writes cleanly and authorizes quit.
+    editor.request_quit(&ctx);
+    assert_eq!(editor.confirm, Some(Pending::Close));
+    let saved_ok = editor.save(false);
+    assert!(saved_ok);
+    editor.resolve_confirmation_save(&ctx, saved_ok);
+    assert!(!editor.dirty());
+    assert!(editor.allow_close);
+
+    let saved_fidelity_snapshot = editor.project.clone();
+    eframe::App::on_exit(&mut editor);
+    assert_eq!(
+        recovery_files(&profile_dir),
+        0,
+        "clean quit removes transient recovery files"
+    );
+
+    let mut reopened = Editor::from_project(&ctx, Project::blank());
+    reopened.recovery.set_dir(Some(recovery_root.clone()));
+    reopened.workspace.general.autosave = true;
+    reopened.workspace.general.autosave_minutes = 1;
+    assert!(reopened.try_open_path(doc_path.clone(), &ctx));
+    assert_eq!(reopened.project, saved_fidelity_snapshot);
+    assert!(!reopened.dirty());
+    reopened
+        .project
+        .validate()
+        .expect("reopened project validates with 100% fidelity");
+
+    // 8. External-File Conflict (Modified, Replaced, Deleted + Keep editing, Save As, Reload).
+    reopened.transact_named("Local in-memory edit", |ed| {
+        ed.project.name = "In-Memory Local Work".into();
+    });
+    assert!(reopened.dirty());
+
+    // 8a. External Modified: in-place disk write.
+    let mut disk_modified = saved_fidelity_snapshot.clone();
+    disk_modified.name = "Externally Modified On Disk".into();
+    std::fs::write(&doc_path, disk_modified.to_json().unwrap()).unwrap();
+    let _ = reopened.check_external_file_changes();
+    assert_eq!(
+        reopened.external_file_change(),
+        Some(ExternalFileChange::Modified)
+    );
+    // Ordinary Save must be guarded against silently overwriting conflicting disk state.
+    assert!(
+        !reopened.save(false),
+        "ordinary Save must be blocked while external file conflict is unresolved"
+    );
+    let on_disk_after_blocked_save =
+        Project::from_json(&std::fs::read_to_string(&doc_path).unwrap()).unwrap();
+    assert_eq!(
+        on_disk_after_blocked_save.name,
+        "Externally Modified On Disk"
+    );
+
+    // Keep editing dismisses the conflict banner while preserving local in-memory changes.
+    assert!(reopened.keep_editing_external_change());
+    assert!(reopened.external_file_change().is_none());
+    assert_eq!(reopened.project.name, "In-Memory Local Work");
+
+    // 8b. External Replaced (atomic rename changing inode) + Save As preserving both versions.
+    let mut disk_replaced = saved_fidelity_snapshot.clone();
+    disk_replaced.name = "Externally Replaced Via Atomic Rename".into();
+    let replacement_tmp = work_dir.join("Beta1Journey.replace.tmp");
+    std::fs::write(&replacement_tmp, disk_replaced.to_json().unwrap()).unwrap();
+    std::fs::rename(&replacement_tmp, &doc_path).unwrap();
+    let _ = reopened.check_external_file_changes();
+    assert_eq!(
+        reopened.external_file_change(),
+        Some(ExternalFileChange::Replaced)
+    );
+    let forked_path = work_dir.join("Beta1Journey-SaveAs.nflash");
+    assert!(reopened.save_as_external_change(forked_path.clone()));
+    assert!(reopened.external_file_change().is_none());
+    assert!(!reopened.dirty());
+    let disk_original = Project::from_json(&std::fs::read_to_string(&doc_path).unwrap()).unwrap();
+    let disk_forked = Project::from_json(&std::fs::read_to_string(&forked_path).unwrap()).unwrap();
+    assert_eq!(disk_original.name, "Externally Replaced Via Atomic Rename");
+    assert_eq!(disk_forked.name, "In-Memory Local Work");
+
+    // 8c. Reload validates disk file before replacing memory (rejects corrupt JSON, accepts valid JSON).
+    assert!(reopened.open_path_in_session(&ctx, doc_path.clone()));
+    std::fs::write(&doc_path, "{ corrupt json payload").unwrap();
+    let _ = reopened.check_external_file_changes();
+    assert!(reopened.external_file_change().is_some());
+    assert!(
+        !reopened.reload_external_modification(&ctx),
+        "Reload must reject corrupt disk JSON and preserve in-memory document"
+    );
+    assert_eq!(
+        reopened.project.name,
+        "Externally Replaced Via Atomic Rename"
+    );
+
+    let mut disk_reloaded = saved_fidelity_snapshot.clone();
+    disk_reloaded.name = "Disk Reloaded Validated".into();
+    std::fs::write(&doc_path, disk_reloaded.to_json().unwrap()).unwrap();
+    let _ = reopened.check_external_file_changes();
+    assert!(reopened.reload_external_modification(&ctx));
+    assert!(reopened.external_file_change().is_none());
+    assert_eq!(reopened.project.name, "Disk Reloaded Validated");
+
+    // 8d. External Deleted warns and allows saving back without losing memory state.
+    std::fs::remove_file(&doc_path).unwrap();
+    let _ = reopened.check_external_file_changes();
+    assert_eq!(
+        reopened.external_file_change(),
+        Some(ExternalFileChange::Deleted)
+    );
+    assert!(reopened.keep_editing_external_change());
+    assert!(reopened.dirty());
+    assert!(reopened.save_to_path(doc_path.clone()));
+    assert!(reopened.external_file_change().is_none());
+
+    // 9. Crash Recovery (Restore into independent accessible tab without overwriting disk, plus Discard).
+    reopened.transact_named("Unsaved pre-crash edit", |ed| {
+        ed.project.name = "Recovered After Crash".into();
+    });
+    reopened.tick_autosave(0.0, 1_700_000_000);
+    reopened.tick_autosave(120.0, 1_700_000_120);
+    assert!(
+        recovery_files(&profile_dir) >= 1,
+        "autosave wrote recovery snapshot"
+    );
+    // Simulate unclean crash (do not set allow_close = true).
+    drop(reopened);
+
+    let mut after_crash = Editor::from_project(&ctx, Project::blank());
+    after_crash.recovery.set_dir(Some(recovery_root.clone()));
+    after_crash.workspace.general.autosave = true;
+    after_crash.workspace.general.autosave_minutes = 1;
+    after_crash.check_recovery_on_launch();
+    assert!(
+        after_crash.recovery.has_prompt(),
+        "relaunch after unclean exit detects recovery snapshot"
+    );
+    after_crash.restore_recovery_prompt(&ctx);
+    assert!(!after_crash.recovery.has_prompt());
+    assert_eq!(after_crash.project.name, "Recovered After Crash");
+    assert!(after_crash.dirty());
+    // Existing disk file must not be overwritten by crash recovery restoration.
+    let disk_untouched = Project::from_json(&std::fs::read_to_string(&doc_path).unwrap()).unwrap();
+    assert_eq!(disk_untouched.name, "Disk Reloaded Validated");
+
+    // Verify Discard on a second crash snapshot removes the recovery snapshot cleanly.
+    after_crash.tick_autosave(0.0, 1_700_000_200);
+    after_crash.tick_autosave(120.0, 1_700_000_320);
+    drop(after_crash);
+    let mut after_second_crash = Editor::from_project(&ctx, Project::blank());
+    after_second_crash
+        .recovery
+        .set_dir(Some(recovery_root.clone()));
+    after_second_crash.check_recovery_on_launch();
+    assert!(after_second_crash.recovery.has_prompt());
+    after_second_crash.discard_recovery_prompt();
+    assert!(!after_second_crash.recovery.has_prompt());
+    assert_eq!(recovery_files(&profile_dir), 0);
+
+    // 10. Test Movie & HTML5 Publish (index.html, bundle.js, neoflash_web.js, neoflash_web_bg.wasm).
+    let mut player = neoflash_core::Player::new(&saved_fidelity_snapshot);
+    let dispatches = player.drain_scripts();
+    assert!(
+        dispatches
+            .iter()
+            .any(|d| d.script.source.contains("t276_frame_ok")),
+        "Test Movie player dispatches frame 0 script: {dispatches:?}"
+    );
+
+    let preview_dir = dir.join("TestMoviePreview");
+    let preview_index = neoflash_export::export_project_with_config(
+        &saved_fidelity_snapshot,
+        &preview_dir,
+        &Editor::runtime_dir(),
+        &neoflash_export::PublishOptions::default(),
+        &after_second_crash.workspace.publish.preview_html_config(),
+    )
+    .expect("Test Movie preview export succeeds");
+    assert!(preview_index.is_file());
+
+    let publish_options = neoflash_export::PublishOptions {
+        size: neoflash_export::SizeLevel::Balanced,
+        ..Default::default()
+    };
+    let publish_index = neoflash_export::export_project_with_config(
+        &saved_fidelity_snapshot,
+        &publish_dir,
+        &Editor::runtime_dir(),
+        &publish_options,
+        &after_second_crash.workspace.publish.publish_html_config(),
+    )
+    .expect("HTML5 Publish succeeds with zero errors");
+    assert!(publish_index.is_file());
+    assert!(publish_dir.join("index.html").is_file());
+    assert!(publish_dir.join("bundle.js").is_file());
+    assert!(publish_dir.join("neoflash_web.js").is_file());
+    assert!(publish_dir.join("neoflash_web_bg.wasm").is_file());
+}

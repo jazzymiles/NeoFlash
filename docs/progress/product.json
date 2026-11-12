@@ -3683,8 +3683,8 @@
       "category": "platform",
       "title": "Signed releases and platform matrix",
       "status": "partial",
-      "scope": "Local .app packaging with ad-hoc signing; Apple Silicon is documented as locally tested.",
-      "limitations": "A notarized distribution release, verified Intel build, complete browser matrix and updater policy are absent.",
+      "scope": "Local `0.1.0-beta.1` `.app`, `.zip`, `.dmg` and `SHA256SUMS.txt` packaging (`scripts/package-macos.sh`) with ad-hoc or Developer ID code signing, hardened-runtime entitlements (`scripts/macos-entitlements.plist`), notarization/stapling automation (`scripts/notarize-macos-beta.sh`), bundled self-contained `ffmpeg`/`ffprobe` media toolchain (`scripts/stage-bundled-media.py` + `THIRD_PARTY_MEDIA.md` discovered ahead of `PATH`), desktop Chrome CDP + Safari/WebKit browser-matrix verification (`scripts/verify-beta1-browser-matrix.mjs` across `Full`, `Balanced`, `Compact` and `Shared`), and Windows 11 x64 Technical Preview portability and portable/MSIX packaging (`crates/neoflash-editor/src/windows_platform.rs`, `scripts/package-windows.ps1`).",
+      "limitations": "Owner-executed Apple Developer ID notarization/stapling, physical Intel macOS and physical Windows 11 x64 host execution, Safari live WebDriver execution when host 'Allow Remote Automation' is disabled, and an automatic updater policy remain external or post-Beta-1 gates.",
       "items": [
         {
           "id": "local-app",
@@ -3704,7 +3704,7 @@
         {
           "id": "notarized-release",
           "title": "Notarized distribution release",
-          "status": "planned"
+          "status": "partial"
         },
         {
           "id": "intel-build",
@@ -3714,7 +3714,7 @@
         {
           "id": "browser-matrix",
           "title": "Complete browser matrix",
-          "status": "planned"
+          "status": "partial"
         },
         {
           "id": "updater",
@@ -3724,6 +3724,12 @@
       ],
       "evidence": [
         "scripts/package-macos.sh",
+        "scripts/stage-bundled-media.py",
+        "scripts/macos-entitlements.plist",
+        "scripts/notarize-macos-beta.sh",
+        "scripts/verify-beta1-browser-matrix.mjs",
+        "crates/neoflash-editor/src/windows_platform.rs",
+        "scripts/package-windows.ps1",
         "README.md",
         "docs/BACKLOG.md"
       ]

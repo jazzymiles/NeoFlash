@@ -2,7 +2,7 @@
 
 Open-source vector animation, interactive media and application authoring studio inspired by classic Macromedia/Adobe Flash before Animate, built in Rust for macOS 15+. NeoFlash gives illustrators, animators, web designers and game makers one responsive workspace with HTML5 + WebAssembly as its primary publishing target—requiring no Flash Player, browser plug-in or external CDN.
 
-**Status: development preview, 0.1.0.** Authoring tools, nested timelines, tweens, motion guides, scenes, synchronized audio/video, multi-language scripting (ActionScript 1/2/3, JavaScript and TypeScript), portable HTML5 publishing, and legacy FLA (Flash 3–CS6), XFL, SWF and SWC import work within the documented boundaries below. Open items and platform limits are tracked in the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
+**Status: `0.1.0-beta.1` for macOS 15+ (Apple Silicon)** (with Windows 11 x64 Technical Preview portability in progress). Authoring tools, nested timelines, tweens, motion guides, scenes, synchronized audio/video, multi-language scripting (ActionScript 1/2/3, JavaScript and TypeScript), portable HTML5 publishing, and legacy FLA (Flash 3–CS6), XFL, SWF and SWC import work within the documented boundaries below. Open items and platform limits are tracked in the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
 ## Key capabilities
 
@@ -22,8 +22,8 @@ Open-source vector animation, interactive media and application authoring studio
 | Timelines and animation | 80 of 81 | 1 | 0 | 9 / 1 / 0 |
 | HTML5 and interactivity | 101 of 103 | 2 | 0 | 11 / 1 / 0 |
 | Import and file compatibility | 62 of 68 | 6 | 0 | 5 / 5 / 0 |
-| Platform and quality | 50 of 59 | 2 | 7 | 6 / 4 / 0 |
-| **All areas** | 454 of 474 | 12 | 8 | 41 / 13 / 0 |
+| Platform and quality | 50 of 59 | 4 | 5 | 6 / 4 / 0 |
+| **All areas** | 454 of 474 | 14 | 6 | 41 / 13 / 0 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -41,17 +41,26 @@ Test-backed declaration statuses only (not an overall Flash compatibility score)
 Generated from `docs/progress/`; GitHub Pages rebuilds on every push to `main`.
 <!-- progress:end -->
 
-## Run
+## Install, Update & Run (`0.1.0-beta.1`)
 
-Install [Rust with rustup](https://rust-lang.org/tools/install/) and Xcode Command Line Tools on macOS. The repository pins its Rust toolchain.
+Install [Rust with rustup](https://rust-lang.org/tools/install/) and Xcode Command Line Tools on macOS 15+ (Apple Silicon). The repository pins its Rust toolchain.
 
 ```sh
 ./scripts/run.sh                    # build the browser runtime and open the editor
-./scripts/package-macos.sh          # optimized dist/NeoFlash.app
+./scripts/package-macos.sh          # self-contained dist/NeoFlash.app
 open dist/NeoFlash.app
 ```
 
-The first build downloads pinned Rust/WASM dependencies. Apple Silicon is locally tested; Intel support remains unverified. The local bundle is ad-hoc signed, not a notarized release. Node.js 22+ is needed for development checks, not for the application or published content. See [contributing](CONTRIBUTING.md) for verification commands.
+- **Install & manual update:** Drag `NeoFlash.app` into `/Applications` (or run `dist/NeoFlash.app` directly). To update to a newer Beta build, quit NeoFlash and replace `NeoFlash.app` in `/Applications`; user preferences, custom workspace layouts, recent files, and crash-recovery snapshots in `~/Library/Application Support/NeoFlash` are preserved automatically.
+- **Bundled media helpers:** Packaged `NeoFlash.app` bundles self-contained `ffmpeg` and `ffprobe` binaries inside `NeoFlash.app/Contents/Resources/media/bin/` (with third-party license notices in `Contents/Resources/licenses/`), so video import, audio/video transcoding, and MP4 export require zero Homebrew or `PATH` setup. Advanced users can override the bundled binaries by setting `NEOFLASH_FFMPEG` (and `NEOFLASH_FFPROBE`).
+- **Project backups & bug reporting:** `.nflash` projects are human-readable versioned JSON; keep projects in Git or maintain regular file backups before major migrations. When reporting a bug, attach a minimal `.nflash` reproduction project, any diagnostics copied from the **Output** panel, and the version/commit identifier from **NeoFlash → About NeoFlash**.
+- **Beta 1 known issues & limitations:**
+  - Native macOS VoiceOver accessibility tree (`platform-accessibility`) for the custom-painted NF2 editor UI is deferred to post-Beta; keyboard-only focus navigation (`Tab` / `Shift+Tab`, `keyboardFocusActive` focus rings) and published HTML5 `#stage-a11y-overlay` ARIA DOM (`role`, `aria-label`, `tabindex`) are supported now.
+  - Physical graphics-tablet pressure, tilt-to-angle mapping, and pen-tip/eraser switching are **experimental** in `0.1.0-beta.1`: the deterministic event-level pipeline (pressure `0.05..=1.0`, tilt-to-nib angle, consecutive strokes, pen/eraser tool switching, single-step Undo, and `.nflash` round-trip) is verified, while physical Wacom and Apple Sidecar hardware certification remains an external hardware check (`T-235`).
+  - macOS Intel (`x86_64`) builds and a built-in automatic updater are not part of `0.1.0-beta.1` (Windows 11 x64 Technical Preview portability is in progress).
+  - Legacy binary FLA, SWF, and ActionScript compatibility remains bounded by the documented [compatibility matrix](docs/COMPATIBILITY.md) and [legacy import rules](docs/IMPORTS.md).
+
+The first source build downloads pinned Rust/WASM dependencies. Node.js 22+ is needed for repository verification checks, not for running `NeoFlash.app` or published HTML5 content. See [contributing](CONTRIBUTING.md) for verification commands.
 
 ## Try the workflow
 
@@ -70,7 +79,7 @@ Open [authoring-workspace.nflash](examples/authoring-workspace.nflash) for masks
 
 Use **Pen (P)**, **Pencil (Y)** and **Subselection (A)** for vector paths in **Object Drawing** or planar **Merge Drawing** mode (**J**). **Selection (V)** supports multiple objects, marquee selection and connected Merge-shape selection; **Free Transform (Q)** resizes, rotates and skews around a draggable transformation point. Line, PolyStar, vector Brush, Paint Bucket, Ink Bottle, Eyedropper, Eraser, whole-object Lasso with visible selection hatching, Hand, Zoom and Gradient Transform complete the tool palette. Tool groups open from their corner mark, right-click, long-press or focused →; **Customize tools** adds, removes and reorders supported tools. **Modify** and the **Align / Transform / Color / Swatches / Filters** panels add grouping, Combine Objects boolean operations (Union, Intersect, Punch, Crop), arrangement, Break Apart, exact spacing, gradients, filters, blend modes and compact numeric editing.
 
-**Brushes** offers Round, Flat and Chisel presets; Brush properties add eight tip shapes, document-unit size, smoothing, pressure size control and gradient Lock fill. Pencil provides Straighten, Smooth and Ink modes. Physical tablet acceptance and tilt remain pending. **Modify → Bitmap → Trace bitmap** converts selected images into editable vector artwork with preview, colour and curve controls, cancellation and one Undo. Paint Bucket closes small contour gaps; Eraser **Cut strokes** preserves fills and refuses unsupported gestures atomically, with a Warning notification and Output explanation. See [tool behavior and limits](docs/WORKSPACE.md#tools-and-modify).
+**Brushes** offers Round, Flat and Chisel presets; Brush properties add eight tip shapes, document-unit size, smoothing, pressure size control and gradient Lock fill. Pencil provides Straighten, Smooth and Ink modes. Graphics-tablet pressure, tilt-to-nib-angle mapping and pen/eraser switching are **experimental** in `0.1.0-beta.1` (deterministic event-level pipeline verified; physical Wacom/Apple Sidecar hardware certification is tracked under `T-235`). **Modify → Bitmap → Trace bitmap** converts selected images into editable vector artwork with preview, colour and curve controls, cancellation and one Undo. Paint Bucket closes small contour gaps; Eraser **Cut strokes** preserves fills and refuses unsupported gestures atomically, with a Warning notification and Output explanation. See [tool behavior and limits](docs/WORKSPACE.md#tools-and-modify).
 
 New and Open add document tabs; reopening the same file or imported source activates its existing tab. Documents retain independent selection, views, Undo and recovery, and copy/paste carries nested symbols, groups, timelines, resources and scripts between them. Close all and Quit preserve earlier unsaved work if a later prompt is cancelled; failed Save keeps the decision open. The workspace selector saves, updates, renames, deletes and resets named panel layouts without changing documents. See [clipboard workflows](docs/CLIPBOARD.md) and [workspace controls](docs/WORKSPACE.md).
 

@@ -66,6 +66,8 @@ mod transform_geometry;
 mod ui_icons;
 mod vector;
 mod video_cache;
+#[allow(dead_code)]
+mod windows_platform;
 mod workspace;
 mod workspace_presets;
 
@@ -110,6 +112,14 @@ mod workspace_editor_tests;
 #[cfg(target_os = "macos")]
 fn native_build_includes_metal_backend() {
     assert!(wgpu::Instance::enabled_backend_features().contains(wgpu::Backends::METAL));
+}
+
+#[test]
+#[cfg(target_os = "windows")]
+fn native_build_includes_windows_primary_backends() {
+    let backends = windows_platform::preferred_windows_wgpu_backends();
+    assert!(backends.contains(wgpu::Backends::DX12));
+    assert!(backends.contains(wgpu::Backends::VULKAN));
 }
 
 fn main() -> eframe::Result {
