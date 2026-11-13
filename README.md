@@ -22,8 +22,8 @@ Open-source vector animation, interactive media and application authoring studio
 | Timelines and animation | 80 of 81 | 1 | 0 | 9 / 1 / 0 |
 | HTML5 and interactivity | 101 of 103 | 2 | 0 | 11 / 1 / 0 |
 | Import and file compatibility | 62 of 68 | 6 | 0 | 5 / 5 / 0 |
-| Platform and quality | 51 of 63 | 7 | 5 | 5 / 5 / 0 |
-| **All areas** | 455 of 478 | 17 | 6 | 40 / 14 / 0 |
+| Platform and quality | 53 of 63 | 5 | 5 | 5 / 5 / 0 |
+| **All areas** | 457 of 478 | 15 | 6 | 40 / 14 / 0 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
