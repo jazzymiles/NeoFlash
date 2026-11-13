@@ -1408,9 +1408,10 @@ pub fn fill_os_csprng_bytes(dest: &mut [u8]) -> bool {
                     BCRYPT_USE_SYSTEM_PREFERRED_RNG,
                 )
             };
-            return status == 0;
+            status == 0
+        } else {
+            false
         }
-        return false;
     }
 
     #[cfg(not(any(
