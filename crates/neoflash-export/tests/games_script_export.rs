@@ -889,17 +889,26 @@ for (const [slug, bundlePath] of stressBundles) {{
     paintFrame();
   }}
   resetSnapshotCalls();
-  const frames = 120;
-  const t0 = performance.now();
-  for (let f = 0; f < frames; f++) {{
-    env.host.broadcastFrame();
-    paintFrame();
+  // Use the median of three sustained samples. A single short wall-clock sample is
+  // too sensitive to virtual-runner scheduling pauses to be a useful regression gate.
+  const framesPerSample = 120;
+  const samples = [];
+  for (let sample = 0; sample < 3; sample++) {{
+    const t0 = performance.now();
+    for (let f = 0; f < framesPerSample; f++) {{
+      env.host.broadcastFrame();
+      paintFrame();
+    }}
+    samples.push(performance.now() - t0);
   }}
-  const elapsedMs = performance.now() - t0;
+  const frames = framesPerSample * samples.length;
+  const elapsedMs = samples.reduce((total, sample) => total + sample, 0);
   const avgMs = elapsedMs / frames;
+  const sampleAverages = samples.map((sample) => sample / framesPerSample).sort((a, b) => a - b);
+  const gateMs = sampleAverages[Math.floor(sampleAverages.length / 2)];
   const snapshotsPerFrame = getSnapshotCalls() / frames;
 
-  assert.equal(clip.tickCount, 125, `${{slug}} ran all 125 enterFrame ticks`);
+  assert.equal(clip.tickCount, 365, `${{slug}} ran all 365 enterFrame ticks`);
   if (slug.startsWith('stress-graphics-')) {{
     assert.equal(clip.shapesDrawn, 50, `${{slug}} drew 50 procedural shapes per frame`);
   }}
@@ -909,6 +918,7 @@ for (const [slug, bundlePath] of stressBundles) {{
     frames,
     totalMs: Number(elapsedMs.toFixed(2)),
     avgMsPerFrame: Number(avgMs.toFixed(3)),
+    gateMsPerFrame: Number(gateMs.toFixed(3)),
     snapshotsPerFrame: Number(snapshotsPerFrame.toFixed(2)),
     draws: ctx.stats.fillCalls + ctx.stats.strokeCalls + ctx.stats.textCalls,
   }});
@@ -918,8 +928,8 @@ for (const [slug, bundlePath] of stressBundles) {{
     `${{slug}} triggered ${{snapshotsPerFrame.toFixed(2)}} runtime_snapshot_json calls/frame (expected <= 1.05)`
   );
   assert.ok(
-    avgMs < 3.5,
-    `${{slug}} average frame time ${{avgMs.toFixed(3)}} ms exceeded 3.5 ms/frame budget`
+    gateMs < 3.5,
+    `${{slug}} median sample frame time ${{gateMs.toFixed(3)}} ms exceeded 3.5 ms/frame budget`
   );
 }}
 
