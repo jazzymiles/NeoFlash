@@ -2,9 +2,6 @@ name: Windows and Linux Technical Preview
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - codex/t289-platform-previews
 
 concurrency:
   group: neoflash-technical-preview
