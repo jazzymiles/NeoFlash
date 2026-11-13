@@ -318,10 +318,12 @@ jobs:
           node --test web/tests/wasm.test.cjs
       - name: Capture X11 Vulkan/lavapipe startup
         run: |
+          lavapipe_icd=/usr/share/vulkan/icd.d/lvp_icd.json
+          test -f "$lavapipe_icd"
           env \
             WGPU_BACKEND=vulkan \
             WGPU_ADAPTER_NAME=llvmpipe \
-            VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
+            VK_DRIVER_FILES="$lavapipe_icd" \
             NEOFLASH_WINDOW=1280x800 \
             NEOFLASH_SCREENSHOT_THEME=dark \
             NEOFLASH_SCREENSHOT="$PWD/target/technical-preview/linux-x11-vulkan.png" \
