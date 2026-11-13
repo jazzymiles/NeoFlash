@@ -10,10 +10,10 @@ python3 scripts/design-lock.py
 python3 scripts/editor-api-index.py --check
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
+./scripts/build-web.sh
 cargo test --locked --workspace
 cargo test --locked -p egui-winit --lib neoflash_paste_tests
 python3 scripts/check-fla-corpus.py
-./scripts/build-web.sh
 node --test web/tests/*.test.cjs scripts/check-fla-examples.cjs scripts/tests/*.test.cjs
 node crates/neoflash-script/tests/execute.mjs
 node crates/neoflash-script/tests/project-execute.mjs

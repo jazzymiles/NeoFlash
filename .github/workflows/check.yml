@@ -86,11 +86,11 @@ jobs:
           cargo install wasm-bindgen-cli --version 0.2.129 --locked
       - name: Clippy on Linux x64
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Build web runtime
+        run: ./scripts/build-web.sh
       - name: Test Linux workspace and portable packaging gates
         run: |
           cargo test --locked --workspace
           python3 -B -m unittest scripts.tests.test_package_portable
-      - name: Build Linux editor and web runtime
-        run: |
-          cargo build --locked --release -p neoflash-editor
-          ./scripts/build-web.sh
+      - name: Build Linux editor
+        run: cargo build --locked --release -p neoflash-editor
