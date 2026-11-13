@@ -1,8 +1,8 @@
 # NeoFlash
 
-Open-source vector animation, interactive media and application authoring studio inspired by classic Macromedia/Adobe Flash before Animate, built in Rust for macOS 15+. NeoFlash gives illustrators, animators, web designers and game makers one responsive workspace with HTML5 + WebAssembly as its primary publishing target—requiring no Flash Player, browser plug-in or external CDN.
+Open-source vector animation, interactive media and application authoring studio inspired by classic Macromedia/Adobe Flash before Animate, built in Rust. NeoFlash gives illustrators, animators, web designers and game makers one responsive workspace with HTML5 + WebAssembly as its primary publishing target—requiring no Flash Player, browser plug-in or external CDN.
 
-**Status: `0.1.0-beta.1` for macOS 15+ (Apple Silicon)** (with Windows 11 x64 Technical Preview portability in progress). Authoring tools, nested timelines, tweens, motion guides, scenes, synchronized audio/video, multi-language scripting (ActionScript 1/2/3, JavaScript and TypeScript), portable HTML5 publishing, and legacy FLA (Flash 3–CS6), XFL, SWF and SWC import work within the documented boundaries below. Open items and platform limits are tracked in the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
+**Status: `0.1.0-beta.1` for macOS 15+ (Apple Silicon), with Windows x64 and Linux x64 Technical Previews.** Authoring tools, nested timelines, tweens, motion guides, scenes, synchronized audio/video, multi-language scripting (ActionScript 1/2/3, JavaScript and TypeScript), portable HTML5 publishing, and legacy FLA (Flash 3–CS6), XFL, SWF and SWC import work within the documented boundaries below. Open items and platform limits are tracked in the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
 ## Key capabilities
 
@@ -22,8 +22,8 @@ Open-source vector animation, interactive media and application authoring studio
 | Timelines and animation | 80 of 81 | 1 | 0 | 9 / 1 / 0 |
 | HTML5 and interactivity | 101 of 103 | 2 | 0 | 11 / 1 / 0 |
 | Import and file compatibility | 62 of 68 | 6 | 0 | 5 / 5 / 0 |
-| Platform and quality | 51 of 61 | 5 | 5 | 5 / 5 / 0 |
-| **All areas** | 455 of 476 | 15 | 6 | 40 / 14 / 0 |
+| Platform and quality | 51 of 63 | 7 | 5 | 5 / 5 / 0 |
+| **All areas** | 455 of 478 | 17 | 6 | 40 / 14 / 0 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -51,13 +51,19 @@ Install [Rust with rustup](https://rust-lang.org/tools/install/) and Xcode Comma
 open dist/NeoFlash.app
 ```
 
+Ready-made Technical Preview archives use these names in `dist/`:
+
+- Windows x64: `NeoFlash-0.1.0-beta.1-windows-x64-preview.zip`; extract it and run `neoflash-editor.exe`.
+- Linux x64: `NeoFlash-0.1.0-beta.1-linux-x64-preview.tar.gz`; extract it and run `./neoflash-editor` on Ubuntu 24.04-compatible systems.
+- Verify the archive and its media corresponding-source file with the matching platform `SHA256SUMS.txt`. All application, Rust-dependency and bundled-media licence texts are already included; users do not need to find licences themselves.
+
 - **Install & manual update:** Drag `NeoFlash.app` into `/Applications` (or run `dist/NeoFlash.app` directly). To update to a newer Beta build, quit NeoFlash and replace `NeoFlash.app` in `/Applications`; user preferences, custom workspace layouts, recent files, and crash-recovery snapshots in `~/Library/Application Support/NeoFlash` are preserved automatically.
-- **Bundled media helpers:** Packaged `NeoFlash.app` bundles self-contained `ffmpeg` and `ffprobe` binaries inside `NeoFlash.app/Contents/Resources/media/bin/`, so video import, audio/video transcoding, and MP4 export require zero Homebrew or `PATH` setup. Exact Rust notices live in `Contents/Resources/licenses/`, media notices in `Contents/Resources/media/licenses/`, and the package gate emits a checksummed corresponding-source archive beside the app artifacts. Advanced users can override the bundled binaries by setting `NEOFLASH_FFMPEG` (and `NEOFLASH_FFPROBE`).
+- **Bundled media helpers:** Every packaged build includes `ffmpeg` and `ffprobe` helpers (`NeoFlash.app/Contents/Resources/media/bin/` on macOS and `media/bin/` in portable archives), so video import, audio/video transcoding, and MP4 export require no separate media-tool installation. Windows/Linux helpers include their codec dependencies but still use normal operating-system runtime libraries such as glibc on Linux. Exact Rust and media notices are inside each package, and the package gate emits a checksummed corresponding-source archive beside it. Advanced users can override the bundled binaries by setting `NEOFLASH_FFMPEG` (and `NEOFLASH_FFPROBE`).
 - **Project backups & bug reporting:** `.nflash` projects are human-readable versioned JSON; keep projects in Git or maintain regular file backups before major migrations. When reporting a bug, attach a minimal `.nflash` reproduction project, any diagnostics copied from the **Output** panel, and the version/commit identifier from **NeoFlash → About NeoFlash**.
 - **Beta 1 known issues & limitations:**
   - Native macOS VoiceOver accessibility tree (`platform-accessibility`) for the custom-painted NF2 editor UI is deferred to post-Beta; keyboard-only focus navigation (`Tab` / `Shift+Tab`, `keyboardFocusActive` focus rings) and published HTML5 `#stage-a11y-overlay` ARIA DOM (`role`, `aria-label`, `tabindex`) are supported now.
   - Physical graphics-tablet pressure, tilt-to-angle mapping, and pen-tip/eraser switching are **experimental** in `0.1.0-beta.1`: the deterministic event-level pipeline (pressure `0.05..=1.0`, tilt-to-nib angle, consecutive strokes, pen/eraser tool switching, single-step Undo, and `.nflash` round-trip) is verified, while physical Wacom and Apple Sidecar hardware certification remains an external hardware check (`T-235`).
-  - macOS Intel (`x86_64`) builds and a built-in automatic updater are not part of `0.1.0-beta.1` (Windows 11 x64 Technical Preview portability is in progress).
+  - macOS Intel (`x86_64`) builds and a built-in automatic updater are not part of `0.1.0-beta.1`. The unsigned Windows archive may trigger SmartScreen, and its private connected Test Movie debugger is not yet available; ordinary Test Movie works. The Linux archive is tested on Ubuntu 24.04 x64 with X11/Wayland and Vulkan/GLES, and is not an AppImage or Debian package. Interactive acceptance on a physical Windows 11 desktop and broader Linux distributions remains pending.
   - Legacy binary FLA, SWF, and ActionScript compatibility remains bounded by the documented [compatibility matrix](docs/COMPATIBILITY.md) and [legacy import rules](docs/IMPORTS.md).
 
 The first source build downloads pinned Rust/WASM dependencies. Node.js 22+ is needed for repository verification checks, not for running `NeoFlash.app` or published HTML5 content. See [contributing](CONTRIBUTING.md) for verification commands.
@@ -129,4 +135,4 @@ vendor/     pinned integration patches, provenance and licenses
 
 ## License
 
-Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Contributions use the same terms. Third-party code and fixtures retain their licenses and pinned provenance; see [third-party notices](THIRD_PARTY_NOTICES.txt). The macOS editor plays timeline sounds through unmodified MPL-2.0 Symphonia decoder crates; they are not part of published HTML5 content. This independent project does not include Adobe application code or branding assets.
+Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Contributions use the same terms. Third-party code and fixtures retain their licenses and pinned provenance; see [third-party notices](THIRD_PARTY_NOTICES.txt). Packaged builds carry their exact dependency notices and media corresponding source, so end users do not need to assemble a licence bundle. The editor plays timeline sounds through unmodified MPL-2.0 Symphonia decoder crates; they are not part of published HTML5 content. This independent project does not include Adobe application code or branding assets.

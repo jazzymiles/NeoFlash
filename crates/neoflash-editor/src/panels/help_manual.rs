@@ -409,7 +409,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Ruler guides can be dragged from either ruler, moved on the Pasteboard, locked, hidden or removed by dropping them back on a ruler.",
         "Object, pixel, grid, guide and alignment snapping can be combined; visible snap rings identify the winning target.",
         "Switch between Animator, Classic, Designer, Developer, Small Screen and Premiere montage workspaces, four NF2 themes (Dark, Light, Mid Neutral Gray, Dark Graphite) and three densities (Comfortable, Compact, Classic Flash).",
-        "NeoFlash 0.1.0-beta.1 targets macOS 15+ (Apple Silicon) with Windows 11 x64 Technical Preview portability in progress; manual updates replace NeoFlash.app in /Applications while preserving ~/Library/Application Support/NeoFlash preferences, custom workspaces and crash recovery.",
+        "NeoFlash 0.1.0-beta.1 targets macOS 15+ (Apple Silicon) and provides Windows x64 and Ubuntu 24.04-compatible Linux x64 Technical Previews; the portable archives include their licence bundle, checksums and media-source notice.",
     ],
     &[
         "Merge Drawing lets fills and strokes cut, join and reshape each other; Object Drawing keeps every stroke or fill isolated until Break Apart.",
@@ -466,8 +466,8 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Import accepts legacy FLA, XFL, SWF, layered Figma (.fig / .figma.json), PSD/PSB, AI, SVG, PDF, WAV/MP3/OGG/FLAC, MP4/WebM/AVI, WebP/GIF/BMP/TIFF and numbered image sequences with located diagnostics.",
         "Publish and export targets include HTML5 plus WebAssembly (with 9-anchor Stage.align, Fullscreen and per-bitmap WebP/JPEG/PNG settings), zero-WASM Web Banner Native, 5-format Texture Atlases, AI/SVG/PNG/JPEG/WebP/GIF/BMP frame sequences, SWF, Lottie, audio/video and Adobe After Effects (.aep / .aepx / .jsx) with AE JavaScript Expressions.",
         "Core shortcuts include C for Razor, F5/F6/F7 for Timeline frames, F8 for Convert to Symbol, Command-B for Break Apart, F9 for Actions, Option-Shift-Command-A for After Effects export and Shift-F12 for Publish.",
-        "Packaged NeoFlash.app (0.1.0-beta.1 for macOS 15+ Apple Silicon) bundles self-contained ffmpeg and ffprobe media helpers in Contents/Resources/media/bin/ requiring zero Homebrew or PATH setup (with optional NEOFLASH_FFMPEG override); keep versioned .nflash JSON backups in Git and attach a minimal .nflash repro, Output diagnostics and the About NeoFlash commit when reporting bugs.",
-        "Beta 1 Known Issues & Limitations: native macOS VoiceOver accessibility tree (platform-accessibility) is deferred to post-Beta (keyboard focus navigation with keyboardFocusActive focus rings and published HTML5 stage-a11y-overlay ARIA DOM role/aria-label/tabindex work now), Intel (x86_64) macOS builds and built-in automatic updater are omitted, legacy FLA/SWF/ActionScript compatibility is bounded, and physical tablet hardware is experimental (T-235).",
+        "Packaged builds bundle ffmpeg and ffprobe in Contents/Resources/media/bin/ on macOS or media/bin/ on Windows/Linux, with optional NEOFLASH_FFMPEG override; exact Rust/media licences are inside and the corresponding source is verified by the supplied SHA256SUMS.txt. Keep .nflash backups and attach a minimal repro, Output diagnostics and the About NeoFlash commit to bug reports.",
+        "Beta 1 Known Issues & Limitations: native macOS VoiceOver is deferred; Intel macOS and auto-update are omitted; the unsigned Windows preview may trigger SmartScreen and lacks the connected private debugger; Linux is checked on Ubuntu 24.04 x64 with X11/Wayland and Vulkan/GLES rather than AppImage/deb; physical Windows 11 and broader Linux visual acceptance remain pending; legacy compatibility is bounded and physical tablet hardware is experimental (T-235).",
     ],
     &[
         "ActionScript 1.0 and 2.0 execute on the AVM1 timeline and target-path hierarchy (_level0, _root, _parent, this) with 1-based frame indexing.",
@@ -657,26 +657,6 @@ fn help_browser_html_for_state(
     )
 }
 
-fn file_url_with_fragment(path: &std::path::Path, fragment: &str) -> String {
-    let raw = path.to_string_lossy();
-    let mut encoded = String::with_capacity(raw.len() + 32);
-    encoded.push_str("file://");
-    for byte in raw.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
-                encoded.push(char::from(byte));
-            }
-            _ => {
-                use std::fmt::Write as _;
-                let _ = write!(encoded, "%{byte:02X}");
-            }
-        }
-    }
-    encoded.push('#');
-    encoded.push_str(fragment);
-    encoded
-}
-
 fn write_help_browser_document(
     theme: neoflash_ui::Theme,
     mode: HelpManualMode,
@@ -700,7 +680,11 @@ fn write_help_browser_document(
         help_browser_html_for_state(theme, mode, clamped_page, effective_tag),
     )
     .map_err(|error| format!("Cannot write the browser Help document: {error}"))?;
-    let url = file_url_with_fragment(&path, &format!("chapter-{}", clamped_page + 1));
+    let url = crate::platform_open::file_url_with_fragment(
+        &path,
+        &format!("chapter-{}", clamped_page + 1),
+    )
+    .map_err(|error| format!("Cannot create the browser Help URL: {error}"))?;
     Ok((path, url))
 }
 
@@ -1056,11 +1040,7 @@ impl crate::app::Editor {
                 open_tag,
             )
             .and_then(|(path, url)| {
-                let mut cmd = std::process::Command::new("open");
-                #[cfg(target_os = "macos")]
-                cmd.arg("-u");
-                cmd.arg(&url)
-                    .spawn()
+                crate::platform_open::open_url(&url)
                     .map(|_| path)
                     .map_err(|error| format!("Cannot open Help in the browser: {error}"))
             }) {
@@ -2974,15 +2954,15 @@ fn chapter_scripting_import_and_publish(
     mode_card(
         ui,
         Some(i16::DESKTOP),
-        "NeoFlash 0.1.0-beta.1 (macOS 15+ Apple Silicon) — Release Operations & Boundaries",
+        "NeoFlash 0.1.0-beta.1 — Release Operations & Boundaries",
         "0.1.0-beta.1",
         BadgeType::Accent,
         "About NeoFlash / F2",
         &[
-            "Release Identity & Manual Update: NeoFlash 0.1.0-beta.1 targets macOS 15+ (Apple Silicon) with Windows 11 x64 Technical Preview portability in progress. To update, quit NeoFlash and replace NeoFlash.app in /Applications; preferences, custom workspaces, recent files, and crash-recovery snapshots under ~/Library/Application Support/NeoFlash are preserved.",
-            "Bundled Media Helpers (Zero External Setup): Packaged NeoFlash.app includes self-contained ffmpeg and ffprobe binaries in Contents/Resources/media/bin/ (with third-party notices in Contents/Resources/licenses/), requiring no Homebrew or PATH setup. Set NEOFLASH_FFMPEG / NEOFLASH_FFPROBE only when overriding with a custom binary.",
+            "Release Identity & Manual Update: NeoFlash 0.1.0-beta.1 targets macOS 15+ (Apple Silicon) and includes Windows x64 and Ubuntu 24.04-compatible Linux x64 Technical Previews. To update macOS, quit NeoFlash and replace NeoFlash.app in /Applications; preferences, custom workspaces, recent files, and crash-recovery snapshots under ~/Library/Application Support/NeoFlash are preserved.",
+            "Bundled Media & Licences: Packaged builds include ffmpeg and ffprobe in Contents/Resources/media/bin/ on macOS or media/bin/ in portable archives. Exact application, Rust and media licence evidence is already included; verify the application and corresponding-source archives with the supplied SHA256SUMS.txt. Set NEOFLASH_FFMPEG / NEOFLASH_FFPROBE only for a custom override.",
             "Project Backups & Bug Reporting: Keep versioned .nflash JSON projects in Git or regular file backups. When reporting a bug, attach a minimal .nflash reproduction project, diagnostics copied from the Output panel (F2), and the version/commit identifier from NeoFlash ▸ About NeoFlash.",
-            "Beta 1 Known Issues & Limitations: Native macOS VoiceOver accessibility tree (platform-accessibility) for custom-painted NF2 controls is deferred to post-Beta (keyboard focus navigation with keyboardFocusActive focus rings and published HTML5 stage-a11y-overlay ARIA DOM role/aria-label/tabindex work now); Intel (x86_64) macOS builds and a built-in automatic updater are not included; legacy binary FLA, SWF, and ActionScript compatibility is bounded; and physical graphics-tablet hardware is experimental (T-235: deterministic event-level pressure/tilt/eraser pipeline verified, physical Wacom/Apple Sidecar hardware check tracked externally).",
+            "Beta 1 Known Issues & Limitations: Native macOS VoiceOver is deferred; Intel macOS and automatic updating are omitted; the unsigned Windows preview may trigger SmartScreen and its connected private debugger is unavailable; Linux is checked on Ubuntu 24.04 x64 with X11/Wayland and Vulkan/GLES rather than AppImage/deb; physical Windows 11 and broader Linux visual acceptance remain pending; legacy compatibility is bounded and physical tablet hardware is experimental (T-235).",
         ],
     );
 
@@ -3499,9 +3479,13 @@ mod tests {
                     "0.1.0-beta.1",
                     "macOS 15+",
                     "Apple Silicon",
-                    "Windows 11",
+                    "Windows x64",
+                    "Linux x64",
+                    "Ubuntu 24.04",
                     "~/Library/Application Support/NeoFlash",
                     "Contents/Resources/media/bin/",
+                    "media/bin/",
+                    "SHA256SUMS.txt",
                     "NEOFLASH_FFMPEG",
                     "About NeoFlash",
                     ".nflash",

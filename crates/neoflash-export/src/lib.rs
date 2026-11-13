@@ -530,8 +530,8 @@ pub fn export_project_with_config(
     write_package(output_dir, &package.files, &project.name, "project")
 }
 
-/// Export a self-contained Desktop application bundle (`.app` on macOS plus a portable Windows
-/// `.bat` launcher) wrapping the Clean HTML5 package in `output_dir`.
+/// Export a self-contained Desktop application bundle (`.app` on macOS plus portable Windows
+/// `.bat` and Linux `.sh` launchers) wrapping the Clean HTML5 package in `output_dir`.
 pub fn export_desktop_app(
     project: &Project,
     output_dir: &Path,
@@ -613,6 +613,30 @@ pub fn export_desktop_app(
         &output_dir.join(format!("Launch {app_stem}.bat")),
         win_bat.as_bytes(),
     )?;
+    let linux_launcher = format!(
+        r#"#!/bin/sh
+set -eu
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+INDEX="$SCRIPT_DIR/{app_stem}.app/Contents/Resources/web/index.html"
+if command -v xdg-open >/dev/null 2>&1; then
+    if xdg-open "$INDEX"; then
+        exit 0
+    fi
+fi
+if command -v gio >/dev/null 2>&1; then
+    exec gio open "$INDEX"
+fi
+printf '%s\n' 'NeoFlash could not find xdg-open or gio to open the published application.' >&2
+exit 127
+"#
+    );
+    let linux_launcher_path = output_dir.join(format!("Launch {app_stem}.sh"));
+    atomic_write(&linux_launcher_path, linux_launcher.as_bytes())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&linux_launcher_path, fs::Permissions::from_mode(0o755))?;
+    }
     Ok(app_dir)
 }
 

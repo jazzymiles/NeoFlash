@@ -87,6 +87,7 @@ struct Samples {
 }
 
 impl Samples {
+    #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
     fn record(&mut self, phase: TouchPhase, position: Pos2, force: f32) {
         self.record_with_pen_state(
             phase,

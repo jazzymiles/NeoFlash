@@ -1328,7 +1328,7 @@ fn compact_and_balanced_packages_embed_file_protocol_wasm_fallback_for_authored_
 }
 
 #[test]
-fn export_desktop_app_creates_macos_app_bundle_and_windows_launcher() {
+fn export_desktop_app_creates_macos_windows_and_linux_launchers() {
     let dir = temp();
     let rt = dir.join("runtime");
     runtime(&rt);
@@ -1350,13 +1350,48 @@ fn export_desktop_app_creates_macos_app_bundle_and_windows_launcher() {
     .unwrap();
     assert!(app_bundle.ends_with("Ideas in motion.app"));
     assert!(app_bundle.join("Contents/Info.plist").is_file());
-    assert!(app_bundle.join("Contents/MacOS/Ideas in motion").is_file());
+    let mac_launcher = app_bundle.join("Contents/MacOS/Ideas in motion");
+    assert!(mac_launcher.is_file());
+    let mac_text = fs::read_to_string(&mac_launcher).unwrap();
+    assert!(mac_text.contains("../Resources/web"));
+    assert!(mac_text.contains("open \"$DIR/index.html\""));
     assert!(
         app_bundle
             .join("Contents/Resources/web/index.html")
             .is_file()
     );
-    assert!(out_desktop.join("Launch Ideas in motion.bat").is_file());
+    let windows_launcher = out_desktop.join("Launch Ideas in motion.bat");
+    assert!(windows_launcher.is_file());
+    let windows_text = fs::read_to_string(&windows_launcher).unwrap();
+    assert!(
+        windows_text.contains("%~dp0Ideas in motion.app\\Contents\\Resources\\web\\index.html")
+    );
+    let linux_launcher = out_desktop.join("Launch Ideas in motion.sh");
+    assert!(linux_launcher.is_file());
+    let linux_text = fs::read_to_string(&linux_launcher).unwrap();
+    assert!(linux_text.contains("if xdg-open \"$INDEX\"; then"));
+    assert!(linux_text.contains("gio open \"$INDEX\""));
+    assert!(linux_text.contains("Ideas in motion.app/Contents/Resources/web/index.html"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_ne!(
+            fs::metadata(&mac_launcher).unwrap().permissions().mode() & 0o111,
+            0
+        );
+        assert_ne!(
+            fs::metadata(&linux_launcher).unwrap().permissions().mode() & 0o111,
+            0
+        );
+        assert!(
+            std::process::Command::new("/bin/sh")
+                .args(["-n"])
+                .arg(&linux_launcher)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
 
     let html = fs::read_to_string(app_bundle.join("Contents/Resources/web/index.html")).unwrap();
     assert!(html.contains("<body data-clean=\"true\">"));

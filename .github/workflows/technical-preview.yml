@@ -1,0 +1,410 @@
+name: Windows and Linux Technical Preview
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: neoflash-technical-preview
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: '30'
+
+jobs:
+  portable-media:
+    name: Pinned portable media and source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Fetch the pinned BtbN build repository
+        run: |
+          python3 scripts/prepare-portable-media.py \
+            --cache target/portable-media-cache \
+            build-repository \
+            --dest target/btbn-ffmpeg-builds
+      - name: Resolve the exact enabled GPL dependency-source union
+        run: |
+          cd target/btbn-ffmpeg-builds
+          env GITHUB_REPOSITORY=btbn/ffmpeg-builds ./generate.sh linux64 gpl 9.0
+          cp Dockerfile ../linux64-gpl-9.0.Dockerfile
+          env GITHUB_REPOSITORY=btbn/ffmpeg-builds ./generate.sh win64 gpl 9.0
+          cp Dockerfile ../win64-gpl-9.0.Dockerfile
+          cd ../..
+          python3 scripts/prepare-portable-media.py \
+            --cache target/portable-media-cache \
+            filter-download-stages \
+            --repository target/btbn-ffmpeg-builds \
+            --dockerfile target/linux64-gpl-9.0.Dockerfile \
+            --dockerfile target/win64-gpl-9.0.Dockerfile
+          cd target/btbn-ffmpeg-builds
+          env GITHUB_REPOSITORY=btbn/ffmpeg-builds ./download.sh
+          docker system prune --all --force
+          df -h
+      - name: Assemble corresponding source and component license evidence
+        run: |
+          python3 scripts/prepare-portable-media.py \
+            --cache target/portable-media-cache \
+            source \
+            --project-root . \
+            --dependency-downloads target/btbn-ffmpeg-builds/.cache/downloads \
+            --dockerfile target/linux64-gpl-9.0.Dockerfile \
+            --dockerfile target/win64-gpl-9.0.Dockerfile \
+            --component-licenses target/bundled-media/component-licenses \
+            --archive target/bundled-media/NeoFlash-0.1.0-beta.1-portable-media-corresponding-source.tar.xz \
+            --prune-unselected
+      - name: Stage exact Windows and Linux static-dependency helpers
+        run: |
+          python3 scripts/prepare-portable-media.py \
+            --cache target/portable-media-cache \
+            binary --platform windows-x64 \
+            --component-licenses target/bundled-media/component-licenses \
+            --dest target/bundled-media/windows-x64
+          python3 scripts/prepare-portable-media.py \
+            --cache target/portable-media-cache \
+            binary --platform linux-x64 \
+            --component-licenses target/bundled-media/component-licenses \
+            --dest target/bundled-media/linux-x64
+          rm -rf target/btbn-ffmpeg-builds target/portable-media-cache \
+            target/linux64-gpl-9.0.Dockerfile target/win64-gpl-9.0.Dockerfile
+          tar --sort=name --mtime='@315532800' --owner=0 --group=0 --numeric-owner \
+            -czf target/bundled-media-runtime.tar.gz \
+            -C target/bundled-media windows-x64 linux-x64
+          df -h
+      - name: Verify source and media gates before upload
+        run: |
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          script = Path("scripts/package-portable.py")
+          spec = importlib.util.spec_from_file_location("package_portable", script)
+          package_portable = importlib.util.module_from_spec(spec)
+          assert spec.loader is not None
+          spec.loader.exec_module(package_portable)
+
+          source = package_portable.validate_source_archive(
+              Path("target/bundled-media/NeoFlash-0.1.0-beta.1-portable-media-corresponding-source.tar.xz")
+          )
+          for platform in ("windows-x64", "linux-x64"):
+              media = package_portable.validate_media_root(
+                  Path("target/bundled-media") / platform, platform
+              )
+              package_portable.validate_media_source_pair(media, source)
+          print("Actual portable media/source gate passed for Windows and Linux.")
+          PY
+          python3 -B -m unittest scripts.tests.test_package_portable
+      - name: Save one-run cross-OS packaging inputs
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: t289-portable-${{ github.run_id }}
+          enableCrossOsArchive: true
+          path: |
+            target/bundled-media-runtime.tar.gz
+            target/bundled-media/NeoFlash-0.1.0-beta.1-portable-media-corresponding-source.tar.xz
+
+  windows-x64:
+    name: Windows x64 compatible portable preview
+    needs: portable-media
+    runs-on: windows-2022
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Restore one-run cross-OS packaging inputs
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: t289-portable-${{ github.run_id }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+          path: |
+            target/bundled-media-runtime.tar.gz
+            target/bundled-media/NeoFlash-0.1.0-beta.1-portable-media-corresponding-source.tar.xz
+      - name: Restore mode-preserving portable media payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target/bundled-media | Out-Null
+          tar -xzf target/bundled-media-runtime.tar.gz -C target/bundled-media
+      - name: Install pinned Rust
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy --target x86_64-pc-windows-msvc,wasm32-unknown-unknown
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Rust installation failed.' }
+          rustup default 1.99.1-x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Rust selection failed.' }
+      - name: Build the fail-closed portable ZIP
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 release
+      - name: Verify archive and internal hashes in a clean directory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $archive = 'dist/NeoFlash-0.1.0-beta.1-windows-x64-preview.zip'
+          foreach ($line in Get-Content 'dist/NeoFlash-0.1.0-beta.1-windows-x64-SHA256SUMS.txt') {
+            if ($line -notmatch '^([0-9a-f]{64})  (.+)$') { throw "Invalid external checksum line: $line" }
+            $expectedHash = $Matches[1]
+            $artifactName = $Matches[2]
+            $actualHash = (Get-FileHash -Algorithm SHA256 (Join-Path 'dist' $artifactName)).Hash.ToLowerInvariant()
+            if ($actualHash -ne $expectedHash) { throw "External checksum mismatch: $artifactName" }
+          }
+          $clean = Join-Path $env:RUNNER_TEMP 'neoflash-windows-unpacked'
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $clean
+          Expand-Archive -Path $archive -DestinationPath $clean
+          $root = Get-ChildItem -Directory $clean | Select-Object -First 1
+          $expectedFiles = @()
+          foreach ($line in Get-Content (Join-Path $root.FullName 'PACKAGE-SHA256SUMS.txt')) {
+            if ($line -notmatch '^([0-9a-f]{64})  (.+)$') { throw "Invalid internal checksum line: $line" }
+            $expectedHash = $Matches[1]
+            $relativeName = $Matches[2]
+            $expectedFiles += $relativeName
+            $actualHash = (Get-FileHash -Algorithm SHA256 (Join-Path $root.FullName $relativeName)).Hash.ToLowerInvariant()
+            if ($actualHash -ne $expectedHash) { throw "Internal checksum mismatch: $relativeName" }
+          }
+          $actualFiles = Get-ChildItem -File -Recurse $root.FullName | Where-Object { $_.Name -ne 'PACKAGE-SHA256SUMS.txt' } | ForEach-Object {
+            [IO.Path]::GetRelativePath($root.FullName, $_.FullName).Replace('\', '/')
+          }
+          if (Compare-Object ($expectedFiles | Sort-Object) ($actualFiles | Sort-Object)) { throw 'Internal checksum inventory is incomplete or stale.' }
+          New-Item -ItemType Directory -Force target/technical-preview | Out-Null
+          Copy-Item -Recurse -Force $root.FullName target/technical-preview/windows-unpacked
+      - name: Run bundled codec round trips with an empty PATH
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $root = Resolve-Path target/technical-preview/windows-unpacked
+          $ffmpeg = Join-Path $root 'media/bin/ffmpeg.exe'
+          $ffprobe = Join-Path $root 'media/bin/ffprobe.exe'
+          $out = Resolve-Path target/technical-preview
+          $oldPath = $env:PATH
+          try {
+            $env:PATH = ''
+            & $ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=64x64:rate=12' -t 1 -c:v libx264 -y (Join-Path $out 'h264.mp4')
+            if ($LASTEXITCODE -ne 0) { throw 'H.264 smoke failed.' }
+            & $ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=64x64:rate=12' -t 1 -c:v libx265 -y (Join-Path $out 'h265.mp4')
+            if ($LASTEXITCODE -ne 0) { throw 'H.265 smoke failed.' }
+            & $ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=64x64:rate=12' -t 1 -c:v libvpx-vp9 -y (Join-Path $out 'vp9.webm')
+            if ($LASTEXITCODE -ne 0) { throw 'VP9 smoke failed.' }
+            & $ffmpeg -hide_banner -loglevel error -f lavfi -i 'sine=frequency=440:duration=1' -c:a libopus -y (Join-Path $out 'opus.ogg')
+            if ($LASTEXITCODE -ne 0) { throw 'Opus smoke failed.' }
+            & $ffmpeg -hide_banner -loglevel error -f lavfi -i 'sine=frequency=440:duration=1' -c:a libmp3lame -y (Join-Path $out 'audio.mp3')
+            if ($LASTEXITCODE -ne 0) { throw 'MP3 smoke failed.' }
+            & $ffprobe -v error -show_entries format=duration -of default=nw=1 (Join-Path $out 'h264.mp4') | Set-Content (Join-Path $out 'ffprobe.txt')
+            if ($LASTEXITCODE -ne 0) { throw 'FFprobe smoke failed.' }
+          } finally { $env:PATH = $oldPath }
+      - name: Smoke the packaged WASM runtime
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force target/web-runtime
+          Copy-Item -Recurse target/technical-preview/windows-unpacked/runtime target/web-runtime
+          node --test web/tests/wasm.test.cjs
+      - name: Capture DX12 WARP startup
+        shell: pwsh
+        run: |
+          $env:WGPU_BACKEND = 'dx12'
+          $env:WGPU_ADAPTER_NAME = 'Microsoft Basic Render Driver'
+          $env:NEOFLASH_WINDOW = '1280x800'
+          $env:NEOFLASH_SCREENSHOT_THEME = 'dark'
+          $env:NEOFLASH_SCREENSHOT = (Resolve-Path target/technical-preview).Path + '\windows-dx12-warp.png'
+          $process = Start-Process -FilePath (Resolve-Path target/technical-preview/windows-unpacked/neoflash-editor.exe) -PassThru
+          Wait-Process -Id $process.Id -Timeout 120
+          $process.Refresh()
+          if ($process.ExitCode -ne 0 -or -not (Test-Path $env:NEOFLASH_SCREENSHOT)) { throw 'Packaged WARP screenshot failed.' }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: NeoFlash-0.1.0-beta.1-windows-x64-preview-server2022-compatible
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            dist/NeoFlash-0.1.0-beta.1-windows-x64-preview.zip
+            dist/NeoFlash-0.1.0-beta.1-windows-x64-SHA256SUMS.txt
+            target/technical-preview/windows-dx12-warp.png
+            target/technical-preview/ffprobe.txt
+
+  linux-x64:
+    name: Ubuntu 24.04 x64 portable preview
+    needs: portable-media
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Restore one-run cross-OS packaging inputs
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: t289-portable-${{ github.run_id }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+          path: |
+            target/bundled-media-runtime.tar.gz
+            target/bundled-media/NeoFlash-0.1.0-beta.1-portable-media-corresponding-source.tar.xz
+      - name: Restore mode-preserving portable media payload
+        run: |
+          mkdir -p target/bundled-media
+          tar -xzf target/bundled-media-runtime.tar.gz -C target/bundled-media
+      - name: Install Linux build and headless display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libasound2-dev libegl1-mesa-dev libfontconfig1-dev libfreetype6-dev \
+            libgl1-mesa-dev libgl1-mesa-dri libudev-dev libwayland-dev libx11-xcb-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev mesa-vulkan-drivers pkg-config weston xauth xvfb
+      - name: Install pinned Rust
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy --target wasm32-unknown-unknown
+          rustup default 1.99.1
+      - name: Build the fail-closed portable tarball
+        run: ./scripts/package-linux.sh release
+      - name: Verify external and internal hashes in a clean directory
+        run: |
+          (cd dist && sha256sum -c NeoFlash-0.1.0-beta.1-linux-x64-SHA256SUMS.txt)
+          clean="$RUNNER_TEMP/neoflash-linux-unpacked"
+          rm -rf "$clean"
+          mkdir -p "$clean" target/technical-preview
+          tar -xzf dist/NeoFlash-0.1.0-beta.1-linux-x64-preview.tar.gz -C "$clean"
+          root="$clean/NeoFlash-0.1.0-beta.1-linux-x64-preview"
+          (cd "$root" && sha256sum -c PACKAGE-SHA256SUMS.txt)
+          (cd "$root" && sed -E 's/^[0-9a-f]{64}  //' PACKAGE-SHA256SUMS.txt | LC_ALL=C sort > "$RUNNER_TEMP/expected-files.txt")
+          (cd "$root" && find . -type f ! -name PACKAGE-SHA256SUMS.txt -printf '%P\n' | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt")
+          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
+          cp -R "$root" target/technical-preview/linux-unpacked
+      - name: Audit packaged Linux dependency closure
+        run: |
+          root="$PWD/target/technical-preview/linux-unpacked"
+          : > target/technical-preview/ldd.txt
+          for binary in "$root/neoflash-editor" "$root/media/bin/ffmpeg" "$root/media/bin/ffprobe"; do
+            printf '\n## %s\n' "$binary" | tee -a target/technical-preview/ldd.txt
+            ldd "$binary" | tee -a target/technical-preview/ldd.txt
+          done
+          ! grep -F 'not found' target/technical-preview/ldd.txt
+      - name: Run bundled codec round trips with an empty PATH
+        run: |
+          root="$PWD/target/technical-preview/linux-unpacked"
+          ffmpeg="$root/media/bin/ffmpeg"
+          ffprobe="$root/media/bin/ffprobe"
+          out="$PWD/target/technical-preview"
+          env -i HOME="$HOME" PATH='' "$ffmpeg" -hide_banner -loglevel error -f lavfi -i testsrc2=size=64x64:rate=12 -t 1 -c:v libx264 -y "$out/h264.mp4"
+          env -i HOME="$HOME" PATH='' "$ffmpeg" -hide_banner -loglevel error -f lavfi -i testsrc2=size=64x64:rate=12 -t 1 -c:v libx265 -y "$out/h265.mp4"
+          env -i HOME="$HOME" PATH='' "$ffmpeg" -hide_banner -loglevel error -f lavfi -i testsrc2=size=64x64:rate=12 -t 1 -c:v libvpx-vp9 -y "$out/vp9.webm"
+          env -i HOME="$HOME" PATH='' "$ffmpeg" -hide_banner -loglevel error -f lavfi -i sine=frequency=440:duration=1 -c:a libopus -y "$out/opus.ogg"
+          env -i HOME="$HOME" PATH='' "$ffmpeg" -hide_banner -loglevel error -f lavfi -i sine=frequency=440:duration=1 -c:a libmp3lame -y "$out/audio.mp3"
+          env -i HOME="$HOME" PATH='' "$ffprobe" -v error -show_entries format=duration -of default=nw=1 "$out/h264.mp4" > "$out/ffprobe.txt"
+      - name: Smoke the packaged WASM runtime
+        run: |
+          rm -rf target/web-runtime
+          cp -R target/technical-preview/linux-unpacked/runtime target/web-runtime
+          node --test web/tests/wasm.test.cjs
+      - name: Capture X11 Vulkan/lavapipe startup
+        run: |
+          env \
+            WGPU_BACKEND=vulkan \
+            WGPU_ADAPTER_NAME=llvmpipe \
+            VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
+            NEOFLASH_WINDOW=1280x800 \
+            NEOFLASH_SCREENSHOT_THEME=dark \
+            NEOFLASH_SCREENSHOT="$PWD/target/technical-preview/linux-x11-vulkan.png" \
+            xvfb-run --auto-servernum target/technical-preview/linux-unpacked/neoflash-editor
+          test -s target/technical-preview/linux-x11-vulkan.png
+      - name: Capture Wayland GLES headless startup
+        run: |
+          runtime="$RUNNER_TEMP/weston-runtime"
+          rm -rf "$runtime"
+          mkdir -m 700 "$runtime"
+          XDG_RUNTIME_DIR="$runtime" weston --backend=headless-backend.so --socket=neoflash-wayland --idle-time=0 > target/technical-preview/weston.log 2>&1 &
+          weston_pid=$!
+          trap 'kill "$weston_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do test -S "$runtime/neoflash-wayland" && break; sleep 0.2; done
+          test -S "$runtime/neoflash-wayland"
+          env \
+            XDG_RUNTIME_DIR="$runtime" \
+            WAYLAND_DISPLAY=neoflash-wayland \
+            WGPU_BACKEND=gl \
+            LIBGL_ALWAYS_SOFTWARE=1 \
+            NEOFLASH_WINDOW=1280x800 \
+            NEOFLASH_SCREENSHOT_THEME=light \
+            NEOFLASH_SCREENSHOT="$PWD/target/technical-preview/linux-wayland-gles.png" \
+            target/technical-preview/linux-unpacked/neoflash-editor
+          test -s target/technical-preview/linux-wayland-gles.png
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: NeoFlash-0.1.0-beta.1-linux-x64-preview-ubuntu24.04
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            dist/NeoFlash-0.1.0-beta.1-linux-x64-preview.tar.gz
+            dist/NeoFlash-0.1.0-beta.1-linux-x64-SHA256SUMS.txt
+            target/technical-preview/linux-x11-vulkan.png
+            target/technical-preview/linux-wayland-gles.png
+            target/technical-preview/weston.log
+            target/technical-preview/ffprobe.txt
+            target/technical-preview/ldd.txt
+
+  common-source:
+    name: Publish matching portable-media source
+    needs:
+      - portable-media
+      - windows-x64
+      - linux-x64
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Restore the validated source from the one-run cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: t289-portable-${{ github.run_id }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+          path: |
+            target/bundled-media-runtime.tar.gz
+            target/bundled-media/NeoFlash-0.1.0-beta.1-portable-media-corresponding-source.tar.xz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: NeoFlash-0.1.0-beta.1-portable-media-corresponding-source
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+          path: target/bundled-media/NeoFlash-0.1.0-beta.1-portable-media-corresponding-source.tar.xz
+
+  cleanup-intermediate:
+    name: Remove one-run portable-media cache
+    if: ${{ always() && needs.common-source.result == 'success' }}
+    needs:
+      - portable-media
+      - windows-x64
+      - linux-x64
+      - common-source
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete the cross-OS transfer cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          key="t289-portable-${GITHUB_RUN_ID}"
+          cache_ids="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/caches?key=${key}" \
+            --jq '.actions_caches[].id')"
+          for cache_id in $cache_ids; do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/caches/${cache_id}"
+          done

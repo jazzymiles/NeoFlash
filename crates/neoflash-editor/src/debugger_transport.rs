@@ -15,6 +15,8 @@ use std::time::Duration;
 
 const MAX_MESSAGE: usize = 32 * 1024 * 1024;
 
+pub(crate) use crate::platform_open::file_url;
+
 pub(crate) struct BrowserPipe {
     child: Child,
     stream: UnixStream,
@@ -30,15 +32,31 @@ pub(crate) fn browser_executable() -> Result<PathBuf, String> {
             .then_some(path)
             .ok_or_else(|| "NEOFLASH_DEBUG_BROWSER must name a Chromium executable.".into());
     }
-    [
+    #[cfg(target_os = "macos")]
+    let candidates = [
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/Applications/Chromium.app/Contents/MacOS/Chromium",
         "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    ]
-    .into_iter()
-    .map(PathBuf::from)
-    .find(|path| path.is_file())
-    .ok_or_else(|| "Debugging Test Movie requires Chrome or Chromium. Set NEOFLASH_DEBUG_BROWSER to its executable.".into())
+    ];
+    #[cfg(target_os = "linux")]
+    let candidates = [
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/opt/google/chrome/chrome",
+        "/snap/bin/chromium",
+    ];
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let candidates: [&str; 0] = [];
+    candidates
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            "Debugging Test Movie requires Chrome, Chromium, or Edge. Set NEOFLASH_DEBUG_BROWSER to its executable."
+                .into()
+        })
 }
 
 pub(crate) fn private_directory() -> io::Result<PathBuf> {
@@ -203,20 +221,6 @@ impl Drop for BrowserPipe {
         let _ = self.child.wait();
         let _ = fs::remove_dir_all(&self.profile);
     }
-}
-
-pub(crate) fn file_url(path: &Path) -> io::Result<String> {
-    use std::os::unix::ffi::OsStrExt;
-    let path = fs::canonicalize(path)?;
-    let mut result = String::from("file://");
-    for byte in path.as_os_str().as_bytes() {
-        if byte.is_ascii_alphanumeric() || b"/-._~".contains(byte) {
-            result.push(*byte as char);
-        } else {
-            result.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    Ok(result)
 }
 
 #[cfg(test)]

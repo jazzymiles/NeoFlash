@@ -1176,3 +1176,22 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Proposal (optional):** approve a profile selector in the existing Save As flow, with the file extension fixed to
   `.fla` for archive profiles and `.xfl` for the uncompressed profile.
 - **Answer:**
+
+### R-072 · Linux wording for the Desktop app publish target
+- **Status:** open
+- **Requested by / for:** implementation track · T-289 Windows/Linux portable previews
+- **Where:** Publish Settings target row and Desktop app detail panel; Figma
+  `BUz3pseopiuOg2Uiy3Fog7` v2.25.
+- **Need:** approve the exact label and supporting copy now that the existing Desktop app exporter also emits a Linux
+  launcher. The locked UI currently says `Desktop app (macOS / Windows)` in both the target list and detail heading.
+- **Why:** T-289 adds behavior without changing the locked panel composition: the same export writes the existing
+  macOS `.app` and Windows `.bat` launchers plus `Launch <project>.sh` for Linux (`xdg-open`, then `gio open`). Leaving
+  Linux out of the label makes a working path undiscoverable, while implementation agents may not edit the locked
+  wording or add another target row without a design decision.
+- **Checked:** v2.25 Publish Settings reference, `docs/NF2-FUNCTIONAL-SPEC.md`,
+  `crates/neoflash-editor/src/workspace.rs`, `crates/neoflash-editor/src/panels/publish_settings.rs` and
+  `neoflash_export::export_desktop_app`.
+- **Proposal (optional):** change only the existing label and detail heading to
+  `Desktop app (macOS / Windows / Linux)`; keep its component, position, settings and output-folder behavior
+  unchanged.
+- **Answer:**

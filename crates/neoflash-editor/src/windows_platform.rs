@@ -771,15 +771,15 @@ mod tests {
         let check_yml =
             std::fs::read_to_string(repo_root.join(".github/workflows/check.yml")).unwrap();
         assert!(check_yml.contains("windows-x64:"));
-        assert!(check_yml.contains("runs-on: windows-latest"));
+        assert!(check_yml.contains("runs-on: windows-2022"));
+        assert!(check_yml.contains("linux-x64:"));
+        assert!(check_yml.contains("runs-on: ubuntu-24.04"));
         assert!(check_yml.contains("x86_64-pc-windows-msvc"));
-        assert!(check_yml.contains("cargo clippy --workspace --all-targets -- -D warnings"));
-        assert!(check_yml.contains(
-            "cargo test --locked -p neoflash-core -p neoflash-script -p neoflash-import -p neoflash-export"
-        ));
-        assert!(check_yml.contains(
-            "cargo test --locked -p neoflash-editor --bin neoflash-editor windows_platform"
-        ));
+        assert!(
+            check_yml.contains("cargo clippy --locked --workspace --all-targets -- -D warnings")
+        );
+        assert!(check_yml.contains("cargo test --locked --workspace"));
+        assert!(check_yml.contains("scripts.tests.test_package_portable"));
 
         // 2. T-280: Extended-length (`\\?\`), UNC (`\\?\UNC\`), and Unicode path normalization.
         let short_drive = r"C:/Users/Художник/Projects/Проект_НеоФлеш_テスト_🎬.nflash";
@@ -1050,16 +1050,43 @@ mod tests {
         // 6. T-282: Verify Windows packaging script and MSIX AppxManifest.
         let pkg_ps1 =
             std::fs::read_to_string(repo_root.join("scripts/package-windows.ps1")).unwrap();
-        assert!(pkg_ps1.contains("NeoFlash-0.1.0-beta.1-windows-x64-preview"));
+        assert!(pkg_ps1.contains("NeoFlash-$Version-windows-x64-preview"));
         assert!(pkg_ps1.contains("neoflash-editor.exe"));
-        assert!(pkg_ps1.contains("neoflash_web.js"));
-        assert!(pkg_ps1.contains("neoflash_web_bg.wasm"));
-        assert!(pkg_ps1.contains("ffmpeg.exe"));
-        assert!(pkg_ps1.contains("ffprobe.exe"));
-        assert!(pkg_ps1.contains("THIRD_PARTY_NOTICES.txt"));
-        assert!(pkg_ps1.contains("NeoFlash-0.1.0-beta.1-windows-x64-SHA256SUMS.txt"));
+        assert!(pkg_ps1.contains("scripts/package-portable.py"));
+        assert!(pkg_ps1.contains("scripts/stage-rust-dependency-licenses.py"));
+        assert!(pkg_ps1.contains("media-corresponding-source.tar.xz"));
+        assert!(pkg_ps1.contains("NeoFlash-$Version-windows-x64-SHA256SUMS.txt"));
         assert!(pkg_ps1.contains("signtool.exe sign /fd SHA256"));
         assert!(pkg_ps1.contains("makeappx.exe pack"));
+
+        let portable =
+            std::fs::read_to_string(repo_root.join("scripts/package-portable.py")).unwrap();
+        for required in [
+            "neoflash_web.js",
+            "neoflash_web_bg.wasm",
+            "ffmpeg_name",
+            "ffprobe_name",
+            "THIRD_PARTY_NOTICES.txt",
+            "PACKAGE-SHA256SUMS.txt",
+            "component-license-manifest.json",
+            "validate_source_archive",
+        ] {
+            assert!(
+                portable.contains(required),
+                "portable gate missing {required}"
+            );
+        }
+
+        let preview_workflow =
+            std::fs::read_to_string(repo_root.join(".github/workflows/technical-preview.yml"))
+                .unwrap();
+        assert!(preview_workflow.contains("workflow_dispatch:"));
+        assert!(preview_workflow.contains("runs-on: windows-2022"));
+        assert!(preview_workflow.contains("runs-on: ubuntu-24.04"));
+        assert!(preview_workflow.contains("Run bundled codec round trips with an empty PATH"));
+        assert!(preview_workflow.contains("Capture DX12 WARP startup"));
+        assert!(preview_workflow.contains("Capture X11 Vulkan/lavapipe startup"));
+        assert!(preview_workflow.contains("Capture Wayland GLES headless startup"));
 
         let appx_xml =
             std::fs::read_to_string(repo_root.join("scripts/windows-appxmanifest.xml")).unwrap();

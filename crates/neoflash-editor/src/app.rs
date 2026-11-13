@@ -1708,18 +1708,35 @@ impl Editor {
         }
     }
     pub fn runtime_dir() -> PathBuf {
-        if let Ok(path) = std::env::var("NEOFLASH_RUNTIME_DIR") {
-            return path.into();
+        Self::runtime_dir_for(
+            std::env::var_os("NEOFLASH_RUNTIME_DIR").map(PathBuf::from),
+            std::env::current_exe().ok().as_deref(),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime"),
+        )
+    }
+    pub(crate) fn runtime_dir_for(
+        override_dir: Option<PathBuf>,
+        executable: Option<&std::path::Path>,
+        development_dir: PathBuf,
+    ) -> PathBuf {
+        if let Some(path) = override_dir {
+            return path;
         }
-        if let Ok(exe) = std::env::current_exe()
-            && let Some(parent) = exe.parent()
-        {
+        if let Some(parent) = executable.and_then(std::path::Path::parent) {
+            // macOS application bundles keep the runtime in Contents/Resources.
+            #[cfg(target_os = "macos")]
             let bundle = parent.join("../Resources/runtime");
-            if bundle.exists() {
+            #[cfg(target_os = "macos")]
+            if bundle.is_dir() {
                 return bundle;
             }
+            // Windows and Linux portable archives keep it adjacent to the executable.
+            let portable = parent.join("runtime");
+            if portable.is_dir() {
+                return portable;
+            }
         }
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime")
+        development_dir
     }
     pub(crate) fn configured_publish_folder(&self) -> Option<PathBuf> {
         let raw = self.workspace.publish.output_folder.as_deref()?.trim();
@@ -2138,7 +2155,7 @@ impl Editor {
                         self.message(warning);
                     }
                     self.show_panel(PanelId::Output);
-                    if let Err(e) = std::process::Command::new("open").arg(&index).spawn() {
+                    if let Err(e) = crate::platform_open::open_file(&index) {
                         self.message(format!("Cannot open preview: {e}"));
                     }
                 }
@@ -2596,7 +2613,7 @@ impl Editor {
                 }
                 self.show_panel(PanelId::Output);
                 if !cfg!(test)
-                    && let Err(e) = std::process::Command::new("open").arg(&index).spawn()
+                    && let Err(e) = crate::platform_open::open_file(&index)
                 {
                     self.message(format!("Cannot open preview: {e}"));
                 }
@@ -3787,4 +3804,57 @@ pub(crate) fn reaches(
                 }
             })
     })
+}
+
+#[cfg(test)]
+mod portable_runtime_tests {
+    use super::Editor;
+
+    struct Fixture(std::path::PathBuf);
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn t289_portable_runtime_lookup_prefers_override_then_bundle_then_adjacent_then_development() {
+        let root =
+            std::env::temp_dir().join(format!("neoflash-runtime-lookup-{}", std::process::id()));
+        let fixture = Fixture(root);
+        let executable = fixture.0.join("bin").join("neoflash-editor");
+        std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        std::fs::write(&executable, b"fixture").unwrap();
+        let development = fixture.0.join("development-runtime");
+        let explicit = fixture.0.join("explicit-runtime");
+
+        assert_eq!(
+            Editor::runtime_dir_for(None, Some(&executable), development.clone()),
+            development
+        );
+
+        let adjacent = executable.parent().unwrap().join("runtime");
+        std::fs::create_dir_all(&adjacent).unwrap();
+        assert_eq!(
+            Editor::runtime_dir_for(None, Some(&executable), development.clone()),
+            adjacent
+        );
+
+        let bundle = executable.parent().unwrap().join("../Resources/runtime");
+        std::fs::create_dir_all(&bundle).unwrap();
+        let expected = if cfg!(target_os = "macos") {
+            bundle
+        } else {
+            adjacent
+        };
+        assert_eq!(
+            Editor::runtime_dir_for(None, Some(&executable), development.clone()),
+            expected
+        );
+        assert_eq!(
+            Editor::runtime_dir_for(Some(explicit.clone()), Some(&executable), development),
+            explicit
+        );
+    }
 }

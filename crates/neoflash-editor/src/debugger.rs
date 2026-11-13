@@ -520,10 +520,13 @@ impl Editor {
 mod tests {
     use super::*;
     use neoflash_core::ScriptLanguage;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
+    #[cfg(unix)]
     struct StartupFixture(PathBuf);
 
+    #[cfg(unix)]
     impl Drop for StartupFixture {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
@@ -920,6 +923,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn stopped_sessions_invalidate_after_edits_and_identical_document_switches() {
         let ctx = egui::Context::default();
         let mut editor = Editor::from_project(&ctx, Project::demo());

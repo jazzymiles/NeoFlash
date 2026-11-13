@@ -3765,11 +3765,11 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
             out.push_str(
                 "<h3>NeoFlash 0.1.0-beta.1 — Release Identity, Install, Manual Update, Media &amp; Known Issues</h3>\
                  <table class=\"ref-table\"><thead><tr><th>Area</th><th>0.1.0-beta.1 Specification</th><th>Details &amp; Operational Guidance</th></tr></thead><tbody>\
-                 <tr><td><code>Release Identity</code></td><td><code>NeoFlash 0.1.0-beta.1</code> · macOS 15+ (Apple Silicon)</td><td>Primary native target is macOS 15+ on Apple Silicon; Windows 11 x64 Technical Preview portability is in progress.</td></tr>\
+                 <tr><td><code>Release Identity</code></td><td><code>NeoFlash 0.1.0-beta.1</code> · macOS 15+ Apple Silicon · Windows/Linux x64 Technical Preview</td><td>Windows is an unsigned portable ZIP; Linux is an Ubuntu 24.04-compatible portable tar.gz.</td></tr>\
                  <tr><td><code>Install &amp; Manual Update</code></td><td>Replace <code>NeoFlash.app</code> in <code>/Applications</code></td><td>Preferences, custom workspaces, recent files, and crash-recovery snapshots in <code>~/Library/Application Support/NeoFlash</code> are preserved across manual updates.</td></tr>\
-                 <tr><td><code>Bundled Media Helpers</code></td><td><code>Contents/Resources/media/bin/</code> (<code>ffmpeg</code> &amp; <code>ffprobe</code>)</td><td>Self-contained inside <code>NeoFlash.app</code> (licenses in <code>Contents/Resources/licenses/</code>); requires zero Homebrew or <code>PATH</code> setup. Set <code>NEOFLASH_FFMPEG</code> / <code>NEOFLASH_FFPROBE</code> only for custom binary overrides.</td></tr>\
+                 <tr><td><code>Bundled Media &amp; Licences</code></td><td><code>Contents/Resources/media/bin/</code> or <code>media/bin/</code></td><td><code>ffmpeg</code>/<code>ffprobe</code>, exact application/Rust/media licence evidence and checksum manifests are included; corresponding source is supplied beside the platform archive. Set <code>NEOFLASH_FFMPEG</code> / <code>NEOFLASH_FFPROBE</code> only for custom overrides.</td></tr>\
                  <tr><td><code>Backups &amp; Bug Reports</code></td><td>Versioned <code>.nflash</code> JSON + <code>About NeoFlash</code></td><td>Keep <code>.nflash</code> projects in Git or regular file backups. Attach a minimal <code>.nflash</code> repro, <code>Output</code> panel diagnostics, and the build commit from <code>NeoFlash &gt; About NeoFlash</code> when reporting bugs.</td></tr>\
-                 <tr><td><code>Known Issues &amp; Limits</code></td><td>VoiceOver (<code>platform-accessibility</code>), Intel (<code>x86_64</code>), Auto-Update, Tablet (<code>T-235</code>)</td><td>Native macOS VoiceOver tree (<code>platform-accessibility</code>) is deferred to post-Beta (keyboard focus rings <code>keyboardFocusActive</code> and published HTML5 <code>stage-a11y-overlay</code> ARIA DOM <code>role</code>/<code>aria-label</code>/<code>tabindex</code> work now); Intel <code>x86_64</code> macOS and built-in auto-updater are omitted; legacy FLA/SWF/ActionScript support is bounded; physical graphics-tablet hardware is experimental (<code>T-235</code>: deterministic event-level pipeline verified, Wacom/Apple Sidecar hardware check tracked externally).</td></tr>\
+                 <tr><td><code>Known Issues &amp; Limits</code></td><td>VoiceOver, Intel macOS, Auto-Update, Windows/Linux acceptance, Tablet (<code>T-235</code>)</td><td>The unsigned Windows preview may trigger SmartScreen and lacks the connected private debugger. Linux is checked on Ubuntu 24.04 x64 with X11/Wayland and Vulkan/GLES, not packaged as AppImage/deb. Physical Windows 11 and broader Linux visual acceptance remain pending; legacy support is bounded and physical tablet hardware is experimental.</td></tr>\
                  </tbody></table>",
             );
         }
@@ -4085,8 +4085,8 @@ pub(crate) fn render_browser_help_html_for_route(
 
     html.push_str(
         "<header class=\"top-header\" id=\"top\"><div>\
-         <h1>NeoFlash Help &amp; Reference (0.1.0-beta.1 · macOS 15+ Apple Silicon)</h1>\
-         <p>Illustrated NF2 Authoring Manual (Chapters 1–10) &amp; Scripting Reference: AS1/AS2, AS3, JavaScript, TypeScript &amp; Web APIs (Chapters 11–19) · Manual update preserves ~/Library/Application Support/NeoFlash · Bundled Contents/Resources/media/bin/ ffmpeg/ffprobe (NEOFLASH_FFMPEG).</p>\
+         <h1>NeoFlash Help &amp; Reference (0.1.0-beta.1 · macOS + Windows/Linux x64 previews)</h1>\
+         <p>Illustrated NF2 Authoring Manual (Chapters 1–10) &amp; Scripting Reference: AS1/AS2, AS3, JavaScript, TypeScript &amp; Web APIs (Chapters 11–19) · Manual macOS update preserves ~/Library/Application Support/NeoFlash · Bundled ffmpeg/ffprobe and licence evidence are included.</p>\
          </div><div style=\"display:flex;align-items:center;gap:8px;flex-wrap:wrap\">",
     );
     if let Some(page) = clamped_page {

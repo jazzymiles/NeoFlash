@@ -592,6 +592,16 @@ impl Editor {
 }
 
 fn extract_wav_with_ffmpeg(video_bytes: &[u8]) -> Result<(Vec<u8>, String, &'static str), String> {
+    let ffmpeg = neoflash_export::detect_ffmpeg().ok_or_else(|| {
+        "Audio extraction for MP4/WebM requires the bundled media tools, NEOFLASH_FFMPEG, or ffmpeg on PATH (AVI PCM/MP3 extracts natively).".to_owned()
+    })?;
+    extract_wav_with_resolved_ffmpeg(video_bytes, &ffmpeg)
+}
+
+fn extract_wav_with_resolved_ffmpeg(
+    video_bytes: &[u8],
+    ffmpeg: &std::path::Path,
+) -> Result<(Vec<u8>, String, &'static str), String> {
     struct TempDirGuard(std::path::PathBuf);
     impl Drop for TempDirGuard {
         fn drop(&mut self) {
@@ -605,23 +615,13 @@ fn extract_wav_with_ffmpeg(video_bytes: &[u8]) -> Result<(Vec<u8>, String, &'sta
     let out_path = dir.join("extracted.wav");
     std::fs::write(&in_path, video_bytes)
         .map_err(|err| format!("Temporary video write failed: {err}"))?;
-    let status = std::process::Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            in_path.to_str().unwrap_or_default(),
-            "-vn",
-            "-acodec",
-            "pcm_s16le",
-            "-ar",
-            "44100",
-            "-ac",
-            "2",
-            out_path.to_str().unwrap_or_default(),
-        ])
+    let mut command = std::process::Command::new(ffmpeg);
+    neoflash_export::configure_media_subprocess_command(&mut command, ffmpeg);
+    let status = command
+        .args(["-y", "-hide_banner", "-loglevel", "error", "-i"])
+        .arg(&in_path)
+        .args(["-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2"])
+        .arg(&out_path)
         .output();
     match status {
         Ok(out) if out.status.success() => {
@@ -642,9 +642,76 @@ fn extract_wav_with_ffmpeg(video_bytes: &[u8]) -> Result<(Vec<u8>, String, &'sta
                 Err(format!("Audio extraction failed: {detail}"))
             }
         }
-        Err(_) => Err(
-            "Audio extraction for MP4/WebM requires `ffmpeg` on PATH (AVI PCM/MP3 extracts natively)."
-                .into(),
-        ),
+        Err(error) => Err(format!(
+            "Could not start the resolved ffmpeg helper '{}': {error}",
+            ffmpeg.display()
+        )),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod portable_media_tests {
+    use super::extract_wav_with_resolved_ffmpeg;
+    use std::os::unix::fs::PermissionsExt;
+
+    static FIXTURE_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+    struct Fixture(std::path::PathBuf);
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn t289_extract_audio_uses_unicode_bundled_helper_with_an_empty_path() {
+        let root = std::env::temp_dir().join(format!(
+            "neoflash-t289-медиа-{}-{}",
+            std::process::id(),
+            FIXTURE_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let fixture = Fixture(root);
+        let helper = fixture
+            .0
+            .join("комплект media")
+            .join("bundled-media")
+            .join("bin")
+            .join("ffmpeg");
+        std::fs::create_dir_all(helper.parent().unwrap()).unwrap();
+        std::fs::write(
+            &helper,
+            br#"#!/bin/sh
+input=
+previous=
+output=
+for argument do
+    if [ "$previous" = "-i" ]; then input=$argument; fi
+    previous=$argument
+    output=$argument
+done
+[ -n "$input" ] && [ -f "$input" ] || exit 61
+[ "${PATH+x}" = x ] && [ -z "$PATH" ] || exit 62
+printf 'RIFF\014\000\000\000WAVE' > "$output"
+printf '%s\n%s\n' "$input" "$output" > "${0%/*}/capture.txt"
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (wav, media_type, extension) =
+            extract_wav_with_resolved_ffmpeg(b"\x1aE\xdf\xa3fake-webm", &helper).unwrap();
+
+        assert_eq!(wav, b"RIFF\x0c\0\0\0WAVE");
+        assert_eq!(media_type, "audio/wav");
+        assert_eq!(extension, "wav");
+        let capture = std::fs::read_to_string(helper.with_file_name("capture.txt")).unwrap();
+        let mut paths = capture.lines().map(std::path::Path::new);
+        let input = paths.next().unwrap();
+        let output = paths.next().unwrap();
+        assert!(input.is_absolute());
+        assert_eq!(input.file_name().unwrap(), "input_video.bin");
+        assert!(output.is_absolute());
+        assert_eq!(output.file_name().unwrap(), "extracted.wav");
     }
 }

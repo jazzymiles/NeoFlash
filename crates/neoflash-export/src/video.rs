@@ -438,7 +438,13 @@ pub fn is_bundled_media_binary(binary: &Path) -> bool {
     )
 }
 
-fn configure_media_subprocess_command(cmd: &mut Command, binary: &Path) {
+/// Apply the execution environment required by a resolved NeoFlash media helper.
+///
+/// Bundled helpers must remain self-contained: clearing `PATH` here prevents an apparently
+/// portable package from succeeding only because another `ffmpeg` installation is available on
+/// the host. Callers outside the video exporter (for example the editor's Extract audio command)
+/// should use this after [`detect_ffmpeg`] instead of recreating the bundle rules.
+pub fn configure_media_subprocess_command(cmd: &mut Command, binary: &Path) {
     if is_bundled_media_binary(binary)
         || env::var("NEOFLASH_DISABLE_SYSTEM_FFMPEG").ok().as_deref() == Some("1")
     {

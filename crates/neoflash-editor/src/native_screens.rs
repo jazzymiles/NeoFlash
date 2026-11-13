@@ -28,7 +28,7 @@ pub fn pointer_state() -> Option<(eframe::egui::Pos2, bool)> {
 }
 
 /// Identity and content rectangle of the frontmost NeoFlash window under a desktop point.
-#[cfg_attr(test, allow(dead_code))]
+#[cfg_attr(any(test, not(target_os = "macos")), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq)]
 pub enum NativeDockWindow {
     Main(eframe::egui::Rect),

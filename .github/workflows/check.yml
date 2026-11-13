@@ -1,13 +1,22 @@
 name: Check
-on: [push, pull_request]
+
+on:
+  push:
+  pull_request:
+
 permissions:
   contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+
 jobs:
   macos:
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - name: Install pinned Rust
@@ -16,30 +25,72 @@ jobs:
         run: ./scripts/check.sh
 
   windows-x64:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-      - name: Install Rust (x86_64-pc-windows-msvc + wasm32-unknown-unknown)
+      - name: Install pinned Rust and wasm-bindgen
         shell: pwsh
         run: |
-          rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal --component rustfmt,clippy --target x86_64-pc-windows-msvc,wasm32-unknown-unknown
-          rustup default stable-x86_64-pc-windows-msvc
-          if (-not (Get-Command wasm-bindgen -ErrorAction SilentlyContinue) -or ((wasm-bindgen --version) -ne "wasm-bindgen 0.2.129")) {
-            cargo install wasm-bindgen-cli --version 0.2.129 --locked
-          }
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy --target x86_64-pc-windows-msvc,wasm32-unknown-unknown
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Rust installation failed.' }
+          rustup default 1.99.1-x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Rust selection failed.' }
+          cargo install wasm-bindgen-cli --version 0.2.129 --locked
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned wasm-bindgen installation failed.' }
       - name: Build web runtime
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           cargo build --locked --release -p neoflash-web --target wasm32-unknown-unknown
+          if ($LASTEXITCODE -ne 0) { throw 'Web runtime build failed.' }
           wasm-bindgen --target no-modules --no-modules-global NeoFlashWasm --out-name neoflash_web --out-dir target/web-runtime target/wasm32-unknown-unknown/release/neoflash_web.wasm
+          if ($LASTEXITCODE -ne 0) { throw 'wasm-bindgen generation failed.' }
       - name: Clippy on Windows x64 MSVC
         shell: pwsh
-        run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Run portable and Windows platform test suites
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Test Windows-compatible workspace
         shell: pwsh
         run: |
-          cargo test --locked -p neoflash-core -p neoflash-script -p neoflash-import -p neoflash-export
-          cargo test --locked -p neoflash-editor --bin neoflash-editor windows_platform
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo test --locked --workspace
+          if ($LASTEXITCODE -ne 0) { throw 'Windows workspace tests failed.' }
+          python -B -m unittest scripts.tests.test_package_portable
+          if ($LASTEXITCODE -ne 0) { throw 'Portable package tests failed.' }
+
+  linux-x64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install native Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libasound2-dev libegl1-mesa-dev libfontconfig1-dev libfreetype6-dev \
+            libgl1-mesa-dev libudev-dev libwayland-dev libx11-xcb-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev pkg-config
+      - name: Install pinned Rust and wasm-bindgen
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy --target wasm32-unknown-unknown
+          rustup default 1.99.1
+          cargo install wasm-bindgen-cli --version 0.2.129 --locked
+      - name: Clippy on Linux x64
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Test Linux workspace and portable packaging gates
+        run: |
+          cargo test --locked --workspace
+          python3 -B -m unittest scripts.tests.test_package_portable
+      - name: Build Linux editor and web runtime
+        run: |
+          cargo build --locked --release -p neoflash-editor
+          ./scripts/build-web.sh
