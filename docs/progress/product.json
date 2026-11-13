@@ -3704,12 +3704,12 @@
         {
           "id": "windows-portable-preview",
           "title": "Portable Windows x64 Technical Preview",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "linux-portable-preview",
           "title": "Portable Linux x64 Technical Preview",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "reproducible-license-source-bundle",
