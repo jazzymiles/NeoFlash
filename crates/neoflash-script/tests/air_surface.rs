@@ -1,5 +1,22 @@
 use neoflash_core::{Project, ResourceUnit, Script, ScriptLanguage, SourceUnit};
-use std::process::Command;
+use std::io::{self, Write};
+use std::process::{Command, Output, Stdio};
+
+fn run_node_module(source: &str) -> io::Result<Output> {
+    let mut child = Command::new("node")
+        .args(["--input-type=module", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "Node stdin was not piped"))?;
+    stdin.write_all(source.as_bytes())?;
+    drop(stdin);
+    child.wait_with_output()
+}
 
 fn air_project(sources: &[(&str, &str)]) -> Project {
     let mut project = Project::blank();
@@ -276,9 +293,7 @@ fn as3_air_packages_interfaces_and_typed_vectors_compile_cleanly() {
         "#,
     );
 
-    let output = Command::new("node")
-        .args(["--input-type=module", "-e", &node_runner])
-        .output()
+    let output = run_node_module(&node_runner)
         .expect("node must be available to execute compiled AS3 AIR program");
     assert!(
         output.status.success(),
@@ -719,9 +734,7 @@ fn as3_air_remaining_surface_compiles_and_executes_end_to_end() {
         "#,
     );
 
-    let output = Command::new("node")
-        .args(["--input-type=module", "-e", &node_runner])
-        .output()
+    let output = run_node_module(&node_runner)
         .expect("node must be available to execute compiled AS3 AIR program");
     assert!(
         output.status.success(),
