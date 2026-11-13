@@ -1,10 +1,12 @@
+mod support;
+
 use neoflash_core::{Project, Script, ScriptLanguage, SourceUnit};
 use neoflash_script::{
     DebuggerSession, SourceMap, apply_quick_fix, check_project_warnings, check_warnings, compile,
     compile_debug, compile_project, compile_with_program, compile_with_source_map, decode_vlq,
     encode_vlq, levenshtein_distance, suggest_identifier,
 };
-use std::process::Command;
+use support::run_node_from_stdin;
 
 fn script(language: ScriptLanguage, source: &str) -> Script {
     Script {
@@ -23,10 +25,7 @@ fn source_unit(path: &str, language: ScriptLanguage, source: &str) -> SourceUnit
 }
 
 fn eval_js(code: &str) -> String {
-    let output = Command::new("node")
-        .arg("-e")
-        .arg(code)
-        .output()
+    let output = run_node_from_stdin(code, &[])
         .expect("node binary must be available to execute compiled JS");
     assert!(
         output.status.success(),

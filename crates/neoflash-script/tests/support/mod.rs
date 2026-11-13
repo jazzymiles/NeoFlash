@@ -1,9 +1,10 @@
 use std::io::{self, Write};
 use std::process::{Command, Output, Stdio};
 
-pub fn run_node_module(source: &str) -> io::Result<Output> {
+pub fn run_node_from_stdin(source: &str, extra_args: &[&str]) -> io::Result<Output> {
     let mut child = Command::new("node")
-        .args(["--input-type=module", "-"])
+        .args(extra_args)
+        .arg("-")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

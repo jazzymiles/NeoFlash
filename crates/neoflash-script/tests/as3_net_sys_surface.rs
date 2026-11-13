@@ -1,7 +1,7 @@
 mod support;
 
 use neoflash_core::{Project, ResourceUnit, Script, ScriptLanguage, SourceUnit};
-use support::run_node_module;
+use support::run_node_from_stdin;
 
 fn net_sys_project(sources: &[(&str, &str)]) -> Project {
     let mut project = Project::blank();
@@ -355,7 +355,7 @@ fn as3_area8_packages_interfaces_vectors_and_package_functions_compile_and_execu
         "#,
     );
 
-    let output = run_node_module(&node_runner)
+    let output = run_node_from_stdin(&node_runner, &["--input-type=module"])
         .expect("node must be available to execute compiled AS3 Area 8 program");
     assert!(
         output.status.success(),
