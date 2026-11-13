@@ -824,7 +824,7 @@ function loadBundle(bundlePath) {{
 
 const results = [];
 
-// 1. Benchmark all 6 exported games over 240 active gameplay + Canvas 2D render frames.
+// 1. Benchmark all 6 exported games over three 240-frame gameplay + Canvas 2D samples.
 for (const [slug, bundlePath] of gameBundles) {{
   const {{ clip, env, ctx, paintFrame, getSnapshotCalls, resetSnapshotCalls }} = loadBundle(bundlePath);
 
@@ -834,29 +834,41 @@ for (const [slug, bundlePath] of gameBundles) {{
     paintFrame();
   }}
   resetSnapshotCalls();
-  const frames = 240;
-  const t0 = performance.now();
-  for (let f = 0; f < frames; f++) {{
-    if (slug.startsWith('snake-')) {{
-      if (clip.gameOver) clip.resetGame();
-      if (f % 6 === 0) {{
-        const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
-        const [dx, dy] = dirs[(f / 6) % 4];
-        clip.setDirection(dx, dy);
+  // Gate on process CPU time across three long samples. Wall-clock samples remain
+  // useful telemetry, but shared-runner scheduling pauses are not engine regressions.
+  const framesPerSample = 240;
+  const samples = [];
+  const cpuStart = process.cpuUsage();
+  for (let sample = 0; sample < 3; sample++) {{
+    const t0 = performance.now();
+    for (let f = 0; f < framesPerSample; f++) {{
+      const frame = sample * framesPerSample + f;
+      if (slug.startsWith('snake-')) {{
+        if (clip.gameOver) clip.resetGame();
+        if (frame % 6 === 0) {{
+          const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+          const [dx, dy] = dirs[(frame / 6) % 4];
+          clip.setDirection(dx, dy);
+        }}
+      }} else if (slug.startsWith('arkanoid-')) {{
+        if (clip.gameOver) clip.resetGame();
+        clip.paddleX = Math.max(48, Math.min(592, clip.ballX));
+      }} else if (slug.startsWith('tetris-')) {{
+        if (clip.gameOver) clip.resetGame();
+        if (frame % 8 === 0) clip.moveHorizontal((frame % 16 === 0) ? -1 : 1);
+        if (frame % 12 === 0) clip.rotatePiece();
       }}
-    }} else if (slug.startsWith('arkanoid-')) {{
-      if (clip.gameOver) clip.resetGame();
-      clip.paddleX = Math.max(48, Math.min(592, clip.ballX));
-    }} else if (slug.startsWith('tetris-')) {{
-      if (clip.gameOver) clip.resetGame();
-      if (f % 8 === 0) clip.moveHorizontal((f % 16 === 0) ? -1 : 1);
-      if (f % 12 === 0) clip.rotatePiece();
+      env.host.broadcastFrame();
+      paintFrame();
     }}
-    env.host.broadcastFrame();
-    paintFrame();
+    samples.push(performance.now() - t0);
   }}
-  const elapsedMs = performance.now() - t0;
+  const frames = framesPerSample * samples.length;
+  const elapsedMs = samples.reduce((total, sample) => total + sample, 0);
   const avgMs = elapsedMs / frames;
+  const cpuElapsed = process.cpuUsage(cpuStart);
+  const cpuMs = (cpuElapsed.user + cpuElapsed.system) / 1000;
+  const cpuMsPerFrame = cpuMs / frames;
   const snapshotsPerFrame = getSnapshotCalls() / frames;
 
   results.push({{
@@ -864,6 +876,7 @@ for (const [slug, bundlePath] of gameBundles) {{
     frames,
     totalMs: Number(elapsedMs.toFixed(2)),
     avgMsPerFrame: Number(avgMs.toFixed(3)),
+    cpuMsPerFrame: Number(cpuMsPerFrame.toFixed(3)),
     snapshotsPerFrame: Number(snapshotsPerFrame.toFixed(2)),
     draws: ctx.stats.fillCalls + ctx.stats.strokeCalls + ctx.stats.textCalls,
   }});
@@ -873,13 +886,13 @@ for (const [slug, bundlePath] of gameBundles) {{
     `${{slug}} triggered ${{snapshotsPerFrame.toFixed(2)}} runtime_snapshot_json calls/frame (expected <= 1.05)`
   );
   assert.ok(
-    avgMs < 2.5,
-    `${{slug}} average frame time ${{avgMs.toFixed(3)}} ms exceeded 2.5 ms/frame budget`
+    cpuMsPerFrame < 2.5,
+    `${{slug}} CPU frame time ${{cpuMsPerFrame.toFixed(3)}} ms exceeded 2.5 ms/frame budget`
   );
   assert.ok(ctx.stats.fillCalls > frames, `${{slug}} Canvas 2D painter must execute fill calls`);
 }}
 
-// 2. Benchmark all 8 AS2/AS3 runtime & rendering stress suites over 120 frames.
+// 2. Benchmark all AS2/AS3 runtime & rendering stress suites over three 240-frame samples.
 for (const [slug, bundlePath] of stressBundles) {{
   const {{ clip, env, ctx, paintFrame, getSnapshotCalls, resetSnapshotCalls }} = loadBundle(bundlePath);
 
@@ -889,10 +902,11 @@ for (const [slug, bundlePath] of stressBundles) {{
     paintFrame();
   }}
   resetSnapshotCalls();
-  // Use the median of three sustained samples. A single short wall-clock sample is
-  // too sensitive to virtual-runner scheduling pauses to be a useful regression gate.
-  const framesPerSample = 120;
+  // Gate on aggregate process CPU time so JS/WASM, rendering and GC remain measured
+  // without charging the engine for unrelated virtual-runner descheduling pauses.
+  const framesPerSample = 240;
   const samples = [];
+  const cpuStart = process.cpuUsage();
   for (let sample = 0; sample < 3; sample++) {{
     const t0 = performance.now();
     for (let f = 0; f < framesPerSample; f++) {{
@@ -904,11 +918,12 @@ for (const [slug, bundlePath] of stressBundles) {{
   const frames = framesPerSample * samples.length;
   const elapsedMs = samples.reduce((total, sample) => total + sample, 0);
   const avgMs = elapsedMs / frames;
-  const sampleAverages = samples.map((sample) => sample / framesPerSample).sort((a, b) => a - b);
-  const gateMs = sampleAverages[Math.floor(sampleAverages.length / 2)];
+  const cpuElapsed = process.cpuUsage(cpuStart);
+  const cpuMs = (cpuElapsed.user + cpuElapsed.system) / 1000;
+  const cpuMsPerFrame = cpuMs / frames;
   const snapshotsPerFrame = getSnapshotCalls() / frames;
 
-  assert.equal(clip.tickCount, 365, `${{slug}} ran all 365 enterFrame ticks`);
+  assert.equal(clip.tickCount, 725, `${{slug}} ran all 725 enterFrame ticks`);
   if (slug.startsWith('stress-graphics-')) {{
     assert.equal(clip.shapesDrawn, 50, `${{slug}} drew 50 procedural shapes per frame`);
   }}
@@ -918,7 +933,7 @@ for (const [slug, bundlePath] of stressBundles) {{
     frames,
     totalMs: Number(elapsedMs.toFixed(2)),
     avgMsPerFrame: Number(avgMs.toFixed(3)),
-    gateMsPerFrame: Number(gateMs.toFixed(3)),
+    cpuMsPerFrame: Number(cpuMsPerFrame.toFixed(3)),
     snapshotsPerFrame: Number(snapshotsPerFrame.toFixed(2)),
     draws: ctx.stats.fillCalls + ctx.stats.strokeCalls + ctx.stats.textCalls,
   }});
@@ -928,8 +943,8 @@ for (const [slug, bundlePath] of stressBundles) {{
     `${{slug}} triggered ${{snapshotsPerFrame.toFixed(2)}} runtime_snapshot_json calls/frame (expected <= 1.05)`
   );
   assert.ok(
-    gateMs < 3.5,
-    `${{slug}} median sample frame time ${{gateMs.toFixed(3)}} ms exceeded 3.5 ms/frame budget`
+    cpuMsPerFrame < 3.5,
+    `${{slug}} CPU frame time ${{cpuMsPerFrame.toFixed(3)}} ms exceeded 3.5 ms/frame budget`
   );
 }}
 
