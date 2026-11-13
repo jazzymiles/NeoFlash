@@ -1,7 +1,7 @@
 mod support;
 
 use neoflash_core::{Project, ResourceUnit, Script, ScriptLanguage, SourceUnit};
-use support::run_node_module;
+use support::run_node_from_stdin;
 
 fn media_events_project(sources: &[(&str, &str)]) -> Project {
     let mut project = Project::blank();
@@ -344,7 +344,7 @@ fn as3_media_events_ui_and_accessibility_compile_and_execute_end_to_end() {
         "#,
     );
 
-    let output = run_node_module(&node_runner)
+    let output = run_node_from_stdin(&node_runner, &["--input-type=module"])
         .expect("node must be available to execute compiled AS3 media/events program");
     assert!(
         output.status.success(),
