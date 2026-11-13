@@ -4,7 +4,7 @@ use neoflash_core::{Project, flatten_scenes_with_ranges};
 use neoflash_export::{
     AepOptions, AtlasFormat, AtlasImageFormat, AtlasOptions, AudioExportPolicy, FontExportPolicy,
     HtmlPublishConfig, ImageExportFormat, ImageExportOptions, ImageExportRange, PublishOptions,
-    SizeLevel, SwfCompression, SwfPublishOptions, SwfPublishProfile, VideoOptions,
+    SizeLevel, SwfCompression, SwfPublishOptions, SwfPublishProfile, VideoOptions, detect_ffmpeg,
     export_project_aep, export_project_atlas, export_project_image, export_project_video,
     export_project_with_config, export_project_with_options, publish_swf_bytes,
 };
@@ -389,10 +389,24 @@ fn verify_midnight_express_episode(
         runtime_capture: false,
         ..VideoOptions::default()
     };
-    let vid_report =
-        export_project_video(&project, &mp4_path, &vid_opts).expect("export Midnight Express MP4");
-    assert!(vid_report.output_path.exists());
-    assert!(fs::metadata(&vid_report.output_path).unwrap().len() > 1024);
+    if detect_ffmpeg().is_some() {
+        let vid_report = export_project_video(&project, &mp4_path, &vid_opts)
+            .expect("export Midnight Express MP4");
+        assert!(vid_report.output_path.exists());
+        assert!(fs::metadata(&vid_report.output_path).unwrap().len() > 1024);
+    } else {
+        // Fresh cross-platform checks deliberately do not download the 2+ GiB media
+        // bundle. The native package workflow makes it mandatory and exercises every
+        // shipped codec. Here, retain the authored/export coverage and prove that a
+        // media-free checkout fails explicitly instead of dropping the video.
+        let error = export_project_video(&project, &mp4_path, &vid_opts)
+            .expect_err("video export without ffmpeg must fail explicitly");
+        assert!(
+            error.to_string().contains("FFmpeg was not found"),
+            "unexpected missing-media diagnostic: {error}"
+        );
+        eprintln!("Skipping Midnight Express {episode_num} MP4 sample; no ffmpeg is available.");
+    }
 
     if std::env::var_os("NEOFLASH_VERIFY_PUBLISH_DIR").is_none() {
         let _ = fs::remove_dir_all(&scratch);
