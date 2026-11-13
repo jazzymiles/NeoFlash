@@ -3030,7 +3030,11 @@ fn resolve_scoped_flfile_path(
         )
     })?;
 
-    let joined = if path.is_absolute() {
+    // `file:///` always carries an absolute URI path. `Path::is_absolute()` is not
+    // portable here: on Windows, a rooted path without a drive prefix (such as
+    // `/sub`) is not considered absolute and `PathBuf::join` would discard the
+    // sandbox root. Interpret the URI syntax before applying host path semantics.
+    let joined = if raw_path.starts_with('/') {
         if path.starts_with(&canonical_root) || path.starts_with(root) {
             path.to_path_buf()
         } else {
