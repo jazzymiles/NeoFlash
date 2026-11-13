@@ -1287,6 +1287,8 @@ mod tests {
         );
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0u8; 2048];
+            let _ = socket.read(&mut request);
             socket
                 .write_all(
                     b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 9\r\nConnection: close\r\n\r\ntry later",
@@ -1374,6 +1376,8 @@ mod tests {
         let remote_bytes = mp4_bytes.clone();
         let remote_server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0u8; 2048];
+            let _ = socket.read(&mut request);
             let response_header = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 remote_bytes.len()

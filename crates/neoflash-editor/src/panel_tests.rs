@@ -4162,12 +4162,15 @@ fn preferences_text_clipboard_and_publish_ui_and_behaviour() {
     );
     d.editor.workspace.text_prefs.substitution_warning = true;
     d.editor.load_project_fonts(&d.ctx);
-    assert!(
+    d.editor.load_project_fonts(&d.ctx);
+    assert_eq!(
         d.editor
             .output
             .iter()
-            .any(|msg| msg.contains("NeoFlashMissingFontXYZ_999")),
-        "Show warning logs missing-font warning"
+            .filter(|msg| msg.contains("NeoFlashMissingFontXYZ_999"))
+            .count(),
+        1,
+        "Show warning logs one actionable missing-font warning without flooding output"
     );
 
     // 3. `warnings_as_errors` blocks HTML5 publish before writing any files when warnings exist.

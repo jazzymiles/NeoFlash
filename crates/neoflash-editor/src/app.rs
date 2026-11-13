@@ -1153,11 +1153,19 @@ impl Editor {
                 _ => None,
             })
             .collect();
+        let mut seen = std::collections::HashSet::new();
         for (family, bold, italic) in families {
+            if !seen.insert((family.clone(), bold, italic)) {
+                continue;
+            }
             if let Err(e) = self.fonts.load_style(ctx, &family, bold, italic)
                 && self.workspace.text_prefs.substitution_warning
             {
-                self.message(e);
+                if self.output.iter().any(|message| message == &e) {
+                    self.status = e;
+                } else {
+                    self.message(e);
+                }
             }
         }
     }
