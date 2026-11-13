@@ -1,5 +1,7 @@
+mod support;
+
 use neoflash_core::{Project, ResourceUnit, Script, ScriptLanguage, SourceUnit};
-use std::process::Command;
+use support::run_node_module;
 
 fn net_sys_project(sources: &[(&str, &str)]) -> Project {
     let mut project = Project::blank();
@@ -353,9 +355,7 @@ fn as3_area8_packages_interfaces_vectors_and_package_functions_compile_and_execu
         "#,
     );
 
-    let output = Command::new("node")
-        .args(["--input-type=module", "-e", &node_runner])
-        .output()
+    let output = run_node_module(&node_runner)
         .expect("node must be available to execute compiled AS3 Area 8 program");
     assert!(
         output.status.success(),

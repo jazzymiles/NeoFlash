@@ -1,5 +1,7 @@
+mod support;
+
 use neoflash_core::{Project, Script, ScriptLanguage, SourceUnit};
-use std::process::Command;
+use support::run_node_module;
 
 fn fte3d_project(sources: &[(&str, &str)]) -> Project {
     let mut project = Project::blank();
@@ -309,9 +311,7 @@ fn as3_fte_ime_stage3d_shaders_and_3d_display_compile_and_execute_end_to_end() {
         "#,
     );
 
-    let output = Command::new("node")
-        .args(["--input-type=module", "-e", &node_runner])
-        .output()
+    let output = run_node_module(&node_runner)
         .expect("node must be available to execute compiled AS3 Area 8 program");
     assert!(
         output.status.success(),
@@ -509,10 +509,8 @@ fn as3_wave6_custom_namespace_uri_isolation_default_xml_namespace_and_statements
         "#,
     );
 
-    let output = Command::new("node")
-        .args(["--input-type=module", "-e", &node_runner])
-        .output()
-        .expect("node must execute AS3 Wave 6 custom namespace suite");
+    let output =
+        run_node_module(&node_runner).expect("node must execute AS3 Wave 6 custom namespace suite");
     assert!(
         output.status.success(),
         "Node AS3 Wave 6 custom namespace execution failed:\nstdout: {}\nstderr: {}",
