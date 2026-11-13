@@ -39,6 +39,59 @@ pub fn normalize_windows_path(path: &Path) -> PathBuf {
     }
 }
 
+/// Return the stable NTFS/ReFS identity of an existing file as
+/// `(volume_serial_number, file_index)`.
+///
+/// Length and modification time are not sufficient to detect an atomic replacement on Windows:
+/// a newly renamed file may deliberately carry the same size and timestamp. The handle identity
+/// changes for that replacement while remaining stable for ordinary in-place writes.
+#[cfg(target_os = "windows")]
+pub(crate) fn file_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::ffi::c_void;
+    use std::mem::MaybeUninit;
+    use std::os::windows::io::AsRawHandle as _;
+
+    #[repr(C)]
+    struct FileTime {
+        low_date_time: u32,
+        high_date_time: u32,
+    }
+
+    #[repr(C)]
+    struct ByHandleFileInformation {
+        file_attributes: u32,
+        creation_time: FileTime,
+        last_access_time: FileTime,
+        last_write_time: FileTime,
+        volume_serial_number: u32,
+        file_size_high: u32,
+        file_size_low: u32,
+        number_of_links: u32,
+        file_index_high: u32,
+        file_index_low: u32,
+    }
+
+    unsafe extern "system" {
+        fn GetFileInformationByHandle(
+            file: *mut c_void,
+            information: *mut ByHandleFileInformation,
+        ) -> i32;
+    }
+
+    let file = std::fs::File::open(normalize_windows_path(path)).ok()?;
+    let mut information = MaybeUninit::<ByHandleFileInformation>::uninit();
+    // SAFETY: `file` owns a valid Windows file handle for the duration of the call and
+    // `information` points to writable storage with the exact Win32 structure layout.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), information.as_mut_ptr()) } == 0 {
+        return None;
+    }
+    // SAFETY: a non-zero return value guarantees that Win32 initialized the full structure.
+    let information = unsafe { information.assume_init() };
+    let file_index =
+        (u64::from(information.file_index_high) << 32) | u64::from(information.file_index_low);
+    Some((u64::from(information.volume_serial_number), file_index))
+}
+
 /// Convert a Windows path string to extended-length format (`\\?\C:\...` or `\\?\UNC\server\share\...`)
 /// when its length is `>= 248` characters, while preserving relative paths, forward-slash inputs,
 /// and Unicode segments (`T-280`).

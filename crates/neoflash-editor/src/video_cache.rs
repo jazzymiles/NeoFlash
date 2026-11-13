@@ -210,6 +210,8 @@ struct ExternalVideoStamp {
     device: u64,
     #[cfg(unix)]
     inode: u64,
+    #[cfg(windows)]
+    file_identity: Option<(u64, u64)>,
 }
 
 fn source_cache_key(
@@ -268,6 +270,8 @@ fn external_video_stamp(
     let metadata = std::fs::metadata(&path).ok()?;
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
+    #[cfg(windows)]
+    let file_identity = crate::windows_platform::file_identity(&path);
     Some(ExternalVideoStamp {
         path,
         len: metadata.len(),
@@ -276,6 +280,8 @@ fn external_video_stamp(
         device: metadata.dev(),
         #[cfg(unix)]
         inode: metadata.ino(),
+        #[cfg(windows)]
+        file_identity,
     })
 }
 
@@ -795,7 +801,7 @@ mod tests {
     use super::*;
     use neoflash_core::{DecodedImage, ResourceUnit, VideoSourceSpec, VideoSyncMode};
     use neoflash_export::encode_deterministic_mp4_rgba_frames;
-    use std::io::Write as _;
+    use std::io::{BufRead as _, BufReader, Write as _};
     use std::net::TcpListener;
 
     fn solid_fixture(color: [u8; 4]) -> Vec<u8> {
@@ -1314,12 +1320,24 @@ mod tests {
         let remote_bytes = long_mp4.clone();
         let remote_server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
+            // Consume the GET before closing the fixture socket. Otherwise Windows
+            // can turn the short-lived response into WSAECONNABORTED instead of EOF.
+            let mut reader = BufReader::new(socket.try_clone().unwrap());
+            loop {
+                let mut line = String::new();
+                assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+                if line == "\r\n" || line == "\n" {
+                    break;
+                }
+            }
+            drop(reader);
             let header = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 remote_bytes.len()
             );
             socket.write_all(header.as_bytes()).unwrap();
             socket.write_all(&remote_bytes).unwrap();
+            socket.flush().unwrap();
         });
         let remote_url = format!("http://{remote_addr}/streams/remote.mp4");
         let mut remote_project = Project::blank();

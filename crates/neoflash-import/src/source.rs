@@ -309,6 +309,28 @@ fn read_directory_source(path: &Path) -> Result<Source, ImportError> {
     read(path)
 }
 
+fn portable_relative_name(root: &Path, path: &Path) -> Result<String, ImportError> {
+    let relative = path.strip_prefix(root).map_err(|_| {
+        ImportError::Container(format!(
+            "directory entry escaped source root: {}",
+            path.display()
+        ))
+    })?;
+    let mut parts = Vec::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(name) => parts.push(name.to_string_lossy()),
+            _ => {
+                return Err(ImportError::Container(format!(
+                    "unsafe directory entry: {}",
+                    path.display()
+                )));
+            }
+        }
+    }
+    Ok(parts.join("/"))
+}
+
 pub(crate) fn safe_name(name: &str) -> Result<(), ImportError> {
     if name.is_empty()
         || name.contains('\\')
@@ -387,12 +409,11 @@ fn read_directory(
                     "directory exceeds 8 MiB per file or 64 MiB total limit".into(),
                 ));
             }
-            let rel_name = entry
-                .path()
-                .strip_prefix(root)
-                .unwrap()
-                .to_string_lossy()
-                .into_owned();
+            // XFL/SWC container names always use `/`, including when the
+            // source is an unpacked directory on Windows. Feeding native
+            // `\` separators to `safe_name` incorrectly rejects every nested
+            // XFL entry as an archive escape.
+            let rel_name = portable_relative_name(root, &entry.path())?;
             if entry.path().extension().is_some_and(|ext| ext == "xml") {
                 safe_name(&rel_name)?;
                 let mut content = String::new();
