@@ -288,6 +288,10 @@ class PortablePackageTests(unittest.TestCase):
     def test_component_license_cap_applies_after_content_deduplication(self):
         duplicates = self.root / "duplicate-licenses.tar.xz"
         with tarfile.open(duplicates, "w:xz") as archive:
+            root = tarfile.TarInfo(".")
+            root.type = tarfile.DIRTYPE
+            root.mode = 0o755
+            archive.addfile(root)
             for index in range(300):
                 data = b"same license text"
                 info = tarfile.TarInfo(f"source/LICENSE-{index:03d}")
@@ -297,6 +301,30 @@ class PortablePackageTests(unittest.TestCase):
             duplicates, "duplicates", self.root / "duplicate-evidence"
         )
         self.assertEqual(len(records), 1)
+
+        british = self.root / "british-licence.tar.xz"
+        with tarfile.open(british, "w:xz") as archive:
+            data = b"British licence spelling"
+            info = tarfile.TarInfo("source/LICENCE")
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+        records = prepare_media.extract_component_licenses(
+            british, "british", self.root / "british-evidence"
+        )
+        self.assertEqual(len(records), 1)
+
+        embedded = self.root / "embedded-mit.tar.xz"
+        embedded_text = b'''/*\n * Copyright (c) fixture\n * Permission is hereby granted, free of charge, to any person obtaining a copy.\n * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.\n */\nint fixture;\n'''
+        with tarfile.open(embedded, "w:xz") as archive:
+            info = tarfile.TarInfo("source/include/fixture.h")
+            info.size = len(embedded_text)
+            archive.addfile(info, io.BytesIO(embedded_text))
+        records = prepare_media.extract_component_licenses(
+            embedded, "embedded", self.root / "embedded-evidence"
+        )
+        self.assertEqual(len(records), 1)
+        evidence = self.root / "embedded-evidence" / records[0]["path"]
+        self.assertIn(b"Permission is hereby granted", evidence.read_bytes())
 
         unique = self.root / "unique-licenses.tar.xz"
         with tarfile.open(unique, "w:xz") as archive:

@@ -42,10 +42,10 @@ FFMPEG_ARCHIVE_SHA256 = PINS["ffmpeg"]["archive_sha256"]
 ASSETS = PINS["assets"]
 DETERMINISTIC_MTIME = 315_532_800
 LICENSE_BASENAME = re.compile(
-    r"^(?:license|copying|copyright|notice)(?:$|[._-].*)", re.IGNORECASE
+    r"^(?:licen[cs]e|copying|copyright|notice)(?:$|[._-].*)", re.IGNORECASE
 )
 LICENSE_DIRECTORY = re.compile(
-    r"^(?:licenses?|copying|copyright|notices?)$", re.IGNORECASE
+    r"^(?:licen[cs]es?|copying|copyright|notices?)$", re.IGNORECASE
 )
 MAX_LICENSE_BYTES = 4 * 1024 * 1024
 MAX_LICENSE_FILES_PER_COMPONENT = 256
@@ -578,9 +578,34 @@ def extract_component_licenses(
     destination.mkdir(parents=True, exist_ok=True)
     candidates: dict[str, tuple[str, bytes]] = {}
     unique_bytes = 0
+
+    def record_candidate(source_path: str, data: bytes) -> None:
+        nonlocal unique_bytes
+        digest = hashlib.sha256(data).hexdigest()
+        if digest in candidates:
+            return
+        if len(candidates) >= MAX_LICENSE_FILES_PER_COMPONENT:
+            raise MediaPreparationError(
+                f"too many unique license evidence files in {source_archive.name}"
+            )
+        unique_bytes += len(data)
+        if unique_bytes > MAX_LICENSE_TOTAL_BYTES_PER_COMPONENT:
+            raise MediaPreparationError(
+                f"unique license evidence exceeds size limit in {source_archive.name}"
+            )
+        candidates[digest] = (source_path, data)
+
     try:
         with tarfile.open(source_archive, "r:*") as archive:
-            for member in archive.getmembers():
+            members = archive.getmembers()
+            for member in members:
+                normalized_name = member.name.replace("\\", "/").rstrip("/")
+                if normalized_name in ("", "."):
+                    if member.isdir():
+                        continue
+                    raise MediaPreparationError(
+                        f"source archive root is not a directory: {source_archive.name}"
+                    )
                 path = safe_member(member.name)
                 in_license_directory = any(
                     LICENSE_DIRECTORY.match(part) for part in path.parts[:-1]
@@ -599,19 +624,48 @@ def extract_component_licenses(
                     raise MediaPreparationError(
                         f"license evidence size changed while reading {member.name}"
                     )
-                digest = hashlib.sha256(data).hexdigest()
-                if digest in candidates:
-                    continue
-                if len(candidates) >= MAX_LICENSE_FILES_PER_COMPONENT:
-                    raise MediaPreparationError(
-                        f"too many unique license evidence files in {source_archive.name}"
-                    )
-                unique_bytes += len(data)
-                if unique_bytes > MAX_LICENSE_TOTAL_BYTES_PER_COMPONENT:
-                    raise MediaPreparationError(
-                        f"unique license evidence exceeds size limit in {source_archive.name}"
-                    )
-                candidates[digest] = (path.as_posix(), data)
+                record_candidate(path.as_posix(), data)
+
+            # Some source distributions (notably the pinned nv-codec-headers
+            # inputs) put their complete MIT grant only in source-file header
+            # comments. Preserve those exact bytes when no standalone licence
+            # file exists instead of either omitting the component or treating
+            # an unrelated README as legal evidence.
+            if not candidates:
+                for member in members:
+                    normalized_name = member.name.replace("\\", "/").rstrip("/")
+                    if normalized_name in ("", ".") or not member.isfile():
+                        continue
+                    path = safe_member(member.name)
+                    if path.suffix.lower() not in {
+                        ".c",
+                        ".cc",
+                        ".cpp",
+                        ".h",
+                        ".hh",
+                        ".hpp",
+                        ".m",
+                        ".mm",
+                        ".rs",
+                    } or not (0 < member.size <= MAX_LICENSE_BYTES):
+                        continue
+                    handle = archive.extractfile(member)
+                    if handle is None:
+                        continue
+                    data = handle.read(MAX_LICENSE_BYTES + 1)
+                    if len(data) != member.size or len(data) > MAX_LICENSE_BYTES:
+                        raise MediaPreparationError(
+                            f"embedded licence evidence changed size while reading {member.name}"
+                        )
+                    grant = data.find(b"Permission is hereby granted, free of charge")
+                    warranty = data.find(b'THE SOFTWARE IS PROVIDED "AS IS"', grant)
+                    if grant < 0 or warranty < 0:
+                        continue
+                    start = data.rfind(b"/*", 0, grant)
+                    end = data.find(b"*/", warranty)
+                    if start < 0 or end < 0:
+                        continue
+                    record_candidate(path.as_posix(), data[start : end + 2])
     except tarfile.TarError as error:
         raise MediaPreparationError(
             f"could not inspect component source {source_archive}: {error}"
