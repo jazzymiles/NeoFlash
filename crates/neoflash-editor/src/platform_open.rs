@@ -69,8 +69,12 @@ mod tests {
         let plain = file_url(&path).unwrap();
         let parsed = url::Url::parse(&plain).unwrap();
         assert_eq!(parsed.scheme(), "file");
+        // Windows canonical paths use the extended `\\?\` form, while the
+        // standards-compliant file URL round-trip returns an ordinary drive
+        // path. Canonicalize the decoded path again before comparing identity;
+        // the two spellings address the same file.
         assert_eq!(
-            parsed.to_file_path().unwrap(),
+            std::fs::canonicalize(parsed.to_file_path().unwrap()).unwrap(),
             std::fs::canonicalize(&path).unwrap()
         );
         assert!(plain.contains("%20"));
@@ -79,7 +83,7 @@ mod tests {
         let parsed = url::Url::parse(&routed).unwrap();
         assert_eq!(parsed.fragment(), Some("chapter-19%20/%20%CE%B2"));
         assert_eq!(
-            parsed.to_file_path().unwrap(),
+            std::fs::canonicalize(parsed.to_file_path().unwrap()).unwrap(),
             std::fs::canonicalize(path).unwrap()
         );
 

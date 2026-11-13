@@ -2122,6 +2122,27 @@ mod tests {
         )
     }
 
+    fn drain_http_request(socket: &std::net::TcpStream) {
+        // Windows resets a connection that closes with unread request bytes. Test
+        // servers must consume the complete POST before sending a short response.
+        let mut reader = BufReader::new(socket.try_clone().unwrap());
+        let mut content_length = 0usize;
+        loop {
+            let mut line = String::new();
+            assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+            if line == "\r\n" || line == "\n" {
+                break;
+            }
+            if let Some((name, value)) = line.split_once(':')
+                && name.eq_ignore_ascii_case("content-length")
+            {
+                content_length = value.trim().parse().unwrap();
+            }
+        }
+        let mut body = vec![0; content_length];
+        reader.read_exact(&mut body).unwrap();
+    }
+
     #[test]
     fn all_four_provider_adapters_stream_deltas_and_emit_untrusted_proposals_without_mutating_project()
      {
@@ -2339,14 +2360,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(socket.try_clone().unwrap());
-            loop {
-                let mut line = String::new();
-                reader.read_line(&mut line).unwrap();
-                if line == "\r\n" || line == "\n" || line.is_empty() {
-                    break;
-                }
-            }
+            drain_http_request(&socket);
             socket
                 .write_all(
                     b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
@@ -2360,6 +2374,7 @@ mod tests {
             socket
                 .write_all(b"0\r\nX-NeoFlash-Test: complete\r\n\r\n")
                 .unwrap();
+            socket.flush().unwrap();
         });
 
         let store = MemorySecretStore::new();
@@ -2404,11 +2419,13 @@ mod tests {
         let error_addr = error_listener.local_addr().unwrap();
         let error_server = std::thread::spawn(move || {
             let (mut socket, _) = error_listener.accept().unwrap();
+            drain_http_request(&socket);
             socket
                 .write_all(
                     b"HTTP/1.1 503 Service Unavailable\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n9\r\ntemporari\r\nE\r\nly unavailable\r\n0\r\n\r\n",
                 )
                 .unwrap();
+            socket.flush().unwrap();
         });
         let mut error_profile = profile.clone();
         error_profile.base_url = format!("http://{error_addr}");

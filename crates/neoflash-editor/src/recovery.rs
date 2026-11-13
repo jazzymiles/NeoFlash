@@ -79,6 +79,8 @@ pub struct DiskFileStamp {
     pub dev: u64,
     #[cfg(unix)]
     pub ino: u64,
+    #[cfg(windows)]
+    pub file_identity: Option<(u64, u64)>,
     pub content_hash: u64,
     /// False when a package scan hit a safety bound or an entry could not be read. Incomplete
     /// stamps are treated as changed rather than silently accepting an uninspected tree.
@@ -87,9 +89,10 @@ pub struct DiskFileStamp {
 
 /// Cheap on-disk identity/metadata fingerprint used by automatic polling.
 ///
-/// Native `.nflash` files are probed with a single metadata call. XFL packages additionally walk
-/// their tree, but never read file contents. A full [`DiskFileStamp`] is captured only when this
-/// probe changes (or when a user action such as Save forces a definitive check).
+/// Native `.nflash` files are probed with metadata plus a stable file identity on platforms that
+/// expose one. XFL packages additionally walk their tree, but never read file contents. A full
+/// [`DiskFileStamp`] is captured only when this probe changes (or when a user action such as Save
+/// forces a definitive check).
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct DiskMetadataStamp {
     path: PathBuf,
@@ -101,6 +104,8 @@ struct DiskMetadataStamp {
     dev: u64,
     #[cfg(unix)]
     ino: u64,
+    #[cfg(windows)]
+    file_identity: Option<(u64, u64)>,
     tree_hash: u64,
     scan_complete: bool,
 }
@@ -141,6 +146,8 @@ impl DiskFileStamp {
             use std::os::unix::fs::MetadataExt as _;
             (metadata.dev(), metadata.ino())
         };
+        #[cfg(windows)]
+        let file_identity = crate::windows_platform::file_identity(path);
         Some(Self {
             path: canonical_or_normalized_path(path),
             is_dir: false,
@@ -151,6 +158,8 @@ impl DiskFileStamp {
             dev,
             #[cfg(unix)]
             ino,
+            #[cfg(windows)]
+            file_identity,
             content_hash: scan.hash,
             scan_complete: scan.complete,
         })
@@ -174,6 +183,8 @@ impl DiskFileStamp {
             dev,
             #[cfg(unix)]
             ino,
+            #[cfg(windows)]
+            file_identity: None,
             content_hash: scan.hash,
             scan_complete: scan.complete,
         })
@@ -186,7 +197,9 @@ impl DiskFileStamp {
         }
         #[cfg(unix)]
         let identity_changed = !self.is_dir && (self.dev != current.dev || self.ino != current.ino);
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        let identity_changed = !self.is_dir && self.file_identity != current.file_identity;
+        #[cfg(not(any(unix, windows)))]
         let identity_changed = false;
 
         if !self.scan_complete || !current.scan_complete {
@@ -236,6 +249,12 @@ impl DiskMetadataStamp {
             use std::os::unix::fs::MetadataExt as _;
             (metadata.dev(), metadata.ino())
         };
+        #[cfg(windows)]
+        let file_identity = if metadata.is_dir() {
+            None
+        } else {
+            crate::windows_platform::file_identity(path)
+        };
         Some(Self {
             path: canonical_or_normalized_path(path),
             is_dir: metadata.is_dir(),
@@ -246,6 +265,8 @@ impl DiskMetadataStamp {
             dev,
             #[cfg(unix)]
             ino,
+            #[cfg(windows)]
+            file_identity,
             tree_hash: scan.hash,
             scan_complete: scan.complete,
         })
