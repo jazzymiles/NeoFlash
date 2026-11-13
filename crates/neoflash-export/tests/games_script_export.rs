@@ -53,6 +53,12 @@ fn node_binary() -> &'static str {
     "node"
 }
 
+fn node_module_url(path: &Path) -> String {
+    url::Url::from_file_path(path)
+        .unwrap_or_else(|()| panic!("cannot convert {} to a file URL", path.display()))
+        .into()
+}
+
 #[test]
 fn all_six_games_validate_check_compile_export_and_execute() {
     let root = workspace_root();
@@ -137,14 +143,10 @@ fn all_six_games_validate_check_compile_export_and_execute() {
 
     // 4. Execute the exported game bundles headlessly in Node via the NeoFlash runtime host.
     let runner_path = temp_dir.join("run-games-check.mjs");
-    let host_integration_url = root
-        .join("crates/neoflash-script/tests/host-integration.mjs")
-        .display()
-        .to_string();
-    let rust_runtime_url = root
-        .join("crates/neoflash-script/tests/rust-runtime-host.mjs")
-        .display()
-        .to_string();
+    let host_integration_url =
+        node_module_url(&root.join("crates/neoflash-script/tests/host-integration.mjs"));
+    let rust_runtime_url =
+        node_module_url(&root.join("crates/neoflash-script/tests/rust-runtime-host.mjs"));
 
     let runner_source = format!(
         r#"import assert from 'node:assert/strict';
@@ -331,7 +333,11 @@ fn exported_games_and_stress_suites_meet_html5_frame_time_budgets() {
     use neoflash_core::ScriptLanguage;
 
     let root = workspace_root();
-    let temp_dir = temp_test_dir("perf-suite");
+    let prepared_dir = std::env::var_os("NEOFLASH_PERF_PREPARE_DIR").map(PathBuf::from);
+    let temp_dir = prepared_dir
+        .clone()
+        .unwrap_or_else(|| temp_test_dir("perf-suite"));
+    fs::create_dir_all(&temp_dir).expect("create performance suite directory");
     let runtime_dir = temp_dir.join("runtime");
     write_mock_wasm_runtime(&runtime_dir);
 
@@ -340,10 +346,13 @@ fn exported_games_and_stress_suites_meet_html5_frame_time_budgets() {
         size: SizeLevel::Full,
         audio: AudioExportPolicy::Original,
     };
+    let fixture_root = std::env::var_os("NEOFLASH_PERF_FIXTURE_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.clone());
 
     let mut exported_games = Vec::new();
     for rel_path in GAME_FILES {
-        let full_path = root.join(rel_path);
+        let full_path = fixture_root.join(rel_path);
         let raw = fs::read_to_string(&full_path)
             .unwrap_or_else(|e| panic!("failed to read {rel_path}: {e}"));
         let project: Project = serde_json::from_str(&raw)
@@ -695,15 +704,11 @@ this.addEventListener("enterFrame", function(ev:Object):void {
     }
 
     let runner_path = temp_dir.join("run-perf-suite.mjs");
-    let host_integration_url = root
-        .join("crates/neoflash-script/tests/host-integration.mjs")
-        .display()
-        .to_string();
-    let rust_runtime_url = root
-        .join("crates/neoflash-script/tests/rust-runtime-host.mjs")
-        .display()
-        .to_string();
-    let web_runtime_url = root.join("web/runtime.js").display().to_string();
+    let host_integration_url =
+        node_module_url(&root.join("crates/neoflash-script/tests/host-integration.mjs"));
+    let rust_runtime_url =
+        node_module_url(&root.join("crates/neoflash-script/tests/rust-runtime-host.mjs"));
+    let web_runtime_url = node_module_url(&root.join("web/runtime.js"));
 
     let runner_source = format!(
         r#"import assert from 'node:assert/strict';
@@ -822,93 +827,29 @@ function loadBundle(bundlePath) {{
   }};
 }}
 
-// Keep the existing numerical ceilings (2.5/3.5) while defining a normalized
-// CPU-time unit anchored to a measured Apple-silicon reference. Hosted runners use
-// different CPU models and frequencies, so raw process CPU time is paired with a
-// deterministic single-thread calibration window. The checksum and sanity gates
-// make a broken or optimized-away calibrator fail closed instead of weakening it.
-const FRAME_SAMPLE_COUNT = 5;
-const FRAMES_PER_SAMPLE = 240;
-const CPU_CALIBRATION_ITERATIONS = 50_000_000;
-const CPU_CALIBRATION_CHECKSUM = 3_500_632_098;
-// Median warmed cost on that baseline, verified with Node 22.23.5 and 25.2.1.
-// This fixes the normalized unit; it is not a tolerance.
-const CPU_CALIBRATION_REFERENCE_MS = 75.5;
-const MIN_CALIBRATION_FACTOR = 0.25;
-const MAX_CALIBRATION_FACTOR = 4.0;
-const MAX_PAIRED_CALIBRATION_DRIFT = 0.25;
-const MAX_CALIBRATION_MAD_RATIO = 0.15;
-
-function cpuCalibrationWorkload() {{
-  let state = 0x12345678 | 0;
-  let accumulator = 0x6d2b79f5 | 0;
-  for (let i = 0; i < CPU_CALIBRATION_ITERATIONS; i++) {{
-    state ^= state << 13;
-    state ^= state >>> 17;
-    state ^= state << 5;
-    accumulator = (Math.imul(accumulator ^ state, 1664525) + 1013904223) | 0;
-  }}
-  return (accumulator ^ state) >>> 0;
-}}
-
-function measureCpuCalibration(label) {{
-  const cpuStart = process.cpuUsage();
-  const checksum = cpuCalibrationWorkload();
-  const cpuElapsed = process.cpuUsage(cpuStart);
-  const cpuMs = (cpuElapsed.user + cpuElapsed.system) / 1000;
-  assert.equal(
-    checksum,
-    CPU_CALIBRATION_CHECKSUM,
-    `${{label}} CPU calibrator checksum changed`
-  );
-  assert.ok(
-    Number.isFinite(cpuMs) && cpuMs > 0,
-    `${{label}} CPU calibrator returned invalid time ${{cpuMs}}`
-  );
-  return cpuMs;
-}}
+// Local reference runs retain the numerical 2.5/3.5 ceilings as raw CPU time.
+// Heterogeneous hosted runners use `functional` for semantic coverage and a
+// separate same-machine A/B gate in `scripts/check-performance-ab.py`; no synthetic
+// scalar is portable across the JS, WASM, object and painter workload mix.
+const PERF_MODE = process.env.NEOFLASH_PERF_MODE || 'absolute';
+assert.ok(['absolute', 'functional', 'report'].includes(PERF_MODE), `unknown performance mode ${{PERF_MODE}}`);
+const FRAME_SAMPLE_COUNT = Number(process.env.NEOFLASH_PERF_SAMPLE_COUNT || (PERF_MODE === 'absolute' ? 3 : 1));
+const FRAMES_PER_SAMPLE = Number(process.env.NEOFLASH_PERF_FRAMES || 240);
+const WARMUP_FRAMES = Number(process.env.NEOFLASH_PERF_WARMUP_FRAMES || (PERF_MODE === 'report' ? 240 : 5));
+assert.ok(Number.isInteger(FRAME_SAMPLE_COUNT) && FRAME_SAMPLE_COUNT > 0 && FRAME_SAMPLE_COUNT <= 10);
+assert.ok(Number.isInteger(FRAMES_PER_SAMPLE) && FRAMES_PER_SAMPLE >= 60 && FRAMES_PER_SAMPLE <= 2400);
+assert.ok(Number.isInteger(WARMUP_FRAMES) && WARMUP_FRAMES >= 0 && WARMUP_FRAMES <= 2400);
 
 function mean(values) {{
   return values.reduce((total, value) => total + value, 0) / values.length;
 }}
 
-function median(values) {{
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? (sorted[middle - 1] + sorted[middle]) / 2
-    : sorted[middle];
-}}
-
-function trimmedMeanOfFive(values) {{
-  assert.equal(values.length, FRAME_SAMPLE_COUNT, 'expected five performance samples');
-  const sorted = [...values].sort((a, b) => a - b);
-  // This gate measures sustained throughput, matching the historical average-time
-  // contract. Per-window telemetry is retained, but this is not a tail-latency gate.
-  return mean(sorted.slice(1, -1));
-}}
-
 function benchmarkFrames(label, runFrame) {{
-  assert.equal(
-    typeof globalThis.gc,
-    'function',
-    `${{label}} requires Node --expose-gc for an isolated benchmark start`
-  );
-  // Clear garbage retained by export/loading or the previous suite once. Never
-  // collect between samples: allocations and recurring GC are part of the cost.
+  assert.equal(typeof globalThis.gc, 'function', `${{label}} requires Node --expose-gc`);
   globalThis.gc();
-  // The forced collection can briefly perturb CPU frequency/accounting. Stabilize
-  // it with one unmeasured, still checksummed calibration window.
-  assert.equal(cpuCalibrationWorkload(), CPU_CALIBRATION_CHECKSUM);
-
   const wallSamples = [];
   const rawCpuSamples = [];
-  const normalizedCpuSamples = [];
-  const calibrationPairs = [];
-  const calibrationFactors = [];
-
   for (let sample = 0; sample < FRAME_SAMPLE_COUNT; sample++) {{
-    const calibrationBefore = measureCpuCalibration(`${{label}} sample ${{sample + 1}} before`);
     const wallStart = performance.now();
     const cpuStart = process.cpuUsage();
     for (let frameWithinSample = 0; frameWithinSample < FRAMES_PER_SAMPLE; frameWithinSample++) {{
@@ -916,80 +857,61 @@ function benchmarkFrames(label, runFrame) {{
     }}
     const cpuElapsed = process.cpuUsage(cpuStart);
     const wallMs = performance.now() - wallStart;
-    const calibrationAfter = measureCpuCalibration(`${{label}} sample ${{sample + 1}} after`);
     const rawCpuMsPerFrame =
       (cpuElapsed.user + cpuElapsed.system) / 1000 / FRAMES_PER_SAMPLE;
-    const pairedCalibrationMs = (calibrationBefore + calibrationAfter) / 2;
-    const pairedDrift =
-      Math.abs(calibrationAfter - calibrationBefore) / pairedCalibrationMs;
-    const calibrationFactor = CPU_CALIBRATION_REFERENCE_MS / pairedCalibrationMs;
-    const normalizedCpuMsPerFrame = rawCpuMsPerFrame * calibrationFactor;
-
     assert.ok(
       Number.isFinite(wallMs) && wallMs > 0 &&
-        Number.isFinite(rawCpuMsPerFrame) && rawCpuMsPerFrame > 0 &&
-        Number.isFinite(normalizedCpuMsPerFrame) && normalizedCpuMsPerFrame > 0,
+        Number.isFinite(rawCpuMsPerFrame) && rawCpuMsPerFrame > 0,
       `${{label}} sample ${{sample + 1}} produced invalid timing data`
     );
-    assert.ok(
-      pairedDrift <= MAX_PAIRED_CALIBRATION_DRIFT,
-      `${{label}} sample ${{sample + 1}} calibration drift ${{(pairedDrift * 100).toFixed(1)}}% exceeded ${{(MAX_PAIRED_CALIBRATION_DRIFT * 100).toFixed(0)}}%; before=${{calibrationBefore.toFixed(3)}}ms after=${{calibrationAfter.toFixed(3)}}ms`
-    );
-    assert.ok(
-      calibrationFactor >= MIN_CALIBRATION_FACTOR &&
-        calibrationFactor <= MAX_CALIBRATION_FACTOR,
-      `${{label}} sample ${{sample + 1}} calibration factor ${{calibrationFactor.toFixed(3)}} was outside ${{MIN_CALIBRATION_FACTOR}}..${{MAX_CALIBRATION_FACTOR}}`
-    );
-
     wallSamples.push(wallMs);
     rawCpuSamples.push(rawCpuMsPerFrame);
-    normalizedCpuSamples.push(normalizedCpuMsPerFrame);
-    calibrationPairs.push([calibrationBefore, calibrationAfter]);
-    calibrationFactors.push(calibrationFactor);
   }}
-
-  const pairedCalibrationSamples = calibrationPairs.map(([before, after]) => (before + after) / 2);
-  const calibrationMedian = median(pairedCalibrationSamples);
-  const calibrationMad = median(
-    pairedCalibrationSamples.map((sample) => Math.abs(sample - calibrationMedian))
-  );
-  const calibrationMadRatio = calibrationMad / calibrationMedian;
-  assert.ok(
-    Number.isFinite(calibrationMadRatio) && calibrationMadRatio <= MAX_CALIBRATION_MAD_RATIO,
-    `${{label}} calibration MAD ${{(calibrationMadRatio * 100).toFixed(1)}}% exceeded ${{(MAX_CALIBRATION_MAD_RATIO * 100).toFixed(0)}}%; pairs=${{calibrationPairs.map(([before, after]) => `${{before.toFixed(3)}}/${{after.toFixed(3)}}`).join(',')}}`
-  );
-
-  const frames = FRAME_SAMPLE_COUNT * FRAMES_PER_SAMPLE;
   return {{
-    frames,
+    frames: FRAME_SAMPLE_COUNT * FRAMES_PER_SAMPLE,
     totalMs: wallSamples.reduce((total, sample) => total + sample, 0),
     avgMsPerFrame: mean(wallSamples) / FRAMES_PER_SAMPLE,
     rawCpuMsPerFrame: mean(rawCpuSamples),
-    normalizedCpuMsPerFrame: trimmedMeanOfFive(normalizedCpuSamples),
     wallSamples,
     rawCpuSamples,
-    normalizedCpuSamples,
-    calibrationPairs,
-    calibrationFactors,
-    calibrationMedian,
-    calibrationMadRatio,
   }};
-}}
-
-// Warm the calibration loop before any measured pair, while still checking that
-// its deterministic result is stable under V8 optimization.
-for (let warmup = 0; warmup < 3; warmup++) {{
-  assert.equal(cpuCalibrationWorkload(), CPU_CALIBRATION_CHECKSUM);
 }}
 
 const results = [];
 
-// 1. Benchmark all 6 exported games over five 240-frame gameplay + Canvas 2D samples.
+function recordResult(slug, benchmark, snapshotsPerFrame, draws, budget) {{
+  const result = {{
+    suite: slug,
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    frames: benchmark.frames,
+    totalMs: benchmark.totalMs,
+    avgMsPerFrame: benchmark.avgMsPerFrame,
+    rawCpuMsPerFrame: benchmark.rawCpuMsPerFrame,
+    wallSamples: benchmark.wallSamples,
+    rawCpuSamples: benchmark.rawCpuSamples,
+    snapshotsPerFrame,
+    draws,
+  }};
+  results.push(result);
+  assert.ok(
+    snapshotsPerFrame <= 1.05,
+    `${{slug}} triggered ${{snapshotsPerFrame.toFixed(2)}} runtime_snapshot_json calls/frame (expected <= 1.05)`
+  );
+  if (PERF_MODE === 'absolute') {{
+    assert.ok(
+      benchmark.rawCpuMsPerFrame < budget,
+      `${{slug}} CPU frame time ${{benchmark.rawCpuMsPerFrame.toFixed(3)}} ms exceeded ${{budget}} ms/frame budget; samples=${{benchmark.rawCpuSamples.map((sample) => sample.toFixed(3)).join(',')}}`
+    );
+  }}
+}}
+
+// 1. Benchmark all 6 exported games over gameplay + Canvas 2D samples.
 for (const [slug, bundlePath] of gameBundles) {{
   const {{ clip, env, ctx, paintFrame, getSnapshotCalls, resetSnapshotCalls }} = loadBundle(bundlePath);
 
-  // Warmup 5 frames.
-  for (let w = 0; w < 5; w++) {{
+  for (let w = 0; w < WARMUP_FRAMES; w++) {{
     env.host.broadcastFrame();
     paintFrame();
   }}
@@ -1014,35 +936,12 @@ for (const [slug, bundlePath] of gameBundles) {{
     paintFrame();
   }});
   const snapshotsPerFrame = getSnapshotCalls() / benchmark.frames;
-
-  results.push({{
-    suite: slug,
-    node: process.version,
-    frames: benchmark.frames,
-    totalMs: Number(benchmark.totalMs.toFixed(2)),
-    avgMsPerFrame: Number(benchmark.avgMsPerFrame.toFixed(3)),
-    rawCpuMsPerFrame: Number(benchmark.rawCpuMsPerFrame.toFixed(3)),
-    normalizedCpuMsPerFrame: Number(benchmark.normalizedCpuMsPerFrame.toFixed(3)),
-    wallSamples: benchmark.wallSamples.map((sample) => Number(sample.toFixed(2))),
-    rawCpuSamples: benchmark.rawCpuSamples.map((sample) => Number(sample.toFixed(3))),
-    normalizedCpuSamples: benchmark.normalizedCpuSamples.map((sample) => Number(sample.toFixed(3))),
-    calibrationMs: benchmark.calibrationPairs.map(([before, after]) =>
-      `${{before.toFixed(2)}}/${{after.toFixed(2)}}`
-    ),
-    calibrationFactors: benchmark.calibrationFactors.map((factor) => Number(factor.toFixed(3))),
-    calibrationMedianMs: Number(benchmark.calibrationMedian.toFixed(2)),
-    calibrationMadPercent: Number((benchmark.calibrationMadRatio * 100).toFixed(2)),
-    snapshotsPerFrame: Number(snapshotsPerFrame.toFixed(2)),
-    draws: ctx.stats.fillCalls + ctx.stats.strokeCalls + ctx.stats.textCalls,
-  }});
-
-  assert.ok(
-    snapshotsPerFrame <= 1.05,
-    `${{slug}} triggered ${{snapshotsPerFrame.toFixed(2)}} runtime_snapshot_json calls/frame (expected <= 1.05)`
-  );
-  assert.ok(
-    benchmark.normalizedCpuMsPerFrame < 2.5,
-    `${{slug}} normalized CPU frame time ${{benchmark.normalizedCpuMsPerFrame.toFixed(3)}} ms exceeded 2.5 ms/frame budget; raw=${{benchmark.rawCpuSamples.map((sample) => sample.toFixed(3)).join(',')}} normalized=${{benchmark.normalizedCpuSamples.map((sample) => sample.toFixed(3)).join(',')}} calibration=${{benchmark.calibrationPairs.map(([before, after]) => `${{before.toFixed(2)}}/${{after.toFixed(2)}}`).join(',')}} factors=${{benchmark.calibrationFactors.map((factor) => factor.toFixed(3)).join(',')}}`
+  recordResult(
+    slug,
+    benchmark,
+    snapshotsPerFrame,
+    ctx.stats.fillCalls + ctx.stats.strokeCalls + ctx.stats.textCalls,
+    2.5
   );
   assert.ok(
     ctx.stats.fillCalls > benchmark.frames,
@@ -1050,12 +949,11 @@ for (const [slug, bundlePath] of gameBundles) {{
   );
 }}
 
-// 2. Benchmark all AS2/AS3 runtime & rendering stress suites over five 240-frame samples.
+// 2. Benchmark all AS2/AS3 runtime & rendering stress suites.
 for (const [slug, bundlePath] of stressBundles) {{
   const {{ clip, env, ctx, paintFrame, getSnapshotCalls, resetSnapshotCalls }} = loadBundle(bundlePath);
 
-  // Warmup 5 frames.
-  for (let w = 0; w < 5; w++) {{
+  for (let w = 0; w < WARMUP_FRAMES; w++) {{
     env.host.broadcastFrame();
     paintFrame();
   }}
@@ -1068,45 +966,49 @@ for (const [slug, bundlePath] of stressBundles) {{
 
   assert.equal(
     clip.tickCount,
-    benchmark.frames + 5,
-    `${{slug}} ran all ${{benchmark.frames + 5}} enterFrame ticks`
+    benchmark.frames + WARMUP_FRAMES,
+    `${{slug}} ran all ${{benchmark.frames + WARMUP_FRAMES}} enterFrame ticks`
   );
   if (slug.startsWith('stress-graphics-')) {{
     assert.equal(clip.shapesDrawn, 50, `${{slug}} drew 50 procedural shapes per frame`);
   }}
 
-  results.push({{
-    suite: slug,
-    node: process.version,
-    frames: benchmark.frames,
-    totalMs: Number(benchmark.totalMs.toFixed(2)),
-    avgMsPerFrame: Number(benchmark.avgMsPerFrame.toFixed(3)),
-    rawCpuMsPerFrame: Number(benchmark.rawCpuMsPerFrame.toFixed(3)),
-    normalizedCpuMsPerFrame: Number(benchmark.normalizedCpuMsPerFrame.toFixed(3)),
-    wallSamples: benchmark.wallSamples.map((sample) => Number(sample.toFixed(2))),
-    rawCpuSamples: benchmark.rawCpuSamples.map((sample) => Number(sample.toFixed(3))),
-    normalizedCpuSamples: benchmark.normalizedCpuSamples.map((sample) => Number(sample.toFixed(3))),
-    calibrationMs: benchmark.calibrationPairs.map(([before, after]) =>
-      `${{before.toFixed(2)}}/${{after.toFixed(2)}}`
-    ),
-    calibrationFactors: benchmark.calibrationFactors.map((factor) => Number(factor.toFixed(3))),
-    calibrationMedianMs: Number(benchmark.calibrationMedian.toFixed(2)),
-    calibrationMadPercent: Number((benchmark.calibrationMadRatio * 100).toFixed(2)),
-    snapshotsPerFrame: Number(snapshotsPerFrame.toFixed(2)),
-    draws: ctx.stats.fillCalls + ctx.stats.strokeCalls + ctx.stats.textCalls,
-  }});
-
-  assert.ok(
-    snapshotsPerFrame <= 1.05,
-    `${{slug}} triggered ${{snapshotsPerFrame.toFixed(2)}} runtime_snapshot_json calls/frame (expected <= 1.05)`
-  );
-  assert.ok(
-    benchmark.normalizedCpuMsPerFrame < 3.5,
-    `${{slug}} normalized CPU frame time ${{benchmark.normalizedCpuMsPerFrame.toFixed(3)}} ms exceeded 3.5 ms/frame budget; raw=${{benchmark.rawCpuSamples.map((sample) => sample.toFixed(3)).join(',')}} normalized=${{benchmark.normalizedCpuSamples.map((sample) => sample.toFixed(3)).join(',')}} calibration=${{benchmark.calibrationPairs.map(([before, after]) => `${{before.toFixed(2)}}/${{after.toFixed(2)}}`).join(',')}} factors=${{benchmark.calibrationFactors.map((factor) => factor.toFixed(3)).join(',')}}`
+  recordResult(
+    slug,
+    benchmark,
+    snapshotsPerFrame,
+    ctx.stats.fillCalls + ctx.stats.strokeCalls + ctx.stats.textCalls,
+    3.5
   );
 }}
 
-console.table(results);
+console.table(results.map((result) => ({{
+  suite: result.suite,
+  node: result.node,
+  frames: result.frames,
+  avgMsPerFrame: Number(result.avgMsPerFrame.toFixed(3)),
+  rawCpuMsPerFrame: Number(result.rawCpuMsPerFrame.toFixed(3)),
+  rawCpuSamples: result.rawCpuSamples.map((sample) => Number(sample.toFixed(3))),
+  snapshotsPerFrame: Number(result.snapshotsPerFrame.toFixed(2)),
+  draws: result.draws,
+}})));
+
+if (PERF_MODE === 'report') {{
+  const reportPath = process.env.NEOFLASH_PERF_REPORT;
+  assert.ok(reportPath, 'report mode requires NEOFLASH_PERF_REPORT');
+  fs.writeFileSync(reportPath, JSON.stringify({{
+    schema: 1,
+    mode: PERF_MODE,
+    label: process.env.NEOFLASH_PERF_LABEL || '',
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    sample_count: FRAME_SAMPLE_COUNT,
+    frames_per_sample: FRAMES_PER_SAMPLE,
+    warmup_frames: WARMUP_FRAMES,
+    results,
+  }}, null, 2));
+}}
 "#,
         host_integration_url = host_integration_url,
         rust_runtime_url = rust_runtime_url,
@@ -1117,6 +1019,10 @@ console.table(results);
     );
 
     fs::write(&runner_path, runner_source).expect("write node perf runner script");
+    if prepared_dir.is_some() {
+        println!("prepared performance runner at {}", runner_path.display());
+        return;
+    }
     let output = Command::new(node_binary())
         .arg("--expose-gc")
         .arg(&runner_path)
@@ -1396,15 +1302,11 @@ if (this.fpsInitialized == undefined) {
         .expect("export high-vertex stress bundle");
 
     let runner_path = temp_dir.join("run-high-vertex.mjs");
-    let host_integration_url = root
-        .join("crates/neoflash-script/tests/host-integration.mjs")
-        .display()
-        .to_string();
-    let rust_runtime_url = root
-        .join("crates/neoflash-script/tests/rust-runtime-host.mjs")
-        .display()
-        .to_string();
-    let web_runtime_url = root.join("web/runtime.js").display().to_string();
+    let host_integration_url =
+        node_module_url(&root.join("crates/neoflash-script/tests/host-integration.mjs"));
+    let rust_runtime_url =
+        node_module_url(&root.join("crates/neoflash-script/tests/rust-runtime-host.mjs"));
+    let web_runtime_url = node_module_url(&root.join("web/runtime.js"));
     let bundle_path = out_dir.join("bundle.js").display().to_string();
 
     let runner_source = format!(
@@ -2038,14 +1940,10 @@ this.as3Ready = (this.getChildByName("as3Badge") != null);
     }
 
     let runner_path = temp_dir.join("run-eight-flas.mjs");
-    let host_integration_url = root
-        .join("crates/neoflash-script/tests/host-integration.mjs")
-        .display()
-        .to_string();
-    let rust_runtime_url = root
-        .join("crates/neoflash-script/tests/rust-runtime-host.mjs")
-        .display()
-        .to_string();
+    let host_integration_url =
+        node_module_url(&root.join("crates/neoflash-script/tests/host-integration.mjs"));
+    let rust_runtime_url =
+        node_module_url(&root.join("crates/neoflash-script/tests/rust-runtime-host.mjs"));
 
     let runner_source = format!(
         r#"import assert from 'node:assert/strict';
