@@ -519,6 +519,7 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use neoflash_core::ScriptLanguage;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
@@ -533,6 +534,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn remembered_session(editor: &mut Editor) {
         editor.debugger.project = Some(editor.project.clone());
         editor.debugger.breakpoints = vec![AuthoredBreakpoint {
