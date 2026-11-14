@@ -229,7 +229,7 @@ F NF2 / Editor — Motion tween path 1920×1080
       I NF2/Kbd 27×20 "F7"
       T "blank keyframe"
     F Hint 91×20 [H gap 6]
-      I NF2/Kbd 33×20 "⌘ ↵"
+      I NF2/Kbd 36×20 "⌘ ↵"
       T "Test Movie"
   I NF2/Tooltip 90×30 "Selection" "V"
   F Panel / Properties — Motion tween 320×588 [V gap 0]

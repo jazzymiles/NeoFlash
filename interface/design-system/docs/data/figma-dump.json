@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-14T13:37:53.679Z",
+ "generated": "2026-11-14T16:08:37.340Z",
  "file": "Interface test",
  "pages": [
   {
@@ -358,13 +358,13 @@
      "id": "209:104152",
      "name": "Answers — Codex batch (R-022 · R-032…R-038) — Dark",
      "w": 8850,
-     "h": 1575
+     "h": 1572
     },
     {
      "id": "209:105056",
      "name": "Answers — Codex batch (R-022 · R-032…R-038) — Light",
      "w": 8850,
-     "h": 1575
+     "h": 1572
     },
     {
      "id": "209:105960",

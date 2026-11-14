@@ -200,7 +200,7 @@ F NF2 / Editor — Actions tab 1920×1080
       I NF2/Kbd 27×20 "F7"
       T "blank keyframe"
     F Hint 91×20 [H gap 6]
-      I NF2/Kbd 33×20 "⌘ ↵"
+      I NF2/Kbd 36×20 "⌘ ↵"
       T "Test Movie"
   I NF2/Tooltip 90×30 "Selection" "V"
   I NF2/Panel Header 88×40 "Tools"

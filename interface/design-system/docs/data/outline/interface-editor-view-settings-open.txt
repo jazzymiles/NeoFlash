@@ -222,7 +222,7 @@ F NF2 / Editor — View settings open 1920×1080
       I NF2/Kbd 27×20 "F7"
       T "blank keyframe"
     F Hint 91×20 [H gap 6]
-      I NF2/Kbd 33×20 "⌘ ↵"
+      I NF2/Kbd 36×20 "⌘ ↵"
       T "Test Movie"
   I NF2/Tooltip 90×30 "Selection" "V"
   I NF2/View Settings 320×530 "Rulers, guides & grid" "Rulers" "Show rulers" "Units: Pixels" "Labels" "Auto" "Every" "px" "100" "Auto picks 10 / 50 / 100 / 500 units so labels never overlap at the current zoom." "Guides" "Show"
