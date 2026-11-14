@@ -166,17 +166,27 @@ impl Editor {
                     self.authoring_tools.brush_size,
                 ));
             }
-            ui.add_enabled(
+            let new_group = ui.add_enabled(
                 false,
                 nf::IconButton::new(i16::FOLDERPLUS, "New brush group"),
-            )
-            .on_hover_text("Custom brush groups are not available yet");
+            );
+            crate::ui_icons::hover_tooltip(
+                new_group,
+                "New brush group",
+                None,
+                Some("Custom brush groups are not available yet"),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let can_delete = !self.authoring_tools.custom_brush_presets.is_empty();
-                if ui
-                    .add_enabled(can_delete, nf::IconButton::new(i16::TRASH, "Delete brush"))
-                    .on_disabled_hover_text("Built-in brushes cannot be deleted")
-                    .clicked()
+                let delete_resp =
+                    ui.add_enabled(can_delete, nf::IconButton::new(i16::TRASH, "Delete brush"));
+                if crate::ui_icons::hover_tooltip(
+                    delete_resp,
+                    "Delete brush",
+                    None,
+                    Some("Built-in brushes cannot be deleted"),
+                )
+                .clicked()
                 {
                     self.authoring_tools.custom_brush_presets.pop();
                 }
@@ -363,15 +373,23 @@ impl Editor {
                     }
                     .show(ui);
                 });
-                ui.horizontal(|ui| {
-                    ui.add(nf::Switch::new(&mut false, "Stroke hinting"));
-                    nf::Select::new("pencil-scale", "Scale: Normal")
-                        .width(ui.available_width())
-                        .show(ui, |_| {});
-                });
-            })
-            .response
-            .on_hover_text("Advanced stroke styles are not available yet");
+            });
+            let adv_resp = ui
+                .add_enabled_ui(false, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add(nf::Switch::new(&mut false, "Stroke hinting"));
+                        nf::Select::new("pencil-scale", "Scale: Normal")
+                            .width(ui.available_width())
+                            .show(ui, |_| {});
+                    });
+                })
+                .response;
+            crate::ui_icons::hover_tooltip(
+                adv_resp,
+                "",
+                None,
+                Some("Advanced stroke styles are not available yet"),
+            );
         });
     }
     fn tool_color_well(&mut self, ui: &mut egui::Ui, stroke: bool) {

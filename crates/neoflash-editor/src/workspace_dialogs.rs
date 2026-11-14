@@ -63,10 +63,12 @@ impl Editor {
             let checked = self.workspace.active_named_preset.is_none()
                 && !self.workspace.unsaved_layout
                 && self.workspace.template == template;
-            if ui
-                .add(nf::MenuItem::new(template.label()).checked(checked))
-                .on_hover_text(template.description())
-                .clicked()
+            if nf::tooltip(
+                ui.add(nf::MenuItem::new(template.label()).checked(checked)),
+                template.description().trim_end_matches('.'),
+                None,
+            )
+            .clicked()
             {
                 self.apply_workspace_template(ctx, template);
                 ui.close();

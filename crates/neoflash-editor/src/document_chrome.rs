@@ -138,10 +138,12 @@ impl Editor {
         nf::menu_section(ui, "Open documents");
         for (index, tab) in self.document_tabs().iter().enumerate() {
             let label = format!("{}{}", tab.name, if tab.dirty { " — unsaved" } else { "" });
-            if ui
-                .add(nf::MenuItem::new(&label).checked(index == self.active_session))
-                .on_hover_text(&tab.path)
-                .clicked()
+            if nf::tooltip(
+                ui.add(nf::MenuItem::new(&label).checked(index == self.active_session)),
+                &tab.path,
+                None,
+            )
+            .clicked()
             {
                 self.switch_session_tab(ctx, index);
                 ui.close();

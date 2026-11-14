@@ -338,13 +338,7 @@ pub(crate) fn paint_primitive(
                 }
             }
             Err(message) => {
-                p.text(
-                    origin,
-                    egui::Align2::LEFT_TOP,
-                    message,
-                    egui::FontId::monospace(12.0),
-                    Color32::DARK_RED,
-                );
+                crate::stage::paint_stage_error_plate(p, origin, &message);
             }
         }
     }

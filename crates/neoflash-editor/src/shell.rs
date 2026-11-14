@@ -41,11 +41,11 @@ impl Editor {
             {
                 self.export(true);
             }
-            // The menu bar takes the row's remaining width, so decide by window width.
-            if ui.ctx().content_rect().width() >= 1280. {
+            let free = ui.available_width();
+            if free >= 132. {
                 let label = self.workspace.active_workspace_label().to_owned();
                 nf::Select::new("workspace", &label)
-                    .width(180.)
+                    .width(free.clamp(132., 180.))
                     .show(ui, |ui| {
                         self.workspace_menu(ui, &ctx);
                     });
@@ -172,26 +172,30 @@ impl Editor {
         }
         if self.onion {
             ui.add_space(space::S2);
-            ui.add(nf::Badge::new("Onion skin", nf::BadgeType::Accent)).on_hover_text(
-                        "Tinted outlines or shapes show neighbouring frames. They are not content of the current frame; turn off Onion Skin to see this frame alone.",
-                    );
+            let badge = ui.add(nf::Badge::new("Onion skin", nf::BadgeType::Accent));
+            nf::tooltip(
+                badge,
+                "Tinted outlines or shapes show neighbouring frames. They are not content of the current frame; turn off Onion Skin to see this frame alone",
+                None,
+            );
         }
         if self.vector.draft.is_some() {
             ui.add_space(space::S2);
             ui.spacing_mut().item_spacing.x = space::S1;
-            if ui
-                .add(nf::Button::primary("Finish").shortcut("Enter"))
-                .clicked()
+            let finish = ui.add(nf::Button::primary("Finish").shortcut("Esc"));
+            if nf::tooltip(
+                finish,
+                "Finish the open path. Click the first anchor to close it",
+                None,
+            )
+            .clicked()
             {
                 self.finish_path(false);
             }
             if ui.add(nf::Button::new("Close path")).clicked() {
                 self.finish_path(true);
             }
-            if ui
-                .add(nf::Button::ghost("Cancel").shortcut("Esc"))
-                .clicked()
-            {
+            if ui.add(nf::Button::ghost("Discard")).clicked() {
                 self.vector.draft = None;
             }
         }
@@ -394,17 +398,25 @@ impl Editor {
         });
     }
 
+    pub(crate) fn mark_manual_stage_view(&mut self) {
+        self.stage_view.auto_fit = false;
+        self.stage_view.fitted_zoom = None;
+    }
+
     pub(crate) fn zoom_in(&mut self) {
         self.finish_edits();
         self.zoom = (self.zoom * 1.25).min(4.);
+        self.mark_manual_stage_view();
     }
     pub(crate) fn zoom_out(&mut self) {
         self.finish_edits();
         self.zoom = (self.zoom / 1.25).max(0.1);
+        self.mark_manual_stage_view();
     }
     pub(crate) fn zoom_actual(&mut self) {
         self.finish_edits();
         self.zoom = 1.;
+        self.mark_manual_stage_view();
     }
 
     /// View shortcuts: ⌘= / ⌘− zoom, ⌘1 100 %, ⌘0 fit (skipped while typing).
@@ -443,6 +455,9 @@ impl Editor {
         }
         self.zoom = 0.;
         self.pan = Vec2::ZERO;
+        self.stage_view.auto_fit = true;
+        self.stage_view.fitted_zoom = None;
+        self.stage_view.last_stage_size = None;
     }
 }
 

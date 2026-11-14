@@ -20,6 +20,7 @@ pub(crate) struct SymbolConversion {
     selection: Selection,
     sampled: Vec<(crate::selection::SelectionTarget, Element)>,
     new_symbol: bool,
+    convert_layers_layer: Option<Id>,
     pub name: String,
     pub kind: SymbolKind,
     pub folder: String,
@@ -54,10 +55,46 @@ impl Editor {
             selection: self.selection.clone(),
             sampled: vec![],
             new_symbol: true,
+            convert_layers_layer: None,
             name: name.clone(),
             kind: SymbolKind::MovieClip,
             folder: self.library_panel.selected_folder.clone(),
             registration: 4,
+            export_enabled: false,
+            linkage_id: name,
+            class_name: String::new(),
+            scale9_enabled: false,
+            scale9_grid: [10.0, 10.0, 80.0, 80.0],
+            focus_name: true,
+            error: None,
+        });
+    }
+
+    pub(crate) fn begin_layers_to_symbol_conversion(&mut self, index: usize) {
+        self.finish_edits();
+        let layers = &self.symbol().timeline.layers;
+        let Some(layer) = layers.get(index) else {
+            return;
+        };
+        let group = crate::layer_controls::layer_group_indices(layers, index);
+        let contiguous = group.last().copied().unwrap_or(index) - index + 1 == group.len();
+        if !contiguous {
+            return;
+        }
+        let layer_id = layer.id.clone();
+        let name = format!("{} symbol", layer.name);
+        self.set_playing(false);
+        self.symbol_conversion = Some(SymbolConversion {
+            symbol: self.symbol_id().to_owned(),
+            frame: self.frame,
+            selection: self.selection.clone(),
+            sampled: vec![],
+            new_symbol: false,
+            convert_layers_layer: Some(layer_id),
+            name: name.clone(),
+            kind: SymbolKind::MovieClip,
+            folder: self.library_panel.selected_folder.clone(),
+            registration: 0,
             export_enabled: false,
             linkage_id: name,
             class_name: String::new(),
@@ -139,6 +176,7 @@ impl Editor {
             selection: self.selection.clone(),
             sampled,
             new_symbol: false,
+            convert_layers_layer: None,
             name: unique_name.clone(),
             kind: SymbolKind::MovieClip,
             folder: self.library_panel.selected_folder.clone(),
@@ -208,7 +246,8 @@ impl Editor {
                 ui.allocate_ui_with_layout(egui::vec2(110., 52.), egui::Layout::top_down(egui::Align::Min), |ui| {
                     ui.spacing_mut().item_spacing.y = space::S1;
                     field_caption(ui, "Registration");
-                    ui.add_enabled_ui_semantic(!draft.new_symbol, |ui| {
+                    let can_pick_reg = !draft.new_symbol && draft.convert_layers_layer.is_none();
+                    let reg_resp = ui.add_enabled_ui_semantic(can_pick_reg, |ui| {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = space::S2;
                             let mut point = RegistrationPoint::ALL[draft.registration.min(8)];
@@ -218,8 +257,15 @@ impl Editor {
                             ui.label(rich(point.label(), TextStyle::Body).color(if ui.is_enabled() { p.text_secondary } else { p.text_disabled }));
                         });
                     })
-                    .response
-                    .on_disabled_hover_text("An empty symbol has no artwork bounds; its origin starts at 0, 0.");
+                    .response;
+                    let disabled_reason = if draft.convert_layers_layer.is_some() {
+                        Some("Layer timelines keep stage coordinates around 0, 0")
+                    } else if draft.new_symbol {
+                        Some("An empty symbol has no artwork bounds; its origin starts at 0, 0")
+                    } else {
+                        None
+                    };
+                    crate::ui_icons::hover_tooltip(reg_resp, "Registration point", None, disabled_reason);
                 });
             });
             crate::panels::properties::hint(ui, match draft.kind {
@@ -228,16 +274,24 @@ impl Editor {
                 SymbolKind::Button => "Buttons have Up, Over, Down and Hit frames. Add keyframes to customize each state.",
             });
             SectionHeader::new("Advanced").id_salt("symbol-advanced").default_open(false).show(ui, |ui| {
-                ui.add_enabled_ui_semantic(draft.kind != SymbolKind::Graphic, |ui| {
+                let linkage_resp = ui.add_enabled_ui_semantic(draft.kind != SymbolKind::Graphic, |ui| {
                     ui.spacing_mut().item_spacing.y = space::S2;
                     ui.label(rich("ActionScript linkage", TextStyle::Overline).color(if ui.is_enabled() { p.text_secondary } else { p.text_disabled }));
                     ui.add(Checkbox::new(&mut draft.export_enabled, "Export for ActionScript"));
                     ui.add_enabled_ui_semantic(draft.export_enabled, |ui| {
                         crate::paint_controls::text_row(ui, "Identifier", &mut draft.linkage_id);
-                        crate::paint_controls::text_row(ui, "Class", &mut draft.class_name).on_hover_text("Optional existing class, such as app.Card");
+                        let class_resp = crate::paint_controls::text_row(ui, "Class", &mut draft.class_name);
+                        crate::ui_icons::hover_tooltip(class_resp, "Optional existing class, such as app.Card", None, None);
                     });
                     crate::panels::properties::hint(ui, "Define the optional class and its base class in Project files.");
-                }).response.on_disabled_hover_text("Graphic symbols follow their parent timeline and have no runtime export linkage.");
+                }).response;
+                crate::ui_icons::hover_tooltip(
+                    linkage_resp,
+                    "ActionScript linkage",
+                    None,
+                    (draft.kind == SymbolKind::Graphic)
+                        .then_some("Graphic symbols follow their parent timeline and have no runtime export linkage"),
+                );
                 ui.add_enabled_ui_semantic(draft.kind != SymbolKind::Button, |ui| {
                     ui.add(Checkbox::new(&mut draft.scale9_enabled, "Enable guides for 9-slice scaling"));
                     if draft.scale9_enabled {
@@ -263,7 +317,11 @@ impl Editor {
             if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
                 accept = !draft.name.trim().is_empty();
             }
-            if draft.new_symbol { Some(Rect::from_min_size(Pos2::ZERO, egui::Vec2::ZERO)) } else { conversion_bounds(self, &draft, ui.painter()) }
+            if draft.new_symbol || draft.convert_layers_layer.is_some() {
+                Some(Rect::from_min_size(Pos2::ZERO, egui::Vec2::ZERO))
+            } else {
+                conversion_bounds(self, &draft, ui.painter())
+            }
         });
         if cancel || response.should_close() {
             return;
@@ -308,6 +366,54 @@ impl Editor {
         Ok(())
     }
 
+    fn commit_layers_to_symbol(
+        &mut self,
+        draft: &SymbolConversion,
+        layer_id: &str,
+    ) -> Result<(), String> {
+        if self.symbol_id() != draft.symbol {
+            return Err(
+                "The active timeline changed. Cancel and open Convert to Symbol again.".into(),
+            );
+        }
+        let Some(index) = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .position(|l| l.id == layer_id)
+        else {
+            return Err("The selected layer no longer exists.".into());
+        };
+        let name = draft.name.trim();
+        if name.is_empty() || name.chars().any(char::is_control) {
+            return Err("Enter a symbol name without control characters.".into());
+        }
+        let export = draft.export_enabled && draft.kind != SymbolKind::Graphic;
+        if export && draft.linkage_id.trim().is_empty() {
+            return Err("Enter an export identifier for runtime creation.".into());
+        }
+        let scale9_grid = (draft.scale9_enabled && draft.kind != SymbolKind::Button).then_some([
+            draft.scale9_grid[0],
+            draft.scale9_grid[1],
+            draft.scale9_grid[2].max(1.0),
+            draft.scale9_grid[3].max(1.0),
+        ]);
+        let symbol_id = self.convert_timeline_layers_with(
+            index,
+            draft.kind,
+            name.to_owned(),
+            draft.folder.clone(),
+            export.then(|| draft.linkage_id.trim().to_owned()),
+            (export && !draft.class_name.trim().is_empty())
+                .then(|| draft.class_name.trim().to_owned()),
+            scale9_grid,
+        )?;
+        self.library_selected = Some(symbol_id);
+        self.message(format!("Created {} ‘{}’.", kind_name(draft.kind), name));
+        Ok(())
+    }
+
     pub(crate) fn commit_symbol_conversion(
         &mut self,
         draft: &SymbolConversion,
@@ -315,6 +421,9 @@ impl Editor {
     ) -> Result<(), String> {
         if draft.new_symbol {
             return self.commit_empty_symbol(draft);
+        }
+        if let Some(layer_id) = draft.convert_layers_layer.as_deref() {
+            return self.commit_layers_to_symbol(draft, layer_id);
         }
         if self.symbol_id() != draft.symbol
             || self.frame != draft.frame
@@ -489,6 +598,10 @@ impl Editor {
         });
         self.message(format!("Created {} ‘{}’.", kind_name(draft.kind), name));
         Ok(())
+    }
+    #[cfg(test)]
+    pub(crate) fn symbol_conversion_draft(&mut self) -> Option<&mut SymbolConversion> {
+        self.symbol_conversion.as_mut()
     }
 }
 

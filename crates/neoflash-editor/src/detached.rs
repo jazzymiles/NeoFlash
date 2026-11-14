@@ -432,12 +432,12 @@ impl Editor {
         if self.detached.drag.is_some_and(|drag| drag.moved) {
             ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
         } else if override_hover {
-            response
-                .clone()
-                .on_hover_cursor(egui::CursorIcon::Grab)
-                .on_hover_text(
-                    "Drag to an edge, group or tab in any NeoFlash window. Drop outside a dock to detach. Escape cancels.",
-                );
+            let tip_resp = response.clone().on_hover_cursor(egui::CursorIcon::Grab);
+            neoflash_ui::components::tooltip(
+                tip_resp,
+                "Drag to an edge, group or tab in any NeoFlash window. Drop outside a dock to detach; press Escape to cancel",
+                None,
+            );
         }
     }
 
@@ -1508,7 +1508,7 @@ impl Editor {
                 ui.close();
             }
         }
-        ui.separator();
+        neoflash_ui::components::menu_separator(ui);
         if crate::ui_icons::menu_item(ui, "Dock all panels in this window", "").clicked() {
             let panels = self
                 .workspace
@@ -1524,7 +1524,7 @@ impl Editor {
             }
             ui.close();
         }
-        ui.separator();
+        neoflash_ui::components::menu_separator(ui);
     }
 
     /// Native borderless windows still use the locked NF2 floating-window chrome.
@@ -1758,7 +1758,7 @@ impl Editor {
                     crate::workspace::DockSurface::Floating(window_id),
                     &clipboard_target,
                 );
-                ui.separator();
+                neoflash_ui::components::menu_separator(ui);
                 let collapse_label = if collapsed {
                     "Expand panel"
                 } else {
@@ -1912,7 +1912,7 @@ impl Editor {
                                 ui.close();
                             }
                         }
-                        ui.separator();
+                        neoflash_ui::components::menu_separator(ui);
                     }
                 }
                 self.dock_header_commands(
@@ -1922,7 +1922,7 @@ impl Editor {
                     &clipboard_target,
                 );
                 if compact_tools_header {
-                    ui.separator();
+                    neoflash_ui::components::menu_separator(ui);
                     let collapse_label = if collapsed {
                         "Expand panel"
                     } else {

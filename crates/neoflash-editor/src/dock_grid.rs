@@ -9,11 +9,157 @@ use crate::{
     },
 };
 use eframe::egui;
+use neoflash_ui::components as nf;
 
 const SPLITTER: f32 = 6.;
 const AREA_GRIP: f32 = 6.;
-const MIN_STAGE_HEIGHT: f32 = 240.;
+const MIN_STAGE_HEIGHT: f32 = 360.;
 const MIN_STAGE_WIDTH: f32 = 320.;
+const COLLAPSED_GROUP_WEIGHT: f32 = 0.001;
+
+pub(crate) struct VerticalDockLayout {
+    pub(crate) collapsed: Vec<bool>,
+    pub(crate) extents: Vec<f32>,
+}
+
+/// Allocates heights for a stacked vertical side dock (R-077): every expanded group keeps at
+/// least its panel's useful minimum height (`min_stacked_height`); groups dragged below their
+/// minimum or crowded out when the side dock is shorter than all minima collapse to a single
+/// `PanelHeader` strip without a splitter grip.
+pub(crate) fn compute_vertical_dock_layout(
+    groups: &[DockGroup],
+    length: f32,
+    collapsed_h: f32,
+) -> VerticalDockLayout {
+    let n = groups.len();
+    if n == 0 {
+        return VerticalDockLayout {
+            collapsed: Vec::new(),
+            extents: Vec::new(),
+        };
+    }
+    if n == 1 {
+        return VerticalDockLayout {
+            collapsed: vec![false],
+            extents: vec![length.max(0.)],
+        };
+    }
+    let minimums: Vec<f32> = groups
+        .iter()
+        .map(|g| g.active.min_stacked_height())
+        .collect();
+    let mut collapsed: Vec<bool> = groups
+        .iter()
+        .map(|g| g.weight <= COLLAPSED_GROUP_WEIGHT * 2.)
+        .collect();
+    if collapsed.iter().all(|c| *c)
+        && let Some(best) = (0..n).max_by(|&a, &b| {
+            groups[a]
+                .weight
+                .total_cmp(&groups[b].weight)
+                .then_with(|| a.cmp(&b).reverse())
+        })
+    {
+        collapsed[best] = false;
+    }
+
+    let splitter_count = |collapsed: &[bool]| -> usize {
+        (0..n.saturating_sub(1))
+            .filter(|&i| !collapsed[i] && !collapsed[i + 1])
+            .count()
+    };
+
+    loop {
+        let open_count = collapsed.iter().filter(|c| !**c).count();
+        if open_count <= 1 {
+            break;
+        }
+        let collapsed_count = n - open_count;
+        let reserved =
+            collapsed_count as f32 * collapsed_h + splitter_count(&collapsed) as f32 * SPLITTER;
+        let open_min: f32 = (0..n).filter(|&i| !collapsed[i]).map(|i| minimums[i]).sum();
+        if length - reserved + 0.5 >= open_min {
+            break;
+        }
+        if let Some(victim) = (0..n).filter(|&i| !collapsed[i]).min_by(|&a, &b| {
+            groups[a]
+                .weight
+                .total_cmp(&groups[b].weight)
+                .then_with(|| b.cmp(&a))
+        }) {
+            collapsed[victim] = true;
+        } else {
+            break;
+        }
+    }
+
+    let open_count = collapsed.iter().filter(|c| !**c).count();
+    let collapsed_count = n - open_count;
+    let splitters = splitter_count(&collapsed) as f32 * SPLITTER;
+    let space = (length - splitters).max(0.);
+    let reserved_collapsed = collapsed_count as f32 * collapsed_h;
+    let mut extents = vec![collapsed_h; n];
+
+    if reserved_collapsed >= space {
+        let scale = if reserved_collapsed > 0. {
+            space / reserved_collapsed
+        } else {
+            0.
+        };
+        for i in 0..n {
+            extents[i] = if collapsed[i] {
+                collapsed_h * scale
+            } else {
+                0.
+            };
+        }
+        return VerticalDockLayout { collapsed, extents };
+    }
+
+    let open_space = (space - reserved_collapsed).max(0.);
+    if open_count == 1 {
+        if let Some(open_idx) = (0..n).position(|i| !collapsed[i]) {
+            extents[open_idx] = open_space;
+        }
+        return VerticalDockLayout { collapsed, extents };
+    }
+
+    let open_weight: f32 = (0..n)
+        .filter(|&i| !collapsed[i])
+        .map(|i| groups[i].weight.max(0.01))
+        .sum();
+    for i in 0..n {
+        if !collapsed[i] {
+            extents[i] = open_space * groups[i].weight.max(0.01) / open_weight;
+        }
+    }
+    for i in 0..n {
+        if collapsed[i] {
+            continue;
+        }
+        let lack = minimums[i] - extents[i];
+        if lack <= 0. {
+            continue;
+        }
+        let spare: f32 = (0..n)
+            .filter(|&j| j != i && !collapsed[j])
+            .map(|j| (extents[j] - minimums[j]).max(0.))
+            .sum();
+        let take = lack.min(spare);
+        if take <= 0. {
+            continue;
+        }
+        for j in 0..n {
+            if j != i && !collapsed[j] {
+                let give = (extents[j] - minimums[j]).max(0.) / spare * take;
+                extents[j] -= give;
+            }
+        }
+        extents[i] += take;
+    }
+
+    VerticalDockLayout { collapsed, extents }
+}
 
 #[derive(Clone, Copy)]
 struct AreaResize {
@@ -248,17 +394,22 @@ impl Editor {
             } else {
                 110.
             };
+            let doc_bar = if self.has_document() {
+                neoflash_ui::metrics::panel_header()
+            } else {
+                0.
+            };
             let reserve = if edge == DockEdge::Top && self.dock_edge_visible(DockEdge::Bottom) {
                 self.workspace.dock.bottom.size.clamp(
                     110.,
-                    (available.height() - MIN_STAGE_HEIGHT - min).max(110.),
+                    (available.height() - doc_bar - MIN_STAGE_HEIGHT - min).max(110.),
                 )
             } else {
                 0.
             };
             (
                 min,
-                (available.height() - MIN_STAGE_HEIGHT - reserve).clamp(min, 800.),
+                (available.height() - doc_bar - MIN_STAGE_HEIGHT - reserve).clamp(min, 800.),
             )
         };
         let effective = size.clamp(minimum, maximum);
@@ -336,38 +487,18 @@ impl Editor {
         } else {
             rect.width()
         };
+        let collapsed_h = neoflash_ui::metrics::panel_header();
         let space = (length - SPLITTER * groups.len().saturating_sub(1) as f32).max(1.);
         let weight: f32 = groups.iter().map(|g| g.weight).sum();
-        // Proportional split, but a stacked group never shrinks below its panel's working minimum
-        // (e.g. Library keeps search, three rows and its footer) while the others can give space.
-        let mut extents: Vec<f32> = groups.iter().map(|g| space * g.weight / weight).collect();
-        if vertical {
-            let minimums: Vec<f32> = groups
-                .iter()
-                .map(|g| g.active.min_stacked_height())
-                .collect();
-            for i in 0..extents.len() {
-                let lack = minimums[i] - extents[i];
-                if lack <= 0. {
-                    continue;
-                }
-                let spare: f32 = (0..extents.len())
-                    .filter(|j| *j != i)
-                    .map(|j| (extents[j] - minimums[j]).max(0.))
-                    .sum();
-                let take = lack.min(spare);
-                if take <= 0. {
-                    continue;
-                }
-                for j in 0..extents.len() {
-                    if j != i {
-                        let give = (extents[j] - minimums[j]).max(0.) / spare * take;
-                        extents[j] -= give;
-                    }
-                }
-                extents[i] += take;
-            }
-        }
+        let (collapsed, extents) = if vertical {
+            let layout = compute_vertical_dock_layout(groups, length, collapsed_h);
+            (layout.collapsed, layout.extents)
+        } else {
+            (
+                vec![false; groups.len()],
+                groups.iter().map(|g| space * g.weight / weight).collect(),
+            )
+        };
         let mut cursor = if vertical { rect.top() } else { rect.left() };
         for (index, group) in groups.iter().enumerate() {
             let end = if index + 1 == groups.len() {
@@ -390,8 +521,20 @@ impl Editor {
                     egui::pos2(end, rect.bottom()),
                 )
             };
-            self.dock_group_contents(ui, DockSurface::Main, edge, group, group_rect);
-            if let Some(next) = groups.get(index + 1) {
+            let is_collapsed = collapsed[index];
+            self.paint_dock_group_contents(
+                ui,
+                DockSurface::Main,
+                group,
+                (edge, group_rect),
+                None,
+                is_collapsed,
+            );
+            let next = groups.get(index + 1);
+            let has_splitter = next.is_some() && !(is_collapsed || collapsed[index + 1]);
+            if let Some(next) = next
+                && has_splitter
+            {
                 let separator = if vertical {
                     egui::Rect::from_min_max(
                         egui::pos2(rect.left(), end),
@@ -403,13 +546,15 @@ impl Editor {
                         egui::pos2(end + SPLITTER, rect.bottom()),
                     )
                 };
-                let response = ui
-                    .interact(
+                let response = nf::tooltip(
+                    ui.interact(
                         separator,
                         ui.id().with(("dock-split", group.id, next.id)),
                         egui::Sense::click_and_drag(),
-                    )
-                    .on_hover_text("Drag to resize · double-click to swap priority");
+                    ),
+                    "Drag to resize · double-click to swap priority",
+                    None,
+                );
                 // Double-click swaps priority between the two groups (R-054).
                 if response.double_clicked()
                     && let Some(&panel) = (if group.weight < next.weight {
@@ -441,19 +586,42 @@ impl Editor {
                         }
                     });
                     let total = group.weight + next.weight;
-                    let minimum = (48. / space * weight).min(total * 0.45);
-                    let first =
-                        (group.weight + delta / space * weight).clamp(minimum, total - minimum);
+                    let (first, second) = if vertical {
+                        let pair_extent = extents[index] + extents[index + 1];
+                        let min_a = group.active.min_stacked_height();
+                        let min_b = next.active.min_stacked_height();
+                        let target_a = extents[index] + delta;
+                        let target_b = pair_extent - target_a;
+                        if target_a < min_a {
+                            (
+                                COLLAPSED_GROUP_WEIGHT,
+                                (total - COLLAPSED_GROUP_WEIGHT).max(COLLAPSED_GROUP_WEIGHT),
+                            )
+                        } else if target_b < min_b {
+                            (
+                                (total - COLLAPSED_GROUP_WEIGHT).max(COLLAPSED_GROUP_WEIGHT),
+                                COLLAPSED_GROUP_WEIGHT,
+                            )
+                        } else {
+                            let share = (target_a / pair_extent.max(1.)).clamp(0.01, 0.99);
+                            (total * share, total * (1. - share))
+                        }
+                    } else {
+                        let minimum = (48. / space * weight).min(total * 0.45);
+                        let first =
+                            (group.weight + delta / space * weight).clamp(minimum, total - minimum);
+                        (first, total - first)
+                    };
                     let area = self.workspace.dock.area_mut(edge);
                     if let Some(stored) = area.groups.iter_mut().find(|g| g.id == group.id) {
                         stored.weight = first;
                     }
                     if let Some(stored) = area.groups.iter_mut().find(|g| g.id == next.id) {
-                        stored.weight = total - first;
+                        stored.weight = second;
                     }
                 }
             }
-            cursor = end + SPLITTER;
+            cursor = if has_splitter { end + SPLITTER } else { end };
         }
         self.dock_area_resize_grip(ui, edge, grip, effective, minimum, maximum);
         ui.expand_to_include_rect(full_rect);
@@ -587,11 +755,15 @@ impl Editor {
             edge.vertical(),
             &response,
         );
-        response.on_hover_text(if edge.vertical() {
-            "Drag to change panel width"
-        } else {
-            "Drag to change panel height"
-        });
+        nf::tooltip(
+            response,
+            if edge.vertical() {
+                "Drag to change panel width"
+            } else {
+                "Drag to change panel height"
+            },
+            None,
+        );
     }
 
     fn dock_group_contents(
@@ -602,7 +774,7 @@ impl Editor {
         group: &DockGroup,
         rect: egui::Rect,
     ) {
-        self.paint_dock_group_contents(parent, surface, group, (edge, rect), None);
+        self.paint_dock_group_contents(parent, surface, group, (edge, rect), None, false);
     }
 
     fn paint_dock_group_contents(
@@ -612,6 +784,7 @@ impl Editor {
         group: &DockGroup,
         layout: (DockEdge, egui::Rect),
         preview_grab: Option<egui::Vec2>,
+        collapsed: bool,
     ) {
         let (edge, rect) = layout;
         let first_shape = parent.ctx().graphics(|graphics| {
@@ -637,7 +810,7 @@ impl Editor {
         // Side column with one panel = `Panel Header` (40, Title text, ghost ⋯); several panels =
         // `Panel Tab`s (36). Tools uses the same title treatment and inset as Properties.
         let wide = matches!(edge, DockEdge::Top | DockEdge::Bottom);
-        let single = !wide && group.tabs.len() == 1;
+        let single = !wide && (group.tabs.len() == 1 || collapsed);
         let header_h = if wide {
             neoflash_ui::metrics::dock_tab()
         } else if single {
@@ -650,8 +823,12 @@ impl Editor {
             egui::pos2(rect.right(), (rect.top() + header_h).min(rect.bottom())),
         );
         let padding = group.active.body_padding();
-        let body = egui::Rect::from_min_max(egui::pos2(rect.left(), header.bottom()), rect.max)
-            .shrink(padding);
+        let body = if collapsed {
+            egui::Rect::NOTHING
+        } else {
+            egui::Rect::from_min_max(egui::pos2(rect.left(), header.bottom()), rect.max)
+                .shrink(padding)
+        };
         let ctx = parent.ctx().clone();
         let clipboard_target = self.clipboard_target(&ctx);
         let zoom = ctx.zoom_factor();
@@ -670,10 +847,28 @@ impl Editor {
             header: global(header),
             tabs: Vec::new(),
         };
+        let menu_side = 28.;
+        let menu_rect = egui::Rect::from_center_size(
+            egui::pos2(header.right() - 6. - menu_side / 2., header.center().y),
+            egui::vec2(menu_side, menu_side.min(header.height())),
+        );
+        let expand_rect = collapsed.then(|| {
+            egui::Rect::from_center_size(
+                egui::pos2(
+                    menu_rect.left() - neoflash_ui::tokens::space::S1 - menu_side / 2.,
+                    header.center().y,
+                ),
+                egui::vec2(menu_side, menu_side.min(header.height())),
+            )
+        });
+        let trailing_left = expand_rect.map_or(menu_rect.left(), |r| r.left());
         // Figma dock tabs start 8 pt in (first label at 24 pt with the 16 pt tab padding).
         let tabs_rect = egui::Rect::from_min_max(
             header.min + egui::vec2(8., 0.),
-            header.max - egui::vec2(36., 0.),
+            egui::pos2(
+                (trailing_left - 2.).max(header.left() + 8.),
+                header.bottom(),
+            ),
         );
         let mut header_ui = parent.new_child(
             egui::UiBuilder::new()
@@ -708,6 +903,9 @@ impl Editor {
                     |ui| {
                         ui.spacing_mut().item_spacing.x = 0.;
                         for panel in &group.tabs {
+                            if collapsed && *panel != group.active {
+                                continue;
+                            }
                             let active = group.active == *panel;
                             let style = if wide {
                                 neoflash_ui::TextStyle::Body
@@ -807,9 +1005,18 @@ impl Editor {
                                 node.clear_toggled();
                                 node.set_selected(active);
                             });
-                            let response = response.on_hover_text(panel.title());
+                            let hint = if collapsed {
+                                format!("Expand {}", panel.title())
+                            } else {
+                                panel.title().to_owned()
+                            };
+                            let response = nf::tooltip(response, &hint, None);
                             if response.clicked() {
-                                self.show_panel(*panel);
+                                if collapsed {
+                                    self.give_dock_priority(*panel);
+                                } else {
+                                    self.show_panel(*panel);
+                                }
                             }
                             self.panel_drag_handle(ui, *panel, &response);
                             response.context_menu(|ui| {
@@ -819,18 +1026,13 @@ impl Editor {
                     },
                 );
             });
-        let menu_side = 28.;
-        let menu_rect = egui::Rect::from_center_size(
-            egui::pos2(header.right() - 6. - menu_side / 2., header.center().y),
-            egui::vec2(menu_side, menu_side.min(header.height())),
-        );
         let blank_start = target
             .tabs
             .last()
             .map_or(tabs_rect.left(), |(_, r)| r.right() / zoom - inner.left());
         let blank = egui::Rect::from_min_max(
             egui::pos2(blank_start, header.top()),
-            egui::pos2(menu_rect.left().max(blank_start), header.bottom()),
+            egui::pos2(trailing_left.max(blank_start), header.bottom()),
         );
         if blank.width() > 0.5 {
             let mut blank_ui = parent.new_child(
@@ -847,6 +1049,9 @@ impl Editor {
                 blank_ui.id().with("header-grab"),
                 egui::Sense::click_and_drag(),
             );
+            if collapsed && response.clicked() && !self.panel_drag_moved() {
+                self.give_dock_priority(group.active);
+            }
             self.panel_group_drag_handle_anchored(
                 &blank_ui,
                 group.active,
@@ -868,7 +1073,7 @@ impl Editor {
                                 ui.close();
                             }
                         }
-                        ui.separator();
+                        neoflash_ui::components::menu_separator(ui);
                     }
                     self.dock_header_commands(ui, group.active, surface, &clipboard_target)
                 })
@@ -899,9 +1104,25 @@ impl Editor {
             }
         }
         self.panel_group_drag_handle(&grip_ui, group.active, (surface, edge, group.id), &response);
-        response
-            .on_hover_text("Drag panel group")
+        nf::tooltip(response, "Drag panel group", None)
             .context_menu(|ui| self.dock_header_menu(ui, group.active, surface, &clipboard_target));
+        if let Some(expand_rect) = expand_rect {
+            let mut expand_ui = parent.new_child(
+                egui::UiBuilder::new()
+                    .id(header_id("dock-group-expand"))
+                    .max_rect(expand_rect),
+            );
+            expand_ui.set_clip_rect(parent.clip_rect().intersect(expand_rect));
+            if self.has_modal_dialog() {
+                expand_ui.disable_semantic();
+            }
+            let tip = format!("Expand {}", group.active.title());
+            let expand = expand_ui
+                .add(nf::IconButton::new(neoflash_ui::icons::i16::CHEVUP, &tip).side(menu_side));
+            if expand.clicked() {
+                self.give_dock_priority(group.active);
+            }
+        }
         let mut menu_ui = parent.new_child(
             egui::UiBuilder::new()
                 .id(header_id("dock-group-menu"))
@@ -912,11 +1133,8 @@ impl Editor {
             menu_ui.disable_semantic();
         }
         let more = menu_ui.add(
-            neoflash_ui::components::IconButton::new(
-                neoflash_ui::icons::i16::MORE,
-                "Panel commands and tabs",
-            )
-            .side(menu_side),
+            nf::IconButton::new(neoflash_ui::icons::i16::MORE, "Panel commands and tabs")
+                .side(menu_side),
         );
         self.panel_group_drag_handle_anchored(
             &menu_ui,
@@ -940,7 +1158,7 @@ impl Editor {
                                 ui.close();
                             }
                         }
-                        ui.separator();
+                        neoflash_ui::components::menu_separator(ui);
                     }
                     self.dock_header_commands(ui, group.active, surface, &clipboard_target)
                 })
@@ -977,6 +1195,7 @@ impl Editor {
                     &floating_group,
                     (DockEdge::Left, preview_rect),
                     Some(grab_offset),
+                    false,
                 );
                 ctx.graphics_mut(|graphics| *graphics.entry(layer) = Default::default());
                 return;
@@ -999,7 +1218,8 @@ impl Editor {
                         })
                 })
         });
-        if let Some(panel) = active
+        if !collapsed
+            && let Some(panel) = active
             && body.is_positive()
         {
             let mut content = parent.new_child(
@@ -1309,7 +1529,7 @@ impl Editor {
                 ui.close();
             }
         }
-        ui.separator();
+        neoflash_ui::components::menu_separator(ui);
         if crate::ui_icons::menu_item(ui, "Detach", "").clicked() {
             self.set_panel_placement(&ctx, panel, PanelPlacement::Detached);
             ui.close();
@@ -1341,7 +1561,7 @@ impl Editor {
     ) {
         if panel == PanelId::Color {
             self.color_panel_menu(ui);
-            ui.separator();
+            neoflash_ui::components::menu_separator(ui);
         }
         if let DockSurface::Floating(window) = surface {
             self.floating_panel_commands(ui, window, target);

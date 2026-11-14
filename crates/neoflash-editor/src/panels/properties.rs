@@ -352,9 +352,11 @@ impl Editor {
                             });
                             changes.note(n_resp);
 
-                            let swap_btn = ui
-                                .add(nf::Button::new("Swap…"))
-                                .on_hover_text("Swap symbol instance with another Library symbol");
+                            let swap_btn = nf::tooltip(
+                                ui.add(nf::Button::new("Swap…")),
+                                "Swap symbol instance with another Library symbol",
+                                None,
+                            );
                             nf::popup_below(&swap_btn, 220.0, |ui| {
                                 if let Some(lib_id) = self.library_selected.clone()
                                     && self.can_swap_instance_symbol(&lib_id)
@@ -426,10 +428,12 @@ impl Editor {
                             if ui.add(nf::Button::new("Edit symbol")).clicked() {
                                 edit_symbol = true;
                             }
-                            if ui
-                                .add(nf::Button::new("Duplicate…"))
-                                .on_hover_text("Duplicate symbol and swap this instance")
-                                .clicked()
+                            if nf::tooltip(
+                                ui.add(nf::Button::new("Duplicate…")),
+                                "Duplicate symbol and swap this instance",
+                                None,
+                            )
+                            .clicked()
                             {
                                 duplicate_symbol_clicked = true;
                             }
@@ -761,7 +765,8 @@ impl Editor {
                             }
                             ElementKind::Bitmap { resource_id, width, height, smoothing } => {
                                 let path = self.project.resources.iter().find(|r| r.id == *resource_id).map(|r| r.path.as_str()).unwrap_or("Missing image");
-                                ui.add(egui::Label::new(rich(path, TextStyle::Body).color(neoflash_ui::palette(ctx).text_primary)).truncate()).on_hover_text(path);
+                                let path_resp = ui.add(egui::Label::new(rich(path, TextStyle::Body).color(neoflash_ui::palette(ctx).text_primary)).truncate());
+                                nf::tooltip(path_resp, path, None);
                                 hint(ui, &format!("{width} × {height} px"));
                                 changes.note(ui.add(nf::Checkbox::new(smoothing, "Smoothing")));
                             }
@@ -852,7 +857,7 @@ impl Editor {
                             if let Some(control) = self.instance_playback_ui(ui, symbol_id, playback) { changes.control = Some(control); }
                             if let Some(symbol) = self.project.symbol(symbol_id) {
                                 for (label, value) in [("Linkage", symbol.linkage_id.as_deref()), ("Class", symbol.class_name.as_deref())] {
-                                    if let Some(value) = value { property_row(ui, label, |ui| { ui.add(egui::Label::new(rich(value, TextStyle::Mono).color(neoflash_ui::palette(ctx).text_primary)).truncate()).on_hover_text(value); }); }
+                                    if let Some(value) = value { property_row(ui, label, |ui| { let resp = ui.add(egui::Label::new(rich(value, TextStyle::Mono).color(neoflash_ui::palette(ctx).text_primary)).truncate()); nf::tooltip(resp, value, None); }); }
                                 }
                             }
                             if ui.add(nf::Button::new("Edit symbol")).clicked() { edit_symbol = true; }
@@ -1123,8 +1128,10 @@ impl Editor {
                                     }
                                     changes.note(r_turns);
                                     changes.note(r_dir);
-                                    changes.note(ui.add_enabled(guided, nf::Checkbox::new(&mut key.orient_to_path, "Orient to path")).on_disabled_hover_text("Needs a motion guide layer"));
-                                    changes.note(ui.add_enabled(guided, nf::Checkbox::new(&mut key.snap_to_guide, "Snap to motion guide")).on_disabled_hover_text("Needs a motion guide layer"));
+                                    let orient_resp = ui.add_enabled(guided, nf::Checkbox::new(&mut key.orient_to_path, "Orient to path"));
+                                    changes.note(crate::ui_icons::hover_tooltip(orient_resp, "", None, Some("Needs a motion guide layer")));
+                                    let snap_resp = ui.add_enabled(guided, nf::Checkbox::new(&mut key.snap_to_guide, "Snap to motion guide"));
+                                    changes.note(crate::ui_icons::hover_tooltip(snap_resp, "", None, Some("Needs a motion guide layer")));
                                     changes.note(ui.add(nf::Checkbox::new(&mut key.sync_symbols, "Sync graphic symbols")));
                                     changes.note(ui.add(nf::Checkbox::new(&mut key.tween_scale, "Scale")));
                                 }
@@ -1186,7 +1193,9 @@ impl Editor {
                     inspector_section(ui, "Publish", |ui| {
                         ui.add(Badge::new("HTML5 · Rust / WebAssembly", BadgeType::Accent));
                         // §4: "Publish settings…"; publishing itself is File ▸ Publish and the top-bar Publish button.
-                        if ui.add(nf::Button::new("Publish settings…")).on_hover_text("Publish settings (preview). Publish HTML5 with the Publish button or File ▸ Publish.").clicked() { Self::open_planned(ui.ctx(), "Properties ▸ Publish settings…"); }
+                        if ui.add(nf::Button::ghost("Publish settings…")).clicked() {
+                            Self::open_planned(ui.ctx(), "Properties ▸ Publish settings…");
+                        }
                     });
                     inspector_section_with_open(ui, "Project colours", false, |ui| {
                         self.project_colors_section_ui(ui, false);

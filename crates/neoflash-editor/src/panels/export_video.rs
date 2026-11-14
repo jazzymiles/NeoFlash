@@ -236,6 +236,7 @@ pub(crate) struct ExportVideoDraft {
     pub(crate) preview_texture: Option<egui::TextureHandle>,
     pub(crate) preview_dirty: bool,
     pub(crate) error_message: Option<String>,
+    pub(crate) estimate_blocked: bool,
     pub(crate) worker: Arc<Mutex<VideoAsyncWorker>>,
 }
 
@@ -287,6 +288,7 @@ impl ExportVideoDraft {
             preview_texture: None,
             preview_dirty: true,
             error_message: None,
+            estimate_blocked: false,
             worker: Arc::new(Mutex::new(VideoAsyncWorker::default())),
         };
         draft.sync_and_refresh(project, current_frame);
@@ -347,9 +349,11 @@ impl ExportVideoDraft {
         match estimate_video(project, &self.options) {
             Ok(est) => {
                 self.estimate = Some(est);
+                self.estimate_blocked = false;
                 self.error_message = None;
             }
             Err(e) => {
+                self.estimate_blocked = true;
                 self.error_message = Some(e.to_string());
             }
         }
@@ -585,6 +589,16 @@ impl Editor {
     ) -> Result<VideoExportReport, String> {
         match result {
             Ok(report) => {
+                let file_name = report
+                    .output_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("video");
+                self.toast(
+                    c::ToastType::Success,
+                    format!("Video exported — {file_name}"),
+                );
                 self.message(format!(
                     "Video exported: {} ({}, {} frames, {}×{})",
                     report.output_path.display(),
@@ -675,12 +689,19 @@ impl Editor {
         };
 
         if let Some((path, res)) = draft.worker.lock().ok().and_then(|mut w| w.poll(ctx)) {
-            if res.is_ok() {
-                self.persist_video_export_options(&draft.options);
+            match res {
+                Ok(report) => {
+                    self.persist_video_export_options(&draft.options);
+                    let _ = self.finish_video_export(&path, Ok(report));
+                    self.export_video = None;
+                    return;
+                }
+                Err(err) => {
+                    let msg = err.clone();
+                    let _ = self.finish_video_export(&path, Err(err));
+                    draft.error_message = Some(msg);
+                }
             }
-            let _ = self.finish_video_export(&path, res);
-            self.export_video = None;
-            return;
         }
 
         if let Some((pw, ph, rgba)) = draft.worker.lock().ok().and_then(|w| w.take_latest_frame()) {
@@ -726,31 +747,44 @@ impl Editor {
                                     .as_ref()
                                     .map(|e| e.frame_count)
                                     .unwrap_or(1);
-                                let (prog_label, prog_frac) =
-                                    if let Some((done, total)) = progress_counts {
-                                        (
-                                            format!("Exporting frames {done} / {total}"),
-                                            Some((done as f32 / total.max(1) as f32).clamp(0.0, 1.0)),
-                                        )
+                                if is_exporting {
+                                    let (prog_label, prog_frac) =
+                                        if let Some((done, total)) = progress_counts {
+                                            (
+                                                format!("Exporting frames {done} / {total}"),
+                                                Some(
+                                                    (done as f32 / total.max(1) as f32)
+                                                        .clamp(0.0, 1.0),
+                                                ),
+                                            )
+                                        } else {
+                                            (
+                                                format!("Exporting frames 0 / {total_frames}"),
+                                                Some(0.0),
+                                            )
+                                        };
+                                    c::progress(ui, &prog_label, prog_frac, 300.0);
+                                    let status_text = if is_paused {
+                                        "Preview paused · ▶ to resume"
                                     } else {
-                                        (
-                                            format!("Exporting frames 0 / {total_frames}"),
-                                            Some(0.0),
-                                        )
+                                        "Preview while rendering · ⏸ to pause"
                                     };
-                                c::progress(ui, &prog_label, prog_frac, 300.0);
-                                let status_text = if is_exporting && is_paused {
-                                    "Preview paused · ▶ to resume"
+                                    caption(ui, status_text);
                                 } else {
-                                    "Preview while rendering · ⏸ to pause"
-                                };
-                                caption(ui, status_text);
-                                if let Some(err) = &draft.error_message {
-                                    ui.add(c::LogLine {
-                                        severity: c::Severity::Error,
-                                        time: "",
-                                        text: err,
-                                    });
+                                    caption(
+                                        ui,
+                                        &format!(
+                                            "Preview · frame {}",
+                                            draft.options.from_frame.max(1)
+                                        ),
+                                    );
+                                    if let Some(err) = &draft.error_message {
+                                        ui.add(c::LogLine {
+                                            severity: c::Severity::Error,
+                                            time: "",
+                                            text: err,
+                                        });
+                                    }
                                 }
                             });
                             ui.add_space(space::S5);
@@ -1190,34 +1224,34 @@ impl Editor {
                         caption(ui, &footer_summary);
                     },
                     |ui| {
-                        if is_exporting {
-                            let pause_lbl = if is_paused { "Resume" } else { "Pause" };
-                            if ui.add(c::Button::ghost(pause_lbl)).clicked() {
-                                toggle_pause = true;
-                            }
-                        }
-                        if ui.add(c::Button::new("Cancel")).clicked() {
-                            cancel = true;
-                        }
                         let can_export = !is_exporting
-                            && draft.error_message.is_none()
+                            && !draft.estimate_blocked
                             && (!draft.options.format.requires_ffmpeg()
                                 || draft
                                     .estimate
                                     .as_ref()
                                     .is_none_or(|e| e.ffmpeg_available));
                         if ui
-                            .add_enabled(can_export, c::Button::primary("Export"))
+                            .add_enabled(can_export, c::Button::primary("Export").icon(i16::UPLOAD))
                             .clicked()
                         {
                             do_export = true;
+                        }
+                        if ui.add(c::Button::new("Cancel")).clicked() {
+                            cancel = true;
+                        }
+                        if is_exporting {
+                            let pause_lbl = if is_paused { "Resume" } else { "Pause" };
+                            if ui.add(c::Button::ghost(pause_lbl)).clicked() {
+                                toggle_pause = true;
+                            }
                         }
                     },
                 );
             });
 
         let can_export_now = !is_exporting
-            && draft.error_message.is_none()
+            && !draft.estimate_blocked
             && (!draft.options.format.requires_ffmpeg()
                 || draft.estimate.as_ref().is_none_or(|e| e.ffmpeg_available));
         if !cancel && !do_export && !toggle_pause {
@@ -1239,16 +1273,28 @@ impl Editor {
             draft.sync_and_refresh(&self.project, self.frame);
         }
         if do_export {
+            draft.error_message = None;
             draft.sync_and_refresh(&self.project, self.frame);
-            if let Some(path) = self.choose_export_video_path(&draft) {
+            if !draft.estimate_blocked
+                && let Some(path) = self.choose_export_video_path(&draft)
+            {
                 self.persist_video_export_options(&draft.options);
                 let immediate = draft.worker.lock().ok().and_then(|mut w| {
                     w.spawn_export(self.project.clone(), path, draft.options.clone())
                 });
                 if let Some((out_path, res)) = immediate {
-                    let _ = self.finish_video_export(&out_path, res);
-                    self.export_video = None;
-                    return;
+                    match res {
+                        Ok(report) => {
+                            let _ = self.finish_video_export(&out_path, Ok(report));
+                            self.export_video = None;
+                            return;
+                        }
+                        Err(err) => {
+                            let msg = err.clone();
+                            let _ = self.finish_video_export(&out_path, Err(err));
+                            draft.error_message = Some(msg);
+                        }
+                    }
                 }
             }
         }
@@ -1323,5 +1369,142 @@ mod tests {
             }
             assert!(editor.export_video.is_some());
         }
+    }
+
+    #[test]
+    fn export_video_state_machine_and_footer_button_order() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        editor.open_export_video(None);
+        let run_modal = |editor: &mut Editor| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1920.0, 1080.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| editor.export_video_modal(ctx),
+            )
+        };
+        let label_rect = |out: &egui::FullOutput, label: &str| -> Option<egui::Rect> {
+            out.platform_output
+                .accesskit_update
+                .as_ref()?
+                .nodes
+                .iter()
+                .find_map(|(_, n)| {
+                    (n.label().or(n.value()) == Some(label))
+                        .then(|| n.bounds())
+                        .flatten()
+                        .map(|r| {
+                            egui::Rect::from_min_max(
+                                egui::pos2(r.x0 as f32, r.y0 as f32),
+                                egui::pos2(r.x1 as f32, r.y1 as f32),
+                            )
+                        })
+                })
+        };
+
+        // 1. Idle state: Preview caption, Cancel before Export, no Pause/Resume.
+        let idle = run_modal(&mut editor);
+        assert!(label_rect(&idle, "Preview · frame 1").is_some());
+        let cancel_r = label_rect(&idle, "Cancel").expect("Idle Cancel");
+        let export_r = label_rect(&idle, "Export").expect("Idle Export");
+        assert!(cancel_r.left() < export_r.left());
+        assert!(label_rect(&idle, "Pause").is_none());
+        assert!(label_rect(&idle, "Resume").is_none());
+
+        // 2. Exporting state: progress bar, pause caption, Pause · Cancel · Export order.
+        let (tx, rx) = mpsc::channel();
+        let worker = editor.export_video.as_ref().unwrap().worker.clone();
+        {
+            let mut w = worker.lock().unwrap();
+            w.generation = 7;
+            w.running = Some(RunningVideoExport {
+                generation: 7,
+                cancel: Arc::new(AtomicBool::new(false)),
+                paused: Arc::new(AtomicBool::new(false)),
+                frame_index: Arc::new(AtomicU32::new(2)),
+                frame_count: Arc::new(AtomicU32::new(5)),
+                latest_frame: Arc::new(Mutex::new(None)),
+                rx,
+            });
+        }
+        let exporting = run_modal(&mut editor);
+        assert_eq!(worker.lock().unwrap().progress_counts(), Some((2, 5)));
+        let has_progress_galley = exporting.shapes.iter().any(|s| {
+            matches!(
+                &s.shape,
+                egui::Shape::Text(t) if t.galley.text().contains("Exporting frames 2 / 5")
+            )
+        });
+        assert!(has_progress_galley);
+        assert!(label_rect(&exporting, "Preview while rendering · ⏸ to pause").is_some());
+        let pause_r = label_rect(&exporting, "Pause").expect("Exporting Pause");
+        let cancel_r = label_rect(&exporting, "Cancel").expect("Exporting Cancel");
+        let export_r = label_rect(&exporting, "Export").expect("Exporting Export");
+        assert!(pause_r.left() < cancel_r.left() && cancel_r.left() < export_r.left());
+
+        // 3. Paused state: Resume label and order Resume · Cancel · Export.
+        worker.lock().unwrap().toggle_pause();
+        let paused = run_modal(&mut editor);
+        assert!(label_rect(&paused, "Preview paused · ▶ to resume").is_some());
+        let resume_r = label_rect(&paused, "Resume").expect("Paused Resume");
+        let cancel_r = label_rect(&paused, "Cancel").expect("Paused Cancel");
+        let export_r = label_rect(&paused, "Export").expect("Paused Export");
+        assert!(resume_r.left() < cancel_r.left() && cancel_r.left() < export_r.left());
+
+        // 4. Failed state: error row in left column while modal stays open.
+        tx.send(Some((
+            PathBuf::from("/tmp/out.mp4"),
+            Err("encoder failed".to_owned()),
+        )))
+        .unwrap();
+        let failed = run_modal(&mut editor);
+        assert!(editor.export_video.is_some());
+        assert!(label_rect(&failed, "Preview · frame 1").is_some());
+        assert!(failed.shapes.iter().any(|s| matches!(
+            &s.shape,
+            egui::Shape::Text(t) if t.galley.text().contains("encoder failed")
+        )));
+        assert!(!failed.shapes.iter().any(|s| matches!(
+            &s.shape,
+            egui::Shape::Text(t) if t.galley.text().contains("Exporting frames")
+        )));
+
+        // 5. Finished state: modal closes and records last_video_report.
+        let (tx_done, rx_done) = mpsc::channel();
+        {
+            let mut w = worker.lock().unwrap();
+            w.generation = 8;
+            w.running = Some(RunningVideoExport {
+                generation: 8,
+                cancel: Arc::new(AtomicBool::new(false)),
+                paused: Arc::new(AtomicBool::new(false)),
+                frame_index: Arc::new(AtomicU32::new(5)),
+                frame_count: Arc::new(AtomicU32::new(5)),
+                latest_frame: Arc::new(Mutex::new(None)),
+                rx: rx_done,
+            });
+        }
+        let report = VideoExportReport {
+            output_path: PathBuf::from("/tmp/out.gif"),
+            additional_files: Vec::new(),
+            bytes: 1024,
+            frame_count: 5,
+            width: 550,
+            height: 400,
+            audio_included: false,
+            warnings: Vec::new(),
+        };
+        tx_done
+            .send(Some((PathBuf::from("/tmp/out.gif"), Ok(report.clone()))))
+            .unwrap();
+        let _ = run_modal(&mut editor);
+        assert!(editor.export_video.is_none());
+        assert_eq!(editor.last_video_report.as_ref(), Some(&report));
     }
 }

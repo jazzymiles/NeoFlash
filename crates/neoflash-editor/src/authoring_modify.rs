@@ -3012,9 +3012,17 @@ impl Editor {
 
     /// Color panel ⋯ menu (§6 "Color — panel menu"): Add swatch · Help · Close · Close group.
     pub(crate) fn color_panel_menu(&mut self, ui: &mut egui::Ui) {
-        Self::planned_menu_item(ui, "Color menu ▸ Add swatch", "");
-        Self::unavailable_item(ui, "Help", "F1");
-        if crate::ui_icons::menu_item(ui, "Close", "⌘W").clicked() {
+        if crate::ui_icons::menu_item(ui, "Add swatch", "").clicked() {
+            let ctx = ui.ctx().clone();
+            self.add_active_swatch(&ctx);
+            ui.close();
+        }
+        if crate::ui_icons::menu_item(ui, "Help", "F1").clicked() {
+            let ctx = ui.ctx().clone();
+            self.open_function_search(&ctx);
+            ui.close();
+        }
+        if crate::ui_icons::menu_item(ui, "Close", "").clicked() {
             self.set_panel_visible(PanelId::Color, false);
             ui.close();
         }
@@ -3068,95 +3076,119 @@ impl Editor {
         let count = self.modify_layout_units(ui.ctx()).len();
         ui.add_enabled_ui_semantic(count > 0, |ui| {
             overline(ui, "Align");
-            ui.add_enabled_ui_semantic(
-                count >= 2 || (count > 0 && self.authoring_modify.to_stage),
-                |ui| {
-                    alignment_groups(ui, "Align", ALIGN_ICONS, |ui, axis, edge| {
-                        self.align_selection(ui.ctx(), axis, edge)
-                    });
-                },
-            )
-            .response
-            .on_disabled_hover_text("Select two objects, or choose Stage to align one object.");
+            let align_resp = ui
+                .add_enabled_ui_semantic(
+                    count >= 2 || (count > 0 && self.authoring_modify.to_stage),
+                    |ui| {
+                        alignment_groups(ui, "Align", ALIGN_ICONS, |ui, axis, edge| {
+                            self.align_selection(ui.ctx(), axis, edge)
+                        });
+                    },
+                )
+                .response;
+            crate::ui_icons::hover_tooltip(
+                align_resp,
+                "",
+                None,
+                Some("Select two objects, or choose Stage to align one object"),
+            );
             overline(ui, "Distribute");
-            ui.add_enabled_ui_semantic(count >= 3, |ui| {
-                alignment_groups(ui, "Distribute", DISTRIBUTE_ICONS, |ui, axis, edge| {
-                    self.distribute_selection(ui.ctx(), axis, edge)
+            let dist_resp = ui
+                .add_enabled_ui_semantic(count >= 3, |ui| {
+                    alignment_groups(ui, "Distribute", DISTRIBUTE_ICONS, |ui, axis, edge| {
+                        self.distribute_selection(ui.ctx(), axis, edge)
+                    })
                 })
-            })
-            .response
-            .on_disabled_hover_text("Select at least three objects to distribute their positions.");
+                .response;
+            crate::ui_icons::hover_tooltip(
+                dist_resp,
+                "",
+                None,
+                Some("Select at least three objects to distribute their positions"),
+            );
             overline(ui, "Spacing");
-            ui.add_enabled_ui_semantic(count >= 2, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
-                    let even = IconGroup {
-                        items: &[
-                            (
-                                i16::SPACE_H,
-                                "Space evenly horizontally (keeps outer bounds)",
-                            ),
-                            (i16::SPACE_V, "Space evenly vertically (keeps outer bounds)"),
-                        ],
-                        selected: None,
-                    }
-                    .show(ui);
-                    if let Some(axis) = even {
-                        self.space_selection(ui.ctx(), axis, None);
-                    }
-                    let gap = &mut self.authoring_modify.horizontal_gap;
-                    let before = *gap;
-                    ui.add(
-                        DragField::new(gap, "Spacing gap (px)")
-                            .prefix("Gap")
-                            .suffix(" px")
-                            .range(-100_000. ..=100_000.)
-                            .max_decimals(2)
-                            .width(ui.available_width().min(132.)),
-                    );
-                    if *gap != before {
-                        self.authoring_modify.vertical_gap = *gap;
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
-                    let apply = IconGroup {
-                        items: &[
-                            (i16::SPACE_H, "Apply gap horizontally"),
-                            (i16::SPACE_V, "Apply gap vertically"),
-                        ],
-                        selected: None,
-                    }
-                    .show(ui);
-                    caption_label(ui, "Apply the gap");
-                    if let Some(axis) = apply {
-                        let gap = if axis == 0 {
-                            self.authoring_modify.horizontal_gap
-                        } else {
-                            self.authoring_modify.vertical_gap
-                        };
-                        self.space_selection(ui.ctx(), axis, Some(gap));
-                    }
-                });
-            })
-            .response
-            .on_disabled_hover_text("Select two or more objects to space them.");
+            let space_resp = ui
+                .add_enabled_ui_semantic(count >= 2, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S2;
+                        let even = IconGroup {
+                            items: &[
+                                (
+                                    i16::SPACE_H,
+                                    "Space evenly horizontally (keeps outer bounds)",
+                                ),
+                                (i16::SPACE_V, "Space evenly vertically (keeps outer bounds)"),
+                            ],
+                            selected: None,
+                        }
+                        .show(ui);
+                        if let Some(axis) = even {
+                            self.space_selection(ui.ctx(), axis, None);
+                        }
+                        let gap = &mut self.authoring_modify.horizontal_gap;
+                        let before = *gap;
+                        ui.add(
+                            DragField::new(gap, "Spacing gap (px)")
+                                .prefix("Gap")
+                                .suffix(" px")
+                                .range(-100_000. ..=100_000.)
+                                .max_decimals(2)
+                                .width(ui.available_width().min(132.)),
+                        );
+                        if *gap != before {
+                            self.authoring_modify.vertical_gap = *gap;
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S2;
+                        let apply = IconGroup {
+                            items: &[
+                                (i16::SPACE_H, "Apply gap horizontally"),
+                                (i16::SPACE_V, "Apply gap vertically"),
+                            ],
+                            selected: None,
+                        }
+                        .show(ui);
+                        caption_label(ui, "Apply the gap");
+                        if let Some(axis) = apply {
+                            let gap = if axis == 0 {
+                                self.authoring_modify.horizontal_gap
+                            } else {
+                                self.authoring_modify.vertical_gap
+                            };
+                            self.space_selection(ui.ctx(), axis, Some(gap));
+                        }
+                    });
+                })
+                .response;
+            crate::ui_icons::hover_tooltip(
+                space_resp,
+                "",
+                None,
+                Some("Select two or more objects to space them"),
+            );
             overline(ui, "Match size");
-            ui.add_enabled_ui_semantic(count >= 2, |ui| {
-                let clicked = IconGroup {
-                    items: &[
-                        (i16::MATCH_W, "Match width"),
-                        (i16::MATCH_H, "Match height"),
-                    ],
-                    selected: None,
-                }
-                .show(ui);
-                if let Some(axis) = clicked {
-                    self.match_selection_size(ui.ctx(), axis);
-                }
-            })
-            .response
-            .on_disabled_hover_text("Select two or more objects to match their size.");
+            let match_resp = ui
+                .add_enabled_ui_semantic(count >= 2, |ui| {
+                    let clicked = IconGroup {
+                        items: &[
+                            (i16::MATCH_W, "Match width"),
+                            (i16::MATCH_H, "Match height"),
+                        ],
+                        selected: None,
+                    }
+                    .show(ui);
+                    if let Some(axis) = clicked {
+                        self.match_selection_size(ui.ctx(), axis);
+                    }
+                })
+                .response;
+            crate::ui_icons::hover_tooltip(
+                match_resp,
+                "",
+                None,
+                Some("Select two or more objects to match their size"),
+            );
         });
     }
 
@@ -4064,10 +4096,8 @@ impl Editor {
                         egui::Stroke::new(w, color),
                         egui::StrokeKind::Inside,
                     );
-                    if resp
-                        .on_hover_text(format!("tile_{}.png", idx + 1))
-                        .clicked()
-                    {
+                    let tile_label = format!("tile_{}.png", idx + 1);
+                    if neoflash_ui::components::tooltip(resp, &tile_label, None).clicked() {
                         selected_tile = idx;
                         self.authoring_modify.drawing_bitmap_fill = Some(idx);
                         let _ = self.apply_bitmap_swatch_tile(idx);
@@ -5106,63 +5136,20 @@ fn spread_label(spread: neoflash_core::GradientSpread) -> &'static str {
     }
 }
 
-/// Paints the classic Flash gradient overflow diagram (`[dark -> light | dashed boundary | extend/reflect/repeat]`).
-fn paint_overflow_preview(
-    painter: &egui::Painter,
-    rect: egui::Rect,
+fn gradient_overflow_mode(
     spread: neoflash_core::GradientSpread,
-) {
-    let nf = neoflash_ui::palette(painter.ctx());
-    let inner = rect.shrink(0.5);
-    if inner.width() <= 2.0 || inner.height() <= 2.0 {
-        return;
-    }
-    let dark = egui::Color32::from_rgb(38, 42, 48);
-    let light = egui::Color32::from_rgb(236, 239, 244);
-    let mid_x = inner.center().x;
-    let mut mesh = egui::Mesh::default();
-    let add_horiz_grad =
-        |mesh: &mut egui::Mesh, x0: f32, x1: f32, c0: egui::Color32, c1: egui::Color32| {
-            let base = mesh.vertices.len() as u32;
-            mesh.colored_vertex(egui::pos2(x0, inner.top()), c0);
-            mesh.colored_vertex(egui::pos2(x0, inner.bottom()), c0);
-            mesh.colored_vertex(egui::pos2(x1, inner.top()), c1);
-            mesh.colored_vertex(egui::pos2(x1, inner.bottom()), c1);
-            mesh.add_triangle(base, base + 1, base + 2);
-            mesh.add_triangle(base + 1, base + 3, base + 2);
-        };
-    add_horiz_grad(&mut mesh, inner.left(), mid_x, dark, light);
+) -> neoflash_ui::components::GradientOverflowMode {
     match spread {
         neoflash_core::GradientSpread::Extend => {
-            add_horiz_grad(&mut mesh, mid_x, inner.right(), light, light);
+            neoflash_ui::components::GradientOverflowMode::Extend
         }
         neoflash_core::GradientSpread::Reflect => {
-            add_horiz_grad(&mut mesh, mid_x, inner.right(), light, dark);
+            neoflash_ui::components::GradientOverflowMode::Reflect
         }
         neoflash_core::GradientSpread::Repeat => {
-            add_horiz_grad(&mut mesh, mid_x, inner.right(), dark, light);
+            neoflash_ui::components::GradientOverflowMode::Repeat
         }
     }
-    painter.add(egui::Shape::mesh(mesh));
-    // Dashed boundary line down the middle, matching classic Flash Overflow Styles preview.
-    let dash_color = egui::Color32::from_rgb(220, 75, 45);
-    let top = inner.top() + 1.0;
-    let bot = inner.bottom() - 1.0;
-    let span = (bot - top).max(1.0);
-    for seg in 0..3 {
-        let y0 = top + span * (seg as f32 * 2.0 / 5.0);
-        let y1 = top + span * ((seg as f32 * 2.0 + 1.1) / 5.0);
-        painter.line_segment(
-            [egui::pos2(mid_x, y0), egui::pos2(mid_x, y1.min(bot))],
-            egui::Stroke::new(1.0_f32, dash_color),
-        );
-    }
-    painter.rect_stroke(
-        rect,
-        egui::CornerRadius::same(2),
-        egui::Stroke::new(1.0_f32, nf.border_default),
-        egui::StrokeKind::Inside,
-    );
 }
 
 fn flow_row(
@@ -5191,7 +5178,12 @@ fn flow_row(
                         egui::pos2(item_resp.rect.left() + 38.0, item_resp.rect.center().y),
                         egui::vec2(22.0, 14.0),
                     );
-                    paint_overflow_preview(ui.painter(), preview_rect, mode);
+                    neoflash_ui::components::paint_gradient_overflow_preview(
+                        ui.painter(),
+                        ui.ctx(),
+                        preview_rect,
+                        gradient_overflow_mode(mode),
+                    );
                     if item_resp.clicked() {
                         chosen = Some(mode);
                         ui.close();
@@ -5216,7 +5208,12 @@ fn flow_row(
             egui::CornerRadius::ZERO,
             closed_icon_bg,
         );
-        paint_overflow_preview(ui.painter(), closed_preview, spread);
+        neoflash_ui::components::paint_gradient_overflow_preview(
+            ui.painter(),
+            ui.ctx(),
+            closed_preview,
+            gradient_overflow_mode(spread),
+        );
         if let Some(next_spread) = chosen
             && next_spread != spread
         {
@@ -5324,12 +5321,15 @@ fn color_mixer_ui(
                 ui.spacing_mut().item_spacing = egui::vec2(space::S1, space::S1);
                 for c in recent {
                     let c32 = egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                    let r = ui
-                        .add(neoflash_ui::components::SwatchCell {
+                    let hex = format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
+                    let r = neoflash_ui::components::tooltip(
+                        ui.add(neoflash_ui::components::SwatchCell {
                             color: c32,
                             selected: c == *color,
-                        })
-                        .on_hover_text(format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]));
+                        }),
+                        &hex,
+                        None,
+                    );
                     if r.clicked() {
                         *color = ensure_solid_non_none(c);
                         changed_id = Some(r.id);

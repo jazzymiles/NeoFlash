@@ -1856,6 +1856,9 @@ impl Editor {
         }
         match g.tool {
             Tool::Hand => {
+                if pos != g.start {
+                    self.mark_manual_stage_view();
+                }
                 self.pan = g.pan + (pos - g.start);
                 p.ctx().request_repaint();
             }
@@ -2074,6 +2077,7 @@ impl Editor {
                     - view.center()
                     - (anchor - view.center() - g.pan) * (next / previous);
                 self.zoom = next;
+                self.mark_manual_stage_view();
             }
             Tool::Gradient => {
                 if let Some(gradient) = &g.gradient {
@@ -3725,33 +3729,43 @@ impl Editor {
                         .width(width),
                 );
                 self.authoring_tools.eraser_size = size as f32;
-                let (text, hint) = match self.authoring_tools.eraser_mode {
+                let (text, hint): (&str, Option<&str>) = match self.authoring_tools.eraser_mode {
                     EraserMode::Objects => (
                         "Remove touched objects",
-                        "Removes each touched object completely, including its fill and stroke.",
+                        Some(
+                            "Removes each touched object completely, including its fill and stroke",
+                        ),
                     ),
                     EraserMode::Fills => (
                         "Remove whole fills · keep strokes",
-                        "Removes the entire fill of touched artwork. This mode does not cut holes into fills.",
+                        Some(
+                            "Removes the entire fill of touched artwork. This mode does not cut holes into fills",
+                        ),
                     ),
                     EraserMode::Strokes => (
                         "Remove whole strokes · keep fills",
-                        "Removes the entire stroke of touched artwork, keeping its fill intact.",
+                        Some(
+                            "Removes the entire stroke of touched artwork, keeping its fill intact",
+                        ),
                     ),
                     EraserMode::SelectedFills => (
                         "Remove selected fills · keep strokes",
-                        "Erases only currently selected fills on editable layers, leaving unselected fills and all strokes intact.",
+                        Some(
+                            "Erases only currently selected fills on editable layers, leaving unselected fills and all strokes intact",
+                        ),
                     ),
                     EraserMode::Inside => (
                         "Remove fill where stroke began",
-                        "Erases only the single fill inside which the eraser gesture started, leaving other fills and all strokes untouched.",
+                        Some(
+                            "Erases only the single fill inside which the eraser gesture started, leaving other fills and all strokes untouched",
+                        ),
                     ),
                     EraserMode::StrokeSegments => (
-                        "Cut touched strokes · keep fills",
-                        "Cuts the touched parts of vector strokes and keeps fills intact; touched curves are approximated. Masked artwork, combined fill/stroke effects and guided tweens needing new keys cannot be cut. A refused gesture changes no artwork.",
+                        "Cuts through fills and strokes along the eraser path. Grouped and Object Drawing artwork stays whole.",
+                        None,
                     ),
                 };
-                note(ui, text, Some(hint));
+                note(ui, text, hint);
             }
             Tool::Lasso => {
                 let response = ui.add(nf::Checkbox::new(
@@ -3769,7 +3783,7 @@ impl Editor {
                 ));
                 nf::tooltip(
                     partial_resp,
-                    "Slice Merge-mode fills along the freehand lasso contour (or hold Option while dragging) to select only the enclosed fill region.",
+                    "Slice Merge-mode fills along the freehand lasso contour (or hold Option while dragging) to select only the enclosed fill region",
                     None,
                 );
                 let poly_resp = ui.add(nf::Checkbox::new(
@@ -3781,7 +3795,7 @@ impl Editor {
                 }
                 nf::tooltip(
                     poly_resp,
-                    "Click to add straight-sided polygon vertices; double-click (or press Enter) to close the selection loop.",
+                    "Click to add straight-sided polygon vertices; double-click (or press Enter) to close the selection loop",
                     None,
                 );
                 let wand_resp = ui.add(nf::Checkbox::new(
@@ -3794,7 +3808,7 @@ impl Editor {
                 }
                 nf::tooltip(
                     wand_resp,
-                    "Click a bitmap or fill to select contiguous pixels or fills of matching color within the Magic Wand threshold.",
+                    "Click a bitmap or fill to select contiguous pixels or fills of matching color within the Magic Wand threshold",
                     None,
                 );
                 if ui.add(nf::Button::ghost("Magic wand settings…")).clicked() {

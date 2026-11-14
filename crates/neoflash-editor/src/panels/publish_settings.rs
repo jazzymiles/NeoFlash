@@ -394,10 +394,12 @@ impl Editor {
                                     }
                                 });
                                 ui.horizontal(|ui| {
-                                    if ui
-                                        .add(c::Button::ghost("Duplicate"))
-                                        .on_hover_text("Duplicate active publish profile")
-                                        .clicked()
+                                    if c::tooltip(
+                                        ui.add(c::Button::ghost("Duplicate")),
+                                        "Duplicate active publish profile",
+                                        None,
+                                    )
+                                    .clicked()
                                     {
                                         let dup = draft.duplicate_active_profile(None);
                                         let _ = draft.simulate_network(&self.project);
@@ -406,17 +408,21 @@ impl Editor {
                                             dup.name
                                         ));
                                     }
-                                    if ui
-                                        .add(c::Button::ghost("Import JSON"))
-                                        .on_hover_text("Import PublishProfile JSON")
-                                        .clicked()
+                                    if c::tooltip(
+                                        ui.add(c::Button::ghost("Import JSON")),
+                                        "Import PublishProfile JSON",
+                                        None,
+                                    )
+                                    .clicked()
                                     {
                                         import_profile_dialog = true;
                                     }
-                                    if ui
-                                        .add(c::Button::ghost("Export JSON"))
-                                        .on_hover_text("Export PublishProfile JSON")
-                                        .clicked()
+                                    if c::tooltip(
+                                        ui.add(c::Button::ghost("Export JSON")),
+                                        "Export PublishProfile JSON",
+                                        None,
+                                    )
+                                    .clicked()
                                     {
                                         export_profile_dialog = true;
                                     }
@@ -430,7 +436,7 @@ impl Editor {
                                     (
                                         PublishTarget::DesktopApp,
                                         i16::DESKTOP,
-                                        "Desktop app (macOS / Windows)",
+                                        "Desktop app (macOS / Windows / Linux)",
                                     ),
                                     (PublishTarget::VideoMp4, i16::VIDEO, "Video (MP4)"),
                                     (
@@ -1417,7 +1423,7 @@ fn draw_desktop_app_target_settings(
     draft: &mut PublishSettingsDraft,
 ) {
     let p = neoflash_ui::palette(ui.ctx());
-    ui.label(rich("Desktop app (macOS / Windows)", TextStyle::Title).color(p.text_primary));
+    ui.label(rich("Desktop app (macOS / Windows / Linux)", TextStyle::Title).color(p.text_primary));
     group(ui, "Output");
     ui.horizontal(|ui| {
         let mut folder = draft
@@ -1476,7 +1482,7 @@ fn draw_image_sequence_target_settings(
             .add(
                 c::TextField::new(&mut folder, "Image sequence folder")
                     .prefix("Folder")
-                    .hint("~/Projects/ideas/frames")
+                    .hint("Choose a folder")
                     .width(420.0),
             )
             .changed()

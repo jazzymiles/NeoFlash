@@ -276,7 +276,7 @@ impl Editor {
             });
             return;
         };
-        ui.add(
+        let name_resp = ui.add(
             egui::Label::new(
                 neoflash_ui::typography::rich(
                     if element.name.is_empty() {
@@ -289,15 +289,15 @@ impl Editor {
                 .color(p.text_primary),
             )
             .truncate(),
-        )
-        .on_hover_text(&element.name);
+        );
+        nf::tooltip(name_resp, &element.name, None);
         ui.add_space(space::S1);
         let mut metadata = element.accessibility.clone();
         egui::ScrollArea::vertical().id_salt("accessibility_form").auto_shrink([false, false]).themed().show(ui, |ui| {
             // Wide docks keep the form at two inspector widths (NF2 floating panel proportions).
                 ui.set_max_width(ui.available_width().min(2. * neoflash_ui::metrics::inspector()));
             ui.spacing_mut().item_spacing.y = space::S2;
-            ui.add_enabled_ui_semantic(self.selected_editable(), |ui| {
+            let acc_resp = ui.add_enabled_ui_semantic(self.selected_editable(), |ui| {
                 let mut enabled = metadata.is_some();
                 let expose = ui.add(nf::Switch::new(&mut enabled, "Expose object in HTML5"));
                 expose.widget_info(|| {
@@ -418,7 +418,13 @@ impl Editor {
                         note(ui, "Images expose their name and description without entering the keyboard focus order.");
                     }
                 });
-            }).response.on_disabled_hover_text("Unlock the selected layer to edit this object's accessibility.");
+            }).response;
+            crate::ui_icons::hover_tooltip(
+                acc_resp,
+                "",
+                None,
+                Some("Unlock the selected layer to edit this object's accessibility"),
+            );
         });
         if metadata != element.accessibility {
             self.set_accessibility(metadata);

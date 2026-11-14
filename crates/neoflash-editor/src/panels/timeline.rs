@@ -648,6 +648,7 @@ impl Editor {
                                         Pos2::new(row_rect.right() - space::S2 - LAYER_TOGGLE, row_rect.top()),
                                         Vec2::new(LAYER_TOGGLE, row_rect.height()),
                                     );
+                                    self.record_layer_outline_swatch_rect(ui.ctx(), &layer.id, swatch);
                                     let swatch = ui.interact(swatch, row.row.id.with(ToggleKind::Outline as u8), Sense::click());
                                     self.layer_outline_menu(&swatch, &layer);
                                     if let Some(draft) = rename.as_mut().filter(|draft| draft.layer == layer.id) {
@@ -735,7 +736,12 @@ impl Editor {
                                         }
                                         ui.ctx().request_repaint();
                                     }
-                                    response.on_hover_text("Drag to reorder. Double-click to rename layer").context_menu(|ui| {
+                                    neoflash_ui::components::tooltip(
+                                        response,
+                                        "Drag to reorder. Double-click to rename layer",
+                                        None,
+                                    )
+                                    .context_menu(|ui| {
                                         if self.timeline_layer_menu(ui, idx) {
                                             rename = Some(LayerRename { layer: layer.id.clone(), text: layer.name.clone(), focus: true });
                                             ui.ctx().request_repaint();
@@ -842,7 +848,16 @@ impl Editor {
                                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                                     }
                                     let hover_layer_name = hover_layer.name.clone();
-                                    response.clone().on_hover_text(format!("{} · Frame {}\n{}\nShift-click/drag selects a frame range. Drag a selected range to move; Option-drag copies.\nRight-click for frame commands and Actions", hover_layer_name, frame + 1, label));
+                                    neoflash_ui::components::tooltip(
+                                        response.clone(),
+                                        &format!(
+                                            "{} · Frame {}\n{}\nShift-click/drag selects a frame range. Drag a selected range to move; Option-drag copies.\nRight-click for frame commands and Actions",
+                                            hover_layer_name,
+                                            frame + 1,
+                                            label
+                                        ),
+                                        None,
+                                    );
                                 }
                                 if response.dragged_by(egui::PointerButton::Primary)
                                     && let Some((symbol, layer_id, from)) = &self.timeline_key_drag
@@ -1376,7 +1391,7 @@ impl Editor {
                 data.remove::<LayerRename>(rename_id);
             }
         });
-        self.layer_outline_color_dialog(&ctx);
+        self.layer_outline_color_popover(&ctx);
     }
 
     /// Rows of the frame area, back to front per row: `TL Grid` (empty frames, 5th shaded; folders
@@ -1968,13 +1983,17 @@ impl Editor {
         }
         nf::menu_separator(ui);
         nf::menu_section(ui, "Options");
-        menu_toggle(
+        let include_resp = menu_toggle(
             ui,
             &mut self.timeline_edit.include_scripts,
             "Include frame scripts",
             "",
-        )
-        .on_hover_text("Frame scripts belong to this timeline, not to a layer. Include them once in frame copy, move, insert and remove operations. Script collisions are rejected.");
+        );
+        neoflash_ui::components::tooltip(
+            include_resp,
+            "Frame scripts belong to this timeline, not to a layer. Include them once in frame copy, move, insert and remove operations. Script collisions are rejected",
+            None,
+        );
     }
 
     /// One frame-range command row (Edit ▸ Timeline and the frame menu).
@@ -1986,9 +2005,14 @@ impl Editor {
         command: crate::timeline_edit::FrameCommand,
     ) {
         let enabled = self.frame_command_enabled(command);
-        if crate::ui_icons::menu_item_enabled(ui, enabled, label, shortcut)
-            .on_disabled_hover_text("Select frames in the Timeline first.")
-            .clicked()
+        let resp = crate::ui_icons::menu_item_enabled(ui, enabled, label, shortcut);
+        if crate::ui_icons::hover_tooltip(
+            resp,
+            label,
+            (!shortcut.is_empty()).then_some(shortcut),
+            Some("Select frames in the Timeline first"),
+        )
+        .clicked()
         {
             self.run_frame_command(ui.ctx(), command);
             ui.close();
@@ -2050,9 +2074,7 @@ impl Editor {
             ),
         );
 
-        let mode_resp = ui
-            .interact(mode_btn_rect, row_id.with("mask-mode-cell"), Sense::click())
-            .on_hover_text(format!("Mask mode: {}", mask_mode.label()));
+        let mode_resp = ui.interact(mode_btn_rect, row_id.with("mask-mode-cell"), Sense::click());
         mode_resp.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Button,
@@ -2060,30 +2082,19 @@ impl Editor {
                 format!("Mask mode: {}", mask_mode.label()),
             )
         });
-        let channel_resp = ui
-            .interact(
-                channel_icon_rect,
-                row_id.with("mask-channel-icon"),
-                Sense::click(),
-            )
-            .on_hover_text(format!(
-                "Mask channel: {} (click to cycle Geometry / Alpha / Luminance)",
-                mask_mode.label()
-            ));
+        let channel_resp = ui.interact(
+            channel_icon_rect,
+            row_id.with("mask-channel-icon"),
+            Sense::click(),
+        );
         channel_resp.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Mask channel")
         });
-        let invert_resp = ui
-            .interact(
-                invert_icon_rect,
-                row_id.with("mask-invert-icon"),
-                Sense::click(),
-            )
-            .on_hover_text(if mask_invert {
-                "Invert mask: On"
-            } else {
-                "Invert mask: Off"
-            });
+        let invert_resp = ui.interact(
+            invert_icon_rect,
+            row_id.with("mask-invert-icon"),
+            Sense::click(),
+        );
         invert_resp.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Invert mask")
         });
@@ -2242,15 +2253,27 @@ impl Editor {
             });
         });
 
-        let _ = mode_resp.on_hover_text(format!("Mask mode: {}", mask_mode.label()));
-        let _ = channel_resp.on_hover_text(format!(
-            "Mask channel: {} — click to cycle Geometry / Alpha / Luminance (right-click for menu)",
-            mask_mode.label()
-        ));
-        let _ = invert_resp.on_hover_text(if mask_invert {
-            "Invert mask: On (click to use normal mask)"
-        } else {
-            "Invert mask: Off (click to invert mask coverage)"
-        });
+        let _ = nf::tooltip(
+            mode_resp,
+            &format!("Mask mode: {}", mask_mode.label()),
+            None,
+        );
+        let _ = nf::tooltip(
+            channel_resp,
+            &format!(
+                "Mask channel: {} — click to cycle Geometry / Alpha / Luminance (right-click for menu)",
+                mask_mode.label()
+            ),
+            None,
+        );
+        let _ = nf::tooltip(
+            invert_resp,
+            if mask_invert {
+                "Invert mask: On (click to use normal mask)"
+            } else {
+                "Invert mask: Off (click to invert mask coverage)"
+            },
+            None,
+        );
     }
 }

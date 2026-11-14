@@ -609,16 +609,21 @@ impl Editor {
                             {
                                 jump_target = Some(idx);
                             }
-                            if let Some(first_fix) = item.quick_fixes.first()
-                                && ui
-                                    .add_enabled(
-                                        can_jump,
-                                        c::IconButton::new(i16::WAND, &first_fix.title),
-                                    )
-                                    .on_hover_text(format!("Quick Fix: {}", first_fix.title))
-                                    .clicked()
-                            {
-                                quick_fix_target = Some((idx, 0));
+                            if let Some(first_fix) = item.quick_fixes.first() {
+                                let fix_resp = ui.add_enabled(
+                                    can_jump,
+                                    c::IconButton::new(i16::WAND, &first_fix.title),
+                                );
+                                if crate::ui_icons::hover_tooltip(
+                                    fix_resp,
+                                    &format!("Quick fix: {}", first_fix.title),
+                                    None,
+                                    Some("Fix target is unavailable in the current document"),
+                                )
+                                .clicked()
+                                {
+                                    quick_fix_target = Some((idx, 0));
+                                }
                             }
                         });
                     });

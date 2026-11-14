@@ -1528,8 +1528,18 @@ impl Editor {
                     egui::Stroke::new(2.0_f32, palette.accent),
                 );
             }
-            ui.interact(handle, ui.id().with(("exposure-end", &layer.id)), egui::Sense::hover())
-                .on_hover_text(format!("Layer ends after frame {end} · drag to change duration. Shortening removes later keys."));
+            let handle_resp = ui.interact(
+                handle,
+                ui.id().with(("exposure-end", &layer.id)),
+                egui::Sense::hover(),
+            );
+            neoflash_ui::components::tooltip(
+                handle_resp,
+                &format!(
+                    "Layer ends after frame {end} · drag to change duration. Shortening removes later keys"
+                ),
+                None,
+            );
         }
     }
 }

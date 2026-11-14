@@ -918,3 +918,49 @@ fn drawing_snap_tolerance_scales_object_snapping_with_zoom() {
         200.0
     );
 }
+
+#[test]
+fn t295_stage_auto_fit_tracks_resize_stops_on_manual_zoom_pan_and_resumes_on_fit() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.tool = Tool::Select;
+    let run_stage = |editor: &mut Editor, size: Vec2| {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+                time: Some(0.1),
+                ..Default::default()
+            },
+            |ctx| editor.stage(ctx),
+        );
+    };
+
+    run_stage(&mut editor, Vec2::new(700., 500.));
+    assert!(editor.stage_view.auto_fit);
+    let fitted_small = editor.zoom;
+    assert!(fitted_small > 0.);
+
+    // Resizing Stage while auto-fit is active updates zoom to fit the larger rect.
+    run_stage(&mut editor, Vec2::new(1400., 900.));
+    let fitted_large = editor.zoom;
+    assert!(editor.stage_view.auto_fit);
+    assert!(fitted_large > fitted_small);
+
+    // Manual zoom stops auto-fit across subsequent resizes.
+    editor.zoom_in();
+    let manual_zoom = editor.zoom;
+    assert!(!editor.stage_view.auto_fit);
+    run_stage(&mut editor, Vec2::new(700., 500.));
+    assert!(!editor.stage_view.auto_fit);
+    assert!((editor.zoom - manual_zoom).abs() < 1e-4);
+
+    // Fit stage re-enables auto-fit and tracks future resizes again.
+    editor.pan = Vec2::new(40., -20.);
+    editor.fit_stage();
+    assert!(editor.stage_view.auto_fit);
+    assert_eq!(editor.pan, Vec2::ZERO);
+    run_stage(&mut editor, Vec2::new(700., 500.));
+    assert!((editor.zoom - fitted_small).abs() < 1e-3);
+    run_stage(&mut editor, Vec2::new(1400., 900.));
+    assert!((editor.zoom - fitted_large).abs() < 1e-3);
+}

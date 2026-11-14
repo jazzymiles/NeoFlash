@@ -398,7 +398,7 @@ fn menu_row(
         ),
         None => egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &accessible),
     });
-    response.on_hover_text(accessible)
+    neoflash_ui::components::tooltip(response, label, (!shortcut.is_empty()).then_some(shortcut))
 }
 
 pub(crate) fn menu_item_enabled(
@@ -1220,6 +1220,56 @@ pub(crate) fn text_property_icon_button(
         neoflash_ui::components::tooltip(response, label, None)
     })
     .inner
+}
+
+/// Show an `NF2/Tooltip` on `response` whether enabled (`nf::tooltip`) or disabled
+/// (`contains_pointer()`, using `disabled_reason` in sentence case without appending `"Not available yet"`).
+pub(crate) fn hover_tooltip(
+    response: Response,
+    label: &str,
+    shortcut: Option<&str>,
+    disabled_reason: Option<&str>,
+) -> Response {
+    if response.enabled() {
+        return neoflash_ui::components::tooltip(response, label, shortcut);
+    }
+    let Some(reason) = disabled_reason.filter(|s| !s.is_empty()) else {
+        return response;
+    };
+    let ctx = response.ctx.clone();
+    if !response.contains_pointer() || ctx.input(|i| i.pointer.any_down()) {
+        return response;
+    }
+    let delay = ctx.style().interaction.tooltip_delay as f64;
+    let still = ctx.input(|i| i.pointer.time_since_last_movement()) as f64;
+    if still < delay {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(delay - still + 0.01));
+        return response;
+    }
+    let p = neoflash_ui::palette(&ctx);
+    let anchor = response.rect.center_bottom() + egui::vec2(0.0, neoflash_ui::tokens::space::S2);
+    egui::Area::new(response.id.with("nf2-disabled-tooltip"))
+        .order(egui::Order::Tooltip)
+        .pivot(egui::Align2::CENTER_TOP)
+        .fixed_pos(anchor)
+        .interactable(false)
+        .constrain(true)
+        .show(&ctx, |ui| {
+            egui::Frame::new()
+                .fill(p.tooltip_bg)
+                .corner_radius(egui::CornerRadius::same(
+                    neoflash_ui::tokens::radius::MD as u8,
+                ))
+                .inner_margin(egui::Margin::symmetric(10, 5))
+                .shadow(neoflash_ui::metrics::SHADOW_POPOVER.egui())
+                .show(ui, |ui| {
+                    ui.label(
+                        neoflash_ui::typography::rich(reason, neoflash_ui::TextStyle::Body)
+                            .color(p.text_inverse),
+                    );
+                });
+        });
+    response
 }
 
 pub(crate) fn text_property_badge(ui: &mut egui::Ui, glyph: TextPropertyGlyph, tooltip_text: &str) {

@@ -55,12 +55,12 @@ pub(crate) fn property_row<R>(
                 } else {
                     nf_palette(ui.ctx()).text_disabled
                 };
-                ui.add(
+                let text_resp = ui.add(
                     egui::Label::new(rich(label, TextStyle::Body).color(color))
                         .halign(egui::Align::Min)
                         .truncate(),
-                )
-                .on_hover_text(label);
+                );
+                neoflash_ui::components::tooltip(text_resp, label, None);
             },
         );
         content(ui)
@@ -144,8 +144,10 @@ pub(crate) fn number_field(
         egui::response::Flags::CHANGED,
         (*value - before).abs() > 1e-12,
     );
-    response.on_hover_text(
+    neoflash_ui::components::tooltip(
+        response,
         "Click to type · drag to scrub · Shift for precision · Enter to apply · Esc to cancel",
+        None,
     )
 }
 
@@ -516,7 +518,8 @@ pub(crate) fn color_row(
         alpha_response
             .flags
             .set(egui::response::Flags::CHANGED, alpha != before);
-        let alpha_response = alpha_response.on_hover_text(format!("{label} alpha"));
+        let alpha_response =
+            neoflash_ui::components::tooltip(alpha_response, &format!("{label} alpha"), None);
         if alpha_response.changed() {
             value[3] = (alpha / 100. * 255.).round().clamp(0., 255.) as u8;
             *value = crate::authoring_modify::ensure_solid_non_none(*value);
@@ -1043,9 +1046,11 @@ fn hex_field(
         ui.data_mut(|d| d.remove::<String>(draft_id));
     }
     response.flags.set(egui::response::Flags::CHANGED, applied);
-    response.on_hover_text(format!(
-        "Stored RGB: {current}; alpha changes preserve this color"
-    ))
+    neoflash_ui::components::tooltip(
+        response,
+        &format!("Stored RGB: {current}; alpha changes preserve this color"),
+        None,
+    )
 }
 
 impl Editor {

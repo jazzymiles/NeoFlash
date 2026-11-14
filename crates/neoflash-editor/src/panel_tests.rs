@@ -452,9 +452,9 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
     let before = editor.project.clone();
     let size = Vec2::new(1024., 720.);
     let first = frame(&mut editor, &ctx, size, 0.1, vec![]);
-    // Scroll actual panels, not their state objects: a user must be able to
-    // reach both the final view tool and a long library's last entry. The
-    // default dock is the two-column Tools panel; its whole body scrolls.
+    // Two-column Tools stays non-scrolling (R-078): top rows show primary tools,
+    // bottom color/modifier area stays pinned, and overflow moves remaining tools
+    // (including Fit stage) behind the `More tools` overflow button.
     let tools = editor
         .detached
         .dock_groups
@@ -462,28 +462,41 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
         .find(|group| group.tabs.iter().any(|(panel, _)| *panel == PanelId::Tools))
         .expect("Tools has a dock group")
         .rect;
-    for tool in ["Selection (V)", "Subselection (A)", "Hand (H / hold Space)"] {
+    for tool in ["Selection (V)", "Subselection (A)", "More tools"] {
         assert!(
             named_bounds(&first, tool).is_some(),
             "two columns show {tool}"
         );
     }
-    let selection = named_bounds(&first, "Selection (V)").expect("Tools shows Selection");
+    let more = named_bounds(&first, "More tools").expect("Tools shows More tools overflow");
+    assert!(tools.contains_rect(more), "{more:?} in {tools:?}");
     frame(
         &mut editor,
         &ctx,
         size,
         0.2,
-        wheel(selection.center(), Vec2::new(0., -2000.)),
+        vec![
+            Event::PointerMoved(more.center()),
+            primary_button(more.center(), true),
+        ],
     );
-    // Wheel input changes the next layout; inspect the following settled paints.
-    let mut out = frame(&mut editor, &ctx, size, 0.21, vec![]);
-    for step in 1..5 {
-        out = frame(&mut editor, &ctx, size, 0.21 + step as f64 / 60., vec![]);
+    let mut out = frame(
+        &mut editor,
+        &ctx,
+        size,
+        0.25,
+        vec![primary_button(more.center(), false)],
+    );
+    for step in 1..4 {
+        out = frame(&mut editor, &ctx, size, 0.25 + step as f64 / 60., vec![]);
     }
+    assert!(
+        named_bounds(&out, "Hand tool").is_some(),
+        "overflow popover includes Hand tool"
+    );
     let fit = named_bounds(&out, "Fit stage").expect("Fit must have an accessible button");
-    assert!(tools.contains_rect(fit), "{fit:?} in {tools:?}");
     editor.zoom = 1.5;
+    editor.pan = Vec2::new(24., -12.);
     frame(
         &mut editor,
         &ctx,
@@ -1441,9 +1454,11 @@ fn bounded_timeline_footer_preserves_stage_at_minimum_root_window() {
         (output, stage)
     };
     let initial_height = editor.workspace.dock.bottom.size;
+    let mut rendered_bottom = 0.;
     for pass in 0..20 {
         let (output, stage) = render(&mut editor, pass as f64 / 60., vec![]);
-        assert!(stage.width() >= 600. && stage.height() >= 200., "{stage:?}");
+        assert!(stage.width() >= 600. && stage.height() >= 360., "{stage:?}");
+        rendered_bottom = viewport.bottom() - stage.bottom();
         // The NF2 controls bar keeps transport and the pinned onion group in the window.
         for label in ["Play preview", "Onion skin", "Onion skin options"] {
             let bounds = named_bounds(&output, label).unwrap_or_else(|| panic!("missing {label}"));
@@ -1455,7 +1470,7 @@ fn bounded_timeline_footer_preserves_stage_at_minimum_root_window() {
         );
     }
     // Native input can batch press, movement and release between paints. The
-    // saved height must survive that gesture and leave a usable Stage.
+    // saved height must survive that gesture and leave a usable Stage (>= 360 px).
     let (output, _) = render(&mut editor, 1., vec![]);
     let grip = named_bounds(&output, "Resize bottom dock").expect("Timeline height grip");
     assert!(grip.height() >= 6.);
@@ -1471,11 +1486,16 @@ fn bounded_timeline_footer_preserves_stage_at_minimum_root_window() {
             primary_button(end, false),
         ],
     );
-    assert!((editor.workspace.dock.bottom.size - initial_height + 60.).abs() < 1.);
+    assert!(
+        (editor.workspace.dock.bottom.size - (rendered_bottom - 60.)).abs() < 1.,
+        "bottom size {} vs expected {}",
+        editor.workspace.dock.bottom.size,
+        rendered_bottom - 60.
+    );
     let saved_height = editor.workspace.dock.bottom.size;
     let (_, stage) = render(&mut editor, 1.4, vec![]);
     assert_eq!(editor.workspace.dock.bottom.size, saved_height);
-    assert!(stage.height() >= 160., "{stage:?}");
+    assert!(stage.height() >= 360., "{stage:?}");
     assert!(!editor.dirty());
 }
 
@@ -5991,7 +6011,9 @@ fn right_dock_priority_switches_by_shortcut_and_splitter_double_click() {
     ctx.enable_accesskit();
     let mut editor = Editor::from_project(&ctx, Project::demo());
     let before = editor.project.clone();
-    let size = Vec2::new(1440., 900.);
+    // Use a desktop viewport tall enough for both stacked right-dock panels to stay open above
+    // their useful minima so the splitter between them is shown (R-077 collapses at shorter heights).
+    let size = Vec2::new(1920., 1080.);
     let weight = |editor: &Editor, panel: PanelId| {
         editor
             .workspace
@@ -8899,4 +8921,524 @@ fn t224_inspector_tab_focus_transfer_commits_distinct_undos_and_clamps_bounds() 
     assert_eq!(prefs.video_options.width, 16);
     assert_eq!(prefs.video_options.height, 4320);
     assert_eq!(prefs.video_options.fps, 0.0);
+}
+
+#[test]
+fn t295_r077_r078_stacked_dock_collapse_priority_snap_and_top_bar_workspace_clamp() {
+    use crate::dock_grid::compute_vertical_dock_layout;
+    use crate::workspace::{DockGroup, DockLayout};
+    use neoflash_ui::metrics::{Density, density, set_density};
+
+    // R-077: Library minimum stacked height scales with density profile.
+    let saved_density = density();
+    set_density(Density::Comfortable);
+    assert_eq!(PanelId::Library.min_stacked_height(), 245.0);
+    set_density(Density::Compact);
+    assert_eq!(PanelId::Library.min_stacked_height(), 213.0);
+    set_density(Density::ClassicFlash);
+    assert_eq!(PanelId::Library.min_stacked_height(), 185.0);
+    set_density(saved_density);
+
+    // Tall column fits both groups above their useful minima without collapsing.
+    let groups = vec![
+        DockGroup {
+            id: 1,
+            tabs: vec![PanelId::Properties],
+            active: PanelId::Properties,
+            weight: DockLayout::PRIORITY_WEIGHT,
+        },
+        DockGroup {
+            id: 2,
+            tabs: vec![PanelId::Library],
+            active: PanelId::Library,
+            weight: 1.0 - DockLayout::PRIORITY_WEIGHT,
+        },
+    ];
+    let tall = compute_vertical_dock_layout(&groups, 600.0, 40.0);
+    assert_eq!(tall.collapsed, vec![false, false]);
+    assert!(tall.extents[0] >= 220.0);
+    assert!(tall.extents[1] >= 245.0);
+
+    // Tight 1024x720 window preserves >= 360px Stage, collapses crowded lower-priority Library to
+    // header strip with Expand Library button, preserves 0.68/0.32 weights, and flips on click.
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.set_theme(&ctx, ThemeMode::Light);
+    let run_shell = |editor: &mut Editor, size: Vec2, t: f64, events: Vec<Event>| {
+        let mut stage_rect = Rect::NOTHING;
+        let out = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+                time: Some(t),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                editor.shortcuts(ctx);
+                editor.menu(ctx);
+                editor.status_bar(ctx);
+                editor.dock_grid(ctx);
+                editor.document_bar(ctx);
+                stage_rect = ctx.available_rect();
+                editor.stage(ctx);
+            },
+        );
+        (out, stage_rect)
+    };
+
+    let size_min = Vec2::new(1024., 720.);
+    let (mut out_min, stage_min) = run_shell(&mut editor, size_min, 0.1, vec![]);
+    for i in 1..4 {
+        (out_min, _) = run_shell(&mut editor, size_min, 0.1 + i as f64 * 0.05, vec![]);
+    }
+    assert!(
+        stage_min.height() >= 360.0,
+        "1024x720 must keep Stage >= 360px, got {stage_min:?}"
+    );
+    assert!(named_bounds(&out_min, "Expand Library").is_some());
+    assert!(named_bounds(&out_min, "Search library").is_none());
+    let prop_group = editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|g| g.tabs.iter().any(|(p, _)| *p == PanelId::Properties))
+        .unwrap();
+    let lib_group = editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|g| g.tabs.iter().any(|(p, _)| *p == PanelId::Library))
+        .unwrap();
+    assert!((lib_group.rect.height() - neoflash_ui::metrics::panel_header()).abs() < 1.5);
+    assert!(prop_group.rect.height() >= PanelId::Properties.min_stacked_height() - 1.0);
+    // Saved weights stay intact despite auto-collapse.
+    assert!(
+        (editor.workspace.dock.right.groups[0].weight - DockLayout::PRIORITY_WEIGHT).abs() < 1e-4
+    );
+
+    // Clicking Expand Library switches priority cleanly to Library and collapses Properties.
+    let expand_lib = named_bounds(&out_min, "Expand Library").unwrap().center();
+    run_shell(
+        &mut editor,
+        size_min,
+        0.5,
+        vec![
+            Event::PointerMoved(expand_lib),
+            primary_button(expand_lib, true),
+        ],
+    );
+    run_shell(
+        &mut editor,
+        size_min,
+        0.6,
+        vec![primary_button(expand_lib, false)],
+    );
+    let (out_flipped, _) = run_shell(&mut editor, size_min, 0.7, vec![]);
+    assert!(editor.workspace.dock.has_priority(PanelId::Library));
+    assert!(named_bounds(&out_flipped, "Search library").is_some());
+    assert!(named_bounds(&out_flipped, "Expand Properties").is_some());
+
+    // Dragging the vertical splitter below Library's minimum height at 1920x1080 snaps it collapsed.
+    editor.give_dock_priority(PanelId::Properties);
+    let size_hd = Vec2::new(1920., 1080.);
+    let (mut out_hd, _) = run_shell(&mut editor, size_hd, 1.0, vec![]);
+    for i in 1..4 {
+        (out_hd, _) = run_shell(&mut editor, size_hd, 1.0 + i as f64 * 0.05, vec![]);
+    }
+    let search = named_bounds(&out_hd, "Search library").expect("Library expanded at 1920x1080");
+    let lib_hdr = out_hd
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.label() == Some("Library"))
+        .filter_map(|(_, n)| n.bounds())
+        .map(|b| {
+            Rect::from_min_max(
+                Pos2::new(b.x0 as f32, b.y0 as f32),
+                Pos2::new(b.x1 as f32, b.y1 as f32),
+            )
+        })
+        .filter(|r| r.bottom() <= search.top() + 1. && r.left() >= search.left() - 40.)
+        .max_by(|a, b| a.top().total_cmp(&b.top()))
+        .unwrap();
+    let split = Pos2::new(search.center().x, lib_hdr.top() - 3.);
+    let snap_down = Pos2::new(split.x, 1080. - 120.);
+    run_shell(
+        &mut editor,
+        size_hd,
+        1.4,
+        vec![Event::PointerMoved(split), primary_button(split, true)],
+    );
+    run_shell(
+        &mut editor,
+        size_hd,
+        1.45,
+        vec![Event::PointerMoved(snap_down)],
+    );
+    run_shell(
+        &mut editor,
+        size_hd,
+        1.5,
+        vec![primary_button(snap_down, false)],
+    );
+    let (out_snapped, _) = run_shell(&mut editor, size_hd, 1.6, vec![]);
+    assert!(editor.workspace.dock.right.groups[1].weight <= 0.002);
+    assert!(named_bounds(&out_snapped, "Expand Library").is_some());
+
+    // R-078 #4: Top bar workspace selector clamps between 132..=180 below 1280px and hides when < 132pt free.
+    let ws_label = editor.workspace.active_workspace_label().to_owned();
+    let (out_mid, _) = run_shell(&mut editor, Vec2::new(1140., 720.), 1.8, vec![]);
+    let ws_mid = named_bounds(&out_mid, &ws_label)
+        .expect("workspace selector shown below 1280px when free >= 132pt");
+    assert!(
+        (131.0..=181.0).contains(&ws_mid.width()),
+        "workspace selector width {} out of 132..=180",
+        ws_mid.width()
+    );
+    let ws_hd = named_bounds(&out_hd, &ws_label).expect("workspace selector shown at 1920px");
+    assert!(
+        (ws_hd.width() - 180.0).abs() < 1.5,
+        "workspace selector width {} expected 180pt at 1920px",
+        ws_hd.width()
+    );
+    let (out_narrow, _) = run_shell(&mut editor, Vec2::new(500., 720.), 2.0, vec![]);
+    assert!(
+        named_bounds(&out_narrow, &ws_label).is_none(),
+        "workspace selector must hide when remaining width < 132pt"
+    );
+}
+
+#[test]
+fn t295_r061_r062_r072_r076_r079_r080_to_r087_interface_answers() {
+    use crate::app::Tool;
+    let mut d = Driver::new();
+    d.settle();
+
+    // R-061: Eraser mode shows "Erase normal".
+    d.editor.set_tool(Tool::Eraser);
+    d.settle();
+    assert!(d.texts().iter().any(|t| t == "Erase normal"));
+
+    // R-062: Pen open-path bar shows Finish (Esc), Close path, Discard instead of Cancel · Esc.
+    d.editor.set_tool(Tool::Pen);
+    d.settle();
+    let stage_pos = d
+        .editor
+        .detached
+        .dock_groups
+        .iter()
+        .map(|g| g.rect)
+        .fold(Rect::NOTHING, Rect::union);
+    let _ = stage_pos;
+    let p1 = Pos2::new(500., 350.);
+    let p2 = Pos2::new(580., 380.);
+    d.press(p1, egui::PointerButton::Primary);
+    d.press(p2, egui::PointerButton::Primary);
+    assert!(d.find("Finish").is_some());
+    assert!(d.find("Close path").is_some());
+    assert!(d.find("Discard").is_some());
+    assert!(d.find("Cancel · Esc").is_none());
+    d.click("Discard");
+    assert!(d.editor.vector.draft.is_none());
+
+    // R-087: Properties ▸ Publish has Ghost button "Publish settings…" opening Publish settings.
+    d.editor.clear_selection();
+    d.editor.set_tool(Tool::Select);
+    d.settle();
+    let prop_rect = d
+        .editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|g| g.tabs.iter().any(|(p, _)| *p == PanelId::Properties))
+        .unwrap()
+        .rect;
+    for _ in 0..4 {
+        let btn = d
+            .find("Publish settings…")
+            .expect("Publish settings… button");
+        if prop_rect.contains_rect(btn) {
+            break;
+        }
+        d.step(wheel(prop_rect.center(), Vec2::new(0., -300.)));
+        d.settle();
+    }
+    let btn = d
+        .find("Publish settings…")
+        .expect("Publish settings… button");
+    assert!(
+        prop_rect.contains_rect(btn),
+        "scrolled {btn:?} into {prop_rect:?}"
+    );
+    d.press(btn.center(), egui::PointerButton::Primary);
+    assert!(d.editor.publish_settings.is_some());
+
+    // R-072 & R-086: Publish settings uses "Desktop app (macOS / Windows / Linux)" and "Choose a folder".
+    d.settle();
+    let texts = d.texts();
+    assert!(
+        texts
+            .iter()
+            .any(|t| t == "Desktop app (macOS / Windows / Linux)")
+    );
+    let img_seq_pos = d
+        .out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .and_then(|u| {
+            u.nodes.iter().find_map(|(_, n)| {
+                (n.label() == Some("Image sequence / sprite sheet")
+                    || n.value() == Some("Image sequence / sprite sheet"))
+                .then(|| n.bounds())
+                .flatten()
+                .map(|r| {
+                    Pos2::new(
+                        (r.x0 as f32 + r.x1 as f32) * 0.5,
+                        (r.y0 as f32 + r.y1 as f32) * 0.5,
+                    )
+                })
+            })
+        })
+        .expect("Image sequence / sprite sheet target row");
+    d.press(img_seq_pos, egui::PointerButton::Primary);
+    let has_choose_folder = d
+        .out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .is_some_and(|u| {
+            u.nodes.iter().any(|(_, n)| {
+                n.placeholder() == Some("Choose a folder")
+                    || n.value() == Some("Choose a folder")
+                    || n.label() == Some("Choose a folder")
+            })
+        })
+        || d.out.shapes.iter().any(|s| {
+            matches!(
+                &s.shape,
+                egui::Shape::Text(t) if t.galley.text() == "Choose a folder"
+            )
+        });
+    assert!(has_choose_folder);
+    d.editor.publish_settings = None;
+    d.settle();
+
+    // R-086: File ▸ Import shows "Empty video object" (not "Video placeholder").
+    d.click("File");
+    let import_pos = d.find("Import").expect("File ▸ Import").center();
+    d.step(vec![Event::PointerMoved(import_pos)]);
+    d.settle();
+    assert!(d.find("Empty video object").is_some());
+    assert!(d.find("Video placeholder").is_none());
+    for _ in 0..2 {
+        d.step(vec![Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+    }
+    d.settle();
+
+    // R-080: Graphic instance inspector shows "Playback" and "First frame" rows.
+    let mut g_sym = d.editor.project.symbols[0].clone();
+    g_sym.id = "t295-graphic-sym".into();
+    g_sym.name = "HeroGraphic".into();
+    g_sym.kind = SymbolKind::Graphic;
+    let g_id = g_sym.id.clone();
+    d.editor.project.symbols.push(g_sym);
+    let inst_id = new_id("inst");
+    let sym_id = d.editor.symbol_id().to_owned();
+    let kf_frame = {
+        let layer0 = &mut d
+            .editor
+            .project
+            .symbol_mut(&sym_id)
+            .unwrap()
+            .timeline
+            .layers[0];
+        layer0.locked = false;
+        layer0.visible = true;
+        layer0.keyframes[0].elements.push(Element {
+            id: inst_id.clone(),
+            name: "graphic_1".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Instance {
+                symbol_id: g_id,
+                playback: InstancePlayback::Loop,
+            },
+            ..Element::default()
+        });
+        layer0.keyframes[0].frame
+    };
+    d.editor.layer = 0;
+    d.editor.frame = kf_frame;
+    d.editor.select_single_id(inst_id);
+    d.settle();
+    fn find_shape_text_pos(shape: &egui::Shape, needle: &str) -> Option<Pos2> {
+        match shape {
+            egui::Shape::Text(t) if t.galley.text() == needle => Some(t.pos),
+            egui::Shape::Vec(items) => items.iter().find_map(|s| find_shape_text_pos(s, needle)),
+            _ => None,
+        }
+    }
+    for _ in 0..8 {
+        if let Some(pos) = d
+            .out
+            .shapes
+            .iter()
+            .find_map(|s| find_shape_text_pos(&s.shape, "BEHAVIOR / LINKAGE"))
+            && pos.y >= prop_rect.top() + 36.0
+            && pos.y <= prop_rect.bottom() - 24.0
+        {
+            d.press(
+                Pos2::new(prop_rect.center().x, pos.y + 6.0),
+                egui::PointerButton::Primary,
+            );
+            break;
+        }
+        d.step(wheel(prop_rect.center(), Vec2::new(0., -180.)));
+        d.settle();
+    }
+    fn collect_shape_texts(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+            egui::Shape::Vec(items) => {
+                for s in items {
+                    collect_shape_texts(s, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut seen_texts = Vec::new();
+    let mut saw_playback = false;
+    let mut saw_loop = false;
+    let mut saw_first_frame = false;
+    for _ in 0..8 {
+        for s in &d.out.shapes {
+            collect_shape_texts(&s.shape, &mut seen_texts);
+        }
+        seen_texts.extend(d.texts());
+        saw_playback |= seen_texts.iter().any(|t| t == "Playback");
+        saw_loop |= seen_texts.iter().any(|t| t == "Loop");
+        saw_first_frame |= seen_texts.iter().any(|t| t == "First frame");
+        if saw_playback && saw_loop && saw_first_frame {
+            break;
+        }
+        d.step(wheel(prop_rect.center(), Vec2::new(0., -200.)));
+        d.settle();
+    }
+    seen_texts.sort();
+    seen_texts.dedup();
+    assert!(saw_playback, "missing Playback row in {seen_texts:?}");
+    assert!(saw_loop, "missing Loop select in {seen_texts:?}");
+    assert!(saw_first_frame, "missing First frame row in {seen_texts:?}");
+
+    // R-079: Layer properties dialog shows Camera section for Normal layer and hides it for Folder.
+    d.editor.open_layer_properties(&d.ctx, 0);
+    d.settle();
+    assert!(d.find("Attach layer to camera").is_some());
+    assert!(d.find("Z-depth").is_some());
+    d.editor.cancel_layer_properties(&d.ctx);
+    d.settle();
+
+    let mut folder = Layer {
+        id: new_id("layer"),
+        name: "FolderLayer".into(),
+        properties: LayerProperties {
+            role: LayerRole::Folder,
+            ..Default::default()
+        },
+        visible: true,
+        locked: false,
+        keyframes: vec![],
+    };
+    folder.keyframes.clear();
+    let sym_mut = d.editor.project.symbol_mut(&sym_id).unwrap();
+    let folder_idx = sym_mut.timeline.layers.len();
+    sym_mut.timeline.layers.push(folder);
+    d.editor.open_layer_properties(&d.ctx, folder_idx);
+    d.settle();
+    assert!(d.find("Attach layer to camera").is_none());
+    d.editor.cancel_layer_properties(&d.ctx);
+    d.settle();
+
+    // R-081 & R-083: Color panel gradient overflow & panel menu ("Add swatch", no "⌘W").
+    d.editor.show_panel(PanelId::Color);
+    d.settle();
+    let color_group = d
+        .editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|g| g.tabs.iter().any(|(p, _)| *p == PanelId::Color))
+        .unwrap()
+        .rect;
+    let menu_btn = named_bounds_in(&d.out, "Panel commands and tabs", color_group).unwrap();
+    d.press(menu_btn.center(), egui::PointerButton::Primary);
+    assert!(d.find("Add swatch").is_some());
+    assert!(d.find("Close").is_some());
+    assert!(d.find("Close group").is_some());
+    assert!(!d.texts().iter().any(|t| t == "⌘W"));
+    d.step(vec![Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+
+    // R-083: F1 opens Search functions popover (not Help manual) and focuses its Search field.
+    d.step(vec![Event::Key {
+        key: egui::Key::F1,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(crate::panels::function_search::is_function_search_open(
+        &d.ctx
+    ));
+    assert!(!crate::panels::help_manual::is_help_manual_open(&d.ctx));
+    assert!(d.ctx.wants_keyboard_input());
+    d.step(vec![Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(!crate::panels::function_search::is_function_search_open(
+        &d.ctx
+    ));
+
+    // R-085: Error text plate paints cleanly in both Dark and Light themes without panic.
+    for theme in [ThemeMode::Dark, ThemeMode::Light] {
+        d.editor.set_theme(&d.ctx, theme);
+        let _ = d.ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(640., 480.))),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    crate::stage::paint_stage_error_plate(
+                        ui.painter(),
+                        Pos2::new(32., 32.),
+                        "Text preview: error",
+                    );
+                });
+            },
+        );
+    }
 }

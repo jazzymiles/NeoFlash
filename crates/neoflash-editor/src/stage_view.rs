@@ -292,6 +292,12 @@ pub(crate) struct StageView {
     /// Canvas rect and timeline origin (screen) of the last stage frame.
     pub canvas: Rect,
     pub origin: Pos2,
+    /// Automatically refit the stage when its viewport size changes until a manual zoom or pan (R-078).
+    pub auto_fit: bool,
+    /// Last zoom computed by automatic fitting.
+    pub fitted_zoom: Option<f32>,
+    /// Stage viewport size used for the last automatic fit.
+    pub last_stage_size: Option<Vec2>,
 }
 
 impl Default for StageView {
@@ -309,6 +315,9 @@ impl Default for StageView {
             command_suspend: false,
             canvas: Rect::NOTHING,
             origin: Pos2::ZERO,
+            auto_fit: true,
+            fitted_zoom: None,
+            last_stage_size: None,
         }
     }
 }
@@ -1189,7 +1198,11 @@ impl Editor {
             }
             ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
         }
-        corner.on_hover_text("Drag to move the ruler origin · double-click to reset");
+        neoflash_ui::components::tooltip(
+            corner,
+            "Drag to move the ruler origin · double-click to reset",
+            None,
+        );
     }
 
     // ── Commands (View menu, zoom control, shortcuts) ──

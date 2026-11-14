@@ -240,25 +240,47 @@ impl Editor {
             };
             if cols >= 2 {
                 let panel_top = ui.cursor().top().max(0.0);
-                let mut content_h = 0.0_f32;
-                egui::ScrollArea::vertical()
-                    .id_salt("tool_controls")
-                    .auto_shrink([false, true])
-                    .themed()
-                    .show(ui, |ui| {
-                        let inner_top = ui.cursor().top();
-                        ui.set_min_width(ui.available_width());
-                        ui.vertical(|ui| {
-                            self.tool_grid(ui, cols);
-                            nf::divider(ui, false);
-                            self.colors_section(ui, cols);
-                            nf::divider(ui, false);
-                            self.tool_modifiers_ui(ui, cols);
-                        });
-                        content_h = (ui.cursor().top() - inner_top).max(0.0);
-                    });
+                let tools = self.grid_tools();
+                let view = self.view_tools();
+                let full_grid_h = Self::tool_grid_full_height(tools.len(), view.len() + 2, cols);
+                let bottom_h = Self::two_col_bottom_height(self.tool, cols);
                 self.detached.tools_desired_inner_height =
-                    Some((panel_top + content_h + space::S2).ceil());
+                    Some((panel_top + full_grid_h + bottom_h + space::S2).ceil());
+
+                let panel_rect = ui.available_rect_before_wrap();
+                let pinned_h = bottom_h.min(panel_rect.height());
+                let top_rect = Rect::from_min_max(
+                    panel_rect.min,
+                    egui::pos2(
+                        panel_rect.right(),
+                        (panel_rect.bottom() - pinned_h).max(panel_rect.top()),
+                    ),
+                );
+                let bottom_rect = Rect::from_min_max(
+                    egui::pos2(panel_rect.left(), top_rect.bottom()),
+                    panel_rect.max,
+                );
+                let mut top_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(top_rect)
+                        .layout(egui::Layout::top_down(egui::Align::Min)),
+                );
+                top_ui.set_clip_rect(ui.clip_rect().intersect(top_rect));
+                top_ui.spacing_mut().item_spacing = Vec2::splat(TOOL_GAP);
+                self.tool_grid_fitted(&mut top_ui, cols, &tools, &view, top_rect.height());
+
+                let mut bottom_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(bottom_rect)
+                        .layout(egui::Layout::top_down(egui::Align::Min)),
+                );
+                bottom_ui.set_clip_rect(ui.clip_rect().intersect(bottom_rect));
+                bottom_ui.spacing_mut().item_spacing = Vec2::splat(TOOL_GAP);
+                nf::divider(&mut bottom_ui, false);
+                self.colors_section(&mut bottom_ui, cols);
+                nf::divider(&mut bottom_ui, false);
+                self.tool_modifiers_ui(&mut bottom_ui, cols);
+                ui.allocate_rect(panel_rect, egui::Sense::hover());
                 return;
             }
             let panel_top = ui.cursor().top().max(0.0);
@@ -332,6 +354,7 @@ impl Editor {
                     nf::divider(ui, false);
                 }
                 RailEntry::Group(index, group) => self.tool_group_button(ui, group, index),
+                RailEntry::Tool(spec) => self.single_tool_button(ui, spec),
                 RailEntry::ZoomOut => {
                     if ui
                         .add(nf::IconButton::new(i20::ZOOMOUT, "Zoom out"))
@@ -352,8 +375,13 @@ impl Editor {
         }
     }
 
-    /// "…" at the end of a short rail: a popover with every tool and command that did not fit.
+    /// "…" at the end of a short rail or grid: a popover with every tool and command that did not fit.
     fn rail_overflow(&mut self, ui: &mut egui::Ui, hidden: &[RailEntry]) {
+        let response = self.overflow_more_button(ui);
+        self.rail_overflow_popover(ui, response.rect, hidden);
+    }
+
+    fn overflow_more_button(&self, ui: &mut egui::Ui) -> egui::Response {
         let ctx = ui.ctx().clone();
         let open = popover(&ctx) == Some(RailPopover::Overflow);
         let response = ui.add(nf::IconButton::new(i20::MORE, "More tools").selected(open));
@@ -367,10 +395,42 @@ impl Editor {
                 },
             );
         }
+        response
+    }
+
+    fn paint_overflow_tool_item(
+        &mut self,
+        ui: &mut egui::Ui,
+        spec: ToolSpec,
+        group: Option<(usize, &[ToolSpec])>,
+    ) -> bool {
+        let key = self.tool_display_key(spec);
+        let label = format!("{} tool", spec.name);
+        let mut item = nf::ToolFlyoutItem::new(spec.icon.nf2(true), &label)
+            .active(self.tool == spec.tool)
+            .width(260.);
+        if !key.is_empty() {
+            item = item.shortcut(&key);
+        }
+        if ui.add(item).clicked() {
+            if !spec.tool.preserves_selection_on_rail_click() {
+                self.clear_selection();
+            }
+            self.set_tool(spec.tool);
+            if let Some((index, group_specs)) = group {
+                remember_group_tool(ui.ctx(), index, group_specs, spec.tool);
+            }
+            return true;
+        }
+        false
+    }
+
+    fn rail_overflow_popover(&mut self, ui: &mut egui::Ui, anchor: Rect, hidden: &[RailEntry]) {
+        let ctx = ui.ctx().clone();
         if popover(&ctx) != Some(RailPopover::Overflow) {
             return;
         }
-        let keep = rail_popover(ui, response.rect, |ui| {
+        let keep = rail_popover(ui, anchor, |ui| {
             ui.set_min_width(260.);
             let mut done = false;
             let split = hidden
@@ -398,23 +458,18 @@ impl Editor {
                                 RailEntry::Divider => nf::menu_separator(ui),
                                 RailEntry::Group(index, group) => {
                                     for spec in group {
-                                        let key = self.tool_display_key(*spec);
-                                        let label = format!("{} tool", spec.name);
-                                        let mut item =
-                                            nf::ToolFlyoutItem::new(spec.icon.nf2(true), &label)
-                                                .active(self.tool == spec.tool)
-                                                .width(260.);
-                                        if !key.is_empty() {
-                                            item = item.shortcut(&key);
-                                        }
-                                        if ui.add(item).clicked() {
-                                            if !spec.tool.preserves_selection_on_rail_click() {
-                                                self.clear_selection();
-                                            }
-                                            self.set_tool(spec.tool);
-                                            remember_group_tool(ui.ctx(), index, group, spec.tool);
+                                        if self.paint_overflow_tool_item(
+                                            ui,
+                                            *spec,
+                                            Some((index, group)),
+                                        ) {
                                             done = true;
                                         }
+                                    }
+                                }
+                                RailEntry::Tool(spec) => {
+                                    if self.paint_overflow_tool_item(ui, spec, None) {
+                                        done = true;
                                     }
                                 }
                                 RailEntry::ZoomOut | RailEntry::Fit => {}
@@ -455,61 +510,166 @@ impl Editor {
     }
 
     fn zoom_out_stage(&mut self) {
-        self.finish_edits();
-        self.zoom = (self.zoom / 1.25).max(0.1);
+        self.zoom_out();
     }
 
     fn fit_stage_from_tools(&mut self) {
         self.finish_edits();
-        self.zoom = 0.;
-        self.pan = Vec2::ZERO;
+        self.fit_stage();
     }
 
-    fn tool_grid(&mut self, ui: &mut egui::Ui, cols: usize) {
-        let tools: Vec<_> = self
-            .tool_groups()
+    fn grid_tools(&self) -> Vec<ToolSpec> {
+        self.tool_groups()
             .into_iter()
             .flatten()
             .filter(|spec| !matches!(spec.tool, Tool::Hand | Tool::Zoom))
-            .collect();
-        for row in tools.chunks(cols) {
-            tool_grid_row(ui, cols, row.len(), |ui, idx| {
-                self.single_tool_button(ui, row[idx]);
-            });
-        }
-        nf::divider(ui, false);
-        let view: Vec<_> = self
-            .tool_groups()
+            .collect()
+    }
+
+    fn view_tools(&self) -> Vec<ToolSpec> {
+        self.tool_groups()
             .into_iter()
             .flatten()
             .filter(|spec| matches!(spec.tool, Tool::Hand | Tool::Zoom))
-            .collect();
-        let total_view = view.len() + 2;
-        let mut zoom_out = false;
-        let mut fit = false;
-        let indices: Vec<usize> = (0..total_view).collect();
-        for row in indices.chunks(cols) {
-            tool_grid_row(ui, cols, row.len(), |ui, idx| {
-                let item = row[idx];
-                if let Some(&spec) = view.get(item) {
-                    self.single_tool_button(ui, spec);
-                } else if item == view.len() {
-                    if ui
-                        .add(nf::IconButton::new(i20::ZOOMOUT, "Zoom out"))
-                        .clicked()
-                    {
-                        zoom_out = true;
-                    }
-                } else if ui.add(nf::IconButton::new(i20::FIT, "Fit stage")).clicked() {
-                    fit = true;
-                }
-            });
-        }
-        if zoom_out {
-            self.zoom_out_stage();
-        }
-        if fit {
+            .collect()
+    }
+
+    fn tool_grid_full_height(tool_count: usize, view_count: usize, cols: usize) -> f32 {
+        let cols = cols.max(1);
+        let row_h = neoflash_ui::metrics::tool_button() + TOOL_GAP;
+        let div_h = 1.0 + space::S2 + TOOL_GAP;
+        let t_rows = tool_count.div_ceil(cols);
+        let v_rows = view_count.div_ceil(cols);
+        t_rows as f32 * row_h + div_h + v_rows as f32 * row_h
+    }
+
+    fn two_col_bottom_height(tool: Tool, cols: usize) -> f32 {
+        let div_h = 1.0 + space::S2 + TOOL_GAP;
+        let colors_h = if cols >= 3 {
+            36.0_f32.max(COLOR_ACTION) + TOOL_GAP
+        } else {
+            36.0 + TOOL_GAP + COLOR_ACTION + TOOL_GAP
+        };
+        let mod_rows = tool_modifier_row_count(tool, cols);
+        let mods_h = mod_rows as f32 * (neoflash_ui::metrics::tool_button() + TOOL_GAP);
+        (div_h + colors_h + div_h + mods_h - TOOL_GAP).max(0.)
+    }
+
+    fn paint_view_cell(&mut self, ui: &mut egui::Ui, view: &[ToolSpec], item: usize) {
+        if let Some(&spec) = view.get(item) {
+            self.single_tool_button(ui, spec);
+        } else if item == view.len() {
+            if ui
+                .add(nf::IconButton::new(i20::ZOOMOUT, "Zoom out"))
+                .clicked()
+            {
+                self.zoom_out_stage();
+            }
+        } else if ui.add(nf::IconButton::new(i20::FIT, "Fit stage")).clicked() {
             self.fit_stage_from_tools();
+        }
+    }
+
+    /// Lays out as many tool/view rows as fit inside `max_height` without scrolling. When items
+    /// remain, replaces the last visible cell with `More tools` opening `rail_overflow_popover`.
+    fn tool_grid_fitted(
+        &mut self,
+        ui: &mut egui::Ui,
+        cols: usize,
+        tools: &[ToolSpec],
+        view: &[ToolSpec],
+        max_height: f32,
+    ) {
+        let cols = cols.max(1);
+        let total_view = view.len() + 2;
+        let full_h = Self::tool_grid_full_height(tools.len(), total_view, cols);
+        if full_h <= max_height + 0.5 {
+            for row in tools.chunks(cols) {
+                tool_grid_row(ui, cols, row.len(), |ui, idx| {
+                    self.single_tool_button(ui, row[idx]);
+                });
+            }
+            nf::divider(ui, false);
+            let indices: Vec<usize> = (0..total_view).collect();
+            for row in indices.chunks(cols) {
+                tool_grid_row(ui, cols, row.len(), |ui, idx| {
+                    self.paint_view_cell(ui, view, row[idx]);
+                });
+            }
+            return;
+        }
+
+        let row_h = neoflash_ui::metrics::tool_button() + TOOL_GAP;
+        let div_h = 1.0 + space::S2 + TOOL_GAP;
+        let t_rows = tools.len().div_ceil(cols);
+        let tools_and_div_h = t_rows as f32 * row_h + div_h;
+        let mut more_anchor: Option<Rect> = None;
+        let mut hidden: Vec<RailEntry<'_>> = Vec::new();
+
+        if tools_and_div_h + row_h <= max_height + 0.5 {
+            for row in tools.chunks(cols) {
+                tool_grid_row(ui, cols, row.len(), |ui, idx| {
+                    self.single_tool_button(ui, row[idx]);
+                });
+            }
+            nf::divider(ui, false);
+            let v_fit_rows = ((max_height + 0.5 - tools_and_div_h) / row_h)
+                .floor()
+                .max(1.) as usize;
+            let cap = v_fit_rows * cols;
+            let shown_view = (cap.saturating_sub(1)).min(total_view);
+            let mut cells: Vec<Option<usize>> = (0..shown_view).map(Some).collect();
+            cells.push(None);
+            for row in cells.chunks(cols) {
+                tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
+                    Some(item) => self.paint_view_cell(ui, view, item),
+                    None => more_anchor = Some(self.overflow_more_button(ui).rect),
+                });
+            }
+            for item in shown_view..total_view {
+                if let Some(&spec) = view.get(item) {
+                    hidden.push(RailEntry::Tool(spec));
+                } else if item == view.len() {
+                    hidden.push(RailEntry::ZoomOut);
+                } else {
+                    hidden.push(RailEntry::Fit);
+                }
+            }
+        } else {
+            let side = neoflash_ui::metrics::tool_button();
+            let fit_rows = if max_height + 0.5 >= side {
+                ((max_height + 0.5 + TOOL_GAP) / row_h)
+                    .floor()
+                    .clamp(1., t_rows.max(1) as f32) as usize
+            } else {
+                0
+            };
+            let shown_tools = (fit_rows * cols).saturating_sub(1).min(tools.len());
+            let mut cells: Vec<Option<usize>> = (0..shown_tools).map(Some).collect();
+            if fit_rows > 0 {
+                cells.push(None);
+            }
+            for row in cells.chunks(cols) {
+                tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
+                    Some(t_idx) => self.single_tool_button(ui, tools[t_idx]),
+                    None => more_anchor = Some(self.overflow_more_button(ui).rect),
+                });
+            }
+            if shown_tools < tools.len() {
+                for &spec in &tools[shown_tools..] {
+                    hidden.push(RailEntry::Tool(spec));
+                }
+                hidden.push(RailEntry::Divider);
+            }
+            for &spec in view {
+                hidden.push(RailEntry::Tool(spec));
+            }
+            hidden.push(RailEntry::ZoomOut);
+            hidden.push(RailEntry::Fit);
+        }
+
+        if let Some(anchor) = more_anchor {
+            self.rail_overflow_popover(ui, anchor, &hidden);
         }
     }
 
@@ -1486,10 +1646,55 @@ impl Editor {
     }
 }
 
-/// One entry of the 1 Column rail.
+fn tool_modifier_row_count(tool: Tool, cols: usize) -> usize {
+    let cols = cols.max(1);
+    match tool {
+        Tool::Select => {
+            if cols == 2 {
+                2
+            } else {
+                3_usize.div_ceil(cols)
+            }
+        }
+        Tool::Transform => {
+            if cols == 2 {
+                3
+            } else {
+                5_usize.div_ceil(cols)
+            }
+        }
+        Tool::Line
+        | Tool::Pen
+        | Tool::Rectangle
+        | Tool::Ellipse
+        | Tool::Pencil
+        | Tool::Bucket
+        | Tool::Zoom => 1,
+        Tool::PolyStar | Tool::Eraser => 3_usize.div_ceil(cols),
+        Tool::Brush => 7_usize.div_ceil(cols),
+        Tool::Lasso => 5_usize.div_ceil(cols),
+        Tool::Subselect
+        | Tool::Gradient
+        | Tool::Text
+        | Tool::Ink
+        | Tool::Eyedropper
+        | Tool::Hand
+        | Tool::Razor
+        | Tool::Deco
+        | Tool::SprayBrush
+        | Tool::Bone
+        | Tool::Bind
+        | Tool::AssetWarp
+        | Tool::Translate3D
+        | Tool::Rotate3D => 0,
+    }
+}
+
+/// One entry of the 1 Column rail or overflowing Tools grid.
 #[derive(Clone, Copy)]
 enum RailEntry<'a> {
     Group(usize, &'a [ToolSpec]),
+    Tool(ToolSpec),
     Divider,
     ZoomOut,
     Fit,

@@ -6,10 +6,10 @@
 //! without writing any file, while `Export` / `Enter` prompts for an output `.wav`/`.mp3`/`.ogg`/`.aac`
 //! path (or writes directly in headless tests via [`Editor::confirm_export_audio_to_path`]).
 use super::dialog_helpers::group;
-use super::planned::{FooterClick, footer_clicked};
+use super::planned::caption;
 use crate::app::Editor;
 use eframe::egui;
-use neoflash_core::{Id, LayerRole};
+use neoflash_core::{Id, LayerRole, Project, WaveformPeaks};
 use neoflash_export::{
     AudioBitDepth, AudioBitRate, AudioChannels, AudioExportOptions, AudioExportRange,
     AudioExportReport, AudioExportSource, AudioFormat, AudioSampleRate,
@@ -18,18 +18,72 @@ use neoflash_export::{
 };
 use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
+use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::space;
 use std::path::Path;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicU64, Ordering},
+    mpsc::{self, Receiver, TryRecvError},
+};
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AudioPreviewKey {
+    pub(crate) source: AudioExportSource,
+    pub(crate) range: AudioExportRange,
+    pub(crate) channels: AudioChannels,
+    pub(crate) sample_rate: AudioSampleRate,
+    pub(crate) trim_silence: bool,
+}
+
+impl From<&AudioExportOptions> for AudioPreviewKey {
+    fn from(options: &AudioExportOptions) -> Self {
+        Self {
+            source: options.source.clone(),
+            range: options.range.clone(),
+            channels: options.channels,
+            sample_rate: options.sample_rate,
+            trim_silence: options.trim_silence,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ExportAudioDraft {
     pub(crate) options: AudioExportOptions,
     pub(crate) cached_summary: String,
     pub(crate) cached_duration: f64,
+    pub(crate) has_sound: bool,
+    pub(crate) empty_reason: Option<String>,
+    pub(crate) cached_peaks: Option<WaveformPeaks>,
+    pub(crate) computed_key: Option<AudioPreviewKey>,
 }
+
+#[derive(Clone)]
+struct PendingAudioPreview {
+    generation: u64,
+    key: AudioPreviewKey,
+    rx: Arc<Mutex<Receiver<AudioPreviewResult>>>,
+}
+
+struct AudioPreviewResult {
+    generation: u64,
+    key: AudioPreviewKey,
+    summary: String,
+    duration: f64,
+    has_sound: bool,
+    empty_reason: Option<String>,
+    peaks: Option<WaveformPeaks>,
+}
+
+static PREVIEW_GEN: AtomicU64 = AtomicU64::new(1);
 
 fn draft_id() -> egui::Id {
     egui::Id::new("nf2-export-audio-draft")
+}
+
+fn preview_worker_id() -> egui::Id {
+    egui::Id::new("nf2-export-audio-preview-worker")
 }
 
 pub(crate) fn has_export_audio_dialog(ctx: &egui::Context) -> bool {
@@ -52,6 +106,118 @@ pub(crate) fn update_export_audio_draft(
         f(&mut draft);
         ctx.data_mut(|d| d.insert_temp(id, draft));
     }
+}
+
+#[cfg(test)]
+pub(crate) fn has_pending_audio_preview(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<PendingAudioPreview>(preview_worker_id()))
+        .is_some()
+}
+
+/// Downsample `peaks` into `columns` `(min, max)` pairs per output lane: 1 lane for Mono, 2 for Stereo.
+pub(crate) fn downsample_waveform_columns(
+    peaks: &WaveformPeaks,
+    channels: AudioChannels,
+    columns: usize,
+) -> Vec<Vec<(f32, f32)>> {
+    let cols = columns.max(1);
+    let sample_lane = |lane: &[[f32; 2]]| -> Vec<(f32, f32)> {
+        let total = lane.len();
+        if total == 0 {
+            return vec![(0.0, 0.0); cols];
+        }
+        (0..cols)
+            .map(|col| {
+                let start = (col * total) / cols;
+                let end = (((col + 1) * total) / cols).max(start + 1).min(total);
+                lane[start..end]
+                    .iter()
+                    .fold((0.0_f32, 0.0_f32), |(lo, hi), &[a, b]| {
+                        (lo.min(a), hi.max(b))
+                    })
+            })
+            .collect()
+    };
+    if peaks.left.is_empty() {
+        return Vec::new();
+    }
+    let mut out = vec![sample_lane(&peaks.left)];
+    if channels == AudioChannels::Stereo {
+        let right = if peaks.right.is_empty() {
+            &peaks.left
+        } else {
+            &peaks.right
+        };
+        out.push(sample_lane(right));
+    }
+    out
+}
+
+fn compute_audio_preview(
+    project: &Project,
+    options: &AudioExportOptions,
+    generation: u64,
+) -> AudioPreviewResult {
+    let key = AudioPreviewKey::from(options);
+    let doc_has_audio = project.resources.iter().any(|r| r.is_audio());
+    if !doc_has_audio {
+        return AudioPreviewResult {
+            generation,
+            key,
+            summary: "No sounds".to_owned(),
+            duration: 0.0,
+            has_sound: false,
+            empty_reason: Some("This document has no sounds to export.".to_owned()),
+            peaks: None,
+        };
+    }
+    match render_project_audio_mix(project, options) {
+        Ok(rendered) => {
+            let silent_subrange = matches!(options.range, AudioExportRange::Frames { .. })
+                && !matches!(options.source, AudioExportSource::Resource(_))
+                && rendered.frames.iter().all(|&[l, r]| l == 0.0 && r == 0.0);
+            if rendered.source_summary == "No sounds" || silent_subrange {
+                AudioPreviewResult {
+                    generation,
+                    key,
+                    summary: "No sounds".to_owned(),
+                    duration: 0.0,
+                    has_sound: false,
+                    empty_reason: Some("No sound in the selected range.".to_owned()),
+                    peaks: None,
+                }
+            } else {
+                let duration = rendered.duration_seconds();
+                AudioPreviewResult {
+                    generation,
+                    key,
+                    summary: rendered.source_summary,
+                    duration,
+                    has_sound: true,
+                    empty_reason: None,
+                    peaks: Some(rendered.peaks),
+                }
+            }
+        }
+        Err(_) => AudioPreviewResult {
+            generation,
+            key,
+            summary: "No sounds".to_owned(),
+            duration: 0.0,
+            has_sound: false,
+            empty_reason: Some("No sound in the selected range.".to_owned()),
+            peaks: None,
+        },
+    }
+}
+
+fn apply_audio_preview_result(draft: &mut ExportAudioDraft, result: AudioPreviewResult) {
+    draft.cached_summary = result.summary;
+    draft.cached_duration = result.duration;
+    draft.has_sound = result.has_sound;
+    draft.empty_reason = result.empty_reason;
+    draft.cached_peaks = result.peaks;
+    draft.computed_key = Some(result.key);
 }
 
 const FORMAT_TABS: [(usize, &str); 4] = [(0, "WAV"), (1, "MP3"), (2, "OGG"), (3, "AAC")];
@@ -85,17 +251,38 @@ fn source_label(
 
 impl Editor {
     fn refresh_export_audio_summary(&self, draft: &mut ExportAudioDraft) {
-        match render_project_audio_mix(&self.project, &draft.options) {
-            Ok(rendered) => {
-                draft.cached_summary = rendered.source_summary.clone();
-                draft.cached_duration = rendered.duration_seconds();
-            }
-            Err(_) => {
-                draft.cached_summary = "timeline mix".to_owned();
-                let frames = self.symbol().timeline.frame_count.max(1);
-                draft.cached_duration = f64::from(frames) / f64::from(self.project.fps.max(1));
-            }
-        }
+        let generation = PREVIEW_GEN.fetch_add(1, Ordering::Relaxed);
+        let res = compute_audio_preview(&self.project, &draft.options, generation);
+        apply_audio_preview_result(draft, res);
+    }
+
+    fn spawn_export_audio_preview(
+        &self,
+        ctx: &egui::Context,
+        draft: &mut ExportAudioDraft,
+        key: AudioPreviewKey,
+    ) {
+        let generation = PREVIEW_GEN.fetch_add(1, Ordering::Relaxed);
+        draft.cached_peaks = None;
+        let project = self.project.clone();
+        let options = draft.options.clone();
+        let ctx_clone = ctx.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = compute_audio_preview(&project, &options, generation);
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
+        ctx.data_mut(|d| {
+            d.insert_temp(
+                preview_worker_id(),
+                PendingAudioPreview {
+                    generation,
+                    key,
+                    rx: Arc::new(Mutex::new(rx)),
+                },
+            );
+        });
     }
 
     /// Open the `Export audio` modal dialog (`DL-06`).
@@ -106,6 +293,7 @@ impl Editor {
     ) {
         self.finish_edits();
         self.timeline_audio.stop_audition();
+        ctx.data_mut(|d| d.remove::<PendingAudioPreview>(preview_worker_id()));
         let mut options = self
             .workspace
             .export_audio_options
@@ -125,13 +313,20 @@ impl Editor {
             options,
             cached_summary: String::new(),
             cached_duration: 0.0,
+            has_sound: false,
+            empty_reason: None,
+            cached_peaks: None,
+            computed_key: None,
         };
         self.refresh_export_audio_summary(&mut draft);
         ctx.data_mut(|d| d.insert_temp(draft_id(), draft));
     }
 
     pub(crate) fn cancel_export_audio(&mut self, ctx: &egui::Context) {
-        ctx.data_mut(|d| d.remove::<ExportAudioDraft>(draft_id()));
+        ctx.data_mut(|d| {
+            d.remove::<ExportAudioDraft>(draft_id());
+            d.remove::<PendingAudioPreview>(preview_worker_id());
+        });
     }
 
     /// Export audio to `path` using the current `Export audio` modal draft and close the dialog on
@@ -190,6 +385,27 @@ impl Editor {
             return;
         };
 
+        let mut is_computing = false;
+        let mut pending_key = None;
+        if let Some(pending) = ctx.data(|d| d.get_temp::<PendingAudioPreview>(preview_worker_id()))
+        {
+            match pending.rx.lock().map(|rx| rx.try_recv()) {
+                Ok(Ok(result)) => {
+                    if result.generation == pending.generation {
+                        apply_audio_preview_result(&mut draft, result);
+                    }
+                    ctx.data_mut(|d| d.remove::<PendingAudioPreview>(preview_worker_id()));
+                }
+                Ok(Err(TryRecvError::Empty)) => {
+                    is_computing = true;
+                    pending_key = Some(pending.key);
+                }
+                Ok(Err(TryRecvError::Disconnected)) | Err(_) => {
+                    ctx.data_mut(|d| d.remove::<PendingAudioPreview>(preview_worker_id()));
+                }
+            }
+        }
+
         let p = neoflash_ui::palette(ctx);
         let mut close_cancel = false;
         let mut do_export = false;
@@ -230,9 +446,35 @@ impl Editor {
                             draft.options.format = AudioFormat::from_index(fmt_idx);
                         }
 
-                        let (span, _) =
-                            ui.allocate_exact_size(egui::vec2(w, 40.0), egui::Sense::hover());
-                        tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Sound, true);
+                        if !draft.has_sound && !is_computing {
+                            let empty_msg = draft
+                                .empty_reason
+                                .as_deref()
+                                .unwrap_or("This document has no sounds to export.");
+                            ui.add(c::InlineMessage::info(empty_msg).width(w));
+                        } else {
+                            let (span, _) =
+                                ui.allocate_exact_size(egui::vec2(w, 40.0), egui::Sense::hover());
+                            tl::paint_span(
+                                ui.painter(),
+                                ui.ctx(),
+                                span,
+                                tl::SpanType::Static,
+                                true,
+                            );
+                            if is_computing || draft.cached_peaks.is_none() {
+                                tl::paint_sound_peaks(ui.painter(), ui.ctx(), span, &[]);
+                            } else if let Some(peaks) = &draft.cached_peaks {
+                                let cols = span.width().ceil().max(1.0) as usize;
+                                let lanes = downsample_waveform_columns(
+                                    peaks,
+                                    draft.options.channels,
+                                    cols,
+                                );
+                                let channels: Vec<_> = lanes.iter().map(Vec::as_slice).collect();
+                                tl::paint_sound_peaks(ui.painter(), ui.ctx(), span, &channels);
+                            }
+                        }
 
                         group(ui, "Source");
                         ui.horizontal(|ui| {
@@ -416,6 +658,7 @@ impl Editor {
                                         .clicked()
                                     {
                                         draft.options.channels = ch;
+                                        refresh_needed = true;
                                         ui.close();
                                     }
                                 }
@@ -476,29 +719,61 @@ impl Editor {
                                 refresh_needed = true;
                             }
                         });
-
-                        let est_bytes =
-                            estimate_audio_export_bytes(draft.cached_duration, &draft.options);
-                        let footer_summary = format!(
-                            "{} · {} · ~ {}",
-                            draft.cached_summary,
-                            format_audio_duration_label(draft.cached_duration),
-                            format_audio_bytes_label(est_bytes),
-                        );
-                        match footer_clicked(ui, &footer_summary, None, &["Cancel", "Export"]) {
-                            Some(FooterClick::Button(0)) => close_cancel = true,
-                            Some(FooterClick::Button(1)) => do_export = true,
-                            _ => {}
-                        }
                     });
+
+                let can_export = draft.has_sound && !is_computing;
+                let footer_summary = if draft.has_sound {
+                    let est_bytes =
+                        estimate_audio_export_bytes(draft.cached_duration, &draft.options);
+                    format!(
+                        "{} · {} · ~ {}",
+                        draft.cached_summary,
+                        format_audio_duration_label(draft.cached_duration),
+                        format_audio_bytes_label(est_bytes),
+                    )
+                } else {
+                    "No sounds".to_owned()
+                };
+                let disabled_tooltip = (!draft.has_sound).then(|| {
+                    draft
+                        .empty_reason
+                        .as_deref()
+                        .unwrap_or("This document has no sounds to export.")
+                        .trim_end_matches('.')
+                });
+                c::surface::dialog_footer(
+                    ui,
+                    |ui| {
+                        caption(ui, &footer_summary);
+                    },
+                    |ui| {
+                        let export_btn = ui.add_enabled(
+                            can_export,
+                            c::Button::primary("Export").icon(i16::UPLOAD),
+                        );
+                        if crate::ui_icons::hover_tooltip(export_btn, "", None, disabled_tooltip)
+                            .clicked()
+                        {
+                            do_export = true;
+                        }
+                        if ui.add(c::Button::new("Cancel")).clicked() {
+                            close_cancel = true;
+                        }
+                    },
+                );
             });
 
-        if refresh_needed {
-            self.refresh_export_audio_summary(&mut draft);
+        let can_export_now = draft.has_sound && !is_computing;
+        let wanted_key = AudioPreviewKey::from(&draft.options);
+        if refresh_needed
+            || (draft.computed_key.as_ref() != Some(&wanted_key)
+                && pending_key.as_ref() != Some(&wanted_key))
+        {
+            self.spawn_export_audio_preview(ctx, &mut draft, wanted_key);
         }
 
         if !close_cancel && !do_export {
-            match kb.resolve(ctx, &modal, true) {
+            match kb.resolve(ctx, &modal, can_export_now) {
                 super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
                 super::dialog_helpers::DialogKeyboardOutcome::Confirm => do_export = true,
                 super::dialog_helpers::DialogKeyboardOutcome::None => {}
@@ -532,5 +807,201 @@ impl Editor {
                 self.message(format!("Audio export failed: {err}"));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use neoflash_core::FrameSound;
+
+    fn tiny_pcm_wav(channels: u16, sample_rate: u32, samples: &[i16]) -> Vec<u8> {
+        let data_bytes = (samples.len() * 2) as u32;
+        let byte_rate = sample_rate * u32::from(channels) * 2;
+        let block_align = channels * 2;
+        let mut out = Vec::with_capacity(44 + data_bytes as usize);
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&(36 + data_bytes).to_le_bytes());
+        out.extend_from_slice(b"WAVEfmt ");
+        out.extend_from_slice(&16_u32.to_le_bytes());
+        out.extend_from_slice(&1_u16.to_le_bytes());
+        out.extend_from_slice(&channels.to_le_bytes());
+        out.extend_from_slice(&sample_rate.to_le_bytes());
+        out.extend_from_slice(&byte_rate.to_le_bytes());
+        out.extend_from_slice(&block_align.to_le_bytes());
+        out.extend_from_slice(&16_u16.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&data_bytes.to_le_bytes());
+        for &s in samples {
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+        out
+    }
+
+    fn audio_project() -> Project {
+        let mut samples = Vec::with_capacity(8820);
+        for i in 0..4410 {
+            let v = ((i as f32 * 0.1).sin() * 12_000.0) as i16;
+            samples.push(v);
+            samples.push(-v / 2);
+        }
+        let wav = tiny_pcm_wav(2, 44_100, &samples);
+        let mut project = Project::blank();
+        project.format_version = 6;
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes("snd1", "beep.wav", "audio/wav", &wav).unwrap(),
+        );
+        let timeline = &mut project.symbols[0].timeline;
+        timeline.frame_count = 12;
+        timeline.layers[0].keyframes[0].sound = Some(FrameSound::new("snd1"));
+        project.upgrade_format_for_features();
+        project
+    }
+
+    fn pump_audio_modal(editor: &mut Editor, ctx: &egui::Context) -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1920.0, 1080.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| editor.export_audio_dialog(ctx),
+        )
+    }
+
+    #[test]
+    fn audio_preview_computes_real_peaks_and_empty_range_states() {
+        let blank = Project::blank();
+        let empty = compute_audio_preview(&blank, &AudioExportOptions::default(), 1);
+        assert!(!empty.has_sound);
+        assert_eq!(empty.summary, "No sounds");
+        assert_eq!(
+            empty.empty_reason.as_deref(),
+            Some("This document has no sounds to export.")
+        );
+        assert!(empty.peaks.is_none());
+
+        let project = audio_project();
+        let mono_opts = AudioExportOptions {
+            channels: AudioChannels::Mono,
+            ..Default::default()
+        };
+        let res = compute_audio_preview(&project, &mono_opts, 2);
+        assert!(res.has_sound);
+        assert!(res.duration > 0.0);
+        let peaks = res.peaks.as_ref().expect("real mix peaks");
+        assert_eq!(
+            downsample_waveform_columns(peaks, AudioChannels::Mono, 16).len(),
+            1
+        );
+        let stereo_cols = downsample_waveform_columns(peaks, AudioChannels::Stereo, 16);
+        assert_eq!(stereo_cols.len(), 2);
+        assert_eq!(stereo_cols[0].len(), 16);
+        assert!(stereo_cols[0].iter().any(|&(lo, hi)| lo < 0.0 || hi > 0.0));
+
+        let silent_range = AudioExportOptions {
+            range: AudioExportRange::Frames {
+                scene_id: None,
+                start: 10,
+                end: 11,
+            },
+            ..Default::default()
+        };
+        let out_of_range = compute_audio_preview(&project, &silent_range, 3);
+        assert!(!out_of_range.has_sound);
+        assert_eq!(
+            out_of_range.empty_reason.as_deref(),
+            Some("No sound in the selected range.")
+        );
+    }
+
+    #[test]
+    fn export_audio_modal_caches_preview_and_keeps_enter_inert_when_empty() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut empty_editor = Editor::from_project(&ctx, Project::blank());
+        empty_editor.open_export_audio(&ctx, None);
+        let mut out = pump_audio_modal(&mut empty_editor, &ctx);
+        for _ in 0..80 {
+            if !has_pending_audio_preview(&ctx)
+                && export_audio_draft(&ctx).is_some_and(|d| d.computed_key.is_some())
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            out = pump_audio_modal(&mut empty_editor, &ctx);
+        }
+        assert!(!has_pending_audio_preview(&ctx));
+        let draft = export_audio_draft(&ctx).expect("empty draft open");
+        assert!(!draft.has_sound);
+        assert_eq!(draft.cached_summary, "No sounds");
+        let export_disabled = out.platform_output.accesskit_update.as_ref().and_then(|u| {
+            u.nodes
+                .iter()
+                .find(|(_, n)| n.label() == Some("Export"))
+                .map(|(_, n)| n.is_disabled())
+        });
+        assert_eq!(export_disabled, Some(true));
+        // Enter must stay inert while no sound is present.
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1920.0, 1080.0),
+                )),
+                events: vec![egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            },
+            |ctx| empty_editor.export_audio_dialog(ctx),
+        );
+        assert!(has_export_audio_dialog(&ctx));
+        empty_editor.cancel_export_audio(&ctx);
+
+        let ctx_audio = egui::Context::default();
+        ctx_audio.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx_audio, audio_project());
+        editor.open_export_audio(&ctx_audio, None);
+        let mut audio_out = pump_audio_modal(&mut editor, &ctx_audio);
+        for _ in 0..100 {
+            if !has_pending_audio_preview(&ctx_audio)
+                && export_audio_draft(&ctx_audio).is_some_and(|d| d.computed_key.is_some())
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            audio_out = pump_audio_modal(&mut editor, &ctx_audio);
+        }
+        let settled = export_audio_draft(&ctx_audio).expect("audio draft settled");
+        assert!(settled.has_sound);
+        assert!(settled.cached_peaks.is_some());
+        let first_key = settled.computed_key.clone();
+        for _ in 0..3 {
+            audio_out = pump_audio_modal(&mut editor, &ctx_audio);
+            assert!(!has_pending_audio_preview(&ctx_audio));
+        }
+        assert_eq!(
+            export_audio_draft(&ctx_audio).unwrap().computed_key,
+            first_key
+        );
+        let has_footer_estimate = audio_out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .is_some_and(|u| {
+                u.nodes
+                    .iter()
+                    .filter_map(|(_, n)| n.label().or(n.value()))
+                    .any(|lbl| lbl.contains(" · ~ "))
+            });
+        assert!(has_footer_estimate);
+        editor.cancel_export_audio(&ctx_audio);
     }
 }

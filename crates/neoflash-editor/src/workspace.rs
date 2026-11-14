@@ -77,11 +77,21 @@ impl PanelId {
         }
     }
     /// Smallest height when stacked in a side column: the panel header plus its first control row
-    /// (Figma editor-main keeps Library at 100 pt: header + search). Users drag the splitter for more.
+    /// Minimum useful height when stacked inside a side dock (`R-077`).
     pub fn min_stacked_height(self) -> f32 {
         match self {
-            Self::Library => 100.,
-            _ => 120.,
+            Self::Library => {
+                use neoflash_ui::{metrics as nf, tokens::space};
+                nf::panel_header()
+                    + nf::control()
+                    + 2.0 * space::S2
+                    + nf::control()
+                    + 3.0 * nf::row()
+                    + space::S2
+                    + 1.0
+                    + nf::control()
+            }
+            _ => minimum_window_size(self)[1],
         }
     }
     /// NF2 icon shown in dock tabs.
@@ -2316,7 +2326,7 @@ pub enum PublishTarget {
 impl PublishTarget {
     pub const OPTIONS: [(Self, &'static str); 5] = [
         (Self::Html5, "HTML5 · Rust / WebAssembly"),
-        (Self::DesktopApp, "Desktop app (macOS / Windows)"),
+        (Self::DesktopApp, "Desktop app (macOS / Windows / Linux)"),
         (Self::VideoMp4, "Video (MP4)"),
         (Self::ImageSequence, "Image sequence / sprite sheet"),
         (Self::SvgAnimation, "SVG animation"),

@@ -1602,8 +1602,8 @@ impl Editor {
         );
         let resize = ui
             .interact(grip, ui.id().with("library-preview-height"), Sense::drag())
-            .on_hover_cursor(egui::CursorIcon::ResizeVertical)
-            .on_hover_text("Resize symbol preview");
+            .on_hover_cursor(egui::CursorIcon::ResizeVertical);
+        let resize = nf::tooltip(resize, "Resize symbol preview", None);
         resize.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::DragValue,
@@ -1644,20 +1644,20 @@ impl Editor {
             });
         }
         let p = neoflash_ui::palette(ui.ctx());
-        ui.add_sized(
+        let name_resp = ui.add_sized(
             [width, 16.],
             egui::Label::new(rich(&symbol.name, TextStyle::BodyStrong).color(p.text_primary))
                 .truncate()
                 .halign(egui::Align::Min),
-        )
-        .on_hover_text(&symbol.name);
-        ui.add_sized(
+        );
+        nf::tooltip(name_resp, &symbol.name, None);
+        let meta_resp = ui.add_sized(
             [width, 16.],
             egui::Label::new(rich(metadata, TextStyle::Small).color(p.text_tertiary))
                 .truncate()
                 .halign(egui::Align::Min),
-        )
-        .on_hover_text(metadata);
+        );
+        nf::tooltip(meta_resp, metadata, None);
     }
 
     fn library_browser(&mut self, ui: &mut egui::Ui, overflow: Option<(LibrarySymbol, String)>) {
@@ -2792,13 +2792,13 @@ impl Editor {
                     ] {
                         if let Some(value) = value {
                             crate::paint_controls::property_row(ui, label, |ui| {
-                                ui.add(
+                                let label_resp = ui.add(
                                     egui::Label::new(
                                         rich(value, TextStyle::Body).color(p.text_primary),
                                     )
                                     .truncate(),
-                                )
-                                .on_hover_text(value);
+                                );
+                                nf::tooltip(label_resp, value, None);
                             });
                         }
                     }

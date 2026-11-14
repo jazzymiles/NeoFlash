@@ -381,13 +381,17 @@ impl Editor {
                 }
             }
             Ctl::Guide => {
-                if ui
-                    .add_enabled(
-                        self.can_add_motion_guide_to(self.layer),
-                        IconButton::new(i16::GUIDEPLUS, "Add motion guide"),
-                    )
-                    .on_disabled_hover_text("Select a normal layer to add a motion guide")
-                    .clicked()
+                let guide_resp = ui.add_enabled(
+                    self.can_add_motion_guide_to(self.layer),
+                    IconButton::new(i16::GUIDEPLUS, "Add motion guide"),
+                );
+                if crate::ui_icons::hover_tooltip(
+                    guide_resp,
+                    "Add motion guide",
+                    None,
+                    Some("Select a normal layer to add a motion guide"),
+                )
+                .clicked()
                 {
                     self.add_motion_guide();
                 }
@@ -419,26 +423,27 @@ impl Editor {
             Ctl::Frame => {
                 let frame = self.frame;
                 let count = self.symbol().timeline.frame_count;
-                ui.horizontal_centered(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S1;
-                    ui.label(
-                        typography::rich(format!("{}", frame + 1), TextStyle::Mono)
-                            .color(p.text_primary),
-                    );
-                    ui.label(
-                        typography::rich(format!("/ {count}"), TextStyle::MonoSmall)
-                            .color(p.text_tertiary),
-                    );
-                })
-                .response
-                .on_hover_text("Current frame / frame count");
+                let frame_resp = ui
+                    .horizontal_centered(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S1;
+                        ui.label(
+                            typography::rich(format!("{}", frame + 1), TextStyle::Mono)
+                                .color(p.text_primary),
+                        );
+                        ui.label(
+                            typography::rich(format!("/ {count}"), TextStyle::MonoSmall)
+                                .color(p.text_tertiary),
+                        );
+                    })
+                    .response;
+                nf::tooltip(frame_resp, "Current frame / frame count", None);
             }
             Ctl::Timecode => {
-                ui.label(
+                let time_resp = ui.label(
                     typography::rich(timecode(self.frame, self.project.fps), TextStyle::MonoSmall)
                         .color(p.text_secondary),
-                )
-                .on_hover_text("Current time");
+                );
+                nf::tooltip(time_resp, "Current time", None);
             }
             Ctl::Scene => self.timeline_scene_select(ui),
             Ctl::Fps => self.timeline_timing_fields(ui, true, false),
@@ -519,20 +524,21 @@ impl Editor {
             }
             Ctl::Slider => {
                 let mut zoom = (self.timeline_cell as f64).ln();
-                if ui
-                    .add(
-                        nf::Slider::new(
-                            &mut zoom,
-                            (MIN_CELL as f64).ln()..=(MAX_CELL as f64).ln(),
-                            "Timeline zoom",
-                        )
-                        .step(0.01)
-                        .width(SLIDER),
+                let slider_resp = ui.add(
+                    nf::Slider::new(
+                        &mut zoom,
+                        (MIN_CELL as f64).ln()..=(MAX_CELL as f64).ln(),
+                        "Timeline zoom",
                     )
-                    .on_hover_text(
-                        "Change the width of timeline cells without changing the animation",
-                    )
-                    .changed()
+                    .step(0.01)
+                    .width(SLIDER),
+                );
+                if nf::tooltip(
+                    slider_resp,
+                    "Change the width of timeline cells without changing the animation",
+                    None,
+                )
+                .changed()
                 {
                     self.timeline_cell = (zoom.exp() as f32).clamp(MIN_CELL, MAX_CELL);
                 }
@@ -953,7 +959,7 @@ impl Editor {
         let (response, _) = nf::Select::new("timeline-scene", &name)
             .width(120.)
             .show(ui, |ui| self.scene_menu_items(ui));
-        response.on_hover_text("Scene");
+        nf::tooltip(response, "Scene", None);
     }
 
     /// Scene menu rows (Scene select and More ▸ Hidden controls ▸ Scene).
@@ -1278,10 +1284,14 @@ impl Editor {
                 .clamp(MIN_CELL, MAX_CELL);
         }
         let selection = self.selected_frame_range();
-        if ui
-            .add_enabled(selection.is_some(), MenuItem::new("Fit selection"))
-            .on_disabled_hover_text("Select a frame range first")
-            .clicked()
+        let fit_sel_resp = ui.add_enabled(selection.is_some(), MenuItem::new("Fit selection"));
+        if crate::ui_icons::hover_tooltip(
+            fit_sel_resp,
+            "Fit selection",
+            None,
+            Some("Select a frame range first"),
+        )
+        .clicked()
             && let Some((first, last, _)) = selection
         {
             self.timeline_fit_frames(first, last, frames_width, out);

@@ -22,6 +22,27 @@ use neoflash_core::*;
 use serde::Deserialize;
 use std::collections::HashSet;
 
+/// R-085: Paint Stage error text inside an NF2 plate so unthemed canvas artwork never hurts contrast.
+pub(crate) fn paint_stage_error_plate(painter: &egui::Painter, origin: Pos2, message: &str) {
+    let p = neoflash_ui::palette(painter.ctx());
+    let font = neoflash_ui::typography::font(neoflash_ui::TextStyle::Small);
+    let galley = painter.layout_no_wrap(message.to_owned(), font, p.danger_default);
+    let pad = egui::vec2(
+        neoflash_ui::tokens::space::S2,
+        neoflash_ui::tokens::space::S1,
+    );
+    let rect = Rect::from_min_size(origin, galley.size() + pad * 2.0);
+    let corner = egui::CornerRadius::same(neoflash_ui::tokens::radius::SM as u8);
+    painter.rect(
+        rect,
+        corner,
+        p.bg_raised,
+        Stroke::new(1.0_f32, p.border_subtle),
+        StrokeKind::Inside,
+    );
+    painter.galley(rect.min + pad, galley, p.danger_default);
+}
+
 #[derive(Clone, Default)]
 struct SymbolContextClips {
     ids: Vec<String>,
@@ -464,18 +485,9 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
             } else if let Err(error) = crate::text_boxes::paint(p, &item.kind, c, screen) {
                 p.add(Shape::closed_line(
                     points.to_vec(),
-                    Stroke::new(
-                        1.0_f32,
-                        crate::theme::UiPalette::current(p.ctx()).error_text,
-                    ),
+                    Stroke::new(1.0_f32, neoflash_ui::palette(p.ctx()).danger_default),
                 ));
-                p.text(
-                    points[0],
-                    egui::Align2::LEFT_TOP,
-                    format!("Text preview: {error}"),
-                    FontId::proportional(12.),
-                    crate::theme::UiPalette::current(p.ctx()).error_text,
-                );
+                paint_stage_error_plate(p, points[0], &format!("Text preview: {error}"));
             }
         }
         ElementKind::Video { width, height } => {
@@ -763,10 +775,34 @@ impl Editor {
                     self.timeline_edit.focused = false;
                 }
                 let size = Vec2::new(self.project.width as f32, self.project.height as f32);
-                if self.zoom == 0. {
-                    self.zoom = ((rect.width() - 60.) / size.x)
+                let startup_default = self.stage_view.fitted_zoom.is_none()
+                    && self.stage_view.last_stage_size.is_none()
+                    && (self.zoom - 0.75).abs() < 1e-6
+                    && self.pan == Vec2::ZERO;
+                if self.zoom != 0.
+                    && !startup_default
+                    && self.stage_view.auto_fit
+                    && (self
+                        .stage_view
+                        .fitted_zoom
+                        .is_none_or(|fit| (self.zoom - fit).abs() > 1e-4)
+                        || self.pan != Vec2::ZERO)
+                {
+                    self.stage_view.auto_fit = false;
+                }
+                let stage_resized = self
+                    .stage_view
+                    .last_stage_size
+                    .is_none_or(|prev| (prev - rect.size()).length_sq() > 0.25);
+                if self.zoom == 0. || (self.stage_view.auto_fit && stage_resized) {
+                    let fit = ((rect.width() - 60.) / size.x)
                         .min((rect.height() - 60.) / size.y)
                         .clamp(0.1, 2.);
+                    self.zoom = fit;
+                    self.pan = Vec2::ZERO;
+                    self.stage_view.auto_fit = true;
+                    self.stage_view.fitted_zoom = Some(fit);
+                    self.stage_view.last_stage_size = Some(rect.size());
                 }
                 // Tools and hover targets refine this during the frame; `show_stage_cursor` paints it.
                 self.stage_cursor = Some(crate::stage_cursor::tool_cursor_precise(
@@ -789,6 +825,7 @@ impl Editor {
                             self.pan -= rel * (new_zoom / old_zoom - 1.0);
                         }
                         self.zoom = new_zoom;
+                        self.mark_manual_stage_view();
                     }
                     let delta = ctx.input(|input| input.smooth_scroll_delta);
                     if delta != Vec2::ZERO {
@@ -803,6 +840,7 @@ impl Editor {
                         } else {
                             self.pan += delta;
                         }
+                        self.mark_manual_stage_view();
                     }
                 }
                 let isolated = self.edit_context_is_isolated();

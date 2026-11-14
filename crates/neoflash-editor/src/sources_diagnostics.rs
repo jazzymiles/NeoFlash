@@ -410,7 +410,7 @@ impl DiagnosticUi {
                     }
                     let result = peek.show(ui);
                     // The shared compact component truncates long text; retain its full explanation on hover.
-                    result.response.clone().on_hover_text(&message);
+                    nf::tooltip(result.response.clone(), message.trim_end_matches('.'), None);
                     if result.action_clicked() {
                         requested = Some(index);
                     }

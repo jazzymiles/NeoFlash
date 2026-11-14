@@ -412,13 +412,19 @@ impl Editor {
 
                         ui.horizontal(|ui| {
                             form_label(ui, "Script", L);
-                            ui.add_enabled_ui_semantic(false, |ui| {
-                                c::Select::new("doc-settings-script", script_label)
-                                    .width(220.0)
-                                    .show(ui, |_| {});
-                            })
-                            .response
-                            .on_disabled_hover_text(NOT_AVAILABLE);
+                            let script_resp = ui
+                                .add_enabled_ui_semantic(false, |ui| {
+                                    c::Select::new("doc-settings-script", script_label)
+                                        .width(220.0)
+                                        .show(ui, |_| {});
+                                })
+                                .response;
+                            crate::ui_icons::hover_tooltip(
+                                script_resp,
+                                "",
+                                None,
+                                Some(NOT_AVAILABLE),
+                            );
                         });
 
                         match footer_clicked(

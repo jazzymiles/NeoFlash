@@ -1084,23 +1084,23 @@ impl Editor {
             if from_resp.changed() || to_resp.changed() {
                 ctx.data_mut(|d| d.insert_temp(jsfl_pair_id, (jsfl_from, jsfl_to)));
             }
-            if ui
-                .add(c::Button::new("Replace colour across project (JSFL)"))
-                .on_hover_text(
-                    "Run built-in change_color.jsfl across all scenes, Library symbols, gradients, strokes and text",
-                )
-                .clicked()
+            if c::tooltip(
+                ui.add(c::Button::new("Replace colour across project (JSFL)")),
+                "Run built-in change_color.jsfl across all scenes, Library symbols, gradients, strokes and text",
+                None,
+            )
+            .clicked()
                 && let Ok(count) = self.run_jsfl_change_color_command(jsfl_from, jsfl_to)
                     && count > 0
                 {
                     ctx.data_mut(|d| d.insert_temp(jsfl_pair_id, (jsfl_to, jsfl_to)));
                 }
-            if ui
-                .add(c::Button::new("Import palette (.act, .clr, .ase)…"))
-                .on_hover_text(
-                    "Import colour swatches from an Adobe Color Table (.act), Flash Color Set (.clr), or Adobe Swatch Exchange (.ase) palette",
-                )
-                .clicked()
+            if c::tooltip(
+                ui.add(c::Button::new("Import palette (.act, .clr, .ase)…")),
+                "Import colour swatches from an Adobe Color Table (.act), Flash Color Set (.clr), or Adobe Swatch Exchange (.ase) palette",
+                None,
+            )
+            .clicked()
             {
                 self.import_palette_dialog();
             }

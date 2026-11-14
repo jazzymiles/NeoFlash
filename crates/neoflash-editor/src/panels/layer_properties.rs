@@ -120,6 +120,8 @@ pub(crate) struct LayerPropertiesDraft {
     pub(crate) height: LayerHeightChoice,
     pub(crate) blend_mode: BlendMode,
     pub(crate) sync_timeline: bool,
+    pub(crate) attach_to_camera: bool,
+    pub(crate) z_depth: f64,
     pub(crate) existing_mask: Option<Id>,
     pub(crate) existing_motion_guide: Option<Id>,
 }
@@ -283,6 +285,8 @@ impl Editor {
             height: self.current_layer_height_choice(),
             blend_mode: layer.properties.blend_mode,
             sync_timeline: layer.properties.sync_timeline,
+            attach_to_camera: layer.properties.attach_to_camera,
+            z_depth: layer.properties.z_depth,
             existing_mask: layer.properties.mask.clone(),
             existing_motion_guide: layer.properties.motion_guide.clone(),
         };
@@ -416,6 +420,17 @@ impl Editor {
             } else {
                 layer.properties.blend_mode = draft.blend_mode;
                 layer.properties.sync_timeline = draft.sync_timeline;
+            }
+            if draft.kind == LayerTypeChoice::Folder {
+                layer.properties.attach_to_camera = false;
+                layer.properties.z_depth = 0.0;
+            } else {
+                layer.properties.attach_to_camera = draft.attach_to_camera;
+                layer.properties.z_depth = if draft.z_depth.is_finite() {
+                    draft.z_depth.clamp(-10_000.0, 10_000.0)
+                } else {
+                    0.0
+                };
             }
             if was_folder && draft.kind != LayerTypeChoice::Folder && layer.keyframes.is_empty() {
                 layer.keyframes.push(Keyframe::default());
@@ -715,6 +730,20 @@ impl Editor {
                             )
                             .color(p.text_tertiary),
                         );
+
+                        if draft.kind != LayerTypeChoice::Folder {
+                            group(ui, "Camera");
+                            ui.add(c::Switch::new(
+                                &mut draft.attach_to_camera,
+                                "Attach layer to camera",
+                            ));
+                            ui.add(
+                                c::Field::new(&mut draft.z_depth, "Z-depth")
+                                    .prefix("Z-depth")
+                                    .unit("px")
+                                    .range(-10_000.0..=10_000.0),
+                            );
+                        }
 
                         ui.add_space(space::S2);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

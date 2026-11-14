@@ -365,9 +365,11 @@ impl crate::app::Editor {
             }
             changes.note(embed_response);
 
-            let embedding_response = ui
-                .add(nf::Button::new("Embedding…"))
-                .on_hover_text("Set font embedding options for this text field");
+            let embedding_response = neoflash_ui::components::tooltip(
+                ui.add(nf::Button::new("Embedding…")),
+                "Set font embedding options for this text field",
+                None,
+            );
             *open_embedding = *enable_after_confirm || embedding_response.clicked();
         };
         if ui.available_width() < 312.0 {

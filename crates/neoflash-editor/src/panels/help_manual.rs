@@ -430,7 +430,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Pencil modes Straighten, Smooth and Ink choose how aggressively the captured stroke is simplified.",
     ],
     &[
-        "Brush (B) supports normal, fill, behind, selection and inside paint modes together with pressure, tilt, size, shape and Lock Fill; physical graphics-tablet pressure (0.05..=1.0), tilt-to-nib-angle mapping and pen-tip/eraser switching are experimental in 0.1.0-beta.1 (deterministic event-level pipeline verified; Wacom and Apple Sidecar hardware certification is tracked under T-235).",
+        "Brush (B) supports normal, fill, behind, selection and inside paint modes together with pressure, tilt, size, shape and Lock Fill. Graphics-tablet pressure, pen tilt and switching between pen tip and eraser are experimental in 0.1.0-beta.1 and have not been checked on every tablet and driver.",
         "Paint Bucket (K) closes configurable gaps, applies solid or gradient fills and can drag a gradient direction directly on the Stage.",
         "Gradient Transform (F) edits linear and radial boundaries, width, radius, rotation, centre and focal point handles.",
         "Eraser (E) includes normal, fills, lines, selected fills, inside and whole-object modes plus round or square tips and Faucet behavior.",
@@ -467,7 +467,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Publish and export targets include HTML5 plus WebAssembly (with 9-anchor Stage.align, Fullscreen and per-bitmap WebP/JPEG/PNG settings), zero-WASM Web Banner Native, 5-format Texture Atlases, AI/SVG/PNG/JPEG/WebP/GIF/BMP frame sequences, SWF, Lottie, audio/video and Adobe After Effects (.aep / .aepx / .jsx) with AE JavaScript Expressions.",
         "Core shortcuts include C for Razor, F5/F6/F7 for Timeline frames, F8 for Convert to Symbol, Command-B for Break Apart, F9 for Actions, Option-Shift-Command-A for After Effects export and Shift-F12 for Publish.",
         "Packaged builds bundle ffmpeg and ffprobe in Contents/Resources/media/bin/ on macOS or media/bin/ on Windows/Linux, with optional NEOFLASH_FFMPEG override; exact Rust/media licences are inside and the corresponding source is verified by the supplied SHA256SUMS.txt. Keep .nflash backups and attach a minimal repro, Output diagnostics and the About NeoFlash commit to bug reports.",
-        "Beta 1 Known Issues & Limitations: native macOS VoiceOver is deferred; Intel macOS and auto-update are omitted; the unsigned Windows preview may trigger SmartScreen and lacks the connected private debugger; Linux is checked on Ubuntu 24.04 x64 with X11/Wayland and Vulkan/GLES rather than AppImage/deb; physical Windows 11 and broader Linux visual acceptance remain pending; legacy compatibility is bounded and physical tablet hardware is experimental (T-235).",
+        "Beta 1 known issues and limits: VoiceOver cannot read the editor interface yet; there is no build for Intel (x86_64) Macs; updates are installed manually; the Windows preview is unsigned, so SmartScreen may warn before the first launch, and it has no connected debugger; the Linux preview is a portable archive tested on Ubuntu 24.04 x64 with X11 and Wayland, not an AppImage or deb package; Windows and Linux have had less testing than macOS; import of legacy Flash files is partial; graphics-tablet support is experimental.",
     ],
     &[
         "ActionScript 1.0 and 2.0 execute on the AVM1 timeline and target-path hierarchy (_level0, _root, _parent, this) with 1-based frame indexing.",
@@ -524,7 +524,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Network requests via fetch(url, init) and JSON parsing obey browser CORS, Content-Security-Policy (CSP), and HTTPS mixed-content rules.",
         "Web Audio (AudioContext) and HTMLMediaElement playback require a user gesture (pointer click or key press) before audio unmutes in modern browsers.",
         "Persistent client state uses window.localStorage and sessionStorage scoped to the page origin; filesystem (fs) and raw TCP/UDP sockets do not exist in the browser sandbox.",
-        "Published HTML5 packages in NeoFlash 0.1.0-beta.1 emit a synchronized stage-a11y-overlay ARIA DOM (role, aria-label, tabindex and keyboardFocusActive keyboard-only focus rings) while native macOS VoiceOver (platform-accessibility), Intel (x86_64) macOS builds, auto-update and physical Wacom/Sidecar tablet certification (T-235) remain documented Beta 1 boundaries.",
+        "HTML5 packages published by NeoFlash 0.1.0-beta.1 include an accessibility layer for screen readers and keyboard users: every accessible object gets a role, a name and a tab stop, and focus rings appear only during keyboard navigation. Not in Beta 1: VoiceOver inside the editor, builds for Intel (x86_64) Macs, automatic installation of updates and full graphics-tablet support.",
     ],
 ];
 
@@ -846,12 +846,12 @@ impl crate::app::Editor {
                                         } else {
                                             Button::ghost("Help (1–10)")
                                         };
-                                        if ui
-                                            .add(help_btn)
-                                            .on_hover_text(
-                                                "General NeoFlash Authoring Help (Chapters 1–10)",
-                                            )
-                                            .clicked()
+                                        if neoflash_ui::components::tooltip(
+                                            ui.add(help_btn),
+                                            "General NeoFlash Authoring Help (Chapters 1–10)",
+                                            None,
+                                        )
+                                        .clicked()
                                             && state.mode != HelpManualMode::AuthoringHelp
                                         {
                                             state.mode = HelpManualMode::AuthoringHelp;
@@ -866,12 +866,12 @@ impl crate::app::Editor {
                                             } else {
                                                 Button::ghost("Scripting Ref")
                                             };
-                                        if ui
-                                            .add(ref_btn)
-                                            .on_hover_text(
-                                                "Scripting Reference: ActionScript 1/2/3, JavaScript, TypeScript & Web APIs (Chapters 11–19)",
-                                            )
-                                            .clicked()
+                                        if neoflash_ui::components::tooltip(
+                                            ui.add(ref_btn),
+                                            "Scripting Reference: ActionScript 1/2/3, JavaScript, TypeScript & Web APIs (Chapters 11–19)",
+                                            None,
+                                        )
+                                        .clicked()
                                             && state.mode != HelpManualMode::ScriptingReference
                                         {
                                             state.mode = HelpManualMode::ScriptingReference;
@@ -938,14 +938,17 @@ impl crate::app::Editor {
                                             TextStyle::Body,
                                             label_max_w,
                                         );
-                                        let item_resp = TreeItem::new(
-                                            &fitted_label,
-                                            TreeItemType::Symbol(ch.icon),
-                                        )
-                                        .selected(state.page == idx)
-                                        .show(ui)
-                                        .row
-                                        .on_hover_text(format!("{}\n{}", ch.title, ch.subtitle));
+                                        let item_resp = neoflash_ui::components::tooltip(
+                                            TreeItem::new(
+                                                &fitted_label,
+                                                TreeItemType::Symbol(ch.icon),
+                                            )
+                                            .selected(state.page == idx)
+                                            .show(ui)
+                                            .row,
+                                            &format!("{}\n{}", ch.title, ch.subtitle),
+                                            None,
+                                        );
                                         if item_resp.clicked() {
                                             if state.page != idx {
                                                 state.history.push(state.page);
@@ -1163,7 +1166,10 @@ fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
                             } else {
                                 Button::ghost(ch.sidebar_label)
                             };
-                            if ui.add(btn).on_hover_text(ch.title).clicked() && idx != page_idx {
+                            if neoflash_ui::components::tooltip(ui.add(btn), ch.title, None)
+                                .clicked()
+                                && idx != page_idx
+                            {
                                 nav_target = Some(idx);
                             }
                         }
@@ -2962,7 +2968,7 @@ fn chapter_scripting_import_and_publish(
             "Release Identity & Manual Update: NeoFlash 0.1.0-beta.1 targets macOS 15+ (Apple Silicon) and includes Windows x64 and Ubuntu 24.04-compatible Linux x64 Technical Previews. To update macOS, quit NeoFlash and replace NeoFlash.app in /Applications; preferences, custom workspaces, recent files, and crash-recovery snapshots under ~/Library/Application Support/NeoFlash are preserved.",
             "Bundled Media & Licences: Packaged builds include ffmpeg and ffprobe in Contents/Resources/media/bin/ on macOS or media/bin/ in portable archives. Exact application, Rust and media licence evidence is already included; verify the application and corresponding-source archives with the supplied SHA256SUMS.txt. Set NEOFLASH_FFMPEG / NEOFLASH_FFPROBE only for a custom override.",
             "Project Backups & Bug Reporting: Keep versioned .nflash JSON projects in Git or regular file backups. When reporting a bug, attach a minimal .nflash reproduction project, diagnostics copied from the Output panel (F2), and the version/commit identifier from NeoFlash ▸ About NeoFlash.",
-            "Beta 1 Known Issues & Limitations: Native macOS VoiceOver is deferred; Intel macOS and automatic updating are omitted; the unsigned Windows preview may trigger SmartScreen and its connected private debugger is unavailable; Linux is checked on Ubuntu 24.04 x64 with X11/Wayland and Vulkan/GLES rather than AppImage/deb; physical Windows 11 and broader Linux visual acceptance remain pending; legacy compatibility is bounded and physical tablet hardware is experimental (T-235).",
+            "Beta 1 known issues and limits: VoiceOver cannot read the editor interface yet; there is no build for Intel (x86_64) Macs; updates are installed manually; the Windows preview is unsigned, so SmartScreen may warn before the first launch, and it has no connected debugger; the Linux preview is a portable archive tested on Ubuntu 24.04 x64 with X11 and Wayland, not an AppImage or deb package; Windows and Linux have had less testing than macOS; import of legacy Flash files is partial; graphics-tablet support is experimental.",
         ],
     );
 
@@ -3490,11 +3496,11 @@ mod tests {
                     "About NeoFlash",
                     ".nflash",
                     "Output",
-                    "platform-accessibility",
+                    "VoiceOver",
                     "x86_64",
-                    "T-235",
+                    "graphics-tablet",
                     "experimental",
-                    "stage-a11y-overlay",
+                    "screen readers",
                 ] {
                     assert!(
                         disk_html.contains(needle),

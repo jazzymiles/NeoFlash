@@ -274,13 +274,22 @@ impl Editor {
 
     /// Disabled row for a designed command the editor cannot perform yet. Its shortcut does nothing.
     pub(crate) fn unavailable_item(ui: &mut egui::Ui, label: &str, shortcut: &str) {
-        menu_item_enabled(ui, false, label, shortcut).on_disabled_hover_text(NOT_AVAILABLE);
+        crate::ui_icons::hover_tooltip(
+            menu_item_enabled(ui, false, label, shortcut),
+            label,
+            (!shortcut.is_empty()).then_some(shortcut),
+            Some(NOT_AVAILABLE),
+        );
     }
 
     /// Disabled submenu row (▸) whose commands are all unavailable.
     pub(crate) fn unavailable_submenu(ui: &mut egui::Ui, label: &str) {
-        ui.add_enabled(false, MenuItem::new(label).submenu(true))
-            .on_disabled_hover_text(NOT_AVAILABLE);
+        crate::ui_icons::hover_tooltip(
+            ui.add_enabled(false, MenuItem::new(label).submenu(true)),
+            label,
+            None,
+            Some(NOT_AVAILABLE),
+        );
     }
 
     /// Symbol of the single selected instance, if any (Edit in place, Show in library).
@@ -473,7 +482,7 @@ impl Editor {
                 for path in recent {
                     let label = Self::recent_file_label(&path);
                     let tooltip = path.display().to_string();
-                    if menu_item(ui, &label, "").on_hover_text(tooltip).clicked() {
+                    if nf::tooltip(menu_item(ui, &label, ""), &tooltip, None).clicked() {
                         self.request(Pending::OpenPath(path), ctx);
                         ui.close();
                     }
@@ -525,7 +534,8 @@ impl Editor {
                     ui.close();
                 }
                 Self::planned_menu_item(ui, "File ▸ Import ▸ Import video…", "");
-                if menu_item_enabled(ui, self.layer_editable(), "Video placeholder", "").clicked() {
+                if menu_item_enabled(ui, self.layer_editable(), "Empty video object", "").clicked()
+                {
                     self.finish_edits();
                     self.add_element(
                         ElementKind::Video {
@@ -609,9 +619,13 @@ impl Editor {
                 "File ▸ Publish settings…",
                 &self.sc(C::FilePublishSettings),
             );
-            if menu_item(ui, "Publish", &self.sc(C::FilePublish))
-                .on_hover_text("Choose an output folder and publish the project as HTML5")
-                .clicked()
+            let publish_sc = self.tooltip_sc(C::FilePublish);
+            if nf::tooltip(
+                menu_item(ui, "Publish", &self.sc(C::FilePublish)),
+                "Choose an output folder and publish the project as HTML5",
+                publish_sc.as_deref(),
+            )
+            .clicked()
             {
                 self.export(false);
                 ui.close();
@@ -819,6 +833,7 @@ impl Editor {
                 if menu_item(ui, label, "").clicked() {
                     self.finish_edits();
                     self.zoom = zoom;
+                    self.mark_manual_stage_view();
                     ui.close();
                 }
             }
@@ -830,6 +845,7 @@ impl Editor {
                 if menu_item(ui, label, "").clicked() {
                     self.finish_edits();
                     self.zoom = zoom;
+                    self.mark_manual_stage_view();
                     ui.close();
                 }
             }
@@ -842,11 +858,16 @@ impl Editor {
         nf::menu_separator(ui);
         Self::unavailable_submenu(ui, "Preview mode");
         // The pasteboard is always shown; hiding it is not available yet.
-        ui.add_enabled(
+        let pasteboard_resp = ui.add_enabled(
             false,
             MenuItem::new("Pasteboard").shortcut("⇧⌘W").checked(true),
-        )
-        .on_disabled_hover_text(NOT_AVAILABLE);
+        );
+        crate::ui_icons::hover_tooltip(
+            pasteboard_resp,
+            "Pasteboard",
+            Some("⇧⌘W"),
+            Some(NOT_AVAILABLE),
+        );
         nf::menu_separator(ui);
         // Rulers, Grid and Guides toggle the same view settings as the zoom control and the View
         // settings popover (stage_view.rs); the "…" items open that popover.

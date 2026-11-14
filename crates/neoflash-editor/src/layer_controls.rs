@@ -69,6 +69,9 @@ fn group_indices(layers: &[Layer], selected: usize) -> Vec<usize> {
         .filter_map(|(index, layer)| ids.contains(&layer.id).then_some(index))
         .collect()
 }
+pub(crate) fn layer_group_indices(layers: &[Layer], selected: usize) -> Vec<usize> {
+    group_indices(layers, selected)
+}
 pub(crate) fn visible_layer_indices(timeline: &Timeline) -> Vec<usize> {
     // Serialized layers paint back to front. Display siblings front to back,
     // while keeping folder/mask headers above their children.
@@ -279,11 +282,13 @@ fn folder_is_descendant_of(layers: &[Layer], candidate_folder_id: &str, ancestor
 }
 
 #[derive(Clone)]
-struct LayerOutlineDraft {
-    symbol: Id,
-    layer: Id,
-    name: String,
-    color: egui::Color32,
+pub(crate) struct LayerOutlineDraft {
+    pub(crate) symbol: Id,
+    pub(crate) layer: Id,
+    pub(crate) anchor: egui::Rect,
+    pub(crate) initial_outline_color: Option<[u8; 3]>,
+    pub(crate) color: Color,
+    pub(crate) just_opened: bool,
 }
 
 impl Editor {
@@ -629,19 +634,97 @@ impl Editor {
     fn outline_draft_id(&self) -> egui::Id {
         egui::Id::new(("layer-outline-color", &self.clipboard.session))
     }
-    fn begin_layer_outline_color(&self, ctx: &egui::Context, layer: &Layer) {
-        let color = layer_outline_color(layer);
+    fn outline_swatch_rect_id(session: &str, symbol_id: &str, layer_id: &str) -> egui::Id {
+        egui::Id::new(("layer-outline-swatch-rect", session, symbol_id, layer_id))
+    }
+    pub(crate) fn record_layer_outline_swatch_rect(
+        &self,
+        ctx: &egui::Context,
+        layer_id: &str,
+        rect: egui::Rect,
+    ) {
+        let symbol_id = self.symbol_id().to_owned();
+        let rect_id = Self::outline_swatch_rect_id(&self.clipboard.session, &symbol_id, layer_id);
+        let draft_id = self.outline_draft_id();
         ctx.data_mut(|data| {
-            data.insert_temp(
-                self.outline_draft_id(),
-                LayerOutlineDraft {
-                    symbol: self.symbol_id().to_owned(),
-                    layer: layer.id.clone(),
-                    name: layer.name.clone(),
-                    color: egui::Color32::from_rgb(color[0], color[1], color[2]),
-                },
-            )
+            data.insert_temp(rect_id, rect);
+            if let Some(mut draft) = data.get_temp::<LayerOutlineDraft>(draft_id)
+                && draft.symbol == symbol_id
+                && draft.layer == layer_id
+            {
+                draft.anchor = rect;
+                data.insert_temp(draft_id, draft);
+            }
         });
+    }
+    pub(crate) fn begin_layer_outline_color(
+        &mut self,
+        ctx: &egui::Context,
+        layer: &Layer,
+        anchor: Option<egui::Rect>,
+    ) {
+        let draft_id = self.outline_draft_id();
+        if let Some(previous) = ctx.data_mut(|data| {
+            let prev = data.get_temp::<LayerOutlineDraft>(draft_id);
+            data.remove::<LayerOutlineDraft>(draft_id);
+            prev
+        }) {
+            self.commit_layer_outline_draft(&previous);
+        }
+        let symbol_id = self.symbol_id().to_owned();
+        let anchor = anchor
+            .or_else(|| {
+                let rect_id =
+                    Self::outline_swatch_rect_id(&self.clipboard.session, &symbol_id, &layer.id);
+                ctx.data(|data| data.get_temp::<egui::Rect>(rect_id))
+            })
+            .unwrap_or_else(|| {
+                egui::Rect::from_center_size(ctx.content_rect().center(), egui::vec2(16.0, 16.0))
+            });
+        let color = layer_outline_color(layer);
+        let draft = LayerOutlineDraft {
+            symbol: symbol_id,
+            layer: layer.id.clone(),
+            anchor,
+            initial_outline_color: layer.properties.outline_color,
+            color: [color[0], color[1], color[2], 255],
+            just_opened: true,
+        };
+        ctx.data_mut(|data| {
+            data.insert_temp(draft_id, draft);
+            data.insert_temp(
+                draft_id.with("outline-rgba").with("mode"),
+                crate::authoring_modify::PaintFillType::Solid,
+            );
+        });
+    }
+    fn set_live_layer_outline_color(
+        &mut self,
+        symbol: &str,
+        layer_id: &str,
+        color: Option<[u8; 3]>,
+    ) {
+        if let Some(layer) = self.project.symbol_mut(symbol).and_then(|symbol| {
+            symbol
+                .timeline
+                .layers
+                .iter_mut()
+                .find(|layer| layer.id == layer_id)
+        }) {
+            layer.properties.outline_color = color;
+        }
+    }
+    pub(crate) fn commit_layer_outline_draft(&mut self, draft: &LayerOutlineDraft) {
+        self.set_live_layer_outline_color(&draft.symbol, &draft.layer, draft.initial_outline_color);
+        let color = [draft.color[0], draft.color[1], draft.color[2]];
+        self.apply_layer_outline(&draft.symbol, &draft.layer, None, Some(color));
+    }
+    pub(crate) fn cancel_layer_outline_draft(&mut self, draft: &LayerOutlineDraft) {
+        self.set_live_layer_outline_color(&draft.symbol, &draft.layer, draft.initial_outline_color);
+    }
+    #[cfg(test)]
+    pub(crate) fn layer_outline_draft(&self, ctx: &egui::Context) -> Option<LayerOutlineDraft> {
+        ctx.data(|data| data.get_temp::<LayerOutlineDraft>(self.outline_draft_id()))
     }
     pub(crate) fn toggle_layer_folder(&mut self, index: usize) {
         self.layer_change(|project, symbol| {
@@ -702,6 +785,7 @@ impl Editor {
     }
     /// Right-click menu of the outline swatch: change the layer colour.
     pub(crate) fn layer_outline_menu(&mut self, response: &egui::Response, layer: &Layer) {
+        let swatch_rect = response.rect;
         response.context_menu(|ui| {
             crate::ui_icons::menu_contents(ui, 240., |ui| {
                 neoflash_ui::components::menu_section(ui, &layer.name);
@@ -709,7 +793,8 @@ impl Editor {
                     .add(neoflash_ui::components::MenuItem::new("Outline color…"))
                     .clicked()
                 {
-                    self.begin_layer_outline_color(ui.ctx(), layer);
+                    self.begin_layer_outline_color(ui.ctx(), layer, Some(swatch_rect));
+                    ui.close();
                 }
             })
         });
@@ -760,7 +845,7 @@ impl Editor {
             t.layers.insert(index, folder);
         });
     }
-    pub(crate) fn layer_outline_color_dialog(&mut self, ctx: &egui::Context) {
+    pub(crate) fn layer_outline_color_popover(&mut self, ctx: &egui::Context) {
         let id = self.outline_draft_id();
         let Some(mut draft) = ctx.data(|data| data.get_temp::<LayerOutlineDraft>(id)) else {
             return;
@@ -775,46 +860,58 @@ impl Editor {
             ctx.data_mut(|data| data.remove::<LayerOutlineDraft>(id));
             return;
         }
-        let mut open = true;
-        let mut apply = false;
-        let mut cancel = false;
-        egui::Window::new("Layer Outline Color")
-            .id(id)
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut open)
+        let mut changed = false;
+        let mut close_now = false;
+        let area_resp = egui::Area::new(id.with("outline-popover-area"))
+            .order(egui::Order::Foreground)
+            .constrain(true)
+            .fixed_pos(egui::pos2(draft.anchor.left(), draft.anchor.bottom() + 4.0))
             .show(ctx, |ui| {
-                ui.label(&draft.name);
-                let mut rgba = draft.color.to_srgba_unmultiplied();
-                let (changed, _) = crate::paint_controls::rgba_color_popover(
-                    ui,
-                    id.with("outline-rgba"),
-                    "Outline colour",
-                    &mut rgba,
-                );
-                if changed {
-                    draft.color =
-                        egui::Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], 255);
-                }
-                ui.horizontal(|ui| {
-                    apply = ui.button("Apply").clicked();
-                    cancel = ui.button("Cancel").clicked();
+                neoflash_ui::components::popover_frame(ctx).show(ui, |ui| {
+                    let (c, should_close) = crate::paint_controls::rgba_color_popover(
+                        ui,
+                        id.with("outline-rgba"),
+                        "Outline colour",
+                        &mut draft.color,
+                    );
+                    changed = c;
+                    close_now = should_close;
                 });
             });
-        if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
-            cancel = true;
+        if changed && draft.color[3] > 0 {
+            let live = [draft.color[0], draft.color[1], draft.color[2]];
+            self.set_live_layer_outline_color(&draft.symbol, &draft.layer, Some(live));
+        } else if changed && draft.color[3] == 0 {
+            draft.color[3] = 255;
         }
-        if apply {
-            let color = [draft.color.r(), draft.color.g(), draft.color.b()];
-            self.apply_layer_outline(&draft.symbol, &draft.layer, None, Some(color));
-        }
-        ctx.data_mut(|data| {
-            if open && !apply && !cancel {
-                data.insert_temp(id, draft);
-            } else {
-                data.remove::<LayerOutlineDraft>(id);
-            }
+        let popup_rect = area_resp.response.rect;
+        let (pressed, pointer_pos, escape) = ctx.input(|i| {
+            (
+                i.pointer.any_pressed(),
+                i.pointer.interact_pos(),
+                i.key_pressed(egui::Key::Escape),
+            )
         });
+        let clicked_outside = !draft.just_opened
+            && pressed
+            && pointer_pos.is_some_and(|pos| {
+                !popup_rect.contains(pos)
+                    && !draft.anchor.contains(pos)
+                    && ctx
+                        .layer_id_at(pos)
+                        .is_none_or(|layer| layer.order < egui::Order::Foreground)
+            });
+        draft.just_opened = false;
+        if escape {
+            ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+            self.cancel_layer_outline_draft(&draft);
+            ctx.data_mut(|data| data.remove::<LayerOutlineDraft>(id));
+        } else if close_now || clicked_outside {
+            self.commit_layer_outline_draft(&draft);
+            ctx.data_mut(|data| data.remove::<LayerOutlineDraft>(id));
+        } else {
+            ctx.data_mut(|data| data.insert_temp(id, draft));
+        }
     }
     /// Reorder document rows in painter order. A folder carries descendants;
     /// a mask carries its targets. Explicit parent/mask IDs are preserved.
@@ -1339,6 +1436,26 @@ impl Editor {
             }
         });
     }
+    pub(crate) fn set_layer_mask(&mut self, index: usize, mask_id: Option<Id>) {
+        let valid_mask = mask_id.as_ref().is_none_or(|id| {
+            self.symbol()
+                .timeline
+                .layers
+                .iter()
+                .any(|l| &l.id == id && l.properties.role == LayerRole::Mask)
+        });
+        if !valid_mask {
+            return;
+        }
+        self.layer_change(move |project, symbol| {
+            let timeline = &mut project.symbol_mut(symbol).unwrap().timeline;
+            if let Some(layer) = timeline.layers.get_mut(index)
+                && layer.properties.role == LayerRole::Normal
+            {
+                layer.properties.mask = mask_id;
+            }
+        });
+    }
     pub(crate) fn lock_other_layers(&mut self, index: usize) {
         let targets = self.target_layer_indices(index);
         self.layer_change(move |p, id| {
@@ -1403,9 +1520,13 @@ impl Editor {
         action!("Lock others", self.lock_other_layers(index));
         action!("Hide others", self.hide_other_layers(index));
         let mut solo = self.is_layer_soloed(index);
-        if menu_toggle(ui, &mut solo, "Solo", "")
-            .on_hover_text("Solo — show only soloed layers (⌥-click: only this one)")
-            .changed()
+        let solo_resp = menu_toggle(ui, &mut solo, "Solo", "");
+        if nf::tooltip(
+            solo_resp,
+            "Solo — show only soloed layers (⌥-click: only this one)",
+            None,
+        )
+        .changed()
         {
             let exclusive_alt = ui.input(|i| i.modifiers.alt);
             self.toggle_layer_solo(index, exclusive_alt);
@@ -1592,7 +1713,7 @@ impl Editor {
             )
         );
         if menu_item(ui, "Outline color…", "").clicked() {
-            self.begin_layer_outline_color(&ctx, &layer);
+            self.begin_layer_outline_color(&ctx, &layer, None);
             ui.close();
         }
         action!(
@@ -1632,167 +1753,115 @@ impl Editor {
                 }
             )
         );
-        if menu_item_enabled(
-            ui,
-            self.can_merge_timeline_layer(index),
-            "Merge with next layer",
-            "",
-        )
-        .on_hover_text("Preserve both layers’ animation; tweened frames are sampled into keys")
-        .clicked()
-        {
+        let can_merge = self.can_merge_timeline_layer(index);
+        let merge_resp = crate::ui_icons::hover_tooltip(
+            menu_item_enabled(ui, can_merge, "Merge with next layer", ""),
+            "Preserve both layers' animation; tweened frames are sampled into keys",
+            None,
+            (!can_merge).then_some("Requires an adjacent layer with no conflicting sounds"),
+        );
+        if merge_resp.clicked() {
             self.merge_timeline_layer(index);
             ui.close();
         }
         let group = group_indices(&self.symbol().timeline.layers, index);
         let contiguous = group.last().copied().unwrap_or(index) - index + 1 == group.len();
-        ui.add_enabled_ui_semantic(contiguous, |ui| {
-            crate::ui_icons::menu_submenu(ui, "Convert layers to symbol…", |ui| {
-                let name_id = ui.id().with("layer-symbol-name");
-                let mut name = ctx
-                    .data(|data| data.get_temp::<String>(name_id))
-                    .unwrap_or_else(|| format!("{} symbol", layer.name));
-                ui.label("Movie Clip name");
-                ui.text_edit_singleline(&mut name);
-                ctx.data_mut(|data| data.insert_temp(name_id, name.clone()));
+        let convert_resp = crate::ui_icons::hover_tooltip(
+            menu_item_enabled(ui, contiguous, "Convert layers to symbol…", ""),
+            "Convert layers to symbol",
+            None,
+            (!contiguous).then_some("Select a contiguous folder or mask group to convert"),
+        );
+        if convert_resp.clicked() {
+            self.begin_layers_to_symbol_conversion(index);
+            ui.close();
+        }
+        let layers_snapshot = self.symbol().timeline.layers.clone();
+        crate::ui_icons::menu_submenu(ui, "Move to folder", |ui| {
+            if ui
+                .add(
+                    neoflash_ui::components::MenuItem::new("No folder")
+                        .checked(layer.properties.parent.is_none()),
+                )
+                .clicked()
+            {
+                self.reparent_timeline_layer_to_folder(&layer.id, None);
+                ui.close();
+            }
+            for folder_layer in layers_snapshot.iter().filter(|l| {
+                l.properties.role == LayerRole::Folder
+                    && l.id != layer.id
+                    && !folder_is_descendant_of(&layers_snapshot, &l.id, &layer.id)
+            }) {
                 if ui
-                    .add_enabled_semantic(
-                        !name.trim().is_empty(),
-                        egui::Button::new("Create Movie Clip"),
+                    .add(
+                        neoflash_ui::components::MenuItem::new(&folder_layer.name).checked(
+                            layer.properties.parent.as_deref() == Some(folder_layer.id.as_str()),
+                        ),
                     )
                     .clicked()
                 {
-                    self.convert_timeline_layers(index, name.trim().to_owned());
+                    self.reparent_timeline_layer_to_folder(&layer.id, Some(&folder_layer.id));
                     ui.close();
                 }
-            });
+            }
         });
-        crate::ui_icons::menu_submenu(ui, "Folder and mask…", |ui| {
-            let mut draft = layer.clone();
-            ui.label("Layer name");
-            ui.text_edit_singleline(&mut draft.name);
-            ui.checkbox(&mut draft.visible, "Visible");
-            ui.checkbox(&mut draft.locked, "Locked");
-            ui.checkbox(
-                &mut draft.properties.outline,
-                "Outline / transparent authoring view",
-            );
-            if layer.properties.role != LayerRole::Guide {
-                ui.checkbox(
-                    &mut draft.properties.sync_timeline,
-                    "Sync layer to timeline",
-                );
-                egui::ComboBox::from_id_salt("layer-blend-mode")
-                    .selected_text(format!("Blending: {}", draft.properties.blend_mode.label()))
-                    .show_ui(ui, |ui| {
-                        for mode in BlendMode::ALL {
-                            ui.selectable_value(
-                                &mut draft.properties.blend_mode,
-                                mode,
-                                mode.label(),
-                            );
-                        }
-                    });
-            }
-            egui::ComboBox::from_id_salt("layer-folder")
-                .selected_text(
-                    draft
-                        .properties
-                        .parent
-                        .as_ref()
-                        .and_then(|id| self.symbol().timeline.layers.iter().find(|l| &l.id == id))
-                        .map(|l| l.name.as_str())
-                        .unwrap_or("No folder"),
-                )
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut draft.properties.parent, None, "No folder");
-                    for folder in self.symbol().timeline.layers.iter().filter(|l| {
-                        l.properties.role == LayerRole::Folder
-                            && l.id != layer.id
-                            && !folder_is_descendant_of(
-                                &self.symbol().timeline.layers,
-                                &l.id,
-                                &layer.id,
-                            )
-                    }) {
-                        ui.selectable_value(
-                            &mut draft.properties.parent,
-                            Some(folder.id.clone()),
-                            &folder.name,
-                        );
-                    }
-                });
-            if !folder {
-                ui.checkbox(
-                    &mut draft.properties.attach_to_camera,
-                    "Attach layer to camera",
-                );
-                ui.horizontal(|ui| {
-                    ui.label("Z-depth");
-                    ui.add(
-                        egui::DragValue::new(&mut draft.properties.z_depth)
-                            .range(-10_000.0..=10_000.0)
-                            .speed(5.0)
-                            .suffix(" px"),
-                    );
-                });
-            }
-            if layer.properties.role == LayerRole::Mask {
-                egui::ComboBox::from_id_salt("layer-mask-mode")
-                    .selected_text(format!("Mask mode: {}", draft.properties.mask_mode.label()))
-                    .show_ui(ui, |ui| {
-                        for mode in MaskMode::ALL {
-                            ui.selectable_value(
-                                &mut draft.properties.mask_mode,
-                                mode,
-                                mode.label(),
-                            );
-                        }
-                    });
-                ui.checkbox(&mut draft.properties.mask_invert, "Invert mask");
-            }
-            if layer.properties.role == LayerRole::Normal {
-                egui::ComboBox::from_id_salt("layer-mask")
-                    .selected_text(
-                        draft
-                            .properties
-                            .mask
-                            .as_ref()
-                            .and_then(|id| {
-                                self.symbol().timeline.layers.iter().find(|l| &l.id == id)
-                            })
-                            .map(|l| l.name.as_str())
-                            .unwrap_or("No mask"),
+        if layer.properties.role == LayerRole::Normal {
+            crate::ui_icons::menu_submenu(ui, "Mask", |ui| {
+                if ui
+                    .add(
+                        neoflash_ui::components::MenuItem::new("No mask")
+                            .checked(layer.properties.mask.is_none()),
                     )
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut draft.properties.mask, None, "No mask");
-                        for mask in self
-                            .symbol()
-                            .timeline
-                            .layers
-                            .iter()
-                            .filter(|l| l.properties.role == LayerRole::Mask)
-                        {
-                            ui.selectable_value(
-                                &mut draft.properties.mask,
-                                Some(mask.id.clone()),
-                                &mask.name,
-                            );
-                        }
-                    });
-            }
-            if draft != layer && !draft.name.trim().is_empty() {
-                self.layer_change(|p, id| p.symbol_mut(id).unwrap().timeline.layers[index] = draft);
-            }
-        });
+                    .clicked()
+                {
+                    self.set_layer_mask(index, None);
+                    ui.close();
+                }
+                for mask_layer in layers_snapshot
+                    .iter()
+                    .filter(|l| l.properties.role == LayerRole::Mask)
+                {
+                    if ui
+                        .add(
+                            neoflash_ui::components::MenuItem::new(&mask_layer.name).checked(
+                                layer.properties.mask.as_deref() == Some(mask_layer.id.as_str()),
+                            ),
+                        )
+                        .clicked()
+                    {
+                        self.set_layer_mask(index, Some(mask_layer.id.clone()));
+                        ui.close();
+                    }
+                }
+            });
+        }
         rename
     }
-    fn convert_timeline_layers(&mut self, index: usize, name: String) {
-        self.layer_change(|project, id| {
-            let timeline = &mut project.symbol_mut(id).unwrap().timeline;
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn convert_timeline_layers_with(
+        &mut self,
+        index: usize,
+        kind: SymbolKind,
+        name: String,
+        folder: String,
+        linkage_id: Option<String>,
+        class_name: Option<String>,
+        scale9_grid: Option<[f64; 4]>,
+    ) -> Result<Id, String> {
+        let mut project = self.project.clone();
+        let symbol_id_active = self.symbol_id().to_owned();
+        let symbol_id = {
+            let timeline = &mut project.symbol_mut(&symbol_id_active).unwrap().timeline;
+            if index >= timeline.layers.len() {
+                return Err("The selected layer no longer exists.".into());
+            }
             let indices = group_indices(&timeline.layers, index);
             if indices.last().copied().unwrap_or(index) - index + 1 != indices.len() {
-                return;
+                return Err(
+                    "Select a contiguous folder or mask group before converting to a symbol."
+                        .into(),
+                );
             }
             let selected: HashSet<_> = indices
                 .iter()
@@ -1820,8 +1889,23 @@ impl Editor {
                     layer.properties.mask = None;
                 }
             }
+            if let Some(grid) = scale9_grid
+                && let Some(first_non_folder) = layers
+                    .iter_mut()
+                    .find(|l| l.properties.role != LayerRole::Folder)
+            {
+                first_non_folder.properties.scale9_grid = Some(grid);
+            }
             let symbol_id = new_id("symbol");
-            let frame_count = timeline.frame_count;
+            let frame_count =
+                timeline
+                    .frame_count
+                    .max(if kind == SymbolKind::Button { 4 } else { 1 });
+            let playback = match kind {
+                SymbolKind::MovieClip => InstancePlayback::Independent,
+                SymbolKind::Graphic => InstancePlayback::Loop,
+                SymbolKind::Button => InstancePlayback::SingleFrame(0),
+            };
             let mut replacement = blank_layer(
                 name.clone(),
                 LayerRole::Normal,
@@ -1834,7 +1918,7 @@ impl Editor {
                 transform: Transform::default(),
                 kind: ElementKind::Instance {
                     symbol_id: symbol_id.clone(),
-                    playback: InstancePlayback::Loop,
+                    playback,
                 },
                 scripts: vec![],
                 accessibility: None,
@@ -1842,21 +1926,31 @@ impl Editor {
             });
             timeline.layers.retain(|l| !selected.contains(&l.id));
             timeline.layers.insert(index, replacement);
+            project.add_library_folder(&folder)?;
             project.symbols.push(Symbol {
-                id: symbol_id,
+                id: symbol_id.clone(),
                 name,
-                folder: String::new(),
-                kind: SymbolKind::MovieClip,
+                folder,
+                kind,
                 timeline: Timeline {
                     guides: vec![],
                     frame_count,
                     layers,
                     scripts: vec![],
                 },
-                class_name: None,
-                linkage_id: None,
+                class_name,
+                linkage_id: linkage_id.clone(),
             });
+            if linkage_id.is_some() {
+                project.enable_program();
+            }
+            symbol_id
+        };
+        project.validate().map_err(|error| error.to_string())?;
+        self.transact(|editor| {
+            editor.project = project;
         });
+        Ok(symbol_id)
     }
 }
 
@@ -2345,5 +2439,170 @@ mod tests {
         editor.project.validate().unwrap();
         editor.undo();
         assert_eq!(editor.project, before);
+    }
+
+    #[test]
+    fn t295_layer_outline_popover_live_preview_commit_and_escape_cancel() {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        project.format_version = 6;
+        project.symbols[0].timeline.layers[0]
+            .properties
+            .outline_color = Some([0x10, 0x20, 0x30]);
+        let before = project.clone();
+        let mut editor = Editor::from_project(&ctx, project);
+        let layer = editor.symbol().timeline.layers[0].clone();
+        let anchor = egui::Rect::from_min_size(egui::pos2(120., 420.), egui::vec2(14., 14.));
+
+        // Opening the anchored outline popover creates a draft with live preview and zero Undo steps.
+        editor.begin_layer_outline_color(&ctx, &layer, Some(anchor));
+        assert!(editor.layer_outline_draft(&ctx).is_some());
+        let sym = editor.symbol_id().to_owned();
+        editor.set_live_layer_outline_color(&sym, &layer.id, Some([0xAA, 0xBB, 0xCC]));
+        assert_eq!(
+            editor.symbol().timeline.layers[0].properties.outline_color,
+            Some([0xAA, 0xBB, 0xCC])
+        );
+        assert!(!editor.history.can_undo());
+
+        // Pressing Escape cancels live preview back to the original color with 0 Undo entries.
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1920., 1080.),
+                )),
+                events: vec![egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            },
+            |ctx| editor.layer_outline_color_popover(ctx),
+        );
+        assert!(editor.layer_outline_draft(&ctx).is_none());
+        assert_eq!(editor.project, before);
+        assert!(!editor.history.can_undo());
+
+        // Reopen, edit draft color, and commit by clicking outside: 1 Undo entry.
+        let layer = editor.symbol().timeline.layers[0].clone();
+        editor.begin_layer_outline_color(&ctx, &layer, Some(anchor));
+        let mut draft = editor.layer_outline_draft(&ctx).unwrap();
+        draft.color = [0x11, 0x22, 0x33, 0xFF];
+        draft.just_opened = false;
+        ctx.data_mut(|d| d.insert_temp(editor.outline_draft_id(), draft));
+        // Prime one frame so the popover computes its Area bounds, then click outside.
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1920., 1080.),
+                )),
+                ..Default::default()
+            },
+            |ctx| editor.layer_outline_color_popover(ctx),
+        );
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1920., 1080.),
+                )),
+                events: vec![egui::Event::PointerButton {
+                    pos: egui::pos2(1600., 80.),
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            },
+            |ctx| editor.layer_outline_color_popover(ctx),
+        );
+        assert!(editor.layer_outline_draft(&ctx).is_none());
+        assert_eq!(
+            editor.symbol().timeline.layers[0].properties.outline_color,
+            Some([0x11, 0x22, 0x33])
+        );
+        assert_eq!(editor.history.undo_len(), 1);
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+    }
+
+    #[test]
+    fn t295_convert_layers_to_symbol_dialog_folder_move_and_mask_commands() {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        project.format_version = 6;
+        let folder = blank_layer("Props".into(), LayerRole::Folder, None);
+        let mask = blank_layer("Spotlight".into(), LayerRole::Mask, None);
+        let mut art = blank_layer("Art".into(), LayerRole::Normal, None);
+        art.keyframes[0].elements.push(shape("hero", 42.));
+        project.symbols[0].timeline.layers = vec![art, mask, folder];
+        project.validate().unwrap();
+        let before = project.clone();
+
+        let mut editor = Editor::from_project(&ctx, project);
+        // Reparent via Move to folder submenu command (1 Undo).
+        let art_id = editor.symbol().timeline.layers[0].id.clone();
+        let folder_id = editor.symbol().timeline.layers[2].id.clone();
+        editor.reparent_timeline_layer_to_folder(&art_id, Some(&folder_id));
+        let moved_art = editor
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .position(|l| l.id == art_id)
+            .unwrap();
+        assert_eq!(
+            editor.symbol().timeline.layers[moved_art]
+                .properties
+                .parent
+                .as_deref(),
+            Some(folder_id.as_str())
+        );
+        assert_eq!(editor.history.undo_len(), 1);
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+
+        // Apply Mask submenu command (1 Undo).
+        let mask_id = editor.symbol().timeline.layers[1].id.clone();
+        editor.set_layer_mask(0, Some(mask_id.clone()));
+        assert_eq!(
+            editor.symbol().timeline.layers[0]
+                .properties
+                .mask
+                .as_deref(),
+            Some(mask_id.as_str())
+        );
+        assert_eq!(editor.history.undo_len(), 1);
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+
+        // Convert layers to symbol… opens dialog defaulted to MovieClip and "<layer> symbol".
+        editor.begin_layers_to_symbol_conversion(0);
+        let draft = editor
+            .symbol_conversion_draft()
+            .expect("convert layers opens dialog");
+        assert_eq!(draft.kind, SymbolKind::MovieClip);
+        assert_eq!(draft.name, "Art symbol");
+        let name = draft.name.clone();
+        let kind = draft.kind;
+        editor
+            .convert_timeline_layers_with(0, kind, name, String::new(), None, None, None)
+            .unwrap();
+        assert!(
+            editor
+                .project
+                .symbols
+                .iter()
+                .any(|s| s.name == "Art symbol" && s.kind == SymbolKind::MovieClip)
+        );
+        editor.project.validate().unwrap();
     }
 }

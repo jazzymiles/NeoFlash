@@ -106,6 +106,10 @@ impl NotificationCenter {
 }
 
 impl Editor {
+    pub(crate) fn toast(&mut self, kind: nf::ToastType, message: impl Into<String>) {
+        self.notifications.push(kind, message.into(), None);
+    }
+
     pub(crate) fn notify(&mut self, kind: nf::ToastType, message: impl Into<String>) {
         let message = message.into();
         self.message(message.clone());

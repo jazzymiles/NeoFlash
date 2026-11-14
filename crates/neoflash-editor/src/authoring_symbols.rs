@@ -82,23 +82,25 @@ impl Editor {
             });
         let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
         if show_fps {
-            let fps = ui
-                .add(
+            let fps = nf::tooltip(
+                ui.add(
                     nf::Field::new(&mut draft.fps, "Frame rate")
                         .prefix("FPS")
                         .range(1.0..=1000.0)
                         .step(0.25)
                         .width(92.),
-                )
-                .on_hover_text("Frame rate. Frame count stays fixed; duration changes.");
+                ),
+                "Frame rate. Frame count stays fixed; duration changes",
+                None,
+            );
             if fps.changed() {
                 draft.seconds = frames as f64 / draft.fps.round().max(1.);
                 draft.pending = true;
             }
         }
         if show_duration {
-            let duration = ui
-                .add(
+            let duration = nf::tooltip(
+                ui.add(
                     nf::Field::new(&mut draft.seconds, "Duration")
                         .prefix("Duration")
                         .unit("s")
@@ -106,10 +108,10 @@ impl Editor {
                         .step(0.02)
                         .decimals(2)
                         .width(140.),
-                )
-                .on_hover_text(
-                    "Total duration. Keeps all frames and sets the nearest whole-number FPS.",
-                );
+                ),
+                "Total duration. Keeps all frames and sets the nearest whole-number FPS",
+                None,
+            );
             if duration.changed() {
                 draft.fps = (frames as f64 / draft.seconds).round().clamp(1., 1000.);
                 draft.pending = true;
@@ -171,29 +173,51 @@ impl Editor {
             InstancePlayback::PlayOnceFrom(f) => (2, f),
             InstancePlayback::SingleFrame(f) => (3, f),
         };
-        let labels = ["Independent", "Loop", "Play once", "Single frame"];
+        let options = [
+            (0usize, "Independent"),
+            (1, "Loop"),
+            (2, "Play once"),
+            (3, "Single frame"),
+        ];
         let mut control = None;
+        let current_label = options
+            .iter()
+            .find(|(m, _)| *m == mode)
+            .map_or("Independent", |(_, l)| *l);
         let response = property_row(ui, "Playback", |ui| {
-            egui::ComboBox::from_id_salt("instance-playback")
-                .width(ui.available_width().min(140.))
-                .selected_text(labels[mode])
-                .show_ui(ui, |ui| {
-                    for (index, name) in labels.iter().enumerate() {
-                        ui.selectable_value(&mut mode, index, *name);
-                    }
-                })
-                .response
+            let w = ui.available_width();
+            let (resp, _) =
+                neoflash_ui::components::Select::new("instance-playback", current_label)
+                    .width(w)
+                    .show(ui, |ui| {
+                        for &(index, name) in &options {
+                            if ui
+                                .add(
+                                    neoflash_ui::components::MenuItem::new(name)
+                                        .checked(mode == index),
+                                )
+                                .clicked()
+                            {
+                                mode = index;
+                                ui.close();
+                            }
+                        }
+                    });
+            resp
         });
-        let mut displayed = first.saturating_add(1).min(count);
+        let mut displayed = f64::from(first.saturating_add(1).min(count));
         let field = property_row(ui, "First frame", |ui| {
-            ui.add_sized(
-                [76., 22.],
-                egui::DragValue::new(&mut displayed)
-                    .range(1..=count)
-                    .update_while_editing(false),
+            let w = ui.available_width();
+            ui.add(
+                neoflash_ui::components::Field::new(&mut displayed, "First frame")
+                    .range(1.0..=f64::from(count))
+                    .step(1.0)
+                    .decimals(0)
+                    .stepper()
+                    .width(w),
             )
         });
-        first = displayed - 1;
+        first = (displayed.round() as u32).clamp(1, count) - 1;
         if field.changed() {
             if mode == 0 && first > 0 {
                 mode = 1;
