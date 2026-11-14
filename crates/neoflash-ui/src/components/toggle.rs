@@ -417,7 +417,8 @@ impl Slider<'_> {
             egui::pos2(rail.left(), y - 2.0),
             egui::pos2(rail.right(), y + 2.0),
         );
-        ui.painter().rect_filled(track, cr(2.0), p.bg_hover);
+        // R-101: the empty part of the rail is `border/strong`; `bg/hover` vanished on panels.
+        ui.painter().rect_filled(track, cr(2.0), p.border_strong);
         let on = if s.enabled {
             p.accent_default
         } else {

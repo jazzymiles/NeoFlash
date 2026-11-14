@@ -244,20 +244,34 @@ the black/white-pair rule):
 
 ### Contrast contract and open design findings
 
-Text contrast, measured from `tokens.json` (14 November 2026, after the Light and Dark Graphite corrections):
+Text contrast, measured from `tokens.json` (14 November 2026, after the Light and Dark Graphite corrections and the
+state-colour correction of R-101):
 
 | Text colour | Dark, Light, Dark Graphite | Mid Neutral Gray |
 | --- | --- | --- |
-| `text/primary`, `text/secondary` | ≥ 4.5:1 on app, panel, raised, field, hover and selected | `text/primary` ≥ 4.5:1 everywhere; `text/secondary` 4.04–4.16 on hover / raised |
+| `text/primary`, `text/secondary` | ≥ 4.5:1 on app, panel, raised, field, hover and selected | `text/primary` ≥ 4.5:1 everywhere; `text/secondary` 4.16 on raised |
 | `text/tertiary`, `accent/default`, `danger/default`, `warning/default`, `success/default` | ≥ 4.5:1 on app, panel, raised and field; ≥ 3:1 on hover and selected | not guaranteed (`success/default` 1.9–3.1, tertiary 3.0–4.9) |
 
 These colours never carry meaning alone: an error, warning or success state always has an icon and text.
+
+State colours against the surface they sit on (R-101). A hover or selection fill is as strong as the text contract
+on it allows; a rail is a control part and uses a border colour, never `bg/hover`.
+
+| State | Dark | Light | Dark Graphite | Mid Neutral Gray |
+| --- | --- | --- | --- | --- |
+| `bg/hover` on raised (menus) · panel · app | 1.49 · 1.58 · 1.65 | 1.30 · 1.21 · 1.14 | 1.40 · 1.59 · 1.73 | 1.91 · 1.75 · 1.21 |
+| `bg/selected` on raised · panel · app | 1.35 · 1.43 · 1.50 | 1.30 · 1.21 · 1.14 | 1.25 · 1.41 · 1.54 | 2.07 · 1.89 · 1.31 |
+| Slider and progress rail (`border/strong`) on raised · panel | 2.04 · 2.16 | 2.17 · 2.03 | 1.59 · 1.80 | 1.95 · 2.13 |
+
+In Mid Neutral Gray the hover and selection fills are darker than every surface, because the surfaces of that theme
+lie on both sides of any mid grey. `NF2_GALLERY_SECTION=states` in the gallery shows these states on the three
+surfaces; run it after any change to a background, border or text token.
 
 | Finding | State |
 | --- | --- |
 | Mid Neutral Gray has no red / amber semantics | `danger/default #FFF5F4`, `warning/default #FFF5E0` and `timeline/label #FFF5F4` are near-white and cannot be told apart from `text/primary #F4F4F4`. The owner kept the palette for Beta 1; it is a known limit of this theme. |
 | Control boundaries | `border/default` against `bg/field` / `bg/panel` is 1.39–2.02:1 in all four themes (WCAG 1.4.11 asks 3:1). Accepted: a field is identified by its fill, label and border together, and keyboard focus adds the 2 pt ring. |
-| Idle scrollbar thumb (`text/disabled` on `bg/hover`) ≈ 2:1 | Accepted: a quiet 4 pt floating thumb; hover and drag reach ≥ 3:1. |
+| Idle scrollbar thumb (`text/disabled` on `bg/hover`) ≈ 1.7–1.8:1 (3.8:1 in Mid Neutral Gray) | Accepted: a quiet 4 pt floating thumb; hover and drag reach ≥ 3:1. |
 | Stacked side dock | Decided in R-077: the second group keeps a useful minimum (Library 245 / 213 / 185 pt by density) or collapses to its header. Implementation pending. |
 | Minimum window 1024 × 720 | Decided in R-078 (Stage row ≥ 360 pt, pinned Tools block with "…" overflow, workspace select 132–180 pt). Reference screen `NF2 / Editor — Main — 1024 × 720` is drawn in four themes (`editor-main-1024x720` in the export manifest); implementation and the PNG export are pending. |
 | `editor-main` export predates v2.25 details | Decided in R-087. The Figma screens now show the label "Classic", the Scene selector, three dock tabs, two-column Tools and the Mode / Solo layer columns; Properties ▸ Publish settings… is added to the product. PNG export pending. |

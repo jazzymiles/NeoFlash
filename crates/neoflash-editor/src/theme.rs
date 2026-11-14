@@ -501,8 +501,9 @@ mod tests {
                 // (non-text contrast, WCAG 1.4.11).
                 ("selected text", t.text_primary, t.bg_selected, 4.5),
                 ("selected marker", t.accent_default, t.bg_selected, 3.),
-                // NF2 idle thumb is a quiet 4 pt floating bar (≈2:1); hover and drag reach 3:1.
-                ("scroll thumb", p.scrollbar_thumb, p.scrollbar_track, 1.9),
+                // NF2 idle thumb is a quiet 4 pt floating bar; hover and drag reach 3:1. The track is
+                // the `bg/hover` state fill, made stronger in R-101, so the idle thumb is ≈1.7:1 on it.
+                ("scroll thumb", p.scrollbar_thumb, p.scrollbar_track, 1.65),
                 ("scroll hover", p.scrollbar_hover, p.scrollbar_track, 3.),
                 ("scroll drag", p.scrollbar_drag, p.scrollbar_track, 3.),
                 ("scroll focus", p.scrollbar_focus, p.scrollbar_track, 3.),

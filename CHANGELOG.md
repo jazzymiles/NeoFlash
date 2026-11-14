@@ -12,6 +12,8 @@
 - Windows and Linux previews now show shortcuts in menus, tooltips and key chips as `Ctrl+Shift+S` instead of macOS
   symbols. macOS is unchanged.
 - The Razor tool has its own pixel-fitted icon (a blade with the cut line) in the Tools panel.
+- Clearer states in every theme: the hovered row of a menu or list and the selected row stand out more from their
+  background, slider and progress rails are visible on panels, and dividers show in Dark Graphite menus and dialogs.
 - Properties: the first section of a selected object is named `Position and size` for every kind of object, and
   the `Opacity` of simple text moved from `Character` to its own `Display` section.
 - Fixed keyboard focus and shortcut safety across Tab-focused controls and popups (`R-057`): unmodified global

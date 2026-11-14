@@ -3143,7 +3143,7 @@ impl Editor {
                     .min(total_frames.saturating_sub(1));
             }
             let r = egui::CornerRadius::same(radius::FULL.min(127.0) as u8);
-            ui.painter().rect_filled(rail, r, nf.bg_hover);
+            ui.painter().rect_filled(rail, r, nf.border_strong);
             let frac = (draft.frame + 1) as f32 / (total_frames.max(1) as f32);
             let done =
                 egui::Rect::from_min_size(rail.min, egui::vec2(rail.width() * frac, rail.height()));

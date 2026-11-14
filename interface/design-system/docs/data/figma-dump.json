@@ -2728,11 +2728,11 @@
       "ALL_SCOPES"
      ],
      "values": {
-      "Dark": "#1e2330",
-      "Light": "#e9ecf3",
-      "Mid · Neutral Gray": "#707070",
+      "Dark": "#30394e",
+      "Light": "#dde2ec",
+      "Mid · Neutral Gray": "#444444",
       "Mode 2": "#e9ecf3",
-      "Dark · Graphite": "#323232"
+      "Dark · Graphite": "#404040"
      }
     },
     {
@@ -2743,9 +2743,9 @@
       "ALL_SCOPES"
      ],
      "values": {
-      "Dark": "#1f2a48",
-      "Light": "#e3ebff",
-      "Mid · Neutral Gray": "#576572",
+      "Dark": "#253155",
+      "Light": "#d6e2ff",
+      "Mid · Neutral Gray": "#374049",
       "Mode 2": "#e3ebff",
       "Dark · Graphite": "#233a52"
      }
@@ -2792,7 +2792,7 @@
       "Light": "#e1e4ec",
       "Mid · Neutral Gray": "#747474",
       "Mode 2": "#e1e4ec",
-      "Dark · Graphite": "#2a2a2a"
+      "Dark · Graphite": "#323232"
      }
     },
     {
@@ -2867,7 +2867,7 @@
       "Light": "#5b6477",
       "Mid · Neutral Gray": "#e8e8e8",
       "Mode 2": "#5b6477",
-      "Dark · Graphite": "#a1a1a1"
+      "Dark · Graphite": "#adadad"
      }
     },
     {

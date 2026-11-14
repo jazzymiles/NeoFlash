@@ -88,9 +88,13 @@ impl Widget for MenuItem<'_> {
             ui.allocate_exact_size(egui::vec2(width, crate::metrics::row()), Sense::click());
         let s = State::of(ui, &response);
         let open = self.submenu && response.hovered();
-        if s.enabled && (s.hovered || open || self.highlighted) {
+        // R-101: the pointed-at or keyboard-highlighted row is a neutral `bg/hover` fill; the icon,
+        // submenu chevron and shortcut on it rise to `text/primary` so nothing on the row is dim.
+        let lit = s.enabled && (s.hovered || open || self.highlighted);
+        if lit {
             ui.painter().rect_filled(rect, cr(radius::MD), p.bg_hover);
         }
+        let on = |normal: egui::Color32| if lit { p.text_primary } else { normal };
         let fg = if !s.enabled {
             p.text_disabled
         } else if self.danger {
@@ -118,7 +122,7 @@ impl Widget for MenuItem<'_> {
                 col.translate(egui::vec2(4.0, 0.0)),
                 icon,
                 if s.enabled {
-                    p.text_secondary
+                    on(p.text_secondary)
                 } else {
                     p.text_disabled
                 },
@@ -141,13 +145,13 @@ impl Widget for MenuItem<'_> {
                     egui::vec2(16.0, 16.0),
                 ),
                 i16::CHEVRIGHT,
-                p.text_secondary,
+                on(p.text_secondary),
             );
             right -= 16.0;
         }
         if !self.shortcut.is_empty() {
             let c = if s.enabled {
-                p.text_tertiary
+                on(p.text_tertiary)
             } else {
                 p.text_disabled
             };

@@ -1115,7 +1115,6 @@ fn hint_popover(
     state: &mut HintState,
 ) -> Option<usize> {
     let ctx = ui.ctx();
-    let p = neoflash_ui::palette(ctx);
     let mut clicked = None;
     let area = egui::Area::new(id.with("code-hints"))
         .order(egui::Order::Foreground)
@@ -1131,15 +1130,11 @@ fn hint_popover(
                     .themed()
                     .show(ui, |ui| {
                         for (index, item) in items.iter().enumerate() {
-                            if index == state.selected {
-                                let row = egui::Rect::from_min_size(
-                                    ui.cursor().min,
-                                    egui::vec2(ui.available_width(), neoflash_ui::metrics::row()),
-                                );
-                                ui.painter().rect_filled(row, radius::MD, p.bg_hover);
-                            }
-                            let response =
-                                ui.add(nf::MenuItem::new(&item.label).shortcut(&item.detail));
+                            let response = ui.add(
+                                nf::MenuItem::new(&item.label)
+                                    .shortcut(&item.detail)
+                                    .highlighted(index == state.selected),
+                            );
                             if index == state.selected && state.scroll {
                                 response.scroll_to_me(None);
                             }

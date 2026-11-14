@@ -1673,3 +1673,31 @@ wires them with the components named in each answer.
      the whole box, as built. That stays for Beta 1. Showing the Display section (Visible, Cache as bitmap, Blending)
      for text in Properties, as for a movie clip, is not part of this answer.
 
+### R-101 · Contrast of hover, selection and rails
+- **Status:** resolved
+- **Requested by / for:** project owner, 14 November 2026 ("the hovered menu item lacks contrast, so does the scale of
+  a track"), with a reference menu whose hovered row is about 1.55:1 against the menu
+- **Where:** tokens `bg/hover`, `bg/selected`, `border/subtle`, `text/secondary`; `MenuItem`, `Slider`, `progress`;
+  Figma variables and the `NF2/Menu Item`, `NF2/Slider`, `NF2/Progress` masters.
+- **Need:** the hovered row was 1.03–1.18:1 against the menu surface in the four themes; the empty part of a slider or
+  progress rail used the same `bg/hover` and was 1.10–1.29:1 on a panel.
+- **Answer:**
+  1. *Hover stays a neutral fill*, as in the reference, and becomes as strong as the text on it allows:
+     Dark `#1E2330 → #30394E`, Light `#E9ECF3 → #DDE2EC`, Dark Graphite `#323232 → #404040`,
+     Mid Neutral Gray `#707070 → #444444`. Dark Graphite needed a lighter `text/secondary`
+     (`#A1A1A1 → #ADADAD`) to keep 4.5:1 on the new hover.
+  2. *Selection* follows: Dark `#1F2A48 → #253155`, Light `#E3EBFF → #D6E2FF`, Mid Neutral Gray
+     `#576572 → #374049`. Dark Graphite is unchanged. `accent/subtle` keeps its values.
+  3. *Menu row.* On the hovered or keyboard-highlighted row the icon, the submenu chevron and the shortcut rise to
+     `text/primary`; the label keeps its colour (`danger/default` for a destructive command) and the check mark
+     stays `accent/default`. Lists that mark a row from the keyboard (code hints) use `MenuItem::highlighted`
+     instead of painting their own fill.
+  4. *Rails.* The empty part of a `Slider` rail and of a `progress` bar is `border/strong`. `bg/hover` is a state
+     fill and is not used for parts of a control.
+  5. *Dividers in Dark Graphite.* `border/subtle` `#2A2A2A → #323232`; it was 1.01:1 on `bg/raised`, so dividers in
+     menus and dialogs could not be seen.
+  6. The scrollbar track keeps `bg/hover` (it appears only while the pointer is over the scroll area); the idle thumb
+     is about 1.7:1 on it, the hovered and dragged thumb at least 3:1.
+  7. Not changed: the borders of Mid Neutral Gray (its surfaces lie on both sides of any border grey), and field
+     boundaries in general, which stay as recorded under "Control boundaries".
+

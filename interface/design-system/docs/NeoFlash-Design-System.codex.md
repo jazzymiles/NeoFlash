@@ -169,8 +169,8 @@ else changes. Mid Neutral Gray starts at `color/bg/app = #505050`; Dark Graphite
 | `color/bg/panel` | `#12151c` | `#f6f7fa` | `#686868` | `#1f1f1f` |
 | `color/bg/raised` | `#171b24` | `#ffffff` | `#6e6e6e` | `#292929` |
 | `color/bg/field` | `#0d1016` | `#ffffff` | `#565656` | `#1b1b1b` |
-| `color/bg/hover` | `#1e2330` | `#e9ecf3` | `#707070` | `#323232` |
-| `color/bg/selected` | `#1f2a48` | `#e3ebff` | `#576572` | `#233a52` |
+| `color/bg/hover` | `#30394e` | `#dde2ec` | `#444444` | `#404040` |
+| `color/bg/selected` | `#253155` | `#d6e2ff` | `#374049` | `#233a52` |
 | `color/bg/canvas` | `#0a0c11` | `#dadde6` | `#727272` | `#171717` |
 | `color/bg/stage` | `#131824` | `#131824` | `#767676` | `#1f1f1f` |
 
@@ -178,7 +178,7 @@ else changes. Mid Neutral Gray starts at `color/bg/app = #505050`; Dark Graphite
 
 | Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
 |---|---|---|---|---|
-| `color/border/subtle` | `#232938` | `#e1e4ec` | `#747474` | `#2a2a2a` |
+| `color/border/subtle` | `#232938` | `#e1e4ec` | `#747474` | `#323232` |
 | `color/border/default` | `#2e3547` | `#cfd4e0` | `#868686` | `#3a3a3a` |
 | `color/border/strong` | `#444d63` | `#a9b0c2` | `#a0a0a0` | `#484848` |
 | `color/border/focus` | `#6c93ff` | `#3c6bf0` | `#b9dbff` | `#4f91ca` |
@@ -188,7 +188,7 @@ else changes. Mid Neutral Gray starts at `color/bg/app = #505050`; Dark Graphite
 | Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
 |---|---|---|---|---|
 | `color/text/primary` | `#e7eaf2` | `#171b26` | `#f4f4f4` | `#d0d0d0` |
-| `color/text/secondary` | `#9aa3b6` | `#5b6477` | `#e8e8e8` | `#a1a1a1` |
+| `color/text/secondary` | `#9aa3b6` | `#5b6477` | `#e8e8e8` | `#adadad` |
 | `color/text/tertiary` | `#8790a4` | `#636d82` | `#cacaca` | `#909090` |
 | `color/text/disabled` | `#566073` | `#a2a9b8` | `#a2a2a2` | `#626262` |
 | `color/text/on-accent` | `#0b1020` | `#ffffff` | `#1f1f1f` | `#171717` |

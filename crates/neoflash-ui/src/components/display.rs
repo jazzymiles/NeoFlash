@@ -317,7 +317,7 @@ pub fn progress(ui: &mut Ui, label: &str, fraction: Option<f32>, width: f32) -> 
         egui::pos2(rect.left(), rect.bottom() - 4.0),
         egui::vec2(width, 4.0),
     );
-    ui.painter().rect_filled(bar, cr(2.0), p.bg_hover);
+    ui.painter().rect_filled(bar, cr(2.0), p.border_strong);
     let filled = match fraction {
         Some(f) => Rect::from_min_size(bar.min, egui::vec2(width * f.clamp(0.0, 1.0), 4.0)),
         None => {

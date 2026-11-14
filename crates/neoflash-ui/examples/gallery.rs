@@ -9,6 +9,7 @@
 //! NF2_GALLERY_SECTION=answers cargo run -p neoflash-ui --example gallery -- dark x.png  # design-answer pieces
 //! NF2_GALLERY_SECTION=timeline cargo run -p neoflash-ui --example gallery -- dark x.png # Mode & Solo + timeline
 //! NF2_GALLERY_SECTION=shortcuts cargo run -p neoflash-ui --example gallery -- dark x.png # Preferences shortcuts
+//! NF2_GALLERY_SECTION=states cargo run -p neoflash-ui --example gallery -- dark x.png # hover / selected / rails on each surface
 //! ```
 //! Compare the PNG with `interface/design-system/docs/illustrations/*.png`.
 use eframe::egui;
@@ -115,6 +116,10 @@ impl eframe::App for Gallery {
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(space::S4, space::S4);
+                    if std::env::var("NF2_GALLERY_SECTION").is_ok_and(|v| v == "states") {
+                        states_section(ui, &mut self.slider, &mut self.switch);
+                        return;
+                    }
                     let title = |ui: &mut egui::Ui, t: &str| {
                         ui.label(typography::rich(t, TextStyle::Title).color(p.text_primary));
                     };
@@ -320,6 +325,11 @@ impl eframe::App for Gallery {
                             c::menu::menu_style(ui.style_mut());
                             c::menu_section(ui, "Edit");
                             ui.add(c::MenuItem::new("Undo").shortcut("⌘Z"));
+                            ui.add(
+                                c::MenuItem::new("Redo")
+                                    .shortcut("⇧⌘Z")
+                                    .highlighted(true),
+                            );
                             ui.add(c::MenuItem::new("Snap to grid").checked(true));
                             c::menu_separator(ui);
                             ui.add(c::MenuItem::new("Timeline").submenu(true));
@@ -1347,4 +1357,54 @@ impl eframe::App for Gallery {
             ctx.request_repaint();
         }
     }
+}
+
+/// Hover, selection and rails on the three surfaces they appear on (R-101): the place to judge
+/// state contrast after a token change.
+fn states_section(ui: &mut egui::Ui, slider: &mut f64, switch: &mut bool) {
+    let ctx = ui.ctx().clone();
+    ui.horizontal_top(|ui| {
+        for (name, surface) in [
+            ("bg/raised · menu", c::Surface::Popover),
+            ("bg/panel", c::Surface::Panel),
+            ("bg/app", c::Surface::App),
+        ] {
+            ui.vertical(|ui| {
+                ui.label(
+                    typography::rich(name, TextStyle::Title).color(palette(&ctx).text_primary),
+                );
+                surface.frame(&ctx).show(ui, |ui| {
+                    ui.set_width(300.0);
+                    ui.push_id(name, |ui| {
+                        c::menu::menu_style(ui.style_mut());
+                        ui.add(c::MenuItem::new("Rename").shortcut("R"));
+                        ui.add(
+                            c::MenuItem::new("Transcript view")
+                                .icon(i16::LAYERS)
+                                .shortcut("⇧⌘T")
+                                .submenu(true)
+                                .highlighted(true),
+                        );
+                        ui.add(c::MenuItem::new("Snap to grid").checked(true));
+                        c::menu_separator(ui);
+                        ui.add(c::MenuItem::new("Delete").danger().highlighted(true));
+                        c::TreeItem::new("Characters", c::TreeItemType::FolderOpen).show(ui);
+                        c::TreeItem::new("orbit", c::TreeItemType::Symbol(i16::MOVIECLIP))
+                            .selected(true)
+                            .depth(1)
+                            .show(ui);
+                        ui.add_space(space::S2);
+                        ui.add(c::Slider::new(slider, 0.0..=100.0, "Opacity"));
+                        c::progress(ui, "Exporting frames 72 / 120", Some(0.6), 280.0);
+                        ui.add(c::Switch::new(switch, "Switch"));
+                        ui.horizontal(|ui| {
+                            ui.add(c::Badge::new("Neutral", c::BadgeType::Neutral));
+                            ui.add_enabled(false, c::Button::new("Disabled"));
+                        });
+                        c::divider(ui, false);
+                    });
+                });
+            });
+        }
+    });
 }
