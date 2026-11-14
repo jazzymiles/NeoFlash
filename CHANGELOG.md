@@ -14,6 +14,22 @@
 - The Razor tool has its own pixel-fitted icon (a blade with the cut line) in the Tools panel.
 - Properties: the first section of a selected object is named `Position and size` for every kind of object, and
   the `Opacity` of simple text moved from `Character` to its own `Display` section.
+- Fixed keyboard focus and shortcut safety across Tab-focused controls and popups (`R-057`): unmodified global
+  shortcuts, local modal `Enter` confirmation, and Stage temporary `Space` panning now respect widget keyboard
+  focus and open `Select`/menu/popover popups without blocking focused button/checkbox/radio/select/slider `Space`/
+  `Enter` activation, text-input `allow_when_typing` chords, Pen `Enter` finish, or unfocused Stage shortcuts; fixed
+  dock-group grip IDs so `Tab` traversal reaches every panel dock, and updated `Document settings` so one `Escape`
+  dismisses an open popup or field before closing the dialog (`T-300`).
+- Recomposed `Properties ▸ Appearance` (`R-095`): full-width `Graphic style` selector (`Style: …`) with
+  `Save style…` / `Unlink` / `Delete` controls, dividerless multi-paint stack rows replacing separate `Opacity`
+  inputs with `ColorField` RGBA pickers and `Move up` / `Move down` / `Remove` icon buttons, and full-width
+  `Add modifier` / `Add effect` `Select` menus with NF2 paired/full-width modifier and vector-effect fields
+  (`T-301`).
+- Added display-free headless CLI and AI scriptability mode (`neoflash-editor --headless` / `NEOFLASH_HEADLESS=1`)
+  before native GUI startup (preserving macOS Finder `-psn_*` launches), with JSON/text `capabilities`/`schema`,
+  `new`, `inspect`, `validate`, `compile` (shared `Compiler errors` diagnostics), deterministic & `AuthoredPlayback`
+  `eval`, capability-scoped JSFL (`FLfile` deny-all unless `--allow-read`/`--allow-write`/`--allow-delete`), atomic
+  17-operation JSON `batch` pipelines, and `import`/`export` delegation across all 12 export targets (`T-302`).
 - Promoted `Debugger` (`R-092`) into the persistent dockable `Window ▸ Panels` workspace, retired `PlannedPanel` and five dead `planned_*.rs` placeholders so live panels/dialogs/`Tool Options`/`Test Movie` route directly without `"Planned feature"` chrome, started `Output` and `Test Movie`'s Output drawer cleanly empty (`EmptyState`, `R-073`), routed mapped `Runtime.consoleAPICalled` and `exceptionThrown` events into `Output`, and isolated `Actions`, `Debugger`, `Output`, and `Test Movie` sessions per document tab (`T-291`).
 - Audited AS2 & AS3 Areas 1–7 against executable tests (`T-007` schema-2 reviews `2026-11-14-as3-areas1to7-audit.json` and `2026-11-14-as2-areas1to7-audit.json`), reconciled stale `product.json` claims across `web-dom-layout`, `web-shared-runtime`, `web-typescript`, and `web-script-events`, reconciled AS3 `Array.prototype` borrowing, unbound `toString`/`toLocaleString` and sparse semantics (`T-011`), and reconciled AS3 construction, `FRAME_CONSTRUCTED`/`EXIT_FRAME`/`RENDER`/deepest-first `REMOVED` lifecycle ordering and synchronous `goto*` superseding via `visit_id` while keeping AS2 deferred `goto*` (`T-010`).
 - Established an executable AS2/AS3 HTML5 publish-correctness gate (`publish_correctness_gate` + `scripts/verify-as-publish-gate.mjs` across 37 projects and `Full`/`Balanced`/`Compact`/`Shared` HTTP and `file://` bundles, plus atomic `.app` preflight, `#include` diagnostic path preservation, and `AVI -> MP4` alias propagation in `loadPublish`) (`T-292`).

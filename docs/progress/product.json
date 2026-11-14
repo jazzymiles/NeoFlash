@@ -962,7 +962,7 @@
         },
         {
           "id": "appearance-modifiers-styles",
-          "title": "Appearance multi-paint stack, path modifiers and Graphic Styles",
+          "title": "Properties ▸ Appearance paint stack, path modifiers, vector effects and Graphic Styles",
           "status": "working"
         },
         {
@@ -1006,7 +1006,8 @@
         "crates/neoflash-core/tests/bitmap_trace.rs",
         "crates/neoflash-core/tests/merge_hatching.rs",
         "crates/neoflash-core/tests/paths.rs",
-        "crates/neoflash-editor/src/stage_clipping.rs"
+        "crates/neoflash-editor/src/stage_clipping.rs",
+        "crates/neoflash-editor/src/panels/appearance.rs"
       ]
     },
     {
@@ -3591,7 +3592,7 @@
       "category": "platform",
       "title": "macOS integration",
       "status": "partial",
-      "scope": "Rust/egui application, core shortcuts, system fonts and a local .app for macOS 15+. Stage trackpad input supports scroll panning and pointer-anchored pinch zoom; modifier scrolling also changes zoom.",
+      "scope": "Rust/egui application, core shortcuts (gating unmodified/single-key global shortcuts and Stage Space-pan activation when Tab-focused controls, menus, popups, text inputs, or modals own keyboard input, fixing full-window dock Tab traversal in dock_grid.rs, and enforcing popup-before-modal single-Escape dismissal in Document settings), system fonts and a local .app for macOS 15+. Stage trackpad input supports scroll panning and pointer-anchored pinch zoom; modifier scrolling also changes zoom.",
       "limitations": "Native menus/document integration, IME and the accessibility tree need further work. Broader physical-trackpad gesture acceptance remains pending beyond the implemented pan and zoom paths.",
       "items": [
         {
@@ -3627,6 +3628,11 @@
       ],
       "evidence": [
         "crates/neoflash-editor/src/main.rs",
+        "crates/neoflash-editor/src/app.rs",
+        "crates/neoflash-editor/src/commands.rs",
+        "crates/neoflash-editor/src/dock_grid.rs",
+        "crates/neoflash-editor/src/panels/dialog_helpers.rs",
+        "crates/neoflash-editor/src/panels/document_settings.rs",
         "crates/neoflash-editor/src/fonts.rs",
         "scripts/package-macos.sh",
         "docs/BACKLOG.md",
@@ -3805,8 +3811,8 @@
       "category": "platform",
       "title": "Extensions, localization and AI connections",
       "status": "partial",
-      "scope": "Versioned public extension contract (`AuthoringExtensionManifest` v1 with schema/version/ID validation, explicit `ExtensionPermission` capabilities, `ExtensionSafetyEnvelope` step/mutation budgets and deterministic `execute_extension_manifest` execution over the structured `CommandStep` vocabulary without filesystem, network or process access), extension host compatibility checks against the shipped `0.1.0` numeric product core, built-in interface localization catalog (`UiLocaleCatalog` with `en-US`, `ru-RU` and `ja-JP` translations, deterministic `en-US` fallback and `{0}`/`{1}` interpolation), and a provider-neutral AI connection foundation (`AiConnectionManager` with Keychain/file-0600 secret storage, bounded request/response handling, redacted diagnostics, cancellation/retries and human-approved inert diff proposals that never mutate `.nflash` documents autonomously).",
-      "limitations": "Extensions run strictly over the bounded `CommandStep` vocabulary inside the in-memory project transaction; arbitrary native dylibs, filesystem/network access and third-party package registries are outside scope. Interface localization covers the core catalog keys with deterministic `en-US` fallback; locked NF2 panel layouts keep their canonical design labels. AI provider profiles and request formatting exist, but the connected transport is limited to trusted local HTTP proxy endpoints; direct cloud TLS and editor UI wiring remain planned.",
+      "scope": "Versioned public extension contract (`AuthoringExtensionManifest` v1 with schema/version/ID validation, explicit `ExtensionPermission` capabilities, `ExtensionSafetyEnvelope` step/mutation budgets and deterministic `execute_extension_manifest` execution over the structured `CommandStep` vocabulary without filesystem, network or process access), extension host compatibility checks against the shipped `0.1.0` numeric product core, built-in interface localization catalog (`UiLocaleCatalog` with `en-US`, `ru-RU` and `ja-JP` translations, deterministic `en-US` fallback and `{0}`/`{1}` interpolation), a provider-neutral AI connection foundation (`AiConnectionManager` with Keychain/file-0600 secret storage, bounded request/response handling, redacted diagnostics, cancellation/retries and human-approved inert diff proposals that never mutate `.nflash` documents autonomously), and `neoflash-editor --headless` (`NEOFLASH_HEADLESS=1`) for scriptable JSON/text `capabilities`, `new`, `inspect`, `validate`, `compile`, `eval`, capability-scoped `jsfl`, atomic 17-op `batch` pipelines, `import`, and 12-target `export` without creating a native window.",
+      "limitations": "Extensions run strictly over the bounded `CommandStep` vocabulary inside the in-memory project transaction; arbitrary native dylibs, filesystem/network access and third-party package registries are outside scope. Interface localization covers the core catalog keys with deterministic `en-US` fallback; locked NF2 panel layouts keep their canonical design labels. AI provider profiles and request formatting exist, but the connected transport is limited to trusted local HTTP proxy endpoints; direct cloud TLS and editor UI wiring remain planned. Headless `jsfl` denies all `FLfile` reads, writes and deletes unless explicit `--allow-read`, `--allow-write` or `--allow-delete` capabilities are passed for canonical directory roots.",
       "items": [
         {
           "id": "extension-api",
@@ -3824,6 +3830,11 @@
           "status": "working"
         },
         {
+          "id": "headless-scriptable-cli",
+          "title": "Headless scriptable CLI for inspection, authoring, JSFL, validation, evaluation, import and export",
+          "status": "working"
+        },
+        {
           "id": "ai-provider-connections",
           "title": "Provider-neutral AI connections with reviewed, non-autonomous proposals",
           "status": "partial"
@@ -3835,7 +3846,11 @@
         "docs/ARCHITECTURE.md",
         "crates/neoflash-core/src/extensions.rs",
         "crates/neoflash-core/src/i18n.rs",
-        "crates/neoflash-editor/src/ai_connections.rs"
+        "crates/neoflash-editor/src/ai_connections.rs",
+        "crates/neoflash-editor/src/headless/mod.rs",
+        "crates/neoflash-editor/src/headless/batch.rs",
+        "crates/neoflash-editor/src/headless/jsfl_fs.rs",
+        "crates/neoflash-editor/src/headless/import_export.rs"
       ]
     },
     {
