@@ -1787,22 +1787,22 @@ SVG text is outlined.
 | `exports/interface/light/svg/` | 14 |
 | `exports/interface/mid-neutral-gray/png/` | 14 |
 | `exports/interface/mid-neutral-gray/svg/` | 14 |
-| `exports/panels/dark-graphite/boards/png/` | 25 |
-| `exports/panels/dark-graphite/boards/svg/` | 25 |
-| `exports/panels/dark-graphite/png/` | 120 |
-| `exports/panels/dark-graphite/svg/` | 120 |
-| `exports/panels/dark/boards/png/` | 25 |
-| `exports/panels/dark/boards/svg/` | 25 |
-| `exports/panels/dark/png/` | 120 |
-| `exports/panels/dark/svg/` | 120 |
-| `exports/panels/light/boards/png/` | 25 |
-| `exports/panels/light/boards/svg/` | 25 |
-| `exports/panels/light/png/` | 120 |
-| `exports/panels/light/svg/` | 120 |
-| `exports/panels/mid-neutral-gray/boards/png/` | 25 |
-| `exports/panels/mid-neutral-gray/boards/svg/` | 25 |
-| `exports/panels/mid-neutral-gray/png/` | 120 |
-| `exports/panels/mid-neutral-gray/svg/` | 120 |
+| `exports/panels/dark-graphite/boards/png/` | 26 |
+| `exports/panels/dark-graphite/boards/svg/` | 26 |
+| `exports/panels/dark-graphite/png/` | 124 |
+| `exports/panels/dark-graphite/svg/` | 124 |
+| `exports/panels/dark/boards/png/` | 26 |
+| `exports/panels/dark/boards/svg/` | 26 |
+| `exports/panels/dark/png/` | 124 |
+| `exports/panels/dark/svg/` | 124 |
+| `exports/panels/light/boards/png/` | 26 |
+| `exports/panels/light/boards/svg/` | 26 |
+| `exports/panels/light/png/` | 124 |
+| `exports/panels/light/svg/` | 124 |
+| `exports/panels/mid-neutral-gray/boards/png/` | 26 |
+| `exports/panels/mid-neutral-gray/boards/svg/` | 26 |
+| `exports/panels/mid-neutral-gray/png/` | 124 |
+| `exports/panels/mid-neutral-gray/svg/` | 124 |
 
 
 ---
@@ -1953,6 +1953,12 @@ Use the full outlines for exact structure (auto layout direction and gap, sizes,
 
 ```
 §NF2 / Timeline — states legend · "Timeline — states legend" · "Flash / Macromedia Flash semantics: layer types, column toggles, frame spans and markers. Every item is an NF2/TL component instance." · §Columns · §Layer types · "Layer types" · §Item · [TL Layer "Layer"] · "Normal layer" · §Item · [TL Layer "character"] · "Folder (expanded) — children indent" · §Item · [TL Layer "background"] · "Folder (collapsed)" · §Item · [TL Layer "Guide: path"] · "Motion guide — guided layers sit under it" · §Item · [TL Layer "ball"] · "Guided layer (indent 2)" · §Item · [TL Layer "mask"] · "Mask layer" · §Item · [TL Layer "arm"] · "Masked layer" · §Item · [TL Layer "Guide: sketch"] · "Guide layer — not exported" · "Columns" · §Toggle · [TL Toggle] · "Shown (dot)" · §Toggle · "Hidden (red X)" · §Toggle · "Unlocked (dot)" · §Toggle · "Locked" · §Toggle · "Layer colour" · §Toggle · "Outline view" · §Item · [TL Layer "hand"] · "Selected + current layer (pencil)" · "Frames (12 px per frame)" · §Sample · §Sample · "Empty frames — grid, every 5th frame shaded" · §Sample · §Sample · [TL Span] · [TL Marker] · "Keyframe ● with content, static frames (grey), span end ▯" · §Sample · §Sample · "Blank keyframe ○ — empty frames stay white" · §Sample · §Sample · "Classic tween — purple with arrow" · §Sample · §Sample · "Shape tween — green with arrow" · §Sample · §Sample · "Broken tween — dashed (missing end keyframe)" · §Sample · §Sample · "Motion tween — blue, property keyframes ◆" · §Sample · §Sample · "Selected frames" · §Sample · §Sample · [TL Marker "a"] · "Action keyframe (script on frame)" · §Sample · §Sample · [TL Frame Label "intro"] · "Frame label (red flag)" · §Sample · §Sample · [TL Frame Label "loop"] · "Frame comment (green //)" · §Sample · §Sample · [TL Frame Label "home"] · "Anchor (named anchor)" · §Onion · §Sample · [TL Onion Range] · [TL Playhead "8" "1.21s"] · "Playhead with frame number; onion-skin range on the ruler"
+```
+
+### panels-ai-answer
+
+```
+§AI answer — waiting, streaming, proposals and failure · §Dialog / AI answer — waiting, retry scheduled · [Dialog Header "AI answer"] · "Work — Anthropic · claude-sonnet-5-5" · [Progress "Waiting for the provider…"] · §Inline message / info · "The provider limits requests. Trying again in 12 s (attempt 2 of 3)." · §Footer · [Button "Stop"] · §Dialog / AI answer — streaming · [Progress "Receiving the answer…"] · §Answer · "The clip stops on a stop() call left in frame 30 of orbit_mc. It was needed for the intro, and the loop label after it is never reached, so" · §Footer · §Dialog / AI answer — proposals · §Answer · "The clip stops on a leftover stop() in frame 30." · "It was needed for the intro, and the loop label after it is never reached. Jump back to the label instead of stopping, and ease the ball out before the hand-off so the loop does not jerk." · "Proposals" · §Proposal / code — applied · §Header · [Badge "ActionScript 3.0"] · "Frame script · orbit_mc, frame 30" · §Code · "// return to the loop instead of stopping" · "gotoAndPlay("loop");" · "Replaces the stop() call so the clip returns to the loop label." · §Inline message / check · "Inserted into Actions at the caret." · [Button "Undo"] · §Proposal / timing · §Header · [Badge "Timing"] · "Layer ball" · §Table · [Table Row "Frames" "1 – 30"] · [Table Row "Easing" "Ease out"] · "Slows the ball before the hand-off at frame 30." · [Button "Apply to timeline"] · [Button "Dismiss"] · §Inline message / warning · "NeoFlash does not check AI output. Read a proposal before applying it; each one is a single Undo step." · §Footer · [Button "New request…"] · [Button "Done"] · §Dialog / AI answer — failed · §Inline message / error · "HTTP 401: invalid x-api-key" · "Nothing was changed in the document." · §Footer · [Button "Edit connection…"] · [Button "Close"] · [Button "Try again"]
 ```
 
 ### panels-ai-connections

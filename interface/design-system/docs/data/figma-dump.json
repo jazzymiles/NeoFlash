@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-14T13:18:03.554Z",
+ "generated": "2026-11-14T13:37:53.679Z",
  "file": "Interface test",
  "pages": [
   {
@@ -1307,6 +1307,30 @@
      "name": "AI connections — Preferences, connection and consent — Dark Graphite",
      "w": 2560,
      "h": 564
+    },
+    {
+     "id": "343:53734",
+     "name": "AI answer — waiting, streaming, proposals and failure",
+     "w": 2160,
+     "h": 661
+    },
+    {
+     "id": "344:53795",
+     "name": "AI answer — waiting, streaming, proposals and failure — Light",
+     "w": 2160,
+     "h": 661
+    },
+    {
+     "id": "344:53869",
+     "name": "AI answer — waiting, streaming, proposals and failure — Mid Neutral Gray",
+     "w": 2160,
+     "h": 661
+    },
+    {
+     "id": "344:53943",
+     "name": "AI answer — waiting, streaming, proposals and failure — Dark Graphite",
+     "w": 2160,
+     "h": 661
     }
    ]
   },

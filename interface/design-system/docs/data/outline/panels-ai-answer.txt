@@ -1,0 +1,74 @@
+F AI answer — waiting, streaming, proposals and failure 2160×661 [H gap 40]
+  F Dialog / AI answer — waiting, retry scheduled 480×204 [V gap 0]
+    I NF2/Dialog Header 478×60 "AI answer"
+    F Body 478×142 [V gap 12]
+      T "Work — Anthropic · claude-sonnet-5-5"
+      I NF2/Progress {Mode=Indeterminate} 430×25 "Waiting for the provider…"
+      F Inline message / info 430×16 [H gap 8]
+        I NF2 Icon/16/info 16×16
+        T "The provider limits requests. Trying again in 12 s (attempt 2 of 3)."
+      F Footer 430×32 [H gap 8]
+        F Spacer 371×2
+        I NF2/Button {Icon=false, Label=Stop, Type=Secondary, State=Default} 51×32 "Stop"
+  F Dialog / AI answer — streaming 480×242 [V gap 0]
+    I NF2/Dialog Header 478×60 "AI answer"
+    F Body 478×180 [V gap 12]
+      T "Work — Anthropic · claude-sonnet-5-5"
+      I NF2/Progress {Mode=Indeterminate} 430×25 "Receiving the answer…"
+      F Answer 430×54 [V gap 8]
+        T "The clip stops on a stop() call left in frame 30 of orbit_mc. It was needed for the intro, and the loop label after it is never reached, so"
+      F Footer 430×32 [H gap 8]
+        F Spacer 371×2
+        I NF2/Button {Icon=false, Label=Stop, Type=Secondary, State=Default} 51×32 "Stop"
+  F Dialog / AI answer — proposals 600×661 [V gap 0]
+    I NF2/Dialog Header 598×60 "AI answer"
+    F Body 598×599 [V gap 12]
+      T "Work — Anthropic · claude-sonnet-5-5"
+      F Answer 550×76 [V gap 8]
+        T "The clip stops on a leftover stop() in frame 30."
+        T "It was needed for the intro, and the loop label after it is never reached. Jump back to the label instead of stopping, and ease the ball out before the hand-off so the loop does not jerk."
+      T "Proposals"
+      F Proposal / code — applied 550×179 [V gap 10]
+        F Header 524×22 [H gap 8]
+          I NF2/Badge {Label=ActionScript 3.0, Type=Neutral} 106×22 "ActionScript 3.0"
+          T "Frame script · orbit_mc, frame 30"
+        F Code 524×56 [V gap 2]
+          T "// return to the loop instead of stopping"
+          T "gotoAndPlay("loop");"
+        T "Replaces the stop() call so the clip returns to the loop label."
+        F Row 524×32 [H gap 12]
+          F Inline message / check 459×16 [H gap 8]
+            I NF2 Icon/16/check 16×16
+            T "Inserted into Actions at the caret."
+          I NF2/Button {Icon=false, Label=Undo, Type=Ghost, State=Default} 53×32 "Undo"
+      F Proposal / timing 550×179 [V gap 10]
+        F Header 524×22 [H gap 8]
+          I NF2/Badge {Label=Timing, Type=Neutral} 61×22 "Timing"
+          T "Layer ball"
+        F Table 524×56 [V gap 0]
+          I NF2/Table Row {Value=1 – 30, Property=Frames, Kind=Row} 524×28 "Frames" "1 – 30"
+          I NF2/Table Row {Value=Ease out, Property=Easing, Kind=Row} 524×28 "Easing" "Ease out"
+        T "Slows the ball before the hand-off at frame 30."
+        F Row 524×32 [H gap 8]
+          I NF2/Button {Icon=false, Label=Apply to timeline, Type=Secondary, State=Default} 115×32 "Apply to timeline"
+          I NF2/Button {Icon=false, Label=Dismiss, Type=Ghost, State=Default} 65×32 "Dismiss"
+      F Inline message / warning 550×16 [H gap 8]
+        I NF2 Icon/16/warning 16×16
+        T "NeoFlash does not check AI output. Read a proposal before applying it; each one is a single Undo step."
+      F Footer 550×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=New request…, Type=Ghost, State=Default} 100×32 "New request…"
+        F Spacer 382×2
+        I NF2/Button {Icon=false, Label=Done, Type=Primary, State=Default} 52×32 "Done"
+  F Dialog / AI answer — failed 480×192 [V gap 0]
+    I NF2/Dialog Header 478×60 "AI answer"
+    F Body 478×130 [V gap 12]
+      T "Work — Anthropic · claude-sonnet-5-5"
+      F Inline message / error 430×16 [H gap 8]
+        I NF2 Icon/16/error 16×16
+        T "HTTP 401: invalid x-api-key"
+      T "Nothing was changed in the document."
+      F Footer 430×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Edit connection…, Type=Ghost, State=Default} 115×32 "Edit connection…"
+        F Spacer 162×2
+        I NF2/Button {Icon=false, Label=Close, Type=Secondary, State=Default} 56×32 "Close"
+        I NF2/Button {Icon=false, Label=Try again, Type=Primary, State=Default} 73×32 "Try again"
