@@ -11,11 +11,12 @@ use crate::{
     xfl::media::{FlashSoundCache, build_flash_sound_cache, inspect_audio_bytes},
 };
 use neoflash_core::{
-    Color, ColorTransform, Easing, Element, ElementKind, FilterSpec, FrameSound, GradientKind,
-    GradientPaint, GradientStop, Id, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole,
-    ObjectEvent, ObjectScript, PathCommand, Project, ResourceUnit, Script, ScriptLanguage,
-    SoundEffect, SoundSync, Symbol, SymbolKind, TextAlign, Timeline, Transform, TweenKind,
-    sample_layer_in_at_fps, transform_matrix, valid_library_folder,
+    AuthoredBitmapFill, AuthoredTextFieldOptions, Color, ColorTransform, Easing, Element,
+    ElementKind, FilterSpec, FrameSound, GradientKind, GradientPaint, GradientStop, Id,
+    InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, ObjectEvent, ObjectScript,
+    PathCommand, Project, ResourceUnit, Script, ScriptLanguage, SoundEffect, SoundSync, Symbol,
+    SymbolKind, TextAlign, TextFieldType, TextFormat, TextFormatRun, Timeline, Transform,
+    TweenKind, sample_layer_in_at_fps, transform_matrix, valid_library_folder,
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -650,6 +651,12 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
                         || snd.envelope.as_ref().is_some_and(|pts| !pts.is_empty())
                     {
                         custom_env_sounds.insert(snd.resource.as_str());
+                    }
+                }
+                for bf in &key.bitmap_fills {
+                    referenced_bitmaps.insert(bf.resource_id.as_str());
+                    if bf.smoothing {
+                        smoothed_bitmaps.insert(bf.resource_id.as_str());
                     }
                 }
                 for elem in &key.elements {
@@ -1690,11 +1697,15 @@ struct RenderedKeyElements {
     all_shapes: bool,
 }
 
-fn render_keyframe_elements(elements: &[Element], ctx: &ExportContext) -> RenderedKeyElements {
+fn render_keyframe_elements(
+    elements: &[Element],
+    bitmap_fills: &[AuthoredBitmapFill],
+    ctx: &ExportContext,
+) -> RenderedKeyElements {
     let mut xml_items = Vec::with_capacity(elements.len());
     let mut all_shapes = true;
     for elem in elements {
-        let (rendered, is_shape) = render_element(elem, ctx);
+        let (rendered, is_shape) = render_element(elem, bitmap_fills, ctx);
         if !rendered.is_empty() {
             if !is_shape {
                 all_shapes = false;
@@ -1714,6 +1725,8 @@ fn render_keyframe_elements(elements: &[Element], ctx: &ExportContext) -> Render
 fn classic_tween_elements_compatible(
     a: &Element,
     b: &Element,
+    a_has_bmp_fill: bool,
+    b_has_bmp_fill: bool,
     a_xml_count: usize,
     b_xml_count: usize,
     ctx: &ExportContext,
@@ -1722,7 +1735,7 @@ fn classic_tween_elements_compatible(
         return false;
     }
     // Check that neither element will decompose into separate fill+stroke Elements on XFL re-import.
-    if shape_splits_on_reimport(a) || shape_splits_on_reimport(b) {
+    if shape_splits_on_reimport(a, a_has_bmp_fill) || shape_splits_on_reimport(b, b_has_bmp_fill) {
         return false;
     }
     match (&a.kind, &b.kind) {
@@ -1791,7 +1804,7 @@ fn element_has_visible_stroke(elem: &Element) -> bool {
 
 /// Returns true when a `<DOMShape>` has both fill and stroke and uses curves/gradients/multiple
 /// contours, causing `xfl/shape.rs::general_shape` to emit 2 `PaintedPath` elements on import.
-fn shape_splits_on_reimport(elem: &Element) -> bool {
+fn shape_splits_on_reimport(elem: &Element, has_bitmap_fill: bool) -> bool {
     let ct = elem
         .transform
         .color_transform
@@ -1806,9 +1819,10 @@ fn shape_splits_on_reimport(elem: &Element) -> bool {
             stroke_width,
             ..
         } => {
-            let has_fill = fill_gradient
-                .as_ref()
-                .is_some_and(|g| g.stops.iter().any(|s| ct.apply(s.color)[3] > 0))
+            let has_fill = has_bitmap_fill
+                || fill_gradient
+                    .as_ref()
+                    .is_some_and(|g| g.stops.iter().any(|s| ct.apply(s.color)[3] > 0))
                 || ct.apply(*fill)[3] > 0;
             let has_stroke = *stroke_width > 0.0
                 && (stroke_gradient
@@ -1818,7 +1832,8 @@ fn shape_splits_on_reimport(elem: &Element) -> bool {
             if !(has_fill && has_stroke) {
                 return false;
             }
-            fill_gradient.is_some()
+            has_bitmap_fill
+                || fill_gradient.is_some()
                 || stroke_gradient.is_some()
                 || commands.iter().any(|c| {
                     matches!(
@@ -1834,16 +1849,17 @@ fn shape_splits_on_reimport(elem: &Element) -> bool {
             stroke_width,
             ..
         } => {
-            let has_fill = ct.apply(*fill)[3] > 0;
+            let has_fill = has_bitmap_fill || ct.apply(*fill)[3] > 0;
             let has_stroke = *stroke_width > 0.0 && ct.apply(*stroke)[3] > 0;
             has_fill
                 && has_stroke
-                && commands.iter().any(|c| {
-                    matches!(
-                        c,
-                        PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. }
-                    )
-                })
+                && (has_bitmap_fill
+                    || commands.iter().any(|c| {
+                        matches!(
+                            c,
+                            PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. }
+                        )
+                    }))
         }
         ElementKind::Ellipse { fill, .. } => {
             let has_fill = elem.oval_options().close_path && ct.apply(*fill)[3] > 0;
@@ -1882,7 +1898,7 @@ fn build_prepared_frames(
 
     let rendered: Vec<RenderedKeyElements> = keys
         .iter()
-        .map(|k| render_keyframe_elements(&k.elements, ctx))
+        .map(|k| render_keyframe_elements(&k.elements, &k.bitmap_fills, ctx))
         .collect();
 
     let mut frames = Vec::with_capacity(keys.len() + 2);
@@ -1924,6 +1940,13 @@ fn build_prepared_frames(
                     && classic_tween_elements_compatible(
                         &key.elements[0],
                         &next_k.elements[0],
+                        key.bitmap_fills
+                            .iter()
+                            .any(|bf| bf.element_id == key.elements[0].id),
+                        next_k
+                            .bitmap_fills
+                            .iter()
+                            .any(|bf| bf.element_id == next_k.elements[0].id),
                         cur_rendered.xml_items.len(),
                         next_r.xml_items.len(),
                         ctx,
@@ -2295,11 +2318,23 @@ fn encode_sound_envelope_points(snd: &FrameSound, duration_44: u64) -> Vec<(u64,
 
 /// Renders one `Element` to zero, one, or more XFL `<elements>` child blocks and returns
 /// `(xml_blocks, is_vector_shape)`.
-fn render_element(element: &Element, ctx: &ExportContext) -> (Vec<String>, bool) {
+fn render_element(
+    element: &Element,
+    bitmap_fills: &[AuthoredBitmapFill],
+    ctx: &ExportContext,
+) -> (Vec<String>, bool) {
     let ct = element
         .transform
         .color_transform
         .with_alpha(element.transform.alpha);
+    let fill_bitmap = bitmap_fills
+        .iter()
+        .find(|bf| bf.element_id == element.id)
+        .and_then(|bf| {
+            ctx.bitmaps
+                .get(&bf.resource_id)
+                .map(|bmp_info| (bmp_info.item_name.clone(), bf.matrix, !bf.repeat))
+        });
 
     match &element.kind {
         ElementKind::Instance {
@@ -2340,26 +2375,21 @@ fn render_element(element: &Element, ctx: &ExportContext) -> (Vec<String>, bool)
             width,
             height,
             format,
-            ..
-        } => {
-            let base_rgba = [
-                ((format.color >> 16) & 0xff) as u8,
-                ((format.color >> 8) & 0xff) as u8,
-                (format.color & 0xff) as u8,
-                255,
-            ];
-            (
-                vec![render_textbox_static_text(
-                    element,
-                    text,
-                    *width,
-                    *height,
-                    format,
-                    ct.apply(base_rgba),
-                )],
-                false,
-            )
-        }
+            word_wrap,
+            multiline,
+        } => (
+            vec![render_textbox_element(
+                element,
+                text,
+                *width,
+                *height,
+                *word_wrap,
+                *multiline,
+                format,
+                ct,
+            )],
+            false,
+        ),
         ElementKind::Rectangle {
             width,
             height,
@@ -2373,7 +2403,7 @@ fn render_element(element: &Element, ctx: &ExportContext) -> (Vec<String>, bool)
             let eff_fill = ct.apply(*fill);
             let eff_stroke = ct.apply(*stroke);
             let has_stroke = *stroke_width > 0.0 && eff_stroke[3] > 0;
-            if !has_stroke && !element.has_parametric_options() {
+            if !has_stroke && !element.has_parametric_options() && fill_bitmap.is_none() {
                 (
                     vec![render_primitive_object(
                         "DOMRectangleObject",
@@ -2392,6 +2422,7 @@ fn render_element(element: &Element, ctx: &ExportContext) -> (Vec<String>, bool)
                         ShapePaintSpec {
                             fill_color: eff_fill,
                             fill_gradient: None,
+                            fill_bitmap,
                             stroke_color: eff_stroke,
                             stroke_gradient: None,
                             stroke_width: *stroke_width,
@@ -2421,7 +2452,7 @@ fn render_element(element: &Element, ctx: &ExportContext) -> (Vec<String>, bool)
             };
             let eff_stroke = ct.apply(*stroke);
             let has_stroke = *stroke_width > 0.0 && eff_stroke[3] > 0;
-            if !has_stroke && !element.has_parametric_options() {
+            if !has_stroke && !element.has_parametric_options() && fill_bitmap.is_none() {
                 (
                     vec![render_primitive_object(
                         "DOMOvalObject",
@@ -2440,6 +2471,7 @@ fn render_element(element: &Element, ctx: &ExportContext) -> (Vec<String>, bool)
                         ShapePaintSpec {
                             fill_color: eff_fill,
                             fill_gradient: None,
+                            fill_bitmap: close_path.then_some(fill_bitmap).flatten(),
                             stroke_color: eff_stroke,
                             stroke_gradient: None,
                             stroke_width: *stroke_width,
@@ -2464,6 +2496,7 @@ fn render_element(element: &Element, ctx: &ExportContext) -> (Vec<String>, bool)
                 ShapePaintSpec {
                     fill_color: ct.apply(*fill),
                     fill_gradient: None,
+                    fill_bitmap,
                     stroke_color: ct.apply(*stroke),
                     stroke_gradient: None,
                     stroke_width: *stroke_width,
@@ -2486,6 +2519,7 @@ fn render_element(element: &Element, ctx: &ExportContext) -> (Vec<String>, bool)
                 ShapePaintSpec {
                     fill_color: ct.apply(*fill),
                     fill_gradient: fill_gradient.as_ref().map(|g| transform_gradient(g, ct)),
+                    fill_bitmap,
                     stroke_color: ct.apply(*stroke),
                     stroke_gradient: stroke_gradient.as_ref().map(|g| transform_gradient(g, ct)),
                     stroke_width: *stroke_width,
@@ -2989,23 +3023,57 @@ fn render_plain_static_text(
     xml
 }
 
-fn render_textbox_static_text(
+fn slice_utf16_runs<'a>(
+    text: &'a str,
+    base_format: &'a TextFormat,
+    runs: &'a [TextFormatRun],
+) -> Vec<(&'a str, &'a TextFormat)> {
+    if runs.is_empty() || text.is_empty() {
+        return vec![(text, base_format)];
+    }
+    let mut utf16_to_byte: HashMap<u32, usize> = HashMap::new();
+    let mut u16_pos = 0u32;
+    for (byte_idx, ch) in text.char_indices() {
+        utf16_to_byte.insert(u16_pos, byte_idx);
+        u16_pos = u16_pos.saturating_add(ch.len_utf16() as u32);
+    }
+    utf16_to_byte.insert(u16_pos, text.len());
+
+    let mut cursor = 0u32;
+    let mut out = Vec::with_capacity(runs.len());
+    for run in runs {
+        if run.start != cursor || run.end <= run.start || run.end > u16_pos {
+            return vec![(text, base_format)];
+        }
+        let (Some(&b_start), Some(&b_end)) =
+            (utf16_to_byte.get(&run.start), utf16_to_byte.get(&run.end))
+        else {
+            return vec![(text, base_format)];
+        };
+        out.push((&text[b_start..b_end], &run.format));
+        cursor = run.end;
+    }
+    if cursor != u16_pos {
+        return vec![(text, base_format)];
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_textbox_element(
     element: &Element,
     text: &str,
     width: f64,
     height: f64,
-    format: &neoflash_core::TextFormat,
-    rgba: Color,
+    word_wrap: bool,
+    multiline: bool,
+    format: &TextFormat,
+    ct: ColorTransform,
 ) -> String {
-    let size = if format.size.is_finite() {
+    let base_size = if format.size.is_finite() {
         format.size.clamp(1.0, 10_000.0)
     } else {
         12.0
-    };
-    let face = if format.font.trim().is_empty() {
-        "Times New Roman"
-    } else {
-        format.font.as_str()
     };
     let w = if width.is_finite() && width > 0.0 {
         width
@@ -3015,62 +3083,207 @@ fn render_textbox_static_text(
     let h = if height.is_finite() && height > 0.0 {
         height
     } else {
-        (size * 1.2).max(4.0)
+        (base_size * 1.2).max(4.0)
     };
 
-    let mut xml = String::with_capacity(360);
-    writeln!(
+    let opts: Option<AuthoredTextFieldOptions> = format.field_options();
+    let is_input = opts
+        .as_ref()
+        .is_some_and(|o| o.field_type == TextFieldType::Input);
+    let has_dynamic_opts = opts.as_ref().is_some_and(|o| {
+        o.variable.is_some()
+            || o.border
+            || o.background
+            || !o.selectable
+            || o.auto_size != "none"
+            || o.html
+            || o.embed_fonts
+            || o.display_as_password
+            || o.max_chars > 0
+            || o.direction != "ltr"
+    });
+    let tag = if is_input {
+        "DOMInputText"
+    } else if has_dynamic_opts
+        || (opts.is_none()
+            && !text.contains(['\r', '\n'])
+            && format.is_plain_point_text_compatible())
+    {
+        "DOMDynamicText"
+    } else {
+        "DOMStaticText"
+    };
+
+    let selectable = if tag == "DOMStaticText" {
+        false
+    } else {
+        opts.as_ref().is_none_or(|o| o.selectable)
+    };
+
+    let mut xml = String::with_capacity(420);
+    write!(
         xml,
-        "<DOMStaticText name=\"{}\" width=\"{}\" height=\"{}\" isSelectable=\"false\">",
+        "<{tag} name=\"{}\" width=\"{}\" height=\"{}\" isSelectable=\"{selectable}\"",
         escape_xml_attr(&element.name),
         fmt_num(w),
         fmt_num(h),
     )
     .unwrap();
-    append_matrix_and_pivot(&mut xml, element.transform);
-    xml.push_str("  <textRuns>\n    <DOMTextRun>\n");
-    writeln!(
-        xml,
-        "      <characters>{}</characters>",
-        escape_xfl_characters(text)
-    )
-    .unwrap();
-    xml.push_str("      <textAttrs>\n");
-    let (hex, alpha_opt) = fmt_color_alpha(rgba);
-    let bitmap_size = (size * 20.0).round().clamp(20.0, 200_000.0) as u32;
-    write!(
-        xml,
-        "        <DOMTextAttrs face=\"{}\" size=\"{}\" bitmapSize=\"{bitmap_size}\" fillColor=\"{hex}\"",
-        escape_xml_attr(face),
-        fmt_num(size),
-    )
-    .unwrap();
-    if let Some(alpha_str) = alpha_opt {
-        write!(xml, " alpha=\"{alpha_str}\"").unwrap();
-    }
-    if format.bold {
-        xml.push_str(" bold=\"true\"");
-    }
-    if format.italic {
-        xml.push_str(" italic=\"true\"");
-    }
-    match format.align {
-        TextAlign::Left => {}
-        TextAlign::Center => xml.push_str(" alignment=\"center\""),
-        TextAlign::Right => xml.push_str(" alignment=\"right\""),
-    }
-    for (val, attr) in [
-        (format.leading, "lineSpacing"),
-        (format.letter_spacing, "letterSpacing"),
-        (format.left_margin, "leftMargin"),
-        (format.right_margin, "rightMargin"),
-        (format.indent, "indent"),
-    ] {
-        if val.is_finite() && val.abs() > 1e-6 {
-            write!(xml, " {attr}=\"{}\"", fmt_num(val)).unwrap();
+
+    let password = opts.as_ref().is_some_and(|o| o.display_as_password);
+    if password {
+        xml.push_str(" lineType=\"password\"");
+    } else if multiline {
+        if word_wrap {
+            xml.push_str(" lineType=\"multiline\"");
+        } else {
+            xml.push_str(" lineType=\"multiline no wrap\"");
         }
     }
-    xml.push_str("/>\n      </textAttrs>\n    </DOMTextRun>\n  </textRuns>\n</DOMStaticText>");
+
+    if let Some(o) = &opts {
+        if o.html {
+            xml.push_str(" renderAsHTML=\"true\"");
+        }
+        if tag != "DOMStaticText" && (o.border || o.background) {
+            xml.push_str(" border=\"true\"");
+        }
+        if tag != "DOMStaticText"
+            && let Some(var_name) = o.variable.as_deref().filter(|s| !s.is_empty())
+        {
+            write!(xml, " variableName=\"{}\"", escape_xml_attr(var_name)).unwrap();
+        }
+        if tag != "DOMStaticText" && o.max_chars > 0 {
+            write!(xml, " maxCharacters=\"{}\"", o.max_chars).unwrap();
+        }
+        if tag != "DOMStaticText" && o.auto_size != "none" && !o.auto_size.is_empty() {
+            xml.push_str(" autoExpand=\"true\"");
+        }
+        if tag != "DOMStaticText" && o.embed_fonts {
+            xml.push_str(" includeOutlines=\"true\"");
+        }
+        if o.orientation == "vertical" {
+            xml.push_str(" orientation=\"vertical left to right\"");
+        }
+        if o.anti_alias_type == "advanced" {
+            if o.sharpness.abs() > 1e-6 || o.thickness.abs() > 1e-6 {
+                write!(
+                    xml,
+                    " fontRenderingMode=\"customThicknessSharpness\" antiAliasSharpness=\"{}\" antiAliasThickness=\"{}\"",
+                    fmt_num(o.sharpness),
+                    fmt_num(o.thickness),
+                )
+                .unwrap();
+            } else {
+                xml.push_str(" fontRenderingMode=\"advanced\"");
+            }
+        }
+    }
+    xml.push_str(">\n");
+    append_matrix_and_pivot(&mut xml, element.transform);
+
+    let runs_slice = opts
+        .as_ref()
+        .map(|o| o.format_runs.as_slice())
+        .unwrap_or(&[]);
+    let slices = slice_utf16_runs(text, format, runs_slice);
+    let char_pos = opts.as_ref().and_then(|o| {
+        if o.superscript {
+            Some("superscript")
+        } else if o.subscript {
+            Some("subscript")
+        } else {
+            None
+        }
+    });
+
+    xml.push_str("  <textRuns>\n");
+    for (run_text, run_fmt) in slices {
+        let size = if run_fmt.size.is_finite() {
+            run_fmt.size.clamp(1.0, 10_000.0)
+        } else {
+            12.0
+        };
+        let face = if run_fmt.font.trim().is_empty() {
+            "Times New Roman"
+        } else {
+            run_fmt.font.as_str()
+        };
+        let run_rgba = ct.apply([
+            ((run_fmt.color >> 16) & 0xff) as u8,
+            ((run_fmt.color >> 8) & 0xff) as u8,
+            (run_fmt.color & 0xff) as u8,
+            255,
+        ]);
+        let (hex, alpha_opt) = fmt_color_alpha(run_rgba);
+        let bitmap_size = (size * 20.0).round().clamp(20.0, 200_000.0) as u32;
+
+        xml.push_str("    <DOMTextRun>\n");
+        writeln!(
+            xml,
+            "      <characters>{}</characters>",
+            escape_xfl_characters(run_text)
+        )
+        .unwrap();
+        xml.push_str("      <textAttrs>\n");
+        write!(
+            xml,
+            "        <DOMTextAttrs face=\"{}\" size=\"{}\" bitmapSize=\"{bitmap_size}\" fillColor=\"{hex}\"",
+            escape_xml_attr(face),
+            fmt_num(size),
+        )
+        .unwrap();
+        if let Some(alpha_str) = alpha_opt {
+            write!(xml, " alpha=\"{alpha_str}\"").unwrap();
+        }
+        if run_fmt.bold {
+            xml.push_str(" bold=\"true\"");
+        }
+        if run_fmt.italic {
+            xml.push_str(" italic=\"true\"");
+        }
+        if run_fmt.underline {
+            xml.push_str(" underline=\"true\"");
+        }
+        if run_fmt.kerning == Some(true) {
+            xml.push_str(" autoKern=\"true\"");
+        }
+        if let Some(pos) = char_pos {
+            write!(xml, " characterPosition=\"{pos}\"").unwrap();
+        }
+        if run_fmt.align_mode() == Some("justify") {
+            xml.push_str(" alignment=\"justify\"");
+        } else {
+            match run_fmt.align {
+                TextAlign::Left => {}
+                TextAlign::Center => xml.push_str(" alignment=\"center\""),
+                TextAlign::Right => xml.push_str(" alignment=\"right\""),
+            }
+        }
+        for (val, attr) in [
+            (run_fmt.leading, "lineSpacing"),
+            (run_fmt.letter_spacing, "letterSpacing"),
+            (run_fmt.left_margin, "leftMargin"),
+            (run_fmt.right_margin, "rightMargin"),
+            (run_fmt.indent, "indent"),
+        ] {
+            if val.is_finite() && val.abs() > 1e-6 {
+                write!(xml, " {attr}=\"{}\"", fmt_num(val)).unwrap();
+            }
+        }
+        if !run_fmt.url.is_empty() {
+            write!(xml, " url=\"{}\"", escape_xml_attr(&run_fmt.url)).unwrap();
+        }
+        let target_base = run_fmt.target_str();
+        if !target_base.is_empty() {
+            write!(xml, " target=\"{}\"", escape_xml_attr(target_base)).unwrap();
+        }
+        xml.push_str("/>\n      </textAttrs>\n    </DOMTextRun>\n");
+    }
+    writeln!(xml, "  </textRuns>\n</{tag}>").unwrap();
+    if xml.ends_with('\n') {
+        xml.pop();
+    }
     xml
 }
 
@@ -3116,6 +3329,7 @@ fn render_primitive_object(
 struct ShapePaintSpec {
     fill_color: Color,
     fill_gradient: Option<GradientPaint>,
+    fill_bitmap: Option<(String, [f64; 6], bool)>,
     stroke_color: Color,
     stroke_gradient: Option<GradientPaint>,
     stroke_width: f64,
@@ -3141,9 +3355,14 @@ fn render_dom_shapes(
     paint: ShapePaintSpec,
 ) -> Vec<String> {
     let valid_fill_grad = paint.fill_gradient.as_ref().and_then(sanitize_gradient);
-    let has_fill_paint = valid_fill_grad
+    let valid_fill_bmp = paint
+        .fill_bitmap
         .as_ref()
-        .is_some_and(|g| g.stops.iter().any(|s| s.color[3] > 0))
+        .filter(|(_, m, _)| m.iter().all(|v| v.is_finite() && v.abs() <= 1.0e9));
+    let has_fill_paint = valid_fill_bmp.is_some()
+        || valid_fill_grad
+            .as_ref()
+            .is_some_and(|g| g.stops.iter().any(|s| s.color[3] > 0))
         || paint.fill_color[3] > 0;
 
     let valid_stroke_grad = paint.stroke_gradient.as_ref().and_then(sanitize_gradient);
@@ -3208,6 +3427,7 @@ fn render_dom_shapes(
                 "      ",
                 paint.fill_color,
                 valid_fill_grad.as_ref(),
+                valid_fill_bmp,
             );
             xml.push_str("    </FillStyle>\n  </fills>\n");
         }
@@ -3226,6 +3446,7 @@ fn render_dom_shapes(
                 "          ",
                 paint.stroke_color,
                 valid_stroke_grad.as_ref(),
+                None,
             );
             xml.push_str(
                 "        </fill>\n      </SolidStroke>\n    </StrokeStyle>\n  </strokes>\n",
@@ -3276,8 +3497,27 @@ fn render_paint_element(
     indent: &str,
     fallback_color: Color,
     gradient: Option<&GradientPaint>,
+    bitmap: Option<&(String, [f64; 6], bool)>,
 ) {
-    if let Some(grad) = gradient {
+    if let Some((bmp_path, m, clipped)) = bitmap {
+        write!(
+            xml,
+            "{indent}<BitmapFill bitmapPath=\"{}\"",
+            escape_xml_attr(bmp_path)
+        )
+        .unwrap();
+        if *clipped {
+            xml.push_str(" bitmapIsClipped=\"true\"");
+        }
+        xml.push_str(">\n");
+        append_raw_matrix(
+            xml,
+            &format!("{indent}  "),
+            [m[0] * 20.0, m[1] * 20.0, m[2] * 20.0, m[3] * 20.0, m[4], m[5]],
+            true,
+        );
+        writeln!(xml, "{indent}</BitmapFill>").unwrap();
+    } else if let Some(grad) = gradient {
         let tag = match grad.kind {
             GradientKind::Linear => "LinearGradient",
             GradientKind::Radial => "RadialGradient",

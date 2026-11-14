@@ -11,8 +11,8 @@
 use super::{Parser, child, elements};
 use crate::Severity;
 use neoflash_core::{
-    Color, Element, ElementKind, FillRule, GradientKind, GradientPaint, GradientStop, PathCommand,
-    validate_path_commands,
+    AuthoredBitmapFill, Color, Element, ElementKind, FillRule, GradientKind, GradientPaint,
+    GradientStop, Id, PathCommand, validate_path_commands,
 };
 use roxmltree::Node;
 use std::collections::{BTreeMap, BTreeSet};
@@ -82,10 +82,13 @@ impl GenEdge {
     }
 }
 
+type BitmapPaintSpec = (Id, [f64; 6], bool, bool);
+
 #[derive(Clone)]
 struct ParsedPaint {
     color: Color,
     gradient: Option<GradientPaint>,
+    bitmap: Option<BitmapPaintSpec>,
 }
 
 #[derive(Clone)]
@@ -169,28 +172,40 @@ impl Parser<'_> {
         }
         let base_name: String = node.attribute("name").unwrap_or("DOMShape").into();
         let single = kinds.len() == 1;
-        Some(
-            kinds
-                .into_iter()
-                .enumerate()
-                .map(|(idx, kind)| Element {
-                    id: if single {
-                        id.clone()
-                    } else {
-                        format!("{id}-{idx}")
-                    },
-                    name: base_name.clone(),
-                    accessibility: None,
-                    transform,
-                    kind,
-                    scripts: vec![],
-                    ..Element::default()
-                })
-                .collect(),
-        )
+        let mut elements_out = Vec::with_capacity(kinds.len());
+        for (idx, (kind, bmp)) in kinds.into_iter().enumerate() {
+            let elem_id = if single {
+                id.clone()
+            } else {
+                format!("{id}-{idx}")
+            };
+            if let Some((resource_id, matrix, repeat, smoothing)) = bmp {
+                self.pending_bitmap_fills.push(AuthoredBitmapFill {
+                    element_id: elem_id.clone(),
+                    resource_id,
+                    matrix,
+                    repeat,
+                    smoothing,
+                });
+            }
+            elements_out.push(Element {
+                id: elem_id,
+                name: base_name.clone(),
+                accessibility: None,
+                transform,
+                kind,
+                scripts: vec![],
+                ..Element::default()
+            });
+        }
+        Some(elements_out)
     }
 
-    fn general_shape(&mut self, node: Node<'_, '_>, file: &str) -> Result<Vec<ElementKind>> {
+    fn general_shape(
+        &mut self,
+        node: Node<'_, '_>,
+        file: &str,
+    ) -> Result<Vec<(ElementKind, Option<BitmapPaintSpec>)>> {
         let shape_loc = self.location(node, file);
         let mut warn_stroke_rendering = false;
         let mut warn_approximated: Option<&'static str> = None;
@@ -400,15 +415,18 @@ impl Parser<'_> {
                 )
             })?;
             let paint = fill_styles.get(&idx).unwrap();
-            output.push(ElementKind::PaintedPath {
-                commands,
-                fill_rule: FillRule::NonZero,
-                fill: paint.color,
-                stroke: [0, 0, 0, 0],
-                fill_gradient: paint.gradient.clone(),
-                stroke_gradient: None,
-                stroke_width: 0.0,
-            });
+            output.push((
+                ElementKind::PaintedPath {
+                    commands,
+                    fill_rule: FillRule::NonZero,
+                    fill: paint.color,
+                    stroke: [0, 0, 0, 0],
+                    fill_gradient: paint.gradient.clone(),
+                    stroke_gradient: None,
+                    stroke_width: 0.0,
+                },
+                paint.bitmap.clone(),
+            ));
         }
 
         for idx in stroke_order {
@@ -426,15 +444,18 @@ impl Parser<'_> {
                 )
             })?;
             let stroke_def = stroke_styles.get(&idx).unwrap();
-            output.push(ElementKind::PaintedPath {
-                commands,
-                fill_rule: FillRule::NonZero,
-                fill: [0, 0, 0, 0],
-                stroke: stroke_def.paint.color,
-                fill_gradient: None,
-                stroke_gradient: stroke_def.paint.gradient.clone(),
-                stroke_width: stroke_def.width,
-            });
+            output.push((
+                ElementKind::PaintedPath {
+                    commands,
+                    fill_rule: FillRule::NonZero,
+                    fill: [0, 0, 0, 0],
+                    stroke: stroke_def.paint.color,
+                    fill_gradient: None,
+                    stroke_gradient: stroke_def.paint.gradient.clone(),
+                    stroke_width: stroke_def.width,
+                },
+                stroke_def.paint.bitmap.clone(),
+            ));
         }
 
         if output.is_empty() {
@@ -519,6 +540,7 @@ impl Parser<'_> {
                 Ok(ParsedPaint {
                     color,
                     gradient: None,
+                    bitmap: None,
                 })
             }
             "LinearGradient"
@@ -684,6 +706,7 @@ impl Parser<'_> {
                 Ok(ParsedPaint {
                     color: fallback,
                     gradient: Some(paint),
+                    bitmap: None,
                 })
             }
             "BitmapFill" => {
@@ -693,15 +716,18 @@ impl Parser<'_> {
                     &["bitmapPath", "bitmapIsClipped"],
                     &["matrix"],
                 );
-                self.boolean(paint_node, "bitmapIsClipped", false, file);
-                let _ = self.parse_gradient_matrix(paint_node, file);
-                let sampled_color = paint_node
+                let clipped = self.boolean(paint_node, "bitmapIsClipped", false, file);
+                let fill_matrix = self.parse_bitmap_fill_matrix(paint_node, file);
+                let resolved_asset = paint_node
                     .attribute("bitmapPath")
                     .and_then(|bmp_path| self.bitmaps.get(bmp_path))
-                    .and_then(|asset| {
+                    .map(|asset| (asset.resource_id.clone(), asset.smoothing));
+                let sampled_color = resolved_asset
+                    .as_ref()
+                    .and_then(|(res_id, _)| {
                         self.resources
                             .iter()
-                            .find(|r| r.id == asset.resource_id)
+                            .find(|r| &r.id == res_id)
                             .and_then(|r| r.decoded_bytes().ok())
                     })
                     .and_then(|bytes| image::load_from_memory(&bytes).ok())
@@ -734,12 +760,20 @@ impl Parser<'_> {
                         }
                     })
                     .unwrap_or([128, 128, 128, 255]);
-                warn_approximated.get_or_insert(
-                    "BitmapFill is approximated as a sampled solid fill; use DOMBitmapInstance for full bitmap rendering.",
-                );
+                let bitmap = if let Some((res_id, smoothing)) = resolved_asset
+                    && fill_matrix.iter().all(|v| v.is_finite() && v.abs() <= 1e9)
+                {
+                    Some((res_id, fill_matrix, !clipped, smoothing))
+                } else {
+                    warn_approximated.get_or_insert(
+                        "Unresolved BitmapFill is approximated as neutral gray.",
+                    );
+                    None
+                };
                 Ok(ParsedPaint {
                     color: sampled_color,
                     gradient: None,
+                    bitmap,
                 })
             }
             _ => Err(ShapeError(
@@ -747,6 +781,25 @@ impl Parser<'_> {
                 "Unsupported fill or stroke paint element.",
             )),
         }
+    }
+
+    fn parse_bitmap_fill_matrix(&mut self, parent: Node<'_, '_>, file: &str) -> [f64; 6] {
+        let Some(wrapper) = child(parent, "matrix") else {
+            return [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+        };
+        self.audit(wrapper, file, &[], &["Matrix"]);
+        let Some(matrix) = child(wrapper, "Matrix") else {
+            return [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+        };
+        self.audit(matrix, file, &["a", "b", "c", "d", "tx", "ty"], &[]);
+        [
+            self.number(matrix, "a", 20.0, file) / 20.0,
+            self.number(matrix, "b", 0.0, file) / 20.0,
+            self.number(matrix, "c", 0.0, file) / 20.0,
+            self.number(matrix, "d", 20.0, file) / 20.0,
+            self.number(matrix, "tx", 0.0, file),
+            self.number(matrix, "ty", 0.0, file),
+        ]
     }
 
     fn parse_gradient_matrix(&mut self, parent: Node<'_, '_>, file: &str) -> [f64; 6] {

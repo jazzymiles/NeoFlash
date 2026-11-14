@@ -2973,3 +2973,282 @@ fn t293_dump_oracle_fixtures_to_target() {
         std::fs::write(out_dir.join(format!("{profile:?}.swf")), bytes).expect("write .swf");
     }
 }
+
+#[test]
+fn t306_binary_fla_mixed_utf16_runs_and_bitmap_fill_full_roundtrip() {
+    use neoflash_core::{
+        AuthoredBitmapFill, AuthoredTextFieldOptions, TextFieldState, TextFieldType, TextFormatRun,
+    };
+
+    let mut seed = Project::blank();
+    seed.format_version = 5;
+    seed.name = "T306 Roundtrip".into();
+    seed.resources.push(
+        ResourceUnit::from_bytes("tile-png", "library/tile.png", "image/png", &make_tiny_png_bytes())
+            .expect("valid png resource"),
+    );
+
+    let mut base_fmt = TextFormat {
+        font: "Arial".into(),
+        size: 18.0,
+        color: 0x0066cc,
+        bold: true,
+        leading: 4.0,
+        letter_spacing: 1.0,
+        ..TextFormat::default()
+    };
+    base_fmt.set_align_mode(Some("justify".into()));
+    let mut run0_fmt = base_fmt.clone();
+    run0_fmt.set_align_mode(Some("justify".into()));
+    let mut run1_fmt = TextFormat {
+        font: "Courier New".into(),
+        size: 24.0,
+        color: 0xee2211,
+        italic: true,
+        leading: 4.0,
+        letter_spacing: 1.0,
+        ..TextFormat::default()
+    };
+    run1_fmt.set_align_mode(Some("justify".into()));
+    let mut run2_fmt = TextFormat {
+        font: "Georgia".into(),
+        size: 14.0,
+        color: 0x228833,
+        leading: 4.0,
+        letter_spacing: 1.0,
+        ..TextFormat::default()
+    };
+    run2_fmt.set_align_mode(Some("justify".into()));
+
+    // "Score: 🎯 100 pts" -> 17 UTF-16 code units ("🎯" at 7..9).
+    base_fmt.set_field_options(Some(AuthoredTextFieldOptions {
+        field_type: TextFieldType::Dynamic,
+        selectable: false,
+        variable: Some("scoreLabel".into()),
+        format_runs: vec![
+            TextFormatRun {
+                start: 0,
+                end: 10,
+                format: run0_fmt,
+            },
+            TextFormatRun {
+                start: 10,
+                end: 13,
+                format: run1_fmt,
+            },
+            TextFormatRun {
+                start: 13,
+                end: 17,
+                format: run2_fmt,
+            },
+        ],
+        ..AuthoredTextFieldOptions::default()
+    }));
+
+    let kf = &mut seed.symbols[0].timeline.layers[0].keyframes[0];
+    kf.elements.push(Element {
+        id: "tile-shape".into(),
+        name: String::new(),
+        kind: ElementKind::PaintedPath {
+            commands: vec![
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo { x: 80.0, y: 0.0 },
+                PathCommand::LineTo { x: 80.0, y: 60.0 },
+                PathCommand::LineTo { x: 0.0, y: 60.0 },
+                PathCommand::Close,
+            ],
+            fill_rule: FillRule::EvenOdd,
+            fill: [220, 40, 90, 255],
+            stroke: [0, 0, 0, 0],
+            fill_gradient: None,
+            stroke_gradient: None,
+            stroke_width: 0.0,
+        },
+        ..Element::default()
+    });
+    kf.bitmap_fills.push(AuthoredBitmapFill {
+        element_id: "tile-shape".into(),
+        resource_id: "tile-png".into(),
+        matrix: [1.5, 0.0, 0.0, 1.5, 12.0, 24.0],
+        repeat: false,
+        smoothing: false,
+    });
+    kf.elements.push(Element {
+        id: "score-el".into(),
+        name: "score_txt".into(),
+        transform: Transform {
+            x: 30.0,
+            y: 90.0,
+            ..Transform::default()
+        },
+        kind: ElementKind::TextBox {
+            text: "Score: 🎯 100 pts".into(),
+            width: 240.0,
+            height: 48.0,
+            format: base_fmt,
+            word_wrap: true,
+            multiline: true,
+        },
+        ..Element::default()
+    });
+    seed.upgrade_format_for_features();
+    seed.validate().expect("seed project validates");
+
+    let assert_fidelity = |proj: &Project, check_non_gray_fallback: bool| {
+        proj.validate().expect("round-tripped project validates");
+        let root_sym = proj
+            .symbols
+            .iter()
+            .find(|s| s.id == proj.root)
+            .expect("root symbol");
+        let root_kf = &root_sym.timeline.layers[0].keyframes[0];
+
+        assert_eq!(
+            root_kf.bitmap_fills.len(),
+            1,
+            "bitmap fill must be preserved on keyframe"
+        );
+        let bf = &root_kf.bitmap_fills[0];
+        assert!(!bf.repeat, "clipped bitmap fill repeat=false must survive");
+        assert!(
+            proj.resources.iter().any(|r| r.id == bf.resource_id),
+            "bitmap fill resource must resolve in project.resources"
+        );
+        for (got, want) in bf.matrix.iter().zip([1.5, 0.0, 0.0, 1.5, 12.0, 24.0]) {
+            assert!(
+                (got - want).abs() < 0.02,
+                "bitmap fill matrix mismatch: got {:?}, want [1.5, 0, 0, 1.5, 12, 24]",
+                bf.matrix
+            );
+        }
+        let shape_el = root_kf
+            .elements
+            .iter()
+            .find(|e| e.id == bf.element_id)
+            .expect("element matching bitmap_fill.element_id");
+        if check_non_gray_fallback
+            && let ElementKind::PaintedPath { fill, .. } = &shape_el.kind
+        {
+            assert_eq!(*fill, [220, 40, 90, 255]);
+        }
+
+        let txt_el = root_kf
+            .elements
+            .iter()
+            .find(|e| e.name == "score_txt")
+            .expect("score_txt element");
+        let state = TextFieldState::from_kind(&txt_el.kind).expect("TextFieldState");
+        assert_eq!(state.text, "Score: 🎯 100 pts");
+        assert_eq!(state.field_type, TextFieldType::Dynamic);
+        assert!(!state.selectable);
+        assert_eq!(state.variable.as_deref(), Some("scoreLabel"));
+        assert_eq!(state.format.align_mode(), Some("justify"));
+        assert_eq!(state.format_runs.len(), 3, "all 3 UTF-16 runs preserved");
+
+        assert_eq!((state.format_runs[0].start, state.format_runs[0].end), (0, 10));
+        assert_eq!(state.format_runs[0].format.font, "Arial");
+        assert_eq!(state.format_runs[0].format.size, 18.0);
+        assert!(state.format_runs[0].format.bold);
+        assert!(!state.format_runs[0].format.italic);
+        assert_eq!(state.format_runs[0].format.color, 0x0066cc);
+
+        assert_eq!((state.format_runs[1].start, state.format_runs[1].end), (10, 13));
+        assert_eq!(state.format_runs[1].format.font, "Courier New");
+        assert_eq!(state.format_runs[1].format.size, 24.0);
+        assert!(!state.format_runs[1].format.bold);
+        assert!(state.format_runs[1].format.italic);
+        assert_eq!(state.format_runs[1].format.color, 0xee2211);
+
+        assert_eq!((state.format_runs[2].start, state.format_runs[2].end), (13, 17));
+        assert_eq!(state.format_runs[2].format.font, "Georgia");
+        assert_eq!(state.format_runs[2].format.size, 14.0);
+        assert!(!state.format_runs[2].format.bold);
+        assert!(!state.format_runs[2].format.italic);
+        assert_eq!(state.format_runs[2].format.color, 0x228833);
+    };
+
+    let tmp_dir = std::env::temp_dir().join(format!("neoflash-t306-rt-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+
+    // 1. Serialize real Flash 8 binary CFB `.fla` and import through legacy binary importer.
+    let (bin_fla_bytes, _) =
+        export_legacy_binary_fla_bytes(&seed, FlaTargetProfile::LegacyFlash8)
+            .expect("serialize Flash 8 binary FLA");
+    assert_eq!(
+        &bin_fla_bytes[..8],
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",
+        "must be a genuine OLE2/CFB binary FLA"
+    );
+    let bin_fla_path = tmp_dir.join("legacy_f8.fla");
+    std::fs::write(&bin_fla_path, &bin_fla_bytes).expect("write binary FLA");
+
+    let bin_report = neoflash_import::inspect(&bin_fla_path).expect("inspect binary FLA");
+    let imported =
+        neoflash_import::import_project(&bin_fla_path).expect("import binary FLA");
+    assert!(
+        !bin_report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "fla_shape_approximated" || d.code == "fla_text_approximated"),
+        "unexpected binary import approximations: {:?}",
+        bin_report.diagnostics
+    );
+    assert_fidelity(&imported, true);
+
+    // 2. Save to `.nflash` and reopen.
+    let nflash_json = imported.to_json().expect("serialize .nflash");
+    let reopened = Project::from_json(&nflash_json).expect("reopen .nflash");
+    assert_eq!(reopened, imported);
+    assert_fidelity(&reopened, true);
+
+    // 3. Export to HTML5 and verify bundle output.
+    let runtime_dir = tmp_dir.join("runtime");
+    std::fs::create_dir_all(&runtime_dir).expect("create runtime dir");
+    std::fs::write(runtime_dir.join("neoflash_web.js"), "var NeoFlashWasm;")
+        .expect("write mock wasm js");
+    std::fs::write(runtime_dir.join("neoflash_web_bg.wasm"), b"\0asm\x01\0\0\0")
+        .expect("write mock wasm");
+    let html_dir = tmp_dir.join("html5_out");
+    neoflash_export::export_project_with_policy(
+        &reopened,
+        &html_dir,
+        &runtime_dir,
+        neoflash_export::FontExportPolicy::Device,
+    )
+    .expect("export HTML5 bundle");
+    assert!(html_dir.join("index.html").is_file());
+    assert!(html_dir.join("bundle.js").is_file());
+    let bundle_js = std::fs::read_to_string(html_dir.join("bundle.js")).expect("read bundle.js");
+    assert!(
+        bundle_js.contains("Courier New")
+            && bundle_js.contains("scoreLabel")
+            && bundle_js.contains("bitmap_fills"),
+        "HTML5 export bundle.js must embed project text runs, variable binding, and bitmap_fills"
+    );
+
+    // 4. Export to `.fla` / XFL archive and re-import.
+    let xfl_fla_path = tmp_dir.join("reexported_xfl.fla");
+    neoflash_import::export_fla(&reopened, &xfl_fla_path).expect("export XFL .fla");
+    let xfl_report = neoflash_import::inspect(&xfl_fla_path).expect("inspect XFL .fla");
+    let xfl_reimported =
+        neoflash_import::import_project(&xfl_fla_path).expect("re-import XFL .fla");
+    assert!(
+        !xfl_report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "xfl_shape_approximated"),
+        "XFL re-import must preserve BitmapFill without approximation: {:?}",
+        xfl_report.diagnostics
+    );
+    assert_fidelity(&xfl_reimported, false);
+
+    // 5. Re-export back to CS4 binary FLA as well and verify lossless cycle.
+    let (cs4_bytes, _) =
+        export_legacy_binary_fla_bytes(&xfl_reimported, FlaTargetProfile::LegacyFlashCS4)
+            .expect("re-export CS4 binary FLA");
+    let cs4_reimported = import_fla_bytes(&cs4_bytes).expect("re-import CS4 binary FLA");
+    assert_fidelity(&cs4_reimported, true);
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}

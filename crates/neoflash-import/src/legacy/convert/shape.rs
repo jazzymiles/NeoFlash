@@ -113,6 +113,49 @@ fn paths(edges: Vec<Edge>, closed: bool) -> Result<Vec<PathCommand>, String> {
     Ok(commands)
 }
 
+/// Returns `(has_open_caps, has_corner_joins)` for assembled stroke path commands.
+/// Closed loops have no open endpoints (so cap style is visually invariant), and
+/// single-segment open lines have no interior vertices (so join style is invariant).
+fn stroke_topology_features(commands: &[PathCommand]) -> (bool, bool) {
+    let mut degrees: BTreeMap<(i64, i64), usize> = BTreeMap::new();
+    let quantize = |x: f64, y: f64| ((x * 20.0).round() as i64, (y * 20.0).round() as i64);
+    let mut cur: Option<(i64, i64)> = None;
+    let mut subpath_start: Option<(i64, i64)> = None;
+    for cmd in commands {
+        match *cmd {
+            PathCommand::MoveTo { x, y } => {
+                let p = quantize(x, y);
+                cur = Some(p);
+                subpath_start = Some(p);
+            }
+            PathCommand::LineTo { x, y }
+            | PathCommand::QuadraticTo { x, y, .. }
+            | PathCommand::CubicTo { x, y, .. } => {
+                let next = quantize(x, y);
+                if let Some(prev) = cur
+                    && prev != next
+                {
+                    *degrees.entry(prev).or_default() += 1;
+                    *degrees.entry(next).or_default() += 1;
+                }
+                cur = Some(next);
+            }
+            PathCommand::Close => {
+                if let (Some(prev), Some(start)) = (cur, subpath_start)
+                    && prev != start
+                {
+                    *degrees.entry(prev).or_default() += 1;
+                    *degrees.entry(start).or_default() += 1;
+                }
+                cur = subpath_start;
+            }
+        }
+    }
+    let has_open_caps = degrees.values().any(|&deg| deg == 1);
+    let has_corner_joins = degrees.values().any(|&deg| deg >= 2);
+    (has_open_caps, has_corner_joins)
+}
+
 /// A paint and, when it is only approximated, the reason for the report.
 type Paint = (
     Color,
@@ -132,7 +175,7 @@ pub(super) struct ConvertedShape {
 fn paint(fill: &BinaryFill, bitmaps: &BTreeMap<u16, super::assets::BitmapAsset>) -> Paint {
     const STANDIN: Color = [128, 128, 128, 255];
     match &fill.encoding {
-        BinaryFillEncoding::Legacy { word: 0 } => (color(fill.packed_value), None, None, None),
+        BinaryFillEncoding::Legacy { word: _ } => (color(fill.packed_value), None, None, None),
         BinaryFillEncoding::Extended {
             flags,
             secondary_flags: _,
@@ -209,13 +252,13 @@ fn paint(fill: &BinaryFill, bitmaps: &BTreeMap<u16, super::assets::BitmapAsset>)
                 raw[4],
                 raw[5],
             ];
-            if bitmaps.contains_key(media_id)
+            if let Some(asset) = bitmaps.get(media_id)
                 && fill_matrix.iter().all(|v| v.is_finite() && v.abs() <= 1e9)
             {
                 let repeat = (*flags & 1) == 0;
                 let smoothing = (*flags & 2) == 0;
                 (
-                    STANDIN,
+                    asset.average_color,
                     None,
                     Some((*media_id, fill_matrix, repeat, smoothing)),
                     None,
@@ -225,7 +268,7 @@ fn paint(fill: &BinaryFill, bitmaps: &BTreeMap<u16, super::assets::BitmapAsset>)
                     STANDIN,
                     None,
                     None,
-                    Some("bitmap fills are not rendered yet and are shown as neutral gray"),
+                    Some("unresolved bitmap fill is shown as neutral gray"),
                 )
             }
         }
@@ -233,7 +276,7 @@ fn paint(fill: &BinaryFill, bitmaps: &BTreeMap<u16, super::assets::BitmapAsset>)
             STANDIN,
             None,
             None,
-            Some("bitmap fills are not rendered yet and are shown as neutral gray"),
+            Some("unresolved bitmap fill is shown as neutral gray"),
         ),
     }
 }
@@ -350,14 +393,6 @@ pub(super) fn convert_shape_with_effects(
         } else {
             (color(stroke.color_word), None, None)
         };
-        if stroke
-            .extension
-            .as_ref()
-            .is_some_and(|e| e.scale_mode != 0 || !matches!((e.cap_style, e.join_style), (1, 1)))
-            || stroke.style_words[1] & 0x8000 != 0
-        {
-            report.warning("fla_stroke_rendering",location,"Stroke cap/join/scale editor settings remain in the embedded source; this renderer uses scaling round strokes.");
-        }
         let width = stroke.width_word as f64 / 20.;
         if width == 0. {
             report.warning("fla_hairline_rendering",location,"A device hairline is represented as a one-pixel stroke; the original width remains in source provenance.")
@@ -370,6 +405,16 @@ pub(super) fn convert_shape_with_effects(
                 continue;
             }
         };
+        let (has_open_caps, has_corner_joins) = stroke_topology_features(&commands);
+        if stroke.extension.as_ref().is_some_and(|e| {
+            e.scale_mode != 0
+                || (stroke_type == 0
+                    && ((e.cap_style != 1 && has_open_caps)
+                        || (e.join_style != 1 && has_corner_joins)))
+        }) || (stroke.style_words[1] & 0x8000 != 0 && has_corner_joins)
+        {
+            report.warning("fla_stroke_rendering",location,"Stroke cap/join/scale editor settings remain in the embedded source; this renderer uses scaling round strokes.");
+        }
         let elem_id = format!("{id}-stroke-{i}");
         if let Some((media_id, fill_matrix, repeat, smoothing)) = stroke_bitmap
             && let Some(asset) = bitmaps.get(&media_id)

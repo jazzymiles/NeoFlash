@@ -244,6 +244,13 @@ fn find_smoothing_for_resource(project: &Project, resource_id: &str) -> bool {
                         return *smoothing;
                     }
                 }
+                if let Some(bf) = kf
+                    .bitmap_fills
+                    .iter()
+                    .find(|bf| bf.resource_id == resource_id)
+                {
+                    return bf.smoothing;
+                }
             }
         }
     }
@@ -1014,9 +1021,18 @@ fn color_to_word(c: Color) -> u32 {
 }
 
 #[derive(Clone)]
+struct EncodedBitmapFill {
+    media_id: u16,
+    matrix: [f64; 6],
+    repeat: bool,
+    smoothing: bool,
+}
+
+#[derive(Clone)]
 struct EncodedFill {
     color: Color,
     gradient: Option<GradientPaint>,
+    bitmap: Option<EncodedBitmapFill>,
 }
 
 #[derive(Clone)]
@@ -1213,6 +1229,7 @@ fn append_commands_edges(
 fn collect_element_geometry(
     element: &Element,
     parent_matrix: [f64; 6],
+    authored_bf: Option<(&AuthoredBitmapFill, u16)>,
     fills: &mut Vec<EncodedFill>,
     strokes: &mut Vec<EncodedStroke>,
     edges: &mut Vec<EncodedEdge>,
@@ -1222,16 +1239,27 @@ fn collect_element_geometry(
         neoflash_core::transform_matrix(element.transform),
     );
     let mut add_fill = |color: Color, gradient: Option<GradientPaint>| -> u16 {
-        if color[3] == 0 && gradient.is_none() {
+        if color[3] == 0 && gradient.is_none() && authored_bf.is_none() {
             return 0;
         }
-        let grad = gradient.map(|mut g| {
-            g.matrix = multiply_matrices(m, g.matrix);
-            g
+        let bitmap = authored_bf.map(|(bf, media_id)| EncodedBitmapFill {
+            media_id,
+            matrix: multiply_matrices(m, bf.matrix),
+            repeat: bf.repeat,
+            smoothing: bf.smoothing,
         });
+        let grad = if bitmap.is_some() {
+            None
+        } else {
+            gradient.map(|mut g| {
+                g.matrix = multiply_matrices(m, g.matrix);
+                g
+            })
+        };
         fills.push(EncodedFill {
             color,
             gradient: grad,
+            bitmap,
         });
         fills.len() as u16
     };
@@ -1372,7 +1400,24 @@ fn collect_element_geometry(
 }
 
 fn write_binary_fill(w: &mut MfcWriter, fill: &EncodedFill) -> Result<(), ExportError> {
-    if let Some(grad) = &fill.gradient {
+    if let Some(bmp) = &fill.bitmap {
+        w.u32(color_to_word(fill.color));
+        let flags: u8 = 0x40 | u8::from(!bmp.repeat) | (u8::from(!bmp.smoothing) << 1);
+        w.u8(flags);
+        w.u8(0); // secondary_flags
+        let raw_matrix = [
+            bmp.matrix[0] * 20.0,
+            bmp.matrix[1] * 20.0,
+            bmp.matrix[2] * 20.0,
+            bmp.matrix[3] * 20.0,
+            bmp.matrix[4],
+            bmp.matrix[5],
+        ];
+        for word in matrix_to_words(raw_matrix) {
+            w.i32(word);
+        }
+        w.u16(bmp.media_id);
+    } else if let Some(grad) = &fill.gradient {
         if grad.stops.is_empty() || grad.stops.len() > 15 {
             return Err(ExportError::InvalidProject(format!(
                 "Binary FLA gradients require 1..=15 color stops (found {})",
@@ -1406,7 +1451,12 @@ fn write_binary_fill(w: &mut MfcWriter, fill: &EncodedFill) -> Result<(), Export
     Ok(())
 }
 
-fn write_frame_shape(w: &mut MfcWriter, elements: &[Element]) -> Result<(), ExportError> {
+fn write_frame_shape(
+    w: &mut MfcWriter,
+    elements: &[Element],
+    bitmap_fills: &[AuthoredBitmapFill],
+    media: &MediaExportCatalog,
+) -> Result<(), ExportError> {
     let mut fills = Vec::new();
     let mut strokes = Vec::new();
     let mut edges = Vec::new();
@@ -1420,7 +1470,24 @@ fn write_frame_shape(w: &mut MfcWriter, elements: &[Element]) -> Result<(), Expo
                 | ElementKind::PaintedPath { .. }
         ) && el.scripts.is_empty()
         {
-            collect_element_geometry(el, identity, &mut fills, &mut strokes, &mut edges);
+            let authored_bf = bitmap_fills
+                .iter()
+                .find(|bf| bf.element_id == el.id)
+                .and_then(|bf| {
+                    media
+                        .bitmap_by_resource
+                        .get(&bf.resource_id)
+                        .copied()
+                        .map(|media_id| (bf, media_id))
+                });
+            collect_element_geometry(
+                el,
+                identity,
+                authored_bf,
+                &mut fills,
+                &mut strokes,
+                &mut edges,
+            );
         }
     }
 
@@ -1466,6 +1533,7 @@ fn write_frame_shape(w: &mut MfcWriter, elements: &[Element]) -> Result<(), Expo
             &EncodedFill {
                 color: stroke.color,
                 gradient: stroke.gradient.clone(),
+                bitmap: None,
             },
         )?;
     }
@@ -1793,7 +1861,12 @@ fn write_actions(w: &mut MfcWriter, script_source: Option<&str>) {
     }
 }
 
-fn write_text_style(w: &mut MfcWriter, format: &TextFormat, alpha: f64) {
+fn write_text_style(
+    w: &mut MfcWriter,
+    format: &TextFormat,
+    opts: Option<&AuthoredTextFieldOptions>,
+    alpha: f64,
+) {
     w.u8(15); // text_style revision = 15
     let size_twips = (format.size * 20.0).round().clamp(20.0, 65535.0) as u16;
     w.u16(size_twips);
@@ -1807,11 +1880,22 @@ fn write_text_style(w: &mut MfcWriter, format: &TextFormat, alpha: f64) {
     w.u8(u8::from(format.italic));
     w.u8(0); // use_screen_spacing
     w.u8(u8::from(format.kerning.unwrap_or(false)));
-    w.u8(0); // character_position
-    let align_code: u8 = match format.align {
-        TextAlign::Left => 0,
-        TextAlign::Right => 1,
-        TextAlign::Center => 2,
+    let char_pos = if opts.is_some_and(|o| o.superscript) {
+        1
+    } else if opts.is_some_and(|o| o.subscript) {
+        2
+    } else {
+        0
+    };
+    w.u8(char_pos); // character_position
+    let align_code: u8 = if format.align_mode() == Some("justify") {
+        3
+    } else {
+        match format.align {
+            TextAlign::Left => 0,
+            TextAlign::Right => 1,
+            TextAlign::Center => 2,
+        }
     };
     w.u8(align_code);
     let to_i16_twips = |v: f64| -> i16 {
@@ -1825,16 +1909,29 @@ fn write_text_style(w: &mut MfcWriter, format: &TextFormat, alpha: f64) {
     w.i16(to_i16_twips(format.right_margin));
     w.i16(to_i16_twips(format.letter_spacing));
     w.cstring(&format.url); // url (revision >= 5)
-    w.u8(0); // vertical (revision >= 6)
-    w.u8(0); // right_to_left (revision >= 6)
+    w.u8(u8::from(opts.is_some_and(|o| o.orientation == "vertical"))); // vertical (revision >= 6)
+    w.u8(u8::from(opts.is_some_and(|o| o.direction == "rtl"))); // right_to_left (revision >= 6)
     w.u8(0); // rotation (revision >= 6)
     w.u8(0); // bitmap_rendering (revision >= 8)
-    w.cstring(&format.target); // target (revision >= 7)
-    // anti_alias (revision >= 11): antialias_revision = 2, byte = 0, thickness = 0.0, sharpness = 0.0
-    w.u8(2);
-    w.u8(0);
-    w.f32(0.0);
-    w.f32(0.0);
+    w.cstring(format.target_str()); // target (revision >= 7)
+    w.u8(2); // antialias_revision = 2 (revision >= 11)
+    if let Some(o) = opts
+        && o.anti_alias_type == "advanced"
+    {
+        if o.sharpness.abs() > 1e-6 || o.thickness.abs() > 1e-6 {
+            w.u8(2);
+            w.f32(o.thickness as f32);
+            w.f32(o.sharpness as f32);
+        } else {
+            w.u8(1);
+            w.f32(0.0);
+            w.f32(0.0);
+        }
+    } else {
+        w.u8(0);
+        w.f32(0.0);
+        w.f32(0.0);
+    }
     w.cstring(&format.url); // url_override (revision >= 12)
 }
 
@@ -2006,6 +2103,7 @@ fn write_display_element(
                 (*font_size * 1.5).max(20.0),
                 &format,
                 false,
+                false,
                 alpha,
             );
         }
@@ -2015,7 +2113,7 @@ fn write_display_element(
             height,
             format,
             word_wrap,
-            ..
+            multiline,
         } => {
             write_cpic_text_object(
                 w,
@@ -2025,10 +2123,37 @@ fn write_display_element(
                 *height,
                 format,
                 *word_wrap,
+                *multiline,
                 element.transform.alpha,
             );
         }
         _ => {}
+    }
+}
+
+fn write_utf16_style_chunks(
+    w: &mut MfcWriter,
+    units: &[u16],
+    format: &TextFormat,
+    opts: Option<&AuthoredTextFieldOptions>,
+    alpha: f64,
+) {
+    let mut start = 0usize;
+    while start < units.len() {
+        let mut end = (start + 500).min(units.len());
+        if end < units.len()
+            && (0xD800..=0xDBFF).contains(&units[end - 1])
+            && (0xDC00..=0xDFFF).contains(&units[end])
+        {
+            end -= 1;
+        }
+        let chunk = &units[start..end];
+        w.u16(chunk.len() as u16);
+        write_text_style(w, format, opts, alpha);
+        for &unit in chunk {
+            w.u16(unit);
+        }
+        start = end;
     }
 }
 
@@ -2041,11 +2166,30 @@ fn write_cpic_text_object(
     height: f64,
     format: &TextFormat,
     word_wrap: bool,
+    multiline: bool,
     alpha: f64,
 ) {
     w.begin_object("CPicText");
     write_cpic_obj_base_header(w);
     write_cpic_obj_base_footer(w);
+
+    let opts = format.field_options();
+    let is_input = opts
+        .as_ref()
+        .is_some_and(|o| o.field_type == TextFieldType::Input);
+    let is_dynamic_or_input = is_input
+        || !element.name.is_empty()
+        || opts.as_ref().is_some_and(|o| {
+            o.variable.is_some()
+                || !o.selectable
+                || o.display_as_password
+                || o.max_chars > 0
+                || o.auto_size != "none"
+                || o.border
+                || o.background
+                || o.html
+                || o.embed_fonts
+        });
 
     w.u8(13); // CPicText revision = 13
     for word in matrix_to_words(neoflash_core::transform_matrix(element.transform)) {
@@ -2056,23 +2200,85 @@ fn write_cpic_text_object(
     for bound in [0_i32, w_twips, 0_i32, h_twips] {
         w.i32(bound);
     }
-    w.u8(u8::from(!word_wrap)); // auto_expand
+    let auto_expand = if is_dynamic_or_input {
+        opts.as_ref().is_some_and(|o| o.auto_size != "none")
+    } else {
+        !word_wrap
+    };
+    w.u8(u8::from(auto_expand));
     w.u8(0); // reserved
     let units: Vec<u16> = text.encode_utf16().collect();
-    let flags: u32 = if units.is_empty() { 0x4000 } else { 0 };
-    w.u32(flags);
-    w.u16(0); // max_characters
-    w.cstring(""); // variable_name
-    if units.is_empty() {
-        write_text_style(w, format, alpha);
-    } else {
-        for chunk in units.chunks(500) {
-            w.u16(chunk.len() as u16);
-            write_text_style(w, format, alpha);
-            for &unit in chunk {
-                w.u16(unit);
+    let mut flags: u32 = if units.is_empty() { 0x4000 } else { 0 };
+    if is_dynamic_or_input {
+        flags |= 0x0001;
+        if !is_input {
+            flags |= 0x0002;
+        }
+        let password = opts.as_ref().is_some_and(|o| o.display_as_password);
+        if password {
+            flags |= 0x0004;
+        } else {
+            if word_wrap {
+                flags |= 0x0008;
+            }
+            if multiline {
+                flags |= 0x0010;
             }
         }
+        if let Some(o) = &opts {
+            if o.embed_fonts {
+                flags |= 0x0020;
+            }
+            if o.border || o.background {
+                flags |= 0x0040;
+            }
+            if !o.selectable {
+                flags |= 0x0080;
+            } else {
+                flags |= 0x10000;
+            }
+            if o.html {
+                flags |= 0x8000;
+            }
+        } else {
+            flags |= 0x10000;
+        }
+    }
+    w.u32(flags);
+    let max_chars = if is_dynamic_or_input {
+        opts.as_ref()
+            .map_or(0, |o| o.max_chars.min(u32::from(u16::MAX)) as u16)
+    } else {
+        0
+    };
+    w.u16(max_chars); // max_characters
+    let var_name = if is_dynamic_or_input {
+        opts.as_ref()
+            .and_then(|o| o.variable.as_deref())
+            .unwrap_or("")
+    } else {
+        ""
+    };
+    w.cstring(var_name); // variable_name
+    if units.is_empty() {
+        write_text_style(w, format, opts.as_ref(), alpha);
+    } else if let Some(o) = &opts
+        && !o.format_runs.is_empty()
+    {
+        for run in &o.format_runs {
+            let start = usize::try_from(run.start).unwrap_or(0).min(units.len());
+            let end = usize::try_from(run.end).unwrap_or(0).min(units.len());
+            if start >= end {
+                continue;
+            }
+            let mut run_fmt = run.format.clone();
+            if format.align_mode() == Some("justify") && run_fmt.align_mode().is_none() {
+                run_fmt.set_align_mode(Some("justify".into()));
+            }
+            write_utf16_style_chunks(w, &units[start..end], &run_fmt, opts.as_ref(), alpha);
+        }
+    } else {
+        write_utf16_style_chunks(w, &units, format, opts.as_ref(), alpha);
     }
     w.u16(0); // end of text runs
     w.cstring(&element.name); // instance_name (revision >= 6)
@@ -2189,7 +2395,7 @@ fn serialize_layer(
                 write_display_element(w, el, symbol_lib_ids, symbol_kinds, media);
             }
             write_cpic_obj_base_footer(w);
-            write_frame_shape(w, &kf.elements)?;
+            write_frame_shape(w, &kf.elements, &kf.bitmap_fills, media)?;
             write_cpic_frame_payload(w, duration, Some(kf), frame_script, media);
         }
     }

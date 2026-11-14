@@ -92,7 +92,10 @@
                         "fieldOptions": {
                           "field_type": "dynamic",
                           "variable": "myTextVar",
-                          "embed_fonts": true
+                          "embed_fonts": true,
+                          "anti_alias_type": "advanced",
+                          "sharpness": 2.5,
+                          "thickness": 1.5
                         }
                       },
                       "word_wrap": false,

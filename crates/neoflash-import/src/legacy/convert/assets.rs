@@ -5,7 +5,7 @@ use neoflash_core::{MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ResourceUnit, valid
 use std::collections::BTreeMap;
 
 /// Budget kept free for the provenance record within the project's resources.
-const PROVENANCE_RESERVE: usize = 8 * 1024 * 1024;
+const PROVENANCE_RESERVE: usize = 512 * 1024;
 
 #[derive(Clone, Debug)]
 pub(super) struct BitmapAsset {
@@ -13,6 +13,85 @@ pub(super) struct BitmapAsset {
     pub width: f64,
     pub height: f64,
     pub smoothing: bool,
+    pub average_color: Color,
+}
+
+fn sample_average_rgba(rgba: &[u8]) -> Color {
+    let mut r_sum = 0u64;
+    let mut g_sum = 0u64;
+    let mut b_sum = 0u64;
+    let mut a_sum = 0u64;
+    let mut count = 0u64;
+    for px in rgba.as_chunks::<4>().0 {
+        if px[3] > 0 {
+            r_sum += u64::from(px[0]);
+            g_sum += u64::from(px[1]);
+            b_sum += u64::from(px[2]);
+            a_sum += u64::from(px[3]);
+            count += 1;
+        }
+    }
+    if let Some(r) = r_sum.checked_div(count) {
+        [
+            r as u8,
+            (g_sum / count) as u8,
+            (b_sum / count) as u8,
+            (a_sum / count) as u8,
+        ]
+    } else {
+        [128, 128, 128, 255]
+    }
+}
+
+fn compact_duplicate_media_under_pressure(
+    resources: &mut Vec<ResourceUnit>,
+    bitmaps: &mut BTreeMap<u16, BitmapAsset>,
+    sounds: &mut BTreeMap<u16, SoundAsset>,
+    total: &mut usize,
+) {
+    let mut canonical: Vec<(String, String, std::sync::Arc<str>)> = Vec::new();
+    let mut remap: BTreeMap<String, String> = BTreeMap::new();
+    resources.retain(|res| {
+        if let Some((canon_id, _, _)) = canonical
+            .iter()
+            .find(|(_, mt, b64)| mt == &res.media_type && b64.as_ref() == res.data_base64.as_ref())
+        {
+            *total = total.saturating_sub(res.byte_len());
+            remap.insert(res.id.clone(), canon_id.clone());
+            false
+        } else {
+            canonical.push((
+                res.id.clone(),
+                res.media_type.clone(),
+                res.data_base64.clone(),
+            ));
+            true
+        }
+    });
+    if !remap.is_empty() {
+        for asset in bitmaps.values_mut() {
+            if let Some(target) = remap.get(&asset.resource_id) {
+                asset.resource_id = target.clone();
+            }
+        }
+        for asset in sounds.values_mut() {
+            if let Some(target) = remap.get(&asset.resource_id) {
+                asset.resource_id = target.clone();
+            }
+        }
+    }
+}
+
+fn find_identical_resource_id(
+    resources: &[ResourceUnit],
+    media_type: &str,
+    bytes: &[u8],
+) -> Option<String> {
+    let probe = ResourceUnit::from_bytes("_probe", "legacy/probe.bin", media_type, bytes).ok()?;
+    resources
+        .iter()
+        .find(|r| r.media_type == probe.media_type && r.data_base64 == probe.data_base64)
+        .map(|r| r.id.clone())
 }
 
 #[derive(Clone, Debug)]
@@ -162,14 +241,6 @@ pub(super) fn resources(
                 return Err("The sound descriptor and immutable media stream disagree.".into());
             }
             decoded_streams.insert(stream.index);
-            if resources.len() >= MAX_RESOURCES - 2 {
-                report.warning(
-                    "fla_media_not_imported",
-                    &location,
-                    "The project resource limit is reached; this sound is not imported and remains in the embedded source.",
-                );
-                continue;
-            }
             let decoded = match decode_binary_sound(
                 &stream.bytes,
                 descriptor.subtype_revision.unwrap_or(0),
@@ -187,6 +258,50 @@ pub(super) fn resources(
                     continue;
                 }
             };
+            let over_count = resources.len() >= MAX_RESOURCES - 2;
+            let over_bytes = total
+                .checked_add(decoded.bytes.len())
+                .is_none_or(|n| n > MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE);
+            if over_count || over_bytes {
+                compact_duplicate_media_under_pressure(
+                    &mut resources,
+                    &mut bitmaps,
+                    &mut sounds,
+                    &mut total,
+                );
+                if let Some(existing_id) =
+                    find_identical_resource_id(&resources, decoded.media_type, &decoded.bytes)
+                {
+                    if decoded.short_read {
+                        report.warning(
+                            "fla_sound_short_read",
+                            &location,
+                            "The sound stream ended before its declared length; the available complete audio frames were imported.",
+                        );
+                    }
+                    if sounds
+                        .insert(
+                            id,
+                            SoundAsset {
+                                resource_id: existing_id,
+                                duration_44: decoded.duration_44,
+                            },
+                        )
+                        .is_some()
+                    {
+                        return Err("Sound descriptors have duplicate media identifiers.".into());
+                    }
+                    continue;
+                }
+            }
+            if resources.len() >= MAX_RESOURCES - 2 {
+                report.warning(
+                    "fla_media_not_imported",
+                    &location,
+                    "The project resource limit is reached; this sound is not imported and remains in the embedded source.",
+                );
+                continue;
+            }
             match total
                 .checked_add(decoded.bytes.len())
                 .filter(|n| *n <= MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE)
@@ -285,10 +400,6 @@ pub(super) fn resources(
             }
             continue;
         }
-        if resources.len() >= MAX_RESOURCES - 2 {
-            report.warning("fla_bitmap_skipped",&location,"The project resource limit is reached; this bitmap becomes an unresolved placeholder.");
-            continue;
-        }
         let settings = descriptor
             .bitmap
             .as_ref()
@@ -324,7 +435,42 @@ pub(super) fn resources(
         if decoded.bounds_words[0] != 0 || decoded.bounds_words[2] != 0 {
             report.warning("fla_bitmap_origin",&location,"The bitmap's stored bounds start away from 0,0; the image is placed at its instance origin.");
         }
+        let average_color = sample_average_rgba(&decoded.rgba);
         let png = decoded.png_bytes().map_err(|e| e.to_string())?;
+        let over_count = resources.len() >= MAX_RESOURCES - 2;
+        let over_bytes = total
+            .checked_add(png.len())
+            .is_none_or(|n| n > MAX_RESOURCE_TOTAL_BYTES - PROVENANCE_RESERVE);
+        if over_count || over_bytes {
+            compact_duplicate_media_under_pressure(
+                &mut resources,
+                &mut bitmaps,
+                &mut sounds,
+                &mut total,
+            );
+            if let Some(existing_id) = find_identical_resource_id(&resources, "image/png", &png) {
+                if bitmaps
+                    .insert(
+                        id,
+                        BitmapAsset {
+                            resource_id: existing_id,
+                            width: f64::from(decoded.width),
+                            height: f64::from(decoded.height),
+                            smoothing: settings.smoothing,
+                            average_color,
+                        },
+                    )
+                    .is_some()
+                {
+                    return Err("Bitmap descriptors have duplicate media identifiers.".into());
+                }
+                continue;
+            }
+        }
+        if resources.len() >= MAX_RESOURCES - 2 {
+            report.warning("fla_bitmap_skipped",&location,"The project resource limit is reached; this bitmap becomes an unresolved placeholder.");
+            continue;
+        }
         // Keep room for the embedded original FLA and provenance.
         match total
             .checked_add(png.len())
@@ -386,6 +532,7 @@ pub(super) fn resources(
                     width: f64::from(decoded.width),
                     height: f64::from(decoded.height),
                     smoothing: settings.smoothing,
+                    average_color,
                 },
             )
             .is_some()

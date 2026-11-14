@@ -274,6 +274,7 @@ pub(crate) fn is_unreferenced_sidecar_resource(project: &Project, res: &Resource
         sym.timeline.layers.iter().any(|layer| {
             layer.keyframes.iter().any(|kf| {
                 kf.sound.as_ref().is_some_and(|s| s.resource == res.id)
+                    || kf.bitmap_fills.iter().any(|bf| bf.resource_id == res.id)
                     || kf.elements.iter().any(|el| {
                         matches!(&el.kind, ElementKind::Bitmap { resource_id, .. } if resource_id == &res.id)
                     })

@@ -54,6 +54,7 @@ pub(crate) fn convert(
         text_warning: false,
         direct_filter_strength,
         legacy_filter_strength_warning: false,
+        pending_bitmap_fills: Vec::new(),
     };
     parser.audit(
         root,
@@ -951,6 +952,7 @@ struct Parser<'a> {
     text_warning: bool,
     direct_filter_strength: bool,
     legacy_filter_strength_warning: bool,
+    pending_bitmap_fills: Vec<AuthoredBitmapFill>,
 }
 
 impl Parser<'_> {
@@ -2449,6 +2451,7 @@ impl Parser<'_> {
                                 continue;
                             }
                             let identity = format!("xfl-{id}-{li}-{ei}");
+                            self.pending_bitmap_fills.clear();
                             for element in self.element_with_depth(
                                 element_node,
                                 identity,
@@ -2461,6 +2464,7 @@ impl Parser<'_> {
                                     .push((element.id.clone(), self.location(element_node, file)));
                                 key.elements.push(element);
                             }
+                            key.bitmap_fills.append(&mut self.pending_bitmap_fills);
                         }
                     }
                     if let Some(actions) = child(frame_node, "Actionscript") {
@@ -2551,7 +2555,15 @@ impl Parser<'_> {
                             );
                         if compatible {
                             let continued_id = raw_keys[idx].4.elements[0].id.clone();
-                            raw_keys[idx + 1].4.elements[0].id = continued_id.clone();
+                            let prev_elem_id = std::mem::replace(
+                                &mut raw_keys[idx + 1].4.elements[0].id,
+                                continued_id.clone(),
+                            );
+                            for bf in &mut raw_keys[idx + 1].4.bitmap_fills {
+                                if bf.element_id == prev_elem_id {
+                                    bf.element_id = continued_id.clone();
+                                }
+                            }
                             if let Some(slot) = raw_keys[idx + 1].3.first_mut() {
                                 slot.0 = continued_id;
                             }
@@ -3412,15 +3424,31 @@ impl Parser<'_> {
                 if let Some(pd_node) = child(node, "persistentData") {
                     self.audit_persistent_data(pd_node, file);
                 }
-                let _ = self.boolean(node, "isSelectable", true, file);
-                let _ = self.boolean(node, "autoExpand", false, file);
+                let is_selectable =
+                    self.boolean(node, "isSelectable", tag != "DOMStaticText", file);
+                let auto_expand = self.boolean(node, "autoExpand", false, file);
                 let render_as_html = self.boolean(node, "renderAsHTML", false, file);
-                let _ = self.boolean(node, "includeOutlines", false, file);
+                let include_outlines = self.boolean(node, "includeOutlines", false, file);
                 let border = self.boolean(node, "border", false, file);
                 let _ = self.boolean(node, "scrollable", false, file);
-                let _ = self.u32_attr(node, "maxCharacters", 0, file);
+                let max_characters = self.u32_attr(node, "maxCharacters", 0, file);
                 let orientation = node.attribute("orientation").unwrap_or("horizontal");
                 let line_type = node.attribute("lineType").unwrap_or("single line");
+                let font_rendering_mode = node.attribute("fontRenderingMode").unwrap_or("normal");
+                let aa_sharpness = self
+                    .number(node, "antiAliasSharpness", 0.0, file)
+                    .clamp(-400.0, 400.0);
+                let aa_thickness = self
+                    .number(node, "antiAliasThickness", 0.0, file)
+                    .clamp(-200.0, 200.0);
+                let clean_var: String = node
+                    .attribute("variableName")
+                    .unwrap_or("")
+                    .trim()
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .take(256)
+                    .collect();
                 let Some(runs_wrapper) = child(node, "textRuns") else {
                     if tag == "DOMStaticText" {
                         self.report.error(
@@ -3441,8 +3469,58 @@ impl Parser<'_> {
                     let height = self
                         .number(node, "height", 20., file)
                         .clamp(0.0, 1_000_000.0);
-                    let multiline = matches!(line_type, "multiline" | "multiline no wrap");
-                    let word_wrap = line_type == "multiline";
+                    let password = line_type == "password";
+                    let multiline =
+                        !password && matches!(line_type, "multiline" | "multiline no wrap");
+                    let word_wrap = !password && line_type == "multiline";
+                    let mut empty_fmt = TextFormat::default();
+                    let empty_opts = AuthoredTextFieldOptions {
+                        field_type: if tag == "DOMInputText" {
+                            TextFieldType::Input
+                        } else {
+                            TextFieldType::Dynamic
+                        },
+                        selectable: is_selectable,
+                        display_as_password: password,
+                        max_chars: max_characters.min(MAX_TEXT_BYTES as u32),
+                        variable: (!clean_var.is_empty()).then_some(clean_var),
+                        auto_size: if auto_expand {
+                            "left".into()
+                        } else {
+                            "none".into()
+                        },
+                        border,
+                        background: border,
+                        html: render_as_html,
+                        embed_fonts: include_outlines,
+                        orientation: if orientation.starts_with("vertical") {
+                            "vertical".into()
+                        } else {
+                            "horizontal".into()
+                        },
+                        anti_alias_type: if matches!(
+                            font_rendering_mode,
+                            "advanced" | "customThicknessSharpness"
+                        ) {
+                            "advanced".into()
+                        } else {
+                            "normal".into()
+                        },
+                        sharpness: if font_rendering_mode == "customThicknessSharpness" {
+                            aa_sharpness
+                        } else {
+                            0.0
+                        },
+                        thickness: if font_rendering_mode == "customThicknessSharpness" {
+                            aa_thickness
+                        } else {
+                            0.0
+                        },
+                        ..AuthoredTextFieldOptions::default()
+                    };
+                    if !empty_opts.is_default() {
+                        empty_fmt.set_field_options(Some(empty_opts));
+                    }
                     return vec![Element {
                         id,
                         accessibility: None,
@@ -3452,7 +3530,7 @@ impl Parser<'_> {
                             text: String::new(),
                             width,
                             height,
-                            format: TextFormat::default(),
+                            format: empty_fmt,
                             word_wrap,
                             multiline,
                         },
@@ -3465,12 +3543,15 @@ impl Parser<'_> {
                     .filter(|n| n.has_tag_name("DOMTextRun"))
                     .collect();
                 let mut combined_text = String::new();
-                let mut first_format: Option<TextFormat> = None;
+                let mut parsed_runs: Vec<(String, TextFormat, u8, String)> =
+                    Vec::with_capacity(run_nodes.len());
                 let mut first_color_rgba: Color = [0, 0, 0, 255];
                 let mut first_raw_face: String = "Arial".into();
                 let mut first_raw_size: f64 = 12.0;
                 let mut any_nondefault_layout = false;
                 let mut any_nonleft_align = false;
+                let mut any_rotated_glyphs = false;
+                let mut any_char_position = false;
                 for (ri, run_node) in run_nodes.iter().copied().enumerate() {
                     self.audit(run_node, file, &[], &["characters", "textAttrs"]);
                     let Some(characters) = child(run_node, "characters") else {
@@ -3529,7 +3610,11 @@ impl Parser<'_> {
                     );
                     let _ = self.boolean(attrs, "aliasText", false, file);
                     let auto_kern = self.boolean(attrs, "autoKern", false, file);
-                    let _ = self.boolean(attrs, "rotation", false, file);
+                    let rotation = self.boolean(attrs, "rotation", false, file);
+                    if rotation {
+                        any_rotated_glyphs = true;
+                        any_nondefault_layout = true;
+                    }
                     let _ = self.boolean(attrs, "useScreenSpacing", false, file);
                     let bold = self.boolean(attrs, "bold", false, file);
                     let italic = self.boolean(attrs, "italic", false, file);
@@ -3540,10 +3625,20 @@ impl Parser<'_> {
                     let indent = self.number(attrs, "indent", 0., file);
                     let line_spacing = self.number(attrs, "lineSpacing", 0., file);
                     let _ = self.number(attrs, "lineHeight", 0., file);
+                    let char_pos = attrs
+                        .attribute("characterPosition")
+                        .unwrap_or("normal")
+                        .to_owned();
+                    if char_pos != "normal" {
+                        any_char_position = true;
+                        any_nondefault_layout = true;
+                    }
                     if letter_spacing != 0.0
+                        || line_spacing != 0.0
                         || left_margin != 0.0
                         || right_margin != 0.0
                         || indent != 0.0
+                        || auto_kern
                         || bold
                         || italic
                         || underline
@@ -3556,10 +3651,11 @@ impl Parser<'_> {
                     if align_str != "left" {
                         any_nonleft_align = true;
                     }
-                    let align = match align_str {
-                        "center" => TextAlign::Center,
-                        "right" => TextAlign::Right,
-                        _ => TextAlign::Left,
+                    let (align, align_mode) = match align_str {
+                        "center" => (TextAlign::Center, None),
+                        "right" => (TextAlign::Right, None),
+                        "justify" => (TextAlign::Left, Some("justify")),
+                        _ => (TextAlign::Left, None),
                     };
                     let alpha = self.number(attrs, "alpha", 1., file);
                     let color = self.color(
@@ -3601,33 +3697,37 @@ impl Parser<'_> {
                         .filter(|c| !c.is_control())
                         .take(128)
                         .collect();
+                    let mut run_fmt = TextFormat {
+                        font: valid_face.clone(),
+                        size: valid_size,
+                        color: (u32::from(color[0]) << 16)
+                            | (u32::from(color[1]) << 8)
+                            | u32::from(color[2]),
+                        bold,
+                        italic,
+                        leading: valid_leading,
+                        align,
+                        left_margin: left_margin.clamp(0.0, 10_000.0),
+                        right_margin: right_margin.clamp(0.0, 10_000.0),
+                        indent: indent.clamp(-10_000.0, 10_000.0),
+                        block_indent: 0.0,
+                        underline,
+                        letter_spacing: letter_spacing.clamp(-1_000.0, 1_000.0),
+                        kerning: auto_kern.then_some(true),
+                        bullet: false,
+                        tab_stops: Vec::new(),
+                        url: clean_url,
+                        target: clean_target,
+                    };
+                    if let Some(mode) = align_mode {
+                        run_fmt.set_align_mode(Some(mode.to_owned()));
+                    }
                     if ri == 0 {
                         first_color_rgba = color;
-                        first_raw_face = valid_face.clone();
+                        first_raw_face = valid_face;
                         first_raw_size = valid_size;
-                        first_format = Some(TextFormat {
-                            font: valid_face,
-                            size: valid_size,
-                            color: (u32::from(color[0]) << 16)
-                                | (u32::from(color[1]) << 8)
-                                | u32::from(color[2]),
-                            bold,
-                            italic,
-                            leading: valid_leading,
-                            align,
-                            left_margin: left_margin.clamp(0.0, 10_000.0),
-                            right_margin: right_margin.clamp(0.0, 10_000.0),
-                            indent: indent.clamp(-10_000.0, 10_000.0),
-                            block_indent: 0.0,
-                            underline,
-                            letter_spacing: letter_spacing.clamp(-1_000.0, 1_000.0),
-                            kerning: auto_kern.then_some(true),
-                            bullet: false,
-                            tab_stops: Vec::new(),
-                            url: clean_url,
-                            target: clean_target,
-                        });
                     }
+                    parsed_runs.push((run_text, run_fmt, color[3], char_pos));
                 }
                 let left = self.number(node, "left", 0., file);
                 let top = self.number(node, "top", 0., file);
@@ -3639,11 +3739,15 @@ impl Parser<'_> {
                     self.text_warning = true;
                 }
                 let has_newlines = combined_text.contains(['\n', '\r']);
+                let has_custom_aa =
+                    matches!(font_rendering_mode, "advanced" | "customThicknessSharpness");
                 if tag == "DOMStaticText"
                     && run_nodes.len() == 1
                     && !has_newlines
                     && !any_nondefault_layout
                     && !any_nonleft_align
+                    && !any_char_position
+                    && !has_custom_aa
                     && orientation == "horizontal"
                     && !render_as_html
                 {
@@ -3654,63 +3758,181 @@ impl Parser<'_> {
                         color: first_color_rgba,
                     }
                 } else {
-                    if tag == "DOMStaticText" {
-                        if has_newlines {
-                            self.report.warning(
-                                "multiline_text",
-                                &location,
-                                "Multiline static text is imported as a bounded TextBox.",
-                            );
+                    if tag == "DOMStaticText" && has_newlines {
+                        self.report.warning(
+                            "multiline_text",
+                            &location,
+                            "Multiline static text is imported as a bounded TextBox.",
+                        );
+                    }
+
+                    let max_chars_budget = MAX_TEXT_BYTES / 4;
+                    let mut normalized = String::new();
+                    let mut format_runs: Vec<TextFormatRun> = Vec::new();
+                    let mut utf16_cursor = 0u32;
+                    let mut chars_used = 0usize;
+                    let mut prev_ended_cr = false;
+                    let mut nonempty_positions: Vec<&str> = Vec::new();
+                    let mut nonempty_alphas: Vec<u8> = Vec::new();
+                    let fallback_format = parsed_runs
+                        .first()
+                        .map(|(_, f, _, _)| f.clone())
+                        .unwrap_or_default();
+
+                    for (raw_text, run_fmt, run_alpha, char_pos) in &parsed_runs {
+                        if chars_used >= max_chars_budget {
+                            break;
                         }
-                        if run_nodes.len() != 1 {
-                            self.report.warning(
-                                "rich_text",
-                                &location,
-                                "Multi-run static text is flattened into a single-format TextBox.",
-                            );
+                        let trimmed_cr = if prev_ended_cr {
+                            raw_text.strip_prefix('\n').unwrap_or(raw_text.as_str())
+                        } else {
+                            raw_text.as_str()
+                        };
+                        prev_ended_cr = raw_text.ends_with('\r');
+                        let norm_piece: String = normalize_text(trimmed_cr)
+                            .chars()
+                            .take(max_chars_budget - chars_used)
+                            .collect();
+                        let piece_chars = norm_piece.chars().count();
+                        let piece_units = norm_piece.encode_utf16().count() as u32;
+                        if piece_units > 0 {
+                            if nonempty_alphas.is_empty() {
+                                first_color_rgba[3] = *run_alpha;
+                            }
+                            nonempty_positions.push(char_pos.as_str());
+                            nonempty_alphas.push(*run_alpha);
+                            if let Some(last) = format_runs.last_mut()
+                                && last.end == utf16_cursor
+                                && &last.format == run_fmt
+                            {
+                                last.end = utf16_cursor + piece_units;
+                            } else {
+                                format_runs.push(TextFormatRun {
+                                    start: utf16_cursor,
+                                    end: utf16_cursor + piece_units,
+                                    format: run_fmt.clone(),
+                                });
+                            }
+                            utf16_cursor += piece_units;
+                            chars_used += piece_chars;
+                            normalized.push_str(&norm_piece);
                         }
-                        if any_nondefault_layout
-                            || any_nonleft_align
-                            || orientation != "horizontal"
-                            || render_as_html
-                        {
-                            self.report.warning(
-                                "xfl_text_approximated",
-                                &location,
-                                "Static text paragraph layout/orientation/HTML attributes are approximated in a TextBox.",
-                            );
-                        }
-                    } else if render_as_html
-                        || border
-                        || node
-                            .attribute("variableName")
-                            .is_some_and(|s| !s.is_empty())
-                        || run_nodes.len() > 1
-                    {
+                    }
+
+                    let mut base_format = if format_runs.len() > 1 {
+                        format_runs[0].format.clone()
+                    } else if let Some(single) = format_runs.pop() {
+                        single.format
+                    } else {
+                        fallback_format
+                    };
+
+                    let first_pos = nonempty_positions.first().copied().unwrap_or("normal");
+                    let mixed_pos = nonempty_positions.iter().any(|&p| p != first_pos);
+                    let mixed_alpha = nonempty_alphas
+                        .first()
+                        .is_some_and(|&a0| nonempty_alphas.iter().any(|&a| a != a0));
+                    if any_rotated_glyphs || mixed_pos || mixed_alpha {
                         self.report.warning(
                             "xfl_text_approximated",
                             &location,
-                            format!(
-                                "{tag} authoring options (HTML/border/variableName/multi-run) are approximated in a TextBox."
-                            ),
+                            "Per-run alpha, mixed superscript/subscript, or rotated glyphs are approximated in a TextBox.",
                         );
                     }
-                    let normalized: String = normalize_text(&combined_text)
-                        .chars()
-                        .take(MAX_TEXT_BYTES / 4)
-                        .collect();
+
+                    let (superscript, subscript) = if !mixed_pos {
+                        match first_pos {
+                            "superscript" => (true, false),
+                            "subscript" => (false, true),
+                            _ => (false, false),
+                        }
+                    } else {
+                        (false, false)
+                    };
+
+                    let password = tag != "DOMStaticText" && line_type == "password";
+                    let opts = AuthoredTextFieldOptions {
+                        field_type: if tag == "DOMInputText" {
+                            TextFieldType::Input
+                        } else {
+                            TextFieldType::Dynamic
+                        },
+                        selectable: if tag == "DOMStaticText" {
+                            true
+                        } else {
+                            is_selectable
+                        },
+                        display_as_password: password,
+                        max_chars: if tag != "DOMStaticText" {
+                            max_characters.min(MAX_TEXT_BYTES as u32)
+                        } else {
+                            0
+                        },
+                        variable: if tag != "DOMStaticText" && !clean_var.is_empty() {
+                            Some(clean_var)
+                        } else {
+                            None
+                        },
+                        auto_size: if tag != "DOMStaticText" && auto_expand {
+                            if base_format.align_mode() == Some("justify") {
+                                "left".into()
+                            } else {
+                                match base_format.align {
+                                    TextAlign::Left => "left".into(),
+                                    TextAlign::Center => "center".into(),
+                                    TextAlign::Right => "right".into(),
+                                }
+                            }
+                        } else {
+                            "none".into()
+                        },
+                        border: tag != "DOMStaticText" && border,
+                        background: tag != "DOMStaticText" && border,
+                        html: render_as_html,
+                        embed_fonts: tag != "DOMStaticText" && include_outlines,
+                        orientation: if orientation.starts_with("vertical") {
+                            "vertical".into()
+                        } else {
+                            "horizontal".into()
+                        },
+                        superscript,
+                        subscript,
+                        anti_alias_type: if has_custom_aa {
+                            "advanced".into()
+                        } else {
+                            "normal".into()
+                        },
+                        sharpness: if font_rendering_mode == "customThicknessSharpness" {
+                            aa_sharpness
+                        } else {
+                            0.0
+                        },
+                        thickness: if font_rendering_mode == "customThicknessSharpness" {
+                            aa_thickness
+                        } else {
+                            0.0
+                        },
+                        format_runs,
+                        ..AuthoredTextFieldOptions::default()
+                    };
+                    if !opts.is_default() {
+                        base_format.set_field_options(Some(opts));
+                    }
+
                     let width = self
                         .number(node, "width", 100., file)
                         .clamp(0.0, 1_000_000.0);
                     let height = self
                         .number(node, "height", 20., file)
                         .clamp(0.0, 1_000_000.0);
-                    let multiline =
-                        has_newlines || matches!(line_type, "multiline" | "multiline no wrap");
-                    let word_wrap = line_type == "multiline"
-                        || (tag == "DOMStaticText"
-                            && has_newlines
-                            && line_type != "multiline no wrap");
+                    let multiline = !password
+                        && (has_newlines
+                            || matches!(line_type, "multiline" | "multiline no wrap"));
+                    let word_wrap = !password
+                        && (line_type == "multiline"
+                            || (tag == "DOMStaticText"
+                                && has_newlines
+                                && line_type != "multiline no wrap"));
                     if first_color_rgba[3] < 255 {
                         transform.alpha = (transform.alpha
                             * (f64::from(first_color_rgba[3]) / 255.0))
@@ -3720,7 +3942,7 @@ impl Parser<'_> {
                         text: normalized,
                         width,
                         height,
-                        format: first_format.unwrap_or_default(),
+                        format: base_format,
                         word_wrap,
                         multiline,
                     }

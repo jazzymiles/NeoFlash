@@ -537,8 +537,8 @@
       "path": "imported/flacomdoc-flash8-scripts.nflash",
       "derived_from": "upstream/flacomdoc/flash8-scripts/0018_scripts_as2.fla",
       "license": "LGPL-2.1",
-      "sha256": "a6969b08794ceff14488a48e13e238658df39cf42397a22f62312db268bd0054",
-      "bytes": 54597
+      "sha256": "83da457aef7575319d635b3c59d592e2dfb2c8285a2c37ff329ea9f9de93a589",
+      "bytes": 54742
     },
     {
       "path": "imported/flacomdoc-cs4-motion-tween.nflash",

@@ -1301,7 +1301,9 @@ fn binary_fla_exceeding_128_mib_json_sheds_largest_pcm_wav_and_validates() {
     u16b(&mut page, 1);
     page.extend_from_slice(&[0; 4]);
 
-    let small_pcm = vec![0u8; small_bytes as usize];
+    let small_pcm_1 = vec![1u8; small_bytes as usize];
+    let small_pcm_2 = vec![2u8; small_bytes as usize];
+    let small_pcm_3 = vec![3u8; small_bytes as usize];
     let large_pcm = vec![0u8; large_bytes as usize];
     let mut compound = cfb::CompoundFile::create(Cursor::new(Vec::new())).unwrap();
     compound
@@ -1315,9 +1317,9 @@ fn binary_fla_exceeding_128_mib_json_sheds_largest_pcm_wav_and_validates() {
         .write_all(&page)
         .unwrap();
     for (name, payload) in [
-        ("Media 1", &small_pcm),
-        ("Media 2", &small_pcm),
-        ("Media 3", &small_pcm),
+        ("Media 1", &small_pcm_1),
+        ("Media 2", &small_pcm_2),
+        ("Media 3", &small_pcm_3),
         ("Media 4", &large_pcm),
     ] {
         compound

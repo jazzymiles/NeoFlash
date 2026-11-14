@@ -94,6 +94,85 @@ fn dimensions(width: u32, height: u32) -> Result<usize> {
     Ok(width as usize * height as usize)
 }
 
+/// Strip SWF-style interior `FF D9` / `FF D8` table-glue markers before the
+/// first `SOS` (`FF DA`) segment by walking declared JPEG segment lengths
+/// sequentially (never scanning entropy-coded scan bytes).
+fn normalize_flash_jpeg(jpeg: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    if !jpeg.starts_with(&[0xff, 0xd8]) {
+        return std::borrow::Cow::Borrowed(jpeg);
+    }
+    let mut out: Option<Vec<u8>> = None;
+    let mut pos = 2usize;
+    while pos < jpeg.len() {
+        let seg_start = pos;
+        if jpeg[pos] != 0xff {
+            if let Some(buf) = &mut out {
+                buf.extend_from_slice(&jpeg[seg_start..]);
+            }
+            break;
+        }
+        while pos < jpeg.len() && jpeg[pos] == 0xff {
+            pos += 1;
+        }
+        if pos >= jpeg.len() {
+            if let Some(buf) = &mut out {
+                buf.extend_from_slice(&jpeg[seg_start..]);
+            }
+            break;
+        }
+        let marker = jpeg[pos];
+        pos += 1;
+        if marker == 0xda {
+            if let Some(buf) = &mut out {
+                buf.extend_from_slice(&jpeg[seg_start..]);
+            }
+            break;
+        }
+        if marker == 0xd9 {
+            if pos + 1 < jpeg.len() && jpeg[pos] == 0xff && jpeg[pos + 1] == 0xd8 {
+                let _ = out.get_or_insert_with(|| jpeg[..seg_start].to_vec());
+                pos += 2;
+                continue;
+            }
+            if let Some(buf) = &mut out {
+                buf.extend_from_slice(&jpeg[seg_start..]);
+            }
+            break;
+        }
+        if marker == 0xd8 {
+            let _ = out.get_or_insert_with(|| jpeg[..seg_start].to_vec());
+            continue;
+        }
+        if marker == 0x01 || (0xd0..=0xd7).contains(&marker) {
+            if let Some(buf) = &mut out {
+                buf.extend_from_slice(&jpeg[seg_start..pos]);
+            }
+            continue;
+        }
+        if pos + 2 > jpeg.len() {
+            if let Some(buf) = &mut out {
+                buf.extend_from_slice(&jpeg[seg_start..]);
+            }
+            break;
+        }
+        let seg_len = usize::from(u16::from_be_bytes([jpeg[pos], jpeg[pos + 1]]));
+        if seg_len < 2 || pos + seg_len > jpeg.len() {
+            if let Some(buf) = &mut out {
+                buf.extend_from_slice(&jpeg[seg_start..]);
+            }
+            break;
+        }
+        pos += seg_len;
+        if let Some(buf) = &mut out {
+            buf.extend_from_slice(&jpeg[seg_start..pos]);
+        }
+    }
+    match out {
+        Some(buf) => std::borrow::Cow::Owned(buf),
+        None => std::borrow::Cow::Borrowed(jpeg),
+    }
+}
+
 /// Decode a complete media stream. Positive encoded_byte_count is the JPEG
 /// length in its Contents descriptor; zero selects a native raster envelope.
 pub fn decode_binary_bitmap(bytes: &[u8], encoded_byte_count: i32) -> Result<DecodedBinaryBitmap> {
@@ -123,7 +202,8 @@ pub fn decode_binary_bitmap(bytes: &[u8], encoded_byte_count: i32) -> Result<Dec
                 "Bytes remain after JPEG bounds.",
             ));
         }
-        if image::guess_format(jpeg).ok() != Some(ImageFormat::Jpeg) {
+        let normalized_jpeg = normalize_flash_jpeg(jpeg);
+        if image::guess_format(&normalized_jpeg).ok() != Some(ImageFormat::Jpeg) {
             return Err(error(
                 "fla_bitmap_format",
                 0,
@@ -134,7 +214,8 @@ pub fn decode_binary_bitmap(bytes: &[u8], encoded_byte_count: i32) -> Result<Dec
         limits.max_image_width = Some(4096);
         limits.max_image_height = Some(4096);
         limits.max_alloc = Some(MAX_BYTES as u64);
-        let mut reader = ImageReader::with_format(Cursor::new(jpeg), ImageFormat::Jpeg);
+        let mut reader =
+            ImageReader::with_format(Cursor::new(normalized_jpeg.as_ref()), ImageFormat::Jpeg);
         reader.limits(limits);
         let image = reader
             .decode()

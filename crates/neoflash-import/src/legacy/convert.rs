@@ -4,6 +4,7 @@ mod assets;
 mod shape;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
 mod text;
 
 use super::{BinaryTimelineDocument, contents::*, timeline::*};
@@ -585,43 +586,6 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             .map(|i| format!("fla-original-{i}"))
             .collect()
     };
-    // The provenance record is sized first: it shares the same budget.
-    let provenance = |embedded: bool, detail: ProvenanceDetail| {
-        let (descriptors, folders, placements) = match detail {
-            ProvenanceDetail::Full => (
-                serde_json::to_value(&c.descriptors).unwrap_or(serde_json::Value::Null),
-                serde_json::to_value(c.extensions.as_ref().map(|e| &e.folders))
-                    .unwrap_or(serde_json::Value::Null),
-                serde_json::Value::Array(context.provenance.clone()),
-            ),
-            ProvenanceDetail::NoPlacements => (
-                serde_json::to_value(&c.descriptors).unwrap_or(serde_json::Value::Null),
-                serde_json::to_value(c.extensions.as_ref().map(|e| &e.folders))
-                    .unwrap_or(serde_json::Value::Null),
-                serde_json::Value::Array(vec![]),
-            ),
-            ProvenanceDetail::Minimal => (
-                serde_json::Value::Array(vec![]),
-                serde_json::Value::Null,
-                serde_json::Value::Array(vec![]),
-            ),
-        };
-        serde_json::json!({
-            "schema": 2,
-            "source_resources": if embedded { part_ids.clone() } else { vec![] },
-            "source_bytes": document.original_bytes.len(),
-            "source_fnv1a64": format!("{:016x}", fnv1a64(&document.original_bytes)),
-            "authoring_version": document.inspection.authoring_version,
-            "contents_revision": c.revision,
-            "language": language,
-            "publish_hidden_layers": include_hidden,
-            "container_tolerances": document.inspection.container_tolerances,
-            "descriptors": descriptors,
-            "folders": folders,
-            "placements": placements,
-            "note": "Offsets refer to original logical streams. Concatenating source_resources in order reproduces the original FLA. Source bytes retain authoring properties, editor visibility, guides, metadata and unresolved source references."
-        })
-    };
     if !document.inspection.container_tolerances.is_empty() {
         context.report.warning("fla_container_compatibility","CFB directory",format!("The source container has non-canonical metadata outside its live streams ({}). Streams were read from their directory chains unchanged; the original FLA is retained.",document.inspection.container_tolerances.join("; ")))
     }
@@ -716,24 +680,84 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
     // Size the converted document first: the original shares both the resource
     // budget and the project's encoded JSON limit with the converted content.
     // Saved projects are pretty-printed JSON; measure that form.
-    let document_json = serde_json::to_string_pretty(&project).map_or(usize::MAX, |v| v.len());
-    let used: usize = project
-        .resources
-        .iter()
-        .map(|r| r.data_base64.len() / 4 * 3 + 3)
-        .sum();
-    let provenance_json = serde_json::to_vec(&provenance(true, ProvenanceDetail::Full))
-        .map_or(usize::MAX, |v| v.len());
     let encoded = |bytes: usize| bytes.div_ceil(3) * 4;
-    let mut embedded = !parts.is_empty()
-        && project.resources.len() + parts.len() < MAX_RESOURCES
-        && used + document.original_bytes.len() + provenance_json + 4096
-            <= MAX_RESOURCE_TOTAL_BYTES
-        && document_json
-            .saturating_add(encoded(document.original_bytes.len()))
-            .saturating_add(encoded(provenance_json))
-            .saturating_add(1 << 20)
-            <= MAX_PROJECT_JSON_BYTES;
+    let measure_budget = |proj: &Project, placements: &[serde_json::Value]| {
+        let doc_json = serde_json::to_string_pretty(proj).map_or(usize::MAX, |v| v.len());
+        let used_bytes: usize = proj
+            .resources
+            .iter()
+            .map(|r| r.data_base64.len() / 4 * 3 + 3)
+            .sum();
+        let prov_val = serde_json::json!({
+            "schema": 2,
+            "source_resources": part_ids,
+            "source_bytes": document.original_bytes.len(),
+            "source_fnv1a64": format!("{:016x}", fnv1a64(&document.original_bytes)),
+            "authoring_version": document.inspection.authoring_version,
+            "contents_revision": c.revision,
+            "language": language,
+            "publish_hidden_layers": include_hidden,
+            "container_tolerances": document.inspection.container_tolerances,
+            "descriptors": &c.descriptors,
+            "folders": c.extensions.as_ref().map(|e| &e.folders),
+            "placements": placements,
+            "note": "Offsets refer to original logical streams. Concatenating source_resources in order reproduces the original FLA. Source bytes retain authoring properties, editor visibility, guides, metadata and unresolved source references."
+        });
+        let prov_len = serde_json::to_vec(&prov_val).map_or(usize::MAX, |v| v.len());
+        let fits_source = !parts.is_empty()
+            && proj.resources.len() + parts.len() < MAX_RESOURCES
+            && used_bytes + document.original_bytes.len() + prov_len + 4096
+                <= MAX_RESOURCE_TOTAL_BYTES
+            && doc_json
+                .saturating_add(encoded(document.original_bytes.len()))
+                .saturating_add(encoded(prov_len))
+                .saturating_add(1 << 20)
+                <= MAX_PROJECT_JSON_BYTES;
+        (doc_json, fits_source)
+    };
+    let (mut document_json, mut embedded) = measure_budget(&project, &context.provenance);
+    if (!embedded || document_json > MAX_PROJECT_JSON_BYTES)
+        && deduplicate_project_for_budget(&mut project, &mut context.provenance)
+    {
+        (document_json, embedded) = measure_budget(&project, &context.provenance);
+    }
+    let _ = document_json;
+    let provenance = |embedded: bool, detail: ProvenanceDetail| {
+        let (descriptors, folders, placements) = match detail {
+            ProvenanceDetail::Full => (
+                serde_json::to_value(&c.descriptors).unwrap_or(serde_json::Value::Null),
+                serde_json::to_value(c.extensions.as_ref().map(|e| &e.folders))
+                    .unwrap_or(serde_json::Value::Null),
+                serde_json::Value::Array(context.provenance.clone()),
+            ),
+            ProvenanceDetail::NoPlacements => (
+                serde_json::to_value(&c.descriptors).unwrap_or(serde_json::Value::Null),
+                serde_json::to_value(c.extensions.as_ref().map(|e| &e.folders))
+                    .unwrap_or(serde_json::Value::Null),
+                serde_json::Value::Array(vec![]),
+            ),
+            ProvenanceDetail::Minimal => (
+                serde_json::Value::Array(vec![]),
+                serde_json::Value::Null,
+                serde_json::Value::Array(vec![]),
+            ),
+        };
+        serde_json::json!({
+            "schema": 2,
+            "source_resources": if embedded { part_ids.clone() } else { vec![] },
+            "source_bytes": document.original_bytes.len(),
+            "source_fnv1a64": format!("{:016x}", fnv1a64(&document.original_bytes)),
+            "authoring_version": document.inspection.authoring_version,
+            "contents_revision": c.revision,
+            "language": language,
+            "publish_hidden_layers": include_hidden,
+            "container_tolerances": document.inspection.container_tolerances,
+            "descriptors": descriptors,
+            "folders": folders,
+            "placements": placements,
+            "note": "Offsets refer to original logical streams. Concatenating source_resources in order reproduces the original FLA. Source bytes retain authoring properties, editor visibility, guides, metadata and unresolved source references."
+        })
+    };
     if embedded {
         for (i, (part, id)) in parts.iter().zip(&part_ids).enumerate() {
             let path = if parts.len() == 1 {
@@ -1186,14 +1210,11 @@ impl Context<'_> {
                     "Motion-object or IK layer animation is imported as its stored keyframe poses.",
                 );
             }
-            if !editor_visible && self.include_hidden {
-                self.report.warning("fla_publish_hidden_layer",format!("stream #{} layer {name}",s.index),"Layer is visible according to the source publish profile; its original editor eye toggle is retained in provenance.")
-            }
             self.provenance.push(serde_json::json!({"stream":s.index,"object":id,"target":layer_id,"editor_visible":editor_visible,"source":o.encoded}));
             let mut layer = Layer {
                 id: layer_id,
                 name,
-                visible: editor_visible || self.include_hidden,
+                visible: editor_visible,
                 locked,
                 keyframes: vec![],
                 properties,
@@ -1421,6 +1442,32 @@ impl Context<'_> {
                 self.report.warning("fla_layer_skipped",format!("stream #{} layer {}",s.index,layer.name),"No complete frame could be read for this layer; it remains in the embedded source.");
                 continue;
             }
+            if !editor_visible && self.include_hidden {
+                match layer.properties.role {
+                    LayerRole::Guide | LayerRole::Folder => {}
+                    LayerRole::Mask => {
+                        layer.visible = true;
+                        self.report.warning(
+                            "fla_publish_hidden_layer",
+                            format!("stream #{} layer {}", s.index, layer.name),
+                            "Layer is visible according to the source publish profile; its original editor eye toggle is retained in provenance.",
+                        );
+                    }
+                    LayerRole::Normal => {
+                        let has_layer_published_payload = layer.keyframes.iter().any(|k| {
+                            !k.elements.is_empty() || !k.label.is_empty() || k.sound.is_some()
+                        });
+                        if has_layer_published_payload {
+                            layer.visible = true;
+                            self.report.warning(
+                                "fla_publish_hidden_layer",
+                                format!("stream #{} layer {}", s.index, layer.name),
+                                "Layer is visible according to the source publish profile; its original editor eye toggle is retained in provenance.",
+                            );
+                        }
+                    }
+                }
+            }
             timeline.frame_count = timeline.frame_count.max(cursor);
             sources.push(cursor);
             timeline.layers.push(layer);
@@ -1521,8 +1568,7 @@ impl Context<'_> {
             Some(TimelinePayload::Instance(i)) => {
                 element.filters = convert_filters(&i.filters, &location, self.report);
                 element.blend_mode = convert_blend_mode(i.blend_mode, &location, self.report);
-                if i.is_extensible.is_some_and(|v| v != 0)
-                    || !i.animation_frame_settings.is_empty()
+                if !i.animation_frame_settings.is_empty()
                     || i.property_count.is_some_and(|v| v != 0)
                 {
                     self.report.warning("fla_instance_settings",&location,"Component parameters or per-instance animation settings are not imported; they remain in the embedded source.");
@@ -1671,9 +1717,17 @@ impl Context<'_> {
                         script,
                     });
                 }
-                if i.accessibility.as_ref().is_some_and(|a| a.revision != 0) {
-                    self.report.warning("fla_accessibility_metadata",&location,"Source accessibility metadata remains embedded; no inferred role was assigned.");
-                }
+                let acc_role = if o.class == TimelineClass::Button {
+                    AccessibleRole::Button
+                } else {
+                    AccessibleRole::Image
+                };
+                element.accessibility = convert_accessibility(
+                    s,
+                    i.accessibility.as_ref(),
+                    &element.name,
+                    acc_role,
+                )?;
             }
             Some(TimelinePayload::Text(t)) => {
                 element = convert_timeline_text(s, t, id, "", self.contents_revision, self.report)?;
@@ -1860,13 +1914,12 @@ impl Context<'_> {
                         script,
                     });
                 }
-                if c.accessibility.as_ref().is_some_and(|a| a.revision != 0) {
-                    self.report.warning(
-                        "fla_accessibility_metadata",
-                        &location,
-                        "Source accessibility metadata remains embedded; no inferred role was assigned.",
-                    );
-                }
+                element.accessibility = convert_accessibility(
+                    s,
+                    c.accessibility.as_ref(),
+                    &element.name,
+                    AccessibleRole::Button,
+                )?;
                 let symbol_id = if let Some(media) = c.media_id {
                     let sym_id = format!("fla-compiled-clip-{media}");
                     if !self.generated.iter().any(|g| g.id == sym_id) {
@@ -1897,6 +1950,9 @@ impl Context<'_> {
                     o.class
                 ));
             }
+        }
+        if o.base.as_ref().is_some_and(|b| b.cache_as_bitmap.unwrap_or(0) != 0) {
+            element.cache_as_bitmap = true;
         }
         self.provenance.push(
             serde_json::json!({"stream":s.index,"object":object_id,"target":id,"source":o.encoded}),
@@ -1929,6 +1985,15 @@ fn normalize_playback(symbols: &mut [Symbol], report: &mut ImportReport) {
             let Some(&len) = lengths.get(symbol_id) else {
                 continue;
             };
+            if len == 1 {
+                *playback = match *playback {
+                    InstancePlayback::SingleFrame(_) => InstancePlayback::SingleFrame(0),
+                    InstancePlayback::PlayOnceFrom(_) => InstancePlayback::PlayOnce,
+                    InstancePlayback::LoopFrom(_) => InstancePlayback::Loop,
+                    other => other,
+                };
+                continue;
+            }
             let fixed = match *playback {
                 InstancePlayback::SingleFrame(f) if f >= len => {
                     InstancePlayback::SingleFrame(len - 1)
@@ -1936,7 +2001,13 @@ fn normalize_playback(symbols: &mut [Symbol], report: &mut ImportReport) {
                 InstancePlayback::PlayOnceFrom(f) if f >= len => {
                     InstancePlayback::PlayOnceFrom(len - 1)
                 }
-                InstancePlayback::LoopFrom(f) if f >= len => InstancePlayback::LoopFrom(f % len),
+                InstancePlayback::LoopFrom(f) if f >= len => {
+                    if f % len == 0 {
+                        InstancePlayback::Loop
+                    } else {
+                        InstancePlayback::LoopFrom(f % len)
+                    }
+                }
                 _ => continue,
             };
             report.warning("fla_graphic_first_frame",&element.id,format!("The graphic's first frame lies beyond the symbol's {len} frames; it is mapped to {fixed:?}."));
@@ -2158,6 +2229,31 @@ fn placement_matches(a: &Element, b: &Element) -> bool {
                 ElementKind::Bitmap { resource_id: a, .. },
                 ElementKind::Bitmap { resource_id: b, .. },
             ) => a == b,
+            (
+                ElementKind::TextBox {
+                    text: ta,
+                    width: wa,
+                    height: ha,
+                    format: fa,
+                    word_wrap: wwa,
+                    multiline: ma,
+                },
+                ElementKind::TextBox {
+                    text: tb,
+                    width: wb,
+                    height: hb,
+                    format: fb,
+                    word_wrap: wwb,
+                    multiline: mb,
+                },
+            ) => {
+                ta == tb
+                    && (wa - wb).abs() < 1e-6
+                    && (ha - hb).abs() < 1e-6
+                    && fa == fb
+                    && wwa == wwb
+                    && ma == mb
+            }
             _ => false,
         }
 }
@@ -2435,6 +2531,181 @@ fn update_provenance_resource(
         project.resources.push(unit);
     }
     Ok(())
+}
+
+fn replace_group_prefix(id: &mut String, old_prefix: &str) {
+    if let Some(rest) = id.strip_prefix(old_prefix) {
+        *id = format!("$G{rest}");
+    }
+}
+
+fn normalized_group_timeline_signature(timeline: &Timeline, prefix: &str) -> Option<String> {
+    let mut clone = timeline.clone();
+    for layer in &mut clone.layers {
+        replace_group_prefix(&mut layer.id, prefix);
+        for key in &mut layer.keyframes {
+            for element in &mut key.elements {
+                replace_group_prefix(&mut element.id, prefix);
+            }
+            for bf in &mut key.bitmap_fills {
+                replace_group_prefix(&mut bf.element_id, prefix);
+            }
+            for app in &mut key.appearances {
+                replace_group_prefix(&mut app.element_id, prefix);
+            }
+            for fx in &mut key.vector_effects {
+                replace_group_prefix(&mut fx.element_id, prefix);
+            }
+        }
+    }
+    serde_json::to_string(&clone).ok()
+}
+
+fn deduplicate_project_for_budget(
+    project: &mut Project,
+    provenance: &mut [serde_json::Value],
+) -> bool {
+    let mut seen_media: std::collections::HashMap<(String, std::sync::Arc<str>), String> =
+        std::collections::HashMap::new();
+    let mut resource_remap: BTreeMap<String, String> = BTreeMap::new();
+    for res in &project.resources {
+        if !(res.id.starts_with("legacy-sound-") || res.id.starts_with("legacy-bitmap-")) {
+            continue;
+        }
+        let key = (res.media_type.clone(), res.data_base64.clone());
+        if let Some(canon) = seen_media.get(&key) {
+            resource_remap.insert(res.id.clone(), canon.clone());
+        } else {
+            seen_media.insert(key, res.id.clone());
+        }
+    }
+    if !resource_remap.is_empty() {
+        project
+            .resources
+            .retain(|r| !resource_remap.contains_key(&r.id));
+        for symbol in &mut project.symbols {
+            for layer in &mut symbol.timeline.layers {
+                for key in &mut layer.keyframes {
+                    if let Some(sound) = &mut key.sound
+                        && let Some(canon) = resource_remap.get(&sound.resource)
+                    {
+                        sound.resource = canon.clone();
+                    }
+                    for bf in &mut key.bitmap_fills {
+                        if let Some(canon) = resource_remap.get(&bf.resource_id) {
+                            bf.resource_id = canon.clone();
+                        }
+                    }
+                    for element in &mut key.elements {
+                        if let ElementKind::Bitmap { resource_id, .. } = &mut element.kind
+                            && let Some(canon) = resource_remap.get(resource_id)
+                        {
+                            *resource_id = canon.clone();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let protected: std::collections::HashSet<String> = std::iter::once(project.root.clone())
+        .chain(project.scenes.iter().cloned())
+        .collect();
+    let mut seen_groups: std::collections::HashMap<String, (String, String)> =
+        std::collections::HashMap::new();
+    let mut group_remap: BTreeMap<String, (String, String, String)> = BTreeMap::new();
+
+    for symbol in &mut project.symbols {
+        if !group_remap.is_empty() {
+            for element in symbol
+                .timeline
+                .layers
+                .iter_mut()
+                .flat_map(|l| &mut l.keyframes)
+                .flat_map(|k| &mut k.elements)
+            {
+                if let ElementKind::Instance { symbol_id, .. } = &mut element.kind
+                    && let Some((canon_id, _, _)) = group_remap.get(symbol_id)
+                {
+                    *symbol_id = canon_id.clone();
+                }
+            }
+        }
+        if symbol.kind != SymbolKind::Graphic
+            || symbol.class_name.is_some()
+            || symbol.linkage_id.is_some()
+            || protected.contains(&symbol.id)
+            || symbol.id == PLACEHOLDER
+            || symbol.id.starts_with("fla-missing-bitmap-")
+        {
+            continue;
+        }
+        let Some(prefix) = symbol.id.strip_suffix("-group").map(str::to_owned) else {
+            continue;
+        };
+        let Some(sig) = normalized_group_timeline_signature(&symbol.timeline, &prefix) else {
+            continue;
+        };
+        if let Some((canon_id, canon_prefix)) = seen_groups.get(&sig) {
+            group_remap.insert(
+                symbol.id.clone(),
+                (canon_id.clone(), prefix, canon_prefix.clone()),
+            );
+        } else {
+            seen_groups.insert(sig, (symbol.id.clone(), prefix));
+        }
+    }
+
+    if !group_remap.is_empty() {
+        project
+            .symbols
+            .retain(|s| !group_remap.contains_key(&s.id));
+        for symbol in &mut project.symbols {
+            for element in symbol
+                .timeline
+                .layers
+                .iter_mut()
+                .flat_map(|l| &mut l.keyframes)
+                .flat_map(|k| &mut k.elements)
+            {
+                if let ElementKind::Instance { symbol_id, .. } = &mut element.kind
+                    && let Some((canon_id, _, _)) = group_remap.get(symbol_id)
+                {
+                    *symbol_id = canon_id.clone();
+                }
+            }
+        }
+        let prefix_pairs: Vec<(String, String)> = group_remap
+            .values()
+            .map(|(_, old_p, new_p)| (format!("{old_p}-member-"), format!("{new_p}-member-")))
+            .collect();
+        for entry in provenance.iter_mut() {
+            let Some(current) = entry.get("target").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let mut rewritten = current.to_owned();
+            let mut changed = false;
+            for _ in 0..48 {
+                let mut step = false;
+                for (old_member, new_member) in &prefix_pairs {
+                    if let Some(rest) = rewritten.strip_prefix(old_member) {
+                        rewritten = format!("{new_member}{rest}");
+                        changed = true;
+                        step = true;
+                        break;
+                    }
+                }
+                if !step {
+                    break;
+                }
+            }
+            if changed {
+                entry["target"] = serde_json::Value::String(rewritten);
+            }
+        }
+    }
+
+    !resource_remap.is_empty() || !group_remap.is_empty()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2902,6 +3173,62 @@ fn degrade_excess_vector_shapes(
 }
 
 const KNOWN_CPIC_TEXT_FLAGS: u32 = 0x0003_ffff;
+const KNOWN_FONT_TECH_FLAGS: u32 = 0xc03f_0061;
+
+fn convert_accessibility(
+    stream: &BinaryTimelineStream,
+    acc: Option<&TimelineAccessibility>,
+    fallback_name: &str,
+    role: AccessibleRole,
+) -> Result<Option<Accessibility>, String> {
+    let Some(acc) = acc else {
+        return Ok(None);
+    };
+    if acc.revision == 0 {
+        return Ok(None);
+    }
+    let raw_name = optional_text(&stream.original_bytes, acc.name.as_ref())?;
+    let raw_desc = optional_text(&stream.original_bytes, acc.description.as_ref())?;
+    let raw_shortcut = optional_text(&stream.original_bytes, acc.shortcut.as_ref())?;
+    let raw_tab = optional_text(&stream.original_bytes, acc.tab_index.as_ref())?;
+    let tab_order = raw_tab.trim().parse::<u32>().unwrap_or(0).min(10_000);
+    let disabled = acc.flags.unwrap_or(0) != 0;
+    if raw_name.trim().is_empty()
+        && raw_desc.trim().is_empty()
+        && raw_shortcut.trim().is_empty()
+        && tab_order == 0
+        && !disabled
+    {
+        return Ok(None);
+    }
+    let chosen_name = if !raw_name.trim().is_empty() {
+        raw_name.trim()
+    } else if !fallback_name.trim().is_empty() {
+        fallback_name.trim()
+    } else {
+        "Accessible Item"
+    };
+    let mut name: String = chosen_name
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(256)
+        .collect();
+    if name.trim().is_empty() {
+        name = "Accessible Item".to_owned();
+    }
+    let description: String = raw_desc
+        .chars()
+        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+        .take(4096)
+        .collect();
+    Ok(Some(Accessibility {
+        name,
+        description,
+        role,
+        tab_order,
+        disabled,
+    }))
+}
 
 fn decode_cpic_text_style(
     stream: &BinaryTimelineStream,
@@ -2914,11 +3241,8 @@ fn decode_cpic_text_style(
                 .into(),
         );
     }
-    if style.vertical.unwrap_or(0) != 0 || style.rotation.unwrap_or(0) != 0 {
-        lossy.push("vertical or rotated characters are laid out horizontally");
-    }
-    if style.character_position.unwrap_or(0) != 0 {
-        lossy.push("superscript/subscript is shown on the baseline");
+    if style.rotation.unwrap_or(0) != 0 {
+        lossy.push("rotated characters are laid out horizontally");
     }
     let face = optional_text(&stream.original_bytes, style.font_face.as_ref())?;
     let family = optional_text(&stream.original_bytes, style.font_family.as_ref())?;
@@ -2926,13 +3250,14 @@ fn decode_cpic_text_style(
         .color_rgba
         .ok_or("Text style has no archived color")?
         .to_le_bytes();
-    let align = match style.alignment.unwrap_or(0) {
-        0 => TextAlign::Left,
-        1 => TextAlign::Right,
-        2 => TextAlign::Center,
+    let (align, align_mode) = match style.alignment.unwrap_or(0) {
+        0 => (TextAlign::Left, None),
+        1 => (TextAlign::Right, None),
+        2 => (TextAlign::Center, None),
+        3 => (TextAlign::Left, Some("justify".to_owned())),
         _ => {
-            lossy.push("justified alignment is shown left-aligned");
-            TextAlign::Left
+            lossy.push("unknown alignment is shown left-aligned");
+            (TextAlign::Left, None)
         }
     };
     let twips = |value: Option<i16>| f64::from(value.unwrap_or(0)) / 20.;
@@ -2960,6 +3285,12 @@ fn decode_cpic_text_style(
         target: optional_text(&stream.original_bytes, style.target.as_ref())?,
         ..TextFormat::default()
     };
+    if let Some(mode) = align_mode {
+        if value.target.len() > 256 || value.target.chars().any(char::is_control) {
+            value.target = clean_bounded_text(&value.target, 256);
+        }
+        value.set_align_mode(Some(mode));
+    }
     if value.validate().is_err() {
         if value.font.trim().is_empty()
             || value.font.len() > 1024
@@ -2991,7 +3322,7 @@ fn decode_cpic_text_style(
         value.indent = value.indent.clamp(-9999., 9999.);
         value.letter_spacing = value.letter_spacing.clamp(-1000., 1000.);
         if value.size * 1.2 + value.leading <= 0. {
-            value.leading = 0.;
+            value.leading = (-value.size * 1.2 + 0.5).clamp(-9999., 9999.);
         }
         lossy.push("out-of-range size, spacing or margins are clamped");
     }
@@ -3022,16 +3353,9 @@ pub(super) fn convert_timeline_text(
     text: &TimelineText,
     id: &str,
     name: &str,
-    contents_revision: Option<u8>,
+    _contents_revision: Option<u8>,
     report: &mut ImportReport,
 ) -> Result<Element, String> {
-    if contents_revision == Some(0x3f)
-        && text.runs.len() <= 1
-        && text.flags.unwrap_or(0) & 0x0001 == 0
-    {
-        return text::convert_text(stream, text, id, name, report);
-    }
-
     let flags = text.flags.unwrap_or(0);
     let is_dynamic_or_input = (flags & 0x0001) != 0;
     let is_input = is_dynamic_or_input && (flags & 0x0002) == 0;
@@ -3050,16 +3374,6 @@ pub(super) fn convert_timeline_text(
         lossy.push("the field's variable binding is not connected");
     }
     let instance_name = optional_text(&stream.original_bytes, text.instance_name.as_ref())?;
-    if text
-        .accessibility
-        .as_ref()
-        .is_some_and(|value| value.revision != 0)
-    {
-        lossy.push("text accessibility metadata is not imported");
-    }
-    if !is_dynamic_or_input && text.scrollable.unwrap_or(0) != 0 {
-        lossy.push("scrollable viewport state is not imported");
-    }
 
     let style = text
         .runs
@@ -3070,25 +3384,30 @@ pub(super) fn convert_timeline_text(
     let (mut format, alpha) = decode_cpic_text_style(stream, style, &mut lossy)?;
     let normalize_runs_text = is_dynamic_or_input || text.runs.len() > 1 || (flags & 0x8000) != 0;
     let mut characters = String::new();
-    let mut mixed = false;
     let mut format_runs: Vec<TextFormatRun> = Vec::new();
+    let mut nonempty_styles: Vec<&TimelineTextStyle> = Vec::new();
     let mut utf16_cursor = 0u32;
+    let mut prev_ended_cr = false;
     for run in &text.runs {
         let (run_format, run_alpha) = decode_cpic_text_style(stream, &run.style, &mut lossy)?;
         if (run_alpha - alpha).abs() > 1e-4 {
             lossy.push("per-run alpha uses the first run's alpha");
         }
-        if run_format != format {
-            mixed = true;
-        }
         let raw_chars = read_string(&stream.original_bytes, &run.characters)?;
         let run_chars = if normalize_runs_text {
-            raw_chars.replace("\r\n", "\n").replace('\r', "\n")
+            let trimmed = if prev_ended_cr {
+                raw_chars.strip_prefix('\n').unwrap_or(&raw_chars)
+            } else {
+                raw_chars.as_str()
+            };
+            prev_ended_cr = raw_chars.ends_with('\r');
+            trimmed.replace("\r\n", "\n").replace('\r', "\n")
         } else {
             raw_chars
         };
         let run_units = run_chars.encode_utf16().count() as u32;
         if run_units > 0 {
+            nonempty_styles.push(&run.style);
             if let Some(last) = format_runs.last_mut()
                 && last.end == utf16_cursor
                 && last.format == run_format
@@ -3105,17 +3424,96 @@ pub(super) fn convert_timeline_text(
         }
         characters.push_str(&run_chars);
     }
-    if mixed && format_runs.len() > 1 {
+    if format_runs.len() > 1 {
         format = format_runs[0].format.clone();
-    } else {
-        format_runs.clear();
+    } else if let Some(single) = format_runs.pop() {
+        format = single.format;
     }
+
+    if nonempty_styles.is_empty() {
+        nonempty_styles.push(style);
+    }
+    let first_pos = nonempty_styles[0].character_position.unwrap_or(0);
+    let (uniform_superscript, uniform_subscript) = if nonempty_styles
+        .iter()
+        .all(|s| s.character_position.unwrap_or(0) == first_pos)
+    {
+        match first_pos {
+            0 => (false, false),
+            1 => (true, false),
+            2 => (false, true),
+            _ => {
+                lossy.push("superscript/subscript is shown on the baseline");
+                (false, false)
+            }
+        }
+    } else {
+        lossy.push("mixed per-run superscript/subscript uses uniform baseline");
+        (false, false)
+    };
+
+    let first_vert = nonempty_styles[0].vertical.unwrap_or(0) != 0;
+    let uniform_vertical = if nonempty_styles
+        .iter()
+        .all(|s| (s.vertical.unwrap_or(0) != 0) == first_vert)
+    {
+        first_vert && nonempty_styles.iter().all(|s| s.rotation.unwrap_or(0) == 0)
+    } else {
+        lossy.push("mixed vertical/horizontal runs are laid out horizontally");
+        false
+    };
+    let uniform_rtl = nonempty_styles
+        .iter()
+        .all(|s| s.right_to_left.unwrap_or(0) != 0);
+
+    let primary_style = nonempty_styles[0];
+    let (custom_aa, aa_sharpness, aa_thickness) = if (flags & 0x20000) == 0
+        && primary_style.bitmap_rendering.unwrap_or(0) == 0
+        && let Some(aa_span) = primary_style.anti_alias
+        && let Some(aa_bytes) = stream.original_bytes.get(aa_span.start..aa_span.end)
+        && aa_bytes.len() >= 10
+    {
+        let rev = aa_bytes[0];
+        let mode = aa_bytes[1];
+        let float_offset = if rev == 1 { 8 } else { 2 };
+        if mode == 2 && aa_bytes.len() >= float_offset + 8 {
+            let raw_thickness = f32::from_le_bytes(
+                aa_bytes[float_offset..float_offset + 4].try_into().unwrap(),
+            );
+            let raw_sharpness = f32::from_le_bytes(
+                aa_bytes[float_offset + 4..float_offset + 8]
+                    .try_into()
+                    .unwrap(),
+            );
+            let t = if raw_thickness.is_finite() {
+                f64::from(raw_thickness).clamp(-200.0, 200.0)
+            } else {
+                0.0
+            };
+            let s = if raw_sharpness.is_finite() {
+                f64::from(raw_sharpness).clamp(-400.0, 400.0)
+            } else {
+                0.0
+            };
+            (true, s, t)
+        } else {
+            (false, 0.0, 0.0)
+        }
+    } else {
+        (false, 0.0, 0.0)
+    };
 
     let name = if name.is_empty() {
         instance_name.as_str()
     } else {
         name
     };
+    let accessibility = convert_accessibility(
+        stream,
+        text.accessibility.as_ref(),
+        name,
+        AccessibleRole::Button,
+    )?;
     let bounds = text.bounds_words.ok_or("Text has no archived bounds")?;
     let [left, right, top, bottom] = bounds.map(|value| f64::from(value) / 20.);
     let dimensions = TextBoxSize {
@@ -3168,7 +3566,7 @@ pub(super) fn convert_timeline_text(
     if text
         .runs
         .iter()
-        .any(|run| run.style.font_flags.unwrap_or(0) != 0)
+        .any(|run| (run.style.font_flags.unwrap_or(0) & !KNOWN_FONT_TECH_FLAGS) != 0)
     {
         report.warning(
             "fla_text_font_flags",
@@ -3187,8 +3585,13 @@ pub(super) fn convert_timeline_text(
     // It remains the historical non-selectable bit as well, matching the
     // independent binary-FLA reference converter.
     let html = (flags & (0x8000 | 0x0080)) != 0;
+    let has_typography_opts = uniform_superscript
+        || uniform_subscript
+        || uniform_vertical
+        || custom_aa
+        || (is_dynamic_or_input && uniform_rtl);
 
-    if is_dynamic_or_input || !format_runs.is_empty() || html {
+    if is_dynamic_or_input || !format_runs.is_empty() || html || has_typography_opts {
         let mut opts = AuthoredTextFieldOptions {
             field_type: if is_input {
                 TextFieldType::Input
@@ -3214,10 +3617,14 @@ pub(super) fn convert_timeline_text(
                 None
             },
             auto_size: if is_dynamic_or_input && text.auto_expand.unwrap_or(0) != 0 {
-                match format.align {
-                    TextAlign::Left => "left".into(),
-                    TextAlign::Center => "center".into(),
-                    TextAlign::Right => "right".into(),
+                if format.align_mode() == Some("justify") {
+                    "left".into()
+                } else {
+                    match format.align {
+                        TextAlign::Left => "left".into(),
+                        TextAlign::Center => "center".into(),
+                        TextAlign::Right => "right".into(),
+                    }
                 }
             } else {
                 "none".into()
@@ -3229,6 +3636,25 @@ pub(super) fn convert_timeline_text(
                 && (flags & 0x20000) == 0
                 && ((flags & (0x0020 | 0x3f00)) != 0
                     || text.embed_variant_glyphs.unwrap_or(0) != 0),
+            orientation: if uniform_vertical {
+                "vertical".into()
+            } else {
+                "horizontal".into()
+            },
+            direction: if (is_dynamic_or_input || uniform_vertical) && uniform_rtl {
+                "rtl".into()
+            } else {
+                "ltr".into()
+            },
+            superscript: uniform_superscript,
+            subscript: uniform_subscript,
+            anti_alias_type: if custom_aa {
+                "advanced".into()
+            } else {
+                "normal".into()
+            },
+            sharpness: aa_sharpness,
+            thickness: aa_thickness,
             format_runs,
             ..AuthoredTextFieldOptions::default()
         };
@@ -3251,7 +3677,7 @@ pub(super) fn convert_timeline_text(
             multiline,
         },
         scripts: vec![],
-        accessibility: None,
+        accessibility,
         filters,
         ..Element::default()
     })

@@ -1303,12 +1303,7 @@ fn flash_mx_dynamic_input_and_mixed_utf16_runs_survive_conversion_save_reopen_an
         .validate()
         .expect("valid re-imported .fla project");
     let re_els = &fla_reimported.symbols[0].timeline.layers[0].keyframes[0].elements;
-    assert_eq!(re_els.len(), 3);
-    assert_eq!(re_els[0].name, "score_txt");
-    assert_eq!(
-        TextFieldState::from_kind(&re_els[0].kind).unwrap().text,
-        "Score: 🎯 100 pts"
-    );
+    check_elements(re_els);
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
 
@@ -1558,6 +1553,7 @@ fn gradient_extensions_bitmap_fills_and_procedural_strokes_convert_without_appro
             width: 16.0,
             height: 16.0,
             smoothing: true,
+            average_color: [20, 120, 220, 255],
         },
     );
     let mut rep = report();
@@ -1577,6 +1573,10 @@ fn gradient_extensions_bitmap_fills_and_procedural_strokes_convert_without_appro
     assert_eq!(grad.spread, GradientSpread::Reflect);
     assert!(grad.linear_rgb);
     assert!((grad.focal_point_ratio - (128.0 / 255.0)).abs() < 1e-9);
+    let ElementKind::PaintedPath { fill, .. } = &converted.elements[1].kind else {
+        panic!("expected bitmap fill path");
+    };
+    assert_eq!(*fill, [20, 120, 220, 255]);
     assert_eq!(converted.bitmap_fills.len(), 1);
     assert_eq!(converted.bitmap_fills[0].element_id, "shape-fill-1");
     assert_eq!(converted.bitmap_fills[0].resource_id, "legacy-bitmap-7");
@@ -1746,4 +1746,281 @@ fn primitive_video_and_compiled_clip_records_convert_without_placeholders() {
             playback: InstancePlayback::Independent,
         }
     );
+}
+
+#[test]
+fn flash8_mixed_utf16_runs_justify_playback_and_budget_dedup_preserve_fidelity() {
+    let mut original_bytes = Vec::new();
+    let mut append_utf16 = |text: &str| {
+        let start = original_bytes.len();
+        original_bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        let span = TimelineByteSpan {
+            start,
+            end: original_bytes.len(),
+        };
+        TimelineString {
+            encoded: span,
+            data: span,
+            utf16: true,
+        }
+    };
+    let font_a = append_utf16("Georgia");
+    let font_b = append_utf16("Verdana");
+    let chars_a = append_utf16("Привет 🚀 ");
+    let chars_b = append_utf16("мир");
+    let acc_name = append_utf16("Greeting label");
+
+    let aa_start = original_bytes.len();
+    original_bytes.extend([2u8, 2u8]); // rev 2, custom thickness/sharpness
+    original_bytes.extend((-35.0f32).to_le_bytes()); // thickness
+    original_bytes.extend(125.0f32.to_le_bytes()); // sharpness
+    let aa_span = TimelineByteSpan {
+        start: aa_start,
+        end: original_bytes.len(),
+    };
+
+    let text = TimelineText {
+        revision: Some(13),
+        matrix_words: Some([65_536, 0, 0, 65_536, 0, 0]),
+        bounds_words: Some([0, 4_000, 0, 800]),
+        flags: Some(0),
+        scrollable: Some(1),
+        accessibility: Some(TimelineAccessibility {
+            revision: 2,
+            flags: Some(0),
+            name: Some(acc_name),
+            ..Default::default()
+        }),
+        runs: vec![
+            TimelineTextRun {
+                characters: chars_a,
+                style: TimelineTextStyle {
+                    revision: 14,
+                    font_size_twips: Some(320),
+                    font_family: Some(font_a.clone()),
+                    font_face: Some(font_a),
+                    font_flags: Some(0x4000_0001),
+                    color_rgba: Some(0xff33_2211),
+                    bold: Some(1),
+                    italic: Some(0),
+                    alignment: Some(3), // justify
+                    line_spacing: Some(40),
+                    anti_alias: Some(aa_span),
+                    ..TimelineTextStyle::default()
+                },
+            },
+            TimelineTextRun {
+                characters: chars_b,
+                style: TimelineTextStyle {
+                    revision: 14,
+                    font_size_twips: Some(440),
+                    font_family: Some(font_b.clone()),
+                    font_face: Some(font_b),
+                    font_flags: Some(0x8000_0020),
+                    color_rgba: Some(0xffcc_8844),
+                    bold: Some(0),
+                    italic: Some(1),
+                    alignment: Some(3),
+                    line_spacing: Some(40),
+                    ..TimelineTextStyle::default()
+                },
+            },
+        ],
+        ..TimelineText::default()
+    };
+    let stream = BinaryTimelineStream {
+        index: 0,
+        stream_kind: Some(1),
+        root: None,
+        references: vec![],
+        pointers: vec![],
+        objects: vec![],
+        shapes: vec![],
+        original_bytes,
+    };
+    let mut rep = report();
+    let el = convert_timeline_text(&stream, &text, "txt-1", "", Some(0x3f), &mut rep)
+        .expect("convert Flash 8 multi-run UTF-16 text");
+    assert!(
+        !rep.diagnostics
+            .iter()
+            .any(|d| d.code == "fla_text_approximated" || d.code == "fla_text_font_flags"),
+        "unexpected text warnings: {:?}",
+        rep.diagnostics
+    );
+    assert_eq!(
+        el.accessibility.as_ref().map(|a| a.name.as_str()),
+        Some("Greeting label")
+    );
+    let state = TextFieldState::from_kind(&el.kind).expect("text state");
+    assert_eq!(state.format.align_mode(), Some("justify"));
+    assert_eq!(state.anti_alias_type, "advanced");
+    assert_eq!(state.thickness, -35.0);
+    assert_eq!(state.sharpness, 125.0);
+    assert_eq!(state.format_runs.len(), 2);
+    // "Привет " (7) + "🚀" (2 UTF-16 units) + " " (1) = 10 UTF-16 units.
+    assert_eq!(state.format_runs[0].start, 0);
+    assert_eq!(state.format_runs[0].end, 10);
+    assert_eq!(state.format_runs[0].format.font, "Georgia");
+    assert_eq!(state.format_runs[0].format.size, 16.0);
+    assert!(state.format_runs[0].format.bold);
+    assert_eq!(state.format_runs[0].format.color, 0x112233);
+    assert_eq!(state.format_runs[1].start, 10);
+    assert_eq!(state.format_runs[1].end, 13);
+    assert_eq!(state.format_runs[1].format.font, "Verdana");
+    assert_eq!(state.format_runs[1].format.size, 22.0);
+    assert!(state.format_runs[1].format.italic);
+    assert_eq!(state.format_runs[1].format.color, 0x4488cc);
+
+    // 1-frame Graphic first_frame normalization does not emit fla_graphic_first_frame.
+    let mut sym_rep = report();
+    let mut symbols = vec![
+        Symbol {
+            id: "g1".into(),
+            name: "OneFrame".into(),
+            folder: String::new(),
+            kind: SymbolKind::Graphic,
+            timeline: Timeline {
+                frame_count: 1,
+                layers: vec![],
+                scripts: vec![],
+                guides: vec![],
+            },
+            class_name: None,
+            linkage_id: None,
+        },
+        Symbol {
+            id: "root".into(),
+            name: "Scene 1".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            timeline: Timeline {
+                frame_count: 1,
+                layers: vec![Layer {
+                    id: "l1".into(),
+                    name: "L".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: "inst-1".into(),
+                            kind: ElementKind::Instance {
+                                symbol_id: "g1".into(),
+                                playback: InstancePlayback::LoopFrom(5),
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    }],
+                    properties: LayerProperties::default(),
+                }],
+                scripts: vec![],
+                guides: vec![],
+            },
+            class_name: None,
+            linkage_id: None,
+        },
+    ];
+    super::normalize_playback(&mut symbols, &mut sym_rep);
+    assert!(
+        !sym_rep
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "fla_graphic_first_frame")
+    );
+    assert_eq!(
+        symbols[1].timeline.layers[0].keyframes[0].elements[0].kind,
+        ElementKind::Instance {
+            symbol_id: "g1".into(),
+            playback: InstancePlayback::Loop,
+        }
+    );
+
+    // Budget deduplication merges identical media resources and *-group symbols cleanly.
+    let mut png_bytes = Vec::new();
+    image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+        4,
+        4,
+        image::Rgba([32, 128, 224, 255]),
+    ))
+    .write_to(
+        &mut std::io::Cursor::new(&mut png_bytes),
+        image::ImageFormat::Png,
+    )
+    .unwrap();
+    let mut proj = Project::blank();
+    proj.format_version = 5;
+    proj.resources.push(
+        ResourceUnit::from_bytes("legacy-bitmap-1", "b1.png", "image/png", &png_bytes).unwrap(),
+    );
+    proj.resources.push(
+        ResourceUnit::from_bytes("legacy-bitmap-2", "b2.png", "image/png", &png_bytes).unwrap(),
+    );
+    let grp1 = super::group_symbol(
+        "fla-0-1-10-group",
+        "Group 10".into(),
+        vec![Element {
+            id: "fla-0-1-10-member-0".into(),
+            kind: ElementKind::Rectangle {
+                width: 10.0,
+                height: 10.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        }],
+    );
+    let grp2 = super::group_symbol(
+        "fla-0-1-20-group",
+        "Group 20".into(),
+        vec![Element {
+            id: "fla-0-1-20-member-0".into(),
+            kind: ElementKind::Rectangle {
+                width: 10.0,
+                height: 10.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        }],
+    );
+    proj.symbols.extend([grp1, grp2]);
+    proj.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .extend([
+            Element {
+                id: "b-el".into(),
+                kind: ElementKind::Bitmap {
+                    resource_id: "legacy-bitmap-2".into(),
+                    width: 4,
+                    height: 4,
+                    smoothing: false,
+                },
+                ..Element::default()
+            },
+            Element {
+                id: "g-el".into(),
+                kind: ElementKind::Instance {
+                    symbol_id: "fla-0-1-20-group".into(),
+                    playback: InstancePlayback::SingleFrame(0),
+                },
+                ..Element::default()
+            },
+        ]);
+    let mut prov = vec![serde_json::json!({
+        "stream": 0,
+        "object": 99,
+        "target": "fla-0-1-20-member-0"
+    })];
+    assert!(super::deduplicate_project_for_budget(&mut proj, &mut prov));
+    assert_eq!(proj.resources.len(), 1);
+    assert_eq!(proj.resources[0].id, "legacy-bitmap-1");
+    assert_eq!(proj.symbols.len(), 2);
+    assert_eq!(proj.symbols[1].id, "fla-0-1-10-group");
+    assert_eq!(prov[0]["target"], "fla-0-1-10-member-0");
+    proj.upgrade_format_for_features();
+    proj.validate().expect("deduplicated project validates");
 }
