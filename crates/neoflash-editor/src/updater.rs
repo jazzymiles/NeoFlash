@@ -430,6 +430,13 @@ struct ActiveWorker {
     rx: Receiver<WorkerEvent>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct UpdaterOutputItem {
+    pub severity: crate::output_pipeline::OutputSeverity,
+    pub message: String,
+    pub path: Option<PathBuf>,
+}
+
 /// Asynchronous controller for GitHub Releases checking and SHA-256 verified downloading.
 pub(crate) struct UpdaterController {
     pub config: UpdaterConfig,
@@ -437,6 +444,7 @@ pub(crate) struct UpdaterController {
     pub action_error: Option<String>,
     worker: Option<ActiveWorker>,
     auto_checked_this_session: bool,
+    pending_output: Vec<UpdaterOutputItem>,
 }
 
 impl Default for UpdaterController {
@@ -459,7 +467,12 @@ impl UpdaterController {
             action_error: None,
             worker: None,
             auto_checked_this_session: false,
+            pending_output: Vec::new(),
         }
+    }
+
+    pub(crate) fn drain_output_events(&mut self) -> Vec<UpdaterOutputItem> {
+        std::mem::take(&mut self.pending_output)
     }
 
     pub(crate) fn is_checking(&self) -> bool {
@@ -528,6 +541,11 @@ impl UpdaterController {
             Err(err) => {
                 let msg = format!("Could not open release notes: {err}");
                 self.action_error = Some(msg.clone());
+                self.pending_output.push(UpdaterOutputItem {
+                    severity: crate::output_pipeline::OutputSeverity::Error,
+                    message: msg.clone(),
+                    path: None,
+                });
                 Err(msg)
             }
         }
@@ -542,6 +560,11 @@ impl UpdaterController {
             Err(err) => {
                 let msg = format!("Could not reveal file: {err}");
                 self.action_error = Some(msg.clone());
+                self.pending_output.push(UpdaterOutputItem {
+                    severity: crate::output_pipeline::OutputSeverity::Warning,
+                    message: msg.clone(),
+                    path: Some(path.to_path_buf()),
+                });
                 Err(msg)
             }
         }
@@ -610,9 +633,15 @@ impl UpdaterController {
                 ctx.request_repaint();
             }
             Err(err) => {
+                let message = format!("Could not start update check thread: {err}");
+                self.pending_output.push(UpdaterOutputItem {
+                    severity: crate::output_pipeline::OutputSeverity::Error,
+                    message: message.clone(),
+                    path: None,
+                });
                 self.state = UpdateState::Error {
                     channel,
-                    message: format!("Could not start update check thread: {err}"),
+                    message,
                     release_notes_url: self.config.default_release_notes_url(),
                     retry_update: None,
                 };
@@ -634,9 +663,15 @@ impl UpdaterController {
         let target = match &update.download {
             Ok(t) => t.clone(),
             Err(reason) => {
+                let message = reason.clone();
+                self.pending_output.push(UpdaterOutputItem {
+                    severity: crate::output_pipeline::OutputSeverity::Error,
+                    message: message.clone(),
+                    path: Some(dest_path),
+                });
                 self.state = UpdateState::Error {
                     channel,
-                    message: reason.clone(),
+                    message,
                     release_notes_url: update.release_notes_url.clone(),
                     retry_update: Some(update),
                 };
@@ -726,6 +761,7 @@ impl UpdaterController {
         let mut completed_check = false;
         let mut verified_path = None;
         let mut finish_worker = false;
+        let mut queued_output = Vec::new();
 
         let Some(worker) = self.worker.as_ref() else {
             return (false, None);
@@ -749,35 +785,55 @@ impl UpdaterController {
                         }
                         Ok(CheckOutcome::UpdateAvailable(update)) => {
                             completed_check = true;
+                            queued_output.push(UpdaterOutputItem {
+                                severity: crate::output_pipeline::OutputSeverity::Info,
+                                message: format!(
+                                    "Update available ({:?}): NeoFlash {}",
+                                    channel, update.version
+                                ),
+                                path: None,
+                            });
                             self.state = UpdateState::UpdateAvailable { channel, update };
                         }
                         Err(ReleaseHttpError::RateLimited {
                             retry_after_secs,
                             detail,
                         }) => {
+                            let message = match retry_after_secs {
+                                Some(secs) => format!(
+                                    "GitHub API rate limit reached; retry in {secs} s or open Release notes."
+                                ),
+                                None => {
+                                    if detail.is_empty() {
+                                        "GitHub API rate limit reached; try again later or open Release notes."
+                                            .to_owned()
+                                    } else {
+                                        detail
+                                    }
+                                }
+                            };
+                            queued_output.push(UpdaterOutputItem {
+                                severity: crate::output_pipeline::OutputSeverity::Warning,
+                                message: message.clone(),
+                                path: None,
+                            });
                             self.state = UpdateState::RateLimited {
                                 channel,
                                 retry_after_secs,
-                                message: match retry_after_secs {
-                                    Some(secs) => format!(
-                                        "GitHub API rate limit reached; retry in {secs} s or open Release notes."
-                                    ),
-                                    None => {
-                                        if detail.is_empty() {
-                                            "GitHub API rate limit reached; try again later or open Release notes."
-                                                .to_owned()
-                                        } else {
-                                            detail
-                                        }
-                                    }
-                                },
+                                message,
                                 release_notes_url: self.config.default_release_notes_url(),
                             };
                         }
                         Err(err) => {
+                            let message = err.to_string();
+                            queued_output.push(UpdaterOutputItem {
+                                severity: crate::output_pipeline::OutputSeverity::Error,
+                                message: format!("Update check failed: {message}"),
+                                path: None,
+                            });
                             self.state = UpdateState::Error {
                                 channel,
-                                message: err.to_string(),
+                                message,
                                 release_notes_url: self.config.default_release_notes_url(),
                                 retry_update: None,
                             };
@@ -816,6 +872,15 @@ impl UpdaterController {
                             } else {
                                 None
                             };
+                            queued_output.push(UpdaterOutputItem {
+                                severity: crate::output_pipeline::OutputSeverity::Info,
+                                message: format!(
+                                    "Update downloaded and verified: NeoFlash {} ({})",
+                                    update.version,
+                                    dest_path.display()
+                                ),
+                                path: Some(dest_path.clone()),
+                            });
                             verified_path = Some(dest_path.clone());
                             self.state = UpdateState::VerifiedDownloaded {
                                 channel,
@@ -831,9 +896,15 @@ impl UpdaterController {
                             }
                         }
                         Err(err) => {
+                            let message = err.to_string();
+                            queued_output.push(UpdaterOutputItem {
+                                severity: crate::output_pipeline::OutputSeverity::Error,
+                                message: format!("Update download failed: {message}"),
+                                path: Some(dest_path),
+                            });
                             self.state = UpdateState::Error {
                                 channel,
-                                message: err.to_string(),
+                                message,
                                 release_notes_url: update.release_notes_url.clone(),
                                 retry_update: Some(update),
                             };
@@ -848,6 +919,7 @@ impl UpdaterController {
                 }
             }
         }
+        self.pending_output.extend(queued_output);
 
         if finish_worker {
             self.worker = None;

@@ -153,7 +153,7 @@ pub struct Editor {
     pub(crate) debugger: crate::debugger::Debugger,
     pub(crate) actions_ui: crate::panels::actions_sidebar::ActionsUi,
     pub status: String,
-    pub output: Vec<String>,
+    pub output: crate::output_pipeline::OutputPipeline,
     pub fonts: Fonts,
     pub font_filter: String,
     pub show_about: bool,
@@ -563,7 +563,7 @@ impl Editor {
             actions_ui: Default::default(),
             debugger: Default::default(),
             status: "Ready".into(),
-            output: Vec::new(),
+            output: crate::output_pipeline::OutputPipeline::new(),
             fonts: Fonts::new(),
             font_filter: String::new(),
             show_about: false,
@@ -634,6 +634,7 @@ impl Editor {
             s.workspace.publish.render_mode = neoflash_core::HtmlRenderMode::Dom;
             s.workspace.publish.profile = crate::workspace::PublishProfilePreset::WebAppDom;
         }
+        s.sync_output_document_id();
         s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);
         s.normalize_selection();
@@ -655,6 +656,17 @@ impl Editor {
     pub(crate) fn poll_updater(&mut self, ctx: &egui::Context, allow_auto_check: bool) {
         let screenshot_mode = std::env::var_os("NEOFLASH_SCREENSHOT").is_some();
         let (update_check_done, _) = self.updater.poll(ctx, !cfg!(test) && !screenshot_mode);
+        for item in self.updater.drain_output_events() {
+            let loc = item.path.map(crate::output_pipeline::OutputLocation::for_file);
+            self.push_output_coalesced(
+                crate::output_pipeline::OutputEvent::new(
+                    item.severity,
+                    crate::output_pipeline::OutputSource::Updater,
+                    item.message,
+                )
+                .with_optional_location(loc),
+            );
+        }
         if update_check_done {
             let now = crate::recovery::unix_now_secs();
             self.workspace.updates.last_check_unix = Some(now);
@@ -952,8 +964,12 @@ impl Editor {
             || crate::panels::ui_studio::is_studio_open(ctx)
     }
     pub fn message(&mut self, msg: impl Into<String>) {
-        self.status = msg.into();
-        self.output.push(self.status.clone());
+        let _ = self.message_event(
+            crate::output_pipeline::OutputSeverity::Info,
+            crate::output_pipeline::OutputSource::System,
+            msg,
+            None,
+        );
     }
     pub fn transact(&mut self, f: impl FnOnce(&mut Self)) {
         self.transact_named("Edit", f);
@@ -1239,11 +1255,12 @@ impl Editor {
             if let Err(e) = self.fonts.load_style(ctx, &family, bold, italic)
                 && self.workspace.text_prefs.substitution_warning
             {
-                if self.output.iter().any(|message| message == &e) {
-                    self.status = e;
-                } else {
-                    self.message(e);
-                }
+                self.status = e.clone();
+                let _ = self.push_output_unique(crate::output_pipeline::OutputEvent::new(
+                    crate::output_pipeline::OutputSeverity::Warning,
+                    crate::output_pipeline::OutputSource::System,
+                    e,
+                ));
             }
         }
     }
@@ -1381,7 +1398,14 @@ impl Editor {
         match Self::load_project_from_disk_path(&disk_path) {
             Ok((project, diagnostics)) => {
                 for diagnostic in diagnostics {
-                    self.message(diagnostic);
+                    let _ = self.message_event(
+                        crate::output_pipeline::OutputSeverity::Warning,
+                        crate::output_pipeline::OutputSource::Import,
+                        diagnostic,
+                        Some(crate::output_pipeline::OutputLocation::for_file(
+                            disk_path.clone(),
+                        )),
+                    );
                 }
                 self.project = project;
                 self.clipboard = Default::default();
@@ -1428,7 +1452,12 @@ impl Editor {
                 true
             }
             Err(e) => {
-                self.message(format!("Revert failed: {e}"));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Error,
+                    crate::output_pipeline::OutputSource::System,
+                    format!("Revert failed: {e}"),
+                    Some(crate::output_pipeline::OutputLocation::for_file(disk_path)),
+                );
                 false
             }
         }
@@ -1440,6 +1469,8 @@ impl Editor {
     }
 
     fn try_import_legacy(&mut self, path: PathBuf, ctx: &egui::Context) -> bool {
+        use crate::output_pipeline::{OutputEvent, OutputLocation, OutputSeverity, OutputSource};
+
         if self.confirm.is_some() || self.close_origin.is_some() || self.timeline_edit.dragging() {
             return false;
         }
@@ -1448,16 +1479,20 @@ impl Editor {
             return true;
         }
         let mut imported = false;
-        let mut messages = Vec::new();
+        let mut messages: Vec<(OutputSeverity, String)> = Vec::new();
         match neoflash_import::inspect(&path) {
             Ok(report) => {
-                messages.push(format!(
-                    "Legacy source: {:?} · {}",
-                    report.format,
-                    path.display()
+                messages.push((
+                    OutputSeverity::Info,
+                    format!("Legacy source: {:?} · {}", report.format, path.display()),
                 ));
                 for d in &report.diagnostics {
-                    messages.push(format!("{}: {}", d.location, d.message));
+                    let severity = match d.severity {
+                        neoflash_import::Severity::Info => OutputSeverity::Info,
+                        neoflash_import::Severity::Warning => OutputSeverity::Warning,
+                        neoflash_import::Severity::Error => OutputSeverity::Error,
+                    };
+                    messages.push((severity, format!("{}: {}", d.location, d.message)));
                 }
                 if report.can_import {
                     match neoflash_import::import_project(&path) {
@@ -1479,8 +1514,11 @@ impl Editor {
                                 neoflash_import::ImportFormat::Figma => "Figma composition",
                                 neoflash_import::ImportFormat::Unknown => "Flash document",
                             };
-                            messages.push(format!(
-                                "Imported {label}. Save as a NeoFlash project (.nflash) or Flash FLA (.fla)."
+                            messages.push((
+                                OutputSeverity::Info,
+                                format!(
+                                    "Imported {label}. Save as a NeoFlash project (.nflash) or Flash FLA (.fla)."
+                                ),
                             ));
                             if report.format == neoflash_import::ImportFormat::Swf
                                 && let Ok(swf_bytes) = std::fs::read(&path)
@@ -1490,17 +1528,20 @@ impl Editor {
                                 if let Ok(play_res) = self.play_swf_bytes_in_editor(&swf_bytes, 1) {
                                     self.frame = previous_frame;
                                     self.playing = previous_playing;
-                                    messages.push(format!(
-                                        "SWF bytecode inspected headlessly ({:?} VM, SWF v{}, {} frames). Imported artwork is shown on Stage; live display-list states are not projected yet.",
-                                        play_res.vm_kind,
-                                        play_res.swf_version,
-                                        play_res.total_frames
+                                    messages.push((
+                                        OutputSeverity::Info,
+                                        format!(
+                                            "SWF bytecode inspected headlessly ({:?} VM, SWF v{}, {} frames). Imported artwork is shown on Stage; live display-list states are not projected yet.",
+                                            play_res.vm_kind,
+                                            play_res.swf_version,
+                                            play_res.total_frames
+                                        ),
                                     ));
                                 }
                             }
                             imported = true;
                         }
-                        Err(e) => messages.push(e.to_string()),
+                        Err(e) => messages.push((OutputSeverity::Error, e.to_string())),
                     }
                 } else if report.format == neoflash_import::ImportFormat::Swf
                     && let Ok(swf_bytes) = std::fs::read(&path)
@@ -1510,26 +1551,41 @@ impl Editor {
                     if let Ok(play_res) = self.play_swf_bytes_in_editor(&swf_bytes, 60) {
                         self.frame = previous_frame;
                         self.playing = previous_playing;
-                        messages.push(format!(
-                            "Inspected SWF bytecode headlessly ({:?} VM, {} frames executed). The display list could not be imported, so Stage preview is unavailable and the current document was left unchanged.",
-                            play_res.vm_kind,
-                            play_res.frames_executed.len()
+                        messages.push((
+                            OutputSeverity::Warning,
+                            format!(
+                                "Inspected SWF bytecode headlessly ({:?} VM, {} frames executed). The display list could not be imported, so Stage preview is unavailable and the current document was left unchanged.",
+                                play_res.vm_kind,
+                                play_res.frames_executed.len()
+                            ),
                         ));
                     } else {
-                        messages.push(
+                        messages.push((
+                            OutputSeverity::Error,
                             "Import stopped: this SWF could not be represented or executed safely."
                                 .into(),
-                        );
+                        ));
                     }
                 } else {
-                    messages.push("Import stopped: this source contains features the current importer cannot preserve.".into());
+                    messages.push((
+                        OutputSeverity::Error,
+                        "Import stopped: this source contains features the current importer cannot preserve.".into(),
+                    ));
                 }
             }
-            Err(e) => messages.push(format!("Import failed: {e}")),
+            Err(e) => messages.push((OutputSeverity::Error, format!("Import failed: {e}"))),
         }
         // Successful imports own their diagnostics. A failed import stays on the current tab.
-        for message in messages {
-            self.message(message);
+        let file_loc = OutputLocation::for_file(path);
+        let mut seen_in_batch = std::collections::HashSet::new();
+        for (severity, message) in messages {
+            self.status = message.clone();
+            if seen_in_batch.insert((severity, message.clone())) {
+                self.push_output_coalesced(
+                    OutputEvent::new(severity, OutputSource::Import, message)
+                        .with_location(file_loc.clone()),
+                );
+            }
         }
         self.show_panel(PanelId::Output);
         imported
@@ -1738,12 +1794,24 @@ impl Editor {
                 if let Some(report) = fla_report {
                     // FLA export can contain compatibility approximations, so it is a
                     // derived copy rather than the editor's canonical save target.
+                    let file_loc = crate::output_pipeline::OutputLocation::for_file(path.clone());
+                    let mut seen_fla_items = std::collections::HashSet::new();
                     for item in &report.items {
                         if item.disposition != neoflash_export::FlaFeatureDisposition::Exact {
-                            self.output.push(format!(
+                            let line = format!(
                                 "[FLA {:?}] {} ({}): {}",
                                 item.disposition, item.code, item.location, item.message
-                            ));
+                            );
+                            if seen_fla_items.insert(line.clone()) {
+                                self.push_output_coalesced(
+                                    crate::output_pipeline::OutputEvent::new(
+                                        crate::output_pipeline::OutputSeverity::Warning,
+                                        crate::output_pipeline::OutputSource::Publish,
+                                        line,
+                                    )
+                                    .with_location(file_loc.clone()),
+                                );
+                            }
                         }
                     }
                     if self
@@ -1752,15 +1820,24 @@ impl Editor {
                     {
                         self.sync_disk_mtime();
                     }
-                    self.output.push(format!(
-                        "Exported derived FLA ({}): {}",
-                        report.profile.label(),
-                        path.display()
-                    ));
-                    self.message(format!(
-                        "Exported derived FLA ({}).",
-                        report.profile.label()
-                    ));
+                    self.push_output_coalesced(
+                        crate::output_pipeline::OutputEvent::new(
+                            crate::output_pipeline::OutputSeverity::Info,
+                            crate::output_pipeline::OutputSource::Publish,
+                            format!(
+                                "Exported derived FLA ({}): {}",
+                                report.profile.label(),
+                                path.display()
+                            ),
+                        )
+                        .with_location(file_loc.clone()),
+                    );
+                    let _ = self.message_event(
+                        crate::output_pipeline::OutputSeverity::Info,
+                        crate::output_pipeline::OutputSource::Publish,
+                        format!("Exported derived FLA ({}).", report.profile.label()),
+                        Some(file_loc),
+                    );
                 } else {
                     self.workspace.general.push_recent(&path);
                     self.saved_project = Some(self.project.clone());
@@ -1842,13 +1919,35 @@ impl Editor {
     }
     fn log_export_report(&mut self, project: &Project) {
         if let Ok(summary) = neoflash_export::compute_load_summary(project) {
-            self.output.push(summary.summary_line());
+            self.push_output_coalesced(crate::output_pipeline::OutputEvent::new(
+                crate::output_pipeline::OutputSeverity::Info,
+                crate::output_pipeline::OutputSource::Publish,
+                summary.summary_line(),
+            ));
         }
         if let Ok(report) = neoflash_export::format_size_report(project) {
             for line in report.lines() {
                 if !line.trim().is_empty() {
-                    self.output.push(line.to_string());
+                    self.push_output_coalesced(crate::output_pipeline::OutputEvent::new(
+                        crate::output_pipeline::OutputSeverity::Info,
+                        crate::output_pipeline::OutputSource::Publish,
+                        line.to_string(),
+                    ));
                 }
+            }
+        }
+    }
+
+    fn emit_export_warnings(&mut self, warnings: impl IntoIterator<Item = String>) {
+        let mut seen = std::collections::HashSet::new();
+        for warning in warnings {
+            self.status = warning.clone();
+            if seen.insert(warning.clone()) {
+                let _ = self.push_output_unique(crate::output_pipeline::OutputEvent::new(
+                    crate::output_pipeline::OutputSeverity::Warning,
+                    crate::output_pipeline::OutputSource::Publish,
+                    warning,
+                ));
             }
         }
     }
@@ -1860,10 +1959,17 @@ impl Editor {
         runtime_dir: &std::path::Path,
         settings: &crate::workspace::PublishPrefs,
     ) -> bool {
+        use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
+
         self.finish_edits();
         if settings.profile == crate::workspace::PublishProfilePreset::WebBannerNative {
             if let Err(err) = std::fs::create_dir_all(output) {
-                self.message(format!("Banner publish failed: {err}"));
+                let _ = self.message_event(
+                    OutputSeverity::Error,
+                    OutputSource::Publish,
+                    format!("Banner publish failed: {err}"),
+                    Some(OutputLocation::for_file(output.to_path_buf())),
+                );
                 self.show_panel(PanelId::Output);
                 return false;
             }
@@ -1882,22 +1988,30 @@ impl Editor {
                 &banner_opts,
             ) {
                 Ok(report) => {
-                    self.message(format!(
-                        "Native HTML5 Banner exported: {} ({} B, {} B gzip)",
-                        report.html_path.display(),
-                        report.raw_bytes,
-                        report.gzip_bytes
-                    ));
-                    for diag in report.diagnostics {
-                        self.message(format!(
-                            "[{}] {}: {}",
-                            diag.code, diag.location, diag.message
-                        ));
-                    }
+                    let html_loc = OutputLocation::for_file(report.html_path.clone());
+                    let _ = self.message_event(
+                        OutputSeverity::Info,
+                        OutputSource::Publish,
+                        format!(
+                            "Native HTML5 Banner exported: {} ({} B, {} B gzip)",
+                            report.html_path.display(),
+                            report.raw_bytes,
+                            report.gzip_bytes
+                        ),
+                        Some(html_loc),
+                    );
+                    self.emit_export_warnings(report.diagnostics.into_iter().map(|diag| {
+                        format!("[{}] {}: {}", diag.code, diag.location, diag.message)
+                    }));
                     true
                 }
                 Err(e) => {
-                    self.message(format!("Banner publish failed: {e}"));
+                    let _ = self.message_event(
+                        OutputSeverity::Error,
+                        OutputSource::Publish,
+                        format!("Banner publish failed: {e}"),
+                        Some(OutputLocation::for_file(out_html)),
+                    );
                     self.show_panel(PanelId::Output);
                     false
                 }
@@ -1907,7 +2021,12 @@ impl Editor {
         let options = match settings.export_options(&self.project) {
             Ok(options) => options,
             Err(error) => {
-                self.message(format!("Publish failed: {error}"));
+                let _ = self.message_event(
+                    OutputSeverity::Error,
+                    OutputSource::Publish,
+                    format!("Publish failed: {error}"),
+                    Some(OutputLocation::for_file(output.to_path_buf())),
+                );
                 self.show_panel(PanelId::Output);
                 return false;
             }
@@ -1920,16 +2039,24 @@ impl Editor {
             &settings.publish_html_config(),
         ) {
             Ok(index) => {
-                self.message(format!("HTML5 exported: {}", index.display()));
+                let _ = self.message_event(
+                    OutputSeverity::Info,
+                    OutputSource::Publish,
+                    format!("HTML5 exported: {}", index.display()),
+                    Some(OutputLocation::for_file(index)),
+                );
                 let project_snapshot = self.project.clone();
                 self.log_export_report(&project_snapshot);
-                for warning in warnings {
-                    self.message(warning);
-                }
+                self.emit_export_warnings(warnings);
                 true
             }
             Err(e) => {
-                self.message(format!("Export failed: {e}"));
+                let _ = self.message_event(
+                    OutputSeverity::Error,
+                    OutputSource::Publish,
+                    format!("Export failed: {e}"),
+                    Some(OutputLocation::for_file(output.to_path_buf())),
+                );
                 self.show_panel(PanelId::Output);
                 false
             }
@@ -1942,11 +2069,18 @@ impl Editor {
         runtime_dir: &std::path::Path,
         settings: &crate::workspace::PublishPrefs,
     ) -> bool {
+        use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
+
         self.finish_edits();
         let options = match settings.export_options(&self.project) {
             Ok(options) => options,
             Err(error) => {
-                self.message(format!("Publish failed: {error}"));
+                let _ = self.message_event(
+                    OutputSeverity::Error,
+                    OutputSource::Publish,
+                    format!("Publish failed: {error}"),
+                    None,
+                );
                 self.show_panel(PanelId::Output);
                 return false;
             }
@@ -1978,11 +2112,21 @@ impl Editor {
             &settings.publish_html_config(),
         ) {
             Ok(app_path) => {
-                self.message(format!("Desktop app exported: {}", app_path.display()));
+                let _ = self.message_event(
+                    OutputSeverity::Info,
+                    OutputSource::Publish,
+                    format!("Desktop app exported: {}", app_path.display()),
+                    Some(OutputLocation::for_file(app_path)),
+                );
                 true
             }
             Err(e) => {
-                self.message(format!("Desktop app export failed: {e}"));
+                let _ = self.message_event(
+                    OutputSeverity::Error,
+                    OutputSource::Publish,
+                    format!("Desktop app export failed: {e}"),
+                    Some(OutputLocation::for_file(target_dir)),
+                );
                 self.show_panel(PanelId::Output);
                 false
             }
@@ -1994,6 +2138,8 @@ impl Editor {
         fallback_parent: Option<&std::path::Path>,
         settings: &crate::workspace::PublishPrefs,
     ) -> bool {
+        use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
+
         self.finish_edits();
         let target_dir = if let Some(folder) = settings
             .image_sequence_folder
@@ -2042,15 +2188,25 @@ impl Editor {
             };
             match neoflash_export::export_project_atlas(&self.project, &meta_path, &opts) {
                 Ok(report) => {
-                    self.message(format!(
-                        "Sprite sheet exported: {} ({} page(s))",
-                        report.image_path.display(),
-                        report.page_paths.len().max(1)
-                    ));
+                    let _ = self.message_event(
+                        OutputSeverity::Info,
+                        OutputSource::Publish,
+                        format!(
+                            "Sprite sheet exported: {} ({} page(s))",
+                            report.image_path.display(),
+                            report.page_paths.len().max(1)
+                        ),
+                        Some(OutputLocation::for_file(report.image_path)),
+                    );
                     true
                 }
                 Err(e) => {
-                    self.message(format!("Sprite sheet export failed: {e}"));
+                    let _ = self.message_event(
+                        OutputSeverity::Error,
+                        OutputSource::Publish,
+                        format!("Sprite sheet export failed: {e}"),
+                        Some(OutputLocation::for_file(meta_path)),
+                    );
                     self.show_panel(PanelId::Output);
                     false
                 }
@@ -2065,16 +2221,27 @@ impl Editor {
             let out_file = target_dir.join(format!("frame.{}", opts.format.extension()));
             match neoflash_export::export_project_image(&self.project, &out_file, &opts) {
                 Ok(report) => {
-                    let shown = report
+                    let shown_path = report
                         .files
                         .first()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_else(|| out_file.display().to_string());
-                    self.message(format!("Image sequence exported: {shown}"));
+                        .cloned()
+                        .unwrap_or_else(|| out_file.clone());
+                    let shown = shown_path.display().to_string();
+                    let _ = self.message_event(
+                        OutputSeverity::Info,
+                        OutputSource::Publish,
+                        format!("Image sequence exported: {shown}"),
+                        Some(OutputLocation::for_file(shown_path)),
+                    );
                     true
                 }
                 Err(e) => {
-                    self.message(format!("Image sequence export failed: {e}"));
+                    let _ = self.message_event(
+                        OutputSeverity::Error,
+                        OutputSource::Publish,
+                        format!("Image sequence export failed: {e}"),
+                        Some(OutputLocation::for_file(out_file)),
+                    );
                     self.show_panel(PanelId::Output);
                     false
                 }
@@ -2087,6 +2254,8 @@ impl Editor {
         fallback_parent: Option<&std::path::Path>,
         settings: &crate::workspace::PublishPrefs,
     ) -> bool {
+        use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
+
         self.finish_edits();
         let svg_path = if let Some(file) = settings
             .svg_file
@@ -2115,16 +2284,27 @@ impl Editor {
         let opts = neoflash_export::SvgOptions::default();
         match neoflash_export::export_project_svg(&self.project, &svg_path, &opts) {
             Ok(report) => {
-                let shown = report
+                let shown_path = report
                     .files
                     .first()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| svg_path.display().to_string());
-                self.message(format!("SVG exported: {shown}"));
+                    .cloned()
+                    .unwrap_or_else(|| svg_path.clone());
+                let shown = shown_path.display().to_string();
+                let _ = self.message_event(
+                    OutputSeverity::Info,
+                    OutputSource::Publish,
+                    format!("SVG exported: {shown}"),
+                    Some(OutputLocation::for_file(shown_path)),
+                );
                 true
             }
             Err(e) => {
-                self.message(format!("SVG export failed: {e}"));
+                let _ = self.message_event(
+                    OutputSeverity::Error,
+                    OutputSource::Publish,
+                    format!("SVG export failed: {e}"),
+                    Some(OutputLocation::for_file(svg_path)),
+                );
                 self.show_panel(PanelId::Output);
                 false
             }
@@ -2141,6 +2321,8 @@ impl Editor {
         settings: &crate::workspace::PublishPrefs,
         allow_target_dialogs: bool,
     ) -> bool {
+        use crate::output_pipeline::{OutputSeverity, OutputSource};
+
         fn configured(value: &Option<String>) -> bool {
             value
                 .as_deref()
@@ -2148,7 +2330,12 @@ impl Editor {
         }
 
         if !settings.has_any_enabled_target() {
-            self.message("Publish skipped: no publish target is enabled.");
+            let _ = self.message_event(
+                OutputSeverity::Warning,
+                OutputSource::Publish,
+                "Publish skipped: no publish target is enabled.",
+                None,
+            );
             return false;
         }
 
@@ -2157,8 +2344,11 @@ impl Editor {
             if let Some(output) = shared_output {
                 ok &= self.publish_html5_with_settings(output, runtime_dir, settings);
             } else {
-                self.message(
+                let _ = self.message_event(
+                    OutputSeverity::Warning,
+                    OutputSource::Publish,
                     "HTML5 publish skipped: set an Output folder in Preferences ▸ Publish.",
+                    None,
                 );
                 ok = false;
             }
@@ -2170,8 +2360,11 @@ impl Editor {
             {
                 ok &= self.publish_desktop_app_with_settings(shared_output, runtime_dir, settings);
             } else {
-                self.message(
+                let _ = self.message_event(
+                    OutputSeverity::Warning,
+                    OutputSource::Publish,
                     "Desktop app publish skipped: set its output folder or the shared Output folder.",
+                    None,
                 );
                 ok = false;
             }
@@ -2180,8 +2373,11 @@ impl Editor {
             if allow_target_dialogs || shared_output.is_some() || configured(&settings.video_file) {
                 ok &= self.publish_video_with_settings(shared_output, settings);
             } else {
-                self.message(
+                let _ = self.message_event(
+                    OutputSeverity::Warning,
+                    OutputSource::Publish,
                     "Video publish skipped: set its output file or the shared Output folder.",
+                    None,
                 );
                 ok = false;
             }
@@ -2193,8 +2389,11 @@ impl Editor {
             {
                 ok &= self.publish_image_sequence_with_settings(shared_output, settings);
             } else {
-                self.message(
+                let _ = self.message_event(
+                    OutputSeverity::Warning,
+                    OutputSource::Publish,
                     "Image sequence publish skipped: set its output folder or the shared Output folder.",
+                    None,
                 );
                 ok = false;
             }
@@ -2203,8 +2402,11 @@ impl Editor {
             if allow_target_dialogs || shared_output.is_some() || configured(&settings.svg_file) {
                 ok &= self.publish_svg_with_settings(shared_output, settings);
             } else {
-                self.message(
+                let _ = self.message_event(
+                    OutputSeverity::Warning,
+                    OutputSource::Publish,
                     "SVG publish skipped: set its output file or the shared Output folder.",
+                    None,
                 );
                 ok = false;
             }
@@ -2213,6 +2415,8 @@ impl Editor {
     }
 
     pub fn export(&mut self, test: bool) {
+        use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
+
         if !self.has_document() {
             return;
         }
@@ -2242,19 +2446,33 @@ impl Editor {
                 &preview_config,
             ) {
                 Ok(index) => {
-                    self.message(format!("HTML5 exported: {}", index.display()));
+                    let _ = self.message_event(
+                        OutputSeverity::Info,
+                        OutputSource::Publish,
+                        format!("HTML5 exported: {}", index.display()),
+                        Some(OutputLocation::for_file(index.clone())),
+                    );
                     let project_snapshot = self.project.clone();
                     self.log_export_report(&project_snapshot);
-                    for warning in neoflash_export::export_warnings(&self.project) {
-                        self.message(warning);
-                    }
+                    let warnings = neoflash_export::export_warnings(&self.project);
+                    self.emit_export_warnings(warnings);
                     self.show_panel(PanelId::Output);
                     if let Err(e) = crate::platform_open::open_file(&index) {
-                        self.message(format!("Cannot open preview: {e}"));
+                        let _ = self.message_event(
+                            OutputSeverity::Warning,
+                            OutputSource::Publish,
+                            format!("Cannot open preview: {e}"),
+                            Some(OutputLocation::for_file(index)),
+                        );
                     }
                 }
                 Err(e) => {
-                    self.message(format!("Export failed: {e}"));
+                    let _ = self.message_event(
+                        OutputSeverity::Error,
+                        OutputSource::Publish,
+                        format!("Export failed: {e}"),
+                        Some(OutputLocation::for_file(output)),
+                    );
                     self.refresh_compiler_diagnostics();
                     if matches!(e, neoflash_export::ExportError::Scripts(_)) {
                         self.show_panel(PanelId::CompilerErrors);
@@ -2267,7 +2485,12 @@ impl Editor {
         }
         let settings = self.workspace.publish.clone();
         if !settings.has_any_enabled_target() {
-            self.message("Select at least one publish target in Publish settings.");
+            let _ = self.message_event(
+                OutputSeverity::Warning,
+                OutputSource::Publish,
+                "Select at least one publish target in Publish settings.",
+                None,
+            );
             self.open_publish_settings();
             return;
         }
@@ -2377,24 +2600,44 @@ impl Editor {
         };
         match neoflash_export::export_project_aep(&self.project, &aep_path, &opts) {
             Ok(report) => {
+                let aep_loc =
+                    crate::output_pipeline::OutputLocation::for_file(report.aep_path.clone());
+                let mut seen_diags = std::collections::HashSet::new();
                 for diag in &report.diagnostics {
-                    self.output.push(format!(
-                        "[aep:{}] {}: {}",
-                        diag.code, diag.location, diag.message
-                    ));
+                    let line = format!("[aep:{}] {}: {}", diag.code, diag.location, diag.message);
+                    if seen_diags.insert(line.clone()) {
+                        self.push_output_coalesced(
+                            crate::output_pipeline::OutputEvent::new(
+                                crate::output_pipeline::OutputSeverity::Warning,
+                                crate::output_pipeline::OutputSource::Publish,
+                                line,
+                            )
+                            .with_location(aep_loc.clone()),
+                        );
+                    }
                 }
-                self.message(format!(
-                    "After Effects exported: {} ({} comp(s), {} vector layer(s), {} expression(s), {} footage)",
-                    report.aep_path.display(),
-                    report.composition_count,
-                    report.vector_shape_layer_count,
-                    report.expression_count,
-                    report.footage_files.len()
-                ));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Info,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!(
+                        "After Effects exported: {} ({} comp(s), {} vector layer(s), {} expression(s), {} footage)",
+                        report.aep_path.display(),
+                        report.composition_count,
+                        report.vector_shape_layer_count,
+                        report.expression_count,
+                        report.footage_files.len()
+                    ),
+                    Some(aep_loc),
+                );
                 true
             }
             Err(e) => {
-                self.message(format!("After Effects export failed: {e}"));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Error,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!("After Effects export failed: {e}"),
+                    Some(crate::output_pipeline::OutputLocation::for_file(aep_path)),
+                );
                 self.show_panel(PanelId::Output);
                 false
             }
@@ -2459,16 +2702,28 @@ impl Editor {
         };
         match neoflash_export::export_project_atlas(&self.project, &meta_path, &opts) {
             Ok(report) => {
-                self.message(format!(
-                    "Texture atlas exported: {} ({} frame(s), {} page(s))",
-                    report.image_path.display(),
-                    report.frame_count,
-                    report.page_paths.len().max(1)
-                ));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Info,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!(
+                        "Texture atlas exported: {} ({} frame(s), {} page(s))",
+                        report.image_path.display(),
+                        report.frame_count,
+                        report.page_paths.len().max(1)
+                    ),
+                    Some(crate::output_pipeline::OutputLocation::for_file(
+                        report.image_path,
+                    )),
+                );
                 true
             }
             Err(e) => {
-                self.message(format!("Texture atlas export failed: {e}"));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Error,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!("Texture atlas export failed: {e}"),
+                    Some(crate::output_pipeline::OutputLocation::for_file(meta_path)),
+                );
                 self.show_panel(PanelId::Output);
                 false
             }
@@ -2507,16 +2762,26 @@ impl Editor {
         };
         match neoflash_export::publish_swf_to_path(&self.project, &swf_path, &opts) {
             Ok(report) => {
-                self.message(format!(
-                    "SWF exported ({}, {} compatibility items): {}",
-                    report.profile.label(),
-                    report.items.len(),
-                    swf_path.display()
-                ));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Info,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!(
+                        "SWF exported ({}, {} compatibility items): {}",
+                        report.profile.label(),
+                        report.items.len(),
+                        swf_path.display()
+                    ),
+                    Some(crate::output_pipeline::OutputLocation::for_file(swf_path)),
+                );
                 true
             }
             Err(e) => {
-                self.message(format!("SWF export failed: {e}"));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Error,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!("SWF export failed: {e}"),
+                    Some(crate::output_pipeline::OutputLocation::for_file(swf_path)),
+                );
                 self.show_panel(PanelId::Output);
                 false
             }
@@ -2560,16 +2825,30 @@ impl Editor {
         match neoflash_export::export_fla_with_profile(&self.project, profile, &opts, &target_path)
         {
             Ok(report) => {
-                self.message(format!(
-                    "Exported {} ({} compatibility items): {}",
-                    profile.label(),
-                    report.items.len(),
-                    target_path.display()
-                ));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Info,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!(
+                        "Exported {} ({} compatibility items): {}",
+                        profile.label(),
+                        report.items.len(),
+                        target_path.display()
+                    ),
+                    Some(crate::output_pipeline::OutputLocation::for_file(
+                        target_path,
+                    )),
+                );
                 true
             }
             Err(e) => {
-                self.message(format!("FLA/XFL export failed ({}): {e}", profile.label()));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Error,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!("FLA/XFL export failed ({}): {e}", profile.label()),
+                    Some(crate::output_pipeline::OutputLocation::for_file(
+                        target_path,
+                    )),
+                );
                 self.show_panel(PanelId::Output);
                 false
             }
@@ -2602,7 +2881,12 @@ impl Editor {
         match sandbox.execute(&self.project, &state, script_name, source) {
             Ok(result) => {
                 for line in &result.output_lines {
-                    self.message(line.clone());
+                    let _ = self.message_event(
+                        crate::output_pipeline::OutputSeverity::Trace,
+                        crate::output_pipeline::OutputSource::Trace,
+                        line.clone(),
+                        None,
+                    );
                 }
                 if result.mutations > 0 && result.project != self.project {
                     let undo_label = if result.undo_label.trim().is_empty() {
@@ -2615,10 +2899,15 @@ impl Editor {
                         editor.project = next_project;
                     });
                 }
-                self.message(format!(
-                    "JSFL '{script_name}' completed ({} step(s), {} mutation(s)).",
-                    result.steps_executed, result.mutations
-                ));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Info,
+                    crate::output_pipeline::OutputSource::Runtime,
+                    format!(
+                        "JSFL '{script_name}' completed ({} step(s), {} mutation(s)).",
+                        result.steps_executed, result.mutations
+                    ),
+                    None,
+                );
                 Ok(result)
             }
             Err(diag) => {
@@ -2626,7 +2915,14 @@ impl Editor {
                     "JSFL error in {} ({}:{}): {}",
                     diag.file, diag.line, diag.column, diag.message
                 );
-                self.message(msg.clone());
+                let loc = crate::output_pipeline::OutputLocation::for_file(&diag.file)
+                    .with_line_col(diag.line as usize, diag.column as usize);
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Error,
+                    crate::output_pipeline::OutputSource::Runtime,
+                    msg.clone(),
+                    Some(loc),
+                );
                 self.show_panel(PanelId::Output);
                 Err(msg)
             }
@@ -2657,10 +2953,14 @@ impl Editor {
         match std::fs::read_to_string(&script_path) {
             Ok(source) => self.run_jsfl_script(&script_name, &source).is_ok(),
             Err(e) => {
-                self.message(format!(
-                    "Cannot read JSFL script {}: {e}",
-                    script_path.display()
-                ));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Error,
+                    crate::output_pipeline::OutputSource::Runtime,
+                    format!("Cannot read JSFL script {}: {e}", script_path.display()),
+                    Some(crate::output_pipeline::OutputLocation::for_file(
+                        script_path,
+                    )),
+                );
                 self.show_panel(PanelId::Output);
                 false
             }
@@ -2714,20 +3014,36 @@ impl Editor {
             &preview_config,
         ) {
             Ok(index) => {
-                self.message(format!("HTML5 scene exported: {}", index.display()));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Info,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!("HTML5 scene exported: {}", index.display()),
+                    Some(crate::output_pipeline::OutputLocation::for_file(
+                        index.clone(),
+                    )),
+                );
                 self.log_export_report(&project);
-                for warning in neoflash_export::export_warnings(&project) {
-                    self.message(warning);
-                }
+                let warnings = neoflash_export::export_warnings(&project);
+                self.emit_export_warnings(warnings);
                 self.show_panel(PanelId::Output);
                 if !cfg!(test)
                     && let Err(e) = crate::platform_open::open_file(&index)
                 {
-                    self.message(format!("Cannot open preview: {e}"));
+                    let _ = self.message_event(
+                        crate::output_pipeline::OutputSeverity::Warning,
+                        crate::output_pipeline::OutputSource::Publish,
+                        format!("Cannot open preview: {e}"),
+                        Some(crate::output_pipeline::OutputLocation::for_file(index)),
+                    );
                 }
             }
             Err(e) => {
-                self.message(format!("Export failed: {e}"));
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Error,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!("Export failed: {e}"),
+                    Some(crate::output_pipeline::OutputLocation::for_file(output)),
+                );
                 self.refresh_compiler_diagnostics();
                 if matches!(e, neoflash_export::ExportError::Scripts(_)) {
                     self.show_panel(PanelId::CompilerErrors);

@@ -1,11 +1,12 @@
 //! Test Movie debugger lifecycle. Authored documents never store debugger state.
 use crate::app::{Editor, ScriptTarget};
 use crate::debugger_protocol::{
-    AuthoredBreakpoint, AuthoredLocation, DebugCommand, DebugProtocol, DebugSnapshot, DebugSource,
-    DebugState,
+    AuthoredBreakpoint, AuthoredLocation, DebugCommand, DebugOutputKind, DebugProtocol,
+    DebugSnapshot, DebugSource, DebugState,
 };
 use crate::debugger_sources::{ScriptOrigin, read_export_sources};
 use crate::debugger_transport::{BrowserPipe, browser_executable, file_url, private_directory};
+use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
 use crate::panels::actions_sidebar::ScriptLocation;
 use crate::workspace::PanelId;
 use eframe::egui;
@@ -27,7 +28,9 @@ pub(crate) struct Debugger {
     scripts: Vec<ScriptOrigin>,
     last_status: String,
     last_messages: Vec<String>,
+    last_message_seq: u64,
     last_output_events: Vec<String>,
+    last_output_seq: u64,
     last_navigated_pause: Option<(u64, Option<usize>, Option<AuthoredLocation>)>,
     export_directory: Option<PathBuf>,
     pub(crate) startup_status: Option<DebuggerStartupStatus>,
@@ -192,11 +195,32 @@ impl Debugger {
     pub(crate) fn has_presentation(&self) -> bool {
         self.active() || self.startup_status.is_some()
     }
+    #[cfg(test)]
+    pub(crate) fn install_test_session(
+        &mut self,
+        project: Project,
+        snapshot: Arc<Mutex<DebugSnapshot>>,
+        commands: mpsc::SyncSender<DebugCommand>,
+        scripts: Vec<ScriptOrigin>,
+    ) {
+        self.stop();
+        self.project = Some(project);
+        self.scripts = scripts;
+        self.session = Some(DebugSession {
+            snapshot,
+            commands,
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+            errors: Arc::new(Mutex::new(Vec::new())),
+        });
+    }
     pub(crate) fn stop(&mut self) {
         self.session = None;
         self.last_status.clear();
         self.last_messages.clear();
+        self.last_message_seq = 0;
         self.last_output_events.clear();
+        self.last_output_seq = 0;
         self.last_navigated_pause = None;
         self.startup_status = None;
         if let Some(directory) = self.export_directory.take() {
@@ -281,7 +305,12 @@ impl Editor {
         })();
         match result {
             Ok(()) => {
-                self.message("Test Movie debugger connecting; execution will pause at an authored statement.");
+                self.message_event(
+                    OutputSeverity::Info,
+                    OutputSource::Debugger,
+                    "Test Movie debugger connecting; execution will pause at an authored statement.",
+                    None,
+                );
                 self.show_panel(PanelId::Debugger);
             }
             Err(status) => {
@@ -302,7 +331,12 @@ impl Editor {
         status: DebuggerStartupStatus,
     ) {
         self.debugger.stop();
-        self.message(format!("Cannot debug Test Movie: {}", status.reason()));
+        self.message_event(
+            OutputSeverity::Error,
+            OutputSource::Debugger,
+            format!("Cannot debug Test Movie: {}", status.reason()),
+            None,
+        );
         self.debugger.startup_status = Some(status);
         self.debugger.project = Some(self.project.clone());
         self.show_panel(PanelId::Debugger);
@@ -316,14 +350,19 @@ impl Editor {
             .is_some_and(|project| project != &self.project)
         {
             self.debugger.reset_document();
-            self.message("Debug session stopped because the document changed. Start Debug options again to use the edited source.");
+            self.message_event(
+                OutputSeverity::Warning,
+                OutputSource::Debugger,
+                "Debug session stopped because the document changed. Start Debug options again to use the edited source.",
+                None,
+            );
             return false;
         }
         if !self.debugger.commandable() {
             return false;
         }
         if let Err(error) = self.debugger.send(command) {
-            self.message(error);
+            self.message_event(OutputSeverity::Error, OutputSource::Debugger, error, None);
             false
         } else {
             true
@@ -337,6 +376,48 @@ impl Editor {
         self.debug_command(DebugCommand::Restart)
     }
 
+    fn resolve_debug_output_location(&self, authored: &AuthoredLocation) -> Option<OutputLocation> {
+        let script_loc = self.resolve_debug_script_location(&authored.source)?;
+        Some(self.output_location_from_script(
+            &script_loc,
+            Some(authored.line.max(1)),
+            Some(authored.column.max(1)),
+        ))
+    }
+
+    fn parse_fallback_debug_output_line(
+        &self,
+        line: &str,
+    ) -> (OutputSeverity, Option<OutputLocation>) {
+        fn parse_prefixed(line: &str, prefix: &str) -> Option<(String, usize)> {
+            let rest = line.strip_prefix(prefix)?;
+            let (inside, _) = rest.split_once("): ")?;
+            let (src, line_str) = inside.rsplit_once(" · line ")?;
+            let line_num = line_str.trim().parse::<usize>().ok()?;
+            Some((src.to_owned(), line_num.max(1)))
+        }
+
+        if let Some((src, line_num)) = parse_prefixed(line, "Runtime error (") {
+            let loc = self
+                .resolve_debug_script_location(&src)
+                .map(|sl| self.output_location_from_script(&sl, Some(line_num), Some(1)));
+            return (OutputSeverity::Error, loc);
+        }
+        if line.starts_with("Runtime error:") {
+            return (OutputSeverity::Error, None);
+        }
+        if let Some((src, line_num)) = parse_prefixed(line, "Warning (") {
+            let loc = self
+                .resolve_debug_script_location(&src)
+                .map(|sl| self.output_location_from_script(&sl, Some(line_num), Some(1)));
+            return (OutputSeverity::Warning, loc);
+        }
+        if line.starts_with("Warning:") {
+            return (OutputSeverity::Warning, None);
+        }
+        (OutputSeverity::Trace, None)
+    }
+
     pub(crate) fn poll_debugger(&mut self, ctx: &egui::Context) {
         if self
             .debugger
@@ -345,7 +426,12 @@ impl Editor {
             .is_some_and(|project| project != &self.project)
         {
             self.debugger.reset_document();
-            self.message("Debug session stopped because the document changed. Start Debug options again to use the edited source.");
+            self.message_event(
+                OutputSeverity::Warning,
+                OutputSource::Debugger,
+                "Debug session stopped because the document changed. Start Debug options again to use the edited source.",
+                None,
+            );
         }
         let errors = self
             .debugger
@@ -355,16 +441,31 @@ impl Editor {
             .map(|mut errors| std::mem::take(&mut *errors))
             .unwrap_or_default();
         for error in errors {
-            self.message(error);
+            self.message_event(OutputSeverity::Error, OutputSource::Debugger, error, None);
         }
         if let Some(snapshot) = self.debugger.snapshot() {
             let status = format!("{:?}", snapshot.state);
             let mut auto_resumed = false;
             if status != self.debugger.last_status {
                 self.debugger.last_status = status.clone();
-                self.message(format!("Debugger: {status}"));
+                let state_severity = if snapshot.state == DebugState::Failed {
+                    OutputSeverity::Error
+                } else {
+                    OutputSeverity::Info
+                };
+                self.message_event(
+                    state_severity,
+                    OutputSource::Debugger,
+                    format!("Debugger: {status}"),
+                    None,
+                );
                 if !snapshot.reason.is_empty() {
-                    self.message(snapshot.reason.clone());
+                    self.message_event(
+                        state_severity,
+                        OutputSource::Debugger,
+                        snapshot.reason.clone(),
+                        None,
+                    );
                 }
                 if snapshot.state == DebugState::Paused {
                     self.refresh_debugger_watches();
@@ -383,28 +484,75 @@ impl Editor {
                 }
             }
             // Protocol notes and browser console/exception events can arrive without changing
-            // Paused/Running. The bounded lists can roll over, so compare suffix/prefix overlap.
-            let previous = &self.debugger.last_messages;
-            let overlap = (0..=previous.len().min(snapshot.messages.len()))
-                .rev()
-                .find(|&count| previous[previous.len() - count..] == snapshot.messages[..count])
-                .unwrap_or(0);
-            for message in &snapshot.messages[overlap..] {
-                self.message(message.clone());
+            // Paused/Running. Drain strictly by monotonic `seq` when populated by `DebugProtocol`
+            // (so ring rollover, identical lines, or Output Clear never duplicate or drop items),
+            // and fall back to suffix/prefix overlap when unit tests populate string lists directly.
+            if !snapshot.structured_messages.is_empty() {
+                for (seq, message) in &snapshot.structured_messages {
+                    if *seq > self.debugger.last_message_seq {
+                        self.debugger.last_message_seq = *seq;
+                        self.message_event(
+                            OutputSeverity::Info,
+                            OutputSource::Debugger,
+                            message.clone(),
+                            None,
+                        );
+                    }
+                }
+                self.debugger.last_messages = snapshot.messages.clone();
+            } else {
+                let previous = &self.debugger.last_messages;
+                let overlap = (0..=previous.len().min(snapshot.messages.len()))
+                    .rev()
+                    .find(|&count| previous[previous.len() - count..] == snapshot.messages[..count])
+                    .unwrap_or(0);
+                for message in &snapshot.messages[overlap..] {
+                    self.message_event(
+                        OutputSeverity::Info,
+                        OutputSource::Debugger,
+                        message.clone(),
+                        None,
+                    );
+                }
+                self.debugger.last_messages = snapshot.messages.clone();
             }
-            self.debugger.last_messages = snapshot.messages.clone();
 
-            let prev_output = &self.debugger.last_output_events;
-            let output_overlap = (0..=prev_output.len().min(snapshot.output_events.len()))
-                .rev()
-                .find(|&count| {
-                    prev_output[prev_output.len() - count..] == snapshot.output_events[..count]
-                })
-                .unwrap_or(0);
-            for line in &snapshot.output_events[output_overlap..] {
-                self.message(line.clone());
+            if !snapshot.structured_output.is_empty() {
+                for record in &snapshot.structured_output {
+                    if record.seq > self.debugger.last_output_seq {
+                        self.debugger.last_output_seq = record.seq;
+                        let severity = match record.kind {
+                            DebugOutputKind::Trace => OutputSeverity::Trace,
+                            DebugOutputKind::Warning => OutputSeverity::Warning,
+                            DebugOutputKind::Error => OutputSeverity::Error,
+                        };
+                        let loc = record
+                            .location
+                            .as_ref()
+                            .and_then(|al| self.resolve_debug_output_location(al));
+                        self.message_event(
+                            severity,
+                            OutputSource::Debugger,
+                            record.formatted.clone(),
+                            loc,
+                        );
+                    }
+                }
+                self.debugger.last_output_events = snapshot.output_events.clone();
+            } else {
+                let prev_output = &self.debugger.last_output_events;
+                let output_overlap = (0..=prev_output.len().min(snapshot.output_events.len()))
+                    .rev()
+                    .find(|&count| {
+                        prev_output[prev_output.len() - count..] == snapshot.output_events[..count]
+                    })
+                    .unwrap_or(0);
+                for line in &snapshot.output_events[output_overlap..] {
+                    let (severity, loc) = self.parse_fallback_debug_output_line(line);
+                    self.message_event(severity, OutputSource::Debugger, line.clone(), loc);
+                }
+                self.debugger.last_output_events = snapshot.output_events.clone();
             }
-            self.debugger.last_output_events = snapshot.output_events.clone();
 
             if snapshot.state != DebugState::Paused {
                 self.debugger.last_navigated_pause = None;
@@ -609,7 +757,11 @@ impl Editor {
         }
         for symbol in &self.project.symbols {
             for frame in &symbol.timeline.scripts {
-                if format!("{} / frame {}", symbol.name, frame.frame + 1) == source {
+                let frame_no = frame.frame + 1;
+                if format!("{} / frame {}", symbol.name, frame_no) == source
+                    || format!("{} · Frame {}", symbol.name, frame_no) == source
+                    || format!("{} · frame {}", symbol.name, frame_no) == source
+                {
                     return Some(ScriptLocation::Frame {
                         symbol: symbol.id.clone(),
                         frame: frame.frame,

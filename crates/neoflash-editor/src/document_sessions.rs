@@ -14,7 +14,9 @@ macro_rules! document_state {
                 $recovery: crate::recovery::RecoveryManager) -> Self {
                 let $saved_project = Some($project.clone());
                 let $root = $project.root.clone();
-                Self { $($field: $default,)* }
+                let mut session = Self { $($field: $default,)* };
+                session.output.set_document_id(session.clipboard.session.clone());
+                session
             }
             fn exchange(&mut self, editor: &mut Editor) {
                 $(std::mem::swap(&mut self.$field, &mut editor.$field);)*
@@ -86,7 +88,7 @@ document_state! { project, path, undo_levels, recovery, saved_project, root;
     selected_source: Option<String> = None,
     code_feedback: Option<crate::sources::CodeFeedback> = None,
     actions_ui: crate::panels::actions_sidebar::ActionsUi = Default::default(),
-    output: Vec<String> = vec![],
+    output: crate::output_pipeline::OutputPipeline = Default::default(),
     test_movie_preview_open: bool = false,
     timeline_edit: crate::timeline_edit::TimelineSelection = Default::default(),
     library_selected: Option<String> = None,
@@ -222,6 +224,7 @@ impl Editor {
     }
 
     fn session_installed(&mut self, ctx: &egui::Context) {
+        self.sync_output_document_id();
         self.bitmap_textures = Default::default();
         self.video_textures = Default::default();
         self.timeline_thumbnails = Default::default();

@@ -83,6 +83,21 @@ pub(crate) struct BreakpointStatus {
     pub resolved: Vec<AuthoredLocation>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DebugOutputKind {
+    Trace,
+    Warning,
+    Error,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DebugOutputRecord {
+    pub seq: u64,
+    pub kind: DebugOutputKind,
+    pub formatted: String,
+    pub location: Option<AuthoredLocation>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DebugSnapshot {
     pub epoch: u64,
@@ -93,7 +108,9 @@ pub(crate) struct DebugSnapshot {
     pub locals: Vec<DebugLocal>,
     pub breakpoints: Vec<BreakpointStatus>,
     pub messages: Vec<String>,
+    pub structured_messages: Vec<(u64, String)>,
     pub output_events: Vec<String>,
+    pub structured_output: Vec<DebugOutputRecord>,
     pub command_pending: bool,
 }
 
@@ -156,6 +173,7 @@ pub(crate) struct DebugProtocol {
     pause_on_start: bool,
     first_pause: bool,
     generated_steps: Option<usize>,
+    next_event_seq: u64,
 }
 
 impl DebugProtocol {
@@ -177,7 +195,9 @@ impl DebugProtocol {
                 locals: Vec::new(),
                 breakpoints: Vec::new(),
                 messages: Vec::new(),
+                structured_messages: Vec::new(),
                 output_events: Vec::new(),
+                structured_output: Vec::new(),
                 command_pending: false,
             },
             target: None,
@@ -196,6 +216,7 @@ impl DebugProtocol {
             pause_on_start: false,
             first_pause: false,
             generated_steps: None,
+            next_event_seq: 1,
         };
         result.replace_desired(breakpoints);
         result
@@ -249,6 +270,7 @@ impl DebugProtocol {
                 let target = self.target.clone();
                 self.clear_session();
                 self.snapshot.output_events.clear();
+                self.snapshot.structured_output.clear();
                 self.snapshot.epoch = self.snapshot.epoch.saturating_add(1);
                 self.first_pause = false;
                 if let Some(target) = target {
@@ -1042,20 +1064,45 @@ impl DebugProtocol {
         self.snapshot.reason = bounded(message, MAX_TEXT);
     }
     fn note(&mut self, message: &str) {
+        let text = bounded(message, MAX_TEXT);
+        let seq = self.next_event_seq;
+        self.next_event_seq = self.next_event_seq.saturating_add(1);
         if self.snapshot.messages.len() == 32 {
             self.snapshot.messages.remove(0);
         }
-        self.snapshot.messages.push(bounded(message, MAX_TEXT));
+        if self.snapshot.structured_messages.len() == 32 {
+            self.snapshot.structured_messages.remove(0);
+        }
+        self.snapshot.messages.push(text.clone());
+        self.snapshot.structured_messages.push((seq, text));
     }
-    fn record_output(&mut self, line: String) {
+    fn record_output(
+        &mut self,
+        kind: DebugOutputKind,
+        line: String,
+        location: Option<AuthoredLocation>,
+    ) {
         if line.is_empty() {
             return;
         }
+        let formatted = bounded(&line, MAX_TEXT);
+        let seq = self.next_event_seq;
+        self.next_event_seq = self.next_event_seq.saturating_add(1);
         if self.snapshot.output_events.len() >= MAX_OUTPUT_EVENTS {
             let overflow = self.snapshot.output_events.len() - MAX_OUTPUT_EVENTS + 1;
             self.snapshot.output_events.drain(..overflow);
         }
-        self.snapshot.output_events.push(bounded(&line, MAX_TEXT));
+        if self.snapshot.structured_output.len() >= MAX_OUTPUT_EVENTS {
+            let overflow = self.snapshot.structured_output.len() - MAX_OUTPUT_EVENTS + 1;
+            self.snapshot.structured_output.drain(..overflow);
+        }
+        self.snapshot.output_events.push(formatted.clone());
+        self.snapshot.structured_output.push(DebugOutputRecord {
+            seq,
+            kind,
+            formatted,
+            location,
+        });
     }
     fn mapped_stack_location(&self, container: Option<&Value>) -> Option<AuthoredLocation> {
         let frames = container?
@@ -1088,18 +1135,24 @@ impl DebugProtocol {
             return;
         }
         let loc = self.mapped_stack_location(Some(params));
-        let formatted = match kind {
-            "error" | "assert" => match loc {
-                Some(loc) => format!("Runtime error ({} · line {}): {text}", loc.source, loc.line),
-                None => format!("Runtime error: {text}"),
-            },
-            "warning" | "warn" => match loc {
-                Some(loc) => format!("Warning ({} · line {}): {text}", loc.source, loc.line),
-                None => format!("Warning: {text}"),
-            },
-            _ => text,
+        let (out_kind, formatted) = match kind {
+            "error" | "assert" => (
+                DebugOutputKind::Error,
+                match &loc {
+                    Some(loc) => format!("Runtime error ({} · line {}): {text}", loc.source, loc.line),
+                    None => format!("Runtime error: {text}"),
+                },
+            ),
+            "warning" | "warn" => (
+                DebugOutputKind::Warning,
+                match &loc {
+                    Some(loc) => format!("Warning ({} · line {}): {text}", loc.source, loc.line),
+                    None => format!("Warning: {text}"),
+                },
+            ),
+            _ => (DebugOutputKind::Trace, text),
         };
-        self.record_output(formatted);
+        self.record_output(out_kind, formatted, loc);
     }
     fn exception_thrown(&mut self, params: &Value) {
         let Some(details) = params.get("exceptionDetails") else {
@@ -1129,14 +1182,14 @@ impl DebugProtocol {
                     .map(|s| bounded(s, MAX_TEXT))
             })
             .unwrap_or_else(|| "Uncaught exception".to_owned());
-        let formatted = match loc {
+        let formatted = match &loc {
             Some(loc) => format!(
                 "Runtime error ({} · line {}): {message}",
                 loc.source, loc.line
             ),
             None => format!("Runtime error: {message}"),
         };
-        self.record_output(formatted);
+        self.record_output(DebugOutputKind::Error, formatted, loc);
     }
     fn request_error(&mut self, pending: Pending, message: &str) {
         match pending {

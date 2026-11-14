@@ -1,6 +1,8 @@
-//! Virtualized Output panel helpers (`T-227`): keeps rendering `O(visible_rows)` when the log buffer
-//! grows to thousands of trace/compiler/export lines.
+//! Virtualized Output panel helpers (`T-227`, `T-310`): keeps rendering `O(visible_rows)` and cache
+//! validation `O(1)` via `(instance_id, document_id, revision, filter)` when the structured log
+//! buffer grows to thousands of trace/compiler/debugger/import/export events.
 use crate::app::Editor;
+use crate::output_pipeline::{OutputLocation, OutputPipeline, ParsedOutputSearch};
 use crate::theme::{DesignUi as _, ScrollTheme as _};
 use eframe::egui::{self, Sense, Vec2};
 use neoflash_ui::components::{self as nf, code::Severity};
@@ -22,44 +24,98 @@ pub struct OutputVirtualStats {
     pub drawn_rows: usize,
 }
 
+/// Pre-expanded logical Output row cached across unchanged frames (`T-310`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CachedOutputRow {
+    pub severity: Severity,
+    pub text: String,
+    pub location: Option<OutputLocation>,
+}
+
 #[derive(Clone, Default)]
 struct CachedOutputLines {
-    /// Exact source snapshot. Comparing the whole buffer catches in-place edits to an interior
-    /// entry; count/first/last sentinels are insufficient for that case.
-    source_entries: Vec<String>,
-    filter_lower: String,
+    pipeline_instance_id: u64,
+    document_id: String,
+    pipeline_revision: u64,
+    filter_key: String,
+    build_generation: u64,
+    rows: Vec<CachedOutputRow>,
     visible_lines: Vec<String>,
 }
 
 fn cached_output_lines(
     ctx: &egui::Context,
     cache_id: egui::Id,
-    output: &[String],
+    output: &OutputPipeline,
     filter: &str,
 ) -> Arc<CachedOutputLines> {
-    let needle = filter.trim().to_lowercase();
+    let filter_trimmed = filter.trim();
     let cached = ctx.data(|data| data.get_temp::<Arc<CachedOutputLines>>(cache_id));
-    if let Some(cached) = cached
-        && cached.source_entries == output
-        && cached.filter_lower == needle
-    {
-        return cached;
+    let previous_generation = match cached {
+        Some(cached)
+            if cached.pipeline_instance_id == output.instance_id()
+                && cached.document_id == output.document_id()
+                && cached.pipeline_revision == output.revision()
+                && cached.filter_key == filter_trimmed =>
+        {
+            return cached;
+        }
+        Some(cached) => cached.build_generation,
+        None => 0,
+    };
+
+    let parsed = ParsedOutputSearch::parse(filter_trimmed);
+    let mut rows = Vec::new();
+    let mut visible_lines = Vec::new();
+    for event in output.events() {
+        if !parsed.matches_event_metadata(event) {
+            continue;
+        }
+        let loc_summary = if parsed.text_needle_lower.is_empty() {
+            String::new()
+        } else {
+            event
+                .location
+                .as_ref()
+                .map(OutputLocation::search_summary_lower)
+                .unwrap_or_default()
+        };
+        let ui_severity = event.severity.ui_severity();
+        let raw_lines: Vec<&str> = if event.message.is_empty() {
+            vec![""]
+        } else {
+            let collected: Vec<&str> = event.message.lines().collect();
+            if collected.is_empty() {
+                vec![""]
+            } else {
+                collected
+            }
+        };
+        let last_idx = raw_lines.len().saturating_sub(1);
+        for (idx, raw_line) in raw_lines.into_iter().enumerate() {
+            let text = if idx == last_idx && event.repeat_count > 1 {
+                format!("{raw_line} (×{})", event.repeat_count)
+            } else {
+                raw_line.to_owned()
+            };
+            if parsed.matches_line(&text, &loc_summary) {
+                visible_lines.push(text.clone());
+                rows.push(CachedOutputRow {
+                    severity: ui_severity,
+                    text,
+                    location: event.location.clone(),
+                });
+            }
+        }
     }
 
-    let visible_lines = output
-        .iter()
-        .flat_map(|entry| {
-            if entry.is_empty() {
-                vec![String::new()]
-            } else {
-                entry.lines().map(str::to_owned).collect::<Vec<_>>()
-            }
-        })
-        .filter(|line| needle.is_empty() || line.to_lowercase().contains(&needle))
-        .collect();
     let cached = Arc::new(CachedOutputLines {
-        source_entries: output.to_vec(),
-        filter_lower: needle,
+        pipeline_instance_id: output.instance_id(),
+        document_id: output.document_id().to_owned(),
+        pipeline_revision: output.revision(),
+        filter_key: filter_trimmed.to_owned(),
+        build_generation: previous_generation.wrapping_add(1),
+        rows,
         visible_lines,
     });
     ctx.data_mut(|data| data.insert_temp(cache_id, Arc::clone(&cached)));
@@ -90,13 +146,11 @@ pub fn visible_output_row_range(
     start..end
 }
 
-/// Render `visible_lines` into the current vertical `ScrollArea` using exact top/bottom spacer
-/// rects once `visible_lines.len() > OUTPUT_VIRTUALIZATION_THRESHOLD`.
-pub fn show_virtualized_output_rows(
+fn show_virtualized_cached_rows(
     ui: &mut egui::Ui,
-    visible_lines: &[String],
-) -> OutputVirtualStats {
-    let total_lines = visible_lines.len();
+    rows: &[CachedOutputRow],
+) -> (OutputVirtualStats, Option<OutputLocation>) {
+    let total_lines = rows.len();
     let row_h = output_row_height();
     let list_top = ui.cursor().top();
     let clip = ui.clip_rect();
@@ -110,12 +164,25 @@ pub fn show_virtualized_output_rows(
         ui.allocate_exact_size(Vec2::new(width, range.start as f32 * row_h), Sense::hover());
     }
     let mut drawn_rows = 0usize;
-    for line in &visible_lines[range.clone()] {
-        ui.add(nf::LogLine {
-            severity: Severity::Info,
+    let mut clicked_location = None;
+    for (offset, row) in rows[range.clone()].iter().enumerate() {
+        let row_index = range.start + offset;
+        let resp = ui.add(nf::LogLine {
+            severity: row.severity,
             time: "",
-            text: line,
+            text: &row.text,
         });
+        if let Some(loc) = row.location.as_ref().filter(|loc| loc.is_navigable())
+            && ui
+                .interact(
+                    resp.rect,
+                    ui.id().with(("output-row-jump", row_index)),
+                    Sense::click(),
+                )
+                .clicked()
+        {
+            clicked_location = Some(loc.clone());
+        }
         drawn_rows += 1;
     }
     if range.end < total_lines {
@@ -131,7 +198,25 @@ pub fn show_virtualized_output_rows(
     ui.ctx().data_mut(|d| {
         d.insert_temp(egui::Id::new("neoflash-output-virtual-stats"), stats);
     });
-    stats
+    (stats, clicked_location)
+}
+
+/// Render `visible_lines` into the current vertical `ScrollArea` using exact top/bottom spacer
+/// rects once `visible_lines.len() > OUTPUT_VIRTUALIZATION_THRESHOLD`.
+#[allow(dead_code)]
+pub fn show_virtualized_output_rows(
+    ui: &mut egui::Ui,
+    visible_lines: &[String],
+) -> OutputVirtualStats {
+    let rows: Vec<CachedOutputRow> = visible_lines
+        .iter()
+        .map(|line| CachedOutputRow {
+            severity: Severity::Info,
+            text: line.clone(),
+            location: None,
+        })
+        .collect();
+    show_virtualized_cached_rows(ui, &rows).0
 }
 
 impl Editor {
@@ -141,10 +226,21 @@ impl Editor {
         ctx.data(|d| d.get_temp(egui::Id::new("neoflash-output-virtual-stats")))
     }
 
+    /// Return the build generation of the active session's cached Output expansion (`O(1)` cache test hook).
+    #[cfg(test)]
+    pub fn last_output_cache_generation(&self, ctx: &egui::Context) -> Option<u64> {
+        let cache_id = egui::Id::new(("neoflash-output-lines-cache", &self.clipboard.session));
+        ctx.data(|d| {
+            d.get_temp::<Arc<CachedOutputLines>>(cache_id)
+                .map(|c| c.build_generation)
+        })
+    }
+
     /// Output: filter, copy and clear, then the log in `NF2/Mono`. Filtered line expansion is cached
-    /// across unchanged frames and only the visible `LogLine` slice is painted inside the viewport.
-    /// Editor messages carry no level or time stamp, so the NF2 level selector is not offered.
+    /// in `O(1)` via `(instance_id, document_id, revision, filter)` across unchanged frames and only
+    /// the visible `LogLine` slice is painted inside the viewport.
     pub(crate) fn output_panel(&mut self, ui: &mut egui::Ui) {
+        self.sync_output_document_id();
         let filter_id = egui::Id::new(("neoflash-output-filter", &self.clipboard.session));
         let cache_id = egui::Id::new(("neoflash-output-lines-cache", &self.clipboard.session));
         let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
@@ -203,9 +299,11 @@ impl Editor {
         }
         let visible_cache = visible_cache
             .unwrap_or_else(|| cached_output_lines(ui.ctx(), cache_id, &self.output, &filter));
+        let rows = &visible_cache.rows;
         let visible_lines = &visible_cache.visible_lines;
-        let needle_active = !visible_cache.filter_lower.is_empty();
+        let needle_active = !visible_cache.filter_key.is_empty();
         let p = neoflash_ui::palette(ui.ctx());
+        let mut clicked_location = None;
         egui::Frame::new()
             .fill(p.bg_field)
             .corner_radius(radius::MD)
@@ -219,7 +317,8 @@ impl Editor {
                     .themed()
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.;
-                        show_virtualized_output_rows(ui, visible_lines);
+                        let (_, jumped) = show_virtualized_cached_rows(ui, rows);
+                        clicked_location = jumped;
                         if visible_lines.is_empty() {
                             ui.label(
                                 neoflash_ui::typography::rich(
@@ -231,6 +330,10 @@ impl Editor {
                         }
                     });
             });
+        if let Some(loc) = clicked_location {
+            let ctx = ui.ctx().clone();
+            self.navigate_to_output_location(&ctx, &loc);
+        }
     }
 
     /// Compatibility entry point for focused virtualization tests. Production dock routing calls

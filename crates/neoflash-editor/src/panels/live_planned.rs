@@ -3202,11 +3202,11 @@ impl Editor {
                 }
                 .show(ui);
             } else {
-                for line in self.output.iter().rev().take(3).rev() {
+                for event in self.output.events().iter().rev().take(3).rev() {
                     ui.add(c::LogLine {
-                        severity: c::Severity::Info,
+                        severity: event.severity.ui_severity(),
                         time: "",
-                        text: line,
+                        text: &event.message,
                     });
                 }
             }

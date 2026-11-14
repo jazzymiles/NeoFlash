@@ -32,6 +32,7 @@ mod native_quit;
 mod native_screens;
 mod native_windows;
 mod notifications;
+mod output_pipeline;
 mod paint_controls;
 mod panels;
 mod platform_open;
@@ -85,6 +86,8 @@ mod clipboard_tests;
 mod detached_tests;
 #[cfg(test)]
 mod document_sessions_tests;
+#[cfg(test)]
+mod output_pipeline_tests;
 #[cfg(test)]
 mod panel_tests;
 #[cfg(test)]

@@ -112,13 +112,23 @@ impl Editor {
 
     pub(crate) fn notify(&mut self, kind: nf::ToastType, message: impl Into<String>) {
         let message = message.into();
-        self.message(message.clone());
+        self.message_event(
+            crate::output_pipeline::OutputSeverity::from_toast(kind),
+            crate::output_pipeline::OutputSource::System,
+            message.clone(),
+            None,
+        );
         self.notifications.push(kind, message, None);
     }
 
     pub(crate) fn notify_with_output(&mut self, kind: nf::ToastType, message: impl Into<String>) {
         let message = message.into();
-        self.message(message.clone());
+        self.message_event(
+            crate::output_pipeline::OutputSeverity::from_toast(kind),
+            crate::output_pipeline::OutputSource::System,
+            message.clone(),
+            None,
+        );
         self.notifications
             .push(kind, message, Some(NotificationAction::ShowOutput));
     }
@@ -153,7 +163,7 @@ impl Editor {
         let mut bottom = viewport.bottom() - space::S4;
         let mut remove = Vec::new();
         let mut action = None;
-        let mut action_message = None;
+        let mut action_payload = None;
         let text_color = neoflash_ui::palette(ctx).text_primary;
         for toast in self.notifications.visible.iter_mut().rev() {
             if bottom <= viewport.top() {
@@ -233,7 +243,7 @@ impl Editor {
             }
             if shown.inner.action {
                 action = toast.action;
-                action_message = Some(toast.message.clone());
+                action_payload = Some((toast.kind, toast.message.clone()));
             }
         }
         self.notifications
@@ -242,10 +252,12 @@ impl Editor {
         if action == Some(NotificationAction::ShowOutput) {
             // The toast is window-owned and may outlive its originating tab. Show the relevant
             // diagnostic in the current Output too, rather than revealing an unrelated empty log.
-            if let Some(message) = action_message
-                && !self.output.contains(&message)
-            {
-                self.output.push(message);
+            if let Some((kind, message)) = action_payload {
+                self.push_output_unique(crate::output_pipeline::OutputEvent::new(
+                    crate::output_pipeline::OutputSeverity::from_toast(kind),
+                    crate::output_pipeline::OutputSource::System,
+                    message,
+                ));
             }
             self.show_panel(crate::workspace::PanelId::Output);
         }

@@ -120,7 +120,37 @@ impl Editor {
                 .join("\n")
         };
         if announce {
-            self.message(text.clone());
+            self.status = text.clone();
+            if diagnostics.is_empty() {
+                let loc = self.output_location_for_diagnostic(None);
+                self.push_output_coalesced(
+                    crate::output_pipeline::OutputEvent::info(
+                        crate::output_pipeline::OutputSource::Compiler,
+                        text.clone(),
+                    )
+                    .with_optional_location(loc),
+                );
+            } else {
+                let mut seen_batch = std::collections::HashSet::new();
+                let mut batch = Vec::with_capacity(diagnostics.len());
+                for d in &diagnostics {
+                    let line_msg = format!("{}: {}", diagnostic_severity(d.severity).label(), d);
+                    let loc = self.output_location_for_diagnostic(Some(d));
+                    let severity =
+                        crate::output_pipeline::OutputSeverity::from_diagnostic(d.severity);
+                    if seen_batch.insert((severity, line_msg.clone())) {
+                        batch.push(
+                            crate::output_pipeline::OutputEvent::new(
+                                severity,
+                                crate::output_pipeline::OutputSource::Compiler,
+                                line_msg,
+                            )
+                            .with_optional_location(loc),
+                        );
+                    }
+                }
+                self.push_output_batch_coalesced(batch);
+            }
         }
         self.code_feedback = Some(CodeFeedback {
             target: self.actions_editor_id(),
@@ -1413,9 +1443,13 @@ fn code_editor(
             } else {
                 egui::ScrollArea::both()
             };
-            scroll
+            let pending_scroll = ctx
+                .data_mut(|d| d.remove_temp::<bool>(id.with("pending-scroll-to-caret")))
+                .unwrap_or(false);
+            let scroll_output = scroll
                 .id_salt(("actions_source_scroll", id))
                 .auto_shrink([false, false])
+                .animated(!pending_scroll)
                 .themed()
                 .show(ui, |ui| {
                     let band = ui.painter().add(egui::Shape::Noop);
@@ -1452,6 +1486,18 @@ fn code_editor(
                     let cursor = output.state.cursor.char_range().map(|range| range.primary);
                     if let Some(cursor) = cursor {
                         caret = nf::code::line_col(source, cursor.index);
+                        if pending_scroll {
+                            let caret_rect = output
+                                .galley
+                                .pos_from_cursor(cursor)
+                                .translate(output.galley_pos.to_vec2());
+                            ui.scroll_to_rect_animation(
+                                caret_rect,
+                                Some(egui::Align::Center),
+                                egui::style::ScrollAnimation::none(),
+                            );
+                            ctx.request_repaint();
+                        }
                         if prefs.highlight_current_line {
                             ui.painter().set(
                                 band,
@@ -1596,8 +1642,15 @@ fn code_editor(
                         diagnostic_ui.close();
                     }
                     output.response
-                })
-                .inner
+                });
+            #[cfg(test)]
+            ctx.data_mut(|d| {
+                d.insert_temp(
+                    id.with("last-scroll-offset-y"),
+                    scroll_output.state.offset.y,
+                );
+            });
+            scroll_output.inner
         })
         .inner;
     ctx.data_mut(|d| d.insert_temp(state_id, hint_state));

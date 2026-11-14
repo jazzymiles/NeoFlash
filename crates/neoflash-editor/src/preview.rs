@@ -559,25 +559,53 @@ impl Editor {
                 symbol,
                 epoch: next_preview_epoch(),
             });
+            let preview_loc = self.current_preview_output_location();
             for line in traces {
-                self.output.push(format!("[trace] {line}"));
+                self.push_output_event(
+                    crate::output_pipeline::OutputEvent::trace(format!("[trace] {line}"))
+                        .with_location(preview_loc.clone()),
+                );
             }
             for diag in preview_diagnostics {
                 let formatted = format!("[preview] {diag}");
-                if !self.output.contains(&formatted) {
-                    self.output.push(formatted);
-                }
+                self.push_output_unique(
+                    crate::output_pipeline::OutputEvent::warning(
+                        crate::output_pipeline::OutputSource::Runtime,
+                        formatted,
+                    )
+                    .with_location(preview_loc.clone()),
+                );
             }
             for diag in unsupported_diagnostics {
                 let formatted = format!("[swf] {diag}");
-                if !self.output.contains(&formatted) {
-                    self.output.push(formatted);
-                }
+                self.push_output_unique(
+                    crate::output_pipeline::OutputEvent::warning(
+                        crate::output_pipeline::OutputSource::Runtime,
+                        formatted,
+                    )
+                    .with_location(preview_loc.clone()),
+                );
             }
             if halted {
                 self.playing = false;
             }
         }
+    }
+
+    fn current_preview_output_location(&self) -> crate::output_pipeline::OutputLocation {
+        let symbol = self.symbol_id().to_owned();
+        let sym_name = self.project.symbol(&symbol).map(|s| s.name.clone());
+        let layer_idx = self.project.symbol(&symbol).and_then(|sym| {
+            sym.timeline
+                .layers
+                .iter()
+                .position(|l| l.name.eq_ignore_ascii_case("actions"))
+                .or_else(|| (self.layer < sym.timeline.layers.len()).then_some(self.layer))
+        });
+        let mut loc =
+            crate::output_pipeline::OutputLocation::for_frame(symbol, sym_name, layer_idx, self.frame);
+        loc.document_id = Some(self.clipboard.session.clone());
+        loc
     }
 
     pub(crate) fn tick_authored_preview(&mut self) {
@@ -631,23 +659,41 @@ impl Editor {
         self.timeline_video
             .advance_event_streams(dt_ms, &tick_video_commands);
         self.timeline_video.reset_event_wall_clock();
+        let preview_loc = self.current_preview_output_location();
         for log_line in self.timeline_video.apply(tick_video_commands) {
-            self.output.push(log_line);
+            self.push_output_coalesced(
+                crate::output_pipeline::OutputEvent::info(
+                    crate::output_pipeline::OutputSource::Runtime,
+                    log_line,
+                )
+                .with_location(preview_loc.clone()),
+            );
         }
         for line in traces {
-            self.output.push(format!("[trace] {line}"));
+            self.push_output_event(
+                crate::output_pipeline::OutputEvent::trace(format!("[trace] {line}"))
+                    .with_location(preview_loc.clone()),
+            );
         }
         for diag in preview_diagnostics {
             let formatted = format!("[preview] {diag}");
-            if !self.output.contains(&formatted) {
-                self.output.push(formatted);
-            }
+            self.push_output_unique(
+                crate::output_pipeline::OutputEvent::warning(
+                    crate::output_pipeline::OutputSource::Runtime,
+                    formatted,
+                )
+                .with_location(preview_loc.clone()),
+            );
         }
         for diag in unsupported_diagnostics {
             let formatted = format!("[swf] {diag}");
-            if !self.output.contains(&formatted) {
-                self.output.push(formatted);
-            }
+            self.push_output_unique(
+                crate::output_pipeline::OutputEvent::warning(
+                    crate::output_pipeline::OutputSource::Runtime,
+                    formatted,
+                )
+                .with_location(preview_loc.clone()),
+            );
         }
         if halted {
             self.playing = false;
@@ -678,17 +724,23 @@ impl Editor {
             self.frame,
             self.live_script_preview,
         );
+        let seek_loc = self.current_preview_output_location();
         for line in &state.traces {
             let formatted = format!("[trace] {line}");
-            if !self.output.contains(&formatted) {
-                self.output.push(formatted);
-            }
+            self.push_output_unique(
+                crate::output_pipeline::OutputEvent::trace(formatted)
+                    .with_location(seek_loc.clone()),
+            );
         }
         for diag in &state.unsupported_diagnostics {
             let formatted = format!("[swf] {diag}");
-            if !self.output.contains(&formatted) {
-                self.output.push(formatted);
-            }
+            self.push_output_unique(
+                crate::output_pipeline::OutputEvent::warning(
+                    crate::output_pipeline::OutputSource::Runtime,
+                    formatted,
+                )
+                .with_location(seek_loc.clone()),
+            );
         }
         self.authored_preview = Some(AuthoringPreview {
             playback,
@@ -727,20 +779,28 @@ impl Editor {
         let mut swf_player =
             neoflash_import::SwfBytecodePlayer::from_bytes(bytes).map_err(|e| e.to_string())?;
         let result = swf_player.run_frames(max_frames.max(1));
-        for line in &result.trace_output {
-            self.output.push(format!("[trace] {line}"));
-        }
-        for diag in &result.unsupported_diagnostics {
-            let formatted = format!("[swf] {diag}");
-            if !self.output.contains(&formatted) {
-                self.output.push(formatted);
-            }
-        }
         if let Some(last) = result.frames_executed.last() {
             self.frame = last
                 .frame
                 .min(self.symbol().timeline.frame_count.saturating_sub(1));
             self.playing = last.playing;
+        }
+        let swf_loc = self.current_preview_output_location();
+        for line in &result.trace_output {
+            self.push_output_event(
+                crate::output_pipeline::OutputEvent::trace(format!("[trace] {line}"))
+                    .with_location(swf_loc.clone()),
+            );
+        }
+        for diag in &result.unsupported_diagnostics {
+            let formatted = format!("[swf] {diag}");
+            self.push_output_unique(
+                crate::output_pipeline::OutputEvent::warning(
+                    crate::output_pipeline::OutputSource::Runtime,
+                    formatted,
+                )
+                .with_location(swf_loc.clone()),
+            );
         }
         let symbol = self.symbol_id().to_owned();
         let playback = AuthoredPlayback::with_live_scripts(
@@ -780,21 +840,35 @@ impl Editor {
             halted = preview.playback.is_root_halted_by_script();
             clicked = true;
         }
+        let click_loc = self.current_preview_output_location();
         if clicked && !click_video_commands.is_empty() {
             let epoch = self.valid_authored_preview().map(|p| p.epoch);
             self.timeline_video.follow_preview(epoch);
             for log_line in self.timeline_video.apply(click_video_commands) {
-                self.output.push(log_line);
+                self.push_output_coalesced(
+                    crate::output_pipeline::OutputEvent::info(
+                        crate::output_pipeline::OutputSource::Runtime,
+                        log_line,
+                    )
+                    .with_location(click_loc.clone()),
+                );
             }
         }
         for line in traces {
-            self.output.push(format!("[trace] {line}"));
+            self.push_output_event(
+                crate::output_pipeline::OutputEvent::trace(format!("[trace] {line}"))
+                    .with_location(click_loc.clone()),
+            );
         }
         for diag in preview_diagnostics {
             let formatted = format!("[preview] {diag}");
-            if !self.output.contains(&formatted) {
-                self.output.push(formatted);
-            }
+            self.push_output_unique(
+                crate::output_pipeline::OutputEvent::warning(
+                    crate::output_pipeline::OutputSource::Runtime,
+                    formatted,
+                )
+                .with_location(click_loc.clone()),
+            );
         }
         if halted {
             self.playing = false;
@@ -849,8 +923,15 @@ impl Editor {
         let retained_epoch = self.valid_authored_preview().map(|preview| preview.epoch);
         let commands = self.drain_preview_videos();
         self.timeline_video.follow_preview(retained_epoch);
+        let video_loc = self.current_preview_output_location();
         for log_line in self.timeline_video.apply(commands) {
-            self.output.push(log_line);
+            self.push_output_coalesced(
+                crate::output_pipeline::OutputEvent::info(
+                    crate::output_pipeline::OutputSource::Runtime,
+                    log_line,
+                )
+                .with_location(video_loc.clone()),
+            );
         }
         self.refresh_event_video_durations();
         if !self.playing {
