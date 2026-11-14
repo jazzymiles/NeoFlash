@@ -1759,6 +1759,11 @@ fn popover(ctx: &egui::Context) -> Option<RailPopover> {
         .flatten()
 }
 
+/// Whether any Tools panel popover (flyout, overflow, fill/stroke or tool options) is open.
+pub(crate) fn is_rail_popover_open(ctx: &egui::Context) -> bool {
+    popover(ctx).is_some()
+}
+
 fn set_popover(ctx: &egui::Context, value: Option<RailPopover>) {
     ctx.data_mut(|d| d.insert_temp(popover_id(), value));
 }

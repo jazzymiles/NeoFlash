@@ -1452,7 +1452,8 @@ impl Editor {
         view: Rect,
         scene: &[DrawItem],
     ) -> bool {
-        let space = ui.input(|i| i.key_down(egui::Key::Space)) && !ui.ctx().wants_keyboard_input();
+        let space =
+            ui.input(|i| i.key_down(egui::Key::Space)) && !self.blocks_stage_space_pan(ui.ctx());
         let owned = extended(self.tool)
             || space
             || self.authoring_tools.gesture.is_some()
@@ -1460,14 +1461,15 @@ impl Editor {
         if !owned {
             return false;
         }
-        if ui.input(|i| i.key_pressed(egui::Key::Escape) || !i.focused) {
+        let allow_unmodified = !self.blocks_unmodified_shortcuts(ui.ctx());
+        if ui.input(|i| (allow_unmodified && i.key_pressed(egui::Key::Escape)) || !i.focused) {
             self.authoring_tools.cancel();
             return true;
         }
         if self.tool == Tool::Lasso && !space && !self.authoring_tools.lasso_polygon.is_empty() {
             let (enter, shift, alt) = ui.input(|i| {
                 (
-                    i.key_pressed(egui::Key::Enter),
+                    allow_unmodified && i.key_pressed(egui::Key::Enter),
                     i.modifiers.shift,
                     i.modifiers.alt,
                 )
@@ -4141,10 +4143,14 @@ impl Editor {
         if modal.should_close() {
             cancel = true;
         }
-        if !ctx.wants_keyboard_input() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+        if !crate::panels::dialog_helpers::blocks_local_dialog_enter(ctx)
+            && ctx.input(|i| i.key_pressed(egui::Key::Enter))
+        {
             accept = true;
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        if !crate::panels::dialog_helpers::is_any_popup_open(ctx)
+            && ctx.input(|i| i.key_pressed(egui::Key::Escape))
+        {
             cancel = true;
         }
         if accept {
@@ -4298,10 +4304,14 @@ impl Editor {
         if modal.should_close() {
             cancel = true;
         }
-        if !ctx.wants_keyboard_input() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+        if !crate::panels::dialog_helpers::blocks_local_dialog_enter(ctx)
+            && ctx.input(|i| i.key_pressed(egui::Key::Enter))
+        {
             accept = true;
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        if !crate::panels::dialog_helpers::is_any_popup_open(ctx)
+            && ctx.input(|i| i.key_pressed(egui::Key::Escape))
+        {
             cancel = true;
         }
         if accept {

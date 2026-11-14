@@ -103,7 +103,7 @@ impl Editor {
                         });
                     });
             });
-        let popup = egui::Popup::is_any_open(ctx);
+        let popup = super::dialog_helpers::is_any_popup_open(ctx);
         if !popup && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
             cancel = true;
         }

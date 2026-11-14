@@ -41,11 +41,27 @@ pub(crate) fn escape_dismissed_focus_or_popup(ctx: &egui::Context) -> bool {
         && (prev_wants_keyboard_input(ctx) || prev_popup_open(ctx))
 }
 
+/// Whether any `egui::Popup` (Select, MenuBar, context menu, Timeline menu) or editor popover
+/// (`Tools` flyout/popover, `Color` popover, `Symbols & scenes`, `Help search`) is open.
+pub(crate) fn is_any_popup_open(ctx: &egui::Context) -> bool {
+    egui::Popup::is_any_open(ctx)
+        || super::tools::is_rail_popover_open(ctx)
+        || crate::authoring_modify::is_color_popover_open(ctx)
+        || super::symbols_popover::is_symbols_popover_open(ctx)
+        || super::function_search::is_function_search_open(ctx)
+}
+
+/// Whether unmodified `Enter` inside a local modal should be ignored because a control holds
+/// keyboard focus or a popup/popover is open.
+pub(crate) fn blocks_local_dialog_enter(ctx: &egui::Context) -> bool {
+    ctx.wants_keyboard_input() || is_any_popup_open(ctx)
+}
+
 /// Records end-of-frame keyboard focus and popup state so the next pass can distinguish
 /// field-level `Escape` (surrender focus) from dialog/Stage-level `Escape` (cancel/deselect).
 pub(crate) fn record_end_of_frame_focus(ctx: &egui::Context) {
     let wants_kb = ctx.wants_keyboard_input();
-    let popup_open = egui::Popup::is_any_open(ctx);
+    let popup_open = is_any_popup_open(ctx);
     ctx.data_mut(|d| {
         d.insert_temp(egui::Id::new("nf2-prev-wants-kb"), wants_kb);
         d.insert_temp(egui::Id::new("nf2-prev-popup-open"), popup_open);
@@ -57,7 +73,7 @@ impl DialogKeyboardState {
         let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         Self {
             was_typing: ctx.wants_keyboard_input() || (esc && prev_wants_keyboard_input(ctx)),
-            was_popup_open: egui::Popup::is_any_open(ctx) || (esc && prev_popup_open(ctx)),
+            was_popup_open: is_any_popup_open(ctx) || (esc && prev_popup_open(ctx)),
         }
     }
 
@@ -67,7 +83,7 @@ impl DialogKeyboardState {
         modal: &egui::ModalResponse<R>,
         allow_confirm: bool,
     ) -> DialogKeyboardOutcome {
-        let popup_open = self.was_popup_open || egui::Popup::is_any_open(ctx);
+        let popup_open = self.was_popup_open || is_any_popup_open(ctx);
         if popup_open {
             return DialogKeyboardOutcome::None;
         }

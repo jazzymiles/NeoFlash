@@ -179,6 +179,7 @@ impl Editor {
         let mut close = false;
         let mut submit = false;
         let title = draft.title();
+        let mut name_edit_id = None;
         let modal = egui::Modal::new(egui::Id::new("workspace-management"))
             .frame(nf::Surface::Dialog.frame(ctx))
             .backdrop_color(neoflash_ui::palette(ctx).overlay)
@@ -198,10 +199,10 @@ impl Editor {
                         {
                             let field =
                                 ui.add(nf::TextField::new(name, "Workspace name").prefix("Name"));
+                            let edit_id = nf::TextField::edit_id(field.id);
+                            name_edit_id = Some(edit_id);
                             if *focus {
-                                ui.memory_mut(|m| {
-                                    m.request_focus(nf::TextField::edit_id(field.id))
-                                });
+                                ui.memory_mut(|m| m.request_focus(edit_id));
                                 *focus = false;
                             }
                         }
@@ -243,7 +244,12 @@ impl Editor {
                 );
             });
         close |= modal.should_close();
-        let enter = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        let allow_enter = !close
+            && !crate::panels::dialog_helpers::is_any_popup_open(ctx)
+            && (!ctx.wants_keyboard_input()
+                || name_edit_id.is_some_and(|id| ctx.memory(|m| m.has_focus(id))));
+        let enter = allow_enter
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
         submit |= enter && draft.validation(&self.workspace).is_ok();
         if !close && submit && self.commit_workspace_dialog(&draft).is_ok() {
             return;

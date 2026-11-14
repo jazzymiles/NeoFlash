@@ -2717,9 +2717,47 @@ impl Editor {
         }
     }
 
+    /// Whether any `egui::Popup` or editor popover (View settings, Tools flyout/popover, Color,
+    /// Symbols & scenes, Help search) is open in `ctx`.
+    pub(crate) fn has_open_popup(&self, ctx: &egui::Context) -> bool {
+        self.stage_view.settings_open || crate::panels::dialog_helpers::is_any_popup_open(ctx)
+    }
+
+    /// True while widget keyboard focus (text input or Tab-focused control), a modal dialog, or
+    /// an open popup/menu owns unmodified and single-key keyboard input.
+    pub(crate) fn blocks_unmodified_shortcuts(&self, ctx: &egui::Context) -> bool {
+        ctx.wants_keyboard_input() || self.has_modal_dialog_in(ctx) || self.has_open_popup(ctx)
+    }
+
+    /// Latches `Space`-pan suppression whenever `Space` is down while focus, a modal, or a popup
+    /// owns input, preventing a Tab-focused button from bleeding into Stage pan if its click
+    /// surrenders focus or closes the control mid-frame.
+    pub(crate) fn update_stage_space_pan_suppression(&self, ctx: &egui::Context) {
+        let suppression_id = egui::Id::new("nf2-stage-space-pan-suppressed");
+        let space_down = ctx.input(|i| i.key_down(egui::Key::Space));
+        if !space_down {
+            ctx.data_mut(|d| d.remove::<bool>(suppression_id));
+            return;
+        }
+        if self.blocks_unmodified_shortcuts(ctx) {
+            ctx.data_mut(|d| d.insert_temp(suppression_id, true));
+        }
+    }
+
+    /// True when Stage temporary `Space` pan must NOT activate.
+    pub(crate) fn blocks_stage_space_pan(&self, ctx: &egui::Context) -> bool {
+        self.update_stage_space_pan_suppression(ctx);
+        let suppression_id = egui::Id::new("nf2-stage-space-pan-suppressed");
+        self.blocks_unmodified_shortcuts(ctx)
+            || ctx
+                .data(|d| d.get_temp::<bool>(suppression_id))
+                .unwrap_or(false)
+    }
+
     pub(crate) fn shortcuts(&mut self, ctx: &egui::Context) {
         use crate::clipboard::ClipboardCommand;
         use crate::commands::{CommandId as C, modifiers_match};
+        self.update_stage_space_pan_suppression(ctx);
         if self.has_modal_dialog_in(ctx)
             || crate::panels::symbols_popover::is_symbols_popover_open(ctx)
             || crate::panels::function_search::is_function_search_open(ctx)
@@ -2773,7 +2811,7 @@ impl Editor {
             self.open_actions();
         }
 
-        let typing = ctx.wants_keyboard_input();
+        let typing = self.blocks_unmodified_shortcuts(ctx);
         if !typing {
             if self.take_command_shortcut(ctx, C::EditRedo) {
                 if self.history.can_redo() {
@@ -2986,7 +3024,7 @@ impl Editor {
         // Classic Flash object shortcuts remain object commands while a Stage selection exists,
         // so handle them before the general typing guard. Their Command-modified chords are safe
         // from ordinary character input and each command still validates the current selection.
-        let typing = ctx.wants_keyboard_input();
+        let typing = self.blocks_unmodified_shortcuts(ctx);
         let break_apart_safe = !typing
             || crate::commands::effective_shortcuts(&self.workspace.shortcuts, C::ModifyBreakApart)
                 .iter()
@@ -3017,7 +3055,7 @@ impl Editor {
         {
             self.group_selection();
         }
-        if typing {
+        if self.blocks_unmodified_shortcuts(ctx) {
             return;
         }
         // ⌥⌘X / ⌥⌘C / ⌥⌘V arrive as Cut / Copy / Paste events on macOS when un-overridden.
@@ -3542,7 +3580,8 @@ impl Editor {
                         |ui| close |= ui.add(Button::primary("Close").shortcut("↵")).clicked(),
                     );
                 });
-            let enter = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+            let enter = !crate::panels::dialog_helpers::blocks_local_dialog_enter(ctx)
+                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
             if open_manual {
                 self.show_about = false;
                 crate::panels::help_manual::open_help_manual(ctx);

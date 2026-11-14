@@ -213,16 +213,17 @@ impl Editor {
                 ui.spacing_mut().item_spacing.y = space::S1;
                 field_caption(ui, "Name");
                 let name = ui.add(TextField::new(&mut draft.name, "Name"));
-                let edit_id = TextField::edit_id(name.id);
+                let name_edit_id = TextField::edit_id(name.id);
                 if std::mem::take(&mut draft.focus_name) {
-                    ctx.memory_mut(|memory| memory.request_focus(edit_id));
-                    if let Some(mut state) = egui::text_edit::TextEditState::load(ctx, edit_id) {
+                    ctx.memory_mut(|memory| memory.request_focus(name_edit_id));
+                    if let Some(mut state) = egui::text_edit::TextEditState::load(ctx, name_edit_id) {
                         state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
                             egui::text::CCursor::new(0), egui::text::CCursor::new(draft.name.chars().count()),
                         )));
-                        state.store(ctx, edit_id);
+                        state.store(ctx, name_edit_id);
                     }
                 }
+                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("nf2-symbol-dialog-name-edit"), name_edit_id));
             });
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = space::S3;
@@ -314,7 +315,15 @@ impl Editor {
                 accept |= ui.add_enabled_semantic(!draft.name.trim().is_empty(), Button::primary(label).shortcut("↵")).clicked();
                 cancel |= ui.add(Button::new("Cancel").shortcut("Esc")).clicked();
             });
-            if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+            let name_edit_id =
+                ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::new("nf2-symbol-dialog-name-edit")));
+            let allow_enter = !cancel
+                && !crate::panels::dialog_helpers::is_any_popup_open(ctx)
+                && (!ctx.wants_keyboard_input()
+                    || name_edit_id.is_some_and(|id| ctx.memory(|m| m.has_focus(id))));
+            if allow_enter
+                && ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+            {
                 accept = !draft.name.trim().is_empty();
             }
             if draft.new_symbol || draft.convert_layers_layer.is_some() {

@@ -2104,7 +2104,7 @@ impl Editor {
             });
 
         if !close {
-            let popup_open = egui::Popup::is_any_open(ctx);
+            let popup_open = super::dialog_helpers::is_any_popup_open(ctx);
             let esc = !popup_open
                 && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
             if esc || modal.should_close() {

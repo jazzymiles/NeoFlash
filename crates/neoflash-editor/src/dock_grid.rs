@@ -1092,7 +1092,11 @@ impl Editor {
         if self.has_modal_dialog() {
             grip_ui.disable_semantic();
         }
-        let response = grip_ui.interact(grip, grip_ui.id(), egui::Sense::click_and_drag());
+        let response = grip_ui.interact(
+            grip,
+            grip_ui.id().with("grip"),
+            egui::Sense::click_and_drag(),
+        );
         // NF2 headers show no permanent grip; it appears on hover (the whole blank header drags too).
         if response.hovered() || response.dragged() {
             for y in [-4., 0., 4.] {

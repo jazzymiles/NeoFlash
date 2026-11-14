@@ -85,7 +85,8 @@ impl Editor {
                     options.properties.fill(false);
                 }
             });
-        paste |= options.any()
+        paste |= !super::dialog_helpers::blocks_local_dialog_enter(ctx)
+            && options.any()
             && self.can_paste_motion()
             && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
         self.timeline_motion.paste_options = options.clone();

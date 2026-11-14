@@ -1253,7 +1253,7 @@ impl Editor {
     pub(crate) fn stage_view_shortcuts(&mut self, ctx: &egui::Context) {
         use crate::commands::CommandId;
         use egui::{Key, Modifiers as M};
-        if ctx.wants_keyboard_input() {
+        if self.blocks_unmodified_shortcuts(ctx) {
             return;
         }
         if self.take_command_shortcut(ctx, CommandId::ViewRulers) {

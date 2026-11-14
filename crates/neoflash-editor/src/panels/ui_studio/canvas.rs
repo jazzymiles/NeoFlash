@@ -147,7 +147,8 @@ pub(super) fn render_live_canvas_column(
 
                     // Middle-mouse or Space+drag pans the entire board from captured start state + total delta
                     let pan_drag_id = ui.id().with("studio-canvas-pan-drag");
-                    let space_down = ui.input(|i| i.key_down(egui::Key::Space));
+                    let space_down = ui.input(|i| i.key_down(egui::Key::Space))
+                        && !crate::panels::dialog_helpers::blocks_local_dialog_enter(ui.ctx());
                     let panning_started = board_resp.drag_started_by(egui::PointerButton::Middle)
                         || (board_resp.drag_started() && space_down);
                     if panning_started {

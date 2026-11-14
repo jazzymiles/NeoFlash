@@ -517,7 +517,7 @@ impl Editor {
 
         if !close_cancel && !close_ok {
             let typing = ctx.wants_keyboard_input();
-            let popup_open = egui::Popup::is_any_open(ctx);
+            let popup_open = super::dialog_helpers::is_any_popup_open(ctx);
             if !typing
                 && !popup_open
                 && ctx.input_mut(|i| {

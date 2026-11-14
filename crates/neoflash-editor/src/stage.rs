@@ -3217,13 +3217,14 @@ impl Editor {
 
         // 2. Asset Warp (`Tool::AssetWarp`) direct Stage pin creation, selection, dragging & mesh overlay
         if self.tool == Tool::AssetWarp {
+            let allow_delete = !self.blocks_unmodified_shortcuts(ui.ctx());
             for event in &events {
                 match *event {
                     egui::Event::Key {
                         key: egui::Key::Delete | egui::Key::Backspace,
                         pressed: true,
                         ..
-                    } => {
+                    } if allow_delete => {
                         if let Some(pin_id) = self.vector.selected_warp_pin.clone() {
                             let _ = self.remove_asset_warp_pin(&pin_id);
                         }

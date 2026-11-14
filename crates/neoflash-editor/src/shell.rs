@@ -422,7 +422,7 @@ impl Editor {
     /// View shortcuts: ⌘= / ⌘− zoom, ⌘1 100 %, ⌘0 fit (skipped while typing).
     pub(crate) fn view_shortcuts(&mut self, ctx: &egui::Context) {
         use crate::commands::CommandId;
-        if ctx.wants_keyboard_input() {
+        if self.blocks_unmodified_shortcuts(ctx) {
             return;
         }
         self.stage_view_shortcuts(ctx);

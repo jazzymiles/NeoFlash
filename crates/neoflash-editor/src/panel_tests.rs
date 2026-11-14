@@ -9727,3 +9727,709 @@ fn t291_actions_debugger_and_output_tooltip_and_shortcut_hygiene() {
             .any(|(_, node)| node.label() == Some("Show code hint"))
     );
 }
+
+/// Helper wrapping [`Driver`] with AccessKit node tracking so T-300 keyboard-navigation tests can
+/// move focus via real `Tab` presses and assert exact focused control labels/roles.
+struct T300Driver {
+    inner: Driver,
+    nodes: std::collections::HashMap<
+        egui::accesskit::NodeId,
+        (Option<String>, egui::accesskit::Role, Option<Rect>),
+    >,
+    focused_id: Option<egui::accesskit::NodeId>,
+}
+
+impl T300Driver {
+    fn new(project: Project) -> Self {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, project);
+        let out = full_frame(&mut editor, &ctx, 0.1, vec![]);
+        let mut this = Self {
+            inner: Driver {
+                ctx,
+                editor,
+                time: 0.1,
+                out,
+            },
+            nodes: std::collections::HashMap::new(),
+            focused_id: None,
+        };
+        this.record_ax();
+        this.step(vec![]);
+        this
+    }
+
+    fn record_ax(&mut self) {
+        if let Some(u) = self.inner.out.platform_output.accesskit_update.as_ref() {
+            for (id, node) in &u.nodes {
+                let bounds = node.bounds().map(|r| {
+                    Rect::from_min_max(
+                        Pos2::new(r.x0 as f32, r.y0 as f32),
+                        Pos2::new(r.x1 as f32, r.y1 as f32),
+                    )
+                });
+                self.nodes
+                    .insert(*id, (node.label().map(str::to_owned), node.role(), bounds));
+            }
+            self.focused_id = Some(u.focus);
+        }
+    }
+
+    fn step(&mut self, events: Vec<Event>) {
+        self.inner.step(events);
+        self.record_ax();
+    }
+
+    fn settle(&mut self) {
+        self.step(vec![]);
+        self.step(vec![]);
+    }
+
+    fn find(&self, label: &str) -> Option<Rect> {
+        self.inner.find(label).or_else(|| {
+            self.nodes.values().find_map(|(n_label, role, bounds)| {
+                (n_label.as_deref() == Some(label) && *role != egui::accesskit::Role::Tab)
+                    .then_some(*bounds)
+                    .flatten()
+            })
+        })
+    }
+
+    fn click(&mut self, label: &str) {
+        let at = self
+            .find(label)
+            .unwrap_or_else(|| panic!("{label:?} is not shown; visible: {:?}", self.inner.labels()))
+            .center();
+        self.inner.press(at, egui::PointerButton::Primary);
+        self.record_ax();
+    }
+
+    fn focused(&self) -> Option<(Option<&str>, egui::accesskit::Role)> {
+        let id = self.focused_id?;
+        self.nodes
+            .get(&id)
+            .map(|(label, role, _)| (label.as_deref(), *role))
+    }
+
+    fn key_tap(&mut self, key: egui::Key, modifiers: egui::Modifiers) {
+        self.step(vec![Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }]);
+        self.step(vec![Event::Key {
+            key,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers,
+        }]);
+    }
+
+    fn tab_until(&mut self, target_label: &str, max_steps: usize) -> egui::accesskit::Role {
+        let mut seen = Vec::new();
+        for _ in 0..max_steps {
+            self.key_tap(egui::Key::Tab, egui::Modifiers::NONE);
+            if let Some((Some(name), role)) = self.focused() {
+                if name == target_label {
+                    assert!(
+                        self.inner.ctx.wants_keyboard_input(),
+                        "{target_label:?} focused via Tab must report wants_keyboard_input()"
+                    );
+                    return role;
+                }
+                if seen.last().map(String::as_str) != Some(name) {
+                    seen.push(name.to_owned());
+                }
+            }
+        }
+        panic!(
+            "Tab navigation did not reach {target_label:?} within {max_steps} steps; visited: {seen:?}"
+        );
+    }
+
+    fn space_drag_stage(&mut self) {
+        let center = self.inner.editor.stage_view.canvas.center();
+        self.step(vec![Event::Key {
+            key: egui::Key::Space,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+        self.step(vec![
+            Event::PointerMoved(center),
+            Event::PointerButton {
+                pos: center,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+        self.step(vec![Event::PointerMoved(center + Vec2::new(60.0, 35.0))]);
+        self.step(vec![
+            Event::PointerButton {
+                pos: center + Vec2::new(60.0, 35.0),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+            Event::Key {
+                key: egui::Key::Space,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+        self.settle();
+    }
+}
+
+#[test]
+fn t300_tab_focused_buttons_activate_on_enter_and_space_without_global_shortcuts() {
+    use crate::app::Tool;
+
+    let mut d = T300Driver::new(Project::blank());
+    d.inner.editor.project.symbols[0].timeline.frame_count = 10;
+    d.inner.editor.set_tool(Tool::Select);
+    d.inner.editor.fill = [255, 255, 255, 255];
+    d.inner.editor.stroke = [10, 20, 30, 255];
+    d.settle();
+
+    // 1. Tab-focused ToolButton ("Brush (B)") + Enter activates Brush WITHOUT toggling ControlPlay.
+    let role = d.tab_until("Brush (B)", 250);
+    assert_eq!(role, egui::accesskit::Role::Button);
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert_eq!(d.inner.editor.tool, Tool::Brush);
+    assert!(
+        !d.inner.editor.playing,
+        "Enter on focused ToolButton must not start playback"
+    );
+
+    // 2. Tab-focused IconButton ("Swap colors") + Space + Stage drag swaps colours WITHOUT panning Stage.
+    d.inner.editor.set_tool(Tool::Select);
+    d.inner.editor.pan = Vec2::ZERO;
+    d.settle();
+    let role = d.tab_until("Swap colors", 250);
+    assert_eq!(role, egui::accesskit::Role::Button);
+    d.space_drag_stage();
+    assert_eq!(d.inner.editor.fill, [10, 20, 30, 255]);
+    assert_eq!(d.inner.editor.stroke, [255, 255, 255, 255]);
+    assert_eq!(
+        d.inner.editor.pan,
+        Vec2::ZERO,
+        "Space on focused IconButton must not trigger Stage Space-pan"
+    );
+    assert!(!d.inner.editor.playing);
+
+    // 3. Tab-focused Button ("Publish settings…") + Space opens dialog mid-frame WITHOUT Stage pan.
+    d.inner.editor.clear_selection();
+    d.settle();
+    let role = d.tab_until("Publish settings…", 250);
+    assert_eq!(role, egui::accesskit::Role::Button);
+    d.space_drag_stage();
+    assert!(
+        d.inner.editor.has_modal_dialog_in(&d.inner.ctx),
+        "Space on focused Properties Button must open Publish settings"
+    );
+    assert_eq!(
+        d.inner.editor.pan,
+        Vec2::ZERO,
+        "Space activating a mid-frame modal/focus-clearing Button must not bleed into Stage Space-pan"
+    );
+    assert!(!d.inner.editor.playing);
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!d.inner.editor.has_modal_dialog_in(&d.inner.ctx));
+}
+
+#[test]
+fn t300_tab_focused_checkbox_radio_select_slider_suppress_single_key_shortcuts() {
+    use crate::app::Tool;
+
+    let mut project = Project::blank();
+    let mut png_bytes = Vec::new();
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([91, 140, 255, 255]))
+        .write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    let bmp_res = "bmp_t300".to_owned();
+    project.resources.push(
+        ResourceUnit::from_bytes(&bmp_res, "assets/t300.png", "image/png", &png_bytes).unwrap(),
+    );
+    let sym_id = "sym_graphic".to_owned();
+    project.symbols.push(Symbol {
+        id: sym_id.clone(),
+        name: "GraphicClip".into(),
+        kind: SymbolKind::Graphic,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 5,
+            guides: vec![],
+            scripts: vec![],
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: new_id("object"),
+                        name: "rect_sym".into(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Rectangle {
+                            width: 40.,
+                            height: 40.,
+                            fill: [80, 120, 220, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Default::default()
+                }],
+            }],
+        },
+    });
+
+    let mut d = T300Driver::new(project);
+    // Add a Bitmap element to inspect Checkbox ("Smoothing") in Properties.
+    d.inner.editor.add_element(
+        ElementKind::Bitmap {
+            resource_id: bmp_res,
+            width: 2,
+            height: 2,
+            smoothing: false,
+        },
+        40.0,
+        40.0,
+    );
+    let bmp_id = d.inner.editor.symbol().timeline.layers[0]
+        .key_at(0)
+        .unwrap()
+        .elements[0]
+        .id
+        .clone();
+    d.inner.editor.select_single_id(bmp_id);
+    d.inner.editor.set_tool(Tool::Select);
+    d.settle();
+
+    // Checkbox ("Smoothing"): B / Enter / Space + drag must not switch tool, play, pan, or delete.
+    let role = d.tab_until("Smoothing", 250);
+    assert_eq!(role, egui::accesskit::Role::CheckBox);
+    d.key_tap(egui::Key::B, egui::Modifiers::NONE);
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    d.key_tap(egui::Key::Backspace, egui::Modifiers::NONE);
+    assert_eq!(d.inner.editor.tool, Tool::Select);
+    assert!(!d.inner.editor.playing);
+    assert!(!d.inner.editor.selection.is_empty());
+    d.space_drag_stage();
+    assert_eq!(d.inner.editor.pan, Vec2::ZERO);
+
+    // Replace stage selection with a Graphic Symbol Instance so Properties exposes
+    // Select ("Graphic"), Radio ("Play once"), and Slider ("Opacity").
+    d.inner.editor.add_element(
+        ElementKind::Instance {
+            symbol_id: sym_id,
+            playback: InstancePlayback::Loop,
+        },
+        120.0,
+        60.0,
+    );
+    let inst_id = d.inner.editor.symbol().timeline.layers[0]
+        .key_at(0)
+        .unwrap()
+        .elements
+        .last()
+        .unwrap()
+        .id
+        .clone();
+    d.inner.editor.select_single_id(inst_id.clone());
+    let expected_sel = d.inner.editor.selection.clone();
+    d.inner.editor.set_tool(Tool::Select);
+    d.inner.ctx.memory_mut(|m| m.request_focus(egui::Id::NULL));
+    d.settle();
+
+    // Select ("Graphic"): B, Backspace blocked while Tab-focused; Space opens popup without Stage pan.
+    let role = d.tab_until("Graphic", 250);
+    assert_eq!(role, egui::accesskit::Role::ComboBox);
+    d.key_tap(egui::Key::B, egui::Modifiers::NONE);
+    d.key_tap(egui::Key::Backspace, egui::Modifiers::NONE);
+    assert_eq!(d.inner.editor.tool, Tool::Select);
+    assert_eq!(d.inner.editor.selection, expected_sel);
+    d.space_drag_stage();
+    assert_eq!(d.inner.editor.pan, Vec2::ZERO);
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    d.inner.editor.select_single_id(inst_id);
+    d.inner.ctx.memory_mut(|m| m.request_focus(egui::Id::NULL));
+    d.settle();
+
+    // Slider ("Opacity"): Tab focus suppresses B, Enter, Backspace, and Space Stage pan.
+    let role = d.tab_until("Opacity", 250);
+    assert_eq!(role, egui::accesskit::Role::Slider);
+    d.key_tap(egui::Key::B, egui::Modifiers::NONE);
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    d.key_tap(egui::Key::Backspace, egui::Modifiers::NONE);
+    assert_eq!(d.inner.editor.tool, Tool::Select);
+    assert!(!d.inner.editor.playing);
+    assert_eq!(d.inner.editor.selection, expected_sel);
+    d.space_drag_stage();
+    assert_eq!(d.inner.editor.pan, Vec2::ZERO);
+
+    // Radio ("Guide" in Layer properties): B / Backspace / Space pan blocked; Space selects Guide.
+    d.inner.editor.open_layer_properties(&d.inner.ctx, 0);
+    d.settle();
+    let role = d.tab_until("Guide", 80);
+    assert_eq!(role, egui::accesskit::Role::RadioButton);
+    d.key_tap(egui::Key::B, egui::Modifiers::NONE);
+    d.key_tap(egui::Key::Backspace, egui::Modifiers::NONE);
+    assert_eq!(
+        d.focused(),
+        Some((Some("Guide"), egui::accesskit::Role::RadioButton)),
+        "Guide radio must keep focus after B/Backspace"
+    );
+    d.key_tap(egui::Key::Space, egui::Modifiers::NONE);
+    assert_eq!(d.inner.editor.tool, Tool::Select);
+    assert_eq!(d.inner.editor.pan, Vec2::ZERO);
+    assert!(!d.inner.editor.playing);
+    assert_eq!(
+        crate::panels::layer_properties::layer_properties_draft(&d.inner.ctx)
+            .expect("layer properties draft open")
+            .kind,
+        crate::panels::layer_properties::LayerTypeChoice::Guide
+    );
+    let ok_role = d.tab_until("OK", 40);
+    assert_eq!(ok_role, egui::accesskit::Role::Button);
+    d.key_tap(egui::Key::Space, egui::Modifiers::NONE);
+    assert_eq!(
+        d.inner.editor.symbol().timeline.layers[0].properties.role,
+        LayerRole::Guide,
+        "dialog_open={} status={:?}",
+        crate::panels::layer_properties::has_layer_properties_dialog(&d.inner.ctx),
+        d.inner.editor.status
+    );
+}
+
+#[test]
+fn t300_open_popups_block_single_key_shortcuts_and_local_modal_enter() {
+    use crate::app::Tool;
+
+    let mut project = Project::blank();
+    project.symbols.push(Symbol {
+        id: "sym_g".into(),
+        name: "Clip".into(),
+        kind: SymbolKind::Graphic,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 4,
+            guides: vec![],
+            scripts: vec![],
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: new_id("object"),
+                        name: "rect_clip".into(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Rectangle {
+                            width: 30.,
+                            height: 30.,
+                            fill: [200, 100, 60, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Default::default()
+                }],
+            }],
+        },
+    });
+
+    let mut d = T300Driver::new(project);
+    d.inner.editor.add_element(
+        ElementKind::Instance {
+            symbol_id: "sym_g".to_owned(),
+            playback: InstancePlayback::Loop,
+        },
+        60.0,
+        60.0,
+    );
+    let inst_id = d.inner.editor.symbol().timeline.layers[0]
+        .key_at(0)
+        .unwrap()
+        .elements[0]
+        .id
+        .clone();
+    d.inner.editor.select_single_id(inst_id.clone());
+    let expected_sel = d.inner.editor.selection.clone();
+    d.inner.editor.set_tool(Tool::Select);
+    d.settle();
+
+    let assert_no_leak = |d: &mut T300Driver, context: &str| {
+        d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+        d.key_tap(egui::Key::B, egui::Modifiers::NONE);
+        d.key_tap(egui::Key::Backspace, egui::Modifiers::NONE);
+        assert!(
+            !d.inner.editor.playing,
+            "{context}: Enter leaked ControlPlay"
+        );
+        assert_eq!(
+            d.inner.editor.tool,
+            Tool::Select,
+            "{context}: B leaked Tool::Brush"
+        );
+        assert_eq!(
+            d.inner.editor.selection, expected_sel,
+            "{context}: Backspace cleared or deleted selection"
+        );
+        assert_eq!(
+            d.inner.editor.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .len(),
+            1,
+            "{context}: Backspace deleted Stage element"
+        );
+        d.space_drag_stage();
+        assert!(
+            !d.inner.editor.playing,
+            "{context}: Space drag leaked ControlPlay"
+        );
+        assert_eq!(
+            d.inner.editor.tool,
+            Tool::Select,
+            "{context}: Space drag leaked tool"
+        );
+        assert_eq!(
+            d.inner.editor.pan,
+            Vec2::ZERO,
+            "{context}: Space leaked Stage pan"
+        );
+        assert_eq!(
+            d.inner.editor.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .len(),
+            1,
+            "{context}: Stage element must stay intact"
+        );
+    };
+
+    // 1. Pointer-opened Select popup (!wants_keyboard_input()) must still block unmodified shortcuts.
+    d.click("Graphic");
+    assert!(d.inner.editor.has_open_popup(&d.inner.ctx));
+    assert_no_leak(&mut d, "Select popup");
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!d.inner.editor.has_open_popup(&d.inner.ctx));
+    d.inner.editor.select_single_id(inst_id.clone());
+    d.settle();
+
+    // 2. Pointer-opened MenuBar menu ("Control") must block unmodified shortcuts.
+    d.click("Control");
+    assert!(d.inner.editor.has_open_popup(&d.inner.ctx));
+    assert_no_leak(&mut d, "MenuBar popup");
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    d.inner.editor.select_single_id(inst_id.clone());
+    d.settle();
+
+    // 3. Tools RailPopover opened by clicking "Fill colour" well blocks shortcuts underneath.
+    d.click("Fill colour");
+    assert!(
+        d.inner.editor.has_open_popup(&d.inner.ctx),
+        "Clicking Fill colour opens Tools RailPopover"
+    );
+    assert_no_leak(&mut d, "Tools RailPopover");
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!d.inner.editor.has_open_popup(&d.inner.ctx));
+
+    // 4. Open Select popup inside a modal dialog (Document settings -> Units) must suppress Enter confirm.
+    d.inner.editor.open_document_settings();
+    d.settle();
+    d.click("Units: Pixels");
+    assert!(d.inner.editor.has_open_popup(&d.inner.ctx));
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert!(
+        d.inner.editor.document_settings.is_some(),
+        "Enter while modal Select popup is open must not confirm/close Document settings"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(d.inner.editor.document_settings.is_some());
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(d.inner.editor.document_settings.is_none());
+
+    // 5. Symbol creation modal: Enter confirms inside Name field unless Type popup is open.
+    d.inner.editor.begin_new_symbol();
+    d.settle();
+    d.click("Movie clip");
+    assert!(d.inner.editor.has_open_popup(&d.inner.ctx));
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert!(
+        d.inner.editor.symbol_conversion.is_some(),
+        "Enter with Type popup open in Symbol dialog must not submit modal"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(d.inner.editor.symbol_conversion.is_some());
+    d.click("Name");
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert!(
+        d.inner.editor.symbol_conversion.is_none(),
+        "Enter inside Symbol Name field confirms and closes dialog"
+    );
+}
+
+#[test]
+fn t300_preserves_text_input_modified_chords_escape_pen_enter_and_unfocused_stage_shortcuts() {
+    use crate::app::Tool;
+
+    let mut d = T300Driver::new(Project::blank());
+    d.inner.editor.add_element(
+        ElementKind::Rectangle {
+            width: 80.0,
+            height: 60.0,
+            fill: [91, 140, 255, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        40.0,
+        50.0,
+    );
+    let rect_id = d.inner.editor.symbol().timeline.layers[0]
+        .key_at(0)
+        .unwrap()
+        .elements[0]
+        .id
+        .clone();
+    d.inner.editor.select_single_id(rect_id.clone());
+    d.inner.editor.set_tool(Tool::Select);
+    d.inner.editor.set_panel_visible(PanelId::Actions, false);
+    d.settle();
+
+    // 1. TextField focus protects against unmodified shortcuts while modified/allow_when_typing chords work.
+    d.click("Position X (px)");
+    assert!(d.inner.ctx.wants_keyboard_input());
+    d.key_tap(egui::Key::B, egui::Modifiers::NONE);
+    assert!(!d.inner.editor.playing);
+    assert_eq!(d.inner.editor.tool, Tool::Select);
+
+    assert!(!d.inner.editor.workspace.is_panel_visible(PanelId::Actions));
+    d.key_tap(egui::Key::F9, egui::Modifiers::NONE);
+    assert!(
+        d.inner.editor.workspace.is_panel_visible(PanelId::Actions),
+        "F9 (allow_when_typing) still opens Actions while TextField has focus"
+    );
+    d.inner.editor.set_panel_visible(PanelId::Actions, false);
+    d.settle();
+
+    d.click("Position X (px)");
+    assert!(d.inner.ctx.wants_keyboard_input());
+    d.key_tap(egui::Key::G, egui::Modifiers::COMMAND);
+    assert_eq!(
+        d.inner.editor.symbol().timeline.layers[0]
+            .properties
+            .groups
+            .len(),
+        1,
+        "Cmd+G (allow_when_typing) still groups selected shape while TextField has focus"
+    );
+
+    // Space + drag while TextField is focused must not start Stage panning.
+    d.click("Position X (px)");
+    assert!(d.inner.ctx.wants_keyboard_input());
+    d.space_drag_stage();
+    assert_eq!(d.inner.editor.pan, Vec2::ZERO);
+
+    // Pressing Enter inside DragField commits without triggering ControlPlay.
+    d.inner.editor.select_single_id(rect_id);
+    d.settle();
+    d.click("Position X (px)");
+    assert!(d.inner.ctx.wants_keyboard_input());
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert!(!d.inner.editor.playing);
+
+    // 2. Escape surrenders TextField focus cleanly, restoring Cmd+Z / single-key Stage shortcuts.
+    d.click("Position X (px)");
+    assert!(d.inner.ctx.wants_keyboard_input());
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!d.inner.ctx.wants_keyboard_input());
+
+    d.key_tap(egui::Key::Z, egui::Modifiers::COMMAND);
+    assert!(
+        d.inner.editor.symbol().timeline.layers[0]
+            .properties
+            .groups
+            .is_empty(),
+        "Cmd+Z works once focus leaves TextField"
+    );
+
+    // 3. Unfocused Stage still responds to single-key tools, Enter playback, Space pan, and Pen Enter finish.
+    d.key_tap(egui::Key::B, egui::Modifiers::NONE);
+    assert_eq!(d.inner.editor.tool, Tool::Brush);
+    d.key_tap(egui::Key::V, egui::Modifiers::NONE);
+    assert_eq!(d.inner.editor.tool, Tool::Select);
+
+    d.inner.editor.project.symbols[0].timeline.frame_count = 5;
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert!(d.inner.editor.playing);
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert!(!d.inner.editor.playing);
+
+    d.space_drag_stage();
+    assert_ne!(
+        d.inner.editor.pan,
+        Vec2::ZERO,
+        "Unfocused Stage still supports Space + drag panning"
+    );
+
+    // 4. Pen Enter commits open Pen path instead of triggering playback.
+    d.inner.editor.pan = Vec2::ZERO;
+    d.inner.editor.set_tool(Tool::Pen);
+    d.settle();
+    let stage_c = d.inner.editor.stage_view.canvas.center();
+    d.inner.press(
+        stage_c + Vec2::new(-30.0, 0.0),
+        egui::PointerButton::Primary,
+    );
+    d.inner.press(
+        stage_c + Vec2::new(30.0, 20.0),
+        egui::PointerButton::Primary,
+    );
+    d.record_ax();
+    assert!(d.inner.editor.vector.draft.is_some());
+    let before_count = d.inner.editor.symbol().timeline.layers[0]
+        .key_at(0)
+        .unwrap()
+        .elements
+        .len();
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert!(
+        d.inner.editor.vector.draft.is_none(),
+        "Enter finishes open Pen path"
+    );
+    assert!(
+        !d.inner.editor.playing,
+        "Pen finish Enter must not toggle playback"
+    );
+    assert!(
+        d.inner.editor.symbol().timeline.layers[0]
+            .key_at(0)
+            .unwrap()
+            .elements
+            .len()
+            > before_count
+    );
+}

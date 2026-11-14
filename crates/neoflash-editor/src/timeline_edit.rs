@@ -922,7 +922,7 @@ impl Editor {
         use crate::commands::CommandId;
         if !self.timeline_edit.focused
             || self.frame_range().is_none()
-            || ctx.wants_keyboard_input()
+            || self.blocks_unmodified_shortcuts(ctx)
             || self.confirm.is_some()
             || self
                 .timeline_edit

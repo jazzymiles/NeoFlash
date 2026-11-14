@@ -2835,13 +2835,13 @@ impl Editor {
     }
 
     /// Consume a matching pressed key event for `cmd` according to the active shortcut set and
-    /// text-editing focus rules.
+    /// widget-focus / popup safety rules.
     pub(crate) fn take_command_shortcut(&self, ctx: &egui::Context, cmd: CommandId) -> bool {
         if take_queued_command(ctx, cmd) {
             return true;
         }
-        let typing = ctx.wants_keyboard_input();
-        if typing && !cmd.allow_when_typing() {
+        let blocked = self.blocks_unmodified_shortcuts(ctx);
+        if blocked && !cmd.allow_when_typing() {
             return false;
         }
         let chords = effective_shortcuts(&self.workspace.shortcuts, cmd);
@@ -2862,7 +2862,7 @@ impl Editor {
                             modifiers,
                             ..
                         } if chords.iter().any(|chord| {
-                            (!typing || chord.is_safe_while_typing())
+                            (!blocked || chord.is_safe_while_typing())
                                 && chord.matches_key_event(*modifiers, *key, *physical_key)
                         })
                     );

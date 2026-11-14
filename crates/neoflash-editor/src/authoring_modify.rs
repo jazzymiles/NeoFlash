@@ -97,6 +97,14 @@ pub(crate) fn close_color_popover(ctx: &egui::Context) {
     ctx.data_mut(|d| d.remove::<ActiveColorPopover>(active_color_popover_id()));
 }
 
+/// Whether the NF2 Color & Fill Type popover is open in `ctx`.
+pub(crate) fn is_color_popover_open(ctx: &egui::Context) -> bool {
+    ctx.data(|d| {
+        d.get_temp::<ActiveColorPopover>(active_color_popover_id())
+            .is_some()
+    })
+}
+
 #[derive(Clone)]
 pub(crate) struct ActiveDistortSession {
     pub symbol: Id,

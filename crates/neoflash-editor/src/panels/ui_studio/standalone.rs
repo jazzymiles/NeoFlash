@@ -60,7 +60,7 @@ impl StandaloneUiStudioApp {
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.wants_keyboard_input() {
+        if crate::panels::dialog_helpers::blocks_local_dialog_enter(ctx) {
             return;
         }
         let mut do_undo = false;
