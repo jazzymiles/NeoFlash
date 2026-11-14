@@ -1797,7 +1797,7 @@ fn preferences_dialog_previews_saves_cancels_and_resets() {
     open(&mut d);
     d.click("Light");
     d.click("Dark Graphite");
-    d.click("Add with ⇧ (otherwise click adds)");
+    d.click("Add with Shift (otherwise click adds)");
     d.click("Save");
     assert!(d.editor.preferences.is_none());
     assert_eq!(d.editor.workspace.theme, ThemeMode::DarkGraphite);

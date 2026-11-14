@@ -560,7 +560,7 @@ fn prefs_general(ui: &mut Ui, draft: &mut PreferencesDraft) {
         bound_switch(
             ui,
             &mut draft.shift_select,
-            "Add with ⇧ (otherwise click adds)",
+            "Add with Shift (otherwise click adds)",
         )
     });
     disabled(ui, |ui| {
@@ -1365,8 +1365,7 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
             state.stop_recording();
         }
         disabled(ui, |ui| {
-            ui.add(c::Button::ghost("Rename"))
-                .on_disabled_hover_text(super::menu::NOT_AVAILABLE);
+            c::not_available(ui.add(c::Button::ghost("Rename")), "Renaming shortcut sets");
         });
         if ui
             .add_enabled(

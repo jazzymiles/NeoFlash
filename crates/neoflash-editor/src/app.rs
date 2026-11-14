@@ -526,7 +526,7 @@ impl Editor {
             script_target: ScriptTarget::Frame, script_event: ObjectEvent::Click,
             selected_source: None, code_feedback: None, actions_ui: Default::default(),
             debugger: Default::default(),
-            status: "Ready · F5 frame · F6 keyframe · F7 blank keyframe · ⌘↵ Test Movie".into(),
+            status: "Ready".into(),
             output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
             fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
             timeline_cell: neoflash_ui::metrics::FRAME, timeline_key_drag: None, timeline_edit: Default::default(), library_selected: None, symbol_conversion: None,
@@ -3440,11 +3440,11 @@ impl Editor {
                             let id = crate::build_info::BuildIdentity::current();
                             ui.vertical(|ui| {
                                 #[cfg(target_os = "macos")]
-                                let edition = "macOS Beta 1";
+                                let edition = "macOS Beta";
                                 #[cfg(target_os = "windows")]
-                                let edition = "Windows x64 Preview";
+                                let edition = "Windows Technical Preview";
                                 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-                                let edition = "Linux x64 Preview";
+                                let edition = "Linux Technical Preview";
                                 ui.label(
                                     rich(
                                         format!("NeoFlash {} — {edition}", id.version),

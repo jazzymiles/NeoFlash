@@ -99,7 +99,7 @@ impl StandaloneUiStudioApp {
                 self.state.commit_history("Duplicate node");
                 if let Some(dup_id) = self.state.document.duplicate_node(sel) {
                     self.state.select_single(dup_id);
-                    self.state.status_message = "Duplicated selected node (⌘D).".to_owned();
+                    self.state.status_message = "Duplicated selected node.".to_owned();
                 }
             }
         } else if do_del {
@@ -121,7 +121,7 @@ impl StandaloneUiStudioApp {
                 .state
                 .save_studio_json(Path::new(DEFAULT_STUDIO_JSON_PATH))
             {
-                self.state.status_message = format!("Saved overrides to {} (⌘S)", saved.display());
+                self.state.status_message = format!("Saved overrides to {}", saved.display());
             }
         } else if do_export {
             let _ = self
@@ -133,7 +133,7 @@ impl StandaloneUiStudioApp {
             {
                 self.state.inspector_tab = StudioInspectorTab::CodeExport;
                 self.state.status_message =
-                    format!("Exported Rust build code to {} (⌘E)", saved.display());
+                    format!("Exported Rust build code to {}", saved.display());
             }
         }
     }
