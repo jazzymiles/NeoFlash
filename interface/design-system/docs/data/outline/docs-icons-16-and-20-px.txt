@@ -132,3 +132,14 @@ F Shelf / Icons · 16 and 20 px 700×178 [V gap 12]
     F NF2 Icon/16/folderplus 16×16
     F NF2 Icon/16/guideplus 16×16
     F NF2 Icon/16/centerframe 16×16
+    F NF2 Icon/16/mask-geometry 16×16
+    F NF2 Icon/16/mask-alpha 16×16
+    F NF2 Icon/16/mask-luma 16×16
+    F NF2 Icon/16/mask-invert 16×16
+    F NF2 Icon/16/tool-puppet 16×16
+    F NF2 Icon/16/tool-bone 16×16
+    F NF2 Icon/16/tool-bind 16×16
+    F NF2 Icon/16/tool-deco 16×16
+    F NF2 Icon/16/tool-spray 16×16
+    F NF2 Icon/16/tool-3d-translate 16×16
+    F NF2 Icon/16/tool-3d-rotate 16×16

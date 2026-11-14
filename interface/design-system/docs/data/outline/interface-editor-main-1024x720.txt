@@ -1,0 +1,365 @@
+F NF2 / Editor — Main — 1024 × 720 1024×720
+  F Top bar 1024×48 [H gap 4]
+    I NF2/Logo 28×28
+    T "NeoFlash"
+    F gap 8×4
+    I NF2/Button {Icon=false, Label=File, Type=Ghost, State=Default} 43×32 "File"
+    I NF2/Button {Icon=false, Label=Edit, Type=Ghost, State=Default} 45×32 "Edit"
+    I NF2/Button {Icon=false, Label=View, Type=Ghost, State=Default} 50×32 "View"
+    I NF2/Button {Icon=false, Label=Insert, Type=Ghost, State=Default} 55×32 "Insert"
+    I NF2/Button {Icon=false, Label=Modify, Type=Ghost, State=Default} 61×32 "Modify"
+    I NF2/Button {Icon=false, Label=Control, Type=Ghost, State=Default} 63×32 "Control"
+    I NF2/Button {Icon=false, Label=Document, Type=Ghost, State=Default} 79×32 "Document"
+    I NF2/Button {Icon=false, Label=Window, Type=Ghost, State=Default} 67×32 "Window"
+    I NF2/Button {Icon=false, Label=Help, Type=Ghost, State=Default} 49×32 "Help"
+    F Spacer 10×4
+    I NF2/Select {Label=Classic, State=Default} 132×32 "Classic"
+    I NF2/Button {Icon=true, Label=Test Movie, Type=Secondary, State=Default} 108×32 "Test Movie"
+    I NF2/Button {Icon=true, Label=Publish, Type=Primary, State=Default} 87×32 "Publish"
+  I NF2/Tools Panel {Layout=2 Columns} 82×320
+  F Canvas 616×320
+    F Stage — "Ideas in motion" (user content, vector) 432×271
+      T "NEOFLASH / MOTION STUDY 01"
+      T "Ideas in motion."
+      T "One symbol. Many possibilities."
+      T "A familiar timeline. A modern canvas."
+      T "BUILT TO BE INTERACTIVE"
+      T "CLICK THE ORBIT IN WEB PREVIEW"
+      T "EDIT A SYMBOL  ·  SCRUB THE TIMELINE  ·  EXPORT HTML5"
+    I NF2/Stage Grid 432×271
+    F Guides 1544×588
+      I NF2/Guide {Orientation=Vertical, State=Default} 9×528
+      I NF2/Guide {Orientation=Vertical, State=Default} 9×528
+      I NF2/Guide {Orientation=Horizontal, State=Selected} 1524×9
+    F Rulers 1544×588
+      I NF2/Stage Ruler {Orientation=Vertical} 20×1000 "-200" "-100" "0" "100" "200" "300" "400" "500" "600" "700" "800" "900"
+      I NF2/Stage Ruler {Orientation=Horizontal} 1600×20 "-500" "-400" "-300" "-200" "-100" "0" "100" "200" "300" "400" "500" "600"
+      I NF2/Ruler Corner 20×20
+    F Scene selector 107×34 [H gap 6]
+      I NF2 Icon/16/scene 16×16
+      T "Scene 1"
+      I NF2 Icon/16/chevdown 16×16
+    F Stage info 79×22 [H gap 8]
+      I NF2/Badge {Label=960 × 600, Type=Neutral} 79×22 "960 × 600"
+    I NF2/Zoom Control 365×42 "45%"
+  F Inspector 320×360 [V gap 0]
+    F Properties 319×320 [V gap 0]
+      I NF2/Panel Header 319×40 "Properties"
+      F Body 319×402 [V gap 12]
+        I NF2/Section Header {Label=Stage, State=Expanded} 287×32 "Stage"
+        I NF2/Field {Show prefix=true, Prefix=Name, Label=Ideas in motion, State=Default} 287×32 "Name" "Ideas in motion"
+        F Size 287×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 119×32 "W" "960"
+          I NF2/Field {Show prefix=true, Prefix=H, Label=600, State=Default} 120×32 "H" "600"
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Background 287×32 [H gap 8]
+          I NF2/Swatch 22×22
+          I NF2/Field {Show prefix=false, Prefix=W, Label=#131824, State=Default} 116×32 "W" "#131824"
+          I NF2/Field {Show prefix=true, Prefix=α, Label=100 %, State=Default} 133×32 "α" "100 %"
+        I NF2/Section Header {Label=Playback, State=Expanded} 287×32 "Playback"
+        F Playback row 287×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=FPS, Label=24, State=Default} 139×32 "FPS" "24"
+          I NF2/Field {Show prefix=true, Prefix=Frames, Label=120, State=Default} 140×32 "Frames" "120"
+        I NF2/Section Header {Label=Publish, State=Expanded} 287×32 "Publish"
+        F Publish row 170×62 [V gap 8]
+          I NF2/Badge {Label=HTML5 · Rust / WebAssembly, Type=Accent} 170×22 "HTML5 · Rust / WebAssembly"
+          I NF2/Button {Icon=false, Label=Publish settings…, Type=Secondary, State=Default} 119×32 "Publish settings…"
+    F Library 319×40 [V gap 0]
+      I NF2/Panel Header 319×40 "Library"
+      F Body 319×216 [V gap 8]
+        I NF2/Search {Label=Search library, State=Empty} 303×32 "Search library"
+        I NF2/Tree Item {Label=Library root, Type=Folder Open, Selected=True} 303×32 "Library root"
+        F indent 303×32 [H gap 0]
+          I NF2/Tree Item {Label=Orbit, Type=Symbol, Selected=False} 283×32 "Orbit"
+        F indent 303×32 [H gap 0]
+          I NF2/Tree Item {Label=Spark, Type=Symbol, Selected=False} 283×32 "Spark"
+        I NF2/Tree Item {Label=Resource files (0), Type=Folder Closed, Selected=False} 303×32 "Resource files (0)"
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  F Bottom dock 1024×288 [V gap 0]
+    F Dock tabs 1024×40 [H gap 0]
+      I NF2/Dock Tab {Label=Timeline, State=Active} 97×40 "Timeline"
+      I NF2/Dock Tab {Label=Actions, State=Inactive} 92×40 "Actions"
+      I NF2/Dock Tab {Label=Output, State=Inactive} 89×40 "Output"
+      F Spacer 698×4
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+    F Timeline controls 1024×44 [H gap 8]
+      F Layer actions 134×32 [H gap 2]
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Frame 128×4
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      F Transport 168×32 [H gap 2]
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Primary, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+      F Timecode 122×14 [H gap 8]
+        T "30 / 120"
+        T "00:01.21"
+      I NF2/Select {Label=Scene 1, State=Default} 120×32 "Scene 1"
+      I NF2/Field {Show prefix=true, Prefix=FPS, Label=24, State=Default} 92×32 "FPS" "24"
+      I NF2/Field {Show prefix=true, Prefix=Duration, Label=5.00 s, State=Default} 140×32 "Duration" "5.00 s"
+      I NF2/Icon Group {Count=3} 100×34
+      I NF2/Icon Group {Count=3} 100×34
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      F Frame 11×4
+      F Onion skin 134×32 [H gap 2]
+        I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Slider {Value=50} 140×20
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+    F Timeline body 1024×204
+      F TL Layers Header · Mode & Solo 372×32 [H gap 4]
+        T "Layers"
+        F Mode 64×24 [H gap 0]
+          T "Mode"
+        F eye 20×24 [H gap 0]
+          I NF2 Icon/16/eye 16×16
+        F solo 8×24 [H gap 0]
+        F lock 20×24 [H gap 0]
+          I NF2 Icon/16/lock 16×16
+        F outline 20×24 [H gap 0]
+      F TL Layer · labels 372×28 [H gap 4]
+        F Indent 1 14×16
+        F Indent 2 14×16
+        F Disclosure 16×16
+        I NF2 Icon/16/layer 16×16
+        T "labels"
+        I NF2 Icon/16/pencil 16×16
+        F Mode 64×20 [H gap 2]
+          T "Normal"
+        I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×28
+        F Solo off 8×28 [H gap 0]
+        I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×28
+        I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×28
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Span {Type=Static} 468×27
+      I NF2/TL Span {Type=Static} 600×27
+      I NF2/TL Span {Type=Static} 372×27
+      I NF2/TL Marker {Kind=Action Keyframe, Tone=Default} 12×27 "a"
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Frame Label {Label=intro, Kind=Label} 49×27 "intro"
+      I NF2/TL Frame Label {Label=loop, Kind=Comment} 42×27 "loop"
+      I NF2/TL Frame Label {Label=outro, Kind=Label} 49×27 "outro"
+      F TL Layer · character 372×28 [H gap 4]
+        F Indent 1 14×16
+        F Indent 2 14×16
+        I NF2 Icon/16/chevdown 16×16
+        I NF2 Icon/16/folderopen 16×16
+        T "character"
+        I NF2 Icon/16/pencil 16×16
+        F Mode 64×20 [H gap 2]
+          T "Normal"
+        I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×28
+        F Solo off 8×28 [H gap 0]
+        I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×28
+        I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×28
+      I NF2/TL Grid {Kind=Folder} 1440×28
+      F TL Layer · Guide: path 372×28 [H gap 4]
+        F Indent 1 14×16
+        F Indent 2 14×16
+        F Disclosure 16×16
+        I NF2 Icon/16/motionguide 16×16
+        T "Guide: path"
+        I NF2 Icon/16/pencil 16×16
+        F Mode 64×20 [H gap 2]
+        I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×28
+        F Solo off 8×28 [H gap 0]
+        I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×28
+        I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×28
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Span {Type=Static} 1440×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      F TL Layer · ball 372×28 [H gap 4]
+        F Indent 1 14×16
+        F Indent 2 14×16
+        F Disclosure 16×16
+        I NF2 Icon/16/layer 16×16
+        T "ball"
+        I NF2 Icon/16/pencil 16×16
+        F Mode 64×20 [H gap 2]
+          T "Screen"
+        I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×28
+        F Solo on 8×28 [H gap 0]
+        I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×28
+        I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×28
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Span {Type=Classic Tween} 348×27
+      I NF2/TL Span {Type=Classic Tween} 360×27
+      I NF2/TL Span {Type=Static} 192×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Blank Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      F TL Layer · mask 372×28 [H gap 4]
+        F Indent 1 14×16
+        F Indent 2 14×16
+        F Disclosure 16×16
+        I NF2 Icon/16/mask 16×16
+        T "mask"
+        I NF2 Icon/16/pencil 16×16
+        F Mode 64×20 [H gap 2]
+          T "Normal"
+        I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×28
+        F Solo off 8×28 [H gap 0]
+        I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×28
+        I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×28
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Span {Type=Static} 1440×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      F TL Layer · arm 372×28 [H gap 4]
+        F Indent 1 14×16
+        F Indent 2 14×16
+        F Disclosure 16×16
+        I NF2 Icon/16/masked 16×16
+        T "arm"
+        I NF2 Icon/16/pencil 16×16
+        F Mode 64×20 [H gap 2]
+          T "Normal"
+        I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×28
+        F Solo off 8×28 [H gap 0]
+        I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×28
+        I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×28
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Span {Type=Shape Tween} 180×27
+      I NF2/TL Span {Type=Static} 252×27
+      I NF2/TL Marker {Kind=Blank Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      F TL Layer · hand 372×28 [H gap 4]
+        F Indent 1 14×16
+        F Indent 2 14×16
+        F Disclosure 16×16
+        I NF2 Icon/16/masked 16×16
+        T "hand"
+        I NF2 Icon/16/pencil 16×16
+        F Mode 64×20 [H gap 2]
+          T "Multiply"
+        I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×28
+        F Solo on 8×28 [H gap 0]
+        I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×28
+        I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×28
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Span {Type=Motion Tween} 720×27
+      I NF2/TL Span {Type=Selected} 180×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Property Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Property Keyframe, Tone=On Selection} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      F TL Layer · body 372×28 [H gap 4]
+        F Indent 1 14×16
+        F Indent 2 14×16
+        F Disclosure 16×16
+        I NF2 Icon/16/layer 16×16
+        T "body"
+        I NF2 Icon/16/pencil 16×16
+        F Mode 64×20 [H gap 2]
+          T "Multiply"
+        I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×28
+        F Solo off 8×28 [H gap 0]
+        I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×28
+        I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×28
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Span {Type=Classic Tween} 228×27
+      I NF2/TL Span {Type=Broken Tween} 240×27
+      I NF2/TL Span {Type=Static} 972×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      F TL Layer · background 372×28 [H gap 4]
+        F Indent 1 14×16
+        F Indent 2 14×16
+        I NF2 Icon/16/chevright 16×16
+        I NF2 Icon/16/folder 16×16
+        T "background"
+        I NF2 Icon/16/pencil 16×16
+        F Mode 64×20 [H gap 2]
+          T "Normal"
+        I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×28
+        F Solo off 8×28 [H gap 0]
+        I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×28
+        I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×28
+      I NF2/TL Grid {Kind=Folder} 1440×28
+      F TL Layer · Guide: sketch 372×28 [H gap 4]
+        F Indent 1 14×16
+        F Indent 2 14×16
+        F Disclosure 16×16
+        I NF2 Icon/16/guide 16×16
+        T "Guide: sketch"
+        I NF2 Icon/16/pencil 16×16
+        F Mode 64×20 [H gap 2]
+        I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×28
+        F Solo off 8×28 [H gap 0]
+        I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×28
+        I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×28
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Span {Type=Static} 1440×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      F TL Layer · music.mp3 372×28 [H gap 4]
+        F Indent 1 14×16
+        F Indent 2 14×16
+        F Disclosure 16×16
+        I NF2 Icon/16/waveform 16×16
+        T "music.mp3"
+        I NF2 Icon/16/pencil 16×16
+        F Mode 64×20 [H gap 2]
+        I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×28
+        F Solo off 8×28 [H gap 0]
+        I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×28
+        I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×28
+      I NF2/TL Grid {Kind=Layer} 1440×28
+      I NF2/TL Grid Lines 1440×28
+      I NF2/TL Span {Type=Sound} 1440×27
+      I NF2/TL Marker {Kind=Keyframe, Tone=Default} 12×27
+      I NF2/TL Marker {Kind=Span End, Tone=Default} 12×27
+      I NF2/TL Ruler 1440×32 "1" "5" "10" "15" "20" "25" "30" "35" "40" "45" "50" "55"
+      I NF2/TL Onion Range 84×24
+      I NF2/TL Playhead {Time=1.21s, Frame=30} 24×480 "30" "1.21s"
+  F Status bar 1024×24 [H gap 12]
+    T "Ready"
+    T "Stage 960 × 600 · 24 fps · 120 frames"
+    F Spacer 354×4
+    F Hint 61×20 [H gap 6]
+      I NF2/Kbd 27×20 "F5"
+      T "frame"
+    F Hint 77×20 [H gap 6]
+      I NF2/Kbd 27×20 "F6"
+      T "keyframe"
+    F Hint 106×20 [H gap 6]
+      I NF2/Kbd 27×20 "F7"
+      T "blank keyframe"
+    F Hint 94×20 [H gap 6]
+      I NF2/Kbd 36×20 "⌘ ↵"
+      T "Test Movie"
+  F Document bar 616×40 [H gap 2]
+    I NF2/Document Tab {Label=Ideas in motion, State=Active, Dirty=True} 145×32 "Ideas in motion"
+    I NF2/Document Tab {Label=banner_300×250, State=Inactive, Dirty=False} 166×32 "banner_300×250"
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  I NF2/Panel Header 88×40 "Tools"

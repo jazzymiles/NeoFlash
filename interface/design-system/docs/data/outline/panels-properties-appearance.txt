@@ -1,0 +1,136 @@
+F Properties — Appearance 680×1082 [H gap 40]
+  F Panel / Properties — Appearance — paints 320×698 [V gap 0]
+    I NF2/Panel Header 318×40 "Properties"
+    F Body 318×656 [V gap 12]
+      I NF2/Section Header {Label=Graphic style, State=Expanded} 286×32 "Graphic style"
+      I NF2/Select {Label=Style: Brand outline, State=Default} 286×32 "Style: Brand outline"
+      F Row 286×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Save style…, Type=Secondary, State=Default} 89×32 "Save style…"
+        I NF2/Button {Icon=false, Label=Unlink, Type=Ghost, State=Default} 57×32 "Unlink"
+        I NF2/Button {Icon=false, Label=Delete, Type=Ghost, State=Default} 59×32 "Delete"
+      I NF2/Section Header {Label=Appearance, State=Expanded} 286×32 "Appearance"
+      F Item / Fill 286×112 [V gap 8]
+        F Row 286×32 [H gap 2]
+          I NF2/Checkbox {Label=Fill, Checked=True} 41×18 "Fill"
+          F Spacer 141×4
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Color Field {Alpha=100 %, Hex=6C93FF} 286×32 "6C93FF" "100 %"
+        F Row 286×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=dX, Label=0, State=Default} 139×32 "dX" "0"
+          I NF2/Field {Show prefix=true, Prefix=dY, Label=0, State=Default} 139×32 "dY" "0"
+      F Item / Fill 2 286×112 [V gap 8]
+        F Row 286×32 [H gap 2]
+          I NF2/Checkbox {Label=Fill, Checked=True} 41×18 "Fill"
+          F Spacer 141×4
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Color Field {Alpha=40 %, Hex=131824} 286×32 "131824" "40 %"
+        F Row 286×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=dX, Label=4, State=Default} 139×32 "dX" "4"
+          I NF2/Field {Show prefix=true, Prefix=dY, Label=4, State=Default} 139×32 "dY" "4"
+      F Item / Stroke 286×112 [V gap 8]
+        F Row 286×32 [H gap 2]
+          I NF2/Checkbox {Label=Stroke, Checked=True} 60×18 "Stroke"
+          F Spacer 122×4
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Color Field {Alpha=100 %, Hex=F1F4FA} 286×32 "F1F4FA" "100 %"
+        F Row 286×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=W, Label=2 px, State=Default} 139×32 "W" "2 px"
+          I NF2/Field {Show prefix=true, Prefix=Offset, Label=0, State=Default} 139×32 "Offset" "0"
+      F Row 286×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Add fill, Type=Secondary, State=Default} 63×32 "Add fill"
+        I NF2/Button {Icon=false, Label=Add stroke, Type=Secondary, State=Default} 84×32 "Add stroke"
+      I NF2/Button {Icon=false, Label=Expand appearance, Type=Ghost, State=Default} 129×32 "Expand appearance"
+  F Panel / Properties — Appearance — modifiers and effects 320×1082 [V gap 0]
+    I NF2/Panel Header 318×40 "Properties"
+    F Body 318×1040 [V gap 12]
+      I NF2/Section Header {Label=Path modifiers, State=Expanded} 286×32 "Path modifiers"
+      I NF2/Select {Label=Add modifier, State=Default} 286×32 "Add modifier"
+      F Item / Offset path 286×72 [V gap 8]
+        F Row 286×32 [H gap 2]
+          T "Offset path"
+          F Spacer 122×4
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Field {Show prefix=true, Prefix=Offset, Label=4 px, State=Default} 286×32 "Offset" "4 px"
+      F Item / Round corners 286×72 [V gap 8]
+        F Row 286×32 [H gap 2]
+          T "Round corners"
+          F Spacer 105×4
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Field {Show prefix=true, Prefix=Radius, Label=8 px, State=Default} 286×32 "Radius" "8 px"
+      F Item / Repeater 286×152 [V gap 8]
+        F Row 286×32 [H gap 2]
+          T "Repeater"
+          F Spacer 134×4
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Row 286×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=Copies, Label=5, State=Default} 139×32 "Copies" "5"
+          I NF2/Field {Show prefix=true, Prefix=Scale, Label=90 %, State=Default} 139×32 "Scale" "90 %"
+        F Row 286×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=dX, Label=24, State=Default} 139×32 "dX" "24"
+          I NF2/Field {Show prefix=true, Prefix=dY, Label=0, State=Default} 139×32 "dY" "0"
+        I NF2/Field {Show prefix=true, Prefix=Rotation, Label=15°, State=Default} 286×32 "Rotation" "15°"
+      F Item / Mirror 286×98 [V gap 8]
+        F Row 286×32 [H gap 2]
+          T "Mirror"
+          F Spacer 150×4
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Row 286×18 [H gap 16]
+          I NF2/Checkbox {Label=Mirror X, Checked=True} 68×18 "Mirror X"
+          I NF2/Checkbox {Label=Mirror Y, Checked=False} 68×18 "Mirror Y"
+        F Row 286×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=X, Label=480, State=Default} 139×32 "X" "480"
+          I NF2/Field {Show prefix=true, Prefix=Y, Label=300, State=Default} 139×32 "Y" "300"
+      I NF2/Section Header {Label=Vector effects, State=Expanded} 286×32 "Vector effects"
+      I NF2/Select {Label=Add effect, State=Default} 286×32 "Add effect"
+      F Item / Zig zag 286×98 [V gap 8]
+        F Row 286×32 [H gap 2]
+          T "Zig zag"
+          F Spacer 143×4
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Row 286×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=Size, Label=6 px, State=Default} 139×32 "Size" "6 px"
+          I NF2/Field {Show prefix=true, Prefix=Ridges, Label=4, State=Default} 139×32 "Ridges" "4"
+        I NF2/Checkbox {Label=Smooth, Checked=False} 67×18 "Smooth"
+      F Item / Pucker and bloat 286×72 [V gap 8]
+        F Row 286×32 [H gap 2]
+          T "Pucker and bloat"
+          F Spacer 93×4
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Field {Show prefix=true, Prefix=Amount, Label=20 %, State=Default} 286×32 "Amount" "20 %"
+      F Item / Roughen 286×112 [V gap 8]
+        F Row 286×32 [H gap 2]
+          T "Roughen"
+          F Spacer 135×4
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Row 286×32 [H gap 8]
+          I NF2/Field {Show prefix=true, Prefix=Size, Label=3 px, State=Default} 139×32 "Size" "3 px"
+          I NF2/Field {Show prefix=true, Prefix=Detail, Label=10, State=Default} 139×32 "Detail" "10"
+        I NF2/Field {Show prefix=true, Prefix=Seed, Label=1, State=Default} 286×32 "Seed" "1"
+      F Item / Twist 286×72 [V gap 8]
+        F Row 286×32 [H gap 2]
+          T "Twist"
+          F Spacer 153×4
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Field {Show prefix=true, Prefix=Angle, Label=30°, State=Default} 286×32 "Angle" "30°"

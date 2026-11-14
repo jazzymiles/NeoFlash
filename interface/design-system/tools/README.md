@@ -14,6 +14,11 @@ exports (no screenshot shadow padding).
    `Plugins → Development → Import plugin from manifest…` → `tools/export-plugin/manifest.json`.
 3. `Plugins → Development → NeoFlash Export` → **Export**. Takes about 1–3 minutes.
 
+Leave **Icons & cursors** unticked (the default). `exports/icons/{12,16,20}` are hinted optical masters maintained in
+the repository and checked by `crates/neoflash-ui/tests/icon_masters.rs`; Figma's SVG export of the same components
+drops explicit stroke widths and round caps and outlines some strokes. If the masters were overwritten, restore them
+with `git checkout HEAD -- interface/design-system/exports/icons`.
+
 What it writes:
 
 | Path | Content |

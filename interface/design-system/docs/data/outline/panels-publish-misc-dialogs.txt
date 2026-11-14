@@ -1,4 +1,4 @@
-F Publish & misc — dialogs 1000×2116 [V gap 32]
+F Publish & misc — dialogs 1000×2365 [V gap 32]
   F Panel / Color — Bitmap fill 280×464 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 278×36 "Color" "Swatches" "Panel"
     F Body 278×426 [V gap 12]
@@ -28,11 +28,15 @@ F Publish & misc — dialogs 1000×2116 [V gap 32]
           I NF2/Field {Show prefix=true, Prefix=Width, Label=1.0 px, State=Default} 122×32 "Width" "1.0 px"
           I NF2/Select {Label=Solid, State=Default} 124×32 "Solid"
       I NF2/Button {Icon=false, Label=Add to swatches, Type=Secondary, State=Default} 254×32 "Add to swatches"
-  F Dialog / Publish settings 900×521 [V gap 0]
+  F Dialog / Publish settings 900×770 [V gap 0]
     I NF2/Dialog Header 898×60 "Publish settings"
-    F Main 898×394 [H gap 24]
-      F Targets 260×192 [V gap 2]
+    F Main 898×643 [H gap 24]
+      F Targets 260×226 [V gap 2]
         I NF2/Select {Label=Profile: Default, State=Default} 260×32 "Profile: Default"
+        F Profile actions 260×32 [H gap 0]
+          I NF2/Button {Icon=false, Label=Duplicate, Type=Ghost, State=Default} 74×32 "Duplicate"
+          I NF2/Button {Icon=false, Label=Import JSON, Type=Ghost, State=Default} 92×32 "Import JSON"
+          I NF2/Button {Icon=false, Label=Export JSON, Type=Ghost, State=Default} 92×32 "Export JSON"
         F Target 260×30 [H gap 8]
           I NF2/Checkbox {Label= , Checked=True} 26×18 " "
           I NF2 Icon/16/globe 16×16
@@ -40,7 +44,7 @@ F Publish & misc — dialogs 1000×2116 [V gap 32]
         F Target 260×30 [H gap 8]
           I NF2/Checkbox {Label= , Checked=False} 26×18 " "
           I NF2 Icon/16/desktop 16×16
-          T "Desktop app (macOS / Windows)"
+          T "Desktop app"
         F Target 260×30 [H gap 8]
           I NF2/Checkbox {Label= , Checked=False} 26×18 " "
           I NF2 Icon/16/video 16×16
@@ -53,41 +57,87 @@ F Publish & misc — dialogs 1000×2116 [V gap 32]
           I NF2/Checkbox {Label= , Checked=False} 26×18 " "
           I NF2 Icon/16/code 16×16
           T "SVG animation"
-      F Settings 566×378 [V gap 12]
+      F Settings 566×627 [V gap 12]
         T "HTML5 · Rust / WebAssembly"
         T "Output"
         F Row 566×32 [H gap 8]
-          I NF2/Field {Show prefix=true, Prefix=File, Label=publish/ideas.html, State=Default} 380×32 "File" "publish/ideas.html"
+          I NF2/Field {Show prefix=true, Prefix=File, Label=publish/ideas.html, State=Default} 523×32 "File" "publish/ideas.html"
           I NF2/Button {Icon=false, Label=…, Type=Secondary, State=Default} 35×32 "…"
         F Row 566×32 [H gap 8]
           I NF2/Checkbox {Label=Include HTML wrapper, Checked=True} 145×18 "Include HTML wrapper"
           I NF2/Select {Label=Template: Responsive, State=Default} 200×32 "Template: Responsive"
         T "Runtime"
-        F Row 566×32 [H gap 8]
-          I NF2/Select {Label=WASM: optimised (−O3), State=Default} 220×32 "WASM: optimised (−O3)"
-          I NF2/Select {Label=Scale: Fit, keep ratio, State=Default} 200×32 "Scale: Fit, keep ratio"
-        F Row 566×18 [H gap 8]
+        F Size level 290×34 [H gap 12]
+          F NF2/Segmented Control — size levels 290×34 [H gap 2]
+            I NF2/Segment {Label=Full, Selected=True} 43×28 "Full"
+            I NF2/Segment {Label=Balanced, Selected=False} 69×28 "Balanced"
+            I NF2/Segment {Label=Compact, Selected=False} 68×28 "Compact"
+            I NF2/Segment {Label=Shared runtime, Selected=False} 98×28 "Shared runtime"
+        F Trade-off 564×16 [H gap 8]
+          I NF2 Icon/16/info 16×16
+          T "Includes the full runtime. Opens directly from disk."
+        F Weight 566×75 [V gap 8]
+          F Weight bar 566×8 [H gap 2]
+          F Legend 566×36 [H gap 16]
+            F Legend item 145×15 [H gap 6]
+              T "WebAssembly"
+              T "1.62 MB"
+            F Legend item 148×15 [H gap 6]
+              T "Runtime scripts"
+              T "410 KB"
+            F Legend item 137×15 [H gap 6]
+              T "Project scripts"
+              T "38 KB"
+            F Legend item 106×15 [H gap 6]
+              T "Content"
+              T "120 KB"
+            F Legend item 120×15 [H gap 6]
+              T "Resources"
+              T "196 KB"
+            F Legend item 87×15 [H gap 6]
+              T "Fonts"
+              T "84 KB"
+            F Legend item 76×15 [H gap 6]
+              T "Page"
+              T "6 KB"
+          F Totals 298×15 [H gap 16]
+            F On disk 96×15 [H gap 6]
+              T "On disk"
+              T "2.47 MB"
+            F Transfer (gzip) 131×15 [H gap 6]
+              T "Transfer (gzip)"
+              T "864 KB"
+            F Files 39×15 [H gap 6]
+              T "Files"
+              T "7"
+        F Row 566×18 [H gap 16]
           I NF2/Checkbox {Label=Loop, Checked=True} 53×18 "Loop"
           I NF2/Checkbox {Label=Autoplay, Checked=True} 72×18 "Autoplay"
           I NF2/Checkbox {Label=Preloader, Checked=True} 76×18 "Preloader"
+          I NF2/Checkbox {Label=Fullscreen, Checked=True} 79×18 "Fullscreen"
           I NF2/Checkbox {Label=Source maps, Checked=False} 94×18 "Source maps"
+        F Row 566×32 [H gap 8]
+          I NF2/Select {Label=Scale: Fit, keep ratio, State=Default} 200×32 "Scale: Fit, keep ratio"
+          I NF2/Select {Label=Align: Center, State=Default} 180×32 "Align: Center"
         T "Assets"
         F Row 566×32 [H gap 8]
           T "JPEG quality"
           I NF2/Slider {Value=50} 160×20
           T "80"
-          I NF2/Select {Label=Audio: MP3 128 kbps, State=Default} 180×32 "Audio: MP3 128 kbps"
-        F Row 566×18 [H gap 8]
+          I NF2/Select {Label=Audio: Original, State=Default} 180×32 "Audio: Original"
+        F Row 566×18 [H gap 16]
           I NF2/Checkbox {Label=Sprite sheets for bitmaps, Checked=True} 157×18 "Sprite sheets for bitmaps"
           I NF2/Checkbox {Label=Embed fonts (subset), Checked=True} 138×18 "Embed fonts (subset)"
+        I NF2/Select {Label=Sequences: Keep individual frames, State=Default} 280×32 "Sequences: Keep individual frames"
         T "Scripts"
         F Row 566×18 [H gap 8]
           I NF2/Switch {Label=Strict mode, On=True} 99×18 "Strict mode"
           I NF2/Switch {Label=Include trace(), On=False} 114×18 "Include trace()"
           I NF2/Switch {Label=Minify, On=True} 70×18 "Minify"
+        I NF2/Section Header {Label=Network startup simulator, State=Collapsed} 566×32 "Network startup simulator"
     F Footer 898×65 [H gap 8]
-      T "Estimated size ~ 1.8 MB · 6 files"
-      F Spacer 477×2
+      T "Full · 2.47 MB · 864 KB gzip · 7 files"
+      F Spacer 460×2
       I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
       I NF2/Button {Icon=false, Label=OK, Type=Secondary, State=Default} 42×32 "OK"
       I NF2/Button {Icon=true, Label=Publish, Type=Primary, State=Default} 87×32 "Publish"

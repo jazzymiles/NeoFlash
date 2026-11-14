@@ -37,6 +37,7 @@ F Shelf / Panels & Tools — icons 948×319 [V gap 16]
     F NF2 Icon/20/tool-pen-add 20×20
     F NF2 Icon/20/tool-pen-remove 20×20
     F NF2 Icon/20/tool-pen-convert 20×20
+    F NF2 Icon/20/tool-puppet 20×20
   F Icon grid · 16 · panels 900×166 [H gap 14]
     F NF2 Icon/16/align-left 16×16
     F NF2 Icon/16/align-hcenter 16×16

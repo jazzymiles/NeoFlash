@@ -1,0 +1,83 @@
+F Productivity — dialogs 2560×496 [H gap 40]
+  F Dialog / Batch rename library items 480×482 [V gap 0]
+    I NF2/Dialog Header 478×60 "Batch rename library items"
+    F Body 478×420 [V gap 12]
+      I NF2/Section Header {Label=Scope, State=Expanded} 430×32 "Scope"
+      I NF2/Select {Label=Selected items / folder, State=Default} 430×32 "Selected items / folder"
+      I NF2/Checkbox {Label=Also rename matching Stage instances, Checked=True} 228×18 "Also rename matching Stage instances"
+      I NF2/Section Header {Label=Affixes and find / replace, State=Expanded} 430×32 "Affixes and find / replace"
+      F Row 430×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=Prefix, Label=hero_, State=Default} 211×32 "Prefix" "hero_"
+        I NF2/Field {Show prefix=true, Prefix=Suffix, Label= , State=Default} 211×32 "Suffix" " "
+      F Row 430×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=Find, Label=copy, State=Default} 211×32 "Find" "copy"
+        I NF2/Field {Show prefix=true, Prefix=Replace, Label= , State=Default} 211×32 "Replace" " "
+      I NF2/Section Header {Label=Sequential numbering, State=Expanded} 430×32 "Sequential numbering"
+      I NF2/Checkbox {Label=Append sequential numbering, Checked=True} 182×18 "Append sequential numbering"
+      F Row 430×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=Start, Label=1, State=Default} 211×32 "Start" "1"
+        I NF2/Field {Show prefix=true, Prefix=Digits, Label=2, State=Default} 211×32 "Digits" "2"
+      F Footer 430×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Rename, Type=Primary, State=Default} 67×32 "Rename"
+  F Dialog / Batch linkage 480×331 [V gap 0]
+    I NF2/Dialog Header 478×60 "Batch linkage (Export for ActionScript)"
+    F Body 478×269 [V gap 12]
+      I NF2/Select {Label=Scope: All library symbols and sounds, State=Default} 430×32 "Scope: All library symbols and sounds"
+      I NF2/Section Header {Label=ActionScript linkage, State=Expanded} 430×32 "ActionScript linkage"
+      I NF2/Checkbox {Label=Export for ActionScript, Checked=True} 145×18 "Export for ActionScript"
+      I NF2/Checkbox {Label=Export in frame 1, Checked=True} 114×18 "Export in frame 1"
+      I NF2/Field {Show prefix=true, Prefix=Prefix, Label=com.example., State=Default} 430×32 "Prefix" "com.example."
+      T "Example class: com.example.HeroWalk"
+      F Footer 430×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Apply, Type=Primary, State=Default} 55×32 "Apply"
+  F Dialog / Batch bitmap compression 480×300 [V gap 0]
+    I NF2/Dialog Header 478×60 "Batch bitmap compression and smoothing"
+    F Body 478×238 [V gap 12]
+      I NF2/Select {Label=Target: All bitmap resources, State=Default} 430×32 "Target: All bitmap resources"
+      T "Compression and quality"
+      I NF2/Select {Label=Compression: Photo (JPEG), State=Default} 430×32 "Compression: Photo (JPEG)"
+      I NF2/Field {Show prefix=true, Prefix=Quality, Label=80, State=Default} 160×32 "Quality" "80"
+      I NF2/Checkbox {Label=Allow smoothing, Checked=True} 112×18 "Allow smoothing"
+      F Footer 430×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Apply, Type=Primary, State=Default} 55×32 "Apply"
+  F Dialog / Auto instance namer 480×320 [V gap 0]
+    I NF2/Dialog Header 478×60 "Auto instance namer"
+    F Body 478×258 [V gap 12]
+      I NF2/Section Header {Label=Naming pattern, State=Expanded} 430×32 "Naming pattern"
+      I NF2/Select {Label=Prefix + sequence (<prefix><index>), State=Default} 430×32 "Prefix + sequence (<prefix><index>)"
+      I NF2/Field {Show prefix=true, Prefix=Prefix, Label=item_, State=Default} 430×32 "Prefix" "item_"
+      F Row 430×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=Start, Label=1, State=Default} 211×32 "Start" "1"
+        I NF2/Field {Show prefix=true, Prefix=Digits, Label=2, State=Default} 211×32 "Digits" "2"
+      I NF2/Checkbox {Label=Only rename unnamed instances when nothing is selected, Checked=False} 329×18 "Only rename unnamed instances when nothing is selected"
+      F Footer 430×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Name instances, Type=Primary, State=Default} 109×32 "Name instances"
+  F Dialog / Randomize selection 480×496 [V gap 0]
+    I NF2/Dialog Header 478×60 "Randomize selection"
+    F Body 478×434 [V gap 12]
+      I NF2/Section Header {Label=Seed, State=Expanded} 430×32 "Seed"
+      I NF2/Field {Show prefix=true, Prefix=Seed, Label=1234, State=Default} 430×32 "Seed" "1234"
+      I NF2/Section Header {Label=Transform and alpha ranges, State=Expanded} 430×32 "Transform and alpha ranges"
+      F Row 430×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=ΔX min, Label=−20, State=Default} 211×32 "ΔX min" "−20"
+        I NF2/Field {Show prefix=true, Prefix=ΔX max, Label=20, State=Default} 211×32 "ΔX max" "20"
+      F Row 430×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=ΔY min, Label=−20, State=Default} 211×32 "ΔY min" "−20"
+        I NF2/Field {Show prefix=true, Prefix=ΔY max, Label=20, State=Default} 211×32 "ΔY max" "20"
+      F Row 430×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=Scale min, Label=80 %, State=Default} 211×32 "Scale min" "80 %"
+        I NF2/Field {Show prefix=true, Prefix=Scale max, Label=120 %, State=Default} 211×32 "Scale max" "120 %"
+      I NF2/Checkbox {Label=Uniform X/Y scale, Checked=True} 119×18 "Uniform X/Y scale"
+      F Row 430×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=Rot min, Label=−15°, State=Default} 211×32 "Rot min" "−15°"
+        I NF2/Field {Show prefix=true, Prefix=Rot max, Label=15°, State=Default} 211×32 "Rot max" "15°"
+      F Row 430×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=Alpha min, Label=60 %, State=Default} 211×32 "Alpha min" "60 %"
+        I NF2/Field {Show prefix=true, Prefix=Alpha max, Label=100 %, State=Default} 211×32 "Alpha max" "100 %"
+      F Footer 430×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Randomize, Type=Primary, State=Default} 83×32 "Randomize"

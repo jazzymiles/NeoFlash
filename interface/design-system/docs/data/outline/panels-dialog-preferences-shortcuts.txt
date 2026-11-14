@@ -38,7 +38,7 @@ F Dialog / Preferences — Shortcuts 920×526 [V gap 0]
           I NF2/Kbd 27×20 "F6"
         F Row / Convert to keyframes 648×35 [H gap 8]
           T "Convert to keyframes"
-          I NF2/Badge {Label=Conflicts with Insert ▸ Keyframe, Type=Warning} 186×22 "Conflicts with Insert ▸ Keyframe"
+          I NF2/Badge {Label=Conflicts with Insert ▸ Keyframe, Type=Warning} 179×22 "Conflicts with Insert ▸ Keyframe"
           I NF2/Kbd 23×20 "⌥"
           I NF2/Kbd 27×20 "F6"
         F Row / Edit ▸ Timeline ▸ Remove frames 648×33 [H gap 8]

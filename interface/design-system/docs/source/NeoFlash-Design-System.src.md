@@ -119,6 +119,9 @@ Page roles:
   component structure.
 - **v2.2 · … (archive 2026-11-09)** — detached reference pages frozen immediately before the v2.25 migration. Do not
   relink these pages to live masters or use them as implementation references.
+- **v2.25 · Interface — Light Neutral Gray, light / draft (archive 2026-11-14)** — an abandoned sketch of a fifth
+  theme, archived by owner decision. NF2 has four themes; these pages and the unused collection mode "Mode 2" are not
+  exported and are not an implementation reference.
 
 ---
 

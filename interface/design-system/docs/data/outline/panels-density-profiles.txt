@@ -1,0 +1,203 @@
+F Density profiles — Comfortable, Compact, Classic Flash 1529×727 [V gap 24]
+  T "Density profiles"
+  T "Window ▸ Density and Preferences switch the profile. Type sizes, icons, colours and spacing tokens stay the same; only the heights and widths below change. Components are drawn at Comfortable size in this file; the two denser profiles are the same components at these metrics."
+  F Row 1465×567 [H gap 32]
+    F Profile / Comfortable 320×439 [V gap 12]
+      T "Comfortable"
+      F Sample panel 320×386 [V gap 0]
+        I NF2/Panel Header 318×40 "Properties"
+        F Body 318×248 [V gap 8]
+          I NF2/Section Header {Label=Position and size, State=Expanded} 294×32 "Position and size"
+          F Row 294×32 [H gap 8]
+            I NF2/Field {Show prefix=true, Prefix=X, Label=96.0, State=Default} 143×32 "X" "96.0"
+            I NF2/Field {Show prefix=true, Prefix=Y, Label=64.0, State=Default} 143×32 "Y" "64.0"
+          I NF2/Select {Label=Blending: Normal, State=Default} 294×32 "Blending: Normal"
+          F Row 294×32 [H gap 8]
+            I NF2/Button {Icon=false, Label=Swap…, Type=Secondary, State=Default} 65×32 "Swap…"
+            I NF2/Button {Icon=false, Label=Apply, Type=Primary, State=Default} 55×32 "Apply"
+          I NF2/Tree Item {Label=Library root, Type=Folder Open, Selected=True} 294×28 "Library root"
+          I NF2/Tree Item {Label=Orbit, Type=Symbol, Selected=False} 294×28 "Orbit"
+        F Row 318×40 [H gap 0]
+          I NF2/Dock Tab {Label=Timeline, State=Active} 97×40 "Timeline"
+          I NF2/Dock Tab {Label=Actions, State=Inactive} 92×40 "Actions"
+        I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=Typography, Type=Layer, Selected=True, Size=Default} 280×28 "Typography"
+        I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=Accents, Type=Layer, Selected=False, Size=Default} 280×28 "Accents"
+      T "control 32 · row 28 · panel header 40 · dock tab 40 · layer row 28"
+    F Profile / Compact 306×387 [V gap 12]
+      T "Compact"
+      F Sample panel 288×334 [V gap 0]
+        I NF2/Panel Header 286×32 "Properties"
+        F Body 286×224 [V gap 8]
+          I NF2/Section Header {Label=Position and size, State=Expanded} 262×28 "Position and size"
+          F Row 262×28 [H gap 8]
+            I NF2/Field {Show prefix=true, Prefix=X, Label=96.0, State=Default} 127×28 "X" "96.0"
+            I NF2/Field {Show prefix=true, Prefix=Y, Label=64.0, State=Default} 127×28 "Y" "64.0"
+          I NF2/Select {Label=Blending: Normal, State=Default} 262×28 "Blending: Normal"
+          F Row 262×28 [H gap 8]
+            I NF2/Button {Icon=false, Label=Swap…, Type=Secondary, State=Default} 65×28 "Swap…"
+            I NF2/Button {Icon=false, Label=Apply, Type=Primary, State=Default} 55×28 "Apply"
+          I NF2/Tree Item {Label=Library root, Type=Folder Open, Selected=True} 262×24 "Library root"
+          I NF2/Tree Item {Label=Orbit, Type=Symbol, Selected=False} 262×24 "Orbit"
+        F Row 286×32 [H gap 0]
+          I NF2/Dock Tab {Label=Timeline, State=Active} 97×32 "Timeline"
+          I NF2/Dock Tab {Label=Actions, State=Inactive} 92×32 "Actions"
+        I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=Typography, Type=Layer, Selected=True, Size=Default} 240×22 "Typography"
+        I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=Accents, Type=Layer, Selected=False, Size=Default} 240×22 "Accents"
+      T "control 28 · row 24 · panel header 32 · dock tab 32 · layer row 22"
+    F Profile / Classic Flash 305×343 [V gap 12]
+      T "Classic Flash"
+      F Sample panel 256×290 [V gap 0]
+        I NF2/Panel Header 254×28 "Properties"
+        F Body 254×200 [V gap 8]
+          I NF2/Section Header {Label=Position and size, State=Expanded} 230×24 "Position and size"
+          F Row 230×24 [H gap 8]
+            I NF2/Field {Show prefix=true, Prefix=X, Label=96.0, State=Default} 111×24 "X" "96.0"
+            I NF2/Field {Show prefix=true, Prefix=Y, Label=64.0, State=Default} 111×24 "Y" "64.0"
+          I NF2/Select {Label=Blending: Normal, State=Default} 230×24 "Blending: Normal"
+          F Row 230×24 [H gap 8]
+            I NF2/Button {Icon=false, Label=Swap…, Type=Secondary, State=Default} 65×24 "Swap…"
+            I NF2/Button {Icon=false, Label=Apply, Type=Primary, State=Default} 55×24 "Apply"
+          I NF2/Tree Item {Label=Library root, Type=Folder Open, Selected=True} 230×20 "Library root"
+          I NF2/Tree Item {Label=Orbit, Type=Symbol, Selected=False} 230×20 "Orbit"
+        F Row 254×28 [H gap 0]
+          I NF2/Dock Tab {Label=Timeline, State=Active} 97×28 "Timeline"
+          I NF2/Dock Tab {Label=Actions, State=Inactive} 92×28 "Actions"
+        I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=Typography, Type=Layer, Selected=True, Size=Default} 200×16 "Typography"
+        I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=Accents, Type=Layer, Selected=False, Size=Default} 200×16 "Accents"
+      T "control 24 · row 20 · panel header 28 · dock tab 28 · layer row 16"
+    F Metrics 438×567 [V gap 0]
+      F Metric / Metric (pt) 438×21 [H gap 0]
+        T "Metric (pt)"
+        T "Comfortable"
+        T "Compact"
+        T "Classic Flash"
+      F Metric / control 438×21 [H gap 0]
+        T "control"
+        T "32"
+        T "28"
+        T "24"
+      F Metric / row 438×21 [H gap 0]
+        T "row"
+        T "28"
+        T "24"
+        T "20"
+      F Metric / panel_tab 438×21 [H gap 0]
+        T "panel_tab"
+        T "36"
+        T "30"
+        T "26"
+      F Metric / panel_header 438×21 [H gap 0]
+        T "panel_header"
+        T "40"
+        T "32"
+        T "28"
+      F Metric / section_header 438×21 [H gap 0]
+        T "section_header"
+        T "32"
+        T "28"
+        T "24"
+      F Metric / dock_tab 438×21 [H gap 0]
+        T "dock_tab"
+        T "40"
+        T "32"
+        T "28"
+      F Metric / icon_button_md 438×21 [H gap 0]
+        T "icon_button_md"
+        T "40"
+        T "32"
+        T "28"
+      F Metric / status_bar 438×21 [H gap 0]
+        T "status_bar"
+        T "24"
+        T "22"
+        T "20"
+      F Metric / menu_section 438×21 [H gap 0]
+        T "menu_section"
+        T "24"
+        T "22"
+        T "20"
+      F Metric / script_tab 438×21 [H gap 0]
+        T "script_tab"
+        T "30"
+        T "26"
+        T "22"
+      F Metric / dialog_header 438×21 [H gap 0]
+        T "dialog_header"
+        T "60"
+        T "52"
+        T "44"
+      F Metric / min_hit 438×21 [H gap 0]
+        T "min_hit"
+        T "32"
+        T "28"
+        T "24"
+      F Metric / icon_tool 438×21 [H gap 0]
+        T "icon_tool"
+        T "20"
+        T "20"
+        T "16"
+      F Metric / top_bar 438×21 [H gap 0]
+        T "top_bar"
+        T "48"
+        T "40"
+        T "32"
+      F Metric / tools_rail 438×21 [H gap 0]
+        T "tools_rail"
+        T "56"
+        T "48"
+        T "40"
+      F Metric / tools_two_columns 438×21 [H gap 0]
+        T "tools_two_columns"
+        T "80"
+        T "68"
+        T "56"
+      F Metric / tool_button 438×21 [H gap 0]
+        T "tool_button"
+        T "32"
+        T "28"
+        T "24"
+      F Metric / inspector 438×21 [H gap 0]
+        T "inspector"
+        T "320"
+        T "288"
+        T "256"
+      F Metric / timeline_controls 438×21 [H gap 0]
+        T "timeline_controls"
+        T "44"
+        T "40"
+        T "32"
+      F Metric / breadcrumb 438×21 [H gap 0]
+        T "breadcrumb"
+        T "34"
+        T "30"
+        T "26"
+      F Metric / zoom_control 438×21 [H gap 0]
+        T "zoom_control"
+        T "42"
+        T "36"
+        T "30"
+      F Metric / stage_ruler 438×21 [H gap 0]
+        T "stage_ruler"
+        T "20"
+        T "18"
+        T "16"
+      F Metric / timeline_ruler 438×21 [H gap 0]
+        T "timeline_ruler"
+        T "32"
+        T "26"
+        T "22"
+      F Metric / layer_column 438×21 [H gap 0]
+        T "layer_column"
+        T "280"
+        T "240"
+        T "200"
+      F Metric / layers_header 438×21 [H gap 0]
+        T "layers_header"
+        T "32"
+        T "26"
+        T "22"
+      F Metric / default_layer_row 438×21 [H gap 0]
+        T "default_layer_row"
+        T "28"
+        T "22"
+        T "16"

@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-10T18:42:03.551Z",
+ "generated": "2026-11-14T12:42:28.537Z",
  "file": "Interface test",
  "pages": [
   {
@@ -920,13 +920,13 @@
     },
     {
      "id": "146:28332",
-     "name": "Preferences ▸ Shortcuts — macOS-style recorder (draft) — Dark",
+     "name": "Preferences ▸ Shortcuts — macOS-style recorder — Dark",
      "w": 1754,
      "h": 1059
     },
     {
      "id": "147:28550",
-     "name": "Preferences ▸ Shortcuts — macOS-style recorder (draft) — Light",
+     "name": "Preferences ▸ Shortcuts — macOS-style recorder — Light",
      "w": 1754,
      "h": 1059
     },
@@ -1181,6 +1181,102 @@
      "name": "v2.25 · Behavioral contract notes — Dark Graphite",
      "w": 1040,
      "h": 520
+    },
+    {
+     "id": "312:50484",
+     "name": "Productivity — dialogs",
+     "w": 2560,
+     "h": 496
+    },
+    {
+     "id": "312:50756",
+     "name": "Productivity — dialogs — Light",
+     "w": 2560,
+     "h": 496
+    },
+    {
+     "id": "312:50839",
+     "name": "Productivity — dialogs — Mid Neutral Gray",
+     "w": 2560,
+     "h": 496
+    },
+    {
+     "id": "312:50922",
+     "name": "Productivity — dialogs — Dark Graphite",
+     "w": 2560,
+     "h": 496
+    },
+    {
+     "id": "320:51160",
+     "name": "Properties and Motion editor — additions after v2.25",
+     "w": 1480,
+     "h": 502
+    },
+    {
+     "id": "320:51337",
+     "name": "Properties and Motion editor — additions after v2.25 — Light",
+     "w": 1480,
+     "h": 502
+    },
+    {
+     "id": "320:51399",
+     "name": "Properties and Motion editor — additions after v2.25 — Mid Neutral Gray",
+     "w": 1480,
+     "h": 502
+    },
+    {
+     "id": "320:51461",
+     "name": "Properties and Motion editor — additions after v2.25 — Dark Graphite",
+     "w": 1480,
+     "h": 502
+    },
+    {
+     "id": "329:51484",
+     "name": "Properties — Appearance",
+     "w": 680,
+     "h": 1082
+    },
+    {
+     "id": "329:51843",
+     "name": "Properties — Appearance — Light",
+     "w": 680,
+     "h": 1082
+    },
+    {
+     "id": "329:51979",
+     "name": "Properties — Appearance — Mid Neutral Gray",
+     "w": 680,
+     "h": 1082
+    },
+    {
+     "id": "329:52115",
+     "name": "Properties — Appearance — Dark Graphite",
+     "w": 680,
+     "h": 1082
+    },
+    {
+     "id": "330:52240",
+     "name": "Density profiles — Comfortable, Compact, Classic Flash",
+     "w": 1529,
+     "h": 727
+    },
+    {
+     "id": "330:52742",
+     "name": "Density profiles — Comfortable, Compact, Classic Flash — Light",
+     "w": 1529,
+     "h": 727
+    },
+    {
+     "id": "330:52945",
+     "name": "Density profiles — Comfortable, Compact, Classic Flash — Mid Neutral Gray",
+     "w": 1529,
+     "h": 727
+    },
+    {
+     "id": "330:53148",
+     "name": "Density profiles — Comfortable, Compact, Classic Flash — Dark Graphite",
+     "w": 1529,
+     "h": 727
     }
    ]
   },
@@ -1265,6 +1361,18 @@
      "name": "Frame 30",
      "w": 0,
      "h": 0
+    },
+    {
+     "id": "318:41928",
+     "name": "NF2 / Editor — Main — 1024 × 720",
+     "w": 1024,
+     "h": 720
+    },
+    {
+     "id": "327:45309",
+     "name": "NF2 / Editor — Video edit workspace",
+     "w": 1920,
+     "h": 1080
     }
    ]
   },
@@ -1349,6 +1457,18 @@
      "name": "Frame 30",
      "w": 0,
      "h": 0
+    },
+    {
+     "id": "319:41800",
+     "name": "NF2 / Editor — Main — 1024 × 720",
+     "w": 1024,
+     "h": 720
+    },
+    {
+     "id": "328:45169",
+     "name": "NF2 / Editor — Video edit workspace",
+     "w": 1920,
+     "h": 1080
     }
    ]
   },
@@ -1425,6 +1545,18 @@
     {
      "id": "67:55347",
      "name": "NF2 / Editor — Motion tween path",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "319:87044",
+     "name": "NF2 / Editor — Main — 1024 × 720",
+     "w": 1024,
+     "h": 720
+    },
+    {
+     "id": "328:95310",
+     "name": "NF2 / Editor — Video edit workspace",
      "w": 1920,
      "h": 1080
     }
@@ -1505,160 +1637,16 @@
      "name": "NF2 / Editor — Motion tween path",
      "w": 1920,
      "h": 1080
-    }
-   ]
-  },
-  {
-   "name": "v2.25 · Interface — Light Neutral Gray (light)",
-   "id": "259:86151",
-   "frames": [
-    {
-     "id": "259:86152",
-     "name": "NF2 / Editor — Main",
-     "w": 1920,
-     "h": 1080
     },
     {
-     "id": "259:86400",
-     "name": "NF2 / Editor — Actions tab",
-     "w": 1920,
-     "h": 1080
+     "id": "319:132299",
+     "name": "NF2 / Editor — Main — 1024 × 720",
+     "w": 1024,
+     "h": 720
     },
     {
-     "id": "259:86624",
-     "name": "NF2 / Editor — Unsaved changes dialog",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:86885",
-     "name": "NF2 / Editor — Convert to Symbol dialog",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:87156",
-     "name": "NF2 / Timeline — states legend",
-     "w": 1320,
-     "h": 782
-    },
-    {
-     "id": "259:87308",
-     "name": "NF2 / Editor — View settings open",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:87556",
-     "name": "NF2 / Editor — Swatches open",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:87805",
-     "name": "NF2 / Editor — Ease panel open",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:88097",
-     "name": "NF2 / Editor — Edit menu open",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:88378",
-     "name": "NF2 / Editor — Editing symbol in place",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:88651",
-     "name": "NF2 / Editor — Video on timeline",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:88943",
-     "name": "NF2 / Editor — Motion tween path",
-     "w": 1920,
-     "h": 1080
-    }
-   ]
-  },
-  {
-   "name": "v2.25 · Interface — Light Neutral Gray (draft)",
-   "id": "259:130552",
-   "frames": [
-    {
-     "id": "259:130553",
-     "name": "NF2 / Editor — Main",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:130801",
-     "name": "NF2 / Editor — Actions tab",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:131025",
-     "name": "NF2 / Editor — Unsaved changes dialog",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:131286",
-     "name": "NF2 / Editor — Convert to Symbol dialog",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:131557",
-     "name": "NF2 / Timeline — states legend",
-     "w": 1320,
-     "h": 782
-    },
-    {
-     "id": "259:131709",
-     "name": "NF2 / Editor — View settings open",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:131957",
-     "name": "NF2 / Editor — Swatches open",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:132206",
-     "name": "NF2 / Editor — Ease panel open",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:132498",
-     "name": "NF2 / Editor — Edit menu open",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:132779",
-     "name": "NF2 / Editor — Editing symbol in place",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:133052",
-     "name": "NF2 / Editor — Video on timeline",
-     "w": 1920,
-     "h": 1080
-    },
-    {
-     "id": "259:133344",
-     "name": "NF2 / Editor — Motion tween path",
+     "id": "328:145462",
+     "name": "NF2 / Editor — Video edit workspace",
      "w": 1920,
      "h": 1080
     }
@@ -2129,6 +2117,162 @@
      "name": "T-159 migration remnants — hidden",
      "w": 1024,
      "h": 1024
+    }
+   ]
+  },
+  {
+   "name": "v2.25 · Interface — Light Neutral Gray, light (archive 2026-11-14)",
+   "id": "259:86151",
+   "frames": [
+    {
+     "id": "259:86152",
+     "name": "NF2 / Editor — Main",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:86400",
+     "name": "NF2 / Editor — Actions tab",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:86624",
+     "name": "NF2 / Editor — Unsaved changes dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:86885",
+     "name": "NF2 / Editor — Convert to Symbol dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:87156",
+     "name": "NF2 / Timeline — states legend",
+     "w": 1320,
+     "h": 782
+    },
+    {
+     "id": "259:87308",
+     "name": "NF2 / Editor — View settings open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:87556",
+     "name": "NF2 / Editor — Swatches open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:87805",
+     "name": "NF2 / Editor — Ease panel open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:88097",
+     "name": "NF2 / Editor — Edit menu open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:88378",
+     "name": "NF2 / Editor — Editing symbol in place",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:88651",
+     "name": "NF2 / Editor — Video on timeline",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:88943",
+     "name": "NF2 / Editor — Motion tween path",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "name": "v2.25 · Interface — Light Neutral Gray, draft (archive 2026-11-14)",
+   "id": "259:130552",
+   "frames": [
+    {
+     "id": "259:130553",
+     "name": "NF2 / Editor — Main",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:130801",
+     "name": "NF2 / Editor — Actions tab",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:131025",
+     "name": "NF2 / Editor — Unsaved changes dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:131286",
+     "name": "NF2 / Editor — Convert to Symbol dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:131557",
+     "name": "NF2 / Timeline — states legend",
+     "w": 1320,
+     "h": 782
+    },
+    {
+     "id": "259:131709",
+     "name": "NF2 / Editor — View settings open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:131957",
+     "name": "NF2 / Editor — Swatches open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:132206",
+     "name": "NF2 / Editor — Ease panel open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:132498",
+     "name": "NF2 / Editor — Edit menu open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:132779",
+     "name": "NF2 / Editor — Editing symbol in place",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:133052",
+     "name": "NF2 / Editor — Video on timeline",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:133344",
+     "name": "NF2 / Editor — Motion tween path",
+     "w": 1920,
+     "h": 1080
     }
    ]
   }
@@ -7932,6 +8076,127 @@
     "properties": []
    },
    {
+    "name": "NF2 Icon/16/mask-geometry",
+    "id": "325:1773",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/mask-alpha",
+    "id": "325:1777",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/mask-luma",
+    "id": "325:1781",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/mask-invert",
+    "id": "325:1784",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tool-puppet",
+    "id": "325:1790",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tool-bone",
+    "id": "325:1795",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tool-bind",
+    "id": "325:1800",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tool-deco",
+    "id": "325:1807",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tool-spray",
+    "id": "325:1815",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tool-3d-translate",
+    "id": "325:1818",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/16/tool-3d-rotate",
+    "id": "325:1823",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
     "name": "NF2/Button",
     "id": "1:9565",
     "kind": "set",
@@ -9084,6 +9349,17 @@
    {
     "name": "NF2 Icon/20/tool-pen-convert",
     "id": "95:815",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-puppet",
+    "id": "325:1882",
     "kind": "component",
     "variants": 1,
     "w": 20,
@@ -15035,6 +15311,127 @@
     "h": 12,
     "shelf": "Shelf / Icons · 12 px",
     "description": "12 px optical master (T-101 / R-056): 1 pt strokes on half pixels, fills on whole pixels. Derived from the 16 px master.",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/12/mask-geometry",
+    "id": "325:1826",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Icons · 12 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/12/mask-alpha",
+    "id": "325:1830",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Icons · 12 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/12/mask-luma",
+    "id": "325:1834",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Icons · 12 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/12/mask-invert",
+    "id": "325:1837",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Icons · 12 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/12/tool-puppet",
+    "id": "325:1843",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Icons · 12 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/12/tool-bone",
+    "id": "325:1848",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Icons · 12 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/12/tool-bind",
+    "id": "325:1853",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Icons · 12 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/12/tool-deco",
+    "id": "325:1860",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Icons · 12 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/12/tool-spray",
+    "id": "325:1868",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Icons · 12 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/12/tool-3d-translate",
+    "id": "325:1871",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Icons · 12 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/12/tool-3d-rotate",
+    "id": "325:1876",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Icons · 12 px",
+    "description": "",
     "properties": []
    },
    {

@@ -1,0 +1,62 @@
+F Properties and Motion editor — additions after v2.25 1480×502 [H gap 40]
+  F Panel / Properties — Frame video 320×502 [V gap 0]
+    I NF2/Panel Header 318×40 "Properties"
+    F Body 318×460 [V gap 12]
+      I NF2/Section Header {Label=Video, State=Expanded} 286×32 "Video"
+      I NF2/Select {Label=intro.mp4, State=Default} 286×32 "intro.mp4"
+      F Row 286×32 [H gap 12]
+        I NF2/Select {Label=Sync: Stream, State=Default} 150×32 "Sync: Stream"
+        I NF2/Checkbox {Label=Loop, Checked=False} 53×18 "Loop"
+        I NF2/Checkbox {Label=Mute, Checked=False} 53×18 "Mute"
+      T "Trim"
+      F Row 286×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=In, Label=0 ms, State=Default} 139×32 "In" "0 ms"
+        I NF2/Field {Show prefix=true, Prefix=Out, Label=24 000 ms, State=Default} 139×32 "Out" "24 000 ms"
+      F Row 286×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Split at playhead, Type=Secondary, State=Default} 139×32 "Split at playhead"
+        I NF2/Button {Icon=false, Label=Extract audio, Type=Secondary, State=Default} 139×32 "Extract audio"
+      I NF2/Button {Icon=false, Label=Reset trim, Type=Ghost, State=Default} 78×32 "Reset trim"
+      T "Cue points"
+      F Cue points 286×116 [V gap 0]
+        I NF2/Table Row {Value=Time, Property=Name, Kind=Header} 286×28 "Name" "Time"
+        I NF2/Table Row {Value=1 500 ms, Property=titleIn, Kind=Selected} 286×28 "titleIn" "1 500 ms"
+        I NF2/Table Row {Value=12 000 ms, Property=logoHit, Kind=Row} 286×28 "logoHit" "12 000 ms"
+        F Row 286×32 [H gap 2]
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  F Panel / Properties — Selection colours 320×454 [V gap 0]
+    I NF2/Panel Header 318×40 "Properties"
+    F Body 318×412 [V gap 12]
+      F Row 286×48 [H gap 12]
+        F Type icon 48×48 [H gap 0]
+          I NF2 Icon/20/tool-select 20×20
+        F Title 102×29 [V gap 2]
+          T "12 objects selected"
+          T "Mixed selection"
+      F Row 286×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Transform…, Type=Secondary, State=Default} 89×32 "Transform…"
+        I NF2/Button {Icon=false, Label=Color…, Type=Secondary, State=Default} 63×32 "Color…"
+      I NF2/Section Header {Label=Selection colours, State=Expanded} 286×32 "Selection colours"
+      F Colour 286×49 [V gap 4]
+        I NF2/Color Field {Alpha=100 %, Hex=8B9AB1} 286×32 "8B9AB1" "100 %"
+        T "5 × text"
+      F Colour 286×49 [V gap 4]
+        I NF2/Color Field {Alpha=100 %, Hex=F1F4FA} 286×32 "F1F4FA" "100 %"
+        T "2 × text"
+      F Colour 286×49 [V gap 4]
+        I NF2/Color Field {Alpha=100 %, Hex=FF8F4F} 286×32 "FF8F4F" "100 %"
+        T "3 × fill"
+      F Colour 286×49 [V gap 4]
+        I NF2/Color Field {Alpha=100 %, Hex=6C93FF} 286×32 "6C93FF" "100 %"
+        T "2 × fill · 1 × stroke"
+  F Panel / Motion editor — tools row 760×69 [V gap 0]
+    F Row 734×44 [H gap 8]
+      T "Wiggler"
+      I NF2/Field {Show prefix=true, Prefix=Freq, Label=3.0 Hz, State=Default} 100×32 "Freq" "3.0 Hz"
+      I NF2/Field {Show prefix=true, Prefix=Mag, Label=12.0 px, State=Default} 100×32 "Mag" "12.0 px"
+      I NF2/Button {Icon=false, Label=Apply wiggler, Type=Secondary, State=Default} 98×32 "Apply wiggler"
+      I NF2/Divider {Direction=Vertical} 1×20
+      T "Motion sketch"
+      I NF2/Field {Show prefix=true, Prefix=Smooth, Label=0.0, State=Default} 110×32 "Smooth" "0.0"
+      I NF2/Button {Icon=false, Label=Capture sketch, Type=Secondary, State=Default} 107×32 "Capture sketch"
+    T "Shown only while a motion tween is in context; the "No motion tween" empty state has no tools row."

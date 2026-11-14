@@ -34,5 +34,5 @@ F Color — panel menu open 280×659
     I NF2/Menu Separator 200×9
     I NF2/Menu Item {Submenu=false, Shortcut=F1, Label=Help, State=Default} 200×28 "Help" "F1"
     I NF2/Menu Separator 200×9
-    I NF2/Menu Item {Submenu=false, Shortcut=⌘W, Label=Close, State=Default} 200×28 "Close" "⌘W"
+    I NF2/Menu Item {Submenu=false, Shortcut=, Label=Close, State=Default} 200×28 "Close"
     I NF2/Menu Item {Submenu=false, Shortcut= , Label=Close group, State=Default} 200×28 "Close group" " "
