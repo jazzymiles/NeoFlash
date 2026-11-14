@@ -17,6 +17,30 @@ use neoflash_ui::typography::rich;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LocatedScriptDiagnostic {
+    pub severity: neoflash_script::DiagnosticSeverity,
+    pub code: Option<String>,
+    pub message: String,
+    pub formatted_message: String,
+    pub language: neoflash_core::ScriptLanguage,
+    pub symbol_id: Option<String>,
+    pub symbol: Option<String>,
+    pub layer: Option<String>,
+    pub frame: Option<u32>,
+    pub element_id: Option<String>,
+    pub element_name: Option<String>,
+    pub event: Option<neoflash_core::ObjectEvent>,
+    pub path: Option<String>,
+    pub line: usize,
+    pub column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
+    pub location_label: String,
+    pub script: Option<ScriptLocation>,
+    pub quick_fixes: Vec<neoflash_script::QuickFix>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CompilerDiagnosticItem {
     pub is_error: bool,
     pub message: String,
@@ -114,7 +138,12 @@ fn script_diagnostics(
     diagnostics
 }
 
-pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDiagnosticItem> {
+/// Collect structured, located script diagnostics (compile errors and warnings) across all
+/// project sources, sidecar `.as` files, frame scripts, and element handlers without mutating
+/// document state.
+pub(crate) fn collect_located_script_diagnostics(
+    project: &Project,
+) -> Vec<LocatedScriptDiagnostic> {
     let mut items = Vec::new();
     let program = neoflash_script::compile_project(project);
     let mut source_diagnostics = program.as_ref().err().cloned().unwrap_or_default();
@@ -129,7 +158,7 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
                 .map(|warning| warning.to_diagnostic_with_source(&unit.source)),
         );
     }
-    // Informational code hints remain in Actions; this panel has Error/Warning categories.
+    // Informational code hints remain in Actions; compiler diagnostics cover Error/Warning.
     for diagnostic in source_diagnostics
         .into_iter()
         .filter(|diagnostic| diagnostic.severity != neoflash_script::DiagnosticSeverity::Info)
@@ -143,17 +172,36 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
                 crate::code_tools::suggest_quick_fixes_for_diagnostic(&diagnostic, &unit.source)
             })
             .unwrap_or_default();
-        items.push(CompilerDiagnosticItem {
-            is_error: diagnostic.severity == neoflash_script::DiagnosticSeverity::Error,
-            message: diagnostic_message(&diagnostic),
-            location_label: format!(
-                "{} · Line {}",
-                unit.map_or("Project", |unit| unit.path.as_str()),
-                diagnostic.line
-            ),
-            script: unit.map(|unit| ScriptLocation::Source(unit.id.clone())),
+        let path = unit
+            .map(|unit| unit.path.clone())
+            .or_else(|| diagnostic.path.clone());
+        let location_label = format!(
+            "{} · Line {}",
+            unit.map_or(path.as_deref().unwrap_or("Project"), |unit| unit
+                .path
+                .as_str()),
+            diagnostic.line
+        );
+        items.push(LocatedScriptDiagnostic {
+            severity: diagnostic.severity,
+            code: diagnostic.code.clone(),
+            message: diagnostic.message.clone(),
+            formatted_message: diagnostic_message(&diagnostic),
+            language: diagnostic.language,
+            symbol_id: None,
+            symbol: None,
+            layer: None,
+            frame: None,
+            element_id: None,
+            element_name: None,
+            event: None,
+            path,
             line: diagnostic.line,
             column: diagnostic.column,
+            end_line: diagnostic.end_line,
+            end_column: diagnostic.end_column,
+            location_label,
+            script: unit.map(|unit| ScriptLocation::Source(unit.id.clone())),
             quick_fixes,
         });
     }
@@ -187,40 +235,50 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
                 Some(prog) => neoflash_script::compile_with_program(&fs.script, prog),
                 None => neoflash_script::compile(&fs.script),
             };
-            {
-                for err in script_diagnostics(&fs.script, result) {
-                    let quick_fixes = crate::code_tools::suggest_quick_fixes_for_diagnostic(
-                        &err,
-                        &fs.script.source,
-                    );
-                    let location_label = match actions_layer {
-                        Some(layer_name) => format!(
-                            "{} · layer {:?} · frame {} · Line {}",
-                            symbol.name,
-                            layer_name,
-                            fs.frame + 1,
-                            err.line
-                        ),
-                        None => format!(
-                            "{} · frame {} · Line {}",
-                            symbol.name,
-                            fs.frame + 1,
-                            err.line
-                        ),
-                    };
-                    items.push(CompilerDiagnosticItem {
-                        is_error: err.severity == neoflash_script::DiagnosticSeverity::Error,
-                        message: diagnostic_message(&err),
-                        location_label,
-                        script: Some(ScriptLocation::Frame {
-                            symbol: symbol.id.clone(),
-                            frame: fs.frame,
-                        }),
-                        line: err.line,
-                        column: err.column,
-                        quick_fixes,
-                    });
-                }
+            let frame_path = format!("{} / frame {}", symbol.name, fs.frame + 1);
+            for err in script_diagnostics(&fs.script, result) {
+                let quick_fixes =
+                    crate::code_tools::suggest_quick_fixes_for_diagnostic(&err, &fs.script.source);
+                let location_label = match actions_layer {
+                    Some(layer_name) => format!(
+                        "{} · layer {:?} · frame {} · Line {}",
+                        symbol.name,
+                        layer_name,
+                        fs.frame + 1,
+                        err.line
+                    ),
+                    None => format!(
+                        "{} · frame {} · Line {}",
+                        symbol.name,
+                        fs.frame + 1,
+                        err.line
+                    ),
+                };
+                items.push(LocatedScriptDiagnostic {
+                    severity: err.severity,
+                    code: err.code.clone(),
+                    message: err.message.clone(),
+                    formatted_message: diagnostic_message(&err),
+                    language: err.language,
+                    symbol_id: Some(symbol.id.clone()),
+                    symbol: Some(symbol.name.clone()),
+                    layer: actions_layer.map(str::to_owned),
+                    frame: Some(fs.frame),
+                    element_id: None,
+                    element_name: None,
+                    event: None,
+                    path: Some(frame_path.clone()),
+                    line: err.line,
+                    column: err.column,
+                    end_line: err.end_line,
+                    end_column: err.end_column,
+                    location_label,
+                    script: Some(ScriptLocation::Frame {
+                        symbol: symbol.id.clone(),
+                        frame: fs.frame,
+                    }),
+                    quick_fixes,
+                });
             }
         }
 
@@ -235,47 +293,81 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
                             Some(prog) => neoflash_script::compile_with_program(&os.script, prog),
                             None => neoflash_script::compile(&os.script),
                         };
-                        {
-                            let target = if el.name.is_empty() {
-                                "object"
-                            } else {
-                                el.name.as_str()
-                            };
-                            for err in script_diagnostics(&os.script, result) {
-                                let quick_fixes =
-                                    crate::code_tools::suggest_quick_fixes_for_diagnostic(
-                                        &err,
-                                        &os.script.source,
-                                    );
-                                items.push(CompilerDiagnosticItem {
-                                    is_error: err.severity
-                                        == neoflash_script::DiagnosticSeverity::Error,
-                                    message: diagnostic_message(&err),
-                                    location_label: format!(
-                                        "{} · layer {:?} · frame {} · {:?} ({target}) · Line {}",
-                                        symbol.name,
-                                        layer.name,
-                                        key.frame + 1,
-                                        os.event,
-                                        err.line
-                                    ),
-                                    script: Some(ScriptLocation::Object {
-                                        symbol: symbol.id.clone(),
-                                        frame: key.frame,
-                                        element: el.id.clone(),
-                                        event: os.event,
-                                    }),
-                                    line: err.line,
-                                    column: err.column,
-                                    quick_fixes,
-                                });
-                            }
+                        let target = if el.name.is_empty() {
+                            "object"
+                        } else {
+                            el.name.as_str()
+                        };
+                        let obj_path = format!(
+                            "{} / {} / frame {} / {} / {:?}",
+                            symbol.name,
+                            layer.name,
+                            key.frame + 1,
+                            target,
+                            os.event
+                        );
+                        for err in script_diagnostics(&os.script, result) {
+                            let quick_fixes = crate::code_tools::suggest_quick_fixes_for_diagnostic(
+                                &err,
+                                &os.script.source,
+                            );
+                            items.push(LocatedScriptDiagnostic {
+                                severity: err.severity,
+                                code: err.code.clone(),
+                                message: err.message.clone(),
+                                formatted_message: diagnostic_message(&err),
+                                language: err.language,
+                                symbol_id: Some(symbol.id.clone()),
+                                symbol: Some(symbol.name.clone()),
+                                layer: Some(layer.name.clone()),
+                                frame: Some(key.frame),
+                                element_id: Some(el.id.clone()),
+                                element_name: (!el.name.is_empty()).then(|| el.name.clone()),
+                                event: Some(os.event),
+                                path: Some(obj_path.clone()),
+                                line: err.line,
+                                column: err.column,
+                                end_line: err.end_line,
+                                end_column: err.end_column,
+                                location_label: format!(
+                                    "{} · layer {:?} · frame {} · {:?} ({target}) · Line {}",
+                                    symbol.name,
+                                    layer.name,
+                                    key.frame + 1,
+                                    os.event,
+                                    err.line
+                                ),
+                                script: Some(ScriptLocation::Object {
+                                    symbol: symbol.id.clone(),
+                                    frame: key.frame,
+                                    element: el.id.clone(),
+                                    event: os.event,
+                                }),
+                                quick_fixes,
+                            });
                         }
                     }
                 }
             }
         }
     }
+
+    items
+}
+
+pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDiagnosticItem> {
+    let mut items: Vec<CompilerDiagnosticItem> = collect_located_script_diagnostics(project)
+        .into_iter()
+        .map(|diag| CompilerDiagnosticItem {
+            is_error: diag.severity == neoflash_script::DiagnosticSeverity::Error,
+            message: diag.formatted_message,
+            location_label: diag.location_label,
+            script: diag.script,
+            line: diag.line,
+            column: diag.column,
+            quick_fixes: diag.quick_fixes,
+        })
+        .collect();
 
     for warning in neoflash_export::export_warnings(project) {
         items.push(CompilerDiagnosticItem {

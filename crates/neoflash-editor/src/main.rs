@@ -26,6 +26,7 @@ mod document_chrome;
 mod document_sessions;
 mod fonts;
 mod graphic_import;
+mod headless;
 mod layer_controls;
 mod native_quit;
 mod native_screens;
@@ -159,6 +160,13 @@ fn app_icon() -> std::sync::Arc<eframe::egui::IconData> {
 }
 
 fn main() -> eframe::Result {
+    if let Some(exit_code) = headless::maybe_run_from_env() {
+        if exit_code == 0 {
+            return Ok(());
+        }
+        std::process::exit(exit_code);
+    }
+
     // `NEOFLASH_WINDOW=1920x1080` fixes the window size (screenshots, design comparison) and stops
     // eframe from restoring the last window geometry.
     let fixed = shell::fixed_window_size();
