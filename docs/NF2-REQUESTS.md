@@ -27,6 +27,18 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 
 ## Open requests
 
+The section a request sits in is historical. Its `Status` line is authoritative; the index below lists what is
+still open.
+
+### Status index (14 November 2026)
+
+- **Open, owed by the design track:** R-016 (tooltip flag in `neoflash-ui`), R-047 (compact `TypeHeader`), R-049 (mask
+  icons), R-057 (accessibility matrix), R-065 (Pen cursor metadata), R-067b (narrow Tools header, Puppet and 16 px
+  tool masters).
+- **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
+- **Answered, waiting for implementation:** R-061, R-062, R-063, R-068, R-069, R-072–R-087; earlier R-022, R-038, R-043.
+- Everything else is resolved.
+
 ### R-033 · Actions diagnostic peek, fix selection and debugger connection states
 - **Status:** resolved
 - **Requested by / for:** implementation track · AC-03/AC-08 (Actions tooling)
@@ -67,6 +79,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** spec ST-01 lists it; the ruler shelf has no marker variant.
 - **Checked:** `docs-rulers-guides-grid.txt`, `editor-main.png` (no marker shown).
 - **Proposal (optional):** 1 pt `color/guide` tick across the ruler.
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088).
 
 ### R-002 · Exact guide position (Move guide)
 - **Status:** open
@@ -75,6 +88,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Need:** a small popover or dialog with an axis-labelled position field and Remove / Cancel / OK.
 - **Why:** dragging is limited to whole pixels at the current zoom; Flash offers a Move Guide dialog.
 - **Checked:** reference §3, §6 "View settings", panels exports — no such dialog.
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088).
 
 ### R-003 · View ▸ Snapping submenu and object / pixel snapping
 - **Status:** open
@@ -84,6 +98,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   the tools-rail snap toggle placement.
 - **Why:** guide and grid snapping work through Grid ▸ / Guides ▸; object and pixel snapping have no entry point.
 - **Checked:** `panels-menus.txt` (Snapping row only, no submenu frame), §8.
+- **Triage (14 November 2026):** partly live — Snap to objects on the Tools rail and Snap to pixels in Preferences work; the View ▸ Snapping submenu is still disabled. Submenu rows and shortcuts are scheduled after Beta 1.
 
 ### R-004 · Lock guides shortcut and View settings colour swatch
 - **Status:** open
@@ -94,6 +109,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   draws the colour opaque).
 - **Why:** the menu row shows no shortcut; clicking the swatch does nothing yet.
 - **Checked:** `panels-menus.txt`, `view-settings.png`.
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088). The ⌥⌘; binding already works; only its menu label and the swatch picker are missing.
 
 ### R-011 · Canvas chrome on artwork: rotated boxes, contrast, Light transformation point, cursor map
 - **Status:** open
@@ -108,16 +124,16 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   between handles skews, up to 18 pt outside a corner rotates.
 - **Why:** the boxes and cursors are now wired; these are the remaining visual decisions the editor must not improvise.
 - **Checked:** `canvas-editing-chrome.png` (Dark only), `cursors.png`, design doc §3.5 and the canvas chrome catalogue.
-- **Answer:**
+- **Triage (14 November 2026):** not delivered in `neoflash-ui`; the editor paints its own halo pair and rotate zone. Still needed; scheduled after Beta 1 together with the canvas-chrome boards.
 
 ### R-012 · Colour effect styles (Brightness / Tint / Advanced) and Properties Swap… symbol picker
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track · W0.6 (PR-04), W0.15 (PR-06)
 - **Where:** `crates/neoflash-editor/src/panels/properties.rs` (symbol instance inspector) and `stage.rs` object context menu (`Swap symbol…`, `Duplicate symbol…`)
 - **Need:** (1) NF2 row composition in the Properties instance inspector for Colour effect `Style` (`None` / `Brightness` / `Tint` / `Advanced` / `Alpha`) and its per-style value rows (Tint colour + %, Advanced 8 multiplier/offset fields). (2) NF2 row/button placement in Properties for `Swap…` plus the Swap symbol picker dialog or popover (Library row/⋯ `Swap symbol` already works when an instance is selected, and `Duplicate symbol` works in the Library).
 - **Why:** `Transform.color_transform` and `Editor::swap_instance_symbol` / `duplicate_symbol` exist, but `panels/properties.rs` currently contains only the Opacity row and no Swap… button or symbol-picker dialog preview; adding new rows or a picker dialog without a locked NF2 composition would violate the design lock.
 - **Checked:** `panel-properties-movie-clip.png`, `panels/properties.rs`, `panels/planned_*.rs` (no Swap symbol dialog preview exists).
-- **Answer:**
+- **Answer (14 November 2026):** ratified as built: Style select with Brightness / Tint / Advanced rows and `Swap…` with its symbol popup in Properties, `Swap symbol…` in the Stage menu. Composed from existing components; no new design-system piece.
 
 ### R-013 · Preferences ▸ General ▸ "follow system" control
 - **Status:** open
@@ -127,7 +143,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   "or follow system", which is not a control; a third segment ("System") or a checkbox would make it selectable.
 - **Why:** the editor can follow the system theme (egui reports it); without a control the caption stays disabled.
 - **Checked:** `dialog-preferences-*.png`, `Segmented` component, design doc Preferences section.
-- **Answer:**
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088). Appearance is now a four-theme Select, so the answer will be a `System` option in that Select, not a third segment.
 
 ### R-014 · Preferences ▸ General ▸ Accent colour, Language and Selection highlight
 - **Status:** open
@@ -139,7 +155,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** palette accent tokens live in locked `neoflash-ui`, only English strings exist, and stage selection chrome
   currently uses `accent_default` (R-011).
 - **Checked:** `panels-dialog-preferences-general.txt`, `dialog-preferences-general.png`, `docs/DESIGN-SYSTEM.md`.
-- **Answer:**
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088).
 
 ### R-015 · Preferences ▸ General ▸ Welcome screen (On launch) and Crash recovery dialog
 - **Status:** open
@@ -152,7 +168,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** `panels-dialog-preferences-general.txt` shows `"Welcome screen"` as a sample label with no screen frame in
   exports, and `interface-editor-unsaved-changes-dialog.txt` is the only confirmation modal in NF2.
 - **Checked:** `panels-dialog-preferences-general.txt`, `interface-editor-unsaved-changes-dialog.txt`, `exports/panels`.
-- **Answer:**
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088). Crash recovery keeps using the warning modal.
 
 ### R-016 · Preferences ▸ General ▸ Show tooltips with shortcuts inside locked NF2 components
 - **Status:** open
@@ -164,7 +180,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** editor toolbars and panels already gate `.shortcut(...)` via `Editor::tooltip_sc`, but 6 shortcuts (`⌘W`, `Esc`,
   `I`) are passed inside locked `neoflash-ui` components.
 - **Checked:** `crates/neoflash-ui/src/components/display.rs`, `button.rs`, `headers.rs`, `view_settings.rs`, `swatches.rs`.
-- **Answer:**
+- **Triage (14 November 2026):** partly live — the switch works and editor tooltips obey it; `neoflash_ui::tooltip` has no flag yet. Design-track change in `neoflash-ui`.
 
 ### R-017 · Preferences ▸ Code editor ▸ Custom syntax colour schemes
 - **Status:** open
@@ -176,7 +192,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** `nf::code::highlight` reads fixed `Palette` `syntax_*` tokens in locked `neoflash-ui`, and the reference shows
   read-only swatches without a picker/rename popover.
 - **Checked:** `panels-dialog-preferences-code-editor.txt`, `crates/neoflash-ui/src/components/code.rs`.
-- **Answer:**
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088).
 
 ### R-018 · Preferences ▸ Timeline ▸ Custom Onion skin Before / After tints
 - **Status:** open
@@ -186,7 +202,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   tokens) and how custom tints adapt between Dark and Light themes in place of `StageOverlay::onion_before` / `onion_after`.
 - **Why:** each `SwatchCell` in `prefs_timeline` is a single cell with no picker attached in the reference.
 - **Checked:** `panels-dialog-preferences-timeline.txt`, `crates/neoflash-editor/src/theme.rs`.
-- **Answer:**
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088).
 
 ### R-019 · Preferences ▸ Drawing ▸ Pen solid anchor points and Snap align guides
 - **Status:** open
@@ -198,7 +214,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** `AnchorState` only has `Unselected` (hollow), `Selected` (filled) and `Hover`, and NF2 forbids hand-styled stage
   overlay strokes.
 - **Checked:** `panels-dialog-preferences-drawing.txt`, `crates/neoflash-ui/src/components/canvas.rs`.
-- **Answer:**
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088).
 
 ### R-020 · Preferences ▸ Shortcuts ▸ Rename shortcut set inline or modal prompt
 - **Status:** open
@@ -209,7 +225,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** `panels-dialog-preferences-shortcuts.txt` shows only the closed `NF2/Select` and the `Rename` ghost button with
   no editable text field state.
 - **Checked:** `panels-dialog-preferences-shortcuts.txt`, `dialog-preferences-shortcuts.png`.
-- **Answer:**
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088).
 
 ### R-021 · Object Drawing (`J`) toggle on the Tools rail and Modify ▸ Combine objects / Shape submenus
 - **Status:** open
@@ -219,7 +235,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** classic Flash vector authoring relies on toggling Merge vs Object Drawing (`J`) and boolean/contour shape operations; neither the Tools rail icon slot nor the `Expand fill…` / `Soften fill edges…` / `Optimize…` parameter dialogs exist in NF2 yet.
 - **Checked:** `panels/tools.rs`, `authoring_modify.rs`, `panels/planned_drawing.rs`, `panels-menus.txt`.
 - **Proposal (optional):** a 1-icon toggle button in the Tools `Options` footer using `NF2/Tool Button` selected state, plus compact `NF2/Dialog` sheets with `Field` steppers and `Preview` checkbox for `Expand fill…`, `Soften fill edges…` and `Optimize…`.
-- **Answer:**
+- **Triage (14 November 2026):** partly live — the Object Drawing toggle (temporary glyph), Union / Intersect / Punch / Crop and Smooth / Straighten work. Missing: the official `J` icon and Modify ▸ Shape rows with dialogs (Convert lines to fills, Expand fill…, Soften fill edges…, Optimize…). Scheduled after Beta 1.
 
 ### R-022 · Bitmap properties and Modify ▸ Bitmap ▸ Trace bitmap… modal dialogs
 - **Status:** answered
@@ -243,14 +259,14 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   `Export for ActionScript`, `Class`, disabled `Base`; Update / Import… / Test, Cancel / OK (one Undo step).
 
 ### R-023 · 9-slice scaling checkbox in Symbol properties and stage 9-slice guide overlay
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track · DL-04, ST-02 (Classic Flash CS4 `scale9Grid` authoring)
 - **Where:** `crates/neoflash-editor/src/symbol_dialog.rs` (`Convert to symbol` / `New symbol` / `Symbol properties`) and `crates/neoflash-editor/src/stage_view.rs` (in-place symbol editing overlay)
 - **Need:** (1) placement of the `Enable guides for 9-slice scaling` checkbox (enabled for `MovieClip` and `Button` symbols) inside `symbol_dialog.rs`. (2) Visual token and stroke pattern (e.g. dashed line colour, hover/drag state, bounds clamping indicator) for the 4 `scale9Grid` slice guides when editing a 9-slice symbol, distinct from ordinary `Timeline::guides` solid ruler guides (`docs/NF2-RULERS-GUIDES-GRID.md`).
 - **Why:** AS3 `DisplayObject.scale9Grid` exists in runtime/API, and `docs/NF2-RULERS-GUIDES-GRID.md` locks ruler-guide rendering; authoring 9-slice symbols requires a checkbox in `Symbol properties` and a visually distinct dashed guide style.
 - **Checked:** `symbol_dialog.rs`, `stage_view.rs`, `docs/NF2-RULERS-GUIDES-GRID.md`, `symbols-panels.png`, `canvas-editing-chrome.png`.
 - **Proposal (optional):** place `Enable guides for 9-slice scaling` under the `Advanced` / `Linkage` section of `symbol_dialog.rs`, and draw 9-slice guides as 1 pt dashed `color/guide` lines inside symbol edit mode.
-- **Answer:**
+- **Answer (14 November 2026):** ratified as built: the checkbox with X / Y / W / H fields in Symbol properties and the dashed 1 pt `guide` overlay on the Stage. 9-slice applies to movie clips only, as in classic Flash, so the checkbox stays disabled for buttons.
 
 ### R-024 · Decoded waveform backdrop and Time In / Time Out trim handles in Edit envelope
 - **Status:** open
@@ -260,7 +276,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** the engine and playback foundation is now ready — `WaveformPeaks` (`sample_waveform_peaks`, `wav_waveform_peaks`), cached `TimelineAudio::waveform_peaks` (MP3/WAV), and `FrameSound::{in_point, out_point}` playback trimming in `neoflash-core`, `neoflash-editor`, and `web/audio.js` all work — so only the locked `EnvelopeLane` waveform slot and ruler trim-handle chrome are needed to expose visual trimming in `Edit envelope`.
 - **Checked:** `panels/edit_envelope.rs`, `dialogs-sound-stroke.png`, `R-010`, `crates/neoflash-core/src/timeline_sound.rs`.
 - **Proposal (optional):** pass `peaks: Option<&[[f32; 2]]>` and `trim: Option<(f32, f32)>` into `EnvelopeLane` + a paired handle bar on the 18 pt ruler between the `L` and `R` lanes.
-- **Answer:**
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088).
 
 ### R-025 · Pinnable multi-script tabs (`Pin script`, `⌘=`) in the Actions panel bar
 - **Status:** open
@@ -270,7 +286,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** clicking another object or timeline frame immediately switches the Actions editor away from the active script; pinning tabs lets authors cross-reference and edit multiple frame and object scripts side-by-side without losing selection context.
 - **Checked:** `panels/actions.rs`, `panels/actions_sidebar.rs`, `panel-actions-floating.png`, `editor-actions-tab.png`, `scripting-panels.png`.
 - **Proposal (optional):** reuse NF2 compact tab pills above the code gutter alongside a pin toggle `IconButton` in `CODE_TOOLS`.
-- **Answer:**
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088).
 
 ### R-026 · Bandwidth profiler & Simulate download in Test movie and the Motion presets panel
 - **Status:** open
@@ -280,17 +296,17 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** `neoflash_export::format_size_report(&Project)` (`--size-report`) now computes exact per-scene, per-frame, symbol, font, resource, and script byte breakdowns ready to feed a `Bandwidth profiler` and `Publish settings ▸ Generate size report` checkbox, and the motion-tween engine (`timeline_motion.rs` Copy/Paste motion) can already serialize/apply motion tracks once a `Motion presets` panel design exists.
 - **Checked:** `panels/planned_documents.rs › test_movie`, `panels/planned_dialogs.rs › publish_settings`, `publish-misc-dialogs.png`, `panels/menu.rs › window_menu`, `panels/planned_panels.rs`.
 - **Proposal (optional):** add a toggleable profiler strip above the `Test Movie` transport bar and follow the `Code snippets` tree + preview split (`scripting-panels.png`) for `Motion presets`.
-- **Answer:**
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088).
 
 ### R-027 · Instance Colour effect parameter rows and Motion editor Colour effect tracks
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track · PR-04, PP-02 (Group A core-to-editor wiring)
 - **Where:** `crates/neoflash-editor/src/panels/properties.rs` (instance Colour effect section) and `crates/neoflash-editor/src/panels/motion_editor.rs` (`Colour effect` section `+` menu)
 - **Need:** exact NF2 row layout and field ranges for each `ColorTransform` style (`Brightness` `-100..=100 %`, `Tint` RGB colour swatch + `0..=100 %` tint weight, `Advanced` 2-column `R/G/B/A × %` + `R/G/B/A + offset` `-255..=255` grid), plus the corresponding `MotionRow` sub-tracks under `Colour effect` in `Motion editor` (`TweenProperty::Color`).
 - **Why:** `Transform.color_transform`, classic/motion `ColorTransform` interpolation (`evaluate.rs`), and `.fla` colour-effect import are complete in `neoflash-core`, while `properties.rs` exposes only the `Opacity` slider (building on `R-011`).
 - **Checked:** `panel-properties-movie-clip.png`, `motion-panels.png`, `panels/properties.rs`, `panels/motion_editor.rs`.
 - **Proposal (optional):** `c::Select` style picker above a conditional 1-row (`Brightness` / `Alpha`), 2-control (`Tint`), or 4×2 `c::Field` (`Advanced`) sub-form matching `SectionHeader("Color effect")`.
-- **Answer:**
+- **Answer (14 November 2026):** ratified as built: the Properties rows of R-012 and the Motion editor `Colour effect` group with `Alpha` and one combined `Tint / Colour` track. Separate per-style sub-tracks are not required.
 
 ### R-028 · Authoring Strings localization panel (XLIFF) and Text String ID binding
 - **Status:** open
@@ -300,37 +316,37 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** the AS2/AS3 `mx.lang.Locale` runtime parser and XLIFF 1.0 loader already work in `neoflash-script`, and `Project.resources` can bundle `.xml`/`.xliff` assets, but there is no NF2 panel or `TextBox` inspector slot to author string tables visually.
 - **Checked:** `panels-menus.txt` (§8 `Window`), `panels/planned_*.rs`, `panel-properties-text` outlines — no `Strings` panel preview exists yet.
 - **Proposal (optional):** utility panel using `c::Select`, `c::Search`, `c::TableRow`, and an `IconButton` footer (`+`, `Trash`, `Import`, `Export`).
-- **Answer:**
+- **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088).
 
 ### R-029 · Complete TextBox Properties inspector (text kind, line mode, character & paragraph metrics)
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track · PR-07 (Group A `TextBox` model-to-UI parity)
 - **Where:** `crates/neoflash-editor/src/panels/properties.rs` (`TextBox` selection inspector)
 - **Need:** NF2 section/row composition for the remaining `TextBox` / `TextFormat` properties: text kind (`Static` / `Dynamic` / `Input`), line mode (`Single line` / `Multiline` / `Multiline no wrap` / `Password`), toggles (`Selectable`, `Show border`, `Auto-size`, `Auto kern`), fields (`Max chars`, `Variable`, `Letter spacing`, `Line spacing`, `Left margin`, `Right margin`, `Indent`, `URL`, `Target`).
 - **Why:** runtime `TextField` / `TextFormat` and legacy `.fla` text import already decode and execute these attributes, whereas `properties.rs` currently exposes only `Content`, `Font`, `Size`, `Style` (B/I), `Color`, and `Align`.
 - **Checked:** `panels/properties.rs`, `panels/planned_*.rs`, `docs/NF2-FUNCTIONAL-SPEC.md` PR-07.
 - **Proposal (optional):** `Type` + `Behavior` rows at the top of `Character`, `Letter spacing` + `Auto kern` under `Character`, `Margins` / `Indent` / `Line spacing` 2×2 `c::Field` grid under `Paragraph`, and collapsible `Options` (`URL`, `Target`, `Max chars`).
-- **Answer:**
+- **Answer (14 November 2026):** ratified as built (text inspector delivered under the owner's CS5 text instruction): header, Character, Advanced character, Paragraph, Container and flow, Options.
 
 ### R-030 · Extended per-filter parameter sub-forms and presets in Panel / Filters
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track · PR-05 (`panels/filters.rs`)
 - **Where:** `crates/neoflash-editor/src/panels/filters.rs` (`Filters` section parameter area)
 - **Need:** locked NF2 sub-form compositions for non-Blur filter parameters: colour swatch wells (`Drop shadow`, `Glow`, `Bevel` highlight/shadow), `Angle` (`°`) & `Distance` (`px`) row, boolean checkboxes (`Inner`, `Knockout`, `Hide object`), 4-field `Adjust color` (`Brightness`, `Contrast`, `Saturation`, `Hue`), 15-stop gradient bar for `Gradient glow` / `Gradient bevel`, and a `Presets` menu button.
 - **Why:** `PanelId::Filters` (`Window ▸ Filters`) is now live with all 7 Flash filter types (`Drop shadow`, `Blur`, `Glow`, `Bevel`, `Gradient glow`, `Gradient bevel`, `Adjust color`) mapped into the locked 2×2 parameter grid from `panel-properties-movie-clip.png`; exposing the remaining per-filter controls requires approved NF2 rows beyond those 4 slots.
 - **Checked:** `panel-properties-movie-clip.png`, `panels/planned_panels.rs` (`properties_filters`), `panels/filters.rs`.
 - **Proposal (optional):** adaptive 2-column `c::Field` / `c::ColorSwatch` / `c::Checkbox` rows per selected `FilterSpec` variant inside `SectionHeader("Filters")`.
-- **Answer:**
+- **Answer (14 November 2026):** ratified as built: per-filter rows, Adjust color, gradient filters with `GradientBar` and the presets menu, all from existing components.
 
 ### R-031 · Dynamic focal-point handle and anisotropic radii on Gradient Transform canvas overlay
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track · TO-04 (`GradientTransform` tool)
 - **Where:** `neoflash_ui::components::canvas::paint_gradient_transform` (`crates/neoflash-ui/src/components/canvas.rs`) and `crates/neoflash-editor/src/stage.rs`
 - **Need:** extend `paint_gradient_transform` (or add `paint_radial_gradient_transform`) to accept `focal_point_ratio: Option<f32>` (`-1.0..=1.0`, omitted for linear gradients) and separate `(radius_x, radius_y)` ellipse parameters instead of the hardcoded decorative focal marker at `Vec2::new(radius * 0.35, 0.0)`.
 - **Why:** `GradientFill.focal_point` (`-1.0..=1.0`), `GradientMatrix` (`scale_x`, `scale_y`, `rotation`), and HTML5 two-circle `createRadialGradient(fx, fy, 0, 0, 0, r)` already work end-to-end, but `crates/neoflash-ui/` is design-locked so the stage overlay cannot move the focal triangle handle dynamically until `neoflash-ui` exposes the parameter.
 - **Checked:** `crates/neoflash-ui/src/components/canvas.rs`, `canvas-editing-chrome.png`, `crates/neoflash-editor/src/stage.rs`.
 - **Proposal (optional):** `paint_gradient_transform_with_focal(painter, p, center, rx, ry, angle_rad, focal_point: Option<f32>)`.
-- **Answer:**
+- **Answer (14 November 2026):** ratified as built: the editor's Gradient Transform overlay (centre, width, radius, rotate, focal) is the approved behaviour. `neoflash_ui::paint_gradient_transform` remains only as the Help illustration.
 
 ### R-032 · Publish size scale with weight breakdown in Publish settings
 - **Status:** resolved — shared `WeightBar`, `weight_legend`, `weight_totals` and `InlineMessage` are in `neoflash-ui` (`0113b61`)
@@ -719,9 +735,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   properties rows; `exports/panels/{dark,light}/boards/png/brushes-pencil-panels.png`; `TypeHeader` implementation.
 - **Proposal (optional):** add a compact `TypeHeader` variant/API with the approved geometry, preserving the
   existing 48 pt default for other properties panels. No editor-local replacement or locked-file changes made.
+- **Triage (14 November 2026):** still needed; the compact variant is a design-track change in `neoflash-ui`.
 
 ### R-048 · Explicit soft-alpha mode for timeline masks
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track · T-062 timeline and scripted masking
 - **Where:** `panels/layer_properties.rs` (DL-16), layer context menu / `Folder and mask…`.
 - **Need:** an approved way to select geometry masking versus soft alpha masking on a mask layer, including
@@ -734,6 +751,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   `panels/layer_properties.rs`, and `layer_controls.rs`. None specifies a geometry/alpha selector.
 - **Proposal (optional):** a design-owned Select or Radio state on Mask properties with Geometry as the legacy
   default and Alpha as the explicit alternative. No new editor-local control or locked visual changes made.
+- **Answer (14 November 2026):** ratified as built: `Mask mode` Select (Geometry default, Alpha, Luminance) and `Invert mask` Switch in Layer properties, visible for mask layers. The duplicate raw form in the layer menu is removed by R-079.
 
 ### R-049 · Two timeline layer-row icons after `Mode` for AE-style Mask Channel (Alpha / Color-Luminance) and Mask Inversion
 - **Status:** open
@@ -745,6 +763,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** The project owner explicitly requested AE-style mask inversion (`mask_invert`) and Color/Luminance (`цвет и альфа`) mask modes with **2 icons from Claude** placed on the layer row right after `Mode` (authorizing temporary After Effects-style icons on the layer row after `Mode` in the editor until Claude delivers the 2 official NF2 icons).
 - **Checked:** `Figma 143:22609` (Dark) / `144:25676` (Light) (`R-040` `Mode` cell + `R-045` `Solo` column at `LAYER_COLUMN_MODE_SOLO = 372`), `crates/neoflash-ui/src/icons.rs`, `crates/neoflash-ui/src/components/timeline.rs`.
 - **Proposal (optional):** Add 2 vector icons (`Icon::MaskAlphaLuma` / `Icon::MaskLuma` and `Icon::MaskInvert`) to `neoflash-ui::icons` and reserve compact inline toggle slots right after `Mode` on mask rows (and matching controls in `Layer properties` / context menu). Until `R-049` lands in `neoflash-ui`, the editor paints temporary AE-style inline icons right after `Mode` in `panels/timeline.rs` without touching locked `neoflash-ui` files.
+- **Triage (14 November 2026):** behaviour is live with temporary editor-painted icons; the two official 16 px masters are still owed by the design track.
 
 ### R-050 · Move open document tabs strip (`R-035`) below the main menu bar in the NF2 design system (personal owner directive)
 - **Status:** resolved — 5 November 2026 (`claude`, owner-approved): Figma `NF2 / Editor — Main` Dark `1:10114` / Light `59:50910` and the R-035 shelves (`126:18242` / `132:19270`) now show a 40 pt Document bar below the 48 pt menu bar (bg/app, 12 pt sides, border/subtle bottom line, tabs + ⌄ left-aligned); the project title + Unsaved badge are gone from the menu bar. Reference text updated; PNG/outline exports refresh with the next export-plugin run.
@@ -755,7 +774,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** `docs/NF2-REQUESTS.md` R-035, `interface/design-system/docs/data/outline/interface-editor-main.txt`, `crates/neoflash-ui/src/components/headers.rs` (`DocumentTab`), `crates/neoflash-editor/src/document_chrome.rs`.
 
 ### R-051 · Comfortable and Compact / Classic Flash editor density profiles
-- **Status:** answered (owner decision 2026-11-07; implemented)
+- **Status:** resolved — owner decision 2026-11-07; implemented
 - **Requested by / for:** project owner · T-101 / V-D01 (approved T-099 visual audit)
 - **Where:** NF2 editor shell, main/document bars, dock headers, panels, Timeline and status chrome.
 - **Need:** Two complete metric profiles with identical information architecture and behavior: the current readable
@@ -778,7 +797,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   (28/22/16) and default layer-column width; default Comfortable.
 
 ### R-052 · Responsive Timeline controls, transport-sized Play and compact layer header
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** project owner · T-101 / V-D02; T-078
 - **Where:** NF2 Timeline controls/header, transport row, layer header columns and frame-grid navigation.
 - **Need:** Define control visibility priority and an explicit overflow state for narrower widths; size Play within
@@ -798,9 +817,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   control sizes 32/28/24 per density profile (wired with R-051), layer-height presets 28/22/16 with `NF2/Caption`,
   no Auto height, square Play. Implemented (uncommitted, pending owner acceptance): priority fit + More menu with
   grouped hidden controls, square Primary SM Play, presets, Narrow glyph, Fit selection/content; tests pass.
+- **Answer (14 November 2026):** delivered in `cc9f9b8` and accepted by the owner on 7 November 2026: priority hiding with the More menu, square Play, Fit selection / content, narrow layer header.
 
 ### R-053 · Collapsed, edge-docked and contextual Stage toolbar states
-- **Status:** answered (owner decision 2026-11-07; implemented)
+- **Status:** resolved — owner decision 2026-11-07; implemented
 - **Requested by / for:** project owner · T-101 / V-D03
 - **Where:** the floating Stage/canvas toolbar and its interaction with artwork, pasteboard and docks.
 - **Need:** Approved collapsed, edge-docked and context-expanded states, including transition, persistence, keyboard
@@ -816,7 +836,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   not requested and is not implemented.
 
 ### R-054 · Inspector / Library priority layouts and fast focus expansion
-- **Status:** answered (owner decision 2026-11-07; implemented)
+- **Status:** resolved — owner decision 2026-11-07; implemented
 - **Requested by / for:** project owner · T-101 / V-D04
 - **Where:** right dock composition containing Properties and Library.
 - **Need:** Define saved `Inspector priority` and `Library priority` layouts, a clearer splitter and fast keyboard/
@@ -831,7 +851,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   and a double-click on the splitter switch them; the splitter grip is always visible. Layout only.
 
 ### R-055 · Compact Color state and narrower Preferences composition
-- **Status:** answered (owner decision 2026-11-07; implemented)
+- **Status:** resolved — owner decision 2026-11-07; implemented
 - **Requested by / for:** project owner · T-101 / V-D05
 - **Where:** Color panel and Preferences dialog shell/pages.
 - **Need:** A compact persistent Color state (swatches/chip, hex and alpha with on-demand full picker) plus a narrower
@@ -846,7 +866,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   and 120 pt labels; the Code editor syntax grid and font select were tightened so every page keeps one width.
 
 ### R-056 · Pixel-aligned optical icon masters for small UI sizes
-- **Status:** answered 2026-11-07 (owner decision "1 pt on the grid"): optical masters on 12 / 16 / 20 grids in Figma
+- **Status:** resolved — 2026-11-07 (owner decision "1 pt on the grid"): optical masters on 12 / 16 / 20 grids in Figma
   and `exports/icons`, size-matched drawing in `neoflash_ui::icons`; rules in `docs/DESIGN-SYSTEM.md`. A 24 px grid is
   not needed (no 24 pt icon slot).
 - **Requested by / for:** project owner · T-101 / V-D06
@@ -871,9 +891,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   R-011/R-016 (narrower component concerns only).
 - **Proposal (optional):** Preserve the useful status-bar shortcut hints and duplicate state with shape/icon/text when
   color is currently the main signal.
+- **Triage (14 November 2026):** not delivered; the matrix is the design track's next accessibility deliverable.
 
 ### R-058 · Denser two-tone raw-shape selection hatch
-- **Status:** answered (owner decision 2026-11-07; implemented in `neoflash-ui`)
+- **Status:** resolved — owner decision 2026-11-07; implemented in `neoflash-ui`
 - **Requested by / for:** project owner · T-101 / V-D08 (explicit follow-up to T-099)
 - **Where:** `NF2/Shape Selection` in `crates/neoflash-ui/src/components/canvas.rs`; raw/Merge fill and stroke
   selection overlay used by the Stage.
@@ -895,7 +916,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   cache tests pass; the design lock is re-pinned. Native 1×/2× Stage acceptance over real artwork remains pending.
 
 ### R-059 · Help ▸ Search functions entry point
-- **Status:** answered (owner decision 2026-11-08; implemented and synchronized to Figma/NF2)
+- **Status:** resolved — owner decision 2026-11-08; implemented and synchronized to Figma/NF2
 - **Requested by / for:** project owner · T-132 live authoring report
 - **Where:** main `Help` menu in `crates/neoflash-editor/src/panels/menu.rs`; existing searchable command catalogue in
   `panels/preferences.rs::prefs_shortcuts` (`R-046`).
@@ -921,7 +942,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   ▸ Shortcuts remains exclusively for editing bindings; the locked menu row itself is unchanged.
 
 ### R-060 · Bitmap Trace and object actions in Stage / Library context menus
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** project owner · T-132 live authoring report
 - **Where:** Stage-object context menu (`stage.rs::stage_object_commands`) and image-resource context menu
   (`resources.rs`); existing Trace dialog/controller in `bitmap_trace.rs` and `R-022`.
@@ -938,9 +959,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Proposal (optional):** Stage bitmap group: `Trace bitmap…`, `Bitmap properties…`, `Break apart`; resource image
   group: `Trace bitmap…`, `Bitmap properties…`. Direct-resource Trace creates one new Graphic symbol beside the
   resource, selects it in Library and commits one Undo without placing or mutating Stage artwork.
+- **Answer (14 November 2026):** ratified as built: `Trace bitmap…` and `Bitmap properties…` in the Stage, Library and resource menus (row order in R-067).
 
 ### R-061 · Default Eraser “cut portions” mode label and description
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** project owner · T-132 live authoring report
 - **Where:** existing Eraser mode Select and helper copy in `authoring_tools.rs`; `R-034` currently specifies
   `Cut strokes` / “fills stay intact”.
@@ -952,9 +974,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** `R-034`, Eraser Tool options outline/export and current `EraserMode` menu/help copy.
 - **Proposal (optional):** first/default row `Erase portions`; helper `Cut through Merge fills and strokes along the
   eraser path. Grouped and Object Drawing artwork stays whole.` Keep the three existing Whole modes below it.
+- **Answer (14 November 2026):** the default mode is labelled `Erase normal`, the classic Flash name, and keeps the existing eraser icon. Helper text: "Cuts through fills and strokes along the eraser path. Grouped and Object Drawing artwork stays whole." The old "Cut touched strokes · keep fills" helper is removed. The three Whole modes follow it unchanged.
 
 ### R-062 · Pen path completion hint after Escape behavior repair
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** project owner · T-132 live authoring report
 - **Where:** Pen drafting action/hint in the Stage toolbar and status help; current copy describes `Esc` as Cancel.
 - **Need:** approved hint copy for the classic Pen lifecycle: click the first anchor to close, `Esc` finishes the
@@ -965,9 +988,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** `editor-editing-symbol-in-place` / Stage toolbar references, current Pen hint and vector gesture tests.
 - **Proposal (optional):** primary hint `Finish path · Esc` with secondary tooltip listing close-first-anchor and
   Command-click; retain a separate explicit Cancel action if the design needs one.
+- **Answer (14 November 2026):** while a Pen path is open the bar shows `Finish` (Primary, shortcut chip `Esc`), `Close path` (Secondary) and `Discard` (Ghost, no shortcut), which replaces `Cancel · Esc` and is the only action that drops the draft. Tooltip of `Finish`: "Finish the open path. Click the first anchor to close it". Enter keeps working as a second key for Finish without a chip.
 
 ### R-063 · Affine Edit-in-Place grid, guides, rulers and Brush cursor
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation boundary · T-133 affine in-context symbol editing
 - **Where:** locked `NF2/Stage Grid`, `NF2/Guide`, `NF2/Stage Ruler` and `NF2/Brush Cursor`; editor mapping in
   `stage_view.rs` and `authoring_tools.rs`.
@@ -988,9 +1012,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Proposal (optional):** add context-axis variants that retain existing colors, weights and selected/locked states:
   two oblique ruler axes anchored at the instance registration point, oblique full-canvas guides/grid, and an affine
   outline Brush cursor with the existing size label and focus/hit target. Keep screen-space click tolerances unchanged.
+- **Answer (14 November 2026):** for Beta 1 the current fallback is the approved behaviour: the local ruler only when both local axes advance in the positive screen direction, otherwise the screen ruler; grid and guides exact for axis-preserving and quarter-turn placements and withheld for oblique or reflected ones. No new chrome is drawn for the oblique case in this release.
 
 ### R-064 · Compact Document and Window menu grouping
-- **Status:** answered (owner decision 2026-11-08; implemented and synchronized to Figma/NF2)
+- **Status:** resolved — owner decision 2026-11-08; implemented and synchronized to Figma/NF2
 - **Requested by / for:** project owner · T-134 live authoring repair
 - **Where:** main menu bar and menu popovers in `crates/neoflash-editor/src/panels/menu.rs`; command paths in
   `commands.rs`; existing NF2 Menu / Menu item / separator components.
@@ -1021,6 +1046,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   runtime hotspot regression.
 - **Proposal (optional):** metadata-only synchronization for the whole Pen family, with one 1× Stage click sample
   showing the anchor centred on the visible nib; retain every existing SVG path and cursor size.
+- **Triage (14 November 2026):** runtime is correct (`[11, 3]`); the locked cursor metadata still says `[6, 21]`. Design-track correction with the next Figma export.
 
 ### R-066 · Owner-authorized v2.2 panel, floating-tools and Help repair batch
 - **Status:** resolved — owner decision 2026-11-09; implemented and synchronized as NF2 v2.25
@@ -1064,7 +1090,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   authoring control or colour mode was removed.
 
 ### R-067 · Stage context menu Actions…, Trace bitmap… and Bitmap properties… row order
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track · T-177, T-190 (Stage & Library bitmap tracing and instance `Actions…`)
 - **Where:** `crates/neoflash-editor/src/stage.rs::stage_object_commands`, `crates/neoflash-editor/src/panels/library.rs::library_menu` and `crates/neoflash-editor/src/resources.rs::resource_files_body`
 - **Need:** confirm the exact menu section order in the Stage object context menu (`stage_object_commands`) and Library / Resource context menus:
@@ -1076,9 +1102,9 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Why:** `T-190` adds direct `Actions…` (`F9`) on placed Movie Clip / Button instances and `T-177` adds `Trace bitmap…` and `Bitmap properties…` on placed bitmaps and Library image resources using existing `nf::MenuItem` and `nf::menu_separator` components (extending `R-060`).
 - **Checked:** `R-022`, `R-060`, `panels-menus.txt`, `stage.rs::stage_object_commands`, `resources.rs`, `panels/library.rs`.
 - **Proposal (optional):** keep `Actions…` (`F9`) at the end of the symbol/instance block and `Trace bitmap…` + `Bitmap properties…` in a dedicated bitmap block immediately below it, and place `Trace bitmap…` above `Bitmap properties…` in Library / Resource image menus.
-- **Answer:**
+- **Answer (14 November 2026):** ratified as built. Stage menu order: `Actions…`, then the instance and symbol rows, `Trace bitmap…`, `Bitmap properties…`; the additional rows (Graphic loop modes, Swap symbol across span, Distribute to keyframes, Reverse stacking order, Pixel snap, Auto Instance Namer…, Randomize Selection…) are accepted. `Edit in new window` stays disabled (R-088).
 
-### R-067 · Compact 1-column/2-column floating Tools header and Puppet / 16 px Classic Flash tool masters
+### R-067b · Compact 1-column/2-column floating Tools header and Puppet / 16 px Classic Flash tool masters
 - **Status:** open
 - **Requested by / for:** implementation track · T-181 (detached Tools 1-column minimum width & temporary NF2 icon support)
 - **Where:** `crates/neoflash-editor/src/detached.rs::native_floating_panel`, `crates/neoflash-editor/src/ui_icons.rs`,
@@ -1099,10 +1125,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Proposal (optional):** adopt the `TOOLS_GRIP` (`i16::GRIP_H`) + `More` (`i16::MORE`) header variant in
   `FloatingPanelHeader` whenever `available_width < 188 pt`, and export 16 px / 20 px optical SVG masters for
   `tool-puppet` and 16 px masters for `tool-{bone,bind,deco,spray,3d-translate,3d-rotate}`.
-- **Answer:**
+- **Triage (14 November 2026):** formerly the second request numbered R-067. Partly live with an editor-local narrow header and temporary icons; the header variant and the official Puppet / 16 px masters are still owed by the design track.
 
 ### R-068 · Library batch utilities, Auto Instance Namer and Randomize Selection modal dialogs
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation track · T-196 (Native Built-In Productivity & Animation Suite: Library Batch Suite, Auto Instance Namer & Randomize Selection Dialogs)
 - **Where:** `crates/neoflash-editor/src/panels/productivity_tools.rs`, `crates/neoflash-editor/src/panels/library.rs`,
   and `crates/neoflash-editor/src/resources.rs`.
@@ -1124,10 +1150,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Proposal (optional):** add `Dialog / Batch Rename Library`, `Dialog / Batch Linkage`, `Dialog / Batch Bitmap Compression`,
   `Dialog / Auto Instance Namer`, and `Dialog / Randomize Selection` to the `Dialogs` page in Figma (`420 pt` modal width,
   `NF2/Section Header` + `PropertyRow` + `NF2/Field` / `NF2/Select` / `NF2/Checkbox` rows + right-aligned Cancel/Primary footer).
-- **Answer:**
+- **Answer (14 November 2026):** the five dialogs are accepted as built for Beta 1: 420 pt modal, `SectionHeader` groups, `Field` / `TextField` / `Select` / `Checkbox` rows, footer `Cancel` · Primary. Their reference boards follow with the next Figma export; until then they are provisional and must not be copied as a pattern.
 
 ### R-069 · UI Layout Studio composition, artboard states and history contract
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation audit · T-194 / T-199
 - **Where:** `crates/neoflash-editor/src/panels/ui_studio.rs`, the standalone `NeoFlash UI Studio.app` launcher,
   and Figma `BUz3pseopiuOg2Uiy3Fog7` v2.25.
@@ -1143,10 +1169,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Proposal (optional):** approve the Studio as a developer-only workspace using existing Panel Header, Field,
   Button, Tabs and canvas-selection roles; specify one history snapshot that includes document, systems and artboards,
   and require drag values to derive from a captured start state plus total delta.
-- **Answer:**
+- **Answer (14 November 2026):** UI Layout Studio is a developer tool, outside the product boards. It uses existing roles only (Panel Header, Field, Button, Tabs, canvas selection). One history snapshot covers document, systems and artboards; every drag derives from the state captured at pointer-down plus the total delta, and ends in one history step; artboards persist with the session. Labels and badges never overlap or clip: truncate with an ellipsis and move the size badge inside the artboard header.
 
 ### R-070 · Production activation for Deco, Spray, Bone, Bind, Puppet and 3D Stage workflows
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation audit · T-180 / T-186 / T-199
 - **Where:** `crates/neoflash-editor/src/panels/properties_tool.rs`, `crates/neoflash-editor/src/stage.rs`, Tools and
   approved tool-group/menu/shortcut definitions in Figma v2.25.
@@ -1160,10 +1186,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   `properties_tool.rs::set_stage_sticky_tool_mode` and the Stage workflow tests.
 - **Proposal (optional):** map the workflows to the already approved Tools group/icon masters and existing Properties
   sections, with command IDs for keyboard/menu dispatch; no new visual role is required.
-- **Answer:**
+- **Answer (14 November 2026):** ratified as built: Deco, Spray, Bone, Bind, Puppet, 3D Translate and 3D Rotate are reached through the Tools groups and their command IDs. Their final icon masters are tracked in R-067b.
 
 ### R-071 · Save As FLA target profile selection
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation audit · T-208
 - **Where:** Save As flow and Publish Settings; Figma `BUz3pseopiuOg2Uiy3Fog7` v2.25.
 - **Need:** an approved NF2 control and location for choosing Animate CC, CS6, CS5.5, CS5, CS4, Flash 8 or
@@ -1175,10 +1201,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   `crates/neoflash-editor/src/panels/publish_settings.rs`.
 - **Proposal (optional):** approve a profile selector in the existing Save As flow, with the file extension fixed to
   `.fla` for archive profiles and `.xfl` for the uncompressed profile.
-- **Answer:**
+- **Answer (14 November 2026):** the profile is chosen in File ▸ Export ▸ Export FLA / XFL Target (seven checked rows). Save As keeps using that choice and the filename suffix; no control is added to the Save panel.
 
 ### R-072 · Linux wording for the Desktop app publish target
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** implementation track · T-289 Windows/Linux portable previews
 - **Where:** Publish Settings target row and Desktop app detail panel; Figma
   `BUz3pseopiuOg2Uiy3Fog7` v2.25.
@@ -1194,4 +1220,224 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Proposal (optional):** change only the existing label and detail heading to
   `Desktop app (macOS / Windows / Linux)`; keep its component, position, settings and output-folder behavior
   unchanged.
+- **Answer (14 November 2026):** approved: `Desktop app (macOS / Windows / Linux)` in the target list and as the detail heading. Component, position and settings do not change; the reference board follows with the next Figma export.
+
+## Beta 1 design answers (design track, 14 November 2026)
+
+Design-track decisions for the Beta 1 interface gate. They need no new NF2 component; the implementation track
+wires them with the components named in each answer.
+
+### R-073 · Output panel first-run state
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface gate
+- **Where:** `crates/neoflash-editor/src/app.rs` (initial `output`), Output panel.
+- **Need:** approved first line of the Output panel; the current "NeoFlash development preview. …" sentence is not
+  beta wording.
+- **Answer:** Output starts empty, as in classic Flash. Remove the boot line; the existing `EmptyState`
+  ("No output yet" / "Status messages, script checks and export results appear here.") is the first-run state.
+  Output never carries version or product text: the version lives in About, Test Movie is explained in Help.
+
+### R-074 · Export audio: real waveform, empty state and Export availability
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface gate
+- **Where:** `crates/neoflash-editor/src/panels/export_audio.rs`; outline `panels-dialogs-export.txt`
+  (`Dialog / Export audio`).
+- **Need:** the 590 × 40 span under the format segments paints a decorative waveform even when the document has no
+  sound, and the footer shows a duration and size for nothing.
 - **Answer:**
+  1. *Sound present.* The span is a neutral span (`paint_span(…, SpanType::Static, true)`, as Properties ▸ Sound does)
+     with `paint_sound_peaks` of the mix that will be exported for the current Source and Range: one lane for Mono,
+     two for Stereo. Compute peaks when Source, Range or Channels change, never per frame. While they are being
+     computed pass empty `channels` (the component's flat centre line). `SpanType::Sound` with its built-in decorative
+     waveform is not used in this dialog.
+  2. *No sound.* The span is replaced by `InlineMessage` (Info, full width): "This document has no sounds to export."
+     When a single layer or resource is selected and the range contains none of it: "No sound in the selected range."
+  3. *Footer.* With sound: `<source> · <duration> · ~ <size>`. Without sound: `No sounds` only, no duration or size.
+  4. *Buttons.* `Cancel` (Secondary) then `Export` (Primary with `i16::UPLOAD`, as in the outline). Export is disabled
+     while there is no sound; its disabled tooltip repeats the message from item 2. Enter does nothing in that state.
+
+### R-075 · Export video: idle, exporting, paused, finished and failed states; footer order
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface gate
+- **Where:** `crates/neoflash-editor/src/panels/export_video.rs`; outline `panels-dialogs-export.txt`
+  (`Dialog / Export video`, which shows the Exporting state).
+- **Need:** the dialog shows "Exporting frames 0 / 120" and "Preview while rendering · ⏸ to pause" before the user
+  presses Export, and the footer order is `Export · Cancel`.
+- **Answer:** the left column (300 pt) is the Preview (300 × 188) followed by a status block:
+
+  | State | Status block under the Preview | Footer, left to right |
+  | --- | --- | --- |
+  | Idle | Caption only: `Preview · frame <first frame of the range>`. No `Progress`. | summary · `Cancel` · `Export` |
+  | Exporting | `Progress` (Determinate) `Exporting frames <done> / <total>` with its percentage; caption `Preview while rendering · ⏸ to pause`. | summary · `Pause` (Ghost) · `Cancel` · `Export` (disabled) |
+  | Paused | Same `Progress`, frozen; caption `Preview paused · ▶ to resume`. | summary · `Resume` (Ghost) · `Cancel` · `Export` (disabled) |
+  | Failed | Caption from Idle and the existing Error `LogLine` with the reason. No `Progress`. | summary · `Cancel` · `Export` |
+  | Finished | The dialog closes; a Success toast `Video exported — <file name>`; the full path and any notes go to Output (existing behaviour). | — |
+
+  `Export` is Primary with `i16::UPLOAD`; `Cancel` is Secondary and sits to its left, as in every other dialog.
+  `dialog_footer` lays its right group out right-to-left, so add `Export` first (see `export_audio.rs`). The options
+  column stays disabled while exporting (existing). No other change to the dialog.
+
+### R-076 · Help: user wording for Beta 1 limits, accessibility and tablet articles
+- **Status:** answered
+- **Requested by / for:** design track (content) · Beta 1 interface gate
+- **Where:** `crates/neoflash-editor/src/panels/help_manual.rs` (Brush article, both "Beta 1 Known Issues" paragraphs,
+  the published-HTML5 accessibility paragraph), `panels/help_as_reference.rs` (Known Issues row) and the test needles
+  in `help_manual.rs`.
+- **Need:** Help shows task numbers (`T-235`), internal identifiers (`stage-a11y-overlay`, `platform-accessibility`,
+  `keyboardFocusActive`) and process wording ("deterministic event-level pipeline verified", "acceptance pending").
+- **Answer:** Help describes what the user can and cannot do. No task or request numbers, no DOM ids, crate, module
+  or variable names, no words about verification, certification or acceptance. Approved copy:
+  - *Brush:* "Brush (B) supports normal, fill, behind, selection and inside paint modes together with pressure, tilt,
+    size, shape and Lock Fill. Graphics-tablet pressure, pen tilt and switching between pen tip and eraser are
+    experimental in 0.1.0-beta.1 and have not been checked on every tablet and driver."
+  - *Known issues (both paragraphs):* "Beta 1 known issues and limits: VoiceOver cannot read the editor interface yet;
+    there is no build for Intel (x86_64) Macs; updates are installed manually; the Windows preview is unsigned, so
+    SmartScreen may warn before the first launch, and it has no connected debugger; the Linux preview is a portable
+    archive tested on Ubuntu 24.04 x64 with X11 and Wayland, not an AppImage or deb package; Windows and Linux have had
+    less testing than macOS; import of legacy Flash files is partial; graphics-tablet support is experimental."
+  - *Published HTML5 accessibility:* "HTML5 packages published by NeoFlash 0.1.0-beta.1 include an accessibility layer
+    for screen readers and keyboard users: every accessible object gets a role, a name and a tab stop, and focus rings
+    appear only during keyboard navigation. Not in Beta 1: VoiceOver inside the editor, builds for Intel (x86_64) Macs,
+    automatic installation of updates and full graphics-tablet support."
+  - *Reference table row:* second cell "VoiceOver, Intel Macs, updates, Windows / Linux previews, graphics tablets";
+    third cell: the Known issues sentence above, starting from "VoiceOver cannot read …", as full sentences.
+  - *Tests:* replace the needles `platform-accessibility`, `T-235` and `stage-a11y-overlay` with `VoiceOver`,
+    `graphics-tablet` and `screen readers`; keep the others. Checks of the published `index.html` may keep its ids.
+
+### R-077 · Stacked side dock: useful minimum for the second group and the collapsed group
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface gate
+- **Where:** `crates/neoflash-editor/src/dock_grid.rs` (stacked left / right areas), `workspace.rs`
+  (`DockLayout::PRIORITY_WEIGHT`); extends R-054.
+- **Need:** with Inspector priority the Library gets 32 % of the side dock. At 1920 × 1080 that is about 188 pt, which
+  holds the header, search, count row and footer and leaves a 2–4 pt sliver of the tree.
+- **Answer:** the composition of Library and Properties does not change; only the height allocation does.
+  1. *Useful minimum.* Library: header, search block, count row, three tree rows, footer =
+     `panel_header() + control() + 2·S2 + control() + 3·row() + S2 + 1 + control()` → 245 pt Comfortable,
+     213 pt Compact, 185 pt Classic Flash. Any other panel: the height in `minimum_window_size(panel)`.
+  2. *Allocation.* In a stacked side area of height `H` the non-priority group gets
+     `max(32 % of H, its useful minimum)`, the priority group the rest, as long as the priority group keeps its own
+     useful minimum. At 1920 × 1080 Comfortable (`H` = 588): Library 245, Properties 343.
+  3. *Collapsed group.* When `H` is smaller than both useful minima together, the non-priority group collapses to its
+     `PanelHeader` only (`panel_header()` high, no body, no splitter grip). Its header keeps the title and ⋯ and gets,
+     in the header's trailing slot, an `IconButton` with `i16::CHEVUP` ("Expand Library" / "Expand Properties").
+     Clicking the title or the chevron gives that group priority (same command as ⌥⌘L / ⌥⌘F3); the other group then
+     collapses. Nothing is stored in the document.
+  4. *Splitter.* Dragging uses the same minima: a group is never left between its header height and its useful
+     minimum; below the minimum it snaps to the collapsed header.
+
+### R-078 · Minimum window 1024 × 720
+- **Status:** answered (reference board `Editor / Main — 1024 × 720` follows with the next Figma export)
+- **Requested by / for:** design track · Beta 1 interface gate
+- **Where:** `dock_grid.rs` (`MIN_STAGE_HEIGHT`), `panels/tools.rs` (`tools_contents`, two-column branch),
+  `shell.rs` (`top_bar_actions`), Stage view fitting.
+- **Need:** at the minimum window the bottom dock keeps about 405 pt and leaves the Stage row 243 pt, the Stage is not
+  re-fitted, the two-column Tools panel hides Fill / Stroke behind a scroll, and the workspace select disappears.
+- **Answer:** the minimum window stays 1024 × 720 pt.
+  1. *Height budget.* The Stage row (document tabs, rulers, Stage) keeps at least 360 pt: `MIN_STAGE_HEIGHT` 240 → 360.
+     At 720 pt Comfortable the bottom dock is therefore at most 288 pt: tabs 40, controls 44, ruler 32 and six layer
+     rows. Only the effective height is limited; the saved dock height returns when the window grows.
+  2. *Stage fit.* While the user has not zoomed or panned since the document was opened or since the last Fit stage,
+     a change of the Stage viewport size runs Fit stage again. A manual zoom or pan ends this until the next Fit stage.
+  3. *Tools, two columns.* The panel never scrolls. The block below the tool grid (divider, Fill / Stroke and colour
+     actions, divider, Options) is pinned to the bottom, as in the one-column rail. The grid shows the rows that fit;
+     when tools remain, the last visible cell is the existing "…" overflow button with the rail's overflow popover.
+  4. *Top bar.* The workspace select takes the free width between the menu bar and Test Movie, clamped to
+     132–180 pt, and hides only below 132 pt (this replaces the fixed 1280 pt window test). It stays available in
+     Window ▸ Workspaces.
+  5. *Side dock.* R-077 applies: at 1024 × 720 Comfortable the side dock is 360 pt high, so Properties gets 320 pt
+     and Library is the collapsed header.
+
+### R-079 · Layer menu: no forms inside submenus; outline colour without a window
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `crates/neoflash-editor/src/layer_controls.rs` (layer context menu, `Layer Outline Color`),
+  `panels/layer_properties.rs`; outline `panels-symbols-panels.txt` (`Dialog / Layer properties`).
+- **Need:** "Convert layers to symbol…" and "Folder and mask…" are submenus that contain hand-made forms, and
+  "Layer Outline Color" is a bare window with its own Apply / Cancel.
+- **Answer:** a menu holds only `MenuItem` rows.
+  1. *Convert layers to symbol…* is one row that opens the existing Convert to symbol dialog with Type = Movie clip
+     and Name = "<layer name> symbol". Confirming converts the layers; Cancel changes nothing.
+  2. *Folder and mask…* is removed. Name, Visible, Locked, outlines, Sync layer to timeline, Blending, Mask mode and
+     Invert mask are already in Layer properties (the menu's `Properties…` row). The two remaining choices become
+     ordinary submenus of checked rows: `Move to folder ▸` (No folder, then every eligible folder) and, for a normal
+     layer, `Mask ▸` (No mask, then every mask layer).
+  3. *Layer properties* gains one group after Blending for non-folder layers, built from existing components:
+     overline `Camera`, `Switch` "Attach layer to camera" and `Field` "Z-depth" (suffix px, −10 000…10 000). The
+     reference board is updated with the next Figma export.
+  4. *Outline colour.* Clicking the layer's outline swatch opens the standard RGBA popover anchored to the swatch.
+     The change is live, one Undo step when the popover closes, Esc restores the previous colour. No window.
+
+### R-080 · Properties ▸ Instance playback uses NF2 controls
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `crates/neoflash-editor/src/authoring_symbols.rs` (Playback, First frame rows).
+- **Answer:** Playback is `Select` (Independent, Loop, Play once, Single frame) and First frame is `Field`
+  (whole numbers, 1…frame count), both in the standard property row at the current density. No fixed 76 × 22 size.
+
+### R-081 · Gradient overflow preview follows the approved masters
+- **Status:** answered (painter is added to `neoflash-ui` by the design track)
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `crates/neoflash-editor/src/authoring_modify.rs` (`paint_overflow_preview`); Figma
+  `NF2/Gradient Overflow Preview` (Mode = Extend / Reflect / Repeat).
+- **Answer:** the Overflow select and its rows show the approved previews. The hand-painted grey ramp and the red
+  dashed boundary are removed: red is reserved for errors. The editor calls the shared painter once it is published.
+
+### R-082 · Menu separators
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `dock_grid.rs`, `detached.rs` (panel and tab context menus).
+- **Answer:** every menu separator is `nf::menu_separator`; `ui.separator()` is not used inside menus.
+
+### R-083 · Color panel menu rows
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `crates/neoflash-editor/src/authoring_modify.rs` (`color_panel_menu`); outline
+  `panels-color-panel-menu-open.txt`.
+- **Answer:** `Add swatch` runs the same command as the panel's Add to swatches button. `Help` (F1) opens Search
+  functions, as the Timeline menu's Help row does (R-059). `Close` and `Close group` carry no shortcut in any panel
+  menu: ⌘W belongs to File ▸ Close. The reference board loses its ⌘W chip with the next Figma export.
+
+### R-084 · Tooltips
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** every `on_hover_text` / `on_disabled_hover_text` call in `crates/neoflash-editor/src`.
+- **Answer:** all tooltips use `nf::tooltip`. The text is sentence case without a final full stop; the shortcut is
+  passed as the tooltip's shortcut argument from the command table, never typed into the text. A disabled control's
+  tooltip states the reason.
+
+### R-085 · Error text painted on the Stage
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `stage_primitives.rs` (text layout error), `stage.rs` ("Text preview: …").
+- **Answer:** artwork is not themed, so the message must not sit directly on it. Paint a plate: `bg/raised` fill,
+  1 pt `border/subtle`, radius `sm`, padding 4 × 8 pt, with the message in `NF2/Small` and `danger/default`. Both call
+  sites use the same plate; `Color32::DARK_RED` and raw font sizes are removed.
+
+### R-086 · Copy corrections
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `panels/import_video.rs`, `panels/planned_dialogs.rs`, `panels/preferences.rs`,
+  `panels/publish_settings.rs`, `panels/menu.rs`.
+- **Answer:**
+  - "Streams with a player component; keeps .nfl small" → "Streams with a player component; keeps the .nflash file small".
+  - Folder fields never show a sample path as their hint. Hint for both Output folder and Image sequence folder:
+    "Choose a folder". The paths in the reference boards are sample values, not hints.
+  - Insert ▸ "Video placeholder" → "Empty video object".
+
+### R-087 · Main window: reference and product
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** main window; `exports/interface/*/png/editor-main.png`.
+- **Answer:** the product is right in four places and the reference boards are redrawn with the next Figma export:
+  workspace select label "Classic"; Scene selector pill at the Stage's top-left corner (the breadcrumb appears only
+  while editing a symbol); bottom dock tabs Timeline · Actions · Output with no collapse chevron; two-column Tools
+  and the Mode / Solo layer columns. One place follows the reference: Properties ▸ Publish gets the Ghost button
+  "Publish settings…" under the target chip, opening Publish settings.
+
+### R-088 · Disabled "Not available yet" items in Beta 1
+- **Status:** resolved — owner decision, 14 November 2026
+- **Requested by / for:** design track · Beta 1 interface review
+- **Answer:** Print…, Duplicate window, Edit in new window and the Preferences controls without an engine (follow
+  system, Accent, Language, Highlight, colour-scheme Duplicate / Import, parts of Clipboard, Text ▸ Behaviour,
+  Drawing ▸ Show solid points / Snap align) stay visible and disabled with their reason. Nothing is hidden for Beta 1.
