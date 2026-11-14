@@ -32,12 +32,11 @@ still open.
 
 ### Status index (14 November 2026)
 
-- **Open, owed by the design track:** R-049 (mask icons), R-057 (accessibility matrix), R-067b (narrow Tools header,
-  Puppet and 16 px tool masters).
+- **Open, owed by the design track:** R-049 (mask icons), R-067b (narrow Tools header, Puppet and 16 px tool masters).
 - **Resolved, waiting for the editor to adopt the new API:** R-016 (`set_tooltip_shortcuts`), R-047
   (`CompactTypeHeader`), R-081 (`paint_gradient_overflow_preview`).
 - **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
-- **Answered, waiting for implementation:** R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-096;
+- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-096;
   earlier R-022, R-038, R-043.
 - Everything else is resolved.
 
@@ -883,7 +882,7 @@ still open.
 - **Proposal (optional):** Keep fixed optical glyph geometry inside the larger hit/focus rectangles from R-051.
 
 ### R-057 · Contrast, focus, accessible-name and keyboard-only acceptance matrix
-- **Status:** open
+- **Status:** answered
 - **Requested by / for:** project owner · T-101 / V-D07; T-117
 - **Where:** both themes, editor shell, Timeline, panels, dialogs, icon-only controls and drag-first interactions.
 - **Need:** A measurable acceptance matrix for secondary/disabled text, dividers, selected and focus states, small
@@ -895,7 +894,7 @@ still open.
   R-011/R-016 (narrower component concerns only).
 - **Proposal (optional):** Preserve the useful status-bar shortcut hints and duplicate state with shape/icon/text when
   color is currently the main signal.
-- **Triage (14 November 2026):** not delivered; the matrix is the design track's next accessibility deliverable.
+- **Answer (14 November 2026):** the matrix is in `docs/DESIGN-SYSTEM.md` › "Accessibility acceptance matrix": eighteen surfaces against keyboard operation, focus ring, accessible names and disabled reasons, each marked tested, implemented, partial or absent, with the Beta 1 acceptance bar and the order of repair. It is built from the code and tests, not from a screen-reader session; the repairs it lists are implementation work.
 
 ### R-058 · Denser two-tone raw-shape selection hatch
 - **Status:** resolved — owner decision 2026-11-07; implemented in `neoflash-ui`

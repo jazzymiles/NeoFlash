@@ -57,7 +57,7 @@ from `neoflash-ui`, which `build.rs` generates from the exported files. Exact ga
    exactly in 28/32/40 pt rows; the style line height is only for paragraphs.
 8. **Accessibility.** Text contrast follows the contrast contract below (primary and secondary text ≥ 4.5:1), 2 pt focus ring on keyboard focus only
    (`theme::keyboard_focus` + `theme::focus_ring`), every icon-only control has an accessible name and an NF2 tooltip
-   with its shortcut (`components::tooltip`; `components::unavailable` for disabled controls).
+   with its shortcut (`components::tooltip`; `components::not_available` for disabled controls).
 9. **No v1.** `NF1` components in Figma are the legacy reconstruction; never implement them.
 10. **Engine boundary.** `neoflash-ui` does not depend on `neoflash-core`, `-script`, `-export` or `-import`. Panels
     read and write documents only through editor methods. A control whose feature the engine lacks is disabled with
@@ -261,6 +261,48 @@ These colours never carry meaning alone: an error, warning or success state alwa
 | Minimum window 1024 × 720 | Decided in R-078 (Stage row ≥ 360 pt, pinned Tools block with "…" overflow, workspace select 132–180 pt). Reference screen `NF2 / Editor — Main — 1024 × 720` is drawn in four themes (`editor-main-1024x720` in the export manifest); implementation and the PNG export are pending. |
 | `editor-main` export predates v2.25 details | Decided in R-087. The Figma screens now show the label "Classic", the Scene selector, three dock tabs and two-column Tools; the Mode / Solo layer columns are still to be drawn; Properties ▸ Publish settings… is added to the product. PNG export pending. |
 | §3.2 says "field rows gap 8", outlines use 12 in the inspector | The editor follows the outlines (inspector 12, Library 8). |
+
+### Accessibility acceptance matrix (R-057)
+
+State on 14 November 2026, from the code and the shared test suite; it is not a screen-reader or hardware audit.
+**T** = proven by a test, **I** = implemented but not tested, **P** = partly there (the gap is named), **—** = not there.
+K = keyboard operation, F = 2 pt keyboard focus ring, N = accessible names and roles, D = a disabled control gives
+its reason.
+
+| Surface | K | F | N | D | Gap that matters most |
+| --- | --- | --- | --- | --- | --- |
+| Menu bar, Search functions (F1) | P | I | T | P | The menu bar cannot be opened from the keyboard; F1 search is the keyboard path. |
+| Tools | P | I | T | — | No arrow navigation between tools; Smooth / Straighten give no reason when disabled. |
+| Stage | P | — | P | P | Nudge and view keys work; objects, handles and the context menu have no keyboard path, focus mark or name. |
+| Timeline | P | P | T | P | Layer rows and frames cannot be walked or range-selected by keyboard; cells have no ring; frames are unnamed. |
+| Properties | T | P | T | P | Fields show the focus border on pointer focus too; the panel shortcut does not move focus into the panel. |
+| Library | I | I | T | — | No ↑ / ↓ row navigation; about 30 menu rows disable without a reason. |
+| Color panel and popover | P | P | P | — | Colour area, hue, alpha and gradient stops are drag-only; hue and alpha are unnamed. |
+| Actions | P | I | T | P | Script tabs have no ring. |
+| Output, Compiler errors | I | I | T / I | — | Copy and Clear give no reason when empty. |
+| Debugger | I | I | T | — | Step keys are untested outside the ignored browser test. |
+| Preferences, Shortcuts recorder | T | P | T | P | Shortcut rows and the recorder have no ring. |
+| Publish settings | T | I | T | P | A disabled Publish button does not repeat the validation reason. |
+| Export video, Export audio | I | I | I | — | Not driven by keys or labels in any test. |
+| Document tabs, empty state | I | I | T | — | Tab switching keys are untested. |
+| Docking | P | I | T | — | Splitters cannot be resized from the keyboard. |
+| Help | I | P | I | — | Only a smoke test on a sample control. |
+| Layer properties, Convert to symbol | I | I | P | I | Enter / Esc are local, outside the shared dialog helper, and untested. |
+| Toasts | P | I | T | n/a | No dismiss key and no live-region role. |
+
+Shared facts: the ring is `theme::focus_ring` (2 pt, 2 pt outside the control, `border/focus`) and shows only after
+Tab (`theme::keyboard_focus`); text fields are the exception and show their focus border on any focus. Dialogs using
+`dialog_helpers::DialogKeyboardState` share Enter / Esc handling (nine dialogs; sixteen handle them locally). Disabled
+reasons are hover tooltips and are not part of the accessible node. VoiceOver for the editor itself is a documented
+Beta 1 limit.
+
+Acceptance bar for Beta 1: every panel and dialog is reachable and its commands run from menus, Search functions or
+shortcuts (true today except Stage object selection and Timeline cell navigation, which need a pointer); names are
+tested on every panel except Export, Help and the two small dialogs. Order of repair after Beta 1: Stage and
+Timeline keyboard paths; disabled reasons in the accessible node; rings on Menu Item, Script Tab, Swatch Cell,
+Gradient Stop, shortcut rows and layer cells; keyboard colour picking; one shared dialog helper with a focus-trap
+test. One finding needs a runtime check before Beta 1: single-key shortcuts are blocked only by text focus, so Enter
+or Space on a Tab-focused button may also trigger a global command.
 
 ## Provisional surfaces after v2.25
 
