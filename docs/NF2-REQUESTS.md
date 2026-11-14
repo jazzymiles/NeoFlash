@@ -32,9 +32,9 @@ still open.
 
 ### Status index (14 November 2026)
 
-- **Open, owed by the design track:** R-049 (mask icons), R-067b (narrow Tools header, Puppet and 16 px tool masters).
-- **Resolved, waiting for the editor to adopt the new API:** R-016 (`set_tooltip_shortcuts`), R-047
-  (`CompactTypeHeader`), R-081 (`paint_gradient_overflow_preview`).
+- **Open, owed by the design track:** none.
+- **Resolved, waiting for the editor to adopt the new API or assets:** R-016 (`set_tooltip_shortcuts`), R-047
+  (`CompactTypeHeader`), R-049 (mask icons), R-067b (tool masters), R-081 (`paint_gradient_overflow_preview`).
 - **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
 - **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-096;
   earlier R-022, R-038, R-043.
@@ -757,7 +757,7 @@ still open.
 - **Answer (14 November 2026):** ratified as built: `Mask mode` Select (Geometry default, Alpha, Luminance) and `Invert mask` Switch in Layer properties, visible for mask layers. The duplicate raw form in the layer menu is removed by R-079.
 
 ### R-049 · Two timeline layer-row icons after `Mode` for AE-style Mask Channel (Alpha / Color-Luminance) and Mask Inversion
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** project owner & implementation track (`gemini`) · T-064 / T-062 follow-up
 - **Where:** `crates/neoflash-ui/src/components/timeline.rs` (`LayerRow` / `LayerColumns` right after `ModeCell`), `crates/neoflash-editor/src/panels/timeline.rs`, `crates/neoflash-editor/src/panels/layer_properties.rs`.
 - **Need:** **2 official NF2 16×16 icons** placed on the timeline layer row right after the `Mode` cell (when a layer is a `Mask` or linked to a mask), matching After Effects Track Matte / Mask inline toggles:
@@ -766,7 +766,7 @@ still open.
 - **Why:** The project owner explicitly requested AE-style mask inversion (`mask_invert`) and Color/Luminance (`цвет и альфа`) mask modes with **2 icons from Claude** placed on the layer row right after `Mode` (authorizing temporary After Effects-style icons on the layer row after `Mode` in the editor until Claude delivers the 2 official NF2 icons).
 - **Checked:** `Figma 143:22609` (Dark) / `144:25676` (Light) (`R-040` `Mode` cell + `R-045` `Solo` column at `LAYER_COLUMN_MODE_SOLO = 372`), `crates/neoflash-ui/src/icons.rs`, `crates/neoflash-ui/src/components/timeline.rs`.
 - **Proposal (optional):** Add 2 vector icons (`Icon::MaskAlphaLuma` / `Icon::MaskLuma` and `Icon::MaskInvert`) to `neoflash-ui::icons` and reserve compact inline toggle slots right after `Mode` on mask rows (and matching controls in `Layer properties` / context menu). Until `R-049` lands in `neoflash-ui`, the editor paints temporary AE-style inline icons right after `Mode` in `panels/timeline.rs` without touching locked `neoflash-ui` files.
-- **Triage (14 November 2026):** behaviour is live with temporary editor-painted icons; the two official 16 px masters are still owed by the design track.
+- **Answer (14 November 2026):** four 16 px masters with 12 px versions, in Figma and in `neoflash_ui::icons`: `i16::MASK_GEOMETRY` (solid disc — the silhouette), `i16::MASK_ALPHA` (ring, right half filled), `i16::MASK_LUMA` (small sun) for the channel slot, which shows the current mode and cycles on click, and `i16::MASK_INVERT` (solid rounded square with the disc knocked out) for the invert toggle, drawn Selected while inversion is on. Both slots stay right after `Mode` on mask rows, where the temporary glyphs are now. The editor replaces its temporary painted glyphs with these icons; the three-letter "Geo / Alpha / Luma" label next to them is dropped, the tooltip names the mode.
 
 ### R-050 · Move open document tabs strip (`R-035`) below the main menu bar in the NF2 design system (personal owner directive)
 - **Status:** resolved — 5 November 2026 (`claude`, owner-approved): Figma `NF2 / Editor — Main` Dark `1:10114` / Light `59:50910` and the R-035 shelves (`126:18242` / `132:19270`) now show a 40 pt Document bar below the 48 pt menu bar (bg/app, 12 pt sides, border/subtle bottom line, tabs + ⌄ left-aligned); the project title + Unsaved badge are gone from the menu bar. Reference text updated; PNG/outline exports refresh with the next export-plugin run.
@@ -1108,7 +1108,7 @@ still open.
 - **Answer (14 November 2026):** ratified as built. Stage menu order: `Actions…`, then the instance and symbol rows, `Trace bitmap…`, `Bitmap properties…`; the additional rows (Graphic loop modes, Swap symbol across span, Distribute to keyframes, Reverse stacking order, Pixel snap, Auto Instance Namer…, Randomize Selection…) are accepted. `Edit in new window` stays disabled (R-088).
 
 ### R-067b · Compact 1-column/2-column floating Tools header and Puppet / 16 px Classic Flash tool masters
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track · T-181 (detached Tools 1-column minimum width & temporary NF2 icon support)
 - **Where:** `crates/neoflash-editor/src/detached.rs::native_floating_panel`, `crates/neoflash-editor/src/ui_icons.rs`,
   locked `NF2/Floating Panel Header` (`crates/neoflash-ui/src/components/headers.rs`), and `neoflash_ui::icons::{i16, i20}`.
@@ -1128,7 +1128,7 @@ still open.
 - **Proposal (optional):** adopt the `TOOLS_GRIP` (`i16::GRIP_H`) + `More` (`i16::MORE`) header variant in
   `FloatingPanelHeader` whenever `available_width < 188 pt`, and export 16 px / 20 px optical SVG masters for
   `tool-puppet` and 16 px masters for `tool-{bone,bind,deco,spray,3d-translate,3d-rotate}`.
-- **Triage (14 November 2026):** formerly the second request numbered R-067. Partly live with an editor-local narrow header and temporary icons; the header variant and the official Puppet / 16 px masters are still owed by the design track.
+- **Answer (14 November 2026):** (1) the narrow floating Tools header is ratified as built: below 188 pt the header is the `i16::GRIP_H` drag handle and the `i16::MORE` menu button, nothing else; it stays editor-local because only Tools is narrower than `FloatingPanelHeader` allows. (2) Masters delivered in Figma and in `neoflash_ui::icons`: `tool-puppet` on 12 / 16 / 20, and 12 / 16 px `tool-bone`, `tool-bind`, `tool-deco`, `tool-spray`, `tool-3d-translate`, `tool-3d-rotate` (hinted from the approved 20 px masters; Bone and Puppet tuned by hand). `Icon::at(16.0)` on the 20 px tool icons now returns them, so the temporary vectors in `ui_icons.rs` can be deleted.
 
 ### R-068 · Library batch utilities, Auto Instance Namer and Randomize Selection modal dialogs
 - **Status:** answered
