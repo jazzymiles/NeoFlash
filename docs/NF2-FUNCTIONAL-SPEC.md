@@ -18,8 +18,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 
 ## Conventions
 
-- **Status**: `done` = works as specified (remaining limits are named in its entry); `disabled` = control exists, rendered disabled with "Not available yet"; `preview` = body exists as a
-  read-only planned preview (`panels/planned*.rs`, Window ▸ Panels ▸ Planned panels); `absent` = in the NF2 reference, not in
+- **Status**: `done` = works as specified (remaining limits are named in its entry); `disabled` = control exists, rendered disabled with "Not available yet"; `preview` = former read-only planned preview (`PlannedPanel` retired once all former previews promoted to live panels, dialogs, or Properties sections); `absent` = in the NF2 reference, not in
   the UI; `partial` = control works but part of its NF2 behaviour is missing.
 - **Engine**: `yes` = needs new `neoflash-core` / `-script` / `-export` / `-import` / `-web` behaviour; `editor` =
   needs editor-crate logic only (no engine change); `UI-only` = state and wiring inside the panel file.
@@ -54,9 +53,9 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | TL-14 | Button symbol state labels Up/Over/Down/Hit | Timeline | verify | editor | P2 |
 | TO-01 | Rectangle / Oval primitive tools | Tools | done (options on Rectangle/Oval + Properties) | yes | P2 |
 | TO-02 | PolyStar tool + settings | Tools | done | editor (+small) | P2 |
-| TO-03 | Deco tool | Tools | partial (generator + settings draft/internal command; user apply gesture pending) | yes | P3 |
-| TO-04 | Spray brush | Tools | partial (seeded generator + settings draft/internal command; user apply gesture pending) | editor | P3 |
-| TO-05 | Bone / Bind (IK) | Tools | partial (target/length/rotation-limit/stiffness solver fields + transient binding command; direct Stage tool pending) | yes | P3 |
+| TO-03 | Deco tool | Tools | partial (`Properties` live controls + sticky Stage `Tool::Deco` gestures and animated step-frame keyframing with 1-step Undo work; symbol-template authoring remains bounded) | yes | P3 |
+| TO-04 | Spray brush | Tools | partial (`Properties` live controls + sticky Stage `Tool::SprayBrush` gestures with Undo work; symbol-brush authoring remains bounded) | editor | P3 |
+| TO-05 | Bone / Bind (IK) | Tools | partial (format-9 armatures, `Properties` Bone inspector, and Stage `Tool::Bone` / `Tool::Bind` creation, vertex binding, and effector dragging with 1-step Undo work; editable live skin weights/spring persistence remain open) | yes | P3 |
 | TO-06 | Snap toggle (tools rail) | Tools | done | editor | P1 |
 | TO-07 | Tool options: Object drawing, smooth / straighten | Tools | partial | editor | P2 |
 | TO-08 | Fill/stroke chip → Swatches popover | Tools | partial | UI-only | P1 |
@@ -93,14 +92,14 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | AC-04 | Actions toolbar: collapse between braces / expand all (folding) | Actions | done (`sources.rs`) | editor | P2 |
 | AC-05 | Actions toolbar: block comment / line comment / uncomment | Actions | done | UI-only | P1 |
 | AC-06 | Actions toolbar: toolbox sidebar + script navigator | Actions | done | yes | P2 |
-| AC-07 | Script assist | Actions | done (`sources.rs` + `panels/actions.rs`) | yes | P3 |
-| AC-08 | Gutter markers (warning, breakpoint, fold), inline error peek + Quick fix, overview ruler | Actions | done (`sources.rs`) | yes | P2 |
-| OU-01 | Output: Show All / Errors / Warnings / Trace, timestamps | Output | done | editor | P1 |
-| OU-02 | Output: trace() from native Play / Test Movie | Output | partial (native Live ActionScript done; browser Test Movie bridge pending) | yes | P2 |
-| PP-01 | Ease panel | Planned panel | done | editor | P1 |
-| PP-02 | Motion editor | Planned panel | partial | yes | P2 |
-| PP-03 | Properties — Motion tween | Planned panel | done | yes | P2 (= PR-10) |
-| PP-04 | Debugger | Planned panel | done (`debugger.rs` + `sources.rs` + `live_planned.rs`) | yes | P3 |
+| AC-07 | Script assist | Actions | partial (`sources.rs` + `panels/actions.rs` bounded insertion across AS2/AS3/JS/TS) | yes | P3 |
+| AC-08 | Gutter markers (warning, breakpoint, fold), inline error peek + Quick fix, overview ruler | Actions | partial (`sources.rs`: diagnostic gutter markers, underlines, peek + Quick fix work; breakpoint/fold gutter icons and overview ruler await NF2 component design) | yes | P2 |
+| OU-01 | Output: filter search, empty state, Show All / Errors / Warnings / Trace, timestamps | Output | partial (`panels/output.rs`: search filter, Copy, Clear, virtualization and empty-on-launch NF2 EmptyState work; structured level filter and timestamps absent) | editor | P1 |
+| OU-02 | Output: trace() from native Play / Test Movie | Output | done (native Live ActionScript + browser Test Movie / Debug Movie console & exception bridge) | yes | P2 |
+| PP-01 | Ease panel | Panel | done | editor | P1 |
+| PP-02 | Motion editor | Panel | partial | yes | P2 |
+| PP-03 | Properties — Motion tween | Properties | done | yes | P2 (= PR-10) |
+| PP-04 | Debugger | Docked panel | done (`PanelId::Debugger`, `panels/debugger.rs`, `debugger.rs`, `debugger_protocol.rs`, `sources.rs`) | yes | P3 |
 | PP-05 | Project | Planned panel | done | editor | P2 |
 | PP-06 | Code snippets | Planned panel | done (`panels/code_snippets.rs`) | editor | P2 |
 | PP-07 | Compiler errors | Planned panel | done (`panels/compiler_errors.rs`) | editor (+small) | P1 |
@@ -330,30 +329,20 @@ actions are tracked separately.
 - Data: produces existing `ElementKind::Path`.
 - Acceptance: 5-point star with 0.5 point size matches expected vertices; one Undo.
 
-**TO-03 · Deco** — partial (`ik_puppet_3d.rs`, `panels/live_planned.rs`)
-- Available: eight deterministic procedural generators, a settings draft, and a tested internal command applying
-  effect, scale, segments, branch angle, step-frame and Animate-pattern settings in one Undo step.
-- Missing: an approved user Apply affordance or sticky `Tool::Deco` Stage gesture using the actual pointer location
-  and selected Library symbols. The Deco draft currently has no author-visible seed field.
-- Acceptance remaining: Grid fill through a recorded Stage gesture fills the intended area deterministically and
-  remains selected for the next gesture.
+**TO-03 · Deco** — partial (`stage.rs` `deco_spray`, `panels/live_planned.rs`)
+- Available: eight deterministic procedural generators, live `Properties` controls (`Tool::Deco`), sticky Stage `Tool::Deco` drag/apply gestures, and animated Vine Fill step-frame keyframing that preserves unrelated artwork and commits in one Undo step (locked layers refuse edits).
+- Missing: custom Library symbol selection inside all patterns and an author-visible seed field in the `Properties` draft.
+- Acceptance remaining: deterministic symbol-template Deco fills from user-selected Library symbols.
 
-**TO-04 · Spray brush** — partial (`ik_puppet_3d.rs`, `panels/live_planned.rs`)
-- Available: a seeded dot/symbol burst engine, settings draft, and tested internal command honoring the requested
-  Library symbol, ellipse, angle, scale and rotation settings.
-- Missing: an approved user Apply affordance or sticky `Tool::Spray` gesture, pointer sampling and selected-symbol
-  authoring on Stage.
-- Acceptance remaining: a recorded stroke produces deterministic elements at its real coordinates with one Undo.
+**TO-04 · Spray brush** — partial (`stage.rs` `deco_spray`, `panels/live_planned.rs`)
+- Available: seeded dot/symbol burst engine, live `Properties` settings (`Tool::SprayBrush`), and sticky Stage `Tool::SprayBrush` drag gestures with locked-layer refusal and one Undo step per stroke.
+- Missing: richer Library symbol picker integration inside the Spray brush Properties section.
+- Acceptance remaining: spraying selected Library symbols at custom scale/scatter settings.
 
-**TO-05 · Bone / Bind (IK)** — partial (`ik_puppet_3d.rs`, `panels/live_planned.rs`)
-- Available: persisted format-9 armatures, bounded FABRIK/constrained-CCD solving, joint limits, spring helpers,
-  and a Bone panel path that persists target, length, degree-based rotation limits and stiffness and runs the solver.
-  Full-affine transient vertex binding and WarpMesh deformation have tested internal command paths.
-- Missing: direct Bone/Bind Stage gestures, editable live skin weights and persisted spring/skin state. Binding is
-  currently baked into path geometry; transient `IkShapeSkin`/joint specs do not survive reload. Bone name, direct
-  angle, authortime/runtime type, display style and spring fields in this preview panel are draft-only.
-- Acceptance remaining: Stage bone creation/dragging, editable weights and saved poses must solve within limits and
-  evaluate consistently in HTML5.
+**TO-05 · Bone / Bind (IK)** — partial (`stage.rs`, `panels/live_planned.rs`)
+- Available: persisted format-9 armatures (`IkArmature`), bounded FABRIK/constrained-CCD solving, joint limits, spring helpers, `Properties` Bone inspector (`live_bone_properties`) persisting target/length/rotation limits/stiffness, and live `Tool::Bone` / `Tool::Bind` Stage gizmos and gestures (drag to create bones, bind shape vertices with Undo/Redo, and pose effectors to deform bound geometry in one Undo step).
+- Missing: editable per-vertex live skin weight painting and persisted spring/skin state across full reload (bindings currently update path geometry directly; non-persisted draft metadata fields in Properties remain transient).
+- Acceptance remaining: persisted editable skin weights and runtime IK evaluation parity in HTML5.
 
 **TO-06 · Snap toggle** — done (`panels/tools.rs`, `ViewPrefs.snap_to_objects`)
 - Done: Snap to objects (magnet) toggle at the bottom of the Tools rail (`Selected` state when active, persisted in view
@@ -734,34 +723,31 @@ their own layout.
 
 ## 7. Actions and code editor (`panels/actions.rs` `CODE_TOOLS`, `sources.rs`)
 
-Status: AC-02, AC-05 and AC-06 work and AC-01 re-indents only (details in [NF2-ACTIONS-EDITOR.md](NF2-ACTIONS-EDITOR.md));
-AC-03 connects to the Test Movie debugger; AC-04 and AC-07 stay disabled; AC-08 is partial.
+Status: AC-02, AC-04, AC-05 and AC-06 work, AC-01 re-indents only, bounded AC-07 statement insertion works (details in [NF2-ACTIONS-EDITOR.md](NF2-ACTIONS-EDITOR.md)), AC-03 connects to the docked `Debugger` (`PanelId::Debugger`), and AC-08 is partial.
 
 | ID | Element | Purpose / behaviour | Data / engine | Acceptance |
 | --- | --- | --- | --- | --- |
 | AC-01 | Auto-format | Reformat the current script (indent, braces, spacing) per language; one Undo; refuses on parse error with the error shown. | Needs a formatter per language: JS/TS via the existing oxc stack in `neoflash-script` (verify printer availability); AS2/AS3 needs a pretty-printer on the AS parser. | Formatting is idempotent; comments preserved. |
-| AC-02 | Show code hint | Popover with members for the identifier before the caret (`Menu Item` + type on the right); ⌃Space; delay from Preferences ▸ Code editor. | Shared compiler language service: catalogue/declaration context plus advisory AST flow for assignments, scopes, branch joins and known signatures; incomplete/dynamic cases remain conservative. | `this.` lists MovieClip members supported by the runtime; unsupported ones are not offered as working. |
-| AC-03 | Debug options | Starts debugging; requests Pause in a running session (→ PP-04). | Connected Chromium debugger (PP-04). | Debugger Toggle breakpoint uses the current Actions caret line; Remove all clears the list. Gutter breakpoint interaction remains pending. |
-| AC-04 | Collapse between braces / expand all | Folding ranges in the code editor with ▸/▾ gutter markers. | Brace matching on the token stream (`components::code::tokens`). Editor only. | Folded code keeps text and Undo intact. |
+| AC-02 | Show code hint | Popover with members for the identifier before the caret (`Menu Item` + type on the right); `⌃Space` via NF2 `.shortcut(...)` tooltip formatting; delay from Preferences ▸ Code editor. | Shared compiler language service: catalogue/declaration context plus advisory AST flow for assignments, scopes, branch joins and known signatures; incomplete/dynamic cases remain conservative. | `this.` lists MovieClip members supported by the runtime; unsupported ones are not offered as working. |
+| AC-03 | Debug options | Starts debugging (or pauses a running session); opens/routes into docked `Debugger` (`PanelId::Debugger`). | Connected Chromium debugger (`debugger.rs`, `debugger_protocol.rs`, `PanelId::Debugger`). | Debugger `Toggle breakpoint` uses the current Actions caret line (`⌘B`); `Remove all` clears breakpoints even when idle. Gutter breakpoint clicks await NF2 gutter design. |
+| AC-04 | Collapse between braces / expand all | Toolbar folding of brace blocks (`Collapse between braces` / `Expand all`) keeping authored text and Undo intact (`sources.rs`). | Brace matching on the token stream (`components::code::tokens`). Editor only. | Folded code keeps text and Undo intact; gutter chevrons await NF2 gutter design. |
 | AC-05 | Block comment / line comment / uncomment | Toggle `/* */` or `//` over the selection/line; one Undo. | Editor only (language comment syntax is identical for AS/JS/TS). | Round-trip comment → uncomment restores the exact text. |
-| AC-06 | Toolbox sidebar + Script navigator | Left sidebar: toolbox search + tree (Top level, Language elements, packages); navigator (current selection, scenes, symbol definitions with scripts). Double-click inserts. | Catalogue data (as AC-02); navigator from `Timeline.scripts`, `Element.scripts`, `Project.sources`. | Navigator jumps to every script in the document. |
-| AC-07 | Script assist | Form-based editing of simple calls (Flash Script Assist). | Large; parameter metadata per API. | P3; disabled until specified. |
-| AC-08 | Gutter markers, inline error peek + Quick fix ⌘., overview ruler, code hint popover | Structured errors/warnings, exact range underlines, hover/F8 peek, correct-file navigation and safe ⌘. fixes work. Multiple fixes use the approved mouse/keyboard menu and one Undo. F8 continues a paused debug session, otherwise navigates problems in focused Actions; ⇧F8 navigates backwards. Breakpoint/fold markers and overview ruler remain pending. | `neoflash_script::Diagnostic` preserves severity, code, byte/Unicode range, path and safe fix suggestions; Actions and Compiler errors consume it. | Warning shows amber triangle; peek shows code + message under the line. |
+| AC-06 | Toolbox sidebar + Script navigator | Left sidebar: toolbox search + tree (Top level, Language elements, packages); navigator (current selection, scenes, symbol definitions with scripts); Actions also hosts a session-scoped authoring debugger inspector (breakpoints, `WatchExpression` evaluation, and live variable edits). Double-click inserts. | Catalogue data (as AC-02); navigator from `Timeline.scripts`, `Element.scripts`, `Project.sources`. | Navigator jumps to every script in the document. |
+| AC-07 | Script assist | Bounded menu insertion of common timeline/event/variable templates (`stop()`, `gotoAndPlay`, `addEventListener`, `var`/`let`) across AS2, AS3, JS and TS in one Undo (`sources.rs::insert_script_assist_snippet`). | Editor + `sources.rs`; full arbitrary-call parameter form editor remains future work. | Inserted snippet uses the active script language syntax cleanly with one Undo. |
+| AC-08 | Gutter markers, inline error peek + Quick fix ⌘., overview ruler, code hint popover | Structured errors/warnings, exact range underlines, hover/F8 peek, correct-file navigation and safe ⌘. fixes work. Multiple fixes use the approved mouse/keyboard menu and one Undo. F8 continues a paused debug session, otherwise navigates problems in focused Actions; ⇧F8 navigates backwards. Breakpoint/fold markers and overview ruler remain open for NF2 `neoflash-ui` design extensions. | `neoflash_script::Diagnostic` preserves severity, code, byte/Unicode range, path and safe fix suggestions; Actions and Compiler errors consume it. | Warning shows amber triangle; peek shows code + message under the line. |
 
-## 8. Output and Compiler errors (`panels/actions.rs` › `output_panel`)
+## 8. Output and Compiler errors (`panels/output.rs`, `panels/compiler_errors.rs`)
 
-**OU-01 · Output Show filter and timestamps** — absent (comment: messages carry no level or time stamp)
-- Purpose: Show All / Errors / Warnings / Trace select; timestamped lines; info / warning (amber) / error (red).
-- Data: `Editor.output: Vec<String>`. **NEW (editor)** structured entries `{time, level, source, text}`.
-- Depends on: editor. Acceptance: filter "Errors" shows only error lines; copy keeps timestamps.
+**OU-01 · Output filter search, empty state, and timestamps** — partial (`panels/output.rs`)
+- Available: Output starts empty (`NF2/EmptyState` `"No output yet"` — no hardcoded boot banner), provides live `"Filter output"` search, `Copy output`, `Clear output`, viewport row virtualization (`T-227`), and per-document session isolation.
+- Missing: structured `All / Errors / Warnings / Trace` severity selector and per-line timestamps remain absent (`Editor.output: Vec<String>`).
+- Acceptance: launching a blank document renders `NF2/EmptyState`; search filter hides non-matching lines; copy copies the filtered lines.
 
-**OU-02 · trace() from native Play / Test Movie** — partial
-- Available: native Play with `Control ▸ Live ActionScript` enabled drains bounded frame/object-script `trace()`
-  output into Output.
-- Missing: browser Test Movie still writes trace to the page `#trace` element; it has no browser → editor Output
-  bridge. Acceptance remaining: `trace("x")` in a Test Movie frame script appears in editor Output within one second.
+**OU-02 · trace() from native Play / Test Movie** — done (`app.rs`, `debugger.rs`, `debugger_protocol.rs`)
+- Available: native Play with `Control ▸ Live ActionScript` drains bounded `trace()` output, and Chromium `Test Movie` / `Debug Movie` streams CDP `Runtime.consoleAPICalled` and `Runtime.exceptionThrown` events directly into the active document session's `Output`. Compile failures on `Test Movie`, `Test Scene`, and `Debug Movie` also refresh and focus `Compiler errors`.
+- Acceptance: `trace("x")` and runtime errors from `Test Movie` appear in the originating document's `Output` without bleeding across document tabs.
 
-## 9. Planned panels (`panels/planned.rs` enum `PlannedPanel`, 22 remaining previews in `planned_panels.rs` / `planned_dialogs.rs` / `planned_documents.rs`; PP-01, PP-02, PP-03, PP-05, PP-08, PP-09, PP-10, PP-11, PP-12, ST-08, DL-02, DL-08, DL-09 and DL-16 are real panels/dialogs/popovers now)
+## 9. Promoted utility panels (former `Planned panels`; `PlannedPanel` retired — all panels/dialogs are now live dockable panels, modals, or Properties sections)
 
 **PP-01 · Ease** — done (`panels/ease.rs`)
 - Done: bound to the tween span under the playhead (motion: its start key); presets Linear, Ease In/Out/In-Out, Back,
@@ -797,21 +783,12 @@ AC-03 connects to the Test Movie debugger; AC-04 and AC-07 stay disabled; AC-08 
 
 **PP-03 · Properties — Motion tween** = PR-10.
 
-**PP-04 · Debugger** — partial (`panels/debugger.rs`, existing NF2 composition)
-- Connected: Actions Debug options launches an owned Chromium Test Movie and pauses at an authored statement;
-  clicking it while running requests Pause. Continue F8, Step over F10, Step in F11, Step out ⇧F11, Stop,
-  caret-line Toggle breakpoint ⌘B, Remove all, call-frame selection and read-only Variables use the live VM.
-  Test Movie ⌘↵ restarts the active session.
-- Data: editor-session breakpoints and VM state, never serialized document data. Source edits/document switches
-  invalidate the session; Restart preserves breakpoints while discarding old frame/object/request IDs.
-- Transport: isolated temporary Chromium profile and private inherited CDP pipe; no network debugging listener
-  or attachment to unrelated browser targets. Existing compiler maps provide authored positions.
-- Limits: statement-start AS mapping, grouped identical handlers, generated-frame fallback, bounded stack/locals
-  and helper stepping. Variables provides primitive values/object summaries without invoking getters. Watch
-  expressions, editable/deep object inspection, change highlighting and a breakpoint gutter remain pending;
-  missing visual states stay with R-033.
-- Acceptance: real exported AS2/JS scenarios verify breakpoints, all three steps, locals, a timer that freezes during
-  Pause and advances after Continue, Restart and owned-process cleanup. This does not imply full Flash VM semantics.
+**PP-04 · Debugger** — done (`PanelId::Debugger`, `panels/debugger.rs`, `debugger.rs`, `debugger_protocol.rs`, `sources.rs`)
+- Connected: `Window ▸ Panels ▸ Debugger` is a persistent dockable panel that stays open when idle (`Not running` badge, enabled `Continue` launching `Debug Movie`, enabled caret-line `Toggle breakpoint` `⌘B`, disabled `Stop debugging` while idle, and idle breakpoint inspection/removal). Actions `Debug options` starts or pauses the owned Chromium session. `Continue` F8, `Step over` F10, `Step in` F11, `Step out` ⇧F11, `Stop`, `Remove all` breakpoints, call-frame selection (navigating Actions to the frame's authored source/line without hiding Debugger if sharing a dock group), and read-only `Variables` use the live VM. `Test Movie` ⌘↵ restarts the active session.
+- Data: per-document-session breakpoints (`sources.rs`) synced with `self.debugger.breakpoints` across document tabs and VM state, never serialized document data. Source edits/document switches invalidate the running session cleanly; `Stop` preserves breakpoints while clearing active pause/stack/message caches.
+- Transport: isolated temporary Chromium profile and private inherited CDP pipe; forwards `Runtime.consoleAPICalled` and `Runtime.exceptionThrown` into the active document's `Output`. Existing compiler maps provide authored positions.
+- Limits: statement-start AS mapping, grouped identical handlers, generated-frame fallback, bounded stack/locals and helper stepping. `Variables` provides primitive values/object summaries without invoking getters. The docked `Debugger` panel's `Watch` column remains read-only (`"Watch expressions are not available yet. Inspect read-only values in Variables while paused."`, while the Actions authoring debugger inspector in `sources.rs` supports `WatchExpression` evaluation and live variable editing); breakpoint gutter clicks await NF2 gutter design.
+- Acceptance: real exported AS2/JS scenarios verify breakpoints, all three steps, locals, a timer that freezes during Pause and advances after Continue, Restart, console/exception Output routing, per-tab breakpoint isolation, and owned-process cleanup. This does not imply full Flash VM semantics.
 
 **PP-05 · Project** — done (`panels/project.rs`, `Window ▸ Panels ▸ Project`)
 - Done: project selector, Find file filter, hierarchical `src` (`Project.sources` + virtual folders), `assets`
@@ -824,7 +801,7 @@ AC-03 connects to the Test Movie debugger; AC-04 and AC-07 stay disabled; AC-08 
   `Project.document_class`.
 - Acceptance: create/rename/delete source with Undo; linkage footer correct; double-click opens it in Actions.
 
-**PP-06 · Code snippets** — `planned_panels::code_snippets`
+**PP-06 · Code snippets** — done (`panels/code_snippets.rs`, `Window ▸ Panels ▸ Code snippets`)
 - Controls: search; categories Actions, Timeline navigation, Animation, Load and unload, Audio and video, Event
   handlers; preview of the code; Copy; Insert at frame N.
 - Data: bundled snippet library (**NEW** data file in the editor crate, per language, licensed as project-authored).
@@ -833,7 +810,7 @@ AC-03 connects to the Test Movie debugger; AC-04 and AC-07 stay disabled; AC-08 
 - Depends on: editor. Only snippets that compile with `neoflash-script` may ship (test). Acceptance: every bundled
   snippet compiles; Insert appends to the frame script without overwriting.
 
-**PP-07 · Compiler errors** — `planned_panels::compiler_errors`
+**PP-07 · Compiler errors** — done (`panels/compiler_errors.rs`, `Window ▸ Panels ▸ Compiler errors` `⌥F2`; refreshes and surfaces compile diagnostics on `Test Movie`, `Test Scene`, and `Debug Movie` errors)
 - Controls: badges "N warnings" / "N errors"; rows icon + "code: message" + "Scene · layer · frame · Line n" + Go to
   source; double-click jumps to the code.
 - Data: `neoflash_script::compile_project` / `compile_with_program` return `Vec<Diagnostic>` (line/column/message,
@@ -998,7 +975,7 @@ audition). P3.
 | DL-09 | Edit envelope — **done** (`panels/edit_envelope.rs`) | Modal dialog with Left/right `EnvelopeLane`s (`1..=8` draggable stereo points in format-7 `FrameSound.envelope`, `SoundEffect::Custom`), presets, seconds/frames ruler, zoom, Play/Stop preview, one Undo | TL-07 audio model (done) | P3 |
 | DL-10 | Import PSD to library — **done for the supported profile** | The bounded PSD/PSB reader and project conversion options are wired through editor and CLI routes; numbered sequences, PDF/AI, FXG and ACT/CLR/ASE palette imports use the same failure-atomic import workflow and report unsupported fidelity explicitly | broader format fidelity remains governed by importer diagnostics | P3 |
 | DL-11 | Font embedding — **done for full resources; subsetting partial** (`panels/font_embedding.rs`) | Font list, character ranges, extra chars, export for AS + class, glyph count; stores the author-selected standalone TTF/OTF binary plus metadata after technical container validation. NeoFlash does not adjudicate OpenType licence flags because it cannot know the author's separate rights; lawful use remains the author's responsibility. HTML5 performs real TrueType glyph/table subsetting and conservatively keeps the complete face for dynamic/input or unsupported preservation cases; complete generated-class output remains partial. | `web-font-portability` export policy | P3 |
-| DL-12 | Test Movie window | Native window: stage, transport, speed, fps/memory badge, Output drawer | Embedded runtime host (today Test Movie opens a browser) | P2 |
+| DL-12 | Test Movie window | Browser `Test Movie` (`Control ▸ Test movie`, `⌘↵`) executes the published HTML5 movie with `Output`, `Compiler errors` and `Debugger` mapped back per active document; `panels/live_planned.rs::test_movie_preview_window` provides the floating in-editor preview with empty-state `Output` drawer | Per-session `test_movie_preview_open` + CDP bridge | P2 |
 | DL-13 | Find and replace (⌘F) | Text / Font / Colour / Symbol / Sound / Video / Bitmap search, scope, regex, results table, Replace all | editor scan of `Project` (+ scripts); Replace all = one Undo | P2 |
 | DL-14 | Movie Explorer | Tree document ▸ scene ▸ layer ▸ frame ▸ instance / actions, filters, path footer | editor traversal of `Project` | P2 |
 | DL-15 | Convert to Symbol ▸ Advanced — **done** | Library Properties edits the 9-slice rectangle and shared linkage; Stage drags 9-slice guides interactively with Escape cancel and 1-Undo; open documents and external `.nflash` files chosen on disk act as collision-safe donor libraries and synchronize shared symbols | — | P3 |

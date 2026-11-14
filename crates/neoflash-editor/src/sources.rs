@@ -3341,6 +3341,53 @@ impl Editor {
         added
     }
 
+    pub(crate) fn clear_all_session_breakpoints(&mut self) {
+        self.with_authoring_state_mut(|state| {
+            state.breakpoints.clear();
+            state.last_watched_values.clear();
+        });
+        self.debugger.breakpoints.clear();
+    }
+
+    pub(crate) fn remove_session_breakpoint(&mut self, path: &str, line: usize) {
+        let key = Self::normalize_breakpoint_key(path);
+        let line = line.max(1);
+        self.with_authoring_state_mut(|state| {
+            if let Some(list) = state.breakpoints.get_mut(&key) {
+                list.retain(|bp| bp.line != line);
+                if list.is_empty() {
+                    state.breakpoints.remove(&key);
+                }
+            }
+            state
+                .last_watched_values
+                .retain(|(src, ln, _), _| !(src == &key && *ln == line));
+        });
+        self.debugger
+            .breakpoints
+            .retain(|bp| !(bp.source == key && bp.line == line));
+    }
+
+    pub(crate) fn sync_runtime_breakpoints_from_session(&mut self) {
+        let mut points = Vec::new();
+        self.with_authoring_state(|state| {
+            for (source, list) in &state.breakpoints {
+                for bp in list {
+                    if bp.enabled {
+                        points.push(crate::debugger_protocol::AuthoredBreakpoint {
+                            source: source.clone(),
+                            line: bp.line,
+                            column: None,
+                        });
+                    }
+                }
+            }
+        });
+        points.sort();
+        points.dedup();
+        self.debugger.breakpoints = points;
+    }
+
     /// Returns `true` if `path` has a breakpoint at `line` (1-based).
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn has_breakpoint(&self, path: &str, line: usize) -> bool {
@@ -3752,8 +3799,9 @@ impl Editor {
 
     pub(crate) fn actions_debugger_inspector_ui(&mut self, ui: &mut egui::Ui, tab_key: &str) {
         use neoflash_ui::icons::i16;
+        let session = self.clipboard.session.clone();
         egui::ScrollArea::vertical()
-            .id_salt(("actions-debugger-inspector", tab_key))
+            .id_salt(("actions-debugger-inspector", &session, tab_key))
             .auto_shrink([false, false])
             .themed()
             .show(ui, |ui| {
@@ -3762,7 +3810,7 @@ impl Editor {
                 // 1. Conditional & hit-count breakpoints for the current script tab
                 let breakpoints = self.breakpoints_for(tab_key);
                 nf::SectionHeader::new("Breakpoints")
-                    .id_salt(("actions-dbg-bps", tab_key))
+                    .id_salt(("actions-dbg-bps", &session, tab_key))
                     .show(ui, |ui| {
                         for bp in breakpoints {
                             let mut enabled = bp.enabled;
@@ -3826,7 +3874,7 @@ impl Editor {
                 let mut watch_draft = self.with_authoring_state(|state| state.watch_draft.clone());
                 let watches = self.debugger_watches();
                 nf::SectionHeader::new("Watch")
-                    .id_salt(("actions-dbg-watch", tab_key))
+                    .id_salt(("actions-dbg-watch", &session, tab_key))
                     .show(ui, |ui| {
                         let mut add_watch_now = false;
                         let mut refresh_now = false;
@@ -3905,7 +3953,7 @@ impl Editor {
                             )
                         });
                     nf::SectionHeader::new("Variables")
-                        .id_salt(("actions-dbg-vars", tab_key))
+                        .id_salt(("actions-dbg-vars", &session, tab_key))
                         .show(ui, |ui| {
                             let mut apply_var_edit = false;
                             ui.horizontal(|ui| {

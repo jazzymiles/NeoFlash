@@ -1196,7 +1196,7 @@ impl Editor {
                         ui.add(Badge::new("HTML5 · Rust / WebAssembly", BadgeType::Accent));
                         // §4: "Publish settings…"; publishing itself is File ▸ Publish and the top-bar Publish button.
                         if ui.add(nf::Button::ghost("Publish settings…")).clicked() {
-                            Self::open_planned(ui.ctx(), "Properties ▸ Publish settings…");
+                            self.open_publish_settings();
                         }
                     });
                     inspector_section_with_open(ui, "Project colours", false, |ui| {

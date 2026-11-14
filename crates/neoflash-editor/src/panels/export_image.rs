@@ -855,47 +855,6 @@ impl Editor {
         (close_cancel, do_export)
     }
 
-    pub(crate) fn export_image_inline_panel(
-        &mut self,
-        ui: &mut Ui,
-        export_format: &mut usize,
-    ) -> bool {
-        let ctx = ui.ctx().clone();
-        let mut draft = ctx
-            .data(|d| d.get_temp::<ExportImageDraft>(inline_draft_id()))
-            .unwrap_or_else(|| ExportImageDraft {
-                options: self.default_export_image_options(),
-            });
-        let (close_cancel, do_export) = self.export_image_body(ui, &mut draft, Some(export_format));
-        ctx.data_mut(|d| d.insert_temp(inline_draft_id(), draft.clone()));
-        if close_cancel {
-            self.cancel_export_image(&ctx);
-            return true;
-        }
-        if do_export {
-            let ext = draft.options.format.extension();
-            let default_name = format!(
-                "{}.{ext}",
-                self.project.name.trim().replace(' ', "_").to_lowercase()
-            );
-            if let Some(path) = rfd::FileDialog::new()
-                .set_title(draft.options.format.button_label())
-                .set_file_name(&default_name)
-                .add_filter(draft.options.format.label(), &[ext])
-                .save_file()
-            {
-                return match self.confirm_export_image_to_path(&ctx, &path) {
-                    Ok(_) => true,
-                    Err(err) => {
-                        self.message(format!("Export image failed: {err}"));
-                        false
-                    }
-                };
-            }
-        }
-        false
-    }
-
     pub(crate) fn export_image_dialog(&mut self, ctx: &egui::Context) {
         let Some(mut draft) = ctx.data(|d| d.get_temp::<ExportImageDraft>(draft_id())) else {
             return;

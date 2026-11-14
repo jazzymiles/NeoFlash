@@ -1372,25 +1372,6 @@ impl Editor {
         (close_cancel, do_import)
     }
 
-    pub(crate) fn import_video_inline_panel(&mut self, ui: &mut Ui) -> bool {
-        let ctx = ui.ctx().clone();
-        let mut draft = ctx
-            .data(|d| d.get_temp::<ImportVideoDraft>(inline_draft_id()))
-            .unwrap_or_default();
-        let (close_cancel, do_import) = self.import_video_body(ui, &mut draft);
-        ctx.data_mut(|d| d.insert_temp(inline_draft_id(), draft));
-        if do_import {
-            return match self.confirm_import_video(&ctx) {
-                Ok(_) => true,
-                Err(err) => {
-                    self.message(err);
-                    false
-                }
-            };
-        }
-        close_cancel
-    }
-
     pub(crate) fn import_video_dialog(&mut self, ctx: &egui::Context) {
         let Some(mut draft) = ctx.data(|d| d.get_temp::<ImportVideoDraft>(draft_id())) else {
             return;

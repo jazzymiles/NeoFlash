@@ -776,6 +776,7 @@ pub enum CommandId {
     WindowMovieExplorer,
     WindowAccessibility,
     WindowMotionEditor,
+    WindowDebugger,
     WindowProject,
     WindowBrushes,
     WindowHidePanels,
@@ -1096,6 +1097,7 @@ impl CommandId {
         Self::WindowMovieExplorer,
         Self::WindowAccessibility,
         Self::WindowMotionEditor,
+        Self::WindowDebugger,
         Self::WindowProject,
         Self::WindowBrushes,
         Self::WindowHidePanels,
@@ -2240,6 +2242,14 @@ impl CommandId {
                 defaults: &[],
                 allow_when_typing: false,
             },
+            Self::WindowDebugger => CommandMeta {
+                id: "window.debugger",
+                category: C::Window,
+                title: "Window ▸ Panels ▸ Debugger",
+                keywords: "debug breakpoints call stack variables",
+                defaults: &[],
+                allow_when_typing: false,
+            },
             Self::WindowBrushes => CommandMeta {
                 id: "window.brushes",
                 category: C::Window,
@@ -2578,6 +2588,7 @@ impl CommandId {
             PanelId::MovieExplorer => Self::WindowMovieExplorer,
             PanelId::Accessibility => Self::WindowAccessibility,
             PanelId::MotionEditor => Self::WindowMotionEditor,
+            PanelId::Debugger => Self::WindowDebugger,
             PanelId::Project => Self::WindowProject,
             PanelId::Brushes => Self::WindowBrushes,
         }

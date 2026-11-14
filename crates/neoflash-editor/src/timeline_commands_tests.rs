@@ -4820,7 +4820,7 @@ fn empty_actions_targets_have_no_placeholder_hint_and_do_not_create_scripts_unti
 
     // Changing the pending language for an empty target updates temp state without creating a script,
     // splitting a keyframe, dirtying the project, or adding an Undo step.
-    let empty_lang_id = egui::Id::new("neoflash-actions-empty-language");
+    let empty_lang_id = editor.actions_empty_language_id();
     ctx.data_mut(|d| d.insert_temp(empty_lang_id, ScriptLanguage::ActionScript3));
     let _ = render(&mut editor);
     assert_eq!(editor.project, baseline);

@@ -221,13 +221,13 @@ impl Editor {
     }
 
     /// NF2 Actions toolbar: target and language selects, object event, Check, code tools (format,
-    /// hints, comments), sidebar toggle, Script assist (disabled) and help.
+    /// hints, comments), sidebar toggle, Script assist and help.
     fn actions_toolbar(&mut self, ui: &mut egui::Ui, script: &mut Script, context: &str) {
         let source = self.script_target == ScriptTarget::Source;
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(2., space::S1);
             let target_width = (ui.available_width() * 0.3).clamp(140., 280.);
-            nf::Select::new("actions_target", context)
+            let (target_response, _) = nf::Select::new("actions_target", context)
                 .icon(i16::TARGET)
                 .width(target_width)
                 .show(ui, |ui| {
@@ -243,9 +243,8 @@ impl Editor {
                             self.script_target = target;
                         }
                     }
-                })
-                .0
-                .on_hover_text(context);
+                });
+            nf::tooltip(target_response, context.trim_end_matches('.'), None);
             if !source {
                 ui.add_space(space::S1);
                 crate::sources::language_select(
@@ -336,12 +335,11 @@ impl Editor {
                         continue;
                     };
                     let enabled = editable && (*command != CodeCommand::ShowHints || has_api);
-                    let button = ui.add_enabled_semantic(enabled, nf::IconButton::new(*icon, label));
-                    let button = if *command == CodeCommand::ShowHints {
-                        button.on_hover_text("Show code hint (⌃Space)")
-                    } else {
-                        button
-                    };
+                    let mut widget = nf::IconButton::new(*icon, label);
+                    if *command == CodeCommand::ShowHints {
+                        widget = widget.shortcut("⌃Space");
+                    }
+                    let button = ui.add_enabled_semantic(enabled, widget);
                     if button.clicked() {
                         self.actions_ui.pending = Some(command.clone());
                     }
@@ -409,6 +407,10 @@ impl Editor {
         });
     }
 
+    pub(crate) fn actions_empty_language_id(&self) -> egui::Id {
+        egui::Id::new(("neoflash-actions-empty-language", &self.clipboard.session))
+    }
+
     fn actions_body(&mut self, ui: &mut egui::Ui) {
         let has_frame_script =
             self.symbol().timeline.scripts.iter().any(|script| {
@@ -418,7 +420,7 @@ impl Editor {
         let target_before = self.script_target;
         let event_before = self.script_event;
         let location_before = self.current_script_location();
-        let empty_lang_id = egui::Id::new("neoflash-actions-empty-language");
+        let empty_lang_id = self.actions_empty_language_id();
         let stored = match self.script_target {
             ScriptTarget::Source => None,
             ScriptTarget::Frame => self
@@ -788,7 +790,7 @@ impl Editor {
             }
             let key = format!("box:jsts:cat:{cat}");
             let (cat_open, cat_row) = self.js_ts_folder_row(ui, &key, cat, i16::PACKAGE, 0);
-            cat_row.on_hover_text(cat_desc);
+            nf::tooltip(cat_row, cat_desc.trim_end_matches('.'), None);
             if !cat_open {
                 continue;
             }
@@ -798,7 +800,8 @@ impl Editor {
                 let class_key = format!("box:jsts:class:{}", class_entry.name);
                 let (open, row) =
                     self.js_ts_folder_row(ui, &class_key, class_entry.name, i16::CLASS, 1);
-                let row = row.on_hover_text(js_ts_entry_tooltip(class_entry));
+                let tip = js_ts_entry_tooltip(class_entry);
+                let row = nf::tooltip(row, tip.trim_end_matches('.'), None);
                 if row.double_clicked() {
                     self.actions_ui.selected = Some(class_key.clone());
                     self.actions_ui.pending = Some(js_ts_toolbox_insertion(class_entry));
@@ -835,7 +838,8 @@ impl Editor {
             .meta(entry.provenance)
             .selected(self.actions_ui.selected.as_deref() == Some(&key))
             .show(ui);
-        let row = row.row.on_hover_text(js_ts_entry_tooltip(entry));
+        let tip = js_ts_entry_tooltip(entry);
+        let row = nf::tooltip(row.row, tip.trim_end_matches('.'), None);
         if row.clicked() {
             self.actions_ui.selected = Some(key);
         }
@@ -851,9 +855,10 @@ impl Editor {
             .meta("Project module")
             .selected(self.actions_ui.selected.as_deref() == Some(&key))
             .show(ui);
-        let row = row.row.on_hover_text(format!(
-            "import \"./{path}\";\n[Project module]\nProject module ({path})\nDouble-click to insert ES module import."
-        ));
+        let tip = format!(
+            "import \"./{path}\";\n[Project module]\nProject module ({path})\nDouble-click to insert ES module import"
+        );
+        let row = nf::tooltip(row.row, &tip, None);
         if row.clicked() {
             self.actions_ui.selected = Some(key);
         }

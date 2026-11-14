@@ -253,10 +253,8 @@ impl Editor {
                     i16::CLASS,
                     1,
                 );
-                row.on_hover_text(format!(
-                    "{class}\n{}",
-                    script_api::class_support(api, class)
-                ));
+                let tip = format!("{class}\n{}", script_api::class_support(api, class));
+                nf::tooltip(row, tip.trim_end_matches('.'), None);
                 if open {
                     for member in script_api::own_members(&project, api, class) {
                         let meta = member.ty.clone();
@@ -285,7 +283,8 @@ impl Editor {
             .meta(meta)
             .selected(self.actions_ui.selected.as_deref() == Some(&key))
             .show(ui);
-        let row = row.row.on_hover_text(member_tooltip(member));
+        let tip = member_tooltip(member);
+        let row = nf::tooltip(row.row, tip.trim_end_matches('.'), None);
         if row.clicked() {
             self.actions_ui.selected = Some(key);
         }

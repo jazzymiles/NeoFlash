@@ -1,10 +1,13 @@
 //! Test Movie debugger lifecycle. Authored documents never store debugger state.
 use crate::app::{Editor, ScriptTarget};
 use crate::debugger_protocol::{
-    AuthoredBreakpoint, DebugCommand, DebugProtocol, DebugSnapshot, DebugSource, DebugState,
+    AuthoredBreakpoint, AuthoredLocation, DebugCommand, DebugProtocol, DebugSnapshot, DebugSource,
+    DebugState,
 };
 use crate::debugger_sources::{ScriptOrigin, read_export_sources};
 use crate::debugger_transport::{BrowserPipe, browser_executable, file_url, private_directory};
+use crate::panels::actions_sidebar::ScriptLocation;
+use crate::workspace::PanelId;
 use eframe::egui;
 use neoflash_core::{Project, Script};
 use std::path::{Path, PathBuf};
@@ -24,8 +27,9 @@ pub(crate) struct Debugger {
     scripts: Vec<ScriptOrigin>,
     last_status: String,
     last_messages: Vec<String>,
+    last_output_events: Vec<String>,
+    last_navigated_pause: Option<(u64, Option<usize>, Option<AuthoredLocation>)>,
     export_directory: Option<PathBuf>,
-    close_panel: bool,
     pub(crate) startup_status: Option<DebuggerStartupStatus>,
 }
 
@@ -173,14 +177,16 @@ impl Debugger {
     pub(crate) fn active(&self) -> bool {
         self.session.is_some()
     }
+    #[cfg(test)]
     pub(crate) fn has_presentation(&self) -> bool {
         self.active() || self.startup_status.is_some()
     }
     pub(crate) fn stop(&mut self) {
-        self.close_panel = true;
         self.session = None;
         self.last_status.clear();
         self.last_messages.clear();
+        self.last_output_events.clear();
+        self.last_navigated_pause = None;
         self.startup_status = None;
         if let Some(directory) = self.export_directory.take() {
             let _ = std::fs::remove_dir_all(directory);
@@ -211,16 +217,14 @@ impl Drop for Debugger {
 impl Editor {
     pub(crate) fn open_debug_options(&mut self, ctx: &egui::Context) {
         match self.debugger.snapshot().map(|snapshot| snapshot.state) {
-            Some(DebugState::Running) => self.debug_command(DebugCommand::Pause),
-            Some(DebugState::Paused | DebugState::Connecting) => {}
+            Some(DebugState::Running) => {
+                self.debug_command(DebugCommand::Pause);
+                self.show_panel(PanelId::Debugger);
+            }
+            Some(DebugState::Paused | DebugState::Connecting) => {
+                self.show_panel(PanelId::Debugger);
+            }
             _ => self.start_debug_movie(ctx),
-        }
-        if self.debugger.has_presentation() {
-            crate::panels::planned::set_open(
-                ctx,
-                crate::panels::planned::PlannedPanel::Debugger,
-                true,
-            );
         }
     }
 
@@ -235,6 +239,7 @@ impl Editor {
             self.debugger.reset_document();
         }
         self.debugger.stop();
+        let mut script_compile_error = false;
         let result = (|| -> Result<(), DebuggerStartupStatus> {
             let executable = browser_executable().map_err(DebuggerStartupStatus::NotAvailable)?;
             let output =
@@ -242,7 +247,11 @@ impl Editor {
             self.debugger.export_directory = Some(output.clone());
             let index =
                 neoflash_export::export_project(&self.project, &output, &Self::runtime_dir())
-                    .map_err(|e| DebuggerStartupStatus::Failed(e.to_string()))?;
+                    .map_err(|e| {
+                        script_compile_error =
+                            matches!(e, neoflash_export::ExportError::Scripts(_));
+                        DebuggerStartupStatus::Failed(e.to_string())
+                    })?;
             let (sources, scripts) =
                 read_export_sources(&index).map_err(DebuggerStartupStatus::Failed)?;
             self.debugger.scripts = scripts;
@@ -257,30 +266,35 @@ impl Editor {
                 .map_err(DebuggerStartupStatus::Failed)?,
             );
             self.debugger.project = Some(self.project.clone());
-            self.debugger.close_panel = false;
             Ok(())
         })();
         match result {
             Ok(()) => {
                 self.message("Test Movie debugger connecting; execution will pause at an authored statement.");
-                crate::panels::planned::set_open(
-                    ctx,
-                    crate::panels::planned::PlannedPanel::Debugger,
-                    true,
-                );
+                self.show_panel(PanelId::Debugger);
             }
-            Err(status) => self.record_debug_startup_failure(ctx, status),
+            Err(status) => {
+                if script_compile_error {
+                    self.refresh_compiler_diagnostics();
+                }
+                self.record_debug_startup_failure(ctx, status);
+                if script_compile_error {
+                    self.show_panel(PanelId::CompilerErrors);
+                }
+            }
         }
-        self.show_panel(crate::workspace::PanelId::Output);
     }
 
-    fn record_debug_startup_failure(&mut self, ctx: &egui::Context, status: DebuggerStartupStatus) {
+    fn record_debug_startup_failure(
+        &mut self,
+        _ctx: &egui::Context,
+        status: DebuggerStartupStatus,
+    ) {
         self.debugger.stop();
         self.message(format!("Cannot debug Test Movie: {}", status.reason()));
         self.debugger.startup_status = Some(status);
         self.debugger.project = Some(self.project.clone());
-        self.debugger.close_panel = false;
-        crate::panels::planned::set_open(ctx, crate::panels::planned::PlannedPanel::Debugger, true);
+        self.show_panel(PanelId::Debugger);
     }
 
     pub(crate) fn debug_command(&mut self, command: DebugCommand) {
@@ -309,14 +323,6 @@ impl Editor {
             self.debugger.reset_document();
             self.message("Debug session stopped because the document changed. Start Debug options again to use the edited source.");
         }
-        if self.debugger.close_panel {
-            crate::panels::planned::set_open(
-                ctx,
-                crate::panels::planned::PlannedPanel::Debugger,
-                false,
-            );
-            self.debugger.close_panel = false;
-        }
         let errors = self
             .debugger
             .session
@@ -329,6 +335,7 @@ impl Editor {
         }
         if let Some(snapshot) = self.debugger.snapshot() {
             let status = format!("{:?}", snapshot.state);
+            let mut auto_resumed = false;
             if status != self.debugger.last_status {
                 self.debugger.last_status = status.clone();
                 self.message(format!("Debugger: {status}"));
@@ -347,11 +354,12 @@ impl Editor {
                         && !self.should_pause_at_breakpoint(&loc.source, loc.line)
                     {
                         self.debug_command(DebugCommand::Resume);
+                        auto_resumed = true;
                     }
                 }
             }
-            // Protocol notes can arrive without changing Paused/Running. The
-            // bounded list can roll over, so compare suffix/prefix overlap.
+            // Protocol notes and browser console/exception events can arrive without changing
+            // Paused/Running. The bounded lists can roll over, so compare suffix/prefix overlap.
             let previous = &self.debugger.last_messages;
             let overlap = (0..=previous.len().min(snapshot.messages.len()))
                 .rev()
@@ -361,6 +369,40 @@ impl Editor {
                 self.message(message.clone());
             }
             self.debugger.last_messages = snapshot.messages.clone();
+
+            let prev_output = &self.debugger.last_output_events;
+            let output_overlap = (0..=prev_output.len().min(snapshot.output_events.len()))
+                .rev()
+                .find(|&count| {
+                    prev_output[prev_output.len() - count..] == snapshot.output_events[..count]
+                })
+                .unwrap_or(0);
+            for line in &snapshot.output_events[output_overlap..] {
+                self.message(line.clone());
+            }
+            self.debugger.last_output_events = snapshot.output_events.clone();
+
+            if snapshot.state != DebugState::Paused {
+                self.debugger.last_navigated_pause = None;
+            } else if !auto_resumed && !snapshot.command_pending {
+                let paused_location = snapshot
+                    .selected_frame
+                    .and_then(|idx| snapshot.frames.get(idx))
+                    .or_else(|| snapshot.frames.first())
+                    .and_then(|f| f.location.clone());
+                let pause_key = (
+                    snapshot.epoch,
+                    snapshot.selected_frame,
+                    paused_location.clone(),
+                );
+                if self.debugger.last_navigated_pause.as_ref() != Some(&pause_key) {
+                    self.debugger.last_navigated_pause = Some(pause_key);
+                    if let Some(location) = paused_location {
+                        self.navigate_actions_to_debug_location(ctx, &location, false);
+                    }
+                }
+            }
+
             if !matches!(
                 snapshot.state,
                 DebugState::Disconnected | DebugState::Failed
@@ -391,10 +433,8 @@ impl Editor {
                 self.debug_command(DebugCommand::Resume);
             }
             if !self.has_modal_dialog_in(ctx)
-                && crate::panels::planned::is_open(
-                    ctx,
-                    crate::panels::planned::PlannedPanel::Debugger,
-                )
+                && !self.panels_hidden
+                && self.workspace.is_panel_active(PanelId::Debugger)
                 && !snapshot.command_pending
             {
                 if snapshot.state == crate::debugger_protocol::DebugState::Paused {
@@ -474,10 +514,15 @@ impl Editor {
                 }
                 ScriptTarget::Source => unreachable!(),
             };
-            let origin = self.debugger.scripts.iter().find(|origin| {
+            let matched = self.debugger.scripts.iter().find(|origin| {
                 origin.language == script.language && origin.source == script.source
-            })?;
-            (script.source.as_str(), origin.location.clone())
+            });
+            let location = if let Some(origin) = matched {
+                origin.location.clone()
+            } else {
+                self.authored_script_origin_label(self.script_target)?
+            };
+            (script.source.as_str(), location)
         };
         let offset = egui::text_edit::TextEditState::load(ctx, self.actions_editor_id())
             .and_then(|s| s.cursor.char_range())
@@ -490,15 +535,131 @@ impl Editor {
         })
     }
 
+    fn authored_script_origin_label(&self, target: ScriptTarget) -> Option<String> {
+        match target {
+            ScriptTarget::Source => self
+                .project
+                .sources
+                .iter()
+                .find(|unit| Some(&unit.id) == self.selected_source.as_ref())
+                .map(|unit| unit.path.clone()),
+            ScriptTarget::Frame => self
+                .symbol()
+                .timeline
+                .scripts
+                .iter()
+                .find(|frame| frame.frame == self.frame)
+                .map(|frame| format!("{} / frame {}", self.symbol().name, frame.frame + 1)),
+            ScriptTarget::Object => {
+                let element_id = self.selected_element()?.id.clone();
+                let symbol = self.symbol();
+                for layer in &symbol.timeline.layers {
+                    for keyframe in &layer.keyframes {
+                        for element in &keyframe.elements {
+                            if element.id == element_id
+                                && element
+                                    .scripts
+                                    .iter()
+                                    .any(|handler| handler.event == self.script_event)
+                            {
+                                return Some(format!(
+                                    "{} / {} / frame {} / {} / {:?}",
+                                    symbol.name,
+                                    layer.name,
+                                    keyframe.frame + 1,
+                                    element.name,
+                                    self.script_event
+                                ));
+                            }
+                        }
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    pub(crate) fn resolve_debug_script_location(&self, source: &str) -> Option<ScriptLocation> {
+        if let Some(unit) = self.project.sources.iter().find(|unit| unit.path == source) {
+            return Some(ScriptLocation::Source(unit.id.clone()));
+        }
+        for symbol in &self.project.symbols {
+            for frame in &symbol.timeline.scripts {
+                if format!("{} / frame {}", symbol.name, frame.frame + 1) == source {
+                    return Some(ScriptLocation::Frame {
+                        symbol: symbol.id.clone(),
+                        frame: frame.frame,
+                    });
+                }
+            }
+            for layer in &symbol.timeline.layers {
+                for keyframe in &layer.keyframes {
+                    for element in &keyframe.elements {
+                        for handler in &element.scripts {
+                            if format!(
+                                "{} / {} / frame {} / {} / {:?}",
+                                symbol.name,
+                                layer.name,
+                                keyframe.frame + 1,
+                                element.name,
+                                handler.event
+                            ) == source
+                            {
+                                return Some(ScriptLocation::Object {
+                                    symbol: symbol.id.clone(),
+                                    frame: keyframe.frame,
+                                    element: element.id.clone(),
+                                    event: handler.event,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub(crate) fn navigate_actions_to_debug_location(
+        &mut self,
+        ctx: &egui::Context,
+        location: &AuthoredLocation,
+        always_focus_actions: bool,
+    ) -> bool {
+        let Some(script_loc) = self.resolve_debug_script_location(&location.source) else {
+            return false;
+        };
+        let source = self.script_source_for(&script_loc).unwrap_or_default();
+        self.open_script_location(script_loc);
+        if always_focus_actions
+            || !self
+                .workspace
+                .shares_dock_group(PanelId::Actions, PanelId::Debugger)
+        {
+            self.open_actions();
+        }
+        let editor_id = self.actions_editor_id();
+        crate::sources::jump_to(
+            ctx,
+            editor_id,
+            &source,
+            location.line.max(1),
+            location.column.max(1),
+        );
+        true
+    }
+
     pub(crate) fn toggle_debug_breakpoint(&mut self, ctx: &egui::Context) {
         let Some(point) = self.debug_source_at_caret(ctx) else {
             self.message("Choose an authored script in Actions before toggling a breakpoint.");
             return;
         };
         self.toggle_breakpoint(&point.source, point.line);
-        self.debug_command(DebugCommand::SetBreakpoints(
-            self.debugger.breakpoints.clone(),
-        ));
+        if self.debugger.active() {
+            self.debug_command(DebugCommand::SetBreakpoints(
+                self.debugger.breakpoints.clone(),
+            ));
+        }
     }
 
     /// Evaluate a live debugger step/run arrival at `(source, line)` with `scopes`, updating
@@ -774,11 +935,7 @@ mod tests {
             );
             assert!(matches!(receiver.try_recv(), Ok(DebugCommand::StepOver)));
             // A hidden debugger still owns F8 before the global and Actions shortcut routes.
-            crate::panels::planned::set_open(
-                &ctx,
-                crate::panels::planned::PlannedPanel::Debugger,
-                false,
-            );
+            editor.workspace.set_panel_visible(PanelId::Debugger, false);
             for pending in [false, true] {
                 shared.lock().unwrap().command_pending = pending;
                 let _ = ctx.run(
@@ -906,10 +1063,7 @@ mod tests {
                 editor.debugger.stop();
                 editor.poll_debugger(&ctx);
                 assert!(!editor.debugger.has_presentation());
-                assert!(!crate::panels::planned::is_open(
-                    &ctx,
-                    crate::panels::planned::PlannedPanel::Debugger
-                ));
+                assert!(editor.workspace.is_panel_active(PanelId::Debugger));
             }
             editor.record_debug_startup_failure(
                 &ctx,
@@ -1072,5 +1226,193 @@ mod tests {
         editor.debugger.stop();
         assert_eq!(editor.project, edited);
         assert!(!editor.history.can_undo());
+    }
+
+    #[test]
+    fn t291_debugger_idle_docking_trace_routing_and_pause_navigation() {
+        use crate::debugger_protocol::DebugFrame;
+        use neoflash_core::{FrameScript, ScriptLanguage};
+
+        fn render_debugger(editor: &mut Editor, ctx: &egui::Context) -> egui::FullOutput {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1200.0, 480.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let _ = editor.debugger_contents(ui);
+                    });
+                },
+            )
+        }
+
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.symbol_mut().timeline.scripts.push(FrameScript {
+            frame: 1,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "var a = 1;\ntrace(a);\n".into(),
+            },
+        });
+        let authored_source = format!("{} / frame 2", editor.symbol().name);
+        assert!(editor.toggle_breakpoint(&authored_source, 2));
+
+        // 1. Idle docked PanelId::Debugger stays visible, shows "Not running", enables Continue &
+        // Toggle breakpoint, disables Stop debugging, and renders idle breakpoints.
+        editor.show_panel(PanelId::Debugger);
+        assert!(editor.workspace.is_panel_active(PanelId::Debugger));
+        let idle_output = render_debugger(&mut editor, &ctx);
+        let idle_nodes = &idle_output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes;
+        assert!(
+            !idle_nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some("Continue"))
+                .unwrap()
+                .1
+                .is_disabled()
+        );
+        assert!(
+            !idle_nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some("Toggle breakpoint"))
+                .unwrap()
+                .1
+                .is_disabled()
+        );
+        assert!(
+            idle_nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some("Stop debugging"))
+                .unwrap()
+                .1
+                .is_disabled()
+        );
+        let idle_texts: Vec<_> = idle_output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.job.text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(idle_texts.iter().any(|t| t == "Not running"));
+        assert!(
+            idle_texts
+                .iter()
+                .any(|t| t == &format!("{authored_source} · line 2"))
+        );
+        assert!(editor.workspace.is_panel_active(PanelId::Debugger));
+
+        // 2. Mapped trace/warning/exception output events route into Output once without duplicating,
+        // and Paused + selected frame navigates Actions to the authored frame & line while keeping
+        // Debugger open.
+        let mut snapshot =
+            DebugProtocol::new("file:///fixture.html".into(), vec![], vec![]).snapshot();
+        snapshot.state = DebugState::Paused;
+        snapshot.epoch = 1;
+        snapshot.reason = "breakpoint".into();
+        snapshot.output_events = vec![
+            "1".into(),
+            format!("Warning ({authored_source} · line 2): Step check"),
+        ];
+        snapshot.frames.push(DebugFrame {
+            function_name: "frame2".into(),
+            location: Some(AuthoredLocation {
+                source: authored_source.clone(),
+                line: 2,
+                column: 1,
+            }),
+            generated_url: "bundle.js".into(),
+            generated_line: 10,
+            generated_column: 1,
+        });
+        snapshot.selected_frame = Some(0);
+        let shared = Arc::new(Mutex::new(snapshot));
+        let (commands, _receiver) = mpsc::sync_channel(4);
+        editor.debugger.session = Some(DebugSession {
+            snapshot: shared.clone(),
+            commands,
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+            errors: Arc::new(Mutex::new(vec![])),
+        });
+        editor.debugger.project = Some(editor.project.clone());
+        editor.script_target = ScriptTarget::Object;
+        editor.frame = 0;
+
+        editor.poll_debugger(&ctx);
+        // Append another trace line and poll twice; previous lines must not duplicate.
+        shared
+            .lock()
+            .unwrap()
+            .output_events
+            .push(format!("Runtime error ({authored_source} · line 2): Boom"));
+        editor.poll_debugger(&ctx);
+        editor.poll_debugger(&ctx);
+
+        assert_eq!(
+            editor.output.iter().filter(|l| l.as_str() == "1").count(),
+            1
+        );
+        assert_eq!(
+            editor
+                .output
+                .iter()
+                .filter(
+                    |l| l.as_str() == format!("Warning ({authored_source} · line 2): Step check")
+                )
+                .count(),
+            1
+        );
+        assert_eq!(
+            editor
+                .output
+                .iter()
+                .filter(
+                    |l| l.as_str() == format!("Runtime error ({authored_source} · line 2): Boom")
+                )
+                .count(),
+            1
+        );
+        assert!(editor.script_target == ScriptTarget::Frame);
+        assert_eq!(editor.frame, 1);
+        if editor
+            .workspace
+            .shares_dock_group(PanelId::Actions, PanelId::Debugger)
+        {
+            // When docked together, pause keeps Debugger active while still positioning Actions.
+            assert!(editor.workspace.is_panel_active(PanelId::Debugger));
+            assert!(editor.navigate_actions_to_debug_location(
+                &ctx,
+                &AuthoredLocation {
+                    source: authored_source.clone(),
+                    line: 2,
+                    column: 3,
+                },
+                true,
+            ));
+            assert!(editor.workspace.is_panel_active(PanelId::Actions));
+        } else {
+            assert!(editor.workspace.is_panel_active(PanelId::Actions));
+            assert!(editor.workspace.is_panel_active(PanelId::Debugger));
+        }
+        let cursor = egui::text_edit::TextEditState::load(&ctx, editor.actions_editor_id())
+            .and_then(|s| s.cursor.char_range())
+            .expect("debugger pause places Actions caret on target line");
+        assert_eq!(cursor.primary.index, "var a = 1;\n".len() + 2);
+
+        editor.debugger.stop();
+        assert!(editor.workspace.is_panel_visible(PanelId::Debugger));
     }
 }

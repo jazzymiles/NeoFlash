@@ -37,10 +37,7 @@ impl Editor {
     pub(crate) fn debugger_contents(&mut self, ui: &mut Ui) -> bool {
         let snapshot = self.debugger.snapshot();
         let startup = self.debugger.startup_status.clone();
-        if snapshot.is_none() && startup.is_none() {
-            return true;
-        }
-        let mut close = false;
+        let idle_ready = snapshot.is_none() && startup.is_none();
         let nf = neoflash_ui::palette(ui.ctx());
         let paused = snapshot.as_ref().is_some_and(|snapshot| {
             snapshot.state == DebugState::Paused && !snapshot.command_pending
@@ -64,14 +61,18 @@ impl Editor {
             ui.spacing_mut().item_spacing.x = 2.0;
             if ui
                 .add_enabled_semantic(
-                    paused,
+                    paused || idle_ready,
                     c::IconButton::new(i16::DEBUG_CONTINUE, "Continue")
                         .kind(c::IconButtonType::Primary)
                         .shortcut("F8"),
                 )
                 .clicked()
             {
-                self.debug_command(DebugCommand::Resume);
+                if snapshot.is_some() {
+                    self.debug_command(DebugCommand::Resume);
+                } else {
+                    self.start_debug_movie(ui.ctx());
+                }
             }
             for (icon, label, shortcut, command) in [
                 (i16::STEP_OVER, "Step over", "F10", DebugCommand::StepOver),
@@ -89,15 +90,14 @@ impl Editor {
                 }
             }
             if ui
-                .add(c::IconButton::new(i16::STOP, "Stop debugging"))
+                .add_enabled_semantic(!idle_ready, c::IconButton::new(i16::STOP, "Stop debugging"))
                 .clicked()
             {
                 self.debugger.stop();
-                close = true;
             }
             if ui
                 .add_enabled_semantic(
-                    snapshot.is_some(),
+                    snapshot.is_some() || idle_ready,
                     c::IconButton::new(i16::BREAKPOINT, "Toggle breakpoint").shortcut("⌘B"),
                 )
                 .clicked()
@@ -106,13 +106,15 @@ impl Editor {
             }
             if ui
                 .add_enabled_semantic(
-                    snapshot.is_some(),
+                    snapshot.is_some() || (idle_ready && !self.debugger.breakpoints.is_empty()),
                     c::Button::ghost("Remove all breakpoints"),
                 )
                 .clicked()
             {
-                self.debugger.breakpoints.clear();
-                self.debug_command(DebugCommand::SetBreakpoints(Vec::new()));
+                self.clear_all_session_breakpoints();
+                if snapshot.is_some() {
+                    self.debug_command(DebugCommand::SetBreakpoints(Vec::new()));
+                }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some(startup) = &startup {
@@ -131,6 +133,7 @@ impl Editor {
                     return;
                 }
                 let Some(snapshot) = &snapshot else {
+                    ui.add(c::Badge::new("Not running", c::BadgeType::Neutral));
                     return;
                 };
                 if snapshot.state == DebugState::Failed {
@@ -224,7 +227,11 @@ impl Editor {
                         .row
                         .clicked()
                     {
+                        let frame_location = frame.location.clone();
                         self.debug_command(DebugCommand::SelectFrame(index));
+                        if let Some(location) = frame_location {
+                            self.navigate_actions_to_debug_location(ui.ctx(), &location, false);
+                        }
                     }
                 }
             });
@@ -266,27 +273,34 @@ impl Editor {
                 ));
                 column_title(ui, "Breakpoints");
                 ui.spacing_mut().item_spacing.y = space::S1;
-                for breakpoint in snapshot.iter().flat_map(|snapshot| &snapshot.breakpoints) {
-                    let label = format!(
-                        "{} · line {}",
-                        breakpoint.requested.source, breakpoint.requested.line
-                    );
+                let requested_breakpoints: Vec<crate::debugger_protocol::AuthoredBreakpoint> =
+                    if let Some(snapshot) = &snapshot {
+                        snapshot
+                            .breakpoints
+                            .iter()
+                            .map(|breakpoint| breakpoint.requested.clone())
+                            .collect()
+                    } else {
+                        self.debugger.breakpoints.clone()
+                    };
+                for requested in requested_breakpoints {
+                    let label = format!("{} · line {}", requested.source, requested.line);
                     ui.horizontal(|ui| {
                         ui.add_space(space::S3);
                         icons::show(ui, i16::BREAKPOINT, nf.syntax_breakpoint);
                         let mut enabled = true;
                         if ui.add(c::Checkbox::new(&mut enabled, &label)).changed() && !enabled {
-                            self.debugger
-                                .breakpoints
-                                .retain(|p| p != &breakpoint.requested);
-                            self.debug_command(DebugCommand::SetBreakpoints(
-                                self.debugger.breakpoints.clone(),
-                            ));
+                            self.remove_session_breakpoint(&requested.source, requested.line);
+                            if snapshot.is_some() {
+                                self.debug_command(DebugCommand::SetBreakpoints(
+                                    self.debugger.breakpoints.clone(),
+                                ));
+                            }
                         }
                     });
                 }
             });
         });
-        close
+        false
     }
 }

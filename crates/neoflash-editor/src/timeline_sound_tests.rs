@@ -326,7 +326,7 @@ fn edit_envelope_dialog_commits_custom_stereo_envelope_and_cancels_cleanly() {
     let before = editor.project.clone();
 
     // Library menu entry point routes through ConvertedTrigger::EditEnvelope to the real modal dialog.
-    Editor::open_planned(&ctx, "Library menu ▸ Edit envelope…");
+    Editor::open_entry_point(&ctx, "Library menu ▸ Edit envelope…");
     let _ = ctx.run(
         egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(

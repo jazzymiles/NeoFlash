@@ -1589,3 +1589,56 @@ fn t276_fresh_profile_authoring_conflict_recovery_test_movie_and_publish_journey
     assert!(publish_dir.join("neoflash_web.js").is_file());
     assert!(publish_dir.join("neoflash_web_bg.wasm").is_file());
 }
+
+#[test]
+fn t291_document_sessions_isolate_output_actions_test_movie_and_breakpoints() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    assert!(editor.output.is_empty());
+
+    editor.message("doc0 trace output");
+    editor.open_test_movie_preview();
+    assert!(editor.test_movie_preview_open);
+    let tab0_lang_id = editor.actions_empty_language_id();
+    assert!(editor.toggle_breakpoint("Scene 1 / frame 1", 3));
+    assert_eq!(editor.debugger.breakpoints.len(), 1);
+    assert_eq!(editor.debugger.breakpoints[0].source, "Scene 1 / frame 1");
+    assert_eq!(editor.debugger.breakpoints[0].line, 3);
+
+    let tab1_index = editor.open_new_session_tab(&ctx, Project::blank(), None);
+    assert_eq!(tab1_index, 1);
+    assert!(
+        editor.output.is_empty(),
+        "new document tab starts with empty Output"
+    );
+    assert!(
+        !editor.test_movie_preview_open,
+        "Test Movie preview does not leak to Tab 1"
+    );
+    assert_ne!(editor.actions_empty_language_id(), tab0_lang_id);
+    assert!(
+        editor.debugger.breakpoints.is_empty(),
+        "Tab 0 breakpoints do not leak into Tab 1 runtime state"
+    );
+    assert!(!editor.debugger.has_presentation());
+
+    assert!(editor.toggle_breakpoint("Main.as", 9));
+    editor.message("doc1 warning");
+    assert_eq!(editor.debugger.breakpoints.len(), 1);
+    assert_eq!(editor.debugger.breakpoints[0].source, "Main.as");
+
+    assert!(editor.switch_session_tab(&ctx, 0));
+    assert_eq!(editor.output, vec!["doc0 trace output".to_owned()]);
+    assert!(editor.test_movie_preview_open);
+    assert_eq!(editor.actions_empty_language_id(), tab0_lang_id);
+    assert_eq!(editor.debugger.breakpoints.len(), 1);
+    assert_eq!(editor.debugger.breakpoints[0].source, "Scene 1 / frame 1");
+    assert_eq!(editor.debugger.breakpoints[0].line, 3);
+
+    assert!(editor.switch_session_tab(&ctx, 1));
+    assert_eq!(editor.output, vec!["doc1 warning".to_owned()]);
+    assert!(!editor.test_movie_preview_open);
+    assert_eq!(editor.debugger.breakpoints.len(), 1);
+    assert_eq!(editor.debugger.breakpoints[0].source, "Main.as");
+    assert_eq!(editor.debugger.breakpoints[0].line, 9);
+}

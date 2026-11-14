@@ -11,7 +11,7 @@ use std::{
     time::Instant,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
     Select,
     Transform,
@@ -179,6 +179,7 @@ pub struct Editor {
     pub(crate) code_snippets: crate::panels::code_snippets::CodeSnippetsState,
     pub(crate) movie_explorer: crate::panels::movie_explorer::MovieExplorerState,
     pub(crate) find_replace: Option<crate::panels::find_replace::FindReplaceState>,
+    pub(crate) test_movie_preview_open: bool,
     pub(crate) confirm_revert: bool,
     pub(crate) panels_hidden: bool,
     pub enable_simple_buttons: bool,
@@ -446,6 +447,7 @@ impl Editor {
                     "scene" => Some(PanelId::Scene),
                     "motion_editor" => Some(PanelId::MotionEditor),
                     "filters" => Some(PanelId::Filters),
+                    "debugger" => Some(PanelId::Debugger),
                     "compiler_errors" => Some(PanelId::CompilerErrors),
                     "code_snippets" => Some(PanelId::CodeSnippets),
                     "movie_explorer" => Some(PanelId::MovieExplorer),
@@ -512,29 +514,79 @@ impl Editor {
         let saved_project = Some(project.clone());
         let root = project.root.clone();
         let mut s = Self {
-            project, history: History::new(150), path: None, import_source: None, saved_project,
-            edit_session: crate::symbol_edit::SymbolEditSession::for_scene(root.clone(), 0.75, Vec2::ZERO),
-            editing: vec![root.clone()], frame: 0, layer: 0, selection: crate::selection::Selection { symbol: root, targets: vec![] }, object_gesture: None, stage_cursor: None, shown_stage_cursor: None, tool: Tool::Select,
-            playing: false, authored_preview: None, last_tick: Instant::now(), accumulator: 0.,
-            onion: false, onion_outlines: false, onion_before: 3, onion_after: 3,
-            onion_anchor: false, anchored_range: (0, 6),
-            zoom: 0.75, pan: Vec2::ZERO, shape_draft: None,
-            fill: [50, 117, 184, 255], stroke: [30, 50, 70, 255], stroke_width: 1.0,
-            property_edit: None, authoring_modify: crate::authoring_modify::AuthoringModify::default(), bottom: BottomTab::Properties,
+            project,
+            history: History::new(150),
+            path: None,
+            import_source: None,
+            saved_project,
+            edit_session: crate::symbol_edit::SymbolEditSession::for_scene(
+                root.clone(),
+                0.75,
+                Vec2::ZERO,
+            ),
+            editing: vec![root.clone()],
+            frame: 0,
+            layer: 0,
+            selection: crate::selection::Selection {
+                symbol: root,
+                targets: vec![],
+            },
+            object_gesture: None,
+            stage_cursor: None,
+            shown_stage_cursor: None,
+            tool: Tool::Select,
+            playing: false,
+            authored_preview: None,
+            last_tick: Instant::now(),
+            accumulator: 0.,
+            onion: false,
+            onion_outlines: false,
+            onion_before: 3,
+            onion_after: 3,
+            onion_anchor: false,
+            anchored_range: (0, 6),
+            zoom: 0.75,
+            pan: Vec2::ZERO,
+            shape_draft: None,
+            fill: [50, 117, 184, 255],
+            stroke: [30, 50, 70, 255],
+            stroke_width: 1.0,
+            property_edit: None,
+            authoring_modify: crate::authoring_modify::AuthoringModify::default(),
+            bottom: BottomTab::Properties,
             authoring_tools: crate::authoring_tools::AuthoringToolsState::default(),
             tablet_input: crate::tablet_input::TabletInput::default(),
-            script_target: ScriptTarget::Frame, script_event: ObjectEvent::Click,
-            selected_source: None, code_feedback: None, actions_ui: Default::default(),
+            script_target: ScriptTarget::Frame,
+            script_event: ObjectEvent::Click,
+            selected_source: None,
+            code_feedback: None,
+            actions_ui: Default::default(),
             debugger: Default::default(),
             status: "Ready".into(),
-            output: vec!["NeoFlash development preview. Editor playback shows authored animation; Test Movie executes scripts in the browser.".into()],
-            fonts: Fonts::new(), font_filter: String::new(), show_about: false, confirm: None, allow_close: false,
-            timeline_cell: neoflash_ui::metrics::FRAME, timeline_key_drag: None, timeline_edit: Default::default(), library_selected: None, symbol_conversion: None,
-            document_settings: None, export_lottie: None, last_lottie_report: None, export_video: None, last_video_report: None, preferences: None, edit_envelope: None, project_panel: Default::default(),
+            output: Vec::new(),
+            fonts: Fonts::new(),
+            font_filter: String::new(),
+            show_about: false,
+            confirm: None,
+            allow_close: false,
+            timeline_cell: neoflash_ui::metrics::FRAME,
+            timeline_key_drag: None,
+            timeline_edit: Default::default(),
+            library_selected: None,
+            symbol_conversion: None,
+            document_settings: None,
+            export_lottie: None,
+            last_lottie_report: None,
+            export_video: None,
+            last_video_report: None,
+            preferences: None,
+            edit_envelope: None,
+            project_panel: Default::default(),
             compiler_errors: Default::default(),
             code_snippets: Default::default(),
             movie_explorer: Default::default(),
             find_replace: None,
+            test_movie_preview_open: false,
             confirm_revert: false,
             panels_hidden: false,
             enable_simple_buttons: false,
@@ -2191,7 +2243,12 @@ impl Editor {
                 }
                 Err(e) => {
                     self.message(format!("Export failed: {e}"));
-                    self.show_panel(PanelId::Output);
+                    self.refresh_compiler_diagnostics();
+                    if matches!(e, neoflash_export::ExportError::Scripts(_)) {
+                        self.show_panel(PanelId::CompilerErrors);
+                    } else {
+                        self.show_panel(PanelId::Output);
+                    }
                 }
             }
             return;
@@ -2650,7 +2707,12 @@ impl Editor {
             }
             Err(e) => {
                 self.message(format!("Export failed: {e}"));
-                self.show_panel(PanelId::Output);
+                self.refresh_compiler_diagnostics();
+                if matches!(e, neoflash_export::ExportError::Scripts(_)) {
+                    self.show_panel(PanelId::CompilerErrors);
+                } else {
+                    self.show_panel(PanelId::Output);
+                }
             }
         }
     }
@@ -2677,7 +2739,7 @@ impl Editor {
                 self.request(Pending::Open, ctx);
             }
             if self.take_command_shortcut(ctx, C::EditPreferences) {
-                Self::open_planned(ctx, "Edit ▸ Preferences…");
+                self.open_preferences(crate::panels::preferences::PAGE_GENERAL);
             }
             crate::commands::clear_queued_commands(ctx);
             return;
@@ -3042,7 +3104,7 @@ impl Editor {
             self.export_swf_dialog(None);
         }
         if self.take_command_shortcut(ctx, C::FilePublishSettings) {
-            Self::open_planned(ctx, "File ▸ Publish settings…");
+            self.open_publish_settings();
         }
         if self.take_command_shortcut(ctx, C::FilePublish) {
             self.export(false);
@@ -3060,10 +3122,10 @@ impl Editor {
             self.toggle_edit_symbols();
         }
         if self.take_command_shortcut(ctx, C::EditPreferences) {
-            Self::open_planned(ctx, "Edit ▸ Preferences…");
+            self.open_preferences(crate::panels::preferences::PAGE_GENERAL);
         }
         if self.take_command_shortcut(ctx, C::EditKeyboardShortcuts) {
-            Self::open_planned(ctx, "Edit ▸ Keyboard shortcuts…");
+            self.open_preferences(crate::panels::preferences::PAGE_SHORTCUTS);
         }
 
         // Insert.
@@ -3351,6 +3413,7 @@ impl Editor {
     }
 
     pub fn draw_dialogs(&mut self, ctx: &egui::Context) {
+        #[cfg(test)]
         self.drain_converted_entry_triggers(ctx);
         self.document_settings_dialog(ctx);
         self.publish_settings_dialog(ctx);
@@ -3790,7 +3853,7 @@ impl eframe::App for Editor {
         if self.property_edit.is_some() {
             self.end_property_interaction(ctx);
         }
-        self.planned_panels(ctx);
+        self.test_movie_preview_window(ctx);
         crate::panels::ui_studio::show_studio_window(ctx);
         self.update_publish_estimate(ctx);
         self.notification_host(ctx, self.has_document().then_some(self.stage_view.canvas));

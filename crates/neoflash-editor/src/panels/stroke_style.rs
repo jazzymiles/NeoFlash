@@ -73,10 +73,6 @@ fn inline_draft_id() -> egui::Id {
     egui::Id::new("nf2-stroke-style-inline-draft")
 }
 
-fn inline_sig_id() -> egui::Id {
-    egui::Id::new("nf2-stroke-style-inline-sig")
-}
-
 pub(crate) fn has_stroke_style_dialog(ctx: &egui::Context) -> bool {
     ctx.data(|d| d.get_temp::<StrokeStyleDraft>(draft_id()))
         .is_some()
@@ -104,6 +100,7 @@ pub(crate) fn update_stroke_style_draft(
 }
 
 impl Editor {
+    #[cfg(test)]
     pub(crate) fn init_stroke_style_draft(&self) -> StrokeStyleDraft {
         let mut draft = StrokeStyleDraft {
             thickness: self.stroke_width.clamp(0.1, 200.0),
@@ -152,6 +149,7 @@ impl Editor {
     }
 
     /// Open the `Stroke style` modal dialog (`PR-03`).
+    #[cfg(test)]
     pub(crate) fn open_stroke_style(&mut self, ctx: &egui::Context) {
         self.finish_edits();
         let draft = self.init_stroke_style_draft();
@@ -499,31 +497,6 @@ impl Editor {
             });
         });
         (close_cancel, do_apply)
-    }
-
-    pub(crate) fn stroke_style_inline_panel(&mut self, ui: &mut Ui) -> bool {
-        let ctx = ui.ctx().clone();
-        let sig = (self.history.revision(), self.selection.targets.clone());
-        let needs_sync = ctx
-            .data(|d| d.get_temp::<(u64, Vec<crate::selection::SelectionTarget>)>(inline_sig_id()))
-            .as_ref()
-            != Some(&sig);
-        let mut draft = if needs_sync {
-            self.init_stroke_style_draft()
-        } else {
-            ctx.data(|d| d.get_temp::<StrokeStyleDraft>(inline_draft_id()))
-                .unwrap_or_else(|| self.init_stroke_style_draft())
-        };
-        let (close_cancel, do_apply) = self.stroke_style_body(ui, &mut draft);
-        ctx.data_mut(|d| {
-            d.insert_temp(inline_draft_id(), draft);
-            d.insert_temp(inline_sig_id(), sig);
-        });
-        if do_apply {
-            self.confirm_stroke_style(&ctx);
-            return true;
-        }
-        close_cancel
     }
 
     pub(crate) fn stroke_style_dialog(&mut self, ctx: &egui::Context) {

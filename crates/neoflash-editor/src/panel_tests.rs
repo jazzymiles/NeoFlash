@@ -2011,7 +2011,7 @@ fn full_frame(
             if editor.property_edit.is_some() {
                 editor.end_property_interaction(ctx);
             }
-            editor.planned_panels(ctx);
+            editor.test_movie_preview_window(ctx);
             crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
         },
     )
@@ -2153,7 +2153,6 @@ impl Driver {
 /// clicking outside), and modal dialogs close with their buttons.
 #[test]
 fn every_panel_preview_and_dialog_opens_and_closes() {
-    use crate::panels::planned::{self, Chrome, PlannedPanel};
     let mut d = Driver::new();
     let project = d.editor.project.clone();
     let window_row = |panel: PanelId| match panel {
@@ -2174,6 +2173,7 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         PanelId::History => "History (⌘F10)",
         PanelId::Scene => "Scene (⇧F2)",
         PanelId::MotionEditor => "Motion editor",
+        PanelId::Debugger => "Debugger",
         PanelId::Project => "Project",
         PanelId::Filters => "Filters",
         PanelId::CompilerErrors => "Compiler errors (⌥F2)",
@@ -2263,28 +2263,18 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
     d.editor.reset_active_workspace(&d.ctx);
     d.settle();
 
-    // Planned previews: each closes from its own chrome. Failures are collected in one pass.
-    let mut stuck = Vec::new();
-    for panel in PlannedPanel::ALL {
-        planned::set_open(&d.ctx, panel, true);
-        d.settle();
-        assert!(planned::is_open(&d.ctx, panel));
-        let close = match panel.chrome() {
-            Chrome::Panel(_) => d.find("Close panel"),
-            Chrome::Dialog => d.find("Close"),
-            Chrome::Window => d.find("Close preview"),
-        };
-        match close {
-            Some(rect) => d.press(rect.center(), egui::PointerButton::Primary),
-            None => stuck.push(format!("{panel:?}: no close control")),
-        }
-        if planned::is_open(&d.ctx, panel) {
-            stuck.push(format!("{panel:?}: still open"));
-            planned::set_open(&d.ctx, panel, false);
-            d.settle();
-        }
-    }
-    assert!(stuck.is_empty(), "previews that do not close: {stuck:#?}");
+    // Test Movie preview window opens and closes cleanly from its own chrome.
+    d.editor.open_test_movie_preview();
+    d.settle();
+    assert!(d.editor.test_movie_preview_open);
+    let close = d
+        .find("Close Test Movie")
+        .expect("Test Movie close button must be present");
+    d.press(close.center(), egui::PointerButton::Primary);
+    assert!(
+        !d.editor.test_movie_preview_open,
+        "Test Movie preview window must close on close click"
+    );
 
     // Modal dialogs.
     d.click("Help");
@@ -2528,7 +2518,7 @@ fn swatches_panel_scans_document_paints_applies_solid_none_and_gradient_and_pers
     // Converted `Add swatch` menu trigger persists custom swatch in WorkspacePrefs.
     d.editor.clear_selection();
     d.editor.fill = [77, 88, 99, 255];
-    Editor::open_planned(&d.ctx, "Color menu ▸ Add swatch");
+    Editor::open_entry_point(&d.ctx, "Color menu ▸ Add swatch");
     d.settle();
     assert!(
         d.editor
@@ -6204,7 +6194,7 @@ fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
     let _ = std::fs::remove_dir_all(&tmp_dir);
     std::fs::create_dir_all(&tmp_dir).unwrap();
 
-    Editor::open_planned(&ctx, "File ▸ Export ▸ Export image…");
+    Editor::open_entry_point(&ctx, "File ▸ Export ▸ Export image…");
     editor.drain_converted_entry_triggers(&ctx);
     assert!(has_export_image_dialog(&ctx));
     assert!(editor.has_modal_dialog_in(&ctx));
@@ -6255,7 +6245,7 @@ fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
 
     // 2. Import video modal dialog + Undo/Redo + validation.
     let before_video = editor.project.clone();
-    Editor::open_planned(&ctx, "File ▸ Import ▸ Import video…");
+    Editor::open_entry_point(&ctx, "File ▸ Import ▸ Import video…");
     editor.drain_converted_entry_triggers(&ctx);
     assert!(has_import_video_dialog(&ctx));
     update_import_video_draft(&ctx, |draft| {
@@ -6401,7 +6391,7 @@ fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
     });
     editor.select_single_id(rect_id);
     let before_stroke = editor.project.clone();
-    Editor::open_planned(&ctx, "Tool options ▸ Stroke style…");
+    Editor::open_entry_point(&ctx, "Tool options ▸ Stroke style…");
     editor.drain_converted_entry_triggers(&ctx);
     assert!(has_stroke_style_dialog(&ctx));
     crate::panels::stroke_style::update_stroke_style_draft(&ctx, |draft| {
@@ -6417,7 +6407,7 @@ fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
 
     // 4. Font embedding modal dialog + Undo/Redo + validation.
     let before_fonts = editor.project.clone();
-    Editor::open_planned(&ctx, "Library menu ▸ Font embedding…");
+    Editor::open_entry_point(&ctx, "Library menu ▸ Font embedding…");
     editor.drain_converted_entry_triggers(&ctx);
     assert!(has_font_embedding_dialog(&ctx));
     assert!(
@@ -7757,18 +7747,6 @@ fn editor_form_sources_reject_new_ad_hoc_half_width_pairs() {
         (
             "panels/live_planned.rs",
             include_str!("panels/live_planned.rs"),
-        ),
-        (
-            "panels/planned_drawing.rs",
-            include_str!("panels/planned_drawing.rs"),
-        ),
-        (
-            "panels/planned_documents.rs",
-            include_str!("panels/planned_documents.rs"),
-        ),
-        (
-            "panels/planned_color.rs",
-            include_str!("panels/planned_color.rs"),
         ),
     ];
     // The shared grid must divide its own available width. The other exception
@@ -9558,4 +9536,194 @@ fn properties_use_one_position_title_and_keep_text_opacity_out_of_character() {
     let opacity = named_bounds(&shape, "Opacity percent").expect("Opacity row of a shape");
     assert!(opacity.top() >= fill.bottom());
     assert!(named_bounds(&shape, "Display").is_none());
+}
+
+#[test]
+fn t291_output_and_test_movie_start_empty_with_empty_state() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    assert!(
+        editor.output.is_empty(),
+        "fresh editor Output starts empty without hardcoded boot banner: {:?}",
+        editor.output
+    );
+
+    let out_panel = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(720., 360.))),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.output_panel_virtualized(ui);
+            });
+        },
+    );
+    let out_texts: Vec<_> = out_panel
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) => Some(text.galley.job.text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(out_texts.iter().any(|t| t == "No output yet"));
+    assert!(
+        !out_texts
+            .iter()
+            .any(|t| t.contains("NeoFlash development preview"))
+    );
+
+    editor.open_test_movie_preview();
+    let tm_closed = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1100., 760.))),
+            ..Default::default()
+        },
+        |ctx| {
+            editor.test_movie_preview_window(ctx);
+        },
+    );
+    let drawer_btn = tm_closed
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .find(|(_, node)| node.label() == Some("Output drawer"))
+        .and_then(|(_, node)| node.bounds())
+        .expect("Output drawer button present in Test Movie preview");
+    let drawer_pos = Pos2::new(
+        ((drawer_btn.x0 + drawer_btn.x1) * 0.5) as f32,
+        ((drawer_btn.y0 + drawer_btn.y1) * 0.5) as f32,
+    );
+    for pressed in [true, false] {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1100., 760.))),
+                events: vec![
+                    Event::PointerMoved(drawer_pos),
+                    Event::PointerButton {
+                        pos: drawer_pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                ..Default::default()
+            },
+            |ctx| {
+                editor.test_movie_preview_window(ctx);
+            },
+        );
+    }
+    let tm_empty = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1100., 760.))),
+            ..Default::default()
+        },
+        |ctx| {
+            editor.test_movie_preview_window(ctx);
+        },
+    );
+    let tm_empty_texts: Vec<_> = tm_empty
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) => Some(text.galley.job.text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(tm_empty_texts.iter().any(|t| t == "No output yet"));
+    assert!(
+        !tm_empty_texts
+            .iter()
+            .any(|t| t.contains("NeoFlash development preview"))
+    );
+
+    editor.message("score: 42");
+    let tm_logged = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1100., 760.))),
+            ..Default::default()
+        },
+        |ctx| {
+            editor.test_movie_preview_window(ctx);
+        },
+    );
+    let tm_logged_texts: Vec<_> = tm_logged
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) => Some(text.galley.job.text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(tm_logged_texts.iter().any(|t| t == "score: 42"));
+    assert!(!tm_logged_texts.iter().any(|t| t == "No output yet"));
+}
+
+#[test]
+fn t291_actions_debugger_and_output_tooltip_and_shortcut_hygiene() {
+    const FILES: &[(&str, &str)] = &[
+        ("panels/actions.rs", include_str!("panels/actions.rs")),
+        (
+            "panels/actions_sidebar.rs",
+            include_str!("panels/actions_sidebar.rs"),
+        ),
+        ("panels/debugger.rs", include_str!("panels/debugger.rs")),
+        ("panels/output.rs", include_str!("panels/output.rs")),
+        ("panels/planned.rs", include_str!("panels/planned.rs")),
+        (
+            "panels/live_planned.rs",
+            include_str!("panels/live_planned.rs"),
+        ),
+    ];
+    for (name, source) in FILES {
+        assert!(
+            !source.contains(".on_hover_text("),
+            "{name} must use c::tooltip / c::not_available instead of raw .on_hover_text"
+        );
+        for forbidden in ["Show code hint (", "(⌃Space)", "(F8)", "(⌘B)", "(⇧F11)"] {
+            assert!(
+                !source.contains(forbidden),
+                "{name} must pass shortcuts via .shortcut(...) / c::tooltip instead of prose `{forbidden}`"
+            );
+        }
+    }
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.symbol_mut().timeline.scripts.push(FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: "trace(1);".into(),
+        },
+    });
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1100., 480.))),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.actions_contents(ui);
+            });
+        },
+    );
+    let nodes = &output
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes;
+    assert!(
+        nodes
+            .iter()
+            .any(|(_, node)| node.label() == Some("Show code hint"))
+    );
 }

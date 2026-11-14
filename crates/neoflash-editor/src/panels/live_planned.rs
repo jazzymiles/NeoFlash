@@ -1,32 +1,37 @@
-//! Live interactive bindings for NF2 floating panels and the Test Movie window (`T-126`):
-//! - `BitmapFill` (`CO-02`, `W3.10`)
-//! - `PropertiesOvalPrimitive` (`TO-01` / `PR-02`)
-//! - `PropertiesRectPrimitive` (`TO-01` / `PR-02`)
+//! Live interactive NF2 bodies for tool/properties sub-panels and the Test Movie preview window (`T-126`):
 //! - `DecoTool` (`TO-03`, `W3.9`)
 //! - `SprayBrush` (`TO-04`, `W3.9`)
 //! - `BoneProperties` (`TO-05`, `W3.9`)
-//! - `GraphicProperties` (`PR-07`)
-//! - `Debugger` authoring view (`PP-04`, `T-119`)
 //! - `TestMovie` in-editor preview (`DL-12`)
 
-use super::planned::{PlannedPanel, PlannedState, caption, form_label, mono};
+use super::planned::{caption, form_label, mono};
+#[cfg(test)]
 use super::stroke_style::StrokeStyleKind;
 use crate::app::Editor;
-use crate::paint_controls::{show_rgba_color_popup, two_column_row};
+#[cfg(test)]
+use crate::paint_controls::show_rgba_color_popup;
+use crate::paint_controls::two_column_row;
 use eframe::egui::{self, Color32, Ui};
 use image::{ImageFormat, RgbaImage};
+#[cfg(test)]
 use neoflash_core::{
-    Color, ElementKind, IkArmature, InstancePlayback, Keyframe, OvalOptions, PrimitiveOptions,
-    RectangleOptions, ResourceUnit, new_id,
+    Color, ElementKind, InstancePlayback, OvalOptions, PrimitiveOptions, RectangleOptions,
 };
+use neoflash_core::{IkArmature, Keyframe, ResourceUnit, new_id};
 use neoflash_ui::components as c;
 use neoflash_ui::components::color_picker::hsv;
-use neoflash_ui::icons::{self, i16, i20};
+use neoflash_ui::icons::{i16, i20};
 use neoflash_ui::tokens::{TextStyle, radius, space};
-use neoflash_ui::typography::{rich, rich_block};
-use std::collections::{HashMap, hash_map::DefaultHasher};
-use std::hash::{Hash, Hasher};
+use neoflash_ui::typography::rich;
+#[cfg(test)]
+use neoflash_ui::typography::rich_block;
+use std::collections::HashMap;
 use std::io::Cursor;
+#[cfg(test)]
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 
 fn section(ui: &mut Ui, label: &str, open: bool, body: impl FnOnce(&mut Ui)) {
     c::SectionHeader::new(label)
@@ -238,17 +243,20 @@ impl Default for TestMovieDraft {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, Default)]
 struct BitmapFillDraft {
     selected_resource: Option<neoflash_core::Id>,
     stroke_active: bool,
 }
 
+#[cfg(test)]
 #[derive(Clone, Default)]
 struct BitmapThumbCache {
     textures: HashMap<(String, u64), Option<egui::TextureHandle>>,
 }
 
+#[cfg(test)]
 fn hash_bytes_with_len(data: &[u8]) -> u64 {
     let mut hasher = DefaultHasher::new();
     data.len().hash(&mut hasher);
@@ -256,6 +264,7 @@ fn hash_bytes_with_len(data: &[u8]) -> u64 {
     hasher.finish()
 }
 
+#[cfg(test)]
 fn cached_bitmap_thumbnail(
     ctx: &egui::Context,
     resource_id: &str,
@@ -376,6 +385,7 @@ fn make_procedural_tile_png(c0: Color32, c1: Color32) -> Vec<u8> {
     cur.into_inner()
 }
 
+#[cfg(test)]
 fn unavailable_group(ui: &mut Ui, id_salt: &str, label: &str, add_contents: impl FnOnce(&mut Ui)) {
     let ir = ui.add_enabled_ui(false, add_contents);
     if !ir.response.enabled() {
@@ -395,65 +405,132 @@ fn unavailable_group(ui: &mut Ui, id_salt: &str, label: &str, add_contents: impl
     }
 }
 
+const WINDOW_TITLE_BAR: f32 = 52.0;
+
+fn safe_content_area(ctx: &egui::Context) -> egui::Rect {
+    let area = ctx.content_rect();
+    if area.is_finite() && area.width() >= 64.0 && area.height() >= 64.0 {
+        area
+    } else {
+        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0))
+    }
+}
+
+fn test_movie_title_bar(ui: &mut Ui, width: f32, editor: &mut Editor) -> (bool, egui::Vec2) {
+    let nf = neoflash_ui::palette(ui.ctx());
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(width, WINDOW_TITLE_BAR), egui::Sense::hover());
+    let drag = ui.interact(
+        rect,
+        ui.id().with("test-movie-window-drag"),
+        egui::Sense::drag(),
+    );
+    let mut close = false;
+    let mut x = rect.left() + space::S4;
+    for (i, color) in [nf.danger_default, nf.warning_default, nf.success_default]
+        .into_iter()
+        .enumerate()
+    {
+        let c_pos = egui::pos2(x + 6.0, rect.center().y);
+        ui.painter().circle_filled(c_pos, 6.0, color);
+        if i == 0 {
+            let hit = egui::Rect::from_center_size(c_pos, egui::vec2(16.0, 16.0));
+            let r = ui.interact(
+                hit,
+                ui.id().with("test-movie-window-close"),
+                egui::Sense::click(),
+            );
+            r.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Close Test Movie")
+            });
+            close = c::tooltip(r, "Close Test Movie", None).clicked();
+        }
+        x += 20.0;
+    }
+    let title = Some(editor.project.name.trim())
+        .filter(|name| !name.is_empty())
+        .map(|name| format!("{name} — Test Movie"))
+        .unwrap_or_else(|| "Test Movie".to_owned());
+    ui.painter().text(
+        egui::pos2(x + space::S2, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        title,
+        neoflash_ui::typography::font(TextStyle::BodyStrong),
+        nf.text_primary,
+    );
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(rect.shrink2(egui::vec2(space::S3, 0.0)))
+            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+        |ui| editor.live_test_movie_title_actions(ui),
+    );
+    ui.painter().hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        egui::Stroke::new(1.0_f32, nf.border_subtle),
+    );
+    if drag.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+    }
+    (close, drag.drag_delta())
+}
+
 impl Editor {
-    /// Dispatch a live `PlannedPanel` body bound to `self` (`Editor`).
-    pub(crate) fn live_planned_panel_body(
-        &mut self,
-        ui: &mut Ui,
-        panel: PlannedPanel,
-        state: &mut PlannedState,
-    ) -> bool {
-        match panel {
-            PlannedPanel::Debugger => {
-                if self.debugger.has_presentation() {
-                    self.debugger_contents(ui)
-                } else {
-                    self.live_authoring_debugger(ui)
-                }
-            }
-            PlannedPanel::ExportImage => {
-                self.export_image_inline_panel(ui, &mut state.export_format)
-            }
-            PlannedPanel::ImportVideo => self.import_video_inline_panel(ui),
-            PlannedPanel::StrokeStyle => self.stroke_style_inline_panel(ui),
-            PlannedPanel::FontEmbedding => self.font_embedding_inline_panel(ui),
-            PlannedPanel::BitmapFill => {
-                self.live_bitmap_fill(ui);
-                false
-            }
-            PlannedPanel::PropertiesOvalPrimitive => {
-                self.live_properties_oval(ui);
-                false
-            }
-            PlannedPanel::PropertiesRectPrimitive => {
-                self.live_properties_rect(ui);
-                false
-            }
-            PlannedPanel::DecoTool => {
-                self.live_deco_tool(ui);
-                false
-            }
-            PlannedPanel::SprayBrush => {
-                self.live_spray_brush(ui);
-                false
-            }
-            PlannedPanel::BoneProperties => {
-                self.live_bone_properties(ui);
-                false
-            }
-            PlannedPanel::GraphicProperties => {
-                self.live_graphic_properties(ui);
-                false
-            }
-            PlannedPanel::TestMovie => {
-                self.live_test_movie(ui);
-                false
-            }
+    #[cfg(test)]
+    pub(crate) fn open_test_movie_preview(&mut self) {
+        self.test_movie_preview_open = true;
+    }
+
+    /// Render the standalone Test Movie in-editor preview window (`DL-12`) when open for the
+    /// active document session.
+    pub(crate) fn test_movie_preview_window(&mut self, ctx: &egui::Context) {
+        if !self.test_movie_preview_open {
+            return;
+        }
+        let width = 1000.0;
+        let area = safe_content_area(ctx);
+        let pos_id = egui::Id::new(("nf2-test-movie-window-pos", &self.clipboard.session));
+        let default_pos = egui::pos2(
+            area.left() + neoflash_ui::metrics::tools_rail() + space::S6,
+            area.top() + neoflash_ui::metrics::top_bar() + space::S6,
+        );
+        let pos = ctx
+            .data(|d| d.get_temp::<egui::Pos2>(pos_id))
+            .unwrap_or(default_pos);
+        let mut close = false;
+        let mut delta = egui::Vec2::ZERO;
+        egui::Area::new(egui::Id::new((
+            "nf2-test-movie-window",
+            &self.clipboard.session,
+        )))
+        .order(egui::Order::Foreground)
+        .current_pos(pos)
+        .movable(false)
+        .constrain(true)
+        .show(ctx, |ui| {
+            c::Surface::Dialog.frame(ctx).show(ui, |ui| {
+                ui.set_width(width);
+                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                let (c2, d) = test_movie_title_bar(ui, width, self);
+                close = c2;
+                delta = d;
+                egui::Frame::new()
+                    .inner_margin(egui::Margin::same(space::S3 as i8))
+                    .show(ui, |ui| {
+                        ui.set_width(width - 2.0 * space::S3);
+                        self.live_test_movie(ui);
+                    });
+            });
+        });
+        if close {
+            self.test_movie_preview_open = false;
+        } else {
+            ctx.data_mut(|d| d.insert_temp(pos_id, pos + delta));
         }
     }
 
     pub(crate) fn live_test_movie_title_actions(&mut self, ui: &mut Ui) {
-        let id = egui::Id::new("nf2-live-test-movie-draft");
+        let id = egui::Id::new(("nf2-live-test-movie-draft", &self.clipboard.session));
         let mut draft = ui
             .ctx()
             .data(|d| d.get_temp::<TestMovieDraft>(id))
@@ -608,6 +685,7 @@ impl Editor {
         Ok(res_id)
     }
 
+    #[cfg(test)]
     fn selected_element_paint(&self) -> (Color, Color, f64) {
         if let Some(el) = self.selected_element() {
             match &el.kind {
@@ -642,6 +720,7 @@ impl Editor {
         (self.fill, self.stroke, self.stroke_width)
     }
 
+    #[cfg(test)]
     fn selected_element_bitmap_fill_id(&self) -> Option<neoflash_core::Id> {
         let target = self.selection.single()?;
         let layer = self
@@ -655,6 +734,7 @@ impl Editor {
             .map(|bf| bf.resource_id.clone())
     }
 
+    #[cfg(test)]
     fn apply_selected_element_color(&mut self, stroke_well: bool, next: Color, action_name: &str) {
         if stroke_well {
             self.stroke = next;
@@ -698,6 +778,7 @@ impl Editor {
         }
     }
 
+    #[cfg(test)]
     fn apply_selected_stroke_width(&mut self, width: f64, action_name: &str) {
         let clamped = width.clamp(0.0, 200.0);
         if clamped > 0.0 {
@@ -733,6 +814,7 @@ impl Editor {
         }
     }
 
+    #[cfg(test)]
     fn live_shape_fill_stroke_controls(&mut self, ui: &mut Ui, id_prefix: &str, action_name: &str) {
         let (mut fill_rgba, mut stroke_rgba, mut sw) = self.selected_element_paint();
         let fill_col = (fill_rgba[3] > 0).then(|| {
@@ -819,9 +901,10 @@ impl Editor {
         });
     }
 
+    #[cfg(test)]
     fn live_bitmap_fill(&mut self, ui: &mut Ui) {
         let nf = neoflash_ui::palette(ui.ctx());
-        let draft_id = egui::Id::new("nf2-bitmap-fill-draft");
+        let draft_id = egui::Id::new(("nf2-bitmap-fill-draft", &self.clipboard.session));
         let mut draft = ui
             .ctx()
             .data(|d| d.get_temp::<BitmapFillDraft>(draft_id))
@@ -1194,6 +1277,7 @@ impl Editor {
         ui.ctx().data_mut(|d| d.insert_temp(draft_id, draft));
     }
 
+    #[cfg(test)]
     fn live_properties_oval(&mut self, ui: &mut Ui) {
         let layer_name = self
             .symbol()
@@ -1256,7 +1340,7 @@ impl Editor {
                 )
             };
 
-        let link_id = egui::Id::new("nf2-live-oval-lock-proportions");
+        let link_id = egui::Id::new(("nf2-live-oval-lock-proportions", &self.clipboard.session));
         let mut locked = ui
             .ctx()
             .data(|d| d.get_temp::<bool>(link_id))
@@ -1513,6 +1597,7 @@ impl Editor {
         }
     }
 
+    #[cfg(test)]
     fn live_properties_rect(&mut self, ui: &mut Ui) {
         let can_edit_sel = self
             .selection
@@ -1890,7 +1975,7 @@ impl Editor {
 
     pub(crate) fn live_deco_tool(&mut self, ui: &mut Ui) {
         let nf = neoflash_ui::palette(ui.ctx());
-        let id = egui::Id::new("nf2-deco-tool-draft");
+        let id = egui::Id::new(("nf2-deco-tool-draft", &self.clipboard.session));
         let mut draft = ui
             .ctx()
             .data(|d| d.get_temp::<DecoDraft>(id))
@@ -2126,7 +2211,7 @@ impl Editor {
     }
 
     pub(crate) fn live_spray_brush(&mut self, ui: &mut Ui) {
-        let id = egui::Id::new("nf2-spray-brush-draft");
+        let id = egui::Id::new(("nf2-spray-brush-draft", &self.clipboard.session));
         let mut draft = ui
             .ctx()
             .data(|d| d.get_temp::<SprayDraft>(id))
@@ -2325,7 +2410,7 @@ impl Editor {
     }
 
     pub(crate) fn live_bone_properties(&mut self, ui: &mut Ui) {
-        let id = egui::Id::new("nf2-bone-properties-draft");
+        let id = egui::Id::new(("nf2-bone-properties-draft", &self.clipboard.session));
         let mut draft = ui
             .ctx()
             .data(|d| d.get_temp::<BoneDraft>(id))
@@ -2585,6 +2670,7 @@ impl Editor {
         }
     }
 
+    #[cfg(test)]
     fn live_graphic_properties(&mut self, ui: &mut Ui) {
         let nf = neoflash_ui::palette(ui.ctx());
         let selected_instance = self.selected_element().and_then(|el| match &el.kind {
@@ -2942,161 +3028,9 @@ impl Editor {
         }
     }
 
-    fn live_authoring_debugger(&mut self, ui: &mut Ui) -> bool {
-        let nf = neoflash_ui::palette(ui.ctx());
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            if ui
-                .add(
-                    c::IconButton::new(i16::DEBUG_CONTINUE, "Continue")
-                        .kind(c::IconButtonType::Primary)
-                        .shortcut("F8"),
-                )
-                .clicked()
-            {
-                let ctx = ui.ctx().clone();
-                self.start_debug_movie(&ctx);
-            }
-            let step_over = ui.add_enabled(
-                false,
-                c::IconButton::new(i16::STEP_OVER, "Step over").shortcut("F10"),
-            );
-            let _ = c::not_available(step_over, "Debugger step over");
-            let step_in = ui.add_enabled(
-                false,
-                c::IconButton::new(i16::STEP_INTO, "Step in").shortcut("F11"),
-            );
-            let _ = c::not_available(step_in, "Debugger step in");
-            let step_out = ui.add_enabled(
-                false,
-                c::IconButton::new(i16::STEP_OUT, "Step out").shortcut("⇧F11"),
-            );
-            let _ = c::not_available(step_out, "Debugger step out");
-            if ui
-                .add(c::IconButton::new(i16::STOP, "Stop debugging"))
-                .clicked()
-            {
-                self.debugger.stop();
-            }
-            if ui
-                .add(c::IconButton::new(i16::BREAKPOINT, "Toggle breakpoint").shortcut("⌘B"))
-                .clicked()
-            {
-                let ctx = ui.ctx().clone();
-                self.toggle_debug_breakpoint(&ctx);
-            }
-            if ui.add(c::Button::ghost("Remove all breakpoints")).clicked() {
-                self.debugger.breakpoints.clear();
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add(c::Badge::new(
-                    "Authoring · Ready to debug (F8)",
-                    c::BadgeType::Accent,
-                ));
-            });
-        });
-
-        self.refresh_debugger_watches();
-        let watch_results = self.debugger_watches();
-        let scopes = self.paused_debugger_scopes();
-
-        let total = ui.available_width();
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            ui.allocate_ui_with_layout(
-                egui::vec2(240.0, 0.0),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| {
-                    ui.set_width(240.0);
-                    c::TreeItem::new(
-                        &format!("{} : Frame {}", self.symbol().name, self.frame + 1),
-                        c::TreeItemType::Symbol(i16::EXEC_ARROW),
-                    )
-                    .selected(true)
-                    .show(ui);
-                },
-            );
-            ui.allocate_ui_with_layout(
-                egui::vec2(380.0, 0.0),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| {
-                    ui.set_width(380.0);
-                    let cols = &[0.0, 0.45];
-                    ui.add(c::TableRow {
-                        cells: &["Name", "Value"],
-                        kind: c::TableRowKind::Header,
-                        columns: cols,
-                    });
-                    let frame_str = (self.frame + 1).to_string();
-                    let fps_str = self.project.fps.to_string();
-                    for (k, v) in [("frame", frame_str.as_str()), ("fps", fps_str.as_str())] {
-                        ui.add(c::TableRow {
-                            cells: &[k, v],
-                            kind: c::TableRowKind::Row,
-                            columns: cols,
-                        });
-                    }
-                    for scope in &scopes {
-                        for var in &scope.variables {
-                            ui.add(c::TableRow {
-                                cells: &[&var.name, &var.value],
-                                kind: c::TableRowKind::Row,
-                                columns: cols,
-                            });
-                        }
-                    }
-                },
-            );
-            ui.allocate_ui_with_layout(
-                egui::vec2((total - 620.0).max(240.0), 0.0),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| {
-                    let cols = &[0.0, 0.5];
-                    ui.add(c::TableRow {
-                        cells: &["Expression", "Value"],
-                        kind: c::TableRowKind::Header,
-                        columns: cols,
-                    });
-                    for w in &watch_results {
-                        ui.add(c::TableRow {
-                            cells: &[&w.expression, &w.last_value],
-                            kind: c::TableRowKind::Row,
-                            columns: cols,
-                        });
-                    }
-                    ui.horizontal(|ui| {
-                        if ui.add(c::Button::ghost("+ Add watch")).clicked() {
-                            self.add_debugger_watch("frame + 1");
-                        }
-                        if !watch_results.is_empty()
-                            && ui.add(c::Button::ghost("Clear watches")).clicked()
-                        {
-                            self.remove_debugger_watch(0);
-                        }
-                    });
-                    for bp in self.debugger.breakpoints.clone() {
-                        let label = format!("{} · line {}", bp.source, bp.line);
-                        let mut enabled = true;
-                        ui.horizontal(|ui| {
-                            ui.add_space(space::S3);
-                            icons::show(ui, i16::BREAKPOINT, nf.syntax_breakpoint);
-                            if ui.add(c::Checkbox::new(&mut enabled, &label)).changed() && !enabled
-                            {
-                                self.debugger
-                                    .breakpoints
-                                    .retain(|b| !(b.source == bp.source && b.line == bp.line));
-                            }
-                        });
-                    }
-                },
-            );
-        });
-        false
-    }
-
     fn live_test_movie(&mut self, ui: &mut Ui) {
         let nf = neoflash_ui::palette(ui.ctx());
-        let id = egui::Id::new("nf2-live-test-movie-draft");
+        let id = egui::Id::new(("nf2-live-test-movie-draft", &self.clipboard.session));
         let mut draft = ui
             .ctx()
             .data(|d| d.get_temp::<TestMovieDraft>(id))
@@ -3260,19 +3194,13 @@ impl Editor {
         if draft.show_output {
             ui.spacing_mut().item_spacing.y = 2.0;
             if self.output.is_empty() {
-                let title = if self.project.name.trim().is_empty() {
-                    "Movie"
-                } else {
-                    self.project.name.trim()
-                };
-                ui.add(c::LogLine {
-                    severity: c::Severity::Info,
-                    time: "",
-                    text: &format!(
-                        "trace: {} ready ({} frames @ {} fps)",
-                        title, total_frames, self.project.fps
-                    ),
-                });
+                c::EmptyState {
+                    icon: i16::TERMINAL,
+                    title: "No output yet",
+                    body: "Status messages, script checks and export results appear here.",
+                    action: None,
+                }
+                .show(ui);
             } else {
                 for line in self.output.iter().rev().take(3).rev() {
                     ui.add(c::LogLine {
@@ -3288,6 +3216,7 @@ impl Editor {
     }
 }
 
+#[cfg(test)]
 fn y_ref(v: &mut f64) -> &mut f64 {
     v
 }
@@ -3351,7 +3280,6 @@ mod bone_panel_tests {
 #[cfg(test)]
 mod t297_planned_wiring_tests {
     use super::*;
-    use crate::panels::planned;
     use neoflash_core::{ElementKind, Keyframe, Layer, Project, Symbol, SymbolKind, Timeline};
 
     fn collect_shape_texts(shape: &egui::Shape, out: &mut Vec<String>) {
@@ -3382,7 +3310,7 @@ mod t297_planned_wiring_tests {
     }
 
     #[test]
-    fn all_planned_panels_render_without_fake_sample_data_on_blank_project() {
+    fn live_dialogs_tool_panels_and_test_movie_render_without_fake_sample_data_on_blank_project() {
         let ctx = test_ctx();
         let mut editor = Editor::from_project(&ctx, Project::blank());
         let raw_1920 = || egui::RawInput {
@@ -3394,20 +3322,34 @@ mod t297_planned_wiring_tests {
             ..Default::default()
         };
         let _ = ctx.run(raw_1920(), |_| {});
-        for panel in PlannedPanel::ALL {
-            planned::set_open(&ctx, panel, true);
-        }
+        editor.open_test_movie_preview();
 
-        let _ = ctx.run(raw_1920(), |ctx| {
-            editor.planned_panels(ctx);
-        });
-        let out = ctx.run(raw_1920(), |ctx| {
-            editor.planned_panels(ctx);
-        });
+        let render_all = |ed: &mut Editor| {
+            ctx.run(raw_1920(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let _ = ed.debugger_contents(ui);
+                    ed.live_graphic_properties(ui);
+                    ed.live_bone_properties(ui);
+                    ed.live_deco_tool(ui);
+                    ed.live_spray_brush(ui);
+                    ed.live_bitmap_fill(ui);
+                    ed.live_properties_oval(ui);
+                    ed.live_properties_rect(ui);
+                });
+                ed.test_movie_preview_window(ctx);
+                ed.font_embedding_dialog(ctx);
+                ed.import_video_dialog(ctx);
+            })
+        };
+        editor.open_font_embedding(&ctx);
+        editor.open_import_video(&ctx);
+        let _ = render_all(&mut editor);
+        let out = render_all(&mut editor);
         let texts = collect_output_texts(&out);
         let joined = texts.join("\n");
 
         for forbidden in [
+            "Planned feature",
             "~/Movies/intro.mp4",
             "1280×720 · 30 fps",
             "Ideas in motion",
@@ -3420,7 +3362,7 @@ mod t297_planned_wiring_tests {
         ] {
             assert!(
                 !joined.contains(forbidden),
-                "unexpected fake sample string {forbidden:?} in live planned panels"
+                "unexpected fake sample string {forbidden:?} in live panels"
             );
         }
 
@@ -3428,6 +3370,8 @@ mod t297_planned_wiring_tests {
         assert!(joined.contains("No armature on current frame"));
         assert!(joined.contains("No embedded fonts"));
         assert!(joined.contains("keeps the .nflash file small"));
+        assert!(joined.contains("No output yet"));
+        assert!(joined.contains("Not running"));
     }
 
     #[test]
@@ -3569,17 +3513,21 @@ mod t297_planned_wiring_tests {
             ..Default::default()
         };
         let _ = ctx.run(raw_1920(1.0), |_| {});
-        planned::set_open(&ctx, PlannedPanel::GraphicProperties, true);
-        planned::set_open(&ctx, PlannedPanel::TestMovie, true);
-        let _ = ctx.run(raw_1920(1.5), |ctx| {
-            editor.planned_panels(ctx);
-        });
-        let out = ctx.run(raw_1920(2.0), |ctx| {
-            editor.planned_panels(ctx);
-        });
+        editor.open_test_movie_preview();
+        let render = |ed: &mut Editor, time| {
+            ctx.run(raw_1920(time), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ed.live_graphic_properties(ui);
+                });
+                ed.test_movie_preview_window(ctx);
+            })
+        };
+        let _ = render(&mut editor, 1.5);
+        let out = render(&mut editor, 2.0);
         let joined = collect_output_texts(&out).join("\n");
         assert!(joined.contains("HeroGraphic"));
         assert!(joined.contains("HeroScene — Test Movie"));
         assert!(!joined.contains("No graphic instance selected"));
+        assert!(!joined.contains("Planned feature"));
     }
 }

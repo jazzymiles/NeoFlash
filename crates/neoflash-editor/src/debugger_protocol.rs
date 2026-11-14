@@ -14,6 +14,7 @@ const MAX_SCOPES: usize = 8;
 const MAX_GENERATED_STEPS: usize = 64;
 const MAX_LOCALS: usize = 256;
 const MAX_TEXT: usize = 1_024;
+const MAX_OUTPUT_EVENTS: usize = 128;
 const MAX_SOURCE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
@@ -92,6 +93,7 @@ pub(crate) struct DebugSnapshot {
     pub locals: Vec<DebugLocal>,
     pub breakpoints: Vec<BreakpointStatus>,
     pub messages: Vec<String>,
+    pub output_events: Vec<String>,
     pub command_pending: bool,
 }
 
@@ -175,6 +177,7 @@ impl DebugProtocol {
                 locals: Vec::new(),
                 breakpoints: Vec::new(),
                 messages: Vec::new(),
+                output_events: Vec::new(),
                 command_pending: false,
             },
             target: None,
@@ -245,6 +248,7 @@ impl DebugProtocol {
             DebugCommand::Restart => {
                 let target = self.target.clone();
                 self.clear_session();
+                self.snapshot.output_events.clear();
                 self.snapshot.epoch = self.snapshot.epoch.saturating_add(1);
                 self.first_pause = false;
                 if let Some(target) = target {
@@ -410,6 +414,8 @@ impl DebugProtocol {
                 self.breakpoint_generation += 1;
                 self.refresh_breakpoints();
             }
+            "Runtime.consoleAPICalled" => self.console_api_called(params),
+            "Runtime.exceptionThrown" => self.exception_thrown(params),
             _ => {}
         }
     }
@@ -1041,6 +1047,97 @@ impl DebugProtocol {
         }
         self.snapshot.messages.push(bounded(message, MAX_TEXT));
     }
+    fn record_output(&mut self, line: String) {
+        if line.is_empty() {
+            return;
+        }
+        if self.snapshot.output_events.len() >= MAX_OUTPUT_EVENTS {
+            let overflow = self.snapshot.output_events.len() - MAX_OUTPUT_EVENTS + 1;
+            self.snapshot.output_events.drain(..overflow);
+        }
+        self.snapshot.output_events.push(bounded(&line, MAX_TEXT));
+    }
+    fn mapped_stack_location(&self, container: Option<&Value>) -> Option<AuthoredLocation> {
+        let frames = container?
+            .get("stackTrace")
+            .and_then(|st| st.get("callFrames"))
+            .and_then(Value::as_array)?;
+        frames.iter().find_map(|frame| self.map_location(frame))
+    }
+    fn console_api_called(&mut self, params: &Value) {
+        let kind = params.get("type").and_then(Value::as_str).unwrap_or("log");
+        let args = params
+            .get("args")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let start = if args.len() > 1
+            && args[0].get("value").and_then(Value::as_str) == Some("[NeoFlash]")
+        {
+            1
+        } else {
+            0
+        };
+        let parts: Vec<String> = args[start..]
+            .iter()
+            .map(console_arg_text)
+            .filter(|s| !s.is_empty())
+            .collect();
+        let text = parts.join(" ");
+        if text.is_empty() {
+            return;
+        }
+        let loc = self.mapped_stack_location(Some(params));
+        let formatted = match kind {
+            "error" | "assert" => match loc {
+                Some(loc) => format!("Runtime error ({} · line {}): {text}", loc.source, loc.line),
+                None => format!("Runtime error: {text}"),
+            },
+            "warning" | "warn" => match loc {
+                Some(loc) => format!("Warning ({} · line {}): {text}", loc.source, loc.line),
+                None => format!("Warning: {text}"),
+            },
+            _ => text,
+        };
+        self.record_output(formatted);
+    }
+    fn exception_thrown(&mut self, params: &Value) {
+        let Some(details) = params.get("exceptionDetails") else {
+            return;
+        };
+        let loc = self
+            .mapped_stack_location(Some(details))
+            .or_else(|| self.map_location(details));
+        let message = details
+            .get("exception")
+            .and_then(|ex| ex.get("description"))
+            .and_then(Value::as_str)
+            .and_then(|desc| desc.lines().next())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| bounded(s, MAX_TEXT))
+            .or_else(|| {
+                details
+                    .get("exception")
+                    .map(console_arg_text)
+                    .filter(|s| !s.is_empty())
+            })
+            .or_else(|| {
+                details
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(|s| bounded(s, MAX_TEXT))
+            })
+            .unwrap_or_else(|| "Uncaught exception".to_owned());
+        let formatted = match loc {
+            Some(loc) => format!(
+                "Runtime error ({} · line {}): {message}",
+                loc.source, loc.line
+            ),
+            None => format!("Runtime error: {message}"),
+        };
+        self.record_output(formatted);
+    }
     fn request_error(&mut self, pending: Pending, message: &str) {
         match pending {
             Pending::Create
@@ -1106,6 +1203,12 @@ fn id_string(value: Option<&Value>) -> Option<String> {
 }
 fn bounded(text: &str, limit: usize) -> String {
     text.chars().take(limit).collect()
+}
+fn console_arg_text(value: &Value) -> String {
+    if let Some(Value::String(text)) = value.get("value") {
+        return bounded(text, MAX_TEXT);
+    }
+    remote_summary(value)
 }
 fn remote_summary(value: &Value) -> String {
     if let Some(value) = value.get("value") {
@@ -1523,5 +1626,56 @@ mod tests {
         let bounded_reason = lifecycle_message("Detached", &json!({"reason":"🦀".repeat(2_000)}));
         assert!(bounded_reason.len() <= MAX_TEXT);
         assert!(bounded_reason.is_char_boundary(bounded_reason.len()));
+    }
+
+    #[test]
+    fn console_trace_warnings_and_exceptions_record_mapped_output() {
+        let mut protocol = connect();
+        let request = parsed(&mut protocol);
+        reply(
+            &mut protocol,
+            &request,
+            json!({"scriptSource":wrapped(&source())}),
+        );
+        event(
+            &mut protocol,
+            "Runtime.consoleAPICalled",
+            json!({
+                "type": "log",
+                "args": [
+                    {"type": "string", "value": "[NeoFlash]"},
+                    {"type": "string", "value": "score:"},
+                    {"type": "number", "value": 42}
+                ]
+            }),
+        );
+        event(
+            &mut protocol,
+            "Runtime.consoleAPICalled",
+            json!({
+                "type": "warning",
+                "args": [{"type": "string", "value": "Frame skipped"}],
+                "stackTrace": {"callFrames": [{"scriptId": "script-1", "lineNumber": 5, "columnNumber": 0}]}
+            }),
+        );
+        event(
+            &mut protocol,
+            "Runtime.exceptionThrown",
+            json!({
+                "exceptionDetails": {
+                    "text": "Uncaught",
+                    "exception": {"type": "object", "description": "ReferenceError: hero is not defined\n    at eval"},
+                    "stackTrace": {"callFrames": [{"scriptId": "script-1", "lineNumber": 6, "columnNumber": 0}]}
+                }
+            }),
+        );
+        assert_eq!(
+            protocol.snapshot().output_events,
+            vec![
+                "score: 42",
+                "Warning (Scene / frame 1 · line 11): Frame skipped",
+                "Runtime error (Scene / frame 1 · line 12): ReferenceError: hero is not defined",
+            ]
+        );
     }
 }

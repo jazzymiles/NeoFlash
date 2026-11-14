@@ -1513,6 +1513,9 @@ impl Editor {
             PanelId::Info => self.info_panel_ui(ui),
             PanelId::Project => self.project_panel_ui(ui),
             PanelId::Filters => self.filters_panel_ui(ui),
+            PanelId::Debugger => {
+                let _ = self.debugger_contents(ui);
+            }
             PanelId::CompilerErrors => self.compiler_errors_panel_ui(ui),
             PanelId::CodeSnippets => self.code_snippets_panel_ui(ui),
             PanelId::MovieExplorer => self.movie_explorer_panel_ui(ui),

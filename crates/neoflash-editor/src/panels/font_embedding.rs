@@ -655,19 +655,6 @@ impl Editor {
         (close_cancel, do_apply)
     }
 
-    pub(crate) fn font_embedding_inline_panel(&mut self, ui: &mut Ui) -> bool {
-        let ctx = ui.ctx().clone();
-        let mut draft = ctx
-            .data(|d| d.get_temp::<FontEmbeddingDraft>(inline_draft_id()))
-            .unwrap_or_else(|| embedding_draft_for_project(&self.project));
-        let (close_cancel, do_apply) = self.font_embedding_body(ui, &mut draft);
-        ctx.data_mut(|d| d.insert_temp(inline_draft_id(), draft));
-        if do_apply {
-            return self.confirm_font_embedding(&ctx).is_ok();
-        }
-        close_cancel
-    }
-
     pub(crate) fn font_embedding_dialog(&mut self, ctx: &egui::Context) {
         let Some(mut draft) = ctx.data(|d| d.get_temp::<FontEmbeddingDraft>(draft_id())) else {
             return;

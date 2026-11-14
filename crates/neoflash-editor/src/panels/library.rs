@@ -2533,15 +2533,13 @@ impl Editor {
             self.sync_shared_libraries_from_open_documents();
             ui.close();
         }
-        for path in [
-            "Library menu ▸ Edit envelope…",
-            "Library menu ▸ Font embedding…",
-        ] {
-            let label = path.rsplit(" ▸ ").next().unwrap_or(path);
-            if ui.add(nf::MenuItem::new(label)).clicked() {
-                Self::open_planned(ui.ctx(), path);
-                ui.close();
-            }
+        if ui.add(nf::MenuItem::new("Edit envelope…")).clicked() {
+            self.open_edit_envelope();
+            ui.close();
+        }
+        if ui.add(nf::MenuItem::new("Font embedding…")).clicked() {
+            self.open_font_embedding(ui.ctx());
+            ui.close();
         }
     }
 

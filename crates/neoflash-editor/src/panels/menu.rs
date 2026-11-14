@@ -1,12 +1,11 @@
 //! Application menu bar inside the NF2 top bar (File · Edit · View · Insert · Modify · Control ·
-//! Document · Window · Help) and the table of natural entry points that open planned previews.
+//! Document · Window · Help) and the table of converted entry-point routes.
 //!
-//! Every item follows one rule: a command the editor supports runs the existing editor method; a
-//! command whose NF2 panel or dialog is only a read-only preview opens that preview; anything else is
-//! shown disabled with "Not available yet". Labels, order, separators and shortcuts follow §8.
+//! Every item follows one rule: supported commands run directly on the editor, and entry-point
+//! strings shared with context menus and buttons resolve to real dialogs, panels, or previews.
+//! Labels, order, separators and shortcuts follow §8.
 use crate::app::*;
 use crate::clipboard::ClipboardCommand;
-use crate::panels::planned::{self, PlannedPanel};
 use crate::theme::DesignUi as _;
 use crate::theme::ThemeMode;
 use crate::ui_icons::{menu_item, menu_item_enabled, menu_popup, menu_toggle};
@@ -18,49 +17,8 @@ use neoflash_ui::components::{self as nf, MenuItem};
 /// Tooltip of every designed command the editor cannot perform yet.
 pub(crate) const NOT_AVAILABLE: &str = "Not available yet";
 
-use PlannedPanel as P;
-
-/// Natural entry points (design §4–§9) that open a planned preview, by location. Menu rows use the last
-/// path segment as their label. `GraphicProperties` has no entry: graphic looping is a working
-/// Properties section (`instance_playback_ui`), so its preview stays under Window ▸ Panels ▸ Planned panels.
-pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
-    // Menu bar (§8).
-    ("File ▸ Import ▸ Import video…", P::ImportVideo),
-    ("File ▸ Export ▸ Export image…", P::ExportImage),
-    // §6 panels the §8 Window list does not name.
-    ("Window ▸ Panels ▸ Debugger", P::Debugger),
-    // Panel menus (§6).
-    ("Color fill type ▸ Bitmap fill", P::BitmapFill),
-    ("Library menu ▸ Font embedding…", P::FontEmbedding),
-    // Buttons and popovers (§4–§6).
-    (
-        "Tool options ▸ Rectangle primitive…",
-        P::PropertiesRectPrimitive,
-    ),
-    ("Tool options ▸ Oval primitive…", P::PropertiesOvalPrimitive),
-    ("Tool options ▸ Stroke style…", P::StrokeStyle),
-    ("Tool options ▸ Spray brush…", P::SprayBrush),
-    ("Tool options ▸ Deco tool…", P::DecoTool),
-    ("Tool options ▸ Bone tool…", P::BoneProperties),
-];
-
-/// The preview registered for an entry point.
-pub(crate) fn planned_entry(path: &str) -> Option<PlannedPanel> {
-    let panel = PLANNED_ENTRY_POINTS
-        .iter()
-        .find(|(entry, _)| *entry == path)
-        .map(|(_, panel)| *panel);
-    debug_assert!(panel.is_some(), "unknown planned entry point {path:?}");
-    panel
-}
-
-/// Menu label of an entry point: its last path segment.
-fn entry_label(path: &str) -> &str {
-    path.rsplit(" ▸ ").next().unwrap_or(path)
-}
-
 /// Real panels in Window, in §8 order, with their shortcuts.
-const WINDOW_PANELS: [(&str, &str, PanelId); 21] = [
+const WINDOW_PANELS: [(&str, &str, PanelId); 22] = [
     ("Timeline", "⌥⌘T", PanelId::Timeline),
     ("Tools", "⌘F2", PanelId::Tools),
     ("Properties", "⌘F3", PanelId::Properties),
@@ -78,12 +36,14 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 21] = [
     ("Compiler errors", "⌥F2", PanelId::CompilerErrors),
     ("Accessibility", "⇧F11", PanelId::Accessibility),
     ("Motion editor", "", PanelId::MotionEditor),
+    ("Debugger", "", PanelId::Debugger),
     ("Project", "", PanelId::Project),
     ("Code snippets", "", PanelId::CodeSnippets),
     ("Movie Explorer", "", PanelId::MovieExplorer),
     ("Filters", "", PanelId::Filters),
 ];
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConvertedTrigger {
     DocumentSettings,
@@ -103,85 +63,96 @@ enum ConvertedTrigger {
     LayerProperties,
     SymbolsPopover,
     TestScene,
+    TestMoviePreview,
+    ToolOptions(Tool),
     FindReplace,
     ShowPanel(PanelId),
 }
 
+#[cfg(test)]
+impl ConvertedTrigger {
+    fn for_path(path: &str) -> Option<Self> {
+        match path {
+            "Document ▸ Document settings…" | "Modify ▸ Document…" => {
+                Some(Self::DocumentSettings)
+            }
+            "File ▸ Publish settings…" | "Properties ▸ Publish settings…" => {
+                Some(Self::PublishSettings)
+            }
+            "File ▸ Export ▸ Export image…" => Some(Self::ExportImage),
+            "File ▸ Export ▸ Export video…" => Some(Self::ExportVideo),
+            "File ▸ Export ▸ Export audio…" => Some(Self::ExportAudio),
+            "File ▸ Import ▸ Import video…" => Some(Self::ImportVideo),
+            "Tool options ▸ Stroke style…" => Some(Self::StrokeStyle),
+            "Tool options ▸ Rectangle primitive…" | "Tool options ▸ Oval primitive…" => {
+                Some(Self::ShowPanel(PanelId::Properties))
+            }
+            "Tool options ▸ Spray brush…" => Some(Self::ToolOptions(Tool::SprayBrush)),
+            "Tool options ▸ Deco tool…" => Some(Self::ToolOptions(Tool::Deco)),
+            "Tool options ▸ Bone tool…" => Some(Self::ToolOptions(Tool::Bone)),
+            "Library menu ▸ Font embedding…" => Some(Self::FontEmbedding),
+            "Edit ▸ Preferences…" => {
+                Some(Self::Preferences(crate::panels::preferences::PAGE_GENERAL))
+            }
+            "Edit ▸ Keyboard shortcuts…" => Some(Self::Preferences(
+                crate::panels::preferences::PAGE_SHORTCUTS,
+            )),
+            "Edit ▸ Find and replace" => Some(Self::FindReplace),
+            "Window ▸ Panels ▸ Debugger" | "Window ▸ Debugger" => {
+                Some(Self::ShowPanel(PanelId::Debugger))
+            }
+            "Window ▸ Panels ▸ Compiler errors" | "Window ▸ Compiler errors" => {
+                Some(Self::ShowPanel(PanelId::CompilerErrors))
+            }
+            "Window ▸ Panels ▸ Code snippets" | "Window ▸ Code snippets" => {
+                Some(Self::ShowPanel(PanelId::CodeSnippets))
+            }
+            "Window ▸ Panels ▸ Movie Explorer" | "Window ▸ Movie Explorer" => {
+                Some(Self::ShowPanel(PanelId::MovieExplorer))
+            }
+            "Window ▸ Panels ▸ Filters" | "Window ▸ Filters" => {
+                Some(Self::ShowPanel(PanelId::Filters))
+            }
+            "Color menu ▸ Add swatch" | "Swatches popover ▸ Add swatch" => {
+                Some(Self::AddSwatch)
+            }
+            "Color fill type ▸ Bitmap fill" => Some(Self::BitmapFill),
+            "Library menu ▸ Edit envelope…" => Some(Self::EditEnvelope),
+            "Library menu ▸ Sound properties…" => Some(Self::SoundProperties),
+            "Modify ▸ Timeline ▸ Layer properties…" | "Layer menu ▸ Properties…" => {
+                Some(Self::LayerProperties)
+            }
+            "Breadcrumb ▸ Symbols & scenes" => Some(Self::SymbolsPopover),
+            "Control ▸ Test scene" => Some(Self::TestScene),
+            "Control ▸ Test movie preview" => Some(Self::TestMoviePreview),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
 fn converted_triggers_id() -> egui::Id {
     egui::Id::new("nf2-converted-entry-triggers")
 }
 
 impl Editor {
-    /// Open the preview registered for `path` (buttons, shortcuts and menus share this).
-    /// Entry points whose panel/dialog has become real route through a frame trigger so call sites
-    /// that only hold `&egui::Context` still open the real feature.
-    pub(crate) fn open_planned(ctx: &egui::Context, path: &str) {
-        let converted = match path {
-            "Document ▸ Document settings…" | "Modify ▸ Document…" => {
-                Some(ConvertedTrigger::DocumentSettings)
-            }
-            "File ▸ Publish settings…" | "Properties ▸ Publish settings…" => {
-                Some(ConvertedTrigger::PublishSettings)
-            }
-            "File ▸ Export ▸ Export image…" => Some(ConvertedTrigger::ExportImage),
-            "File ▸ Export ▸ Export video…" => Some(ConvertedTrigger::ExportVideo),
-            "File ▸ Export ▸ Export audio…" => Some(ConvertedTrigger::ExportAudio),
-            "File ▸ Import ▸ Import video…" => Some(ConvertedTrigger::ImportVideo),
-            "Tool options ▸ Stroke style…" => Some(ConvertedTrigger::StrokeStyle),
-            "Tool options ▸ Rectangle primitive…" | "Tool options ▸ Oval primitive…" => {
-                Some(ConvertedTrigger::ShowPanel(PanelId::Properties))
-            }
-            "Tool options ▸ Spray brush…"
-            | "Tool options ▸ Deco tool…"
-            | "Tool options ▸ Bone tool…" => None,
-            "Library menu ▸ Font embedding…" => Some(ConvertedTrigger::FontEmbedding),
-            "Edit ▸ Preferences…" => Some(ConvertedTrigger::Preferences(
-                crate::panels::preferences::PAGE_GENERAL,
-            )),
-            "Edit ▸ Keyboard shortcuts…" => Some(ConvertedTrigger::Preferences(
-                crate::panels::preferences::PAGE_SHORTCUTS,
-            )),
-            "Edit ▸ Find and replace" => Some(ConvertedTrigger::FindReplace),
-            "Window ▸ Panels ▸ Compiler errors" | "Window ▸ Compiler errors" => {
-                Some(ConvertedTrigger::ShowPanel(PanelId::CompilerErrors))
-            }
-            "Window ▸ Panels ▸ Code snippets" | "Window ▸ Code snippets" => {
-                Some(ConvertedTrigger::ShowPanel(PanelId::CodeSnippets))
-            }
-            "Window ▸ Panels ▸ Movie Explorer" | "Window ▸ Movie Explorer" => {
-                Some(ConvertedTrigger::ShowPanel(PanelId::MovieExplorer))
-            }
-            "Window ▸ Panels ▸ Filters" | "Window ▸ Filters" => {
-                Some(ConvertedTrigger::ShowPanel(PanelId::Filters))
-            }
-            "Color menu ▸ Add swatch" | "Swatches popover ▸ Add swatch" => {
-                Some(ConvertedTrigger::AddSwatch)
-            }
-            "Color fill type ▸ Bitmap fill" => Some(ConvertedTrigger::BitmapFill),
-            "Library menu ▸ Edit envelope…" => Some(ConvertedTrigger::EditEnvelope),
-            "Library menu ▸ Sound properties…" => Some(ConvertedTrigger::SoundProperties),
-            "Modify ▸ Timeline ▸ Layer properties…" | "Layer menu ▸ Properties…" => {
-                Some(ConvertedTrigger::LayerProperties)
-            }
-            "Breadcrumb ▸ Symbols & scenes" => Some(ConvertedTrigger::SymbolsPopover),
-            "Control ▸ Test scene" => Some(ConvertedTrigger::TestScene),
-            _ => None,
-        };
-        if let Some(trigger) = converted {
-            let id = converted_triggers_id();
-            ctx.data_mut(|d| {
-                let mut queue = d.get_temp::<Vec<ConvertedTrigger>>(id).unwrap_or_default();
-                queue.push(trigger);
-                d.insert_temp(id, queue);
-            });
+    /// Route a contextual menu or button entry point to its live editor dialog, panel, or tool.
+    #[cfg(test)]
+    pub(crate) fn open_entry_point(ctx: &egui::Context, path: &str) {
+        let Some(trigger) = ConvertedTrigger::for_path(path) else {
+            debug_assert!(false, "unknown entry point {path:?}");
             return;
-        }
-        if let Some(panel) = planned_entry(path) {
-            planned::set_open(ctx, panel, true);
-        }
+        };
+        let id = converted_triggers_id();
+        ctx.data_mut(|d| {
+            let mut queue = d.get_temp::<Vec<ConvertedTrigger>>(id).unwrap_or_default();
+            queue.push(trigger);
+            d.insert_temp(id, queue);
+        });
     }
 
     /// Execute any converted entry-point triggers queued during the frame.
+    #[cfg(test)]
     pub(crate) fn drain_converted_entry_triggers(&mut self, ctx: &egui::Context) {
         let id = converted_triggers_id();
         let triggers = ctx
@@ -214,6 +185,11 @@ impl Editor {
                 ConvertedTrigger::LayerProperties => self.open_layer_properties(ctx, self.layer),
                 ConvertedTrigger::SymbolsPopover => self.open_symbols_popover(ctx, None),
                 ConvertedTrigger::TestScene => self.test_scene(),
+                ConvertedTrigger::TestMoviePreview => self.open_test_movie_preview(),
+                ConvertedTrigger::ToolOptions(tool) => {
+                    self.set_tool(tool);
+                    self.show_panel(PanelId::Properties);
+                }
                 ConvertedTrigger::FindReplace => self.open_find_replace(),
                 ConvertedTrigger::ShowPanel(panel) => self.show_panel(panel),
             }
@@ -239,26 +215,6 @@ impl Editor {
         match self.history.redo_label() {
             Some(step) if !step.is_empty() => format!("Redo {step}"),
             _ => "Redo".to_owned(),
-        }
-    }
-
-    /// Menu row that opens the preview registered for `path`.
-    pub(crate) fn planned_menu_item(ui: &mut egui::Ui, path: &str, shortcut: &str) {
-        if menu_item(ui, entry_label(path), shortcut).clicked() {
-            Self::open_planned(ui.ctx(), path);
-            ui.close();
-        }
-    }
-
-    /// Window-menu toggle for a preview panel (checked while the preview is open).
-    fn planned_menu_toggle(ui: &mut egui::Ui, path: &str, shortcut: &str) {
-        let Some(panel) = planned_entry(path) else {
-            return;
-        };
-        let mut open = planned::is_open(ui.ctx(), panel);
-        if menu_toggle(ui, &mut open, entry_label(path), shortcut).changed() {
-            planned::set_open(ui.ctx(), panel, open);
-            ui.close();
         }
     }
 
@@ -533,7 +489,10 @@ impl Editor {
                     self.import_palette_dialog();
                     ui.close();
                 }
-                Self::planned_menu_item(ui, "File ▸ Import ▸ Import video…", "");
+                if menu_item(ui, "Import video…", "").clicked() {
+                    self.open_import_video(ui.ctx());
+                    ui.close();
+                }
                 if menu_item_enabled(ui, self.layer_editable(), "Empty video object", "").clicked()
                 {
                     self.finish_edits();
@@ -554,17 +513,18 @@ impl Editor {
                 "Export After Effects (.aep)…",
                 &self.sc(C::FileExportAfterEffects),
                 |ui| {
-                    Self::planned_menu_item(ui, "File ▸ Export ▸ Export image…", "");
-                    Self::planned_menu_item(
-                        ui,
-                        "File ▸ Export ▸ Export video…",
-                        &self.sc(C::FileExportVideo),
-                    );
-                    Self::planned_menu_item(
-                        ui,
-                        "File ▸ Export ▸ Export audio…",
-                        &self.sc(C::FileExportAudio),
-                    );
+                    if menu_item(ui, "Export image…", "").clicked() {
+                        self.open_export_image(ui.ctx());
+                        ui.close();
+                    }
+                    if menu_item(ui, "Export video…", &self.sc(C::FileExportVideo)).clicked() {
+                        self.open_export_video(None);
+                        ui.close();
+                    }
+                    if menu_item(ui, "Export audio…", &self.sc(C::FileExportAudio)).clicked() {
+                        self.open_export_audio(ui.ctx(), None);
+                        ui.close();
+                    }
                     nf::menu_separator(ui);
                     if menu_item(ui, "Export Lottie…", &self.sc(C::FileExportLottie)).clicked() {
                         self.export_lottie_dialog(None);
@@ -614,11 +574,10 @@ impl Editor {
                 },
             );
             nf::menu_separator(ui);
-            Self::planned_menu_item(
-                ui,
-                "File ▸ Publish settings…",
-                &self.sc(C::FilePublishSettings),
-            );
+            if menu_item(ui, "Publish settings…", &self.sc(C::FilePublishSettings)).clicked() {
+                self.open_publish_settings();
+                ui.close();
+            }
             let publish_sc = self.tooltip_sc(C::FilePublish);
             if nf::tooltip(
                 menu_item(ui, "Publish", &self.sc(C::FilePublish)),
@@ -764,12 +723,20 @@ impl Editor {
             }
             nf::menu_separator(ui);
         });
-        Self::planned_menu_item(ui, "Edit ▸ Preferences…", &self.sc(C::EditPreferences));
-        Self::planned_menu_item(
+        if menu_item(ui, "Preferences…", &self.sc(C::EditPreferences)).clicked() {
+            self.open_preferences(crate::panels::preferences::PAGE_GENERAL);
+            ui.close();
+        }
+        if menu_item(
             ui,
-            "Edit ▸ Keyboard shortcuts…",
+            "Keyboard shortcuts…",
             &self.sc(C::EditKeyboardShortcuts),
-        );
+        )
+        .clicked()
+        {
+            self.open_preferences(crate::panels::preferences::PAGE_SHORTCUTS);
+            ui.close();
+        }
     }
 
     /// Edit ▸ Timeline (§8).
@@ -1175,21 +1142,9 @@ impl Editor {
             toggle(self, ui, index);
         }
         nf::menu_separator(ui);
-        toggle(self, ui, 16);
-        Self::planned_menu_toggle(ui, "Window ▸ Panels ▸ Debugger", "");
-        for index in 17..21 {
+        for index in 16..WINDOW_PANELS.len() {
             toggle(self, ui, index);
         }
-        nf::menu_separator(ui);
-        menu_popup(
-            ui,
-            "Planned panels",
-            "Properties — Rectangle primitive",
-            "",
-            |ui| {
-                planned::menu_items(ui);
-            },
-        );
     }
 
     /// Window keeps window/workspace operations; panel toggles are grouped in Panels.
@@ -1309,44 +1264,48 @@ mod tests {
     ];
 
     #[test]
-    fn every_planned_panel_has_a_natural_entry_point() {
-        for panel in PlannedPanel::ALL {
-            if matches!(
-                panel,
-                PlannedPanel::GraphicProperties | PlannedPanel::TestMovie
-            ) {
-                // Working commands; see PLANNED_ENTRY_POINTS.
-                continue;
-            }
+    fn window_panels_include_debugger_and_unique_ids() {
+        let mut seen = std::collections::HashSet::new();
+        for (_, _, panel) in WINDOW_PANELS {
             assert!(
-                PLANNED_ENTRY_POINTS
-                    .iter()
-                    .any(|(path, p)| *p == panel && !path.contains("Planned panels")),
-                "{panel:?} is reachable only from Window ▸ Panels ▸ Planned panels"
+                seen.insert(panel),
+                "duplicate panel in WINDOW_PANELS: {panel:?}"
             );
         }
-    }
-
-    #[test]
-    fn every_entry_point_is_drawn_by_the_ui() {
-        let source = SOURCES.concat();
-        for (path, panel) in PLANNED_ENTRY_POINTS {
-            // Once in the table above, at least once where the UI opens it.
-            let uses = source.matches(&format!("\"{path}\"")).count();
-            assert!(uses >= 2, "entry point {path:?} ({panel:?}) is not drawn");
-        }
-        let mut seen = std::collections::HashSet::new();
-        for (path, _) in PLANNED_ENTRY_POINTS {
-            assert!(seen.insert(*path), "duplicate entry point {path:?}");
-        }
-    }
-
-    #[test]
-    fn entry_labels_are_the_last_path_segment() {
-        assert_eq!(entry_label("View ▸ Grid ▸ Edit grid…"), "Edit grid…");
-        assert_eq!(
-            planned_entry("File ▸ Export ▸ Export image…"),
-            Some(PlannedPanel::ExportImage)
+        assert!(
+            WINDOW_PANELS
+                .iter()
+                .any(|(label, _, panel)| *label == "Debugger" && *panel == PanelId::Debugger)
         );
+    }
+
+    #[test]
+    fn converted_entry_points_route_all_promoted_panels_and_dialogs() {
+        for path in [
+            "File ▸ Import ▸ Import video…",
+            "File ▸ Export ▸ Export image…",
+            "Library menu ▸ Font embedding…",
+            "Color fill type ▸ Bitmap fill",
+            "Window ▸ Panels ▸ Debugger",
+            "Tool options ▸ Rectangle primitive…",
+            "Tool options ▸ Oval primitive…",
+            "Tool options ▸ Stroke style…",
+            "Tool options ▸ Spray brush…",
+            "Tool options ▸ Deco tool…",
+            "Tool options ▸ Bone tool…",
+            "Control ▸ Test movie preview",
+        ] {
+            assert!(
+                ConvertedTrigger::for_path(path).is_some(),
+                "expected converted trigger for {path:?}"
+            );
+        }
+        for (index, src) in SOURCES.iter().enumerate() {
+            let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
+            assert!(
+                !prod.contains("Planned panels") && !prod.contains("PlannedPanel"),
+                "stale planned-panel reference in SOURCES[{index}]"
+            );
+        }
     }
 }

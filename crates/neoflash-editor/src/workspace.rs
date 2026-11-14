@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub const PREFS_KEY: &str = "neoflash.workspace.v2";
 // Includes up to 32 complete user layouts, each with its own floating windows.
 pub const MAX_PREFS_BYTES: usize = 1024 * 1024;
-const VERSION: u32 = 5;
+const VERSION: u32 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -24,6 +24,7 @@ pub enum PanelId {
     Ease,
     Scene,
     MotionEditor,
+    Debugger,
     History,
     Swatches,
     Info,
@@ -50,6 +51,7 @@ impl PanelId {
             Self::Ease => "Ease",
             Self::Scene => "Scene",
             Self::MotionEditor => "Motion editor",
+            Self::Debugger => "Debugger",
             Self::History => "History",
             Self::Swatches => "Swatches",
             Self::Info => "Info",
@@ -111,6 +113,7 @@ impl PanelId {
             Self::Ease => i16::EASE,
             Self::Scene => i16::SCENE,
             Self::MotionEditor => i16::TWEEN_MOTION,
+            Self::Debugger => i16::DEBUG,
             Self::History => i16::HISTORY,
             Self::Swatches => i16::SWATCHES,
             Self::Info => i16::INFO_PANEL,
@@ -122,7 +125,7 @@ impl PanelId {
             Self::Brushes => i16::BRUSH,
         }
     }
-    pub const DETACHABLE: [Self; 22] = [
+    pub const DETACHABLE: [Self; 23] = [
         Self::Tools,
         Self::Timeline,
         Self::Library,
@@ -136,6 +139,7 @@ impl PanelId {
         Self::Ease,
         Self::Scene,
         Self::MotionEditor,
+        Self::Debugger,
         Self::History,
         Self::Swatches,
         Self::Info,
@@ -147,14 +151,15 @@ impl PanelId {
         Self::Brushes,
     ];
     /// Panels that are hidden in every built-in workspace and open beside Properties (or, for the
-    /// Motion editor / Compiler errors, beside Timeline / Output) the first time they are shown.
-    pub const UTILITY: [Self; 15] = [
+    /// Motion editor / Debugger / Compiler errors, beside Timeline / Output) the first time they are shown.
+    pub const UTILITY: [Self; 16] = [
         Self::Align,
         Self::Transform,
         Self::Color,
         Self::Ease,
         Self::Scene,
         Self::MotionEditor,
+        Self::Debugger,
         Self::History,
         Self::Swatches,
         Self::Info,
@@ -184,6 +189,7 @@ impl PanelId {
             Self::Ease => Some("neoflash.panel.ease"),
             Self::Scene => Some("neoflash.panel.scene"),
             Self::MotionEditor => Some("neoflash.panel.motion_editor"),
+            Self::Debugger => Some("neoflash.panel.debugger"),
             Self::History => Some("neoflash.panel.history"),
             Self::Swatches => Some("neoflash.panel.swatches"),
             Self::Info => Some("neoflash.panel.info"),
@@ -196,7 +202,7 @@ impl PanelId {
         }
     }
     #[cfg(test)]
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::Timeline,
         Self::Tools,
         Self::Library,
@@ -210,6 +216,7 @@ impl PanelId {
         Self::Ease,
         Self::Scene,
         Self::MotionEditor,
+        Self::Debugger,
         Self::History,
         Self::Swatches,
         Self::Info,
@@ -261,6 +268,7 @@ pub struct PanelVisibility {
     pub ease: bool,
     pub scene: bool,
     pub motion_editor: bool,
+    pub debugger: bool,
     pub history: bool,
     pub swatches: bool,
     pub info: bool,
@@ -287,6 +295,7 @@ impl Default for PanelVisibility {
             ease: false,
             scene: false,
             motion_editor: false,
+            debugger: false,
             history: false,
             swatches: false,
             info: false,
@@ -315,6 +324,7 @@ impl PanelVisibility {
             PanelId::Ease => &mut self.ease,
             PanelId::Scene => &mut self.scene,
             PanelId::MotionEditor => &mut self.motion_editor,
+            PanelId::Debugger => &mut self.debugger,
             PanelId::History => &mut self.history,
             PanelId::Swatches => &mut self.swatches,
             PanelId::Info => &mut self.info,
@@ -341,6 +351,7 @@ impl PanelVisibility {
             PanelId::Ease => self.ease,
             PanelId::Scene => self.scene,
             PanelId::MotionEditor => self.motion_editor,
+            PanelId::Debugger => self.debugger,
             PanelId::History => self.history,
             PanelId::Swatches => self.swatches,
             PanelId::Info => self.info,
@@ -987,6 +998,7 @@ impl Default for DockLayout {
                         PanelId::Output,
                         PanelId::Accessibility,
                         PanelId::MotionEditor,
+                        PanelId::Debugger,
                         PanelId::CompilerErrors,
                     ],
                 )],
@@ -1275,7 +1287,7 @@ impl DockLayout {
         }
         let companion = match panel {
             PanelId::MotionEditor => Some(PanelId::Timeline),
-            PanelId::CompilerErrors => Some(PanelId::Output),
+            PanelId::Debugger | PanelId::CompilerErrors => Some(PanelId::Output),
             p if PanelId::UTILITY.contains(&p) => Some(PanelId::Properties),
             _ => None,
         };
@@ -1355,6 +1367,7 @@ pub struct DetachedPanels {
     pub ease: PanelWindowPrefs,
     pub scene: PanelWindowPrefs,
     pub motion_editor: PanelWindowPrefs,
+    pub debugger: PanelWindowPrefs,
     pub history: PanelWindowPrefs,
     pub swatches: PanelWindowPrefs,
     pub info: PanelWindowPrefs,
@@ -1381,6 +1394,7 @@ impl DetachedPanels {
             PanelId::Ease => Some(&self.ease),
             PanelId::Scene => Some(&self.scene),
             PanelId::MotionEditor => Some(&self.motion_editor),
+            PanelId::Debugger => Some(&self.debugger),
             PanelId::History => Some(&self.history),
             PanelId::Swatches => Some(&self.swatches),
             PanelId::Info => Some(&self.info),
@@ -1407,6 +1421,7 @@ impl DetachedPanels {
             PanelId::Ease => Some(&mut self.ease),
             PanelId::Scene => Some(&mut self.scene),
             PanelId::MotionEditor => Some(&mut self.motion_editor),
+            PanelId::Debugger => Some(&mut self.debugger),
             PanelId::History => Some(&mut self.history),
             PanelId::Swatches => Some(&mut self.swatches),
             PanelId::Info => Some(&mut self.info),
@@ -1488,6 +1503,7 @@ pub fn minimum_window_size(panel: PanelId) -> [f32; 2] {
         PanelId::Project => [248., 280.],
         PanelId::Filters => [268., 260.],
         PanelId::CodeSnippets | PanelId::MovieExplorer => [280., 280.],
+        PanelId::Debugger => [620., 220.],
         PanelId::CompilerErrors => [360., 180.],
         PanelId::Ease => [320., 420.],
         PanelId::MotionEditor => [640., 260.],
@@ -1518,6 +1534,7 @@ pub fn default_window_size(panel: PanelId) -> [f32; 2] {
         PanelId::History => [260., 320.],
         PanelId::Project => [300., 484.],
         PanelId::CodeSnippets | PanelId::MovieExplorer => [340., 480.],
+        PanelId::Debugger => [960., 320.],
         PanelId::CompilerErrors => [560., 260.],
         PanelId::Scene => [260., 360.],
         PanelId::Ease => [376., 640.],
@@ -3380,6 +3397,7 @@ impl WorkspaceTemplate {
                                 Output,
                                 Accessibility,
                                 MotionEditor,
+                                Debugger,
                                 CompilerErrors,
                             ],
                             1.,
@@ -3432,6 +3450,7 @@ impl WorkspaceTemplate {
                                 Output,
                                 Accessibility,
                                 MotionEditor,
+                                Debugger,
                                 CompilerErrors,
                             ],
                             1.,
@@ -3474,6 +3493,7 @@ impl WorkspaceTemplate {
                         Timeline,
                         Accessibility,
                         MotionEditor,
+                        Debugger,
                         CompilerErrors,
                     ],
                     1.,
@@ -3528,6 +3548,7 @@ impl WorkspaceTemplate {
                                 Actions,
                                 Accessibility,
                                 MotionEditor,
+                                Debugger,
                                 CompilerErrors,
                             ],
                             1.,
@@ -3576,6 +3597,7 @@ impl WorkspaceTemplate {
                                 Output,
                                 Accessibility,
                                 MotionEditor,
+                                Debugger,
                                 CompilerErrors,
                             ],
                             1.,
@@ -3669,6 +3691,9 @@ impl WorkspacePrefs {
         }
         if saved_version < 5 {
             prefs.panels.accessibility = false;
+        }
+        if saved_version < 6 {
+            prefs.panels.debugger = false;
         }
         prefs.version = VERSION;
         prefs.sanitize();
@@ -3974,6 +3999,12 @@ impl WorkspacePrefs {
     }
     pub fn is_panel_docked(&self, panel: PanelId) -> bool {
         self.placement(panel) == PanelPlacement::Docked
+    }
+    pub(crate) fn shares_dock_group(&self, a: PanelId, b: PanelId) -> bool {
+        matches!(
+            (self.dock.location(a), self.dock.location(b)),
+            (Some(la), Some(lb)) if la.edge == lb.edge && la.group == lb.group
+        )
     }
     /// A placement command reveals the panel. Native close should only hide it,
     /// retaining placement and geometry so Window/F9 can reopen the same panel.
@@ -4491,6 +4522,14 @@ mod tests {
         assert_eq!(v3_migrated.version, VERSION);
         assert!(!v3_migrated.timeline_prefs.auto_keyframe);
 
+        let v5_migrated = WorkspacePrefs::from_json(r#"{"version":5}"#);
+        assert_eq!(v5_migrated.version, VERSION);
+        assert!(v5_migrated.dock.location(PanelId::Debugger).is_some());
+        assert!(!v5_migrated.is_panel_visible(PanelId::Debugger));
+        assert!(v5_migrated.is_panel_active(PanelId::Timeline));
+        assert!(v5_migrated.dock.location(PanelId::Output).is_some());
+        assert!(!v5_migrated.is_panel_active(PanelId::Debugger));
+
         let mut opted_in = migrated;
         opted_in.timeline_prefs.span_selection = true;
         opted_in.timeline_prefs.auto_keyframe = true;
@@ -4554,7 +4593,7 @@ mod tests {
             "",
             "{",
             "null",
-            r#"{"version":6,"theme":"dark"}"#,
+            r#"{"version":7,"theme":"dark"}"#,
             r#"{"theme":"system"}"#,
             r#"{"sizes":{"timeline_height":null}}"#,
         ] {

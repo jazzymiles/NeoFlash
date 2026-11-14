@@ -87,6 +87,7 @@ document_state! { project, path, undo_levels, recovery, saved_project, root;
     code_feedback: Option<crate::sources::CodeFeedback> = None,
     actions_ui: crate::panels::actions_sidebar::ActionsUi = Default::default(),
     output: Vec<String> = vec![],
+    test_movie_preview_open: bool = false,
     timeline_edit: crate::timeline_edit::TimelineSelection = Default::default(),
     library_selected: Option<String> = None,
     library_panel: crate::library::LibraryPanel = Default::default(),
@@ -225,6 +226,7 @@ impl Editor {
         self.video_textures = Default::default();
         self.timeline_thumbnails = Default::default();
         self.authored_preview = None;
+        self.sync_runtime_breakpoints_from_session();
         self.load_project_fonts(ctx);
         self.normalize_selection();
     }
