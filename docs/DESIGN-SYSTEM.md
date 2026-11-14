@@ -259,7 +259,7 @@ These colours never carry meaning alone: an error, warning or success state alwa
 | Idle scrollbar thumb (`text/disabled` on `bg/hover`) ≈ 2:1 | Accepted: a quiet 4 pt floating thumb; hover and drag reach ≥ 3:1. |
 | Stacked side dock | Decided in R-077: the second group keeps a useful minimum (Library 245 / 213 / 185 pt by density) or collapses to its header. Implementation pending. |
 | Minimum window 1024 × 720 | Decided in R-078 (Stage row ≥ 360 pt, pinned Tools block with "…" overflow, workspace select 132–180 pt). Reference screen `NF2 / Editor — Main — 1024 × 720` is drawn in four themes (`editor-main-1024x720` in the export manifest); implementation and the PNG export are pending. |
-| `editor-main` export predates v2.25 details | Decided in R-087. The Figma screens now show the label "Classic", the Scene selector, three dock tabs and two-column Tools; the Mode / Solo layer columns are still to be drawn; Properties ▸ Publish settings… is added to the product. PNG export pending. |
+| `editor-main` export predates v2.25 details | Decided in R-087. The Figma screens now show the label "Classic", the Scene selector, three dock tabs, two-column Tools and the Mode / Solo layer columns; Properties ▸ Publish settings… is added to the product. PNG export pending. |
 | §3.2 says "field rows gap 8", outlines use 12 in the inspector | The editor follows the outlines (inspector 12, Library 8). |
 
 ### Accessibility acceptance matrix (R-057)
