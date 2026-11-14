@@ -2,6 +2,51 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Added a beta-only `Bug?` pill at the bottom-left of the Stage and a `480 pt` `"Beta feedback"` dialog (`R-103`,
+  `T-316`, `T-317`) supporting multi-line issue notes, up to five `PNG`/`JPEG`/`GIF`/`WebP` image attachments via file
+  chooser, `⌘V` clipboard image paste or drag-and-drop, non-blocking `multipart/form-data` HTTPS submission to
+  `developer@redinger.cc` (sending only the visible note and attached images), session-persistent drafts on error or
+  close, and `"Feedback sent"` toast confirmation.
+- Added a unified per-project script language lock and foreign-script policy (`R-102`, `T-315`) across `Document
+  settings` (`⌘J`), `Properties — Document ▸ Publish`, `Actions`, `Project`, `Compiler errors`, `--headless`, and all
+  publish targets (`HTML5`, `FLA`/`XFL`, `SWF`): every project declares one authoritative `Script` language (`AS3`,
+  `AS2`, `AS1`, `JavaScript`, or `TypeScript`) and an `"Also compile <compatible language>"` option (`AS2 ↔ AS1`,
+  `TS ↔ JS`, on by default; disabled for `AS3`). Compatible foreign scripts compile with warning
+  `NF_COMPATIBLE_SCRIPT_LANGUAGE`; incompatible foreign scripts remain untouched in the document, show a one-click
+  `Mark as <project language>` action in `Actions`, and emit warning `NF_SKIPPED_FOREIGN_SCRIPT` without executing.
+- Broadened AS2/AS3 display and procedural `Graphics` runtime compatibility (`T-304`): dynamic `SimpleButton`
+  construction, live `upState`/`overState`/`downState`/`hitTestState` state-subtree assignment and `soundTransform`;
+  rotated and skewed `DisplayObject.width`/`height` parent-space AABB read/write; `Graphics.lineStyle` hairline
+  (`thickness == 0`), caps (`ROUND`/`NONE`/`SQUARE`), joints (`ROUND`/`BEVEL`/`MITER`), miterLimit, `pixelHinting` and
+  `LineScaleMode` (`NORMAL`/`NONE`/`VERTICAL`/`HORIZONTAL`); gradient `SpreadMethod.REPEAT`/`REFLECT` and
+  `InterpolationMethod.LINEAR_RGB`; and runtime `DisplayObject` blend modes `Subtract`, `Invert`, `Alpha`, `Erase` and
+  `Layer` (`35` AS2/AS3 declarations promoted to `Working`).
+- Connected the `R-097`/`R-099` AI workflow to real OpenAI, Anthropic, Gemini and Local OpenAI-compatible endpoints
+  (`T-305`): `Preferences ▸ AI` profile CRUD, `Test connection`, Keychain/DPAPI/`0600` secret storage with strict log
+  redaction, `Edit ▸ Send to AI…` (`⇧⌘K`) with explicit `AiContextPack` consent, cancellable HTTPS/SSE streaming in
+  `AI answer`, per-document state isolation, and reviewed `Apply` committing as one Undo step.
+- Added an opt-in HTML5 DOM publishing mode (`Publish settings ▸ Profile: Web App · DOM`, `neoflash-export --render-mode
+  dom`, `--headless export html5 --render-mode dom`) connecting `NeoFlashDomLayout` into `web/runtime.js` for semantic
+  selectable DOM text, two-way `<input>`/`<textarea>` form bindings, responsive viewport breakpoints, single-lifecycle
+  `<neoflash-stage>` Web Components across `Restart`/unload, and scoped `<canvas>` islands for procedural graphics while
+  preserving default `Canvas` output unchanged (`T-307`).
+- Hardened Lottie JSON and dotLottie (`.lottie`) interchange (`T-308`): neutralized `</script>`, `<!--`, and
+  `U+2028`/`U+2029` separators in HTML previews, packaged every referenced image across loose folders, previews and
+  `.lottie` ZIP manifests, performed real `PNG`/`JPEG`/`WebP` pixel transcoding instead of relabelling extensions, and
+  made size estimation and export cancellable and atomic.
+- Completed native macOS AppKit menu bar and document lifecycle integration (`T-309`): live `NSMenu` bar (`NeoFlash`,
+  `File` with `Open Recent`, `Edit` including `Send to AI…`, `View`, `Insert`, `Modify`, `Text`, `Commands`, `Control`,
+  `Debug`, `Document`, `Window`, `Help`) synchronized with `CommandId` state, Finder `application:openFiles:` / Dock
+  reopen routing, `applicationShouldTerminate:` dirty-tab prompts, and `NSWindow` edited-dot + proxy-icon state.
+- Upgraded `Output` (`T-310`) onto a structured `OutputEvent` pipeline (`8,192`-event ring buffer, monotonic revision
+  IDs, severity/source/location metadata, `O(1)` revision-keyed filter caching, visible-only Copy, click-to-jump source
+  navigation, and per-document isolation).
+- Added pure-Rust RFC 8878 Zstandard decompression for Figma v101/v106+ `.fig` Kiwi archives (`28 b5 2f fd`) alongside
+  deflate `.fig` and `.figma.json` REST exports, expanding `BOOLEAN_OPERATION`, component/instance override,
+  multi-region `vectorNetwork`, image-fill, and rich UTF-16 text-run fidelity (`T-312`), improved binary FLA mixed
+  UTF-16 text runs, dynamic/input text properties, bitmap fills, Graphic loop/play-once/single-frame offsets, stroke
+  styles, hidden layers, and pre-budget resource deduplication (`T-306`), and added a real binary subprocess
+  `--headless` CLI E2E test suite (`T-313`).
 - Renamed the video montage workspace from `Premiere` to `Video edit` (Window ▸ Workspaces and the top-bar selector);
   saved preferences that still name the old workspace open it unchanged. `docs/DESIGN-SYSTEM.md` now describes the
   current interface, including the screens added after NF2 v2.25 that are not yet in the design reference and the

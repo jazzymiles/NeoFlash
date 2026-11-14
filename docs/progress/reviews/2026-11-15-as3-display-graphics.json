@@ -1,0 +1,159 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "71febb12c7daaa3cc052ac7cfafd293d7e2468c358e4b2abfcf51519537d39db",
+  "reviews": [
+    {
+      "id": "AS3-DISPLAYGRAPHICS-20261115",
+      "date": "2026-11-15",
+      "commit": "3524a73f8dc3293373494d566da91245a8d7c862",
+      "title": "Broaden tested AS3 display and graphics runtime compatibility (T-304)",
+      "summary": "Promotes dynamic SimpleButton state objects and soundTransform, rotated/skewed DisplayObject width and height getters/setters, Graphics.lineStyle and GraphicsStroke hairline/caps/joints/miterLimit/pixelHinting/scaleMode, SpreadMethod.REFLECT/REPEAT and InterpolationMethod.LINEAR_RGB gradients, and BlendMode ALPHA/ERASE/INVERT/LAYER/SUBTRACT across native Rust and HTML5 Canvas.",
+      "tests": [
+        "crates/neoflash-core/tests/dynamic_display.rs",
+        "crates/neoflash-export/tests/publish_correctness_gate.rs",
+        "crates/neoflash-script/tests/display-transforms.mjs",
+        "crates/neoflash-script/tests/gradient-graphics.mjs",
+        "crates/neoflash-script/tests/filter-gallery.mjs",
+        "web/tests/display-family.test.cjs",
+        "scripts/verify-as-publish-gate.mjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:class:flash/display/SimpleButton.html#",
+          "status": "working",
+          "note": "Authored 4-frame and dynamic SimpleButton state objects, hitTestState hit-testing, enabled/useHandCursor/trackAsMenu, and soundTransform work in native Rust and HTML5."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/SimpleButton.html#SimpleButton()",
+          "status": "working",
+          "note": "Constructs dynamic SimpleButton instances with optional upState, overState, downState, and hitTestState DisplayObjects."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#upState",
+          "status": "working",
+          "note": "Reads and assigns authored or dynamic upState DisplayObject and updates active visual state."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#overState",
+          "status": "working",
+          "note": "Reads and assigns authored or dynamic overState DisplayObject and switches visually on rollOver/dragOver."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#downState",
+          "status": "working",
+          "note": "Reads and assigns authored or dynamic downState DisplayObject and switches visually while pressed."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#hitTestState",
+          "status": "working",
+          "note": "Reads and assigns hitTestState DisplayObject and drives pointer picking and hitTestPoint(..., true); null disables hits."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#soundTransform",
+          "status": "working",
+          "note": "Clones SoundTransform (default volume=1, pan=0) and scales stereo volume/pan on button state transition sounds."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#width",
+          "status": "working",
+          "note": "Computes parent-space AABB width across rotated/skewed transforms and children/graphics, and updates scaleX/scaleY on assignment."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#height",
+          "status": "working",
+          "note": "Computes parent-space AABB height across rotated/skewed transforms and children/graphics, and updates scaleX/scaleY on assignment."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineStyle()",
+          "status": "working",
+          "note": "Supports hairline (thickness == 0), pixelHinting, scaleMode, caps, joints, and miterLimit across bounds, hit-testing, native pixels, and HTML5 Canvas."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsStroke.html#",
+          "status": "working",
+          "note": "Supports thickness/hairline, fill, pixelHinting, scaleMode, caps, joints, and miterLimit in drawGraphicsData and readGraphicsData."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#caps",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#joints",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#miterLimit",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#pixelHinting",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#scaleMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#NONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#SQUARE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#BEVEL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#MITER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#HORIZONTAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#NONE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#VERTICAL",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REFLECT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REPEAT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/InterpolationMethod.html#LINEAR_RGB",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ALPHA",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ERASE",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#INVERT",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#LAYER",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SUBTRACT",
+          "status": "working"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "5c49b6f0ea5eb3819edc55793d5ba80ec4774658ae2a7f804b3eaa05f7c2b5af",
+  "reviews": [
+    {
+      "id": "AS2-DISPLAYGRAPHICS-20261115",
+      "date": "2026-11-15",
+      "commit": "3524a73f8dc3293373494d566da91245a8d7c862",
+      "title": "Broaden tested AS2 display and graphics runtime compatibility (T-304)",
+      "summary": "Promotes rotated and skewed MovieClip._width and _height getters/setters, MovieClip.lineStyle hairline (thickness == 0) plus pixelHinting/scaleMode/caps/joints/miterLimit, and MovieClip.blendMode string and numeric modes 1..14 including subtract, invert, alpha, erase, and layer across native Rust and HTML5 Canvas.",
+      "tests": [
+        "crates/neoflash-core/tests/dynamic_display.rs",
+        "crates/neoflash-export/tests/publish_correctness_gate.rs",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "crates/neoflash-script/tests/display-transforms.mjs",
+        "crates/neoflash-script/tests/gradient-graphics.mjs",
+        "crates/neoflash-script/tests/filter-gallery.mjs",
+        "web/tests/display-family.test.cjs",
+        "scripts/verify-as-publish-gate.mjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:MovieClip.html#_width",
+          "status": "working",
+          "note": "Reads and assigns parent-space AABB _width across rotated and skewed MovieClips, updating _xscale/_yscale cleanly."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_height",
+          "status": "working",
+          "note": "Reads and assigns parent-space AABB _height across rotated and skewed MovieClips, updating _xscale/_yscale cleanly."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#lineStyle()",
+          "status": "working",
+          "note": "Supports hairline (thickness == 0), pixelHinting, scaleMode, caps, joints, and miterLimit across native Rust and HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#blendMode",
+          "status": "working",
+          "note": "Supports string and numeric blend modes 1..14 including subtract, invert, alpha, erase, and layer across native Rust and HTML5 Canvas."
+        }
+      ]
+    }
+  ]
+}

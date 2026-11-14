@@ -20,10 +20,10 @@ Open-source vector animation, interactive media and application authoring studio
 | --- | ---: | ---: | ---: | ---: |
 | Editor and graphics | 162 of 164 | 1 | 1 | 10 / 2 / 0 |
 | Timelines and animation | 81 of 81 | 0 | 0 | 10 / 0 / 0 |
-| HTML5 and interactivity | 99 of 104 | 5 | 0 | 10 / 2 / 0 |
-| Import and file compatibility | 62 of 68 | 6 | 0 | 5 / 5 / 0 |
-| Platform and quality | 55 of 64 | 5 | 4 | 5 / 5 / 0 |
-| **All areas** | 459 of 481 | 17 | 5 | 40 / 14 / 0 |
+| HTML5 and interactivity | 104 of 105 | 1 | 0 | 11 / 1 / 0 |
+| Import and file compatibility | 63 of 68 | 5 | 0 | 5 / 5 / 0 |
+| Platform and quality | 58 of 65 | 4 | 3 | 7 / 3 / 0 |
+| **All areas** | 468 of 483 | 11 | 4 | 43 / 11 / 0 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -31,10 +31,10 @@ Each capability group lists its user-visible functions; a group is closed only w
 
 | Language | Now (areas 1–6 working) | All Flash Player areas working | Partial / missing | Outside target (never in %) |
 | --- | ---: | ---: | ---: | --- |
-| ActionScript 3 — Flash Player | 1,846 of 1,939 (95.2%) | 3,623 of 4,164 (87.0%) | 474 / 67 | AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138 |
-| ActionScript 2 — Flash Player | 911 of 925 (98.5%) | 1,185 of 1,238 (95.7%) | 43 / 10 | AS2 UI components 1,044 · Other libraries and extensions 25 |
+| ActionScript 3 — Flash Player | 1,877 of 1,939 (96.8%) | 3,654 of 4,164 (87.8%) | 463 / 47 | AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138 |
+| ActionScript 2 — Flash Player | 915 of 925 (98.9%) | 1,189 of 1,238 (96.0%) | 39 / 10 | AS2 UI components 1,044 · Other libraries and extensions 25 |
 
-Test-backed declaration statuses only (not an overall Flash compatibility score); last status review: 2026-11-14. Full eight-area breakdown and per-declaration provenance: [ActionScript declaration audit](docs/progress/ACTIONSCRIPT.md).
+Test-backed declaration statuses only (not an overall Flash compatibility score); last status review: 2026-11-15. Full eight-area breakdown and per-declaration provenance: [ActionScript declaration audit](docs/progress/ACTIONSCRIPT.md).
 
 [Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Detailed registry](docs/progress/DETAILS.md) · [ActionScript details](docs/progress/ACTIONSCRIPT.md) · [Counting rules](docs/progress/README.md)
 

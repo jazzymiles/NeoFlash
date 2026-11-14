@@ -33,7 +33,7 @@
       "category": "editor",
       "title": "Classic workspace",
       "status": "partial",
-      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output (with live same-frame search filtering and filtered Copy without mutating session logs), Align, Transform, Color, Swatches, Info, Filters, Ease, History, Scene, Motion editor, Project, Compiler errors, Code snippets and Movie Explorer panels plus the modal Find and Replace dialog (⌘F) with Dark (default), Light, Mid Neutral Gray (`bg/app` `#505050`) and Dark Graphite (`bg/app` `#171717`, `timeline/grid` `#2E2E2E`) themes and density-proportional top-bar branding (`28 / 22 / 18 pt` across `48 / 40 / 32 pt` top bars). Dockable panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs, native floating windows and Window ▸ Hide panels (F4). File ▸ Open recent, Close and Revert manage recent and saved documents; Revert also reloads imported FLA/XFL/SWF sources and retains unsaved edits if reload fails, and Control ▸ Enable simple buttons (⌥⌘B) previews Button Up/Over/Down states and press/release feedback live on the authoring Stage. Stage object context actions open under every active tool, including Break apart (⌘B), Group (⌘G), Ungroup (⇧⌘G) and Trace bitmap…. Header drag supports docking, tab merging/reordering, splits and undocking, with actual panel contents previewed while the button is held over the Stage and between dock targets inside NeoFlash windows. Inactive dragged tabs preview their own contents without changing the saved active tab. Panels torn from top/bottom docks immediately reflow to their compact floating size, keeping normal text and control scale; detaching retains that preview position and size. Previously saved dock-wide sizes are bounded by the standard floating size. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Info edits selection W/H/X/Y as one Undo step and shows live cursor coordinates in ruler units plus RGBA color under the stage pointer. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; borderless floating windows use the shared NF2 header and retain their own tab groups and horizontal/vertical split trees. Panel-specific logical minima remain scale-correct; docked groups enforce width while floating windows also enforce height. A lone Tools window has eight persisted magnetic Stage-workspace anchors, using a narrow vertical rail at the side centres and compact horizontal layout elsewhere. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. The top-level Document menu sits immediately before Window, combines Document settings with the open-document list, and Window ▸ Panels contains all panel visibility rows; Help ▸ Search functions… (F1) opens a focused fuzzy-search command palette that accepts the first keystroke and runs registered menu actions directly, while Keyboard shortcuts remains a separate editor. The illustrated Help manual keeps fixed bounds while chapters scroll and opens portable self-contained Authoring Manual and Scripting Reference browser editions on `file://` with chapter routing, structured reference tables and CSS-themed inline SVGs across all four themes. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties chooses object, Timeline, Stage or active-tool context automatically, without a Selection/Tool switch; semantically paired value rows across Properties, Transform/Color, Text, Filters, Motion, Info, Accessibility, tool panels and Sound Properties share equal responsive cells with the NF2 S2 gap and an 80 pt minimum, keep trailing controls inside their own cell, keep colour swatch+hex beside alpha, and stack left before right below the fit threshold; a blank Stage click clears Timeline frame/range focus so the Background control is directly available; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. Older saved live built-in layouts refresh once when the canonical NF2 composition changes, while theme, editor preferences and named layout presets are preserved. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage breadcrumb opens the Symbols & scenes popover (with live search, Scenes, Matches, Recent, expandable folders, keyboard ↑↓ / ←→ / ↵ / ⌥↵ navigation and … overflow). The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in all four themes. Preferences (⌘U) and Keyboard shortcuts (⌥⇧⌘K) persist General (four-theme live preview with Save/Cancel restoration, UI scale, on launch + File ▸ Open recent, undo levels, autosave/recovery, tooltip shortcuts, Shift-select), Code editor, Timeline, Drawing, Text, Clipboard, Shortcuts (106-command registry, custom sets, key recording, conflict detection, HTML export) and Publish settings. Grid settings offer Dynamic (default: page-aware colour/opacity and adaptive display density) and Static (fixed manual colour/spacing), retaining the configured snapping step and saved manual colour. New/Open insert tabs after the active document; opening an already open native or imported source activates its tab without reloading. Document tabs, the Window list and keyboard cycling retain independent selection, playhead, drafts, Undo and recovery. Close others, Close all and Quit ask for dirty documents in tab order; Cancel or failed Save stops on the prompted tab and preserves deferred discard decisions. Closing the last tab shows New document/Open and disables document commands. Named workspace Save/Replace/Update/Rename/Delete/Reset stores complete dock and floating-window layouts independently of documents and global tool preferences. The window notification host stacks at most three notices above the canvas or status bar, delays them during modals, coalesces repeats, pauses expiry on hover and retains messages in Output; drawing refusals and Save/internal Reload errors are connected. Customize tools edits global tool groups with draft Add/Remove/reorder, Restore default and OK/Cancel. Live floating panels (`Export image`, `Import video`, `Stroke style`, `Font embedding`, `Bitmap fill`, primitive/Deco/Spray/Bone/Graphic properties and `Test Movie`) are backed by real document state, thumbnails and Undo-able edits with explicit unavailable states where engine support is absent, and `1024×720` layouts keep an auto-fitting Stage above collapsible Library, non-scrolling overflowed Tools, bounded `Publish settings`, generated NF2 12/16/20 pt mask and tool icon masters, cached waveform audio preview, determinate video export pause/resume status, Motion editor `Wiggler`/`Motion sketch` toolbar, Swatches colour usage labels, Video frame trim/cue controls and OS-aware shortcut formatting.",
+      "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output (backed by a structured `OutputEvent` pipeline with monotonic revision IDs, severity/source/location metadata, an 8,192-event ring buffer, revision-keyed O(1) search filtering, visible-only Copy without mutating session logs, and click-to-jump source navigation), Align, Transform, Color, Swatches, Info, Filters, Ease, History, Scene, Motion editor, Project, Compiler errors, Code snippets and Movie Explorer panels plus the modal Find and Replace dialog (⌘F) with Dark (default), Light, Mid Neutral Gray (`bg/app` `#505050`) and Dark Graphite (`bg/app` `#171717`, `timeline/grid` `#2E2E2E`) themes and density-proportional top-bar branding (`28 / 22 / 18 pt` across `48 / 40 / 32 pt` top bars). Dockable panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs, native floating windows and Window ▸ Hide panels (F4). File ▸ Open recent, Close and Revert manage recent and saved documents; Revert also reloads imported FLA/XFL/SWF sources and retains unsaved edits if reload fails, and Control ▸ Enable simple buttons (⌥⌘B) previews Button Up/Over/Down states and press/release feedback live on the authoring Stage. Stage object context actions open under every active tool, including Break apart (⌘B), Group (⌘G), Ungroup (⇧⌘G) and Trace bitmap…. Header drag supports docking, tab merging/reordering, splits and undocking, with actual panel contents previewed while the button is held over the Stage and between dock targets inside NeoFlash windows. Inactive dragged tabs preview their own contents without changing the saved active tab. Panels torn from top/bottom docks immediately reflow to their compact floating size, keeping normal text and control scale; detaching retains that preview position and size. Previously saved dock-wide sizes are bounded by the standard floating size. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Info edits selection W/H/X/Y as one Undo step and shows live cursor coordinates in ruler units plus RGBA color under the stage pointer. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; borderless floating windows use the shared NF2 header and retain their own tab groups and horizontal/vertical split trees. Panel-specific logical minima remain scale-correct; docked groups enforce width while floating windows also enforce height. A lone Tools window has eight persisted magnetic Stage-workspace anchors, using a narrow vertical rail at the side centres and compact horizontal layout elsewhere. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. The top-level Document menu sits immediately before Window, combines Document settings with the open-document list, and Window ▸ Panels contains all panel visibility rows; Help ▸ Search functions… (F1) opens a focused fuzzy-search command palette that accepts the first keystroke and runs registered menu actions directly, while Keyboard shortcuts remains a separate editor. The illustrated Help manual keeps fixed bounds while chapters scroll and opens portable self-contained Authoring Manual and Scripting Reference browser editions on `file://` with chapter routing, structured reference tables and CSS-themed inline SVGs across all four themes. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties chooses object, Timeline, Stage or active-tool context automatically, without a Selection/Tool switch; semantically paired value rows across Properties, Transform/Color, Text, Filters, Motion, Info, Accessibility, tool panels and Sound Properties share equal responsive cells with the NF2 S2 gap and an 80 pt minimum, keep trailing controls inside their own cell, keep colour swatch+hex beside alpha, and stack left before right below the fit threshold; a blank Stage click clears Timeline frame/range focus so the Background control is directly available; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. Older saved live built-in layouts refresh once when the canonical NF2 composition changes, while theme, editor preferences and named layout presets are preserved. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage breadcrumb opens the Symbols & scenes popover (with live search, Scenes, Matches, Recent, expandable folders, keyboard ↑↓ / ←→ / ↵ / ⌥↵ navigation and … overflow). The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in all four themes. Preferences (⌘U) and Keyboard shortcuts (⌥⇧⌘K) persist General (four-theme live preview with Save/Cancel restoration, UI scale, on launch + File ▸ Open recent, undo levels, autosave/recovery, tooltip shortcuts, Shift-select), Code editor, Timeline, Drawing, Text, Clipboard, Shortcuts (106-command registry, custom sets, key recording, conflict detection, HTML export), AI provider profiles and Publish settings. Grid settings offer Dynamic (default: page-aware colour/opacity and adaptive display density) and Static (fixed manual colour/spacing), retaining the configured snapping step and saved manual colour. New/Open insert tabs after the active document; opening an already open native or imported source activates its tab without reloading. Document tabs, the Window list and keyboard cycling retain independent selection, playhead, drafts, Undo and recovery. Close others, Close all and Quit ask for dirty documents in tab order; Cancel or failed Save stops on the prompted tab and preserves deferred discard decisions. Closing the last tab shows New document/Open and disables document commands. Named workspace Save/Replace/Update/Rename/Delete/Reset stores complete dock and floating-window layouts independently of documents and global tool preferences. The window notification host stacks at most three notices above the canvas or status bar, delays them during modals, coalesces repeats, pauses expiry on hover and retains messages in Output; drawing refusals and Save/internal Reload errors are connected. Customize tools edits global tool groups with draft Add/Remove/reorder, Restore default and OK/Cancel. Live floating panels (`Export image`, `Import video`, `Stroke style`, `Font embedding`, `Bitmap fill`, primitive/Deco/Spray/Bone/Graphic properties and `Test Movie`) are backed by real document state, thumbnails and Undo-able edits with explicit unavailable states where engine support is absent, and `1024×720` layouts keep an auto-fitting Stage above collapsible Library, non-scrolling overflowed Tools, bounded `Publish settings`, generated NF2 12/16/20 pt mask and tool icon masters, cached waveform audio preview, determinate video export pause/resume status, Motion editor `Wiggler`/`Motion sketch` toolbar, Swatches colour usage labels, Video frame trim/cue controls and OS-aware shortcut formatting.",
       "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits remain unavailable. Output history belongs to each session (Output starts empty cleanly rather than seeding a synthetic boot line) and is not a persistent disk log; broader operation-specific notification routing is not complete. Live panels, dialogs, Tool Options and Test Movie route directly without Planned feature placeholders (Debugger is a persistent dockable panel under Window ▸ Panels, and Actions/Debugger/Output/Test Movie state is isolated per open document tab); custom ScriptTab multi-tab bars, clickable gutter chrome and overview rulers remain queued in NF2-REQUESTS. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance. Follow-system theme, custom syntax colour schemes and controls awaiting NF2 design decisions or standalone subsystems stay disabled. Dynamic grid contrast follows the page background rather than each artwork pixel. Static preserves manual colour/opacity and hides only an axis whose fixed spacing is below one screen point. Commands/.nfsl execution remains undefined. Brush/Pencil headers use the existing shared TypeHeader until its approved compact variant is supplied; unsupported brush and stroke options remain disabled.",
       "items": [
         {
@@ -322,6 +322,9 @@
         "crates/neoflash-editor/src/panels/help_manual.rs",
         "crates/neoflash-editor/src/panels/debugger.rs",
         "crates/neoflash-editor/src/debugger_protocol.rs",
+        "crates/neoflash-editor/src/output_pipeline.rs",
+        "crates/neoflash-editor/src/output_pipeline_tests.rs",
+        "crates/neoflash-editor/src/panels/output.rs",
         "crates/neoflash-editor/src/document_sessions.rs"
       ]
     },
@@ -1015,8 +1018,8 @@
       "category": "editor",
       "title": "Gradients, masks and effects",
       "status": "implemented",
-      "scope": "Authored vector, alpha, luminance and inverted masks, Color panel Linear/Radial gradient creation and stop editing, Swatches panel (`Window ▸ Panels ▸ Swatches` `⌘F9`, Color panel ⋯ `Add swatch`, and persistent project custom swatches in `palette/swatches.json`), Gradient Transform (including radial gradient focal handles on Stage and `set_selected_gradient_focal_point`), and the dockable `Filters` panel (`Window ▸ Panels ▸ Filters`). Element filters remain format 7; format 11 adds layer and keyframe filter stacks, including effective inherited lock/visibility handling and reversible per-filter enable state. The panel supports Drop shadow, Blur, Glow, Bevel, Gradient glow, Gradient bevel and Adjust color, all 14 Flash blend modes, `Cache as bitmap`, `Visible`, classic/motion tween filter interpolation and live HTML5/WASM runtime seeding. The selected symbol-instance `Properties` inspector provides `Colour effect` with `Style: None / Brightness / Tint / Advanced / Alpha` plus inline `Display` and `Filters` sections. The Color panel switches fill and stroke paints between None, Solid colour, Linear gradient and Radial gradient (converting solid shapes to `PaintedPath` while preserving parametric geometry) and edits stops on `NF2/Gradient Bar` with `NF2/Color Picker`. Gradient Transform moves, scales and rotates gradient fills on Stage and drags the radial focal point handle (`focal_point_ratio` in `-0.98..=0.98`). Scripted HTML5 filters add copied Blur/Glow/DropShadow/ColorMatrix values, shared bounded Rust RGBA kernels and ordered whole-subtree groups, including nested effects and deferred owner mask/scroll clipping. Runtime BitmapData image processing adds color/filter operations and current subtree capture through the shared scene painter; AS3 adds bulk ByteArray transfer and PNG encoding with Loader round-trip. Authored mask layers clip native stage meshes and HTML5 draws using shared Rust geometry (`MaskMode::Geometry`), explicit format-9 painted-alpha coverage (`MaskMode::Alpha`), BT.709 luminance coverage (`MaskMode::Luminance`) and AE-style mask inversion (`LayerProperties.mask_invert`, also exported to Lottie as `\"inv\": true`); nested symbols, compound holes and tweened sources are supported, and content layers composite before soft coverage. Mask mode and inversion are editable in `Layer properties` (`R-048`), the layer context menu / `Folder and mask…` and the 2 inline AE-style 16×16 mask icons on `LayerRole::Mask` timeline rows (`R-049`). The Mask command uses the eligible sibling below in displayed order with one Undo. Cached AS2/AS3 authored gradient and PNG sources share the dynamic alpha/luminance path. Show Masking exposes the editable source, and clipping is applied to stage picking. Bucket and Ink Bottle apply the active gradient to the target geometry; Properties RGB edits replace that paint with a solid color, while alpha-only edits retain gradient stops and update their alpha.",
-      "limitations": "Scripted HTML5 Graphics supports bounded linear/radial gradients and vector display masks. Gradient Flow Reflect/Repeat and Linear RGB interpolation, and extended per-filter parameter sub-forms in `Filters` beyond the 2×2 grid (R-022) remain pending. This runtime-only filter profile has its own gallery evidence; remaining runtime filter kernels, exact Flash kernels/coercions and high-density raster fidelity remain pending. Active native DOM editing under a filtered ancestor is an explicit composition boundary. Original geometry supplies input and semantics; effect halos do not extend them. Independent 5395375 evidence (FILTERS-HTML5-20261027T0844Z) confirms only the scripted filter-gallery publication and common browser regression. Runtime pixels and input do not complete exact Flash kernels or filtered-input composition. The image pipeline remains bounded: normal draw blending, integer regions, no external mask dependencies, no display filters during draw, partial setPixels underrun, and separate native authoring/exact raster acceptance. Text/video mask sources and fully scripted mask-of-mask graphs diagnose. Native soft previews have bounded raster/work budgets. Geometry defaults and older documents are preserved. AS2 String target paths and raw-host-error catch compatibility remain limited; removing the last implicit filter cache without explicit cacheAsBitmap remains a separate edge.",
+      "scope": "Authored vector, alpha, luminance and inverted masks, Color panel Linear/Radial gradient creation and stop editing, Swatches panel (`Window ▸ Panels ▸ Swatches` `⌘F9`, Color panel ⋯ `Add swatch`, and persistent project custom swatches in `palette/swatches.json`), Gradient Transform (including radial gradient focal handles on Stage and `set_selected_gradient_focal_point`), and the dockable `Filters` panel (`Window ▸ Panels ▸ Filters`). Element filters remain format 7; format 11 adds layer and keyframe filter stacks, including effective inherited lock/visibility handling and reversible per-filter enable state. The panel supports Drop shadow, Blur, Glow, Bevel, Gradient glow, Gradient bevel and Adjust color, all 14 Flash blend modes, `Cache as bitmap`, `Visible`, classic/motion tween filter interpolation and live HTML5/WASM runtime seeding. The selected symbol-instance `Properties` inspector provides `Colour effect` with `Style: None / Brightness / Tint / Advanced / Alpha` plus inline `Display` and `Filters` sections. The Color panel switches fill and stroke paints between None, Solid colour, Linear gradient and Radial gradient (converting solid shapes to `PaintedPath` while preserving parametric geometry) and edits stops on `NF2/Gradient Bar` with `NF2/Color Picker`. Gradient Transform moves, scales and rotates gradient fills on Stage and drags the radial focal point handle (`focal_point_ratio` in `-0.98..=0.98`). Scripted AS2/AS3 HTML5 `Graphics` supports linear/radial gradients (including `SpreadMethod.REPEAT`/`REFLECT` and `InterpolationMethod.LINEAR_RGB`), `lineStyle` hairline (`thickness == 0`), caps (`ROUND`/`NONE`/`SQUARE`), joints (`ROUND`/`BEVEL`/`MITER`), miterLimit, `pixelHinting` and `LineScaleMode` (`NORMAL`/`NONE`/`VERTICAL`/`HORIZONTAL`), runtime `DisplayObject` blend modes (`Normal`, `Layer`, `Multiply`, `Screen`, `Lighten`, `Darken`, `Difference`, `Add`, `Subtract`, `Invert`, `Alpha`, `Erase`, `Overlay`, `Hardlight`), dynamic `SimpleButton` state subtrees (`upState`/`overState`/`downState`/`hitTestState` and `soundTransform`), and rotated/skewed `DisplayObject.width`/`height` AABB read/write (`T-304`). Scripted HTML5 filters add copied Blur/Glow/DropShadow/ColorMatrix values, shared bounded Rust RGBA kernels and ordered whole-subtree groups, including nested effects and deferred owner mask/scroll clipping. Runtime BitmapData image processing adds color/filter operations and current subtree capture through the shared scene painter; AS3 adds bulk ByteArray transfer and PNG encoding with Loader round-trip. Authored mask layers clip native stage meshes and HTML5 draws using shared Rust geometry (`MaskMode::Geometry`), explicit format-9 painted-alpha coverage (`MaskMode::Alpha`), BT.709 luminance coverage (`MaskMode::Luminance`) and AE-style mask inversion (`LayerProperties.mask_invert`, also exported to Lottie as `\"inv\": true`); nested symbols, compound holes and tweened sources are supported, and content layers composite before soft coverage. Mask mode and inversion are editable in `Layer properties` (`R-048`), the layer context menu / `Folder and mask…` and the 2 inline AE-style 16×16 mask icons on `LayerRole::Mask` timeline rows (`R-049`). The Mask command uses the eligible sibling below in displayed order with one Undo. Cached AS2/AS3 authored gradient and PNG sources share the dynamic alpha/luminance path. Show Masking exposes the editable source, and clipping is applied to stage picking. Bucket and Ink Bottle apply the active gradient to the target geometry; Properties RGB edits replace that paint with a solid color, while alpha-only edits retain gradient stops and update their alpha.",
+      "limitations": "Extended per-filter parameter sub-forms in `Filters` beyond the 2×2 grid (R-022) remain pending. This runtime-only filter profile has its own gallery evidence; remaining runtime filter kernels, exact Flash kernels/coercions and high-density raster fidelity remain pending. Active native DOM editing under a filtered ancestor is an explicit composition boundary. Original geometry supplies input and semantics; effect halos do not extend them. Independent 5395375 evidence (FILTERS-HTML5-20261027T0844Z) confirms only the scripted filter-gallery publication and common browser regression. Runtime pixels and input do not complete exact Flash kernels or filtered-input composition. The image pipeline remains bounded: normal draw blending, integer regions, no external mask dependencies, no display filters during draw, partial setPixels underrun, and separate native authoring/exact raster acceptance. Text/video mask sources and fully scripted mask-of-mask graphs diagnose. Native soft previews have bounded raster/work budgets. Geometry defaults and older documents are preserved. AS2 String target paths and raw-host-error catch compatibility remain limited; removing the last implicit filter cache without explicit cacheAsBitmap remains a separate edge.",
       "items": [
         {
           "id": "vector-masks",
@@ -2003,7 +2006,9 @@
         "crates/neoflash-editor/src/publish_controller.rs",
         "crates/neoflash-editor/src/publish_controller_tests.rs",
         "crates/neoflash-editor/src/panels/publish_settings.rs",
-        "crates/neoflash-editor/src/panels/publish_settings_tests.rs"
+        "crates/neoflash-editor/src/panels/publish_settings_tests.rs",
+        "crates/neoflash-export/tests/lottie_interchange.rs",
+        "web/tests/dom-publish-mode.test.cjs"
       ]
     },
     {
@@ -2343,37 +2348,43 @@
       "id": "web-dom-layout",
       "category": "web",
       "title": "DOM websites and apps",
-      "status": "partial",
-      "scope": "Bundled standalone NeoFlashDomLayout helper in web/dom-layout.js provides tested semantic DOM text, forms/inputs, web component wrapper and responsive breakpoint primitives.",
-      "limitations": "NeoFlashDomLayout is bundled and unit-tested standalone (dom-layout-and-portability.test.cjs), but is not invoked by web/runtime.js during HTML5 publishing; current publishing renders on a fixed Canvas stage and the Button/Image overlay does not provide end-to-end DOM layout authoring.",
+      "status": "implemented",
+      "scope": "Opt-in HTML5 DOM publishing mode (`Publish settings ▸ Profile: Web App · DOM`, `HtmlRenderMode::Dom`, `neoflash-export --render-mode dom`, `neoflash-editor --headless export html5 --render-mode dom`) wires `NeoFlashDomLayout` (`web/dom-layout.js`) into `web/runtime.js` across `Full`, `Balanced`, `Compact` and `Shared` size levels on both `file://` and HTTP(S). Static and dynamic text render as semantic selectable DOM nodes, input `TextBox` fields mount real `<input>`/`<textarea>` form controls with live two-way binding back into runtime text/variable state and Tab/focus navigation, responsive viewport breakpoints reflow stage containers, custom `<neoflash-stage>` Web Components mount and clean up deterministically once across `Restart` and page unload without listener or node leaks, and unsupported procedural vector/filter/blend subtrees render inside scoped `<canvas>` islands while leaving default `Canvas` output byte-identical when DOM mode is not enabled.",
+      "limitations": "Canvas remains the default rendering mode unless `Web App · DOM` or `--render-mode dom` is explicitly selected. Procedural vector paths, bitmap effects, display filters, soft masks and non-CSS blend modes render inside scoped `<canvas>` islands or report structured diagnostics rather than claiming pure-DOM vector parity.",
       "items": [
         {
           "id": "dom-text",
-          "title": "Semantic DOM text helper (standalone runtime API; not wired into Canvas stage publishing)",
-          "status": "partial"
+          "title": "Semantic selectable DOM text in published HTML5 DOM mode",
+          "status": "working"
         },
         {
           "id": "forms-inputs",
-          "title": "DOM forms and inputs helper (standalone runtime API; not wired into Canvas stage publishing)",
-          "status": "partial"
+          "title": "DOM form controls and two-way input text binding",
+          "status": "working"
         },
         {
           "id": "web-components",
-          "title": "Web components helper (standalone runtime API; not wired into Canvas stage publishing)",
-          "status": "partial"
+          "title": "Single-lifecycle Web Component (<neoflash-stage>) wrapper across Restart and unload",
+          "status": "working"
         },
         {
           "id": "responsive-layout",
-          "title": "Responsive layout and breakpoints helper (standalone runtime API; not wired into Canvas stage publishing)",
-          "status": "partial"
+          "title": "Responsive viewport breakpoints and scoped Canvas islands for procedural graphics",
+          "status": "working"
         }
       ],
       "evidence": [
         "docs/PRODUCT.md",
         "docs/ROADMAP.md",
         "docs/WEB.md",
+        "crates/neoflash-export/src/lib.rs",
+        "crates/neoflash-export/src/profiles.rs",
+        "crates/neoflash-export/src/publish.rs",
         "web/dom-layout.js",
-        "web/tests/dom-layout-and-portability.test.cjs"
+        "web/runtime.js",
+        "web/accessibility.js",
+        "web/tests/dom-layout-and-portability.test.cjs",
+        "web/tests/dom-publish-mode.test.cjs"
       ]
     },
     {
@@ -2453,11 +2464,19 @@
           "id": "debugger-watches-code-folding-assist",
           "title": "Code folding, bounded Script Assist, conditional/hit-count breakpoints, Watch expressions and live variable editing",
           "status": "working"
+        },
+        {
+          "id": "unified-project-script-language",
+          "title": "Unified project script language lock with compatible-language compilation or non-destructive foreign-script skipping",
+          "status": "working"
         }
       ],
       "evidence": [
         "docs/BACKLOG.md",
         "docs/COMPATIBILITY.md",
+        "crates/neoflash-editor/src/script_language_policy_tests.rs",
+        "crates/neoflash-editor/src/panels/document_settings.rs",
+        "crates/neoflash-editor/src/panels/actions.rs",
         "crates/neoflash-script/src/actionscript/project.rs",
         "crates/neoflash-script/src/actionscript/project-runtime.js",
         "crates/neoflash-script/tests/project.rs",
@@ -2681,7 +2700,7 @@
         },
         {
           "id": "figma-layered-import",
-          "title": "Import Figma .fig and .figma.json files into layered compositions, symbols, masks, vectors and text",
+          "title": "Import Figma .fig (including Zstandard v106+ Kiwi archives) and .figma.json files into layered compositions, symbols, masks, vectors and text",
           "status": "working"
         },
         {
@@ -2704,6 +2723,8 @@
         "docs/ROADMAP.md",
         "crates/neoflash-editor/src/panels/import_video.rs",
         "crates/neoflash-import/src/figma/mod.rs",
+        "crates/neoflash-import/src/figma/zstd.rs",
+        "scripts/survey-figma-corpus.py",
         "crates/neoflash-core/src/avi.rs",
         "web/tests/load-publish-and-media.test.cjs",
         "crates/neoflash-import/src/psd.rs",
@@ -3098,8 +3119,8 @@
       "category": "imports",
       "title": "Binary FLA to editable document",
       "status": "partial",
-      "scope": "Native conversion for Flash 3, 5, MX, 8, CS3 and CS4 preserves scenes, library folders and symbols, ordered layers with masks, folders and motion guides, held keys, nested instances with graphic first-frame offsets, display filters (`DropShadow`, `Blur`, `Glow`, `Bevel`, `GradientGlow`, `GradientBevel` and `AdjustColor` / `ColorMatrix`), blend modes, `cacheAsBitmap` and visibility (`Element.{filters, blend_mode, cache_as_bitmap, visible}` in format 7), 3D placement perspective projection into 2D affine transforms, classic, shape and CS4 motion-object / IK pose-keyframe tweens with easing, text, PNG/JPEG bitmaps, uncompressed PCM and compressed Flash ADPCM (`codec_id == 1`, 2/3/4/5-bit mono and stereo decoded to 16-bit PCM `audio/wav`) and MP3 (`audio/mpeg`) sound resources, `CPicFrame` timeline frame sounds (`Event`/`Start`/`Stop`/`Stream` sync, repeats/loop-forever, preset effects, format-7 custom multi-point stereo envelopes via `SoundEffect::Custom` / `FrameSound.envelope` and `in_point`/`out_point` trim windows), `CMediaVideoData` / `CPicVideo` video resources and `TimelineVideoSpan` placements, and ActionScript (legacy Actions-panel commands translated to AS1). Features the model cannot express yet are approximated or kept as visible placeholders, each with a located warning; the original FLA is embedded in parts when it fits, and oversized documents fit within the 128 MiB project JSON budget by shedding largest media first, compacting provenance placement tables and degrading excess later vector paths to placeholders with warnings. The recorded private corpus survey imports 105 of 106 documents; successful conversions have save/reopen coverage, without establishing visual or behavioral parity with Flash.",
-      "limitations": "Convolution filters, rare legacy audio codecs (GSM/Nellymoser/Speex), raw FLV/Sorenson video streams without embedded container headers, dynamic/input and nonuniform rich text runs, and component behavior are approximated with warnings. Documents whose converted media and geometry exceed the 128 MiB project JSON limit shed oversized media or later vector paths to placeholders rather than streaming unbounded assets. Font metrics may differ; output is not claimed pixel-identical to Flash. Supported 3D placements are projected into 2D with a located warning; this is an approximation, not preserved 3D behavior.",
+      "scope": "Native conversion for Flash 3, 5, MX, 8, CS3 and CS4 preserves scenes, library folders and symbols, ordered layers (including hidden authoring layers), masks, folders and motion guides, held keys, nested instances with graphic loop/play-once/single-frame first-frame offsets, display filters (`DropShadow`, `Blur`, `Glow`, `Bevel`, `GradientGlow`, `GradientBevel` and `AdjustColor` / `ColorMatrix`), blend modes, `cacheAsBitmap` and visibility (`Element.{filters, blend_mode, cache_as_bitmap, visible}` in format 7), 3D placement perspective projection into 2D affine transforms, classic, shape and CS4 motion-object / IK pose-keyframe tweens with easing, static/dynamic/input text with mixed UTF-16 `TextRun` font/size/bold/italic/color runs, variable binding, border/background/scrollable/multiline/justify settings, bitmap fills (`0x40..=0x43`), stroke cap/join/scale/hinting styles, PNG/JPEG bitmaps, uncompressed PCM and compressed Flash ADPCM (`codec_id == 1`, 2/3/4/5-bit mono and stereo decoded to 16-bit PCM `audio/wav`) and MP3 (`audio/mpeg`) sound resources, `CPicFrame` timeline frame sounds (`Event`/`Start`/`Stop`/`Stream` sync, repeats/loop-forever, preset effects, format-7 custom multi-point stereo envelopes via `SoundEffect::Custom` / `FrameSound.envelope` and `in_point`/`out_point` trim windows), `CMediaVideoData` / `CPicVideo` video resources and `TimelineVideoSpan` placements, and ActionScript (legacy Actions-panel commands translated to AS1). Features the model cannot express yet are approximated or kept as visible placeholders, each with a located warning; identical resource bytes are deduplicated before 128 MiB budget accounting, the original FLA is embedded in parts when it fits, and oversized documents fit within the 128 MiB project JSON budget by shedding largest media first, compacting provenance placement tables and degrading excess later vector paths to placeholders with warnings. The recorded private corpus survey imports 105 of 106 documents; successful conversions have save/reopen coverage, without establishing visual or behavioral parity with Flash.",
+      "limitations": "Convolution filters, rare legacy audio codecs (GSM/Nellymoser/Speex), raw FLV/Sorenson video streams without embedded container headers, unrepresented Flash text/paragraph layout flags (such as device-font sharpness/thickness tables or custom tab stops), and component behavior are approximated with warnings. Documents whose converted media and geometry exceed the 128 MiB project JSON limit shed oversized media or later vector paths to placeholders rather than streaming unbounded assets. Font metrics may differ; output is not claimed pixel-identical to Flash. Supported 3D placements are projected into 2D with a located warning; this is an approximation, not preserved 3D behavior.",
       "items": [
         {
           "id": "scene-library",
@@ -3129,7 +3150,7 @@
         {
           "id": "mixed-text-runs",
           "title": "Nonuniform text runs",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "shape-tweens",
@@ -3591,9 +3612,9 @@
       "id": "platform-native-macos",
       "category": "platform",
       "title": "macOS integration",
-      "status": "partial",
-      "scope": "Rust/egui application, core shortcuts (gating unmodified/single-key global shortcuts and Stage Space-pan activation when Tab-focused controls, menus, popups, text inputs, or modals own keyboard input, fixing full-window dock Tab traversal in dock_grid.rs, and enforcing popup-before-modal single-Escape dismissal in Document settings), system fonts and a local .app for macOS 15+. Stage trackpad input supports scroll panning and pointer-anchored pinch zoom; modifier scrolling also changes zoom.",
-      "limitations": "Native menus/document integration, IME and the accessibility tree need further work. Broader physical-trackpad gesture acceptance remains pending beyond the implemented pan and zoom paths.",
+      "status": "implemented",
+      "scope": "Rust/egui application, live AppKit `NSMenu` application and document menu bar (`NeoFlash`, `File` with `Open Recent`, `Edit`, `View`, `Insert`, `Modify`, `Text`, `Commands`, `Control`, `Debug`, `Document` with active-tab ticks, `Window` with panel checkmarks, and `Help`) synchronized with `CommandId` enable/check/shortcut state, `ApplicationDelegate` Finder `application:openFiles:` / `openFile:` and Dock `applicationShouldHandleReopen:hasVisibleWindows:` handling, `applicationShouldTerminate:` dirty-document prompt routing, `NSWindow` `documentEdited` indicator and `representedURL` proxy icon, core shortcuts (gating unmodified/single-key global shortcuts and Stage Space-pan activation when Tab-focused controls, menus, popups, text inputs, or modals own keyboard input, fixing full-window dock Tab traversal in `dock_grid.rs`, and enforcing popup-before-modal single-Escape dismissal in `Document settings`), Stage IME composition, system fonts and a local `.app` for macOS 15+. Stage trackpad input supports scroll panning and pointer-anchored pinch zoom; modifier scrolling also changes zoom.",
+      "limitations": "Native accessibility tree / VoiceOver integration is tracked separately under `platform-accessibility`. Broader physical-trackpad gesture acceptance remains pending beyond the implemented pan and zoom paths.",
       "items": [
         {
           "id": "macos-app",
@@ -3613,7 +3634,7 @@
         {
           "id": "native-menus",
           "title": "Native menus and document integration",
-          "status": "planned"
+          "status": "working"
         },
         {
           "id": "ime",
@@ -3630,6 +3651,8 @@
         "crates/neoflash-editor/src/main.rs",
         "crates/neoflash-editor/src/app.rs",
         "crates/neoflash-editor/src/commands.rs",
+        "crates/neoflash-editor/src/macos_menu.rs",
+        "crates/neoflash-editor/src/macos_menu_tests.rs",
         "crates/neoflash-editor/src/dock_grid.rs",
         "crates/neoflash-editor/src/panels/dialog_helpers.rs",
         "crates/neoflash-editor/src/panels/document_settings.rs",
@@ -3684,8 +3707,8 @@
       "category": "platform",
       "title": "Scaling to large projects",
       "status": "implemented",
-      "scope": "Validation/work budgets, expansion limits and cached browser path geometry exist. Resource-aware history shares immutable resource buffers and deduplicates identical data across snapshots. Timeline, Library, Movie Explorer and the consolidated Output dock paint rows with bounded viewport overscan, and Timeline preview thumbnail rendering is capped per UI tick.",
-      "limitations": "Resource sharing is implemented, while full document history remains snapshot-based rather than delta-compressed. Output row painting is viewport-bounded, but its source fingerprint and filter cache checks still scan the current log entries.",
+      "scope": "Validation/work budgets, expansion limits and cached browser path geometry exist. Resource-aware history shares immutable resource buffers and deduplicates identical data across snapshots. Timeline, Library, Movie Explorer and the consolidated Output dock paint rows with bounded viewport overscan, Output caches filtered index slices by monotonic pipeline revision over a bounded 8,192-event ring buffer without per-frame log scans, and Timeline preview thumbnail rendering is capped per UI tick.",
+      "limitations": "Resource sharing is implemented, while full document history remains snapshot-based rather than delta-compressed.",
       "items": [
         {
           "id": "work-budgets",
@@ -3780,6 +3803,11 @@
           "id": "updater",
           "title": "GitHub Releases update check and SHA-256 verified archive download for manual install",
           "status": "partial"
+        },
+        {
+          "id": "beta-feedback-dialog",
+          "title": "Beta-only Stage Bug? chip and Beta feedback dialog with image attachments and multipart submission",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -3800,9 +3828,12 @@
         "docs/BACKLOG.md",
         "crates/neoflash-core/src/sha256.rs",
         "crates/neoflash-export/src/release_http.rs",
+        "crates/neoflash-export/src/feedback_http.rs",
         "crates/neoflash-editor/src/build_info.rs",
         "crates/neoflash-editor/src/updater.rs",
         "crates/neoflash-editor/src/panels/preferences.rs",
+        "crates/neoflash-editor/src/panels/beta_feedback.rs",
+        "crates/neoflash-editor/src/beta_feedback_tests.rs",
         "crates/neoflash-editor/src/updater_tests.rs"
       ]
     },
@@ -3810,9 +3841,9 @@
       "id": "platform-extensions",
       "category": "platform",
       "title": "Extensions, localization and AI connections",
-      "status": "partial",
-      "scope": "Versioned public extension contract (`AuthoringExtensionManifest` v1 with schema/version/ID validation, explicit `ExtensionPermission` capabilities, `ExtensionSafetyEnvelope` step/mutation budgets and deterministic `execute_extension_manifest` execution over the structured `CommandStep` vocabulary without filesystem, network or process access), extension host compatibility checks against the shipped `0.1.0` numeric product core, built-in interface localization catalog (`UiLocaleCatalog` with `en-US`, `ru-RU` and `ja-JP` translations, deterministic `en-US` fallback and `{0}`/`{1}` interpolation), a provider-neutral AI connection foundation (`AiConnectionManager` with Keychain/file-0600 secret storage, bounded request/response handling, redacted diagnostics, cancellation/retries and human-approved inert diff proposals that never mutate `.nflash` documents autonomously), and `neoflash-editor --headless` (`NEOFLASH_HEADLESS=1`) for scriptable JSON/text `capabilities`, `new`, `inspect`, `validate`, `compile`, `eval`, capability-scoped `jsfl`, strict 17-op `batch` pipelines with atomic final project replacement, `import`, and 12-target `export` without creating a native window.",
-      "limitations": "Extensions run strictly over the bounded `CommandStep` vocabulary inside the in-memory project transaction; arbitrary native dylibs, filesystem/network access and third-party package registries are outside scope. Interface localization covers the core catalog keys with deterministic `en-US` fallback; locked NF2 panel layouts keep their canonical design labels. AI provider profiles and request formatting exist, but the connected transport is limited to trusted local HTTP proxy endpoints; direct cloud TLS and editor UI wiring remain planned. Headless `jsfl` denies all `FLfile` reads, writes and deletes unless explicit `--allow-read`, `--allow-write` or `--allow-delete` capabilities are passed for canonical directory roots. Batch `--out`/`--in-place` replacement is atomic after all steps validate; explicit `save`, `export`, and permitted JSFL filesystem writes are immediate external side effects and are not rolled back by a later operation failure.",
+      "status": "implemented",
+      "scope": "Versioned public extension contract (`AuthoringExtensionManifest` v1 with schema/version/ID validation, explicit `ExtensionPermission` capabilities, `ExtensionSafetyEnvelope` step/mutation budgets and deterministic `execute_extension_manifest` execution over the structured `CommandStep` vocabulary without filesystem, network or process access), extension host compatibility checks against the shipped `0.1.0` numeric product core, built-in interface localization catalog (`UiLocaleCatalog` with `en-US`, `ru-RU` and `ja-JP` translations, deterministic `en-US` fallback and `{0}`/`{1}` interpolation), connected AI provider profiles (`Preferences ▸ AI`, `Add/Edit connection`, `Test connection`, `Edit ▸ Send to AI…` `⇧⌘K` with explicit context-pack consent, cancellable direct HTTPS/SSE streaming for OpenAI, Anthropic, Gemini and Local OpenAI-compatible endpoints, system Keychain/DPAPI/file-`0600` secret storage, redacted diagnostics, per-document isolation, and reviewed 1-step Undo `Apply` in `AI answer` per `R-097`/`R-099`), and `neoflash-editor --headless` (`NEOFLASH_HEADLESS=1`) for scriptable JSON/text `capabilities`, `new`, `inspect`, `validate`, `compile`, `eval`, capability-scoped `jsfl`, strict 17-op `batch` pipelines with atomic final project replacement, `import`, and 12-target `export` without creating a native window, verified both in-process and through real binary subprocess E2E suites.",
+      "limitations": "Extensions run strictly over the bounded `CommandStep` vocabulary inside the in-memory project transaction; arbitrary native dylibs, filesystem/network access and third-party package registries are outside scope. Interface localization covers the core catalog keys with deterministic `en-US` fallback; locked NF2 panel layouts keep their canonical design labels. AI connections require user-configured API keys (or a local OpenAI-compatible server), enforce HTTPS for cloud providers, expose no autonomous document-mutation, shell or filesystem tools, and apply proposed edits only when the author explicitly clicks `Apply` (`1` Undo step). Headless `jsfl` denies all `FLfile` reads, writes and deletes unless explicit `--allow-read`, `--allow-write` or `--allow-delete` capabilities are passed for canonical directory roots. Batch `--out`/`--in-place` replacement is atomic after all steps validate; explicit `save`, `export`, and permitted JSFL filesystem writes are immediate external side effects and are not rolled back by a later operation failure.",
       "items": [
         {
           "id": "extension-api",
@@ -3836,8 +3867,8 @@
         },
         {
           "id": "ai-provider-connections",
-          "title": "Provider-neutral AI connections with reviewed, non-autonomous proposals",
-          "status": "partial"
+          "title": "Connected OpenAI, Anthropic, Gemini and local AI profiles with explicit consent, streaming answers and 1-Undo reviewed edits",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -3846,11 +3877,15 @@
         "docs/ARCHITECTURE.md",
         "crates/neoflash-core/src/extensions.rs",
         "crates/neoflash-core/src/i18n.rs",
+        "crates/neoflash-export/src/ai_http.rs",
         "crates/neoflash-editor/src/ai_connections.rs",
+        "crates/neoflash-editor/src/panels/ai_dialogs.rs",
+        "crates/neoflash-editor/src/ai_workflow_tests.rs",
         "crates/neoflash-editor/src/headless/mod.rs",
         "crates/neoflash-editor/src/headless/batch.rs",
         "crates/neoflash-editor/src/headless/jsfl_fs.rs",
-        "crates/neoflash-editor/src/headless/import_export.rs"
+        "crates/neoflash-editor/src/headless/import_export.rs",
+        "crates/neoflash-editor/tests/headless_cli_e2e.rs"
       ]
     },
     {

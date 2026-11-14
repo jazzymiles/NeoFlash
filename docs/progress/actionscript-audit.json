@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "71febb12c7daaa3cc052ac7cfafd293d7e2468c358e4b2abfcf51519537d39db",
+  "catalogSha256": "56ed37e759c03a3bb5ef3c9f320e9bed2cb92f2e6543791ae1798e0ebdd402c3",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -35634,6 +35634,22 @@
         "reviewIds": [
           "AS2-AREAS1TO7-AUDIT-20261114"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-15-as3-display-graphics.json",
+        "sha256": "ea40791d1f6fa9769b6044589cca77842e7d2e145f0afdb1b8d0e633bfe39235",
+        "baseCatalogSha256": "71febb12c7daaa3cc052ac7cfafd293d7e2468c358e4b2abfcf51519537d39db",
+        "reviewIds": [
+          "AS3-DISPLAYGRAPHICS-20261115"
+        ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-15-as2-display-graphics.json",
+        "sha256": "6666415cf0f141a2f48805ddcccf4bfade0e0b1f2c27e46cd47e70f89f6fab51",
+        "baseCatalogSha256": "5c49b6f0ea5eb3819edc55793d5ba80ec4774658ae2a7f804b3eaa05f7c2b5af",
+        "reviewIds": [
+          "AS2-DISPLAYGRAPHICS-20261115"
+        ]
       }
     ],
     "statusReviews": [
@@ -35943,29 +35959,47 @@
           "missing": 10,
           "partial": 8
         }
+      },
+      {
+        "id": "AS3-DISPLAYGRAPHICS-20261115",
+        "date": "2026-11-15",
+        "commit": "3524a73f8dc3293373494d566da91245a8d7c862",
+        "path": "docs/progress/reviews/2026-11-15-as3-display-graphics.json",
+        "changes": {
+          "working": 31
+        }
+      },
+      {
+        "id": "AS2-DISPLAYGRAPHICS-20261115",
+        "date": "2026-11-15",
+        "commit": "3524a73f8dc3293373494d566da91245a8d7c862",
+        "path": "docs/progress/reviews/2026-11-15-as2-display-graphics.json",
+        "changes": {
+          "working": 4
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 5681,
-      "partial": 1659,
-      "missing": 38707,
+      "implemented_subset": 5716,
+      "partial": 1644,
+      "missing": 38687,
       "needs_review": 0,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
-        "implemented_subset": 1185,
-        "partial": 474,
+        "implemented_subset": 1189,
+        "partial": 470,
         "missing": 648,
         "needs_review": 0,
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 4496,
-        "partial": 1185,
-        "missing": 38059,
+        "implemented_subset": 4527,
+        "partial": 1174,
+        "missing": 38039,
         "needs_review": 0,
         "total": 43740
       }
@@ -36007,9 +36041,9 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 4864,
-        "partial": 1093,
-        "missing": 201,
+        "implemented_subset": 4899,
+        "partial": 1078,
+        "missing": 181,
         "needs_review": 0,
         "total": 6158
       }
@@ -36052,8 +36086,8 @@
           "total": 10
         },
         "runtime": {
-          "implemented_subset": 858,
-          "partial": 41,
+          "implemented_subset": 862,
+          "partial": 37,
           "missing": 9,
           "needs_review": 0,
           "total": 908
@@ -36096,9 +36130,9 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 4006,
-          "partial": 1052,
-          "missing": 192,
+          "implemented_subset": 4037,
+          "partial": 1041,
+          "missing": 172,
           "needs_review": 0,
           "total": 5250
         }
@@ -175274,6 +175308,475 @@
           "catalogId": "as2:NetStream.html#getInfo()",
           "status": "implemented_subset",
           "ruleId": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-DISPLAYGRAPHICS-20261115",
+      "title": "Broaden tested AS3 display and graphics runtime compatibility (T-304)",
+      "reason": "Promotes dynamic SimpleButton state objects and soundTransform, rotated/skewed DisplayObject width and height getters/setters, Graphics.lineStyle and GraphicsStroke hairline/caps/joints/miterLimit/pixelHinting/scaleMode, SpreadMethod.REFLECT/REPEAT and InterpolationMethod.LINEAR_RGB gradients, and BlendMode ALPHA/ERASE/INVERT/LAYER/SUBTRACT across native Rust and HTML5 Canvas.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/tests/dynamic_display.rs",
+          "sha256": "cf20259cd7182d741d1cd341006e0045da3418d073f2ecd30e1140cacef89254"
+        },
+        {
+          "path": "crates/neoflash-export/tests/publish_correctness_gate.rs",
+          "sha256": "0ebf831b4b64e7a4c13cb9c869f11df3f4009640e05ef5f98001c25a781ac91c"
+        },
+        {
+          "path": "crates/neoflash-script/tests/display-transforms.mjs",
+          "sha256": "8f5368a2b0b4bb0829c7c2b1fa5fa66617942adf5b24e949919fe2b78ffdeeba"
+        },
+        {
+          "path": "crates/neoflash-script/tests/gradient-graphics.mjs",
+          "sha256": "5065385587ded1f39218fa29c20d94363a7a74026f44503569080db8b0cfa396"
+        },
+        {
+          "path": "crates/neoflash-script/tests/filter-gallery.mjs",
+          "sha256": "6415e78806c3edf7dab4c8bc78b82ba982013ffcd8f766f7f715e7641e32079e"
+        },
+        {
+          "path": "web/tests/display-family.test.cjs",
+          "sha256": "ae779d1eccc5ff35d8b079e63d5109a4b8df5624b3e23ed1b8889f2031c0dffa"
+        },
+        {
+          "path": "scripts/verify-as-publish-gate.mjs",
+          "sha256": "26728db88190b8176308d4d3e2de779dd67f20779364368413dce6a634e5d3c1"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:class:flash/display/SimpleButton.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Authored 4-frame and dynamic SimpleButton state objects, hitTestState hit-testing, enabled/useHandCursor/trackAsMenu, and soundTransform work in native Rust and HTML5."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/SimpleButton.html#SimpleButton()",
+          "status": "implemented_subset",
+          "scopeNote": "Constructs dynamic SimpleButton instances with optional upState, overState, downState, and hitTestState DisplayObjects."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#upState",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and assigns authored or dynamic upState DisplayObject and updates active visual state."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#overState",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and assigns authored or dynamic overState DisplayObject and switches visually on rollOver/dragOver."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#downState",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and assigns authored or dynamic downState DisplayObject and switches visually while pressed."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#hitTestState",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and assigns hitTestState DisplayObject and drives pointer picking and hitTestPoint(..., true); null disables hits."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#soundTransform",
+          "status": "implemented_subset",
+          "scopeNote": "Clones SoundTransform (default volume=1, pan=0) and scales stereo volume/pan on button state transition sounds."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#width",
+          "status": "implemented_subset",
+          "scopeNote": "Computes parent-space AABB width across rotated/skewed transforms and children/graphics, and updates scaleX/scaleY on assignment."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#height",
+          "status": "implemented_subset",
+          "scopeNote": "Computes parent-space AABB height across rotated/skewed transforms and children/graphics, and updates scaleX/scaleY on assignment."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineStyle()",
+          "status": "implemented_subset",
+          "scopeNote": "Supports hairline (thickness == 0), pixelHinting, scaleMode, caps, joints, and miterLimit across bounds, hit-testing, native pixels, and HTML5 Canvas."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsStroke.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Supports thickness/hairline, fill, pixelHinting, scaleMode, caps, joints, and miterLimit in drawGraphicsData and readGraphicsData."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#caps",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#joints",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#miterLimit",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#pixelHinting",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#scaleMode",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#NONE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#SQUARE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#BEVEL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#MITER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#HORIZONTAL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#NONE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#VERTICAL",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REFLECT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REPEAT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/InterpolationMethod.html#LINEAR_RGB",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ALPHA",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ERASE",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#INVERT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#LAYER",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SUBTRACT",
+          "status": "implemented_subset",
+          "scopeNote": "Main contract covered by the listed tests."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:class:flash/display/SimpleButton.html#",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/SimpleButton.html#SimpleButton()",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#upState",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#overState",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#downState",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#hitTestState",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#soundTransform",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#width",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#height",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineStyle()",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsStroke.html#",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#caps",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#joints",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#miterLimit",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#pixelHinting",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#scaleMode",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#NONE",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#SQUARE",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#BEVEL",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#MITER",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#HORIZONTAL",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#NONE",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#VERTICAL",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REFLECT",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REPEAT",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/InterpolationMethod.html#LINEAR_RGB",
+          "status": "missing",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ALPHA",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ERASE",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#INVERT",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#LAYER",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SUBTRACT",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS2-DISPLAYGRAPHICS-20261115",
+      "title": "Broaden tested AS2 display and graphics runtime compatibility (T-304)",
+      "reason": "Promotes rotated and skewed MovieClip._width and _height getters/setters, MovieClip.lineStyle hairline (thickness == 0) plus pixelHinting/scaleMode/caps/joints/miterLimit, and MovieClip.blendMode string and numeric modes 1..14 including subtract, invert, alpha, erase, and layer across native Rust and HTML5 Canvas.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/tests/dynamic_display.rs",
+          "sha256": "cf20259cd7182d741d1cd341006e0045da3418d073f2ecd30e1140cacef89254"
+        },
+        {
+          "path": "crates/neoflash-export/tests/publish_correctness_gate.rs",
+          "sha256": "0ebf831b4b64e7a4c13cb9c869f11df3f4009640e05ef5f98001c25a781ac91c"
+        },
+        {
+          "path": "crates/neoflash-script/tests/as2-project-input.mjs",
+          "sha256": "97877ee39d2cee9c55ca9933c514aef583824952a72f6ac835ecba98decbee06"
+        },
+        {
+          "path": "crates/neoflash-script/tests/display-transforms.mjs",
+          "sha256": "8f5368a2b0b4bb0829c7c2b1fa5fa66617942adf5b24e949919fe2b78ffdeeba"
+        },
+        {
+          "path": "crates/neoflash-script/tests/gradient-graphics.mjs",
+          "sha256": "5065385587ded1f39218fa29c20d94363a7a74026f44503569080db8b0cfa396"
+        },
+        {
+          "path": "crates/neoflash-script/tests/filter-gallery.mjs",
+          "sha256": "6415e78806c3edf7dab4c8bc78b82ba982013ffcd8f766f7f715e7641e32079e"
+        },
+        {
+          "path": "web/tests/display-family.test.cjs",
+          "sha256": "ae779d1eccc5ff35d8b079e63d5109a4b8df5624b3e23ed1b8889f2031c0dffa"
+        },
+        {
+          "path": "scripts/verify-as-publish-gate.mjs",
+          "sha256": "26728db88190b8176308d4d3e2de779dd67f20779364368413dce6a634e5d3c1"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "as2:MovieClip.html#_width",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and assigns parent-space AABB _width across rotated and skewed MovieClips, updating _xscale/_yscale cleanly."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_height",
+          "status": "implemented_subset",
+          "scopeNote": "Reads and assigns parent-space AABB _height across rotated and skewed MovieClips, updating _xscale/_yscale cleanly."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#lineStyle()",
+          "status": "implemented_subset",
+          "scopeNote": "Supports hairline (thickness == 0), pixelHinting, scaleMode, caps, joints, and miterLimit across native Rust and HTML5 Canvas."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#blendMode",
+          "status": "implemented_subset",
+          "scopeNote": "Supports string and numeric blend modes 1..14 including subtract, invert, alpha, erase, and layer across native Rust and HTML5 Canvas."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "as2:MovieClip.html#_width",
+          "status": "partial",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_height",
+          "status": "partial",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#lineStyle()",
+          "status": "partial",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#blendMode",
+          "status": "partial",
+          "ruleId": "AS2-AREAS1TO7-AUDIT-20261114",
           "evidenceKind": "test_backed_review"
         }
       ]
