@@ -133,23 +133,51 @@ impl SoundState {
         self.commands.push(command);
     }
 
-    /// Event/Start/Stop sounds of the keyframes that begin exactly at `frame`.
-    pub(crate) fn frame_entered(&mut self, symbol: &Symbol, frame: u32) {
+    /// Event/Start/Stop sounds of the keyframes that begin at `frame`, scaled by an optional
+    /// `(volume, pan)` sound transform (used for `SimpleButton.soundTransform`).
+    pub(crate) fn frame_entered_with_transform(
+        &mut self,
+        symbol: &Symbol,
+        frame: u32,
+        sound_transform: Option<[f64; 2]>,
+    ) {
+        let gains = sound_transform.map(|[volume, pan]| {
+            let v = volume.clamp(0.0, 16.0);
+            let p = pan.clamp(-1.0, 1.0);
+            let left = v * if p > 0.0 { 1.0 - p } else { 1.0 };
+            let right = v * if p < 0.0 { 1.0 + p } else { 1.0 };
+            (left, right)
+        });
         for layer in sound_layers(symbol) {
             let Some(key) = layer.key_at(frame).filter(|key| key.frame == frame) else {
                 continue;
             };
             let Some(sound) = &key.sound else { continue };
             match sound.sync {
-                SoundSync::Event | SoundSync::Start => self.push(SoundCommand::Play {
-                    resource: sound.resource.clone(),
-                    sync: sound.sync,
-                    loops: sound.loops.max(1),
-                    loop_forever: sound.loop_forever,
-                    envelope: envelope(sound),
-                    in_point: sound.in_point,
-                    out_point: sound.out_point,
-                }),
+                SoundSync::Event | SoundSync::Start => {
+                    let mut env = envelope(sound);
+                    if let Some((ls, rs)) = gains
+                        && ((ls - 1.0).abs() > 1e-9 || (rs - 1.0).abs() > 1e-9)
+                    {
+                        if env.is_empty() {
+                            env.push([0.0, ls, rs]);
+                        } else {
+                            for pt in &mut env {
+                                pt[1] *= ls;
+                                pt[2] *= rs;
+                            }
+                        }
+                    }
+                    self.push(SoundCommand::Play {
+                        resource: sound.resource.clone(),
+                        sync: sound.sync,
+                        loops: sound.loops.max(1),
+                        loop_forever: sound.loop_forever,
+                        envelope: env,
+                        in_point: sound.in_point,
+                        out_point: sound.out_point,
+                    });
+                }
                 SoundSync::Stop => self.push(SoundCommand::Stop {
                     resource: sound.resource.clone(),
                 }),

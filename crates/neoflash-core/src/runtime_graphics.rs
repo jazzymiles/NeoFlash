@@ -24,6 +24,60 @@ pub enum GradientSpread {
     Repeat,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LineCaps {
+    #[default]
+    Round,
+    None,
+    Square,
+}
+
+impl LineCaps {
+    pub fn is_round(&self) -> bool {
+        matches!(self, Self::Round)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LineJoints {
+    #[default]
+    Round,
+    Bevel,
+    Miter,
+}
+
+impl LineJoints {
+    pub fn is_round(&self) -> bool {
+        matches!(self, Self::Round)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LineScaleMode {
+    #[default]
+    Normal,
+    None,
+    Vertical,
+    Horizontal,
+}
+
+impl LineScaleMode {
+    pub fn is_normal(&self) -> bool {
+        matches!(self, Self::Normal)
+    }
+}
+
+pub fn default_miter_limit() -> f64 {
+    3.0
+}
+
+pub fn is_default_miter_limit(value: &f64) -> bool {
+    (*value - 3.0).abs() < 1e-12
+}
+
 impl GradientSpread {
     pub fn is_extend(&self) -> bool {
         matches!(self, Self::Extend)
@@ -118,8 +172,16 @@ impl GradientPaint {
                 .collect(),
             ratios: self.stops.iter().map(|s| f64::from(s.ratio)).collect(),
             matrix: self.matrix,
-            spread_method: "pad".into(),
-            interpolation_method: "rgb".into(),
+            spread_method: match self.spread {
+                GradientSpread::Extend => "pad".into(),
+                GradientSpread::Reflect => "reflect".into(),
+                GradientSpread::Repeat => "repeat".into(),
+            },
+            interpolation_method: if self.linear_rgb {
+                "linearRGB".into()
+            } else {
+                "rgb".into()
+            },
             focal_point_ratio: self.focal_point_ratio,
         };
         spec.validate()
@@ -246,9 +308,11 @@ impl GradientSpec {
         if !(1..=15).contains(&count) || self.alphas.len() != count || self.ratios.len() != count {
             return Err("Graphics gradients require 1..15 equally sized colors, alphas and ratios");
         }
-        if self.spread_method != "pad" || self.interpolation_method != "rgb" {
+        if !matches!(self.spread_method.as_str(), "pad" | "reflect" | "repeat")
+            || !matches!(self.interpolation_method.as_str(), "rgb" | "linearRGB")
+        {
             return Err(
-                "Graphics gradients currently support only pad spread and rgb interpolation",
+                "Graphics gradients require spreadMethod in pad/reflect/repeat and interpolationMethod in rgb/linearRGB",
             );
         }
         if self.colors.iter().any(|c| *c > 0xff_ffff)
@@ -304,8 +368,12 @@ impl GradientSpec {
                     color: color(c, a),
                 })
                 .collect(),
-            spread: GradientSpread::Extend,
-            linear_rgb: false,
+            spread: match self.spread_method.as_str() {
+                "reflect" => GradientSpread::Reflect,
+                "repeat" => GradientSpread::Repeat,
+                _ => GradientSpread::Extend,
+            },
+            linear_rgb: self.interpolation_method == "linearRGB",
         }
     }
 }
@@ -384,6 +452,19 @@ pub enum GraphicsOp {
         width: Option<f64>,
         color: u32,
         alpha: f64,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        pixel_hinting: bool,
+        #[serde(default, skip_serializing_if = "LineScaleMode::is_normal")]
+        scale_mode: LineScaleMode,
+        #[serde(default, skip_serializing_if = "LineCaps::is_round")]
+        caps: LineCaps,
+        #[serde(default, skip_serializing_if = "LineJoints::is_round")]
+        joints: LineJoints,
+        #[serde(
+            default = "default_miter_limit",
+            skip_serializing_if = "is_default_miter_limit"
+        )]
+        miter_limit: f64,
     },
     MoveTo {
         x: f64,
@@ -457,29 +538,20 @@ impl Paint {
             Self::Bitmap(_) => 1,
         }
     }
-    fn draw(
+    fn draw_fill(
         &self,
         pixels: &crate::pixels::PixelArena,
         commands: Vec<PathCommand>,
         fill_rule: FillRule,
-        width: f64,
         transform: crate::ColorTransform,
     ) -> RuntimeDrawKind {
         match self {
             Self::Solid(color) => RuntimeDrawKind::Element(ElementKind::Path {
                 commands,
                 fill_rule,
-                fill: if width == 0. {
-                    transform.apply(*color)
-                } else {
-                    [0; 4]
-                },
-                stroke: if width > 0. {
-                    transform.apply(*color)
-                } else {
-                    [0; 4]
-                },
-                stroke_width: width,
+                fill: transform.apply(*color),
+                stroke: [0; 4],
+                stroke_width: 0.,
             }),
             Self::Gradient(paint) => {
                 let mut gradient = paint.clone();
@@ -491,15 +563,17 @@ impl Paint {
                     fill_rule,
                     fill: [0; 4],
                     stroke: [0; 4],
-                    fill_gradient: if width == 0. {
-                        Some(gradient.clone())
-                    } else {
-                        None
-                    },
-                    stroke_gradient: if width > 0. { Some(gradient) } else { None },
+                    fill_gradient: Some(gradient),
+                    stroke_gradient: None,
                     fill_bitmap: None,
                     stroke_bitmap: None,
-                    stroke_width: width,
+                    stroke_width: 0.,
+                    stroke_caps: LineCaps::Round,
+                    stroke_joints: LineJoints::Round,
+                    stroke_miter_limit: 3.0,
+                    stroke_pixel_hinting: false,
+                    stroke_scale_mode: LineScaleMode::Normal,
+                    stroke_hairline: false,
                 }
             }
             Self::Bitmap(spec) => {
@@ -526,13 +600,114 @@ impl Paint {
                     stroke: [0; 4],
                     fill_gradient: None,
                     stroke_gradient: None,
-                    fill_bitmap: if width == 0. { paint.clone() } else { None },
-                    stroke_bitmap: if width > 0. {
-                        paint.map(Box::new)
-                    } else {
-                        None
-                    },
-                    stroke_width: width,
+                    fill_bitmap: paint,
+                    stroke_bitmap: None,
+                    stroke_width: 0.,
+                    stroke_caps: LineCaps::Round,
+                    stroke_joints: LineJoints::Round,
+                    stroke_miter_limit: 3.0,
+                    stroke_pixel_hinting: false,
+                    stroke_scale_mode: LineScaleMode::Normal,
+                    stroke_hairline: false,
+                }
+            }
+        }
+    }
+    fn draw_stroke(
+        &self,
+        pixels: &crate::pixels::PixelArena,
+        commands: Vec<PathCommand>,
+        fill_rule: FillRule,
+        style: &Stroke,
+        transform: crate::ColorTransform,
+    ) -> RuntimeDrawKind {
+        let custom_style = style.pixel_hinting
+            || !style.scale_mode.is_normal()
+            || !style.caps.is_round()
+            || !style.joints.is_round()
+            || !is_default_miter_limit(&style.miter_limit)
+            || style.hairline;
+        match self {
+            Self::Solid(color) if !custom_style => RuntimeDrawKind::Element(ElementKind::Path {
+                commands,
+                fill_rule,
+                fill: [0; 4],
+                stroke: transform.apply(*color),
+                stroke_width: style.width,
+            }),
+            Self::Solid(color) => RuntimeDrawKind::GradientPath {
+                commands,
+                fill_rule,
+                fill: [0; 4],
+                stroke: transform.apply(*color),
+                fill_gradient: None,
+                stroke_gradient: None,
+                fill_bitmap: None,
+                stroke_bitmap: None,
+                stroke_width: style.width,
+                stroke_caps: style.caps,
+                stroke_joints: style.joints,
+                stroke_miter_limit: style.miter_limit,
+                stroke_pixel_hinting: style.pixel_hinting,
+                stroke_scale_mode: style.scale_mode,
+                stroke_hairline: style.hairline,
+            },
+            Self::Gradient(paint) => {
+                let mut gradient = paint.clone();
+                for stop in &mut gradient.stops {
+                    stop.color = transform.apply(stop.color);
+                }
+                RuntimeDrawKind::GradientPath {
+                    commands,
+                    fill_rule,
+                    fill: [0; 4],
+                    stroke: [0; 4],
+                    fill_gradient: None,
+                    stroke_gradient: Some(gradient),
+                    fill_bitmap: None,
+                    stroke_bitmap: None,
+                    stroke_width: style.width,
+                    stroke_caps: style.caps,
+                    stroke_joints: style.joints,
+                    stroke_miter_limit: style.miter_limit,
+                    stroke_pixel_hinting: style.pixel_hinting,
+                    stroke_scale_mode: style.scale_mode,
+                    stroke_hairline: style.hairline,
+                }
+            }
+            Self::Bitmap(spec) => {
+                let paint = if let Ok(info) = pixels.info(&spec.pixel_ref)
+                    && !info.disposed
+                {
+                    Some(BitmapPaint {
+                        pixel_ref: spec.pixel_ref.clone(),
+                        width: info.width,
+                        height: info.height,
+                        revision: info.revision,
+                        matrix: spec.matrix,
+                        repeat: spec.repeat,
+                        smoothing: spec.smoothing,
+                        color_transform: transform,
+                    })
+                } else {
+                    None
+                };
+                RuntimeDrawKind::GradientPath {
+                    commands,
+                    fill_rule,
+                    fill: [0; 4],
+                    stroke: [0; 4],
+                    fill_gradient: None,
+                    stroke_gradient: None,
+                    fill_bitmap: None,
+                    stroke_bitmap: paint.map(Box::new),
+                    stroke_width: style.width,
+                    stroke_caps: style.caps,
+                    stroke_joints: style.joints,
+                    stroke_miter_limit: style.miter_limit,
+                    stroke_pixel_hinting: style.pixel_hinting,
+                    stroke_scale_mode: style.scale_mode,
+                    stroke_hairline: style.hairline,
                 }
             }
         }
@@ -543,6 +718,12 @@ impl Paint {
 struct Stroke {
     width: f64,
     paint: Paint,
+    pixel_hinting: bool,
+    scale_mode: LineScaleMode,
+    caps: LineCaps,
+    joints: LineJoints,
+    miter_limit: f64,
+    hairline: bool,
 }
 #[derive(Clone, Debug)]
 struct StrokeRun {
@@ -597,13 +778,17 @@ impl GraphicsOp {
                     return Err("Graphics color must be uint24 and alpha in 0..=1");
                 }
                 if let LineStyle {
-                    width: Some(width), ..
+                    width: Some(width),
+                    miter_limit,
+                    ..
                 } = self
-                    && (!width.is_finite() || *width <= 0. || *width > 255.)
                 {
-                    return Err(
-                        "Graphics supports positive round strokes up to 255; hairlines are unsupported",
-                    );
+                    if !width.is_finite() || *width < 0. || *width > 255. {
+                        return Err("Graphics stroke thickness must be finite in 0..=255");
+                    }
+                    if !miter_limit.is_finite() {
+                        return Err("Graphics stroke miterLimit must be finite");
+                    }
                 }
                 vec![]
             }
@@ -833,10 +1018,28 @@ impl GraphicsState {
                 width,
                 color: value,
                 alpha,
+                pixel_hinting,
+                scale_mode,
+                caps,
+                joints,
+                miter_limit,
             } => {
-                self.stroke = width.map(|width| Stroke {
-                    width,
-                    paint: Paint::Solid(color(value, alpha)),
+                self.stroke = width.map(|raw_width| {
+                    let hairline = raw_width == 0.0;
+                    Stroke {
+                        width: if hairline { 1.0 } else { raw_width },
+                        paint: Paint::Solid(color(value, alpha)),
+                        pixel_hinting,
+                        scale_mode: if hairline {
+                            LineScaleMode::None
+                        } else {
+                            scale_mode
+                        },
+                        caps,
+                        joints,
+                        miter_limit: miter_limit.clamp(1.0, 255.0),
+                        hairline,
+                    }
                 });
                 // Even an identical style begins a new stroke run at the current pen.
                 if let Some(group) = self.groups.last_mut()
@@ -1133,7 +1336,7 @@ impl GraphicsState {
                             .is_ok_and(|info| !info.disposed)
                 )
             {
-                paints.push(fill.draw(pixels, group.commands.clone(), group.fill_rule, 0., color));
+                paints.push(fill.draw_fill(pixels, group.commands.clone(), group.fill_rule, color));
             }
             for run in &group.strokes {
                 if run.commands.len() > 1
@@ -1145,11 +1348,11 @@ impl GraphicsState {
                                 .is_ok_and(|info| !info.disposed)
                     )
                 {
-                    paints.push(run.style.paint.draw(
+                    paints.push(run.style.paint.draw_stroke(
                         pixels,
                         run.commands.clone(),
                         group.fill_rule,
-                        run.style.width,
+                        &run.style,
                         color,
                     ));
                 }
@@ -1212,6 +1415,183 @@ fn round_rect(x: f64, y: f64, width: f64, height: f64, corners: [[f64; 2]; 4]) -
     ]
 }
 
+fn point_in_triangle(p: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> bool {
+    let cross = |o: [f64; 2], u: [f64; 2], v: [f64; 2]| {
+        (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0])
+    };
+    let c1 = cross(a, b, p);
+    let c2 = cross(b, c, p);
+    let c3 = cross(c, a, p);
+    let eps = 1e-9;
+    (c1 >= -eps && c2 >= -eps && c3 >= -eps) || (c1 <= eps && c2 <= eps && c3 <= eps)
+}
+
+/// Exact 2D stroke hit-test supporting caps (`none`/`round`/`square`), joints
+/// (`round`/`bevel`/`miter`), and `miter_limit` bevel fallback.
+pub fn hit_test_styled_stroke(
+    commands: &[PathCommand],
+    point: [f64; 2],
+    half_width: f64,
+    caps: LineCaps,
+    joints: LineJoints,
+    miter_limit: f64,
+) -> bool {
+    if !point[0].is_finite()
+        || !point[1].is_finite()
+        || !half_width.is_finite()
+        || half_width <= 0.0
+    {
+        return false;
+    }
+    let Ok(contours) = crate::flatten_path(commands, crate::FlattenOptions::default()) else {
+        return false;
+    };
+    let hw_sq = half_width * half_width;
+    let eps = 1e-9;
+    let dist_sq = |a: [f64; 2], b: [f64; 2]| (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2);
+
+    #[derive(Clone, Copy)]
+    struct StrokeSeg {
+        a: [f64; 2],
+        b: [f64; 2],
+        u: [f64; 2],
+        len: f64,
+    }
+
+    for contour in &contours {
+        if contour.points.len() < 2 {
+            continue;
+        }
+        let mut segs: Vec<StrokeSeg> = Vec::new();
+        for edge in contour.points.windows(2) {
+            let dx = edge[1][0] - edge[0][0];
+            let dy = edge[1][1] - edge[0][1];
+            let len = dx.hypot(dy);
+            if len > 1e-12 {
+                segs.push(StrokeSeg {
+                    a: edge[0],
+                    b: edge[1],
+                    u: [dx / len, dy / len],
+                    len,
+                });
+            }
+        }
+        if contour.closed
+            && let Some(&last) = contour.points.last()
+        {
+            let first = contour.points[0];
+            let dx = first[0] - last[0];
+            let dy = first[1] - last[1];
+            let len = dx.hypot(dy);
+            if len > 1e-12 {
+                segs.push(StrokeSeg {
+                    a: last,
+                    b: first,
+                    u: [dx / len, dy / len],
+                    len,
+                });
+            }
+        }
+        if segs.is_empty() {
+            let p0 = contour.points[0];
+            match caps {
+                LineCaps::Round if dist_sq(point, p0) <= hw_sq + eps => return true,
+                LineCaps::Square
+                    if (point[0] - p0[0]).abs() <= half_width + eps
+                        && (point[1] - p0[1]).abs() <= half_width + eps =>
+                {
+                    return true;
+                }
+                _ => continue,
+            }
+        }
+
+        for seg in &segs {
+            let rx = point[0] - seg.a[0];
+            let ry = point[1] - seg.a[1];
+            let along = rx * seg.u[0] + ry * seg.u[1];
+            let perp = (-rx * seg.u[1] + ry * seg.u[0]).abs();
+            if along >= -eps && along <= seg.len + eps && perp <= half_width + eps {
+                return true;
+            }
+        }
+
+        if !contour.closed {
+            let seg0 = segs[0];
+            let seg_last = *segs.last().unwrap();
+            for (origin, out_dir) in [(seg0.a, [-seg0.u[0], -seg0.u[1]]), (seg_last.b, seg_last.u)]
+            {
+                match caps {
+                    LineCaps::None => {}
+                    LineCaps::Round => {
+                        if dist_sq(point, origin) <= hw_sq + eps {
+                            return true;
+                        }
+                    }
+                    LineCaps::Square => {
+                        let rx = point[0] - origin[0];
+                        let ry = point[1] - origin[1];
+                        let along = rx * out_dir[0] + ry * out_dir[1];
+                        let perp = (-rx * out_dir[1] + ry * out_dir[0]).abs();
+                        if along >= -eps && along <= half_width + eps && perp <= half_width + eps {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        let join_count = if contour.closed && segs.len() >= 2 {
+            segs.len()
+        } else {
+            segs.len().saturating_sub(1)
+        };
+        let miter_limit_sq = miter_limit.max(1.0).powi(2);
+        for idx in 0..join_count {
+            let v = segs[idx].b;
+            let u1 = segs[idx].u;
+            let u2 = segs[(idx + 1) % segs.len()].u;
+            match joints {
+                LineJoints::Round => {
+                    if dist_sq(point, v) <= hw_sq + eps {
+                        return true;
+                    }
+                }
+                LineJoints::Bevel | LineJoints::Miter => {
+                    let cross = u1[0] * u2[1] - u1[1] * u2[0];
+                    if cross.abs() <= 1e-9 {
+                        continue;
+                    }
+                    let sign = if cross > 0.0 { 1.0 } else { -1.0 };
+                    let n1 = [sign * u1[1], -sign * u1[0]];
+                    let n2 = [sign * u2[1], -sign * u2[0]];
+                    let p1 = [v[0] + half_width * n1[0], v[1] + half_width * n1[1]];
+                    let p2 = [v[0] + half_width * n2[0], v[1] + half_width * n2[1]];
+                    let denom = 1.0 + n1[0] * n2[0] + n1[1] * n2[1];
+                    if joints == LineJoints::Miter
+                        && denom > 1e-9
+                        && (2.0 / denom) <= miter_limit_sq + 1e-9
+                    {
+                        let scale = half_width / denom;
+                        let pm = [
+                            v[0] + scale * (n1[0] + n2[0]),
+                            v[1] + scale * (n1[1] + n2[1]),
+                        ];
+                        if point_in_triangle(point, v, p1, pm)
+                            || point_in_triangle(point, v, pm, p2)
+                        {
+                            return true;
+                        }
+                    } else if point_in_triangle(point, v, p1, p2) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1252,5 +1632,79 @@ mod tests {
             linear_mid > srgb_mid,
             "linear RGB midpoint ({linear_mid}) should be brighter in sRGB than sRGB midpoint ({srgb_mid})"
         );
+    }
+
+    #[test]
+    fn styled_stroke_caps_and_joints_hit_test() {
+        let line = vec![
+            PathCommand::MoveTo { x: 10.0, y: 20.0 },
+            PathCommand::LineTo { x: 50.0, y: 20.0 },
+        ];
+        // Point beyond start cap at (4, 20) with half_width = 8:
+        assert!(!hit_test_styled_stroke(
+            &line,
+            [4.0, 20.0],
+            8.0,
+            LineCaps::None,
+            LineJoints::Round,
+            3.0
+        ));
+        assert!(hit_test_styled_stroke(
+            &line,
+            [4.0, 20.0],
+            8.0,
+            LineCaps::Round,
+            LineJoints::Round,
+            3.0
+        ));
+        // Corner of square cap at (3, 13): outside round circle (dist = sqrt(49+49) = 9.9 > 8), inside square cap!
+        assert!(!hit_test_styled_stroke(
+            &line,
+            [3.0, 13.0],
+            8.0,
+            LineCaps::Round,
+            LineJoints::Round,
+            3.0
+        ));
+        assert!(hit_test_styled_stroke(
+            &line,
+            [3.0, 13.0],
+            8.0,
+            LineCaps::Square,
+            LineJoints::Round,
+            3.0
+        ));
+
+        // 90-degree corner at (50, 20): outer corner tip at (57, 13) with half_width = 8
+        let corner = vec![
+            PathCommand::MoveTo { x: 10.0, y: 20.0 },
+            PathCommand::LineTo { x: 50.0, y: 20.0 },
+            PathCommand::LineTo { x: 50.0, y: 60.0 },
+        ];
+        assert!(!hit_test_styled_stroke(
+            &corner,
+            [57.0, 13.0],
+            8.0,
+            LineCaps::None,
+            LineJoints::Bevel,
+            3.0
+        ));
+        assert!(hit_test_styled_stroke(
+            &corner,
+            [57.0, 13.0],
+            8.0,
+            LineCaps::None,
+            LineJoints::Miter,
+            2.0
+        ));
+        // With miter_limit = 1.0 (< sqrt(2)), 90-degree miter falls back to bevel!
+        assert!(!hit_test_styled_stroke(
+            &corner,
+            [57.0, 13.0],
+            8.0,
+            LineCaps::None,
+            LineJoints::Miter,
+            1.0
+        ));
     }
 }

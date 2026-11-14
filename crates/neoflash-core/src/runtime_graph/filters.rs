@@ -197,13 +197,20 @@ impl RuntimeGraph {
                         })
                     })
                     .collect();
+                let composite_operation = if render.blend() == "alpha" && parent.is_none() {
+                    // Flash BlendMode.ALPHA masks an enclosing BlendMode.LAYER group; without an
+                    // enclosing isolated parent group, do not wipe the root stage outside bounds.
+                    "source-over".into()
+                } else {
+                    render.operation().into()
+                };
                 snapshot.filter_groups.push(RuntimeFilterGroup {
                     id: id.clone(),
                     owner_ref: object.object_ref.clone(),
                     parent_id: parent,
                     filters: object.filters.clone(),
                     clip_ids: object.clip_ids.clone(),
-                    composite_operation: render.operation().into(),
+                    composite_operation,
                     opaque_background: render.opaque_background.map(|rgb| {
                         object.concatenated_color_transform.apply([
                             (rgb >> 16) as u8,

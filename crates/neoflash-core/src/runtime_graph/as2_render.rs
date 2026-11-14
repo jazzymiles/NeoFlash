@@ -23,9 +23,13 @@ impl As2Render {
     }
     pub(super) fn operation(&self) -> &str {
         match self.blend() {
-            "normal" | "layer" | "subtract" | "invert" | "alpha" | "erase" => "source-over",
+            "normal" | "layer" => "source-over",
             "add" => "lighter",
             "hardlight" => "hard-light",
+            "erase" => "destination-out",
+            "alpha" => "destination-in",
+            "subtract" => "subtract",
+            "invert" => "invert",
             value => value,
         }
     }
@@ -47,9 +51,14 @@ impl Player {
             .iter()
             .find(|node| &node.object_ref == target)
             .ok_or_else(|| error("Render target is absent"))?;
-        if !as3 && !matches!(node.display.owner.as_str(), "movie_clip" | "button") {
+        if !as3
+            && !matches!(
+                node.display.owner.as_str(),
+                "movie_clip" | "button" | "text"
+            )
+        {
             return Err(error(
-                "AS2 blend/cache properties require MovieClip or Button",
+                "AS2 blend/cache properties require MovieClip, Button or TextField",
             ));
         }
         let mut state = self
@@ -76,11 +85,15 @@ impl Player {
                             Some(6) => "darken",
                             Some(7) => "difference",
                             Some(8) => "add",
+                            Some(9) => "subtract",
+                            Some(10) => "invert",
+                            Some(11) => "alpha",
+                            Some(12) => "erase",
                             Some(13) => "overlay",
                             Some(14) => "hardlight",
                             _ => {
                                 return Err(error(
-                                    "Unsupported AS2 numeric blendMode; supported modes are normal/layer/multiply/screen/lighten/darken/difference/add/overlay/hardlight",
+                                    "Unsupported AS2 numeric blendMode; expected 1..=14",
                                 ));
                             }
                         }
@@ -95,11 +108,15 @@ impl Player {
                             | "darken"
                             | "difference"
                             | "add"
+                            | "subtract"
+                            | "invert"
+                            | "alpha"
+                            | "erase"
                             | "overlay"
                             | "hardlight"
                     ) {
                         return Err(error(
-                            "Unsupported blendMode; shader/subtract/invert/alpha/erase need a separate compositing profile",
+                            "Unsupported blendMode; BlendMode.SHADER requires blendShader",
                         ));
                     }
                     state.blend_mode = name.into();

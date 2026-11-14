@@ -435,6 +435,13 @@ fn blend_pixel(d: &mut [u8], sp: [u8; 4], s_raw: &[u8], mode: &str, transparent:
             }
             d[3] = (sa + (u32::from(d[3]) * (255 - sa) + 127) / 255).min(255) as u8;
         }
+        "invert" => {
+            for channel in d.iter_mut().take(3) {
+                let dc = u32::from(*channel);
+                *channel = ((sa * (255 - dc) + (255 - sa) * dc + 127) / 255).min(255) as u8;
+            }
+            d[3] = (sa + (u32::from(d[3]) * (255 - sa) + 127) / 255).min(255) as u8;
+        }
         "screen" => {
             for c in 0..3 {
                 let sc = u32::from(sp[c]);
@@ -515,5 +522,706 @@ impl Write for BoundedPng {
     }
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+fn operation_to_blend_mode(op: &str) -> &'static str {
+    match op {
+        "multiply" => "multiply",
+        "screen" => "screen",
+        "lighten" => "lighten",
+        "darken" => "darken",
+        "difference" => "difference",
+        "lighter" | "add" => "add",
+        "subtract" => "subtract",
+        "invert" => "invert",
+        "destination-in" | "alpha" => "alpha",
+        "destination-out" | "erase" => "erase",
+        "overlay" => "overlay",
+        "hard-light" | "hardlight" => "hardlight",
+        _ => "normal",
+    }
+}
+
+fn invert_affine(m: [f64; 6]) -> Option<[f64; 6]> {
+    let det = m[0] * m[3] - m[1] * m[2];
+    if !det.is_finite() || det.abs() < 1e-12 {
+        return None;
+    }
+    let inv = 1.0 / det;
+    Some([
+        m[3] * inv,
+        -m[1] * inv,
+        -m[2] * inv,
+        m[0] * inv,
+        (m[2] * m[5] - m[3] * m[4]) * inv,
+        (m[1] * m[4] - m[0] * m[5]) * inv,
+    ])
+}
+
+impl crate::Player {
+    /// Native CPU rasterizer for `RuntimeSnapshot` supporting dynamic `SimpleButton` states,
+    /// rotated/skewed transforms, styled strokes (`hairline`, `caps`, `joints`, `miterLimit`,
+    /// `pixelHinting`, `scaleMode`), `Extend`/`Reflect`/`Repeat` + `linearRGB` gradients, clips,
+    /// filters, and all 14 Flash blend modes (`Layer`, `Alpha`, `Erase`, `Subtract`, `Invert`, etc.).
+    pub fn render_snapshot_rgba(
+        &self,
+        project: &crate::Project,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<u8>, BitmapError> {
+        let snapshot = self.runtime_snapshot(project);
+        self.render_runtime_snapshot_rgba(project, &snapshot, width, height)
+    }
+
+    pub fn render_runtime_snapshot_rgba(
+        &self,
+        project: &crate::Project,
+        snapshot: &crate::RuntimeSnapshot,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<u8>, BitmapError> {
+        use crate::runtime_graphics::{
+            BitmapPaint, LineCaps, LineJoints, LineScaleMode, hit_test_styled_stroke,
+        };
+        use crate::{ElementKind, MaskCoverage, RuntimeDrawItem, RuntimeDrawKind};
+
+        raster_budget(width, height)?;
+        let coverage = if snapshot.clips.is_empty() {
+            None
+        } else {
+            MaskCoverage::new(project, &snapshot.clips).ok()
+        };
+
+        let sample_bitmap_paint = |bp: &BitmapPaint, lx: f64, ly: f64| -> [u8; 4] {
+            let Ok(bytes) = self.bitmap_pixels(&bp.pixel_ref) else {
+                return [0; 4];
+            };
+            if bp.width == 0 || bp.height == 0 {
+                return [0; 4];
+            }
+            let Some(inv) = invert_affine(bp.matrix) else {
+                return [0; 4];
+            };
+            let mut bx = inv[0] * lx + inv[2] * ly + inv[4];
+            let mut by = inv[1] * lx + inv[3] * ly + inv[5];
+            let (bw, bh) = (f64::from(bp.width), f64::from(bp.height));
+            if bp.repeat {
+                bx = bx.rem_euclid(bw);
+                by = by.rem_euclid(bh);
+            } else if bx < 0.0 || by < 0.0 || bx >= bw || by >= bh {
+                bx = bx.clamp(0.0, bw - 1.0);
+                by = by.clamp(0.0, bh - 1.0);
+            }
+            let ix = (bx.floor() as u32).min(bp.width - 1) as usize;
+            let iy = (by.floor() as u32).min(bp.height - 1) as usize;
+            let idx = (iy * bp.width as usize + ix) * 4;
+            bytes
+                .get(idx..idx + 4)
+                .map_or([0; 4], |s| [s[0], s[1], s[2], s[3]])
+        };
+
+        let paint_over_pixel = |dst: &mut [u8], straight_src: [u8; 4], clip_a: f64| {
+            if straight_src[3] == 0 || clip_a <= 0.0 {
+                return;
+            }
+            let a = (f64::from(straight_src[3]) * clip_a.clamp(0.0, 1.0))
+                .round()
+                .clamp(0.0, 255.0) as u8;
+            if a == 0 {
+                return;
+            }
+            let raw = [straight_src[0], straight_src[1], straight_src[2], a];
+            let sp = premul(u32::from_be_bytes([a, raw[0], raw[1], raw[2]]), true);
+            blend_pixel(dst, sp, &raw, "normal", true);
+        };
+
+        let clip_alpha_at = |clip_ids: &[String], deferred: &[String], px: f64, py: f64| -> f64 {
+            if clip_ids.is_empty() {
+                return 1.0;
+            }
+            let active: Vec<String> = clip_ids
+                .iter()
+                .filter(|id| !deferred.contains(id))
+                .cloned()
+                .collect();
+            if active.is_empty() {
+                return 1.0;
+            }
+            coverage
+                .as_ref()
+                .map_or(1.0, |cov| cov.alpha(&active, [px, py]))
+        };
+
+        let world_bbox =
+            |m: [f64; 6], l: f64, t: f64, r: f64, b: f64, pad: f64| -> (u32, u32, u32, u32) {
+                let corners = [[l, t], [r, t], [r, b], [l, b]];
+                let mut min_x = f64::INFINITY;
+                let mut min_y = f64::INFINITY;
+                let mut max_x = f64::NEG_INFINITY;
+                let mut max_y = f64::NEG_INFINITY;
+                for [cx, cy] in corners {
+                    let wx = m[0] * cx + m[2] * cy + m[4];
+                    let wy = m[1] * cx + m[3] * cy + m[5];
+                    min_x = min_x.min(wx);
+                    min_y = min_y.min(wy);
+                    max_x = max_x.max(wx);
+                    max_y = max_y.max(wy);
+                }
+                let x0 = (min_x - pad).floor().clamp(0.0, f64::from(width)) as u32;
+                let y0 = (min_y - pad).floor().clamp(0.0, f64::from(height)) as u32;
+                let x1 = (max_x + pad).ceil().clamp(0.0, f64::from(width)) as u32;
+                let y1 = (max_y + pad).ceil().clamp(0.0, f64::from(height)) as u32;
+                (x0, y0, x1, y1)
+            };
+
+        let paint_item = |buf: &mut [u8], item: &RuntimeDrawItem, deferred_clips: &[String]| {
+            let m = item.item.transform;
+            let Some(inv) = invert_affine(m) else {
+                return;
+            };
+            let sx = m[0].hypot(m[1]);
+            let sy = m[2].hypot(m[3]);
+            let avg_scale = ((sx + sy) * 0.5).max(1e-6);
+
+            match &item.item.kind {
+                RuntimeDrawKind::Element(el) => match el {
+                    ElementKind::Rectangle {
+                        width: rw,
+                        height: rh,
+                        fill,
+                        stroke,
+                        stroke_width,
+                    } => {
+                        let sw = if *stroke_width > 0.0 && stroke[3] > 0 {
+                            *stroke_width * 0.5
+                        } else {
+                            0.0
+                        };
+                        let (x0, y0, x1, y1) = world_bbox(m, -sw, -sw, *rw + sw, *rh + sw, 2.0);
+                        for py in y0..y1 {
+                            for px in x0..x1 {
+                                let wx = f64::from(px) + 0.5;
+                                let wy = f64::from(py) + 0.5;
+                                let ca = clip_alpha_at(&item.clip_ids, deferred_clips, wx, wy);
+                                if ca <= 0.0 {
+                                    continue;
+                                }
+                                let lx = inv[0] * wx + inv[2] * wy + inv[4];
+                                let ly = inv[1] * wx + inv[3] * wy + inv[5];
+                                let idx = (py as usize * width as usize + px as usize) * 4;
+                                if fill[3] > 0 && lx >= 0.0 && ly >= 0.0 && lx <= *rw && ly <= *rh {
+                                    paint_over_pixel(&mut buf[idx..idx + 4], *fill, ca);
+                                }
+                                if sw > 0.0
+                                    && lx >= -sw
+                                    && ly >= -sw
+                                    && lx <= *rw + sw
+                                    && ly <= *rh + sw
+                                    && !(lx > sw && ly > sw && lx < *rw - sw && ly < *rh - sw)
+                                {
+                                    paint_over_pixel(&mut buf[idx..idx + 4], *stroke, ca);
+                                }
+                            }
+                        }
+                    }
+                    ElementKind::Ellipse {
+                        width: ew,
+                        height: eh,
+                        fill,
+                        stroke,
+                        stroke_width,
+                    } => {
+                        if *ew <= 0.0 || *eh <= 0.0 {
+                            return;
+                        }
+                        let sw = if *stroke_width > 0.0 && stroke[3] > 0 {
+                            *stroke_width * 0.5
+                        } else {
+                            0.0
+                        };
+                        let (x0, y0, x1, y1) = world_bbox(m, -sw, -sw, *ew + sw, *eh + sw, 2.0);
+                        let (cx, cy) = (*ew * 0.5, *eh * 0.5);
+                        let in_el = |lx: f64, ly: f64, rx: f64, ry: f64| {
+                            rx > 0.0
+                                && ry > 0.0
+                                && ((lx - cx) / rx).powi(2) + ((ly - cy) / ry).powi(2) <= 1.0
+                        };
+                        for py in y0..y1 {
+                            for px in x0..x1 {
+                                let wx = f64::from(px) + 0.5;
+                                let wy = f64::from(py) + 0.5;
+                                let ca = clip_alpha_at(&item.clip_ids, deferred_clips, wx, wy);
+                                if ca <= 0.0 {
+                                    continue;
+                                }
+                                let lx = inv[0] * wx + inv[2] * wy + inv[4];
+                                let ly = inv[1] * wx + inv[3] * wy + inv[5];
+                                let idx = (py as usize * width as usize + px as usize) * 4;
+                                if fill[3] > 0 && in_el(lx, ly, cx, cy) {
+                                    paint_over_pixel(&mut buf[idx..idx + 4], *fill, ca);
+                                }
+                                if sw > 0.0
+                                    && in_el(lx, ly, cx + sw, cy + sw)
+                                    && !in_el(lx, ly, cx - sw, cy - sw)
+                                {
+                                    paint_over_pixel(&mut buf[idx..idx + 4], *stroke, ca);
+                                }
+                            }
+                        }
+                    }
+                    ElementKind::Path {
+                        commands,
+                        fill_rule,
+                        fill,
+                        stroke,
+                        stroke_width,
+                    } => {
+                        let Ok(Some(pb)) = crate::geometry::path_bounds(commands) else {
+                            return;
+                        };
+                        let pad = *stroke_width * sx.max(sy) + 2.0;
+                        let (x0, y0, x1, y1) =
+                            world_bbox(m, pb.x_min, pb.y_min, pb.x_max, pb.y_max, pad);
+                        for py in y0..y1 {
+                            for px in x0..x1 {
+                                let wx = f64::from(px) + 0.5;
+                                let wy = f64::from(py) + 0.5;
+                                let ca = clip_alpha_at(&item.clip_ids, deferred_clips, wx, wy);
+                                if ca <= 0.0 {
+                                    continue;
+                                }
+                                let lx = inv[0] * wx + inv[2] * wy + inv[4];
+                                let ly = inv[1] * wx + inv[3] * wy + inv[5];
+                                let idx = (py as usize * width as usize + px as usize) * 4;
+                                if fill[3] > 0
+                                    && crate::hit_test_path(
+                                        commands,
+                                        *fill_rule,
+                                        [lx, ly],
+                                        true,
+                                        0.0,
+                                        Default::default(),
+                                    )
+                                    .unwrap_or(false)
+                                {
+                                    paint_over_pixel(&mut buf[idx..idx + 4], *fill, ca);
+                                }
+                                if *stroke_width > 0.0
+                                    && stroke[3] > 0
+                                    && hit_test_styled_stroke(
+                                        commands,
+                                        [lx, ly],
+                                        *stroke_width,
+                                        LineCaps::Round,
+                                        LineJoints::Round,
+                                        3.0,
+                                    )
+                                {
+                                    paint_over_pixel(&mut buf[idx..idx + 4], *stroke, ca);
+                                }
+                            }
+                        }
+                    }
+                    ElementKind::PaintedPath {
+                        commands,
+                        fill_rule,
+                        fill,
+                        stroke,
+                        fill_gradient,
+                        stroke_gradient,
+                        stroke_width,
+                    } => {
+                        let Ok(Some(pb)) = crate::geometry::path_bounds(commands) else {
+                            return;
+                        };
+                        let pad = *stroke_width * sx.max(sy) + 2.0;
+                        let (x0, y0, x1, y1) =
+                            world_bbox(m, pb.x_min, pb.y_min, pb.x_max, pb.y_max, pad);
+                        for py in y0..y1 {
+                            for px in x0..x1 {
+                                let wx = f64::from(px) + 0.5;
+                                let wy = f64::from(py) + 0.5;
+                                let ca = clip_alpha_at(&item.clip_ids, deferred_clips, wx, wy);
+                                if ca <= 0.0 {
+                                    continue;
+                                }
+                                let lx = inv[0] * wx + inv[2] * wy + inv[4];
+                                let ly = inv[1] * wx + inv[3] * wy + inv[5];
+                                let idx = (py as usize * width as usize + px as usize) * 4;
+                                if (fill[3] > 0 || fill_gradient.is_some())
+                                    && crate::hit_test_path(
+                                        commands,
+                                        *fill_rule,
+                                        [lx, ly],
+                                        true,
+                                        0.0,
+                                        Default::default(),
+                                    )
+                                    .unwrap_or(false)
+                                {
+                                    let c =
+                                        fill_gradient.as_ref().map_or(*fill, |g| g.sample(lx, ly));
+                                    paint_over_pixel(&mut buf[idx..idx + 4], c, ca);
+                                }
+                                if *stroke_width > 0.0
+                                    && (stroke[3] > 0 || stroke_gradient.is_some())
+                                    && hit_test_styled_stroke(
+                                        commands,
+                                        [lx, ly],
+                                        *stroke_width,
+                                        LineCaps::Round,
+                                        LineJoints::Round,
+                                        3.0,
+                                    )
+                                {
+                                    let c = stroke_gradient
+                                        .as_ref()
+                                        .map_or(*stroke, |g| g.sample(lx, ly));
+                                    paint_over_pixel(&mut buf[idx..idx + 4], c, ca);
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                },
+                RuntimeDrawKind::GradientPath {
+                    commands,
+                    fill_rule,
+                    fill,
+                    stroke,
+                    fill_gradient,
+                    stroke_gradient,
+                    fill_bitmap,
+                    stroke_bitmap,
+                    stroke_width,
+                    stroke_caps,
+                    stroke_joints,
+                    stroke_miter_limit,
+                    stroke_pixel_hinting,
+                    stroke_scale_mode,
+                    stroke_hairline,
+                } => {
+                    let Ok(Some(pb)) = crate::geometry::path_bounds(commands) else {
+                        return;
+                    };
+                    let has_fill = fill[3] > 0 || fill_gradient.is_some() || fill_bitmap.is_some();
+                    let has_stroke = (*stroke_width > 0.0 || *stroke_hairline)
+                        && (stroke[3] > 0 || stroke_gradient.is_some() || stroke_bitmap.is_some());
+                    let eff_local_w = if *stroke_hairline {
+                        1.0 / avg_scale
+                    } else {
+                        match stroke_scale_mode {
+                            LineScaleMode::Normal => *stroke_width,
+                            LineScaleMode::None => *stroke_width / avg_scale,
+                            LineScaleMode::Horizontal => *stroke_width * sx / avg_scale,
+                            LineScaleMode::Vertical => *stroke_width * sy / avg_scale,
+                        }
+                    };
+                    let world_sw = eff_local_w * avg_scale;
+                    let pad = world_sw * (*stroke_miter_limit).max(1.5) + 2.0;
+                    let (x0, y0, x1, y1) =
+                        world_bbox(m, pb.x_min, pb.y_min, pb.x_max, pb.y_max, pad);
+
+                    // When pixelHinting is enabled and the matrix is axis-aligned, align odd integer
+                    // world stroke thickness to pixel centers (+0.5) so 1px lines hit a single row/column.
+                    let (hint_dx, hint_dy) =
+                        if *stroke_pixel_hinting && m[1].abs() < 1e-6 && m[2].abs() < 1e-6 {
+                            let odd = (world_sw.round() as i64) % 2 == 1;
+                            let snap_delta = |t: f64| {
+                                if odd {
+                                    t.floor() + 0.5 - t
+                                } else {
+                                    t.round() - t
+                                }
+                            };
+                            (snap_delta(m[4]), snap_delta(m[5]))
+                        } else {
+                            (0.0, 0.0)
+                        };
+
+                    for py in y0..y1 {
+                        for px in x0..x1 {
+                            let wx = f64::from(px) + 0.5;
+                            let wy = f64::from(py) + 0.5;
+                            let ca = clip_alpha_at(&item.clip_ids, deferred_clips, wx, wy);
+                            if ca <= 0.0 {
+                                continue;
+                            }
+                            let lx = inv[0] * wx + inv[2] * wy + inv[4];
+                            let ly = inv[1] * wx + inv[3] * wy + inv[5];
+                            let idx = (py as usize * width as usize + px as usize) * 4;
+                            if has_fill
+                                && crate::hit_test_path(
+                                    commands,
+                                    *fill_rule,
+                                    [lx, ly],
+                                    true,
+                                    0.0,
+                                    Default::default(),
+                                )
+                                .unwrap_or(false)
+                            {
+                                let color = if let Some(grad) = fill_gradient {
+                                    grad.sample(lx, ly)
+                                } else if let Some(bp) = fill_bitmap {
+                                    sample_bitmap_paint(bp, lx, ly)
+                                } else {
+                                    *fill
+                                };
+                                paint_over_pixel(&mut buf[idx..idx + 4], color, ca);
+                            }
+                            if has_stroke {
+                                let slx =
+                                    inv[0] * (wx - hint_dx) + inv[2] * (wy - hint_dy) + inv[4];
+                                let sly =
+                                    inv[1] * (wx - hint_dx) + inv[3] * (wy - hint_dy) + inv[5];
+                                if hit_test_styled_stroke(
+                                    commands,
+                                    [slx, sly],
+                                    eff_local_w,
+                                    *stroke_caps,
+                                    *stroke_joints,
+                                    *stroke_miter_limit,
+                                ) {
+                                    let color = if let Some(grad) = stroke_gradient {
+                                        grad.sample(slx, sly)
+                                    } else if let Some(bp) = stroke_bitmap {
+                                        sample_bitmap_paint(bp, slx, sly)
+                                    } else {
+                                        *stroke
+                                    };
+                                    paint_over_pixel(&mut buf[idx..idx + 4], color, ca);
+                                }
+                            }
+                        }
+                    }
+                }
+                RuntimeDrawKind::BitmapPixels {
+                    pixel_ref,
+                    width: bw,
+                    height: bh,
+                    color_transform,
+                    ..
+                } => {
+                    let Ok(bytes) = self.bitmap_pixels(pixel_ref) else {
+                        return;
+                    };
+                    if *bw == 0 || *bh == 0 {
+                        return;
+                    }
+                    let (x0, y0, x1, y1) =
+                        world_bbox(m, 0.0, 0.0, f64::from(*bw), f64::from(*bh), 2.0);
+                    for py in y0..y1 {
+                        for px in x0..x1 {
+                            let wx = f64::from(px) + 0.5;
+                            let wy = f64::from(py) + 0.5;
+                            let ca = clip_alpha_at(&item.clip_ids, deferred_clips, wx, wy);
+                            if ca <= 0.0 {
+                                continue;
+                            }
+                            let lx = inv[0] * wx + inv[2] * wy + inv[4];
+                            let ly = inv[1] * wx + inv[3] * wy + inv[5];
+                            if lx >= 0.0 && ly >= 0.0 && lx < f64::from(*bw) && ly < f64::from(*bh)
+                            {
+                                let ix = (lx.floor() as u32).min(*bw - 1) as usize;
+                                let iy = (ly.floor() as u32).min(*bh - 1) as usize;
+                                let bi = (iy * *bw as usize + ix) * 4;
+                                if let Some(src) = bytes.get(bi..bi + 4) {
+                                    let c = color_transform.apply([src[0], src[1], src[2], src[3]]);
+                                    let idx = (py as usize * width as usize + px as usize) * 4;
+                                    paint_over_pixel(&mut buf[idx..idx + 4], c, ca);
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        };
+
+        let pixel_len = width as usize * height as usize * 4;
+        if snapshot.filter_groups.is_empty() {
+            let mut root_buf = vec![0u8; pixel_len];
+            for item in &snapshot.draws {
+                paint_item(&mut root_buf, item, &[]);
+            }
+            let mut out = Vec::with_capacity(pixel_len);
+            for p in root_buf.as_chunks::<4>().0 {
+                out.extend_from_slice(&straight(p));
+            }
+            return Ok(out);
+        }
+
+        #[derive(Clone)]
+        enum Entry {
+            Item(usize),
+            Group(usize),
+        }
+        struct GroupNode {
+            id: Option<String>,
+            parent_id: Option<String>,
+            filters: Vec<FilterSpec>,
+            clip_ids: Vec<String>,
+            composite_operation: String,
+            opaque_background: Option<[u8; 4]>,
+            entries: Vec<Entry>,
+        }
+
+        let mut nodes = vec![GroupNode {
+            id: None,
+            parent_id: None,
+            filters: vec![],
+            clip_ids: vec![],
+            composite_operation: "source-over".into(),
+            opaque_background: None,
+            entries: vec![],
+        }];
+        let mut id_to_idx: HashMap<String, usize> = HashMap::new();
+        for g in &snapshot.filter_groups {
+            let idx = nodes.len();
+            id_to_idx.insert(g.id.clone(), idx);
+            nodes.push(GroupNode {
+                id: Some(g.id.clone()),
+                parent_id: g.parent_id.clone(),
+                filters: g.filters.clone(),
+                clip_ids: g.clip_ids.clone(),
+                composite_operation: g.composite_operation.clone(),
+                opaque_background: g.opaque_background,
+                entries: vec![],
+            });
+        }
+        let ancestry = |nodes: &[GroupNode], filter_id: Option<&String>| -> Vec<usize> {
+            let Some(fid) = filter_id else {
+                return vec![];
+            };
+            let mut chain = Vec::new();
+            let mut cur = id_to_idx.get(fid).copied();
+            while let Some(idx) = cur {
+                if chain.contains(&idx) || chain.len() >= 64 {
+                    break;
+                }
+                chain.insert(0, idx);
+                cur = nodes[idx]
+                    .parent_id
+                    .as_ref()
+                    .and_then(|pid| id_to_idx.get(pid).copied());
+            }
+            chain
+        };
+        let mut previous: Vec<usize> = Vec::new();
+        for (item_idx, item) in snapshot.draws.iter().enumerate() {
+            let chain = ancestry(&nodes, item.filter_id.as_ref());
+            let mut common = 0;
+            while common < previous.len()
+                && common < chain.len()
+                && previous[common] == chain[common]
+            {
+                common += 1;
+            }
+            for at in common..chain.len() {
+                let g_idx = chain[at];
+                let parent_idx = if at == 0 { 0 } else { chain[at - 1] };
+                nodes[parent_idx].entries.push(Entry::Group(g_idx));
+            }
+            let target_idx = chain.last().copied().unwrap_or(0);
+            nodes[target_idx].entries.push(Entry::Item(item_idx));
+            previous = chain;
+        }
+
+        type PaintItemFn<'a> = dyn Fn(&mut [u8], &RuntimeDrawItem, &[String]) + 'a;
+        type ClipAlphaFn<'a> = dyn Fn(&[String], &[String], f64, f64) -> f64 + 'a;
+
+        struct RenderNodeCtx<'a> {
+            nodes: &'a [GroupNode],
+            draws: &'a [RuntimeDrawItem],
+            width: u32,
+            height: u32,
+            player: &'a crate::Player,
+            paint_item: &'a PaintItemFn<'a>,
+            clip_alpha_at: &'a ClipAlphaFn<'a>,
+        }
+
+        fn render_node(node_idx: usize, ctx: &RenderNodeCtx<'_>) -> Result<Vec<u8>, BitmapError> {
+            let pixel_len = ctx.width as usize * ctx.height as usize * 4;
+            let node = &ctx.nodes[node_idx];
+            let mut buf = vec![0u8; pixel_len];
+            if let Some(bg) = node.opaque_background {
+                let p = premul(u32::from_be_bytes([bg[3], bg[0], bg[1], bg[2]]), true);
+                for px in buf.as_chunks_mut::<4>().0 {
+                    px.copy_from_slice(&p);
+                }
+            }
+            for entry in &node.entries {
+                match entry {
+                    Entry::Item(i) => (ctx.paint_item)(&mut buf, &ctx.draws[*i], &node.clip_ids),
+                    Entry::Group(child_idx) => {
+                        let child_buf = render_node(*child_idx, ctx)?;
+                        let child = &ctx.nodes[*child_idx];
+                        let mode = operation_to_blend_mode(&child.composite_operation);
+                        for py in 0..ctx.height {
+                            for px in 0..ctx.width {
+                                let i = (py as usize * ctx.width as usize + px as usize) * 4;
+                                let ca = (ctx.clip_alpha_at)(
+                                    &child.clip_ids,
+                                    &node.clip_ids,
+                                    f64::from(px) + 0.5,
+                                    f64::from(py) + 0.5,
+                                );
+                                let s_straight = straight(&child_buf[i..i + 4]);
+                                let sa = (f64::from(s_straight[3]) * ca.clamp(0.0, 1.0))
+                                    .round()
+                                    .clamp(0.0, 255.0)
+                                    as u8;
+                                let s_raw = [s_straight[0], s_straight[1], s_straight[2], sa];
+                                let sp = premul(
+                                    u32::from_be_bytes([sa, s_raw[0], s_raw[1], s_raw[2]]),
+                                    true,
+                                );
+                                blend_pixel(&mut buf[i..i + 4], sp, &s_raw, mode, true);
+                            }
+                        }
+                    }
+                }
+            }
+            if node.id.is_some() && !node.filters.is_empty() {
+                let mut straight_in = Vec::with_capacity(pixel_len);
+                for p in buf.as_chunks::<4>().0 {
+                    straight_in.extend_from_slice(&straight(p));
+                }
+                let filtered = ctx
+                    .player
+                    .filter_rgba(ctx.width, ctx.height, &straight_in, &node.filters)
+                    .map_err(|e| BitmapError(e.to_string()))?;
+                for (dst, src) in buf
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .zip(filtered.as_chunks::<4>().0)
+                {
+                    dst.copy_from_slice(&premul(
+                        u32::from_be_bytes([src[3], src[0], src[1], src[2]]),
+                        true,
+                    ));
+                }
+            }
+            Ok(buf)
+        }
+
+        let render_ctx = RenderNodeCtx {
+            nodes: &nodes,
+            draws: &snapshot.draws,
+            width,
+            height,
+            player: self,
+            paint_item: &paint_item,
+            clip_alpha_at: &clip_alpha_at,
+        };
+        let root_buf = render_node(0, &render_ctx)?;
+        let mut out = Vec::with_capacity(pixel_len);
+        for p in root_buf.as_chunks::<4>().0 {
+            out.extend_from_slice(&straight(p));
+        }
+        Ok(out)
     }
 }

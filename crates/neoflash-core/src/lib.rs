@@ -202,7 +202,8 @@ pub use runtime_graph::{
 };
 pub use runtime_graphics::{
     BitmapFillSpec, BitmapPaint, GradientKind, GradientPaint, GradientSpec, GradientSpread,
-    GradientStop, GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS,
+    GradientStop, GraphicsOp, LineCaps, LineJoints, LineScaleMode, MAX_GRAPHICS_COMMANDS,
+    MAX_GRAPHICS_OPS, default_miter_limit, hit_test_styled_stroke, is_default_miter_limit,
 };
 pub use runtime_lifecycle::{
     LifecyclePhase, LifecycleStep, MAX_LIFECYCLE_DEPTH, MAX_LIFECYCLE_STEPS,

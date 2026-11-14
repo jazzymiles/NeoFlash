@@ -190,7 +190,7 @@
           if(record.key!==null&&node.cache_as_bitmap!==false){record.surface=surface;surface.owner=node.id;}return surface;
         }finally{surface.busy=false;if(!success)this.discard(surface);}
       };
-      const entries=(target,node)=>{for(const entry of node.entries){if(entry.item)paint(target,entry.item,node.clip_ids);else{const child=entry.group,surface=raster(child);if(surface)composite(target,surface.canvas,child.bounds,child.clip_ids.filter(id=>!node.clip_ids.includes(id)),child.composite_operation||'source-over');}}};
+      const entries=(target,node)=>{for(const entry of node.entries){if(entry.item)paint(target,entry.item,node.clip_ids);else{const child=entry.group,surface=raster(child),op=child.composite_operation||'source-over';if(surface)composite(target,surface.canvas,child.bounds,child.clip_ids.filter(id=>!node.clip_ids.includes(id)),op);else if(op==='destination-in'){target.save();try{target.setTransform(1,0,0,1,0,0);target.clearRect(0,0,target.canvas.width,target.canvas.height);}finally{target.restore();}}}}};
       entries(context,root);
     }
     coverage(bounds,draw){

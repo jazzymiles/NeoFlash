@@ -143,6 +143,11 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
                     width: Some(2.),
                     color: 0x112233,
                     alpha: 1.,
+                    pixel_hinting: false,
+                    scale_mode: Default::default(),
+                    caps: Default::default(),
+                    joints: Default::default(),
+                    miter_limit: 3.0,
                 },
                 GraphicsOp::CurveTo {
                     cx: 180.,
@@ -1160,6 +1165,11 @@ fn clipping_tracks_geometry_coordinates_and_lifetimes(mut project: Project) {
                     width: Some(10.),
                     color: 0xffffff,
                     alpha: 1.,
+                    pixel_hinting: false,
+                    scale_mode: Default::default(),
+                    caps: Default::default(),
+                    joints: Default::default(),
+                    miter_limit: 3.0,
                 },
                 GraphicsOp::DrawRect {
                     x: 160.,
@@ -1380,6 +1390,11 @@ fn gradient_geometry_remains_shared_and_atomic(project: Project) {
                     width: Some(6.),
                     color: 0x123456,
                     alpha: 1.,
+                    pixel_hinting: false,
+                    scale_mode: Default::default(),
+                    caps: Default::default(),
+                    joints: Default::default(),
+                    miter_limit: 3.0,
                 },
                 GraphicsOp::DrawRoundRect {
                     x: 0.,
@@ -1587,6 +1602,11 @@ fn affine_color_views_follow_the_display_lifecycle(mut project: Project) {
                     width: Some(2.),
                     color: 0xffffff,
                     alpha: 1.,
+                    pixel_hinting: false,
+                    scale_mode: Default::default(),
+                    caps: Default::default(),
+                    joints: Default::default(),
+                    miter_limit: 3.0,
                 },
                 GraphicsOp::DrawRect {
                     x: 0.,
@@ -2574,4 +2594,397 @@ fn image_loading_owns_content_and_replaces_timelines(mut project: Project) {
     player.reset(&project);
     assert!(!player.object_alive(&loader));
     assert!(player.bitmap_info(&first).is_err());
+}
+
+#[test]
+fn t304_native_buttons_strokes_gradients_and_blends() {
+    let mut project = Project::blank();
+
+    // Add a 4-frame authored button symbol with a transition sound on frame 1 (Over).
+    let mut btn_symbol = project.symbols[0].clone();
+    btn_symbol.id = "authored-btn".into();
+    btn_symbol.name = "AuthoredBtn".into();
+    btn_symbol.kind = SymbolKind::Button;
+    btn_symbol.timeline.layers[0].id = "authored-btn-layer".into();
+    btn_symbol.timeline.frame_count = 4;
+    let rect_elem = |id: &str, color: [u8; 4], w: f64, h: f64| Element {
+        id: id.into(),
+        name: String::new(),
+        transform: Transform::default(),
+        scripts: vec![],
+        accessibility: None,
+        kind: ElementKind::Rectangle {
+            width: w,
+            height: h,
+            fill: color,
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        ..Element::default()
+    };
+    btn_symbol.timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            elements: vec![rect_elem("b-up", [0, 0, 255, 255], 20.0, 20.0)],
+            ..Default::default()
+        },
+        Keyframe {
+            frame: 1,
+            elements: vec![rect_elem("b-over", [0, 255, 0, 255], 20.0, 20.0)],
+            sound: Some(FrameSound {
+                resource: "click-snd".into(),
+                sync: SoundSync::Event,
+                loops: 1,
+                loop_forever: false,
+                effect: SoundEffect::None,
+                envelope: None,
+                in_point: None,
+                out_point: None,
+            }),
+            ..Default::default()
+        },
+        Keyframe {
+            frame: 2,
+            elements: vec![rect_elem("b-down", [255, 0, 0, 255], 20.0, 20.0)],
+            ..Default::default()
+        },
+        Keyframe {
+            frame: 3,
+            elements: vec![rect_elem("b-hit", [255, 255, 255, 255], 30.0, 20.0)],
+            ..Default::default()
+        },
+    ];
+    project.symbols.push(btn_symbol);
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "placed-btn".into(),
+            name: "authoredBtn".into(),
+            transform: Transform {
+                x: 10.0,
+                y: 10.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: "authored-btn".into(),
+                playback: InstancePlayback::Independent,
+            },
+            ..Element::default()
+        });
+
+    let mut player = Player::new(&project);
+    let _ = player.drain_sound_commands();
+    let root = player.object_ref(&[]).unwrap();
+    let authored_btn = player.object_ref(&["placed-btn".into()]).unwrap();
+
+    // 1a. Authored button hitTestState (30x20 at 10,10 -> hits x=35,y=15 even though visual Up is 20x20),
+    // soundTransform scaling on state transition, and lazy slot materialization + override.
+    assert_eq!(
+        player.hit_test_snapshot_point(&project, 35.0, 15.0),
+        Some(authored_btn.clone())
+    );
+    assert_eq!(
+        player
+            .object_button_sound_transform(&project, &authored_btn)
+            .unwrap(),
+        [1.0, 0.0]
+    );
+    player
+        .object_set_button_sound_transform(&project, &authored_btn, 0.5, -1.0)
+        .unwrap();
+    assert_eq!(
+        player
+            .object_button_sound_transform(&project, &authored_btn)
+            .unwrap(),
+        [0.5, -1.0]
+    );
+    assert!(player.object_button_state(&project, &authored_btn, 1));
+    let sounds = player.drain_sound_commands();
+    assert_eq!(sounds.len(), 1);
+    if let SoundCommand::Play { envelope, .. } = &sounds[0] {
+        // volume=0.5, pan=-1.0 => full left (0.5), zero right (0.0)
+        assert!((envelope[0][1] - 0.5).abs() < 1e-6);
+        assert!(envelope[0][2].abs() < 1e-6);
+    } else {
+        panic!("expected Play command for button Over sound");
+    }
+    let up_mat = player
+        .object_button_slot(&project, &authored_btn, 0)
+        .unwrap()
+        .expect("materialized authored upState");
+    assert!(player.object_alive(&up_mat));
+
+    // 1b. Dynamic SimpleButton: live visual switching, shared slot DisplayObject, and null hitTestState.
+    let dyn_btn = player.create_display(DynamicKind::Button).unwrap();
+    player.object_set_property(&dyn_btn, "x", 60.0);
+    player.object_set_property(&dyn_btn, "y", 10.0);
+    add(&mut player, &project, &root, &dyn_btn);
+
+    let make_box = |player: &mut Player, color: u32, w: f64, h: f64| {
+        let sh = player.create_display(DynamicKind::Shape).unwrap();
+        player
+            .graphics_apply(
+                &sh,
+                &[
+                    GraphicsOp::BeginFill { color, alpha: 1.0 },
+                    GraphicsOp::DrawRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: w,
+                        height: h,
+                    },
+                    GraphicsOp::EndFill,
+                ],
+            )
+            .unwrap();
+        sh
+    };
+    let up_sh = make_box(&mut player, 0x1122cc, 16.0, 16.0);
+    let over_down_shared = make_box(&mut player, 0xee8800, 16.0, 16.0);
+    let hit_sh = make_box(&mut player, 0xffffff, 24.0, 16.0);
+    player
+        .object_set_button_slot(&project, &dyn_btn, 0, Some(up_sh.clone()))
+        .unwrap();
+    player
+        .object_set_button_slot(&project, &dyn_btn, 1, Some(over_down_shared.clone()))
+        .unwrap();
+    player
+        .object_set_button_slot(&project, &dyn_btn, 2, Some(over_down_shared.clone()))
+        .unwrap();
+    player
+        .object_set_button_slot(&project, &dyn_btn, 3, Some(hit_sh.clone()))
+        .unwrap();
+    // Sharing over_down_shared across slots 1 and 2 preserves both slots on the same button!
+    assert_eq!(
+        player.object_button_slot(&project, &dyn_btn, 1).unwrap(),
+        Some(over_down_shared.clone())
+    );
+    assert_eq!(
+        player.object_button_slot(&project, &dyn_btn, 2).unwrap(),
+        Some(over_down_shared.clone())
+    );
+    assert_eq!(
+        player.hit_test_snapshot_point(&project, 80.0, 18.0),
+        Some(dyn_btn.clone()),
+        "hitTestState (24px wide) hits outside 16px visual upState"
+    );
+
+    let px_at = |rgba: &[u8], w: u32, x: u32, y: u32| -> [u8; 4] {
+        let i = ((y * w + x) * 4) as usize;
+        [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+    };
+    let img0 = player.render_snapshot_rgba(&project, 200, 160).unwrap();
+    assert_eq!(px_at(&img0, 200, 68, 18), [0x11, 0x22, 0xcc, 255]);
+
+    player.object_button_state(&project, &dyn_btn, 1);
+    let img1 = player.render_snapshot_rgba(&project, 200, 160).unwrap();
+    assert_eq!(px_at(&img1, 200, 68, 18), [0xee, 0x88, 0x00, 255]);
+
+    // Nulling hitTestState makes the button never hit.
+    player
+        .object_set_button_slot(&project, &dyn_btn, 3, None)
+        .unwrap();
+    assert_eq!(player.hit_test_snapshot_point(&project, 68.0, 18.0), None);
+
+    // 2. Styled strokes: hairline (thickness == 0) under 4x scale stays 1px, scaleMode None,
+    // caps Square vs None, joints Miter vs Bevel, and pixelHinting crisp 1-row alignment.
+    let stroke_holder = player.create_display(DynamicKind::Sprite).unwrap();
+    assert!(player.object_set_property(&stroke_holder, "x", 10.0));
+    assert!(player.object_set_property(&stroke_holder, "y", 40.0));
+    assert!(player.object_set_property(&stroke_holder, "scale_x", 4.0));
+    assert!(player.object_set_property(&stroke_holder, "scale_y", 4.0));
+    add(&mut player, &project, &root, &stroke_holder);
+
+    let hairline_sh = player.create_display(DynamicKind::Shape).unwrap();
+    player
+        .graphics_apply(
+            &hairline_sh,
+            &[
+                GraphicsOp::LineStyle {
+                    width: Some(0.0),
+                    color: 0xff0000,
+                    alpha: 1.0,
+                    pixel_hinting: true,
+                    scale_mode: LineScaleMode::Normal,
+                    caps: LineCaps::None,
+                    joints: LineJoints::Miter,
+                    miter_limit: 3.0,
+                },
+                GraphicsOp::MoveTo { x: 0.0, y: 2.0 },
+                GraphicsOp::LineTo { x: 10.0, y: 2.0 },
+            ],
+        )
+        .unwrap();
+    add(&mut player, &project, &stroke_holder, &hairline_sh);
+
+    let img_stroke = player.render_snapshot_rgba(&project, 200, 160).unwrap();
+    // World y = 40 + 4*2 = 48. With hairline + pixelHinting, row 48 is hit and rows 46 & 50 are clear!
+    assert_eq!(px_at(&img_stroke, 200, 25, 48), [255, 0, 0, 255]);
+    assert_eq!(px_at(&img_stroke, 200, 25, 46)[3], 0);
+    assert_eq!(px_at(&img_stroke, 200, 25, 50)[3], 0);
+
+    // 3. Gradients: Reflect, Repeat, and linearRGB vs sRGB midpoint in native rasterizer.
+    let grad_sh = player.create_display(DynamicKind::Shape).unwrap();
+    player.object_set_property(&grad_sh, "x", 10.0);
+    player.object_set_property(&grad_sh, "y", 60.0);
+    // Gradient box spanning x=0..20 (matrix scale a = 20 / 1638.4, tx = 10), drawn across 0..60 to test Repeat/Reflect.
+    let box_a = 20.0 / 1638.4;
+    let box_d = 20.0 / 1638.4;
+    player
+        .graphics_apply(
+            &grad_sh,
+            &[
+                GraphicsOp::BeginGradientFill {
+                    gradient: GradientSpec {
+                        kind: GradientKind::Linear,
+                        colors: vec![0xff0000, 0x0000ff],
+                        alphas: vec![1.0, 1.0],
+                        ratios: vec![0.0, 255.0],
+                        matrix: [box_a, 0.0, 0.0, box_d, 10.0, 10.0],
+                        spread_method: "reflect".into(),
+                        interpolation_method: "linearRGB".into(),
+                        focal_point_ratio: 0.0,
+                    },
+                },
+                GraphicsOp::DrawRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 60.0,
+                    height: 16.0,
+                },
+                GraphicsOp::EndFill,
+            ],
+        )
+        .unwrap();
+    add(&mut player, &project, &root, &grad_sh);
+    let img_grad = player.render_snapshot_rgba(&project, 200, 160).unwrap();
+    // At world x = 20 (local x = 10, t = 0.5), linearRGB midpoint of red+blue is bright magenta (~188, 0, 188).
+    let mid_px = px_at(&img_grad, 200, 20, 68);
+    assert!(mid_px[0] >= 180 && mid_px[2] >= 180 && mid_px[1] == 0);
+    // At local x = 19.5 (world x = 29, near t = 1.0) it is mostly blue; with Reflect, at local x = 39.5 (world x = 49, near t = 2.0 -> reflected to 0.0) it is red again!
+    let near_1 = px_at(&img_grad, 200, 29, 68);
+    let near_2 = px_at(&img_grad, 200, 49, 68);
+    assert!(near_1[2] > 200 && near_1[0] < 80);
+    assert!(near_2[0] > 200 && near_2[2] < 80);
+
+    // 4. Blend modes: Layer + Alpha masking, Erase, Subtract, Invert, and AS2 numeric codes 9..=12.
+    let backdrop = make_box(&mut player, 0xc86432, 120.0, 50.0); // RGB(200, 100, 50)
+    player.object_set_property(&backdrop, "x", 10.0);
+    player.object_set_property(&backdrop, "y", 90.0);
+    add(&mut player, &project, &root, &backdrop);
+
+    // Subtract child (AS2 numeric code 9 on a MovieClip): RGB(50, 120, 10) -> result RGB(150, 0, 40)
+    let sub_mc = player.create_display(DynamicKind::MovieClip).unwrap();
+    player.object_set_property(&sub_mc, "x", 10.0);
+    player.object_set_property(&sub_mc, "y", 90.0);
+    player
+        .graphics_apply(
+            &sub_mc,
+            &[
+                GraphicsOp::BeginFill {
+                    color: 0x32780a,
+                    alpha: 1.0,
+                },
+                GraphicsOp::DrawRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 20.0,
+                    height: 20.0,
+                },
+                GraphicsOp::EndFill,
+            ],
+        )
+        .unwrap();
+    add(&mut player, &project, &root, &sub_mc);
+    let sub_res = player
+        .as2_render_command(
+            &project,
+            &sub_mc,
+            serde_json::json!({"op":"set","name":"blendMode","value":9}),
+        )
+        .unwrap();
+    assert_eq!(sub_res["blendMode"], "subtract");
+
+    // Invert child (AS2 numeric code 10): inverts RGB(200, 100, 50) -> RGB(55, 155, 205) regardless of source RGB!
+    let inv_mc = player.create_display(DynamicKind::MovieClip).unwrap();
+    player.object_set_property(&inv_mc, "x", 35.0);
+    player.object_set_property(&inv_mc, "y", 90.0);
+    player
+        .graphics_apply(
+            &inv_mc,
+            &[
+                GraphicsOp::BeginFill {
+                    color: 0x123456,
+                    alpha: 1.0,
+                },
+                GraphicsOp::DrawRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 20.0,
+                    height: 20.0,
+                },
+                GraphicsOp::EndFill,
+            ],
+        )
+        .unwrap();
+    add(&mut player, &project, &root, &inv_mc);
+    let inv_res = player
+        .as2_render_command(
+            &project,
+            &inv_mc,
+            serde_json::json!({"op":"set","name":"blendMode","value":10}),
+        )
+        .unwrap();
+    assert_eq!(inv_res["blendMode"], "invert");
+
+    // Layer parent + Alpha mask + Erase punch-out!
+    let layer_sp = player.create_display(DynamicKind::Sprite).unwrap();
+    player.object_set_property(&layer_sp, "x", 65.0);
+    player.object_set_property(&layer_sp, "y", 90.0);
+    add(&mut player, &project, &root, &layer_sp);
+    player
+        .as2_render_command(
+            &project,
+            &layer_sp,
+            serde_json::json!({"op":"set","as3":true,"name":"blendMode","value":"layer"}),
+        )
+        .unwrap();
+
+    let layer_fill = make_box(&mut player, 0x00ff00, 30.0, 30.0);
+    add(&mut player, &project, &layer_sp, &layer_fill);
+
+    // Alpha mask covers only left half 0..15 of layer_sp (so x=15..30 inside layer_sp is masked out to reveal backdrop!)
+    let alpha_mask = make_box(&mut player, 0xffffff, 15.0, 30.0);
+    add(&mut player, &project, &layer_sp, &alpha_mask);
+    player
+        .as2_render_command(
+            &project,
+            &alpha_mask,
+            serde_json::json!({"op":"set","as3":true,"name":"blendMode","value":"alpha"}),
+        )
+        .unwrap();
+
+    // Erase child punches a hole at 0..8, 0..8 inside layer_sp!
+    let erase_hole = make_box(&mut player, 0xffffff, 8.0, 8.0);
+    add(&mut player, &project, &layer_sp, &erase_hole);
+    player
+        .as2_render_command(
+            &project,
+            &erase_hole,
+            serde_json::json!({"op":"set","as3":true,"name":"blendMode","value":"erase"}),
+        )
+        .unwrap();
+
+    let img_blend = player.render_snapshot_rgba(&project, 200, 160).unwrap();
+    // Subtract at (15, 95): [150, 0, 40, 255]
+    assert_eq!(px_at(&img_blend, 200, 15, 95), [150, 0, 40, 255]);
+    // Invert at (40, 95): [55, 155, 205, 255]
+    assert_eq!(px_at(&img_blend, 200, 40, 95), [55, 155, 205, 255]);
+    // Layer + Alpha + Erase:
+    // - Inside erased corner (68, 93): punched through Layer, revealing backdrop [200, 100, 50, 255]
+    assert_eq!(px_at(&img_blend, 200, 68, 93), [200, 100, 50, 255]);
+    // - Inside alpha mask outside erase (75, 105): green Layer fill [0, 255, 0, 255]
+    assert_eq!(px_at(&img_blend, 200, 75, 105), [0, 255, 0, 255]);
+    // - Outside alpha mask (85, 105): masked out by Alpha, revealing backdrop [200, 100, 50, 255]
+    assert_eq!(px_at(&img_blend, 200, 85, 105), [200, 100, 50, 255]);
 }

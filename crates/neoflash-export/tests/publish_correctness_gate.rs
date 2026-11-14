@@ -1,8 +1,10 @@
 use image::{ExtendedColorType, ImageEncoder};
 use neoflash_core::{
-    Color, Element, ElementKind, FillRule, FrameScript, InstancePlayback, Keyframe, Layer,
-    LayerProperties, ObjectEvent, ObjectScript, PathCommand, Project, ResourceUnit, Script,
-    ScriptLanguage, SourceUnit, Symbol, SymbolKind, Timeline, Transform,
+    Color, DisplayMutation, DynamicKind, Element, ElementKind, FillRule, FrameScript, FrameSound,
+    GradientKind, GradientSpec, GraphicsOp, InstancePlayback, Keyframe, Layer, LayerProperties,
+    LineCaps, LineJoints, LineScaleMode, ObjectEvent, ObjectScript, PathCommand, Player, Project,
+    ResourceUnit, Script, ScriptLanguage, SoundCommand, SoundSync, SourceUnit, Symbol, SymbolKind,
+    Timeline, Transform,
 };
 use neoflash_export::{
     AudioExportPolicy, ExportError, FontExportPolicy, HtmlPublishConfig, PublishOptions,
@@ -1658,6 +1660,338 @@ fn build_focus_as3_clean_chrome() -> CaseSpec {
     }
 }
 
+fn minimal_wav_bytes() -> Vec<u8> {
+    let samples: u32 = 64;
+    let data_len: u32 = samples * 2;
+    let mut b = Vec::with_capacity(44 + data_len as usize);
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + data_len).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&8000u32.to_le_bytes());
+    b.extend_from_slice(&16000u32.to_le_bytes());
+    b.extend_from_slice(&2u16.to_le_bytes());
+    b.extend_from_slice(&16u16.to_le_bytes());
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&data_len.to_le_bytes());
+    b.resize(44 + data_len as usize, 0);
+    b
+}
+
+fn fill_rect_el(id: &str, name: &str, x: f64, y: f64, w: f64, h: f64, fill: Color) -> Element {
+    Element {
+        id: id.into(),
+        name: name.into(),
+        transform: tf(x, y),
+        kind: ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo { x: w, y: 0.0 },
+                PathCommand::LineTo { x: w, y: h },
+                PathCommand::LineTo { x: 0.0, y: h },
+                PathCommand::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+            fill,
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        ..Element::default()
+    }
+}
+
+fn build_focus_t304_display_graphics() -> CaseSpec {
+    let btn_sym = Symbol {
+        id: "btn_t304".into(),
+        name: "T304Button".into(),
+        folder: String::new(),
+        kind: SymbolKind::Button,
+        timeline: Timeline {
+            frame_count: 4,
+            layers: vec![Layer {
+                id: "btn_l".into(),
+                name: "States".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        elements: vec![fill_rect_el(
+                            "btn_up",
+                            "",
+                            0.0,
+                            0.0,
+                            140.0,
+                            56.0,
+                            [59, 130, 246, 255],
+                        )],
+                        ..Keyframe::default()
+                    },
+                    Keyframe {
+                        frame: 1,
+                        elements: vec![fill_rect_el(
+                            "btn_over",
+                            "",
+                            0.0,
+                            0.0,
+                            140.0,
+                            56.0,
+                            [245, 158, 11, 255],
+                        )],
+                        sound: Some(FrameSound {
+                            sync: SoundSync::Event,
+                            ..FrameSound::new("snd_btn")
+                        }),
+                        ..Keyframe::default()
+                    },
+                    Keyframe {
+                        frame: 2,
+                        elements: vec![fill_rect_el(
+                            "btn_down",
+                            "",
+                            0.0,
+                            0.0,
+                            140.0,
+                            56.0,
+                            [239, 68, 68, 255],
+                        )],
+                        sound: Some(FrameSound {
+                            sync: SoundSync::Event,
+                            ..FrameSound::new("snd_btn")
+                        }),
+                        ..Keyframe::default()
+                    },
+                    Keyframe {
+                        frame: 3,
+                        elements: vec![fill_rect_el(
+                            "btn_hit",
+                            "",
+                            0.0,
+                            0.0,
+                            140.0,
+                            56.0,
+                            [255, 255, 255, 255],
+                        )],
+                        ..Keyframe::default()
+                    },
+                ],
+                properties: LayerProperties::default(),
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+        class_name: None,
+        linkage_id: None,
+    };
+
+    let as2_source = r#"import flash.geom.Matrix;
+stop();
+var rotMc:MovieClip = createEmptyMovieClip("as2RotMc", 10);
+rotMc.beginFill(0x3366cc, 100);
+rotMc.moveTo(0, 0); rotMc.lineTo(100, 0); rotMc.lineTo(100, 40); rotMc.lineTo(0, 40); rotMc.endFill();
+rotMc._rotation = 90;
+var mcReadOk:Boolean = Math.abs(rotMc._width - 40) < 0.01 && Math.abs(rotMc._height - 100) < 0.01;
+rotMc._width = 80; rotMc._height = 150;
+var mcSetOk:Boolean = Math.abs(rotMc._rotation - 90) < 0.01 && Math.abs(rotMc._width - 80) < 0.01 && Math.abs(rotMc._height - 150) < 0.01;
+var skewMc:MovieClip = createEmptyMovieClip("as2SkewMc", 11);
+skewMc.beginFill(0xcc6633, 100);
+skewMc.moveTo(0, 0); skewMc.lineTo(100, 0); skewMc.lineTo(100, 40); skewMc.lineTo(0, 40); skewMc.endFill();
+skewMc.transform.matrix = new Matrix(1, 0, 0.5, 1, 0, 0);
+var skewReadOk:Boolean = Math.abs(skewMc._width - 120) < 0.01 && Math.abs(skewMc._height - 40) < 0.01;
+skewMc._width = 240;
+var skewSetOk:Boolean = Math.abs(skewMc._width - 240) < 0.01 && Math.abs(skewMc.transform.matrix.c - 1.0) < 0.01;
+rotMc.removeMovieClip();
+skewMc.removeMovieClip();
+var btnRef:Button = Button(this["authoredBtn"]);
+var bw0:Number = btnRef._width; var bh0:Number = btnRef._height;
+btnRef._rotation = 90;
+var btnRotOk:Boolean = Math.abs(btnRef._width - bh0) < 0.01 && Math.abs(btnRef._height - bw0) < 0.01;
+btnRef._width = bh0 * 2;
+btnRotOk = btnRotOk && Math.abs(btnRef._rotation - 90) < 0.01 && Math.abs(btnRef._width - bh0 * 2) < 0.01;
+btnRef._rotation = 0; btnRef._xscale = 100; btnRef._yscale = 100;
+var tfRef:TextField = createTextField("as2Tf", 12, 0, 0, 120, 30);
+tfRef._rotation = 90;
+var tfRotOk:Boolean = Math.abs(tfRef._width - 30) < 0.01 && Math.abs(tfRef._height - 120) < 0.01;
+tfRef._width = 60;
+tfRotOk = tfRotOk && Math.abs(tfRef._rotation - 90) < 0.01 && Math.abs(tfRef._width - 60) < 0.01;
+tfRef.removeTextField();
+var shMc:MovieClip = createEmptyMovieClip("as2StrokeHolder", 20);
+shMc._x = 40; shMc._y = 180; shMc._xscale = 600; shMc._yscale = 600;
+var hLine:MovieClip = shMc.createEmptyMovieClip("line", 1);
+hLine.lineStyle(0, 0x22d3ee, 100, true, "none", "square", "miter", 6);
+hLine.moveTo(0, 4); hLine.lineTo(20, 4);
+var lb:Object = hLine.getBounds(hLine); var lr:Object = hLine.getRect(hLine);
+var strokeBoundsOk:Boolean = lr.yMin == 4 && lr.yMax == 4 && lb.yMin < 4 && lb.yMax > 4;
+var gradMc:MovieClip = createEmptyMovieClip("as2Grad", 21);
+gradMc._x = 40; gradMc._y = 280;
+gradMc.beginGradientFill("linear", [0xff0000, 0x00ff00], [100, 100], [0, 255], {matrixType: "box", x: 0, y: 0, w: 60, h: 40, r: 0}, "reflect", "linearRGB", 0);
+gradMc.moveTo(0, 0); gradMc.lineTo(180, 0); gradMc.lineTo(180, 40); gradMc.lineTo(0, 40); gradMc.lineTo(0, 0); gradMc.endFill();
+var blendMc:MovieClip = createEmptyMovieClip("as2Blend", 22);
+blendMc._x = 260; blendMc._y = 280;
+var bBg:MovieClip = blendMc.createEmptyMovieClip("bg", 1);
+bBg.beginFill(0xc86432, 100); bBg.moveTo(0, 0); bBg.lineTo(120, 0); bBg.lineTo(120, 60); bBg.lineTo(0, 60); bBg.endFill();
+var bSub:MovieClip = blendMc.createEmptyMovieClip("sub", 2);
+bSub.beginFill(0x32141e, 100); bSub.moveTo(0, 0); bSub.lineTo(60, 0); bSub.lineTo(60, 60); bSub.lineTo(0, 60); bSub.endFill();
+bSub.blendMode = 9;
+var bInv:MovieClip = blendMc.createEmptyMovieClip("inv", 3);
+bInv.beginFill(0xffffff, 100); bInv.moveTo(60, 0); bInv.lineTo(120, 0); bInv.lineTo(120, 60); bInv.lineTo(60, 60); bInv.endFill();
+bInv.blendMode = 10;
+var blendNameOk:Boolean = bSub.blendMode == "subtract" && bInv.blendMode == "invert";
+this["as2Ok"] = mcReadOk && mcSetOk && skewReadOk && skewSetOk && btnRotOk && tfRotOk && strokeBoundsOk && blendNameOk;
+"#;
+
+    let as3_source = r#"import flash.display.BlendMode;
+import flash.display.CapsStyle;
+import flash.display.InterpolationMethod;
+import flash.display.JointStyle;
+import flash.display.LineScaleMode;
+import flash.display.Shape;
+import flash.display.SimpleButton;
+import flash.display.SpreadMethod;
+import flash.display.Sprite;
+import flash.events.MouseEvent;
+import flash.geom.Matrix;
+import flash.geom.Rectangle;
+import flash.media.SoundTransform;
+import flash.text.TextField;
+stop();
+var authored:SimpleButton = this.getChildByName("authoredBtn") as SimpleButton;
+var authSlotsOk:Boolean = authored != null && authored.upState != null && authored.overState != null && authored.downState != null && authored.hitTestState != null;
+var st:SoundTransform = new SoundTransform(0.5, -0.5);
+authored.soundTransform = st;
+st.volume = 1.0;
+var stOk:Boolean = Math.abs(authored.soundTransform.volume - 0.5) < 0.001 && Math.abs(authored.soundTransform.pan + 0.5) < 0.001;
+var upS:Shape = new Shape(); upS.graphics.beginFill(0x22c55e, 1); upS.graphics.drawRect(0, 0, 120, 60); upS.graphics.endFill();
+var overS:Shape = new Shape(); overS.graphics.beginFill(0xf59e0b, 1); overS.graphics.drawRect(0, 0, 120, 60); overS.graphics.endFill();
+var downS:Shape = new Shape(); downS.graphics.beginFill(0xef4444, 1); downS.graphics.drawRect(0, 0, 120, 60); downS.graphics.endFill();
+var hitS:Shape = new Shape(); hitS.graphics.beginFill(0xffffff, 1); hitS.graphics.drawRect(10, 5, 100, 50); hitS.graphics.endFill();
+var dynBtn:SimpleButton = new SimpleButton(upS, overS, downS, hitS);
+dynBtn.x = 240; dynBtn.y = 40;
+dynBtn.trackAsMenu = true;
+dynBtn.soundTransform = new SoundTransform(0.4, 0.25);
+addChild(dynBtn);
+var clicks:int = 0;
+dynBtn.addEventListener(MouseEvent.CLICK, function(e:MouseEvent):void {
+  clicks += 1;
+  var nextOver:Shape = new Shape();
+  nextOver.graphics.beginFill(0x38bdf8, 1);
+  nextOver.graphics.drawRect(0, 0, 120, 60);
+  nextOver.graphics.endFill();
+  dynBtn.overState = nextOver;
+  trace("[T304-CLICK] dynBtn clicks=" + clicks);
+});
+var btnHitMissOk:Boolean = !dynBtn.hitTestPoint(242, 42, true) && dynBtn.hitTestPoint(290, 65, true) && dynBtn.trackAsMenu === true;
+var zeroSp:Sprite = new Sprite(); zeroSp.rotation = 30; zeroSp.width = 50;
+var zeroOk:Boolean = zeroSp.scaleX == 0 && zeroSp.scaleY == 0;
+var rotSp:Sprite = new Sprite(); rotSp.graphics.beginFill(0x4488cc, 1); rotSp.graphics.drawRect(0, 0, 100, 40); rotSp.graphics.endFill();
+rotSp.rotation = 90;
+var spRotOk:Boolean = Math.abs(rotSp.width - 40) < 0.01 && Math.abs(rotSp.height - 100) < 0.01;
+rotSp.width = 80; rotSp.height = 150;
+spRotOk = spRotOk && Math.abs(rotSp.rotation - 90) < 0.01 && Math.abs(rotSp.width - 80) < 0.01 && Math.abs(rotSp.height - 150) < 0.01;
+var skewSp:Sprite = new Sprite(); skewSp.graphics.beginFill(0xcc8844, 1); skewSp.graphics.drawRect(0, 0, 100, 40); skewSp.graphics.endFill();
+skewSp.transform.matrix = new Matrix(1, 0, 0.5, 1, 0, 0);
+var spSkewOk:Boolean = Math.abs(skewSp.width - 120) < 0.01 && Math.abs(skewSp.height - 40) < 0.01;
+skewSp.width = 240;
+spSkewOk = spSkewOk && Math.abs(skewSp.width - 240) < 0.01 && Math.abs(skewSp.transform.matrix.c - 1.0) < 0.01;
+var tf3:TextField = new TextField(); tf3.width = 120; tf3.height = 30; tf3.rotation = 90;
+var tf3Ok:Boolean = Math.abs(tf3.width - 30) < 0.01 && Math.abs(tf3.height - 120) < 0.01;
+tf3.width = 60;
+tf3Ok = tf3Ok && Math.abs(tf3.rotation - 90) < 0.01 && Math.abs(tf3.width - 60) < 0.01;
+var strokeHolder:Sprite = new Sprite();
+strokeHolder.x = 220; strokeHolder.y = 180; strokeHolder.scaleX = 6; strokeHolder.scaleY = 6;
+addChild(strokeHolder);
+var hair:Shape = new Shape();
+hair.graphics.lineStyle(0, 0xff3366, 1, true, LineScaleMode.NONE, CapsStyle.SQUARE, JointStyle.MITER, 6);
+hair.graphics.moveTo(0, 4); hair.graphics.lineTo(20, 4);
+strokeHolder.addChild(hair);
+var normStroke:Shape = new Shape();
+normStroke.graphics.lineStyle(2, 0xff3366, 1, false, LineScaleMode.NORMAL, CapsStyle.ROUND, JointStyle.ROUND, 3);
+normStroke.graphics.moveTo(25, 4); normStroke.graphics.lineTo(45, 4);
+strokeHolder.addChild(normStroke);
+var hb:Rectangle = hair.getBounds(hair); var hr:Rectangle = hair.getRect(hair);
+var hairBoundsOk:Boolean = hr.height == 0 && hb.height > 0;
+var repGrad:Shape = new Shape(); repGrad.x = 40; repGrad.y = 360;
+var gm:Matrix = new Matrix(); gm.createGradientBox(60, 40, 0, 0, 0);
+repGrad.graphics.beginGradientFill("linear", [0x0000ff, 0xffff00], [1, 1], [0, 255], gm, SpreadMethod.REPEAT, InterpolationMethod.RGB, 0);
+repGrad.graphics.drawRect(0, 0, 180, 40); repGrad.graphics.endFill();
+addChild(repGrad);
+var layerBack:Shape = new Shape(); layerBack.x = 420; layerBack.y = 280;
+layerBack.graphics.beginFill(0xc86432, 1); layerBack.graphics.drawRect(0, 0, 180, 60); layerBack.graphics.endFill();
+addChild(layerBack);
+var layerGrp:Sprite = new Sprite(); layerGrp.x = 420; layerGrp.y = 280; layerGrp.blendMode = BlendMode.LAYER;
+var lFill:Shape = new Shape(); lFill.graphics.beginFill(0x00dc64, 1); lFill.graphics.drawRect(0, 0, 180, 60); lFill.graphics.endFill();
+layerGrp.addChild(lFill);
+var lErase:Shape = new Shape(); lErase.graphics.beginFill(0x000000, 1); lErase.graphics.drawRect(0, 0, 60, 60); lErase.graphics.endFill();
+lErase.blendMode = BlendMode.ERASE;
+layerGrp.addChild(lErase);
+var lAlpha:Shape = new Shape(); lAlpha.graphics.beginFill(0xffffff, 1); lAlpha.graphics.drawRect(0, 0, 120, 60); lAlpha.graphics.endFill();
+lAlpha.blendMode = BlendMode.ALPHA;
+layerGrp.addChild(lAlpha);
+addChild(layerGrp);
+var as2Passed:Boolean = Boolean(this["as2Ok"]);
+var as3Passed:Boolean = authSlotsOk && stOk && btnHitMissOk && zeroOk && spRotOk && spSkewOk && tf3Ok && hairBoundsOk && layerGrp.blendMode == BlendMode.LAYER;
+if (!as2Passed || !as3Passed) {
+  throw new Error("T-304 gate failed: as2=" + as2Passed + " as3=" + as3Passed);
+}
+trace("[PASS] focus-t304-display-graphics as2=" + as2Passed + " as3=" + as3Passed);
+"#;
+
+    let root = mc_symbol(
+        "scene",
+        "Main",
+        1,
+        vec![single_key_layer(
+            "ml",
+            "Stage",
+            vec![instance_el("abtn", "authoredBtn", "btn_t304", 40.0, 40.0)],
+        )],
+        vec![
+            frame_script(0, ScriptLanguage::ActionScript2, as2_source),
+            frame_script(0, ScriptLanguage::ActionScript3, as3_source),
+        ],
+    );
+    let mut project = project_from_root(
+        "Focus T-304 AS2+AS3 Display & Graphics",
+        root,
+        vec![btn_sym],
+    );
+    project.resources.push(
+        ResourceUnit::from_bytes(
+            "snd_btn",
+            "audio/btn_click.wav",
+            "audio/wav",
+            &minimal_wav_bytes(),
+        )
+        .expect("valid button wav resource"),
+    );
+    project.upgrade_format_for_features();
+
+    CaseSpec {
+        id: "focus-t304-display-graphics",
+        group: "focused",
+        language: "as3",
+        project,
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "[PASS] focus-t304-display-graphics as2=true as3=true",
+        expected_error_substrings: vec![],
+        interactions: vec![InteractionSpec {
+            kind: "click",
+            x: Some(290.0),
+            y: Some(65.0),
+            to_x: None,
+            to_y: None,
+            key: None,
+            text: None,
+            expect_trace: Some("[T304-CLICK] dynBtn clicks=1"),
+        }],
+        verify_restart: true,
+    }
+}
+
 fn build_diagnostic_cases() -> Vec<CaseSpec> {
     // 1. AS2 mapped frame runtime error
     let as2_frame = CaseSpec {
@@ -1907,6 +2241,7 @@ fn build_all_focused_and_diag_cases() -> Vec<CaseSpec> {
         build_focus_restart_reset(ScriptLanguage::ActionScript2),
         build_focus_restart_reset(ScriptLanguage::ActionScript3),
         build_focus_as3_clean_chrome(),
+        build_focus_t304_display_graphics(),
     ];
     cases.extend(build_diagnostic_cases());
     cases
@@ -2338,6 +2673,7 @@ fn publish_gate_exports_and_runtime_contracts() {
                 &["full"][..]
             } else if case.id == "focus-as2-object-handlers"
                 || case.id == "focus-as3-doc-and-symbol-class"
+                || case.id == "focus-t304-display-graphics"
             {
                 &all_levels[..]
             } else if case.group == "focused" {
@@ -2451,4 +2787,329 @@ fn publish_gate_exports_and_runtime_contracts() {
         serde_json::to_vec_pretty(&manifest).expect("serialize manifest"),
     )
     .expect("write manifest.json");
+}
+
+#[test]
+fn t304_representative_project_native_render_and_hit_test() {
+    let case = build_focus_t304_display_graphics();
+    let project = case.project;
+    project.validate().expect("T-304 project validates");
+    check_project(&project).expect("T-304 project scripts compile cleanly");
+
+    let mut player = Player::new(&project);
+    let snap0 = player.runtime_snapshot(&project);
+    let root = snap0
+        .objects
+        .iter()
+        .find(|o| o.parent_ref.is_none())
+        .expect("root object")
+        .object_ref
+        .clone();
+    let authored_btn = snap0
+        .objects
+        .iter()
+        .find(|o| o.display.name == "authoredBtn")
+        .expect("authoredBtn on stage")
+        .object_ref
+        .clone();
+
+    // 1. Authored button hitTestState, slot materialization, and soundTransform pan-law gain scaling.
+    assert_eq!(
+        player.hit_test_snapshot_point(&project, 80.0, 60.0),
+        Some(authored_btn.clone())
+    );
+    player
+        .object_set_button_sound_transform(&project, &authored_btn, 0.5, -1.0)
+        .expect("set button soundTransform");
+    let _ = player.drain_sound_commands();
+    assert!(player.object_button_state(&project, &authored_btn, 1));
+    let cmds = player.drain_sound_commands();
+    assert_eq!(cmds.len(), 1, "entering Over state emits button sound");
+    match &cmds[0] {
+        SoundCommand::Play { envelope, .. } => {
+            assert!((envelope[0][1] - 0.5).abs() < 1e-6);
+            assert!(envelope[0][2].abs() < 1e-6);
+        }
+        other => panic!("unexpected sound command: {other:?}"),
+    }
+    let up_slot = player
+        .object_button_slot(&project, &authored_btn, 0)
+        .expect("read upState")
+        .expect("materialized upState");
+    assert!(player.object_alive(&up_slot));
+
+    // Dynamic SimpleButton with narrower hitTestState than visual upState + live slot override.
+    let dyn_btn = player.create_display(DynamicKind::Button).unwrap();
+    assert!(player.object_set_property(&dyn_btn, "x", 240.0));
+    assert!(player.object_set_property(&dyn_btn, "y", 40.0));
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Add {
+                parent: root.clone(),
+                child: dyn_btn.clone(),
+                index: None,
+            },
+        )
+        .unwrap();
+    let make_rect = |player: &mut Player, color: u32, x: f64, y: f64, w: f64, h: f64| {
+        let sh = player.create_display(DynamicKind::Shape).unwrap();
+        player
+            .graphics_apply(
+                &sh,
+                &[
+                    GraphicsOp::BeginFill { color, alpha: 1.0 },
+                    GraphicsOp::DrawRect {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    },
+                    GraphicsOp::EndFill,
+                ],
+            )
+            .unwrap();
+        sh
+    };
+    let up_s = make_rect(&mut player, 0x22c55e, 0.0, 0.0, 120.0, 60.0);
+    let over_s = make_rect(&mut player, 0x38bdf8, 0.0, 0.0, 120.0, 60.0);
+    let hit_s = make_rect(&mut player, 0xffffff, 10.0, 5.0, 100.0, 50.0);
+    player
+        .object_set_button_slot(&project, &dyn_btn, 0, Some(up_s))
+        .unwrap();
+    player
+        .object_set_button_slot(&project, &dyn_btn, 1, Some(over_s))
+        .unwrap();
+    player
+        .object_set_button_slot(&project, &dyn_btn, 3, Some(hit_s))
+        .unwrap();
+    assert_eq!(player.hit_test_snapshot_point(&project, 242.0, 42.0), None);
+    assert_eq!(
+        player.hit_test_snapshot_point(&project, 290.0, 65.0),
+        Some(dyn_btn.clone())
+    );
+    assert!(player.object_button_state(&project, &dyn_btn, 1));
+
+    // 2. Hairline stroke under 6x container scale stays 1px crisp.
+    let stroke_holder = player.create_display(DynamicKind::Sprite).unwrap();
+    assert!(player.object_set_property(&stroke_holder, "x", 220.0));
+    assert!(player.object_set_property(&stroke_holder, "y", 180.0));
+    assert!(player.object_set_property(&stroke_holder, "scale_x", 6.0));
+    assert!(player.object_set_property(&stroke_holder, "scale_y", 6.0));
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Add {
+                parent: root.clone(),
+                child: stroke_holder.clone(),
+                index: None,
+            },
+        )
+        .unwrap();
+    let hair = player.create_display(DynamicKind::Shape).unwrap();
+    player
+        .graphics_apply(
+            &hair,
+            &[
+                GraphicsOp::LineStyle {
+                    width: Some(0.0),
+                    color: 0xff3366,
+                    alpha: 1.0,
+                    pixel_hinting: true,
+                    scale_mode: LineScaleMode::None,
+                    caps: LineCaps::Square,
+                    joints: LineJoints::Miter,
+                    miter_limit: 6.0,
+                },
+                GraphicsOp::MoveTo { x: 0.0, y: 4.0 },
+                GraphicsOp::LineTo { x: 20.0, y: 4.0 },
+            ],
+        )
+        .unwrap();
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Add {
+                parent: stroke_holder,
+                child: hair,
+                index: None,
+            },
+        )
+        .unwrap();
+
+    // 3. Reflect + linearRGB gradient and Repeat gradient.
+    let grad_sh = player.create_display(DynamicKind::Shape).unwrap();
+    assert!(player.object_set_property(&grad_sh, "x", 40.0));
+    assert!(player.object_set_property(&grad_sh, "y", 280.0));
+    player
+        .graphics_apply(
+            &grad_sh,
+            &[
+                GraphicsOp::BeginGradientFill {
+                    gradient: GradientSpec {
+                        kind: GradientKind::Linear,
+                        colors: vec![0xff0000, 0x00ff00],
+                        alphas: vec![1.0, 1.0],
+                        ratios: vec![0.0, 255.0],
+                        matrix: [60.0 / 1638.4, 0.0, 0.0, 40.0 / 1638.4, 30.0, 20.0],
+                        spread_method: "reflect".into(),
+                        interpolation_method: "linearRGB".into(),
+                        focal_point_ratio: 0.0,
+                    },
+                },
+                GraphicsOp::DrawRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 180.0,
+                    height: 40.0,
+                },
+                GraphicsOp::EndFill,
+            ],
+        )
+        .unwrap();
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Add {
+                parent: root.clone(),
+                child: grad_sh,
+                index: None,
+            },
+        )
+        .unwrap();
+
+    // 4. Subtract, Invert, and Layer + Erase + Alpha blend modes in native compositor.
+    let make_mc_rect = |player: &mut Player, color: u32, x: f64, y: f64, w: f64, h: f64| {
+        let mc = player.create_display(DynamicKind::MovieClip).unwrap();
+        player
+            .graphics_apply(
+                &mc,
+                &[
+                    GraphicsOp::BeginFill { color, alpha: 1.0 },
+                    GraphicsOp::DrawRect {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    },
+                    GraphicsOp::EndFill,
+                ],
+            )
+            .unwrap();
+        mc
+    };
+    let blend_bg = make_mc_rect(&mut player, 0xc86432, 260.0, 280.0, 120.0, 60.0);
+    let sub_sh = make_mc_rect(&mut player, 0x32141e, 260.0, 280.0, 60.0, 60.0);
+    let inv_sh = make_mc_rect(&mut player, 0xffffff, 320.0, 280.0, 60.0, 60.0);
+    for ch in [&blend_bg, &sub_sh, &inv_sh] {
+        player
+            .display_mutate(
+                &project,
+                DisplayMutation::Add {
+                    parent: root.clone(),
+                    child: ch.clone(),
+                    index: None,
+                },
+            )
+            .unwrap();
+    }
+    player
+        .as2_render_command(
+            &project,
+            &sub_sh,
+            serde_json::json!({"op":"set","name":"blendMode","value":9}),
+        )
+        .unwrap();
+    player
+        .as2_render_command(
+            &project,
+            &inv_sh,
+            serde_json::json!({"op":"set","name":"blendMode","value":10}),
+        )
+        .unwrap();
+
+    let layer_bg = make_rect(&mut player, 0xc86432, 420.0, 280.0, 180.0, 60.0);
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Add {
+                parent: root.clone(),
+                child: layer_bg,
+                index: None,
+            },
+        )
+        .unwrap();
+    let layer_grp = player.create_display(DynamicKind::Sprite).unwrap();
+    assert!(player.object_set_property(&layer_grp, "x", 420.0));
+    assert!(player.object_set_property(&layer_grp, "y", 280.0));
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Add {
+                parent: root.clone(),
+                child: layer_grp.clone(),
+                index: None,
+            },
+        )
+        .unwrap();
+    player
+        .as2_render_command(
+            &project,
+            &layer_grp,
+            serde_json::json!({"op":"set","as3":true,"name":"blendMode","value":"layer"}),
+        )
+        .unwrap();
+    let l_fill = make_rect(&mut player, 0x00dc64, 0.0, 0.0, 180.0, 60.0);
+    let l_erase = make_rect(&mut player, 0x000000, 0.0, 0.0, 60.0, 60.0);
+    let l_alpha = make_rect(&mut player, 0xffffff, 0.0, 0.0, 120.0, 60.0);
+    for ch in [&l_fill, &l_erase, &l_alpha] {
+        player
+            .display_mutate(
+                &project,
+                DisplayMutation::Add {
+                    parent: layer_grp.clone(),
+                    child: ch.clone(),
+                    index: None,
+                },
+            )
+            .unwrap();
+    }
+    player
+        .as2_render_command(
+            &project,
+            &l_erase,
+            serde_json::json!({"op":"set","as3":true,"name":"blendMode","value":"erase"}),
+        )
+        .unwrap();
+    player
+        .as2_render_command(
+            &project,
+            &l_alpha,
+            serde_json::json!({"op":"set","as3":true,"name":"blendMode","value":"alpha"}),
+        )
+        .unwrap();
+
+    let rgba = player
+        .render_snapshot_rgba(&project, project.width, project.height)
+        .expect("native render_snapshot_rgba");
+    let px = |x: u32, y: u32| -> [u8; 4] {
+        let i = ((y * project.width + x) * 4) as usize;
+        [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+    };
+    // Hovered dynamic SimpleButton shows sky-blue overState [56, 189, 248]
+    assert_eq!(px(290, 65), [56, 189, 248, 255]);
+    // Crisp 1px hairline at y = 180 + 6*4 = 204; y = 202 and y = 206 stay transparent
+    assert_eq!(px(260, 204), [255, 51, 102, 255]);
+    assert_eq!(px(260, 202)[3], 0);
+    assert_eq!(px(260, 206)[3], 0);
+    // Reflect + linearRGB gradient mirrors (40+30=70) and (40+89=129) with bright linearRGB yellow
+    assert_eq!(px(70, 300), px(129, 300));
+    assert!(px(70, 300)[0] > 170 && px(70, 300)[1] > 170);
+    // Subtract [150, 80, 20] and Invert [55, 155, 205]
+    assert_eq!(px(290, 310), [150, 80, 20, 255]);
+    assert_eq!(px(350, 310), [55, 155, 205, 255]);
+    // Layer + Erase + Alpha: erased left [200, 100, 50], kept middle [0, 220, 100], masked right [200, 100, 50]
+    assert_eq!(px(450, 310), [200, 100, 50, 255]);
+    assert_eq!(px(510, 310), [0, 220, 100, 255]);
+    assert_eq!(px(570, 310), [200, 100, 50, 255]);
 }

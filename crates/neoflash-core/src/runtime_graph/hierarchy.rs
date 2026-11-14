@@ -18,6 +18,13 @@ impl RuntimeGraph {
 
     pub(super) fn detach_child(&mut self, child: &ObjectRef) {
         self.stage_order.retain(|id| id != child);
+        for state in self.button_states.values_mut() {
+            for slot in &mut state.slots {
+                if slot.as_ref() == Some(&Some(child.clone())) {
+                    *slot = Some(None);
+                }
+            }
+        }
         if let Some(parent) = self.parent(child) {
             let mut children = self.children(&parent);
             children.retain(|id| id != child);

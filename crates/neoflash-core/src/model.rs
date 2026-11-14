@@ -2415,17 +2415,16 @@ impl BlendMode {
         )
     }
 
-    /// Standardized Canvas 2D `globalCompositeOperation` string for this blend mode.
+    /// Standardized Canvas 2D / runtime compositor operation string for this blend mode.
     pub fn canvas_operation(self) -> &'static str {
         match self {
-            Self::Normal
-            | Self::Layer
-            | Self::Subtract
-            | Self::Invert
-            | Self::Alpha
-            | Self::Erase => "source-over",
+            Self::Normal | Self::Layer => "source-over",
             Self::Add => "lighter",
             Self::Hardlight => "hard-light",
+            Self::Erase => "destination-out",
+            Self::Alpha => "destination-in",
+            Self::Subtract => "subtract",
+            Self::Invert => "invert",
             other => other.as_str(),
         }
     }

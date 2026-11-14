@@ -12,7 +12,7 @@
     // Runtime colors already include the complete ColorTransform. A leaf can
     // have draw.alpha=1 while every actual painted channel is transparent.
     if ((kind.type==='rectangle'||kind.type==='ellipse'||kind.type==='path')&&
-        (kind.fill?.[3]??255)<=0&&(!(kind.stroke?.[3]>0)||!(kind.stroke_width>0))) return false;
+        (kind.fill?.[3]??255)<=0&&(!(kind.stroke?.[3]>0)||!(kind.stroke_width>0||kind.stroke_hairline))) return false;
     if (kind.type === 'rectangle') return x >= 0 && y >= 0 && x <= kind.width && y <= kind.height;
     if (kind.type === 'ellipse') {
       if (kind.width <= 0 || kind.height <= 0) return false;
@@ -189,6 +189,7 @@
   // the authoritative snapshot; this adapter never reconstructs a scene graph.
   function createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,context,matrix=item=>item.transform,hidden=()=>false,snapBitmaps=true}) {
     const bitmapMatrix=matrix;
+    let blendScratch=null;
     const font=kind=>`${kind.font_size}px ${global.NeoFlashText?.cssFontFamily?global.NeoFlashText.cssFontFamily(kind.font_family):`${JSON.stringify(kind.font_family)}, sans-serif`}`;
     function paintItem(context,item) {
         const kind = item.kind;
@@ -267,6 +268,54 @@
         if(readBounds)clippedBounds.set(item,visible||null);
       };
       const composite=(target,surface,bounds,clip_ids,operation='source-over')=>{
+        if(operation==='subtract'||operation==='invert'){
+          const tm=target.getTransform();
+          const pts=[[bounds.left,bounds.top],[bounds.right,bounds.top],[bounds.right,bounds.bottom],[bounds.left,bounds.bottom]].map(([x,y])=>[tm.a*x+tm.c*y+tm.e,tm.b*x+tm.d*y+tm.f]);
+          const dx0=Math.max(0,Math.floor(Math.min(...pts.map(p=>p[0])))),dy0=Math.max(0,Math.floor(Math.min(...pts.map(p=>p[1]))));
+          const dx1=Math.min(target.canvas.width,Math.ceil(Math.max(...pts.map(p=>p[0])))),dy1=Math.min(target.canvas.height,Math.ceil(Math.max(...pts.map(p=>p[1]))));
+          const dw=dx1-dx0,dh=dy1-dy0;
+          if(!(dw>0&&dh>0))return;
+          const sc=blendScratch||(blendScratch=typeof OffscreenCanvas==='function'?new OffscreenCanvas(1,1):global.document.createElement('canvas'));
+          if(sc.width!==dw||sc.height!==dh){sc.width=1;sc.height=dh;sc.width=dw;}
+          const sctx=sc.getContext('2d');
+          sctx.setTransform(1,0,0,1,0,0);sctx.globalAlpha=1;sctx.globalCompositeOperation='source-over';sctx.clearRect(0,0,dw,dh);
+          sctx.setTransform(tm.a,tm.b,tm.c,tm.d,tm.e-dx0,tm.f-dy0);
+          const drawSrc=canvas=>canvas.drawImage(surface,bounds.left,bounds.top);
+          if(clip_ids.length)clippings.draw(sctx,{clip_ids},clips,paths,drawSrc,{bounds,bitmaps:bitmapHost?.cache});else drawSrc(sctx);
+          const srcData=sctx.getImageData(0,0,dw,dh).data,dstImg=target.getImageData(dx0,dy0,dw,dh),dstData=dstImg.data;
+          for(let i=0;i<dstData.length;i+=4){
+            const sa=srcData[i+3];if(sa===0)continue;
+            const da=dstData[i+3],invSa=255-sa;
+            const outA=Math.min(255,sa+((da*invSa+127)/255|0));
+            if(outA===0){dstData[i]=dstData[i+1]=dstData[i+2]=dstData[i+3]=0;continue;}
+            for(let c=0;c<3;c++){
+              const dp=(dstData[i+c]*da+127)/255|0;
+              let op;
+              if(operation==='subtract'){
+                const sp=(srcData[i+c]*sa+127)/255|0;
+                op=dp>sp?dp-sp:0;
+              }else{
+                op=Math.min(255,((sa*(255-dp)+invSa*dp+127)/255)|0);
+              }
+              dstData[i+c]=Math.min(255,Math.round(op*255/outA));
+            }
+            dstData[i+3]=outA;
+          }
+          target.save();try{target.setTransform(1,0,0,1,0,0);target.putImageData(dstImg,dx0,dy0);}finally{target.restore();}
+          return;
+        }
+        if(operation==='destination-in'&&clip_ids.length){
+          const tw=target.canvas.width,th=target.canvas.height;
+          if(!(tw>0&&th>0))return;
+          const sc=blendScratch||(blendScratch=typeof OffscreenCanvas==='function'?new OffscreenCanvas(1,1):global.document.createElement('canvas'));
+          if(sc.width!==tw||sc.height!==th){sc.width=1;sc.height=th;sc.width=tw;}
+          const sctx=sc.getContext('2d'),tm=target.getTransform();
+          sctx.setTransform(1,0,0,1,0,0);sctx.globalAlpha=1;sctx.globalCompositeOperation='source-over';sctx.clearRect(0,0,tw,th);
+          sctx.setTransform(tm.a,tm.b,tm.c,tm.d,tm.e,tm.f);
+          clippings.draw(sctx,{clip_ids},clips,paths,canvas=>canvas.drawImage(surface,bounds.left,bounds.top),{bounds,bitmaps:bitmapHost?.cache});
+          target.save();try{target.setTransform(1,0,0,1,0,0);target.globalCompositeOperation='destination-in';target.drawImage(sc,0,0);}finally{target.restore();}
+          return;
+        }
         target.save();try{target.globalCompositeOperation=operation;const draw=canvas=>canvas.drawImage(surface,bounds.left,bounds.top);
           if(clip_ids.length)clippings.draw(target,{clip_ids},clips,paths,draw,{bounds,bitmaps:bitmapHost?.cache});else draw(target);
         }finally{target.restore();}
@@ -287,7 +336,7 @@
       }
       return {clippedBounds,objects};
     }
-    function clear(){gradients.clear();clippings.clear();}
+    function clear(){gradients.clear();clippings.clear();if(blendScratch){blendScratch.width=1;blendScratch.height=1;blendScratch=null;}}
     return {draw,paintItem,paintBounds,clear};
   }
   function emitScriptMessage(kind, message, frames, host = global) {
@@ -795,7 +844,7 @@
       let invokeAsfunction=()=>{};
       if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,onAsfunction:(ref,spec)=>{const tf=proxyForRef(JSON.parse(ref));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document});
       display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,onSuperConstruct:handleSuperConstruct,isRetiring:target=>retiringTargets.has(target),onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,
-        shapeContains:(kind,x,y)=>{if(typeof context==='undefined'||typeof context.isPointInPath!=='function')throw new Error('Shape hit testing requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(context,kind,x,y,inputPaths.get(kind.commands));},
+        shapeContains:(kind,x,y,world)=>{const hasCanvas=typeof context!=='undefined'&&typeof context.isPointInPath==='function'&&typeof Path2D==='function';if(hasCanvas)inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(hasCanvas?context:null,kind,x,y,hasCanvas?inputPaths.get(kind.commands):null,world);},
         clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[]),x,y,inputPaths);},
         beforeRaster:target=>assertUnfilteredEditing(stageHost?.stage.focus,target),beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,getStageHost:()=>stageHost||null,
         measureText:(line,kind)=>{if(typeof context==='undefined')throw new Error('Text bounds require the Canvas font measurement service.');context.font=font(kind);return context.measureText(line).width;},

@@ -295,9 +295,11 @@
         const m=matrix===null?[1,0,0,1,0,0]:components(matrix,['a','b','c','d','tx','ty']),ct=colorTransform(transform);
         if(m.some((value,index)=>Math.abs(value)>(index<4?1e4:1e12)))throw new RangeError('BitmapData.draw matrix exceeds the shared finite affine bounds.');
         if(ct.multipliers.some(value=>Math.abs(value)>1e4)||ct.offsets.some(value=>Math.abs(value)>255))throw new RangeError('BitmapData.draw ColorTransform exceeds the shared multiplier/offset bounds.');
+        const as2BlendNames=['','normal','layer','multiply','screen','lighten','darken','difference','add','subtract','invert','alpha','erase','overlay','hardlight'];
+        const normalizedBlend=typeof blendMode==='number'&&Number.isInteger(blendMode)&&blendMode>=0&&blendMode<=14?(as2BlendNames[blendMode]||'normal'):blendMode;
         const validBlendModes=new Set(['normal','layer','multiply','screen','lighten','darken','difference','add','subtract','invert','alpha','erase','overlay','hardlight','shader']);
-        if(blendMode!==null&&!validBlendModes.has(blendMode)){const err=new TypeError(`BitmapData.draw blendMode is invalid: '${blendMode}'.`);err.name='ArgumentError';throw err;}
-        const drawBlend=blendMode===null?'normal':blendMode;
+        if(normalizedBlend!==null&&!validBlendModes.has(normalizedBlend)){const err=new TypeError(`BitmapData.draw blendMode is invalid: '${blendMode}'.`);err.name='ArgumentError';throw err;}
+        const drawBlend=normalizedBlend===null?'normal':normalizedBlend;
         const commitDraw=rgba=>{
           if(drawBlend!=='normal'&&typeof player.bitmap_draw_rgba_blended==='function')native('bitmap_draw_rgba_blended',ref,info.width,info.height,rgba,clipJSON,info.revision,drawBlend);
           else native('bitmap_draw_rgba',ref,info.width,info.height,rgba,clipJSON,info.revision);
@@ -370,9 +372,12 @@
           if(surface)surface.width=surface.height=0;
           return;
         }
-        if(!target||typeof target.setTransform!=='function'||typeof target.getImageData!=='function'){
+        if(!target||typeof target.setTransform!=='function'||typeof target.getImageData!=='function'||(!references.has(source)&&typeof target.clip!=='function')){
+          const usedRust=!references.has(source)&&typeof player.bitmap_render_snapshot==='function';
+          const rgba=usedRust
+            ?new Uint8Array(player.bitmap_render_snapshot(key(displayRef(source)),JSON.stringify(m),JSON.stringify(ct),info.width,info.height))
+            :new Uint8Array(info.width*info.height*4);
           const clampByte=v=>v<=0?0:v>=255?255:Math.round(v);
-          const rgba=new Uint8Array(info.width*info.height*4);
           const blendPixel=(x,y,r,g,b,a)=>{
             if(x<0||y<0||x>=info.width||y>=info.height||a<=0)return;
             const cr=clampByte(r*ct.multipliers[0]+ct.offsets[0]);
@@ -390,6 +395,7 @@
           for(const item of (snapshot?.draws||[])){
             const [a,b,c,d,tx,ty]=item.transform||[1,0,0,1,0,0],det=a*d-b*c,itemAlpha=Number.isFinite(item.alpha)?item.alpha:1;
             const k=item.kind||{};
+            if(usedRust&&k.type!=='text_field'&&k.type!=='text')continue;
             if(k.type==='bitmap_pixels'&&Number.isFinite(det)&&Math.abs(det)>=1e-12){
               const src=player.bitmap_pixels(key(k.pixel_ref)),sw=k.width|0,sh=k.height|0;
               for(let y=0;y<info.height;y++)for(let x=0;x<info.width;x++){

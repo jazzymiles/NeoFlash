@@ -432,6 +432,7 @@ impl Player {
                         name: "content".into(),
                         playing: false,
                         graphics: GraphicsState::default(),
+                        authored_kind: None,
                     },
                 );
                 self.graph.bitmap_states.insert(
@@ -476,6 +477,7 @@ impl Player {
                         name: "content".into(),
                         playing: as_version >= 3,
                         graphics,
+                        authored_kind: None,
                     },
                 );
                 self.graph.suffix.insert(target.clone(), vec![id.clone()]);
@@ -533,6 +535,7 @@ impl Player {
                             name: "content".into(),
                             playing: self.is_playing(),
                             graphics: GraphicsState::default(),
+                            authored_kind: None,
                         },
                     );
                     self.graph.namespaces.insert(

@@ -60,8 +60,60 @@
     const result=[m[3]/d,-m[1]/d,-m[2]/d,m[0]/d,(m[2]*m[5]-m[3]*m[4])/d,(m[1]*m[4]-m[0]*m[5])/d];
     if(!result.every(Number.isFinite))throw new Error('Gradient inverse exceeds finite rendering bounds.');return result;
   }
+  const srgbToLinear = c => { const s = c / 255; return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
+  const linearToSrgb = l => { const v = Math.max(0, Math.min(1, l)); const s = v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055; return Math.max(0, Math.min(255, Math.round(s * 255))); };
+  function spreadModeOf(paint) {
+    const s = paint?.spread || 'extend';
+    if (s === 'extend' || s === 'pad') return 'extend';
+    if (s === 'reflect' || s === 'repeat') return s;
+    throw new Error(`Unsupported runtime gradient spread: ${s}`);
+  }
+  function spreadUnit(mode, u) {
+    if (mode === 'repeat') return u >= 0 && u <= 1 ? u : ((u % 1) + 1) % 1;
+    if (mode === 'reflect') {
+      if (u >= 0 && u <= 1) return u;
+      const p = ((u % 2) + 2) % 2;
+      return p <= 1 ? p : 2 - p;
+    }
+    return Math.max(0, Math.min(1, u));
+  }
+  function interpolateColor(c0, c1, f, linearRgb) {
+    const a = Math.max(0, Math.min(255, Math.round(c0[3] + (c1[3] - c0[3]) * f)));
+    if (linearRgb) {
+      return [
+        linearToSrgb(srgbToLinear(c0[0]) + (srgbToLinear(c1[0]) - srgbToLinear(c0[0])) * f),
+        linearToSrgb(srgbToLinear(c0[1]) + (srgbToLinear(c1[1]) - srgbToLinear(c0[1])) * f),
+        linearToSrgb(srgbToLinear(c0[2]) + (srgbToLinear(c1[2]) - srgbToLinear(c0[2])) * f),
+        a,
+      ];
+    }
+    return [
+      Math.max(0, Math.min(255, Math.round(c0[0] + (c1[0] - c0[0]) * f))),
+      Math.max(0, Math.min(255, Math.round(c0[1] + (c1[1] - c0[1]) * f))),
+      Math.max(0, Math.min(255, Math.round(c0[2] + (c1[2] - c0[2]) * f))),
+      a,
+    ];
+  }
+  function unitStops(paint) {
+    const stops = paint.stops, linearRgb = Boolean(paint.linear_rgb), out = [];
+    if (stops[0].ratio > 0) out.push({ u: 0, color: stops[0].color });
+    for (let i = 0; i < stops.length; i++) {
+      const cur = stops[i];
+      out.push({ u: cur.ratio / 255, color: cur.color });
+      if (linearRgb && i + 1 < stops.length && stops[i + 1].ratio > cur.ratio) {
+        const nxt = stops[i + 1], steps = 16;
+        for (let k = 1; k < steps; k++) {
+          const f = k / steps;
+          out.push({ u: (cur.ratio + (nxt.ratio - cur.ratio) * f) / 255, color: interpolateColor(cur.color, nxt.color, f, true) });
+        }
+      }
+    }
+    if (stops.at(-1).ratio < 255) out.push({ u: 1, color: stops.at(-1).color });
+    return out;
+  }
   function validateGradient(paint) {
     if(!paint||!['linear','radial'].includes(paint.kind))throw new Error('Unsupported runtime gradient paint.');
+    spreadModeOf(paint);
     if(!Array.isArray(paint.matrix)||paint.matrix.length!==6||!paint.matrix.every(Number.isFinite))throw new Error('Invalid runtime gradient matrix.');
     inverse(paint.matrix);
     if(!Number.isFinite(paint.focal_point_ratio)||Math.abs(paint.focal_point_ratio)>1)throw new Error('Gradient focal point must be from -1 through 1.');
@@ -69,10 +121,50 @@
     let ratio=-1;for(const stop of paint.stops){if(!Number.isInteger(stop.ratio)||stop.ratio<0||stop.ratio<ratio||stop.ratio>255||!Array.isArray(stop.color)||stop.color.length!==4||!stop.color.every(c=>Number.isInteger(c)&&c>=0&&c<=255))throw new Error('Invalid runtime gradient color stop.');ratio=stop.ratio;}
     return paint;
   }
-  function gradientFor(context,paint) {
+  function gradientFor(context,paint,area=null) {
     validateGradient(paint);
-    const gradient=paint.kind==='linear'?context.createLinearGradient(-RADIUS,0,RADIUS,0):context.createRadialGradient(paint.focal_point_ratio*RADIUS,0,0,0,0,RADIUS);
-    for(const stop of paint.stops)gradient.addColorStop(stop.ratio/255,rgba(stop.color));return gradient;
+    const mode=spreadModeOf(paint),base=unitStops(paint);
+    if(mode==='extend'||!area){
+      const gradient=paint.kind==='linear'?context.createLinearGradient(-RADIUS,0,RADIUS,0):context.createRadialGradient(paint.focal_point_ratio*RADIUS,0,0,0,0,RADIUS);
+      for(const stop of base)gradient.addColorStop(Math.max(0,Math.min(1,stop.u)),rgba(stop.color));
+      return gradient;
+    }
+    if(paint.kind==='linear'){
+      const uMin=Math.max(-64,Math.floor((area.left/RADIUS+1)/2)),uMax=Math.min(64,Math.max(uMin+1,Math.ceil((area.right/RADIUS+1)/2)));
+      const span=uMax-uMin,eps=1e-5/span;
+      const gradient=context.createLinearGradient((2*uMin-1)*RADIUS,0,(2*uMax-1)*RADIUS,0);
+      for(let k=uMin;k<uMax;k++){
+        const rev=mode==='reflect'&&(((k%2)+2)%2===1);
+        const list=rev?[...base].reverse().map(s=>({u:1-s.u,color:s.color})):base;
+        for(let si=0;si<list.length;si++){
+          let pos=(k-uMin+list[si].u)/span;
+          if(mode==='repeat'){
+            if(si===0&&k>uMin)pos+=eps;
+            else if(si===list.length-1&&k+1<uMax)pos-=eps;
+          }
+          gradient.addColorStop(Math.max(0,Math.min(1,pos)),rgba(list[si].color));
+        }
+      }
+      return gradient;
+    }
+    const f=paint.focal_point_ratio,fx=f*RADIUS;
+    const maxDist=Math.max(...corners(area).map(([px,py])=>Math.hypot(px-fx,py)));
+    const minDenom=Math.max(0.02,1-Math.abs(f))*RADIUS;
+    const uMax=Math.min(64,Math.max(1,Math.ceil(maxDist/minDenom))),eps=1e-5/uMax;
+    const gradient=context.createRadialGradient(fx,0,0,(1-uMax)*fx,0,uMax*RADIUS);
+    for(let k=0;k<uMax;k++){
+      const rev=mode==='reflect'&&(k%2===1);
+      const list=rev?[...base].reverse().map(s=>({u:1-s.u,color:s.color})):base;
+      for(let si=0;si<list.length;si++){
+        let pos=(k+list[si].u)/uMax;
+        if(mode==='repeat'){
+          if(si===0&&k>0)pos+=eps;
+          else if(si===list.length-1&&k+1<uMax)pos-=eps;
+        }
+        gradient.addColorStop(Math.max(0,Math.min(1,pos)),rgba(list[si].color));
+      }
+    }
+    return gradient;
   }
   function paintVisible(kind,channel) {
     if(channel==='fill'&&kind.fill_bitmap)return kind.fill_bitmap.width>0&&kind.fill_bitmap.height>0;
@@ -91,7 +183,8 @@
     if(channel==='fill'&&kind.fill_bitmap)return kind.fill_bitmap.width>0&&kind.fill_bitmap.height>0?1:0;
     if(channel==='stroke'&&kind.stroke_bitmap)return kind.stroke_bitmap.width>0&&kind.stroke_bitmap.height>0?1:0;
     const paint=kind[channel+'_gradient'];if(!paint)return(kind[channel]?.[3]||0)/255;validateGradient(paint);
-    const t=gradientParameter(paint,x,y);if(t===null)return 0;const ratio=t*255,stops=paint.stops;
+    const rawT=gradientParameter(paint,x,y);if(rawT===null)return 0;
+    const t=spreadUnit(spreadModeOf(paint),rawT),ratio=t*255,stops=paint.stops;
     if(ratio<stops[0].ratio)return stops[0].color[3]/255;
     for(let i=1;i<stops.length;i++)if(ratio<stops[i].ratio){const before=stops[i-1],after=stops[i],f=(ratio-before.ratio)/(after.ratio-before.ratio);return(before.color[3]+(after.color[3]-before.color[3])*f)/255;}
     return stops.at(-1).color[3]/255;
@@ -118,7 +211,15 @@
   // alpha. Exact curve coverage remains Path2D's job; this is not a pixel scan.
   function visibleBounds(kind,channel,bounds,matrix) {
     if(!bounds||!paintVisible(kind,channel))return null;const paint=kind[channel+'_gradient'];if(!paint)return bounds;
-    const world=multiply(matrix,paint.matrix),inv=inverse(world);let result=null;
+    const world=multiply(matrix,paint.matrix),inv=inverse(world);
+    if(spreadModeOf(paint)!=='extend'){
+      if(paint.kind==='radial'&&Math.abs(paint.focal_point_ratio)===1){
+        const poly=clipPolygon(corners(bounds),p=>RADIUS-paint.focal_point_ratio*point(inv,...p)[0]);
+        return intersect(bounds,box(poly));
+      }
+      return bounds;
+    }
+    let result=null;
     for(let[lo,hi]of visibleIntervals(paint)){
       let polygon=corners(bounds),candidate=null;
       if(paint.kind==='linear'){
@@ -143,7 +244,7 @@
   function matrixOf(context){const m=context.getTransform();return[m.a,m.b,m.c,m.d,m.e,m.f];}
   function brush(context,paint,width,height) {
     context.transform(...paint.matrix);const inverseBrush=inverse(matrixOf(context)),area=box([[0,0],[width,0],[width,height],[0,height]].map(p=>point(inverseBrush,...p)));
-    if(!area)throw new Error('Gradient brush bounds exceed finite rendering limits.');context.fillStyle=gradientFor(context,paint);context.fillRect(area.left,area.top,area.right-area.left,area.bottom-area.top);
+    if(!area)throw new Error('Gradient brush bounds exceed finite rendering limits.');context.fillStyle=gradientFor(context,paint,area);context.fillRect(area.left,area.top,area.right-area.left,area.bottom-area.top);
   }
   function bitmapBrush(context,paint,bitmaps,width,height) {
     if(!bitmaps)throw new Error('Bitmap fill rendering requires the bitmap cache.');
@@ -179,6 +280,29 @@
     let bounds=null;for(const c of commands){const points=[];if(c.op!=='close')points.push([c.x,c.y]);if(c.op==='quadratic_to')points.push([c.cx,c.cy]);if(c.op==='cubic_to')points.push([c.cx1,c.cy1],[c.cx2,c.cy2]);if(points.length)bounds=union(bounds,box(points.map(p=>point(matrix,...p))));}
     if(bounds){const dx=padding*Math.hypot(matrix[0],matrix[2])+1,dy=padding*Math.hypot(matrix[1],matrix[3])+1;bounds={left:bounds.left-dx,top:bounds.top-dy,right:bounds.right+dx,bottom:bounds.bottom+dy};}return bounds;
   }
+  const lineCapOf = kind => kind.stroke_caps === 'none' ? 'butt' : kind.stroke_caps === 'square' ? 'square' : 'round';
+  const lineJoinOf = kind => kind.stroke_joints === 'bevel' ? 'bevel' : kind.stroke_joints === 'miter' ? 'miter' : 'round';
+  const miterLimitOf = kind => Number.isFinite(kind.stroke_miter_limit) && kind.stroke_miter_limit >= 1 ? kind.stroke_miter_limit : 3;
+  function strokeScreenGeometry(kind, matrix, offsetX = 0, offsetY = 0) {
+    const sx = Math.hypot(matrix[0], matrix[1]), sy = Math.hypot(matrix[2], matrix[3]);
+    const scaleMode = kind.stroke_scale_mode || 'normal', hairline = Boolean(kind.stroke_hairline);
+    const hinting = Boolean(kind.stroke_pixel_hinting) && Math.abs(matrix[1]) < 1e-6 && Math.abs(matrix[2]) < 1e-6;
+    if (!hairline && scaleMode === 'normal' && !hinting) return null;
+    const screenW = hairline ? 1 : scaleMode === 'none' ? kind.stroke_width : scaleMode === 'horizontal' ? kind.stroke_width * sx : scaleMode === 'vertical' ? kind.stroke_width * sy : kind.stroke_width * Math.sqrt((sx * sx + sy * sy) / 2);
+    if (!(screenW > 0)) return null;
+    const odd = (Math.round(screenW) % 2) === 1;
+    const snap = v => !hinting ? v : odd ? Math.floor(v) + 0.5 : Math.round(v);
+    const tx = (x, y) => { const wx = matrix[0] * x + matrix[2] * y + matrix[4], wy = matrix[1] * x + matrix[3] * y + matrix[5]; return [snap(wx) - offsetX, snap(wy) - offsetY]; };
+    const p = new Path2D();
+    for (const c of kind.commands) {
+      if (c.op === 'move_to') { const [px, py] = tx(c.x, c.y); p.moveTo(px, py); }
+      else if (c.op === 'line_to') { const [px, py] = tx(c.x, c.y); p.lineTo(px, py); }
+      else if (c.op === 'quadratic_to') { const [cx, cy] = tx(c.cx, c.cy), [px, py] = tx(c.x, c.y); p.quadraticCurveTo(cx, cy, px, py); }
+      else if (c.op === 'cubic_to') { const [c1x, c1y] = tx(c.cx1, c.cy1), [c2x, c2y] = tx(c.cx2, c.cy2), [px, py] = tx(c.x, c.y); p.bezierCurveTo(c1x, c1y, c2x, c2y, px, py); }
+      else if (c.op === 'close') p.closePath();
+    }
+    return { path: p, lineWidth: screenW };
+  }
   class GradientRenderer {
     constructor({maxMaskPixels=16*1024*1024,createCanvas}={}) {
       if(!Number.isSafeInteger(maxMaskPixels)||maxMaskPixels<1)throw new Error('Gradient mask pixel budget must be a positive safe integer.');this.maxMaskPixels=maxMaskPixels;this.surface=null;
@@ -187,27 +311,42 @@
     clear(){if(this.surface){this.surface.width=1;this.surface.height=1;this.surface=null;}}
     draw(context,kind,path,bitmaps=null) {
       if(kind.fill_gradient||kind.stroke_gradient||kind.fill_bitmap||kind.stroke_bitmap){const m=matrixOf(context),det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return;}
+      const hasStroke = kind.stroke_width > 0 || Boolean(kind.stroke_hairline);
       for(const channel of ['fill','stroke']){
-        if(!paintVisible(kind,channel)||channel==='stroke'&&!(kind.stroke_width>0))continue;
+        if(!paintVisible(kind,channel)||(channel==='stroke'&&!hasStroke))continue;
         const paint=kind[channel+'_gradient'],bitmap=channel==='fill'?kind.fill_bitmap:kind.stroke_bitmap;context.save();
         try{
-          if(channel==='stroke'){context.lineWidth=kind.stroke_width;context.lineCap='round';context.lineJoin='round';}
+          if(channel==='stroke'){context.lineWidth=kind.stroke_hairline?1:kind.stroke_width;context.lineCap=lineCapOf(kind);context.lineJoin=lineJoinOf(kind);context.miterLimit=miterLimitOf(kind);}
           if(bitmap&&channel==='fill'){context.clip(path,kind.fill_rule||'nonzero');bitmapBrush(context,bitmap,bitmaps,context.canvas.width,context.canvas.height);}
           else if(bitmap)this.stroke(context,kind,path,bitmap,bitmaps);
-          else if(!paint){context[channel+'Style']=rgba(kind[channel]);if(channel==='fill')context.fill(path,kind.fill_rule||'nonzero');else context.stroke(path);}
+          else if(!paint){
+            context[channel+'Style']=rgba(kind[channel]);
+            if(channel==='fill')context.fill(path,kind.fill_rule||'nonzero');
+            else {
+              const sg=strokeScreenGeometry(kind,matrixOf(context),0,0);
+              if(sg){context.setTransform(1,0,0,1,0,0);context.lineWidth=sg.lineWidth;context.stroke(sg.path);}
+              else context.stroke(path);
+            }
+          }
           else if(channel==='fill'){context.clip(path,kind.fill_rule||'nonzero');brush(context,paint,context.canvas.width,context.canvas.height);}
           else this.stroke(context,kind,path,paint);
         }finally{context.restore();}
       }
     }
     stroke(context,kind,path,paint,bitmaps=null) {
-      const matrix=matrixOf(context),raw=controlBounds(kind.commands,matrix,kind.stroke_width/2),bounds=intersect(raw,{left:0,top:0,right:context.canvas.width,bottom:context.canvas.height});if(!bounds)return;
+      const matrix=matrixOf(context),sx=Math.hypot(matrix[0],matrix[1]),sy=Math.hypot(matrix[2],matrix[3]),avgScale=Math.max(1e-6,Math.sqrt((sx*sx+sy*sy)/2));
+      const padLocal=(kind.stroke_hairline?1/avgScale:kind.stroke_scale_mode==='none'?kind.stroke_width/avgScale:kind.stroke_width)*Math.max(1,miterLimitOf(kind)/2)+1;
+      const raw=controlBounds(kind.commands,matrix,padLocal),bounds=intersect(raw,{left:0,top:0,right:context.canvas.width,bottom:context.canvas.height});if(!bounds)return;
       const left=Math.floor(bounds.left),top=Math.floor(bounds.top),width=Math.ceil(bounds.right)-left,height=Math.ceil(bounds.bottom)-top;
       if(width*height>this.maxMaskPixels)throw new RangeError('Gradient stroke mask exceeds 16777216 pixels; reduce publication dimensions or stroke coverage.');
       const canvas=this.surface||(this.surface=this.createCanvas());if(canvas.width!==width||canvas.height!==height){canvas.width=1;canvas.height=height;canvas.width=width;}
       const mask=canvas.getContext('2d');if(!mask)throw new Error('Canvas 2D gradient stroke mask is unavailable.');
       mask.setTransform(1,0,0,1,0,0);mask.globalAlpha=1;mask.globalCompositeOperation='source-over';mask.clearRect(0,0,width,height);
-      mask.setTransform(matrix[0],matrix[1],matrix[2],matrix[3],matrix[4]-left,matrix[5]-top);mask.strokeStyle='#fff';mask.lineWidth=kind.stroke_width;mask.lineCap='round';mask.lineJoin='round';mask.stroke(path);
+      mask.strokeStyle='#fff';mask.lineCap=lineCapOf(kind);mask.lineJoin=lineJoinOf(kind);mask.miterLimit=miterLimitOf(kind);
+      const sg=strokeScreenGeometry(kind,matrix,left,top);
+      if(sg){mask.setTransform(1,0,0,1,0,0);mask.lineWidth=sg.lineWidth;mask.stroke(sg.path);}
+      else{mask.setTransform(matrix[0],matrix[1],matrix[2],matrix[3],matrix[4]-left,matrix[5]-top);mask.lineWidth=kind.stroke_width;mask.stroke(path);}
+      mask.setTransform(matrix[0],matrix[1],matrix[2],matrix[3],matrix[4]-left,matrix[5]-top);
       mask.globalCompositeOperation='source-in';
       if(bitmaps)bitmapBrush(mask,paint,bitmaps,width,height);else brush(mask,paint,width,height);
       mask.globalCompositeOperation='source-over';
@@ -352,17 +491,91 @@
     }
   }
 
-  function contains(context, kind, x, y, path = createPath(kind.commands)) {
+  function flattenSubpaths(commands) {
+    const subs = []; let cur = null, start = [0, 0], last = [0, 0];
+    const ensure = () => { if (!cur) { cur = { pts: [[last[0], last[1]]], closed: false }; subs.push(cur); } };
+    for (const c of commands || []) {
+      if (c.op === 'move_to') { start = [c.x, c.y]; last = [c.x, c.y]; cur = { pts: [[c.x, c.y]], closed: false }; subs.push(cur); }
+      else if (c.op === 'line_to') { ensure(); last = [c.x, c.y]; cur.pts.push(last); }
+      else if (c.op === 'quadratic_to') {
+        ensure(); const [x0, y0] = last;
+        for (let i = 1; i <= 16; i++) { const t = i / 16, u = 1 - t; cur.pts.push([u*u*x0 + 2*u*t*c.cx + t*t*c.x, u*u*y0 + 2*u*t*c.cy + t*t*c.y]); }
+        last = [c.x, c.y];
+      } else if (c.op === 'cubic_to') {
+        ensure(); const [x0, y0] = last;
+        for (let i = 1; i <= 24; i++) { const t = i / 24, u = 1 - t; cur.pts.push([u*u*u*x0 + 3*u*u*t*c.cx1 + 3*u*t*t*c.cx2 + t*t*t*c.x, u*u*u*y0 + 3*u*u*t*c.cy1 + 3*u*t*t*c.cy2 + t*t*t*c.y]); }
+        last = [c.x, c.y];
+      } else if (c.op === 'close') {
+        if (cur) { cur.pts.push([start[0], start[1]]); cur.closed = true; }
+        last = [start[0], start[1]]; cur = null;
+      }
+    }
+    return subs;
+  }
+
+  function effectiveStrokeWidth(kind, worldMatrix) {
+    let effW = kind.stroke_hairline ? 1 : kind.stroke_width;
+    if (worldMatrix) {
+      const sx = Math.hypot(worldMatrix[0], worldMatrix[1]), sy = Math.hypot(worldMatrix[2], worldMatrix[3]);
+      const avg = Math.max(1e-6, Math.sqrt((sx * sx + sy * sy) / 2)), sm = kind.stroke_scale_mode || 'normal';
+      if (kind.stroke_hairline) effW = 1 / avg;
+      else if (sm === 'none') effW = kind.stroke_width / avg;
+      else if (sm === 'horizontal') effW = kind.stroke_width * sx / avg;
+      else if (sm === 'vertical') effW = kind.stroke_width * sy / avg;
+    }
+    return effW;
+  }
+
+  function containsFallback(kind, x, y, worldMatrix = null) {
+    const subs = flattenSubpaths(kind.commands);
+    if (paintAlpha(kind, 'fill', x, y) > 0) {
+      let winding = 0, crossings = 0;
+      for (const sub of subs) {
+        const pts = sub.pts; if (pts.length < 3) continue;
+        for (let i = 0; i < pts.length; i++) {
+          const [x0, y0] = pts[i], [x1, y1] = pts[(i + 1) % pts.length];
+          if ((y0 <= y && y1 > y) || (y1 <= y && y0 > y)) {
+            const vt = (y - y0) / (y1 - y0);
+            if (x < x0 + vt * (x1 - x0)) { crossings++; winding += y1 > y0 ? 1 : -1; }
+          }
+        }
+      }
+      if (kind.fill_rule === 'evenodd' ? (crossings & 1) !== 0 : winding !== 0) return true;
+    }
+    const hasStroke = kind.stroke_width > 0 || Boolean(kind.stroke_hairline);
+    if (!hasStroke || paintAlpha(kind, 'stroke', x, y) <= 0) return false;
+    const half = effectiveStrokeWidth(kind, worldMatrix) * 0.5, cap = lineCapOf(kind);
+    for (const sub of subs) {
+      const pts = sub.pts;
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const [ax, ay] = pts[i], [bx, by] = pts[i + 1], dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
+        if (len <= 1e-9) { if (cap !== 'butt' && Math.hypot(x - ax, y - ay) <= half) return true; continue; }
+        const ux = dx / len, uy = dy / len, proj = (x - ax) * ux + (y - ay) * uy, perp = Math.abs((x - ax) * uy - (y - ay) * ux);
+        const lo = (!sub.closed && i === 0 && cap === 'square') ? -half : 0;
+        const hi = (!sub.closed && i + 2 === pts.length && cap === 'square') ? len + half : len;
+        if (proj >= lo && proj <= hi && perp <= half) return true;
+        if (cap === 'round' && ((proj < 0 && (!sub.closed && i === 0) && Math.hypot(x - ax, y - ay) <= half) || (proj > len && (!sub.closed && i + 2 === pts.length) && Math.hypot(x - bx, y - by) <= half))) return true;
+        if (lineJoinOf(kind) === 'round' && i > 0 && Math.hypot(x - ax, y - ay) <= half) return true;
+      }
+    }
+    return false;
+  }
+
+  function contains(context, kind, x, y, path = null, worldMatrix = null) {
+    if (!context || typeof context.isPointInPath !== 'function') return containsFallback(kind, x, y, worldMatrix);
+    path ??= createPath(kind.commands);
     context.save();
     try {
       // The caller already applied the inverse composed instance transform to the point.
       // DPR and the last rendered object's transform must not affect local geometry tests.
       context.setTransform(1, 0, 0, 1, 0, 0);
       if (paintAlpha(kind,'fill',x,y)>0 && context.isPointInPath(path, x, y, kind.fill_rule || 'nonzero')) return true;
-      if (kind.stroke_width<=0 || paintAlpha(kind,'stroke',x,y)<=0) return false;
-      context.lineWidth = kind.stroke_width;
-      context.lineCap = 'round';
-      context.lineJoin = 'round';
+      const hasStroke = kind.stroke_width > 0 || Boolean(kind.stroke_hairline);
+      if (!hasStroke || paintAlpha(kind,'stroke',x,y)<=0) return false;
+      context.lineWidth = effectiveStrokeWidth(kind, worldMatrix);
+      context.lineCap = lineCapOf(kind);
+      context.lineJoin = lineJoinOf(kind);
+      context.miterLimit = miterLimitOf(kind);
       return context.isPointInStroke(path, x, y);
     } finally {
       context.restore();

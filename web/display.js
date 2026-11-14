@@ -140,11 +140,12 @@
       'as2_target_path','as2_resolve_target','as2_resolve_target_case','as2_root',
       'as2_is_frame_loaded','bitmap_info','bitmap_pixels','bitmap_pixels_transformed',
       'bitmap_get_pixels','bitmap_get_pixel','bitmap_histogram_json','bitmap_encode_png',
-      'bitmap_encode_jpeg','bitmap_generate_filter_rect','bitmap_draw_snapshot',
+      'bitmap_encode_jpeg','bitmap_generate_filter_rect','bitmap_draw_snapshot','bitmap_render_snapshot',
       'filter_padding','filter_rgba','amf_encode','amf_decode','sol_encode','sol_decode',
       'text_layout_json','text_query_json','portable_measure_text_json',
       'parse_html_text_json','serialize_html_text_json','text_to_outlines_json',
       'loader_content','scripts_json','sound_commands_json','video_commands_json','display_events_json',
+      'object_button_sound_transform_json',
     ]);
     const visualOnlyPlayerMethods=new Set([
       'set_property','object_set_property','set_visible','object_set_visible',
@@ -154,7 +155,7 @@
       'object_set_scroll_rect','object_set_mask','object_set_bitmap',
       'object_set_smoothing','object_set_pixel_snapping','object_video_update',
       'graphics_apply','graphics_copy_from','set_morph_shape_ops','set_text_line_draws',
-      'stop_all_sounds','set_playing',
+      'stop_all_sounds','set_playing','object_set_button_sound_transform',
       'bitmap_create','bitmap_set_pixels','bitmap_color_transform','bitmap_apply_filter',
       'bitmap_draw_rgba','bitmap_draw_rgba_blended','bitmap_set_pixel','bitmap_fill_rect',
       'bitmap_copy_pixels','bitmap_clone','bitmap_scroll','bitmap_dispose','pixel_decode','pixel_release',
@@ -229,9 +230,11 @@
       if(name==='x'||name==='y'){
         node.transform[name]=value;
         if(node.local_matrix)node.local_matrix[name==='x'?4:5]=value;
+        if(node.content_local_matrix)node.content_local_matrix=node.scroll_rect?multiply(node.local_matrix||matrix(node.transform),[1,0,0,1,-node.scroll_rect.x,-node.scroll_rect.y]):(node.local_matrix||matrix(node.transform));
       }else if((name==='rotation'||(name==='scale_x'&&value>=0)||(name==='scale_y'&&value>=0))&&!node.transform.skew){
         node.transform[name]=name==='rotation'?(value%360):value;
         if(node.local_matrix)node.local_matrix=matrix(node.transform);
+        if(node.content_local_matrix)node.content_local_matrix=node.scroll_rect?multiply(node.local_matrix||matrix(node.transform),[1,0,0,1,-node.scroll_rect.x,-node.scroll_rect.y]):(node.local_matrix||matrix(node.transform));
       }else{
         return false;
       }
@@ -413,20 +416,31 @@
         if(!allKinds.length)continue;
         const m=relative(leaf,destination,list);
         for(const kind of allKinds) {
-        const stroke=strokes?(kind.stroke_width||0)/2:0;
-        const corners=(x,y,w,h)=>{for(const [px,py] of [[x,y],[x+w,y],[x+w,y+h],[x,y+h]]){const p=point(m,px,py);include(p.x,p.y);}};
+        const hasStrokePaint=Boolean((kind.stroke&&kind.stroke[3]>0)||kind.stroke_gradient||kind.stroke_bitmap);
+        const rawStroke=kind.stroke_width||0;
+        const activeStroke=strokes&&hasStrokePaint&&(Boolean(kind.stroke_hairline)||rawStroke>0);
+        const strokeMode=kind.stroke_hairline?'hairline':(kind.stroke_scale_mode||'normal');
+        const stroke=activeStroke&&strokeMode==='normal'?rawStroke/2:0;
+        let customStroke=false,customDx=0,customDy=0;
+        if(activeStroke&&strokeMode!=='normal'){
+          const ws=leaf.world||m,wsx=Math.hypot(ws[0],ws[1])||1,wsy=Math.hypot(ws[2],ws[3])||1;
+          const stageHalf=0.5*(strokeMode==='hairline'?1:strokeMode==='none'?rawStroke:strokeMode==='horizontal'?rawStroke*wsx:rawStroke*wsy);
+          let invD=identity;if(destination){try{invD=inverse(destination.world);}catch(_){invD=identity;}}
+          customDx=stageHalf*Math.hypot(invD[0],invD[2]);customDy=stageHalf*Math.hypot(invD[1],invD[3]);customStroke=true;
+        }
+        const corners=(x,y,w,h,ex=0,ey=0)=>{let rl=Infinity,rt=Infinity,rr=-Infinity,rb=-Infinity;for(const [px,py] of [[x,y],[x+w,y],[x+w,y+h],[x,y+h]]){const p=point(m,px,py);rl=Math.min(rl,p.x);rt=Math.min(rt,p.y);rr=Math.max(rr,p.x);rb=Math.max(rb,p.y);}include(rl-ex,rt-ey);include(rr+ex,rb+ey);};
         if(kind.type==='text_field'){const b=getText().bounds(kind.field);if(b)corners(b.left,b.top,b.right-b.left,b.bottom-b.top);}
         else if(kind.type==='fte_run')corners(kind.x,kind.y,(kind.width||kind.text.length*kind.font_size*0.6),kind.font_size*1.2);
         else if(kind.type==='bitmap_pixels'||kind.type==='video_frame')corners(0,0,kind.width,kind.height);
-        else if(kind.type==='rectangle')corners(-stroke,-stroke,kind.width+2*stroke,kind.height+2*stroke);
+        else if(kind.type==='rectangle'){if(customStroke)corners(0,0,kind.width,kind.height,customDx,customDy);else corners(-stroke,-stroke,kind.width+2*stroke,kind.height+2*stroke);}
         else if(kind.type==='ellipse') {
           const center=point(m,kind.width/2,kind.height/2);
-          const rx=Math.hypot(m[0]*kind.width/2,m[2]*kind.height/2)+stroke*Math.hypot(m[0],m[2]);
-          const ry=Math.hypot(m[1]*kind.width/2,m[3]*kind.height/2)+stroke*Math.hypot(m[1],m[3]);
+          const rx=Math.hypot(m[0]*kind.width/2,m[2]*kind.height/2)+(customStroke?customDx:stroke*Math.hypot(m[0],m[2]));
+          const ry=Math.hypot(m[1]*kind.width/2,m[3]*kind.height/2)+(customStroke?customDy:stroke*Math.hypot(m[1],m[3]));
           include(center.x-rx,center.y-ry);include(center.x+rx,center.y+ry);
         } else if(kind.type==='path'||kind.type==='gradient_path') {
           const b=pathBounds(kind.commands,m);
-          if(b){const dx=stroke*Math.hypot(m[0],m[2]),dy=stroke*Math.hypot(m[1],m[3]);include(b.left-dx,b.top-dy);include(b.right+dx,b.bottom+dy);}
+          if(b){const dx=customStroke?customDx:stroke*Math.hypot(m[0],m[2]),dy=customStroke?customDy:stroke*Math.hypot(m[1],m[3]);include(b.left-dx,b.top-dy);include(b.right+dx,b.bottom+dy);}
         } else if(kind.type==='text') {
           kind.text.split('\n').forEach((line,i)=>corners(0,i*kind.font_size*1.2,measureText(line,kind),kind.font_size*1.2));
         }
@@ -555,7 +569,7 @@
       if(!Number.isInteger(index)||index<0||index>=lines.length)throw new RangeError('TextField line index is outside the unwrapped text.');
       return lines[index]+(index<lines.length-1?'\r':'');
     }
-    const graphicsCache=new WeakMap(),graphicsTargets=new WeakMap();
+    const graphicsCache=new WeakMap(),graphicsTargets=new WeakMap(),as2GradientHelpers=new WeakMap();
     function graphics(target) {
       ownerInfo(target);
       if(graphicsCache.has(target))return graphicsCache.get(target);
@@ -566,17 +580,37 @@
       const rectangle=(op,x,y,width,height)=>apply({op,x:number(x,'x'),y:number(y,'y'),width:number(width,'width'),height:number(height,'height')});
       // AIR Graphics/GraphicsPathCommand and the Adobe AS2 MovieClip reference
       // define stop ranges, the 1638.4 gradient square and WIDE_* dummy pairs.
-      // Only native Matrix objects, pad spread and rgb interpolation are handled.
-      const gradient=(kind,colors,alphas,ratios,matrix=null,spreadMethod='pad',interpolationMethod='rgb',focalPointRatio=0)=>{
+      const gradient=(kind,colors,alphas,ratios,matrix=null,spreadMethod='pad',interpolationMethod='rgb',focalPointRatio=0,allowLegacyMatrix=false)=>{
         if(kind!=='linear'&&kind!=='radial')throw new TypeError('Graphics gradient type requires linear or radial.');
-        if(spreadMethod!=='pad')throw new TypeError('Graphics gradient spread currently supports pad; repeat and reflect are pending.');
-        if(interpolationMethod!=='rgb')throw new TypeError('Graphics gradient interpolation currently supports rgb; linearRGB is pending.');
+        const spread=spreadMethod??'pad';
+        if(!['pad','reflect','repeat'].includes(spread))throw new TypeError("Graphics gradient spread requires 'pad', 'reflect' or 'repeat'.");
+        const interp=interpolationMethod??'rgb';
+        if(!['rgb','linearRGB'].includes(interp))throw new TypeError("Graphics gradient interpolation requires 'rgb' or 'linearRGB'.");
         const stops=graphicsNumbers(colors,'colors',15).map(rgb),alpha=graphicsNumbers(alphas,'alphas',15).map(value=>Math.max(0,Math.min(1,value))),positions=graphicsNumbers(ratios,'ratios',15);
         if(stops.length===0||stops.length!==alpha.length||stops.length!==positions.length)throw new RangeError('Graphics gradients require matching colors, alphas and ratios with 1 through 15 stops.');
         for(let i=0;i<positions.length;i++)if(!Number.isInteger(positions[i])||positions[i]<0||positions[i]>255||(i>0&&positions[i]<positions[i-1]))throw new RangeError('Graphics gradient ratios require nondecreasing integers from 0 through 255.');
-        if(matrix!==null&&!Matrix.__nfIs(matrix))throw new TypeError('Graphics gradient matrix requires flash.geom.Matrix or null; legacy box and 3×3 matrix objects are unsupported.');
-        const components=matrix===null?[...identity]:['a','b','c','d','tx','ty'].map(key=>number(matrix[key],`matrix.${key}`));
-        return {kind,colors:stops,alphas:alpha,ratios:positions,matrix:components,spread_method:spreadMethod,interpolation_method:interpolationMethod,focal_point_ratio:Math.max(-1,Math.min(1,number(focalPointRatio,'focalPointRatio')))};
+        let components;
+        if(matrix===null||matrix===undefined){
+          components=[...identity];
+        }else if(Matrix.__nfIs(matrix)){
+          components=['a','b','c','d','tx','ty'].map(key=>number(matrix[key],`matrix.${key}`));
+        }else if(allowLegacyMatrix&&typeof matrix==='object'){
+          if(matrix.matrixType==='box'){
+            const bx=number(matrix.x,'matrix.x'),by=number(matrix.y,'matrix.y'),bw=number(matrix.w,'matrix.w'),bh=number(matrix.h,'matrix.h'),br=number(matrix.r??0,'matrix.r');
+            const sx=bw/1638.4,sy=bh/1638.4,c=Math.cos(br),s=Math.sin(br);
+            components=[c*sx,s*sy,-s*sx,c*sy,bx+bw/2,by+bh/2];
+          }else if('tx' in matrix&&'ty' in matrix){
+            components=['a','b','c','d','tx','ty'].map(key=>number(matrix[key],`matrix.${key}`));
+          }else if('e' in matrix&&'g' in matrix&&'h' in matrix){
+            const a=number(matrix.a,'matrix.a'),b=number(matrix.b,'matrix.b'),d=number(matrix.d,'matrix.d'),e=number(matrix.e,'matrix.e'),g=number(matrix.g,'matrix.g'),h=number(matrix.h,'matrix.h');
+            components=[a/1638.4,b/1638.4,d/1638.4,e/1638.4,g+0.5*a+0.5*d,h+0.5*b+0.5*e];
+          }else{
+            throw new TypeError('AS2 gradient matrix requires a Matrix, {matrixType:"box",x,y,w,h,r}, {a,b,c,d,tx,ty} or 3x3 {a,b,c,d,e,f,g,h,i}.');
+          }
+        }else{
+          throw new TypeError('Graphics gradient matrix requires flash.geom.Matrix or null.');
+        }
+        return {kind,colors:stops,alphas:alpha,ratios:positions,matrix:components,spread_method:spread,interpolation_method:interp,focal_point_ratio:Math.max(-1,Math.min(1,number(focalPointRatio,'focalPointRatio')))};
       };
       const drawPath=(commands,data,winding='evenOdd')=>{
         if(winding!=='evenOdd'&&winding!=='nonZero')throw new TypeError('Graphics.drawPath winding requires evenOdd or nonZero.');
@@ -607,13 +641,13 @@
           const components=matrix===null?[...identity]:['a','b','c','d','tx','ty'].map(key=>number(matrix[key],`matrix.${key}`));
           apply({op:'begin_bitmap_fill',bitmap:{pixel_ref:pixelRef,matrix:components,repeat,smoothing}});
         },
-        beginGradientFill:(...args)=>apply({op:'begin_gradient_fill',gradient:gradient(...args)}),
+        beginGradientFill:(type,colors,alphas,ratios,matrix=null,spreadMethod='pad',interpolationMethod='rgb',focalPointRatio=0)=>apply({op:'begin_gradient_fill',gradient:gradient(type,colors,alphas,ratios,matrix,spreadMethod,interpolationMethod,focalPointRatio,false)}),
         beginShaderFill:(shader,matrix=null)=>{
           const host=getFte3D();if(!host)throw new Error('Shader runtime is missing.');
           const bmp=host.rasterizeShaderToBitmapData(shader);
           methods.beginBitmapFill(bmp,matrix,true,false);
         },
-        lineGradientStyle:(...args)=>apply({op:'line_gradient_style',gradient:gradient(...args)}),
+        lineGradientStyle:(type,colors,alphas,ratios,matrix=null,spreadMethod='pad',interpolationMethod='rgb',focalPointRatio=0)=>apply({op:'line_gradient_style',gradient:gradient(type,colors,alphas,ratios,matrix,spreadMethod,interpolationMethod,focalPointRatio,false)}),
         lineShaderStyle:(shader,matrix=null)=>{
           const host=getFte3D();if(!host)throw new Error('Shader runtime is missing.');
           const bmp=host.rasterizeShaderToBitmapData(shader);
@@ -633,9 +667,9 @@
           if(scaleMode!==null&&!['normal','none','vertical','horizontal'].includes(scaleMode)){const err=new RangeError(`Graphics.lineStyle scaleMode is invalid: '${scaleMode}'.`);err.name='ArgumentError';throw err;}
           if(caps!==null&&!['none','round','square'].includes(caps)){const err=new RangeError(`Graphics.lineStyle caps is invalid: '${caps}'.`);err.name='ArgumentError';throw err;}
           if(joints!==null&&!['round','bevel','miter'].includes(joints)){const err=new RangeError(`Graphics.lineStyle joints is invalid: '${joints}'.`);err.name='ArgumentError';throw err;}
-          number(miterLimit,'miterLimit');if(miterLimit<1||miterLimit>255)throw new RangeError('Graphics.lineStyle miterLimit must be from 1 through 255.');
-          if(width!==undefined&&!Number.isNaN(width)){number(width,'thickness');if(width<=0||width>255)throw new RangeError('Graphics thickness currently requires greater than 0 through 255; hairlines are pending.');}
-          apply({op:'line_style',width:width===undefined||Number.isNaN(width)?null:width,color:rgb(color),alpha:opacity(alpha)});
+          const clampedMiter=Math.max(1,Math.min(255,number(miterLimit,'miterLimit')));
+          if(width!==undefined&&!Number.isNaN(width)){number(width,'thickness');if(width<0||width>255)throw new RangeError('Graphics thickness requires 0 through 255.');}
+          apply({op:'line_style',width:width===undefined||Number.isNaN(width)?null:width,color:rgb(color),alpha:opacity(alpha),pixel_hinting:pixelHinting,scale_mode:scaleMode??'normal',caps:caps??'round',joints:joints??'round',miter_limit:clampedMiter});
         },
         moveTo:(x,y)=>apply({op:'move_to',x:number(x,'x'),y:number(y,'y')}),
         lineTo:(x,y)=>apply({op:'line_to',x:number(x,'x'),y:number(y,'y')}),
@@ -718,7 +752,9 @@
               const colors=grad.stops.map(s=>((s.color[0]<<16)|(s.color[1]<<8)|s.color[2])>>>0);
               const alphas=grad.stops.map(s=>s.color[3]/255);
               const ratios=grad.stops.map(s=>s.ratio);
-              return new GraphicsGradientFill(grad.kind,colors,alphas,ratios,new Matrix(...grad.matrix),'pad','rgb',grad.focal_point_ratio||0);
+              const spread=grad.spread==='reflect'?'reflect':grad.spread==='repeat'?'repeat':'pad';
+              const interp=grad.linear_rgb?'linearRGB':'rgb';
+              return new GraphicsGradientFill(grad.kind,colors,alphas,ratios,new Matrix(...grad.matrix),spread,interp,grad.focal_point_ratio||0);
             }
             if(rgbaArr&&rgbaArr[3]>0)return new GraphicsSolidFill(((rgbaArr[0]<<16)|(rgbaArr[1]<<8)|rgbaArr[2])>>>0,rgbaArr[3]/255);
             return null;
@@ -753,10 +789,10 @@
                 }
               }
               if(!cmds.length)continue;
-              const hasStroke=kind.stroke_width>0;
+              const hasStroke=Boolean(kind.stroke_hairline)||kind.stroke_width>0;
               const strokeFill=hasStroke?toFill(kind.stroke,kind.stroke_gradient,kind.stroke_bitmap):null;
               const fillObj=toFill(kind.fill,kind.fill_gradient,kind.fill_bitmap);
-              if(strokeFill)items.push(new GraphicsStroke(kind.stroke_width,false,'normal','round','round',3,strokeFill));
+              if(strokeFill)items.push(new GraphicsStroke(kind.stroke_hairline?0:kind.stroke_width,Boolean(kind.stroke_pixel_hinting),kind.stroke_scale_mode||'normal',kind.stroke_caps||'round',kind.stroke_joints||'round',kind.stroke_miter_limit??3,strokeFill));
               if(fillObj)items.push(fillObj);
               const winding=kind.fill_rule==='evenodd'?'evenOdd':'nonZero';
               items.push(new GraphicsPath(graphicsVectors.intVector(cmds),graphicsVectors.numberVector(coords),winding));
@@ -771,6 +807,10 @@
         drawCircle:(x,y,radius)=>{number(radius,'radius');if(radius<0)throw new RangeError('Graphics radius must be nonnegative.');rectangle('draw_ellipse',number(x,'x')-radius,number(y,'y')-radius,radius*2,radius*2);},
       };
       const facade=new Proxy(Object.freeze(methods),{get:(target,name)=>{if(typeof name==='symbol'||name==='then')return undefined;if(Object.hasOwn(target,name))return target[name];throw new TypeError(`Graphics.${name} is not implemented in the path/gradient profile; bitmap/shader fills, triangles and graphics-data objects remain unsupported.`);},set:()=>{throw new TypeError('Graphics members are read-only.');}});
+      as2GradientHelpers.set(facade,(opName,type,colors,alphas,ratios,matrix=null,spreadMethod='pad',interpolationMethod='RGB',focalPointRatio=0)=>{
+        const normInterp=typeof interpolationMethod==='string'&&interpolationMethod.toLowerCase()==='linearrgb'?'linearRGB':interpolationMethod==='RGB'?'rgb':interpolationMethod;
+        apply({op:opName,gradient:gradient(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spreadMethod??'pad',normInterp,focalPointRatio,true)});
+      });
       directNativeMethods.add(facade);graphicsInstances.add(facade);graphicsTargets.set(facade,target);graphicsCache.set(target,facade);return facade;
     }
     function mutate(operation,deliver=true) {
@@ -945,8 +985,8 @@
         },
         beginFill:(color,alpha=100)=>drawing.beginFill(color,alpha/100),
         beginBitmapFill:(bitmap,matrix=null,repeat=true,smoothing=false)=>drawing.beginBitmapFill(bitmap,matrix??null,Boolean(repeat),Boolean(smoothing)),
-        beginGradientFill:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>drawing.beginGradientFill(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spread,interpolation==='RGB'?'rgb':interpolation,focal),
-        lineGradientStyle:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>drawing.lineGradientStyle(type,colors,graphicsNumbers(alphas,'AS2 alphas',15).map(alpha=>alpha/100),ratios,matrix,spread,interpolation==='RGB'?'rgb':interpolation,focal),
+        beginGradientFill:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>as2GradientHelpers.get(drawing)('begin_gradient_fill',type,colors,alphas,ratios,matrix,spread,interpolation,focal),
+        lineGradientStyle:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>as2GradientHelpers.get(drawing)('line_gradient_style',type,colors,alphas,ratios,matrix,spread,interpolation,focal),
         endFill:drawing.endFill,lineStyle:(width,color=0,alpha=100,...options)=>drawing.lineStyle(width,color,alpha/100,...options),
         moveTo:drawing.moveTo,lineTo:drawing.lineTo,curveTo:drawing.curveTo,clear:drawing.clear,
         getTextSnapshot:()=>{const host=getAS2Text();if(!host)throw new Error('AS2 text snapshot service is missing; re-export the project.');descriptor(target);return host.snapshotFor(referenceOf(target).key);},
@@ -1065,7 +1105,7 @@
         return {has:()=>true,delete:()=>false,get:method,set:()=>{throw new TypeError('MovieClip image methods are read-only.');}};
       }
       if(['blendMode','cacheAsBitmap','opaqueBackground','scale9Grid'].includes(name)){
-        const owner=ownerOf(target);if(!['movie_clip','button'].includes(owner)||(name==='opaqueBackground'&&owner!=='movie_clip'))return null;
+        const owner=ownerOf(target);if(!['movie_clip','button','text'].includes(owner)||(name==='opaqueBackground'&&owner!=='movie_clip')||(name==='scale9Grid'&&owner==='text'))return null;
         const call=request=>JSON.parse(player.as2_render_command(referenceOf(target).key,JSON.stringify(request)));
         if(name==='scale9Grid'){
           return {
@@ -1138,17 +1178,26 @@
       }
     }
     function nodeShapes(node){if(node.text)return[{type:'text_field',field:node.text}];if(node.video)return[{type:'video_frame',...node.video}];if(node.bitmap&&!node.bitmap.disposed)return[{type:'bitmap_pixels',...node.bitmap,smoothing:node.smoothing,pixel_snapping:'never'}];if(node.fte_draws?.length)return node.fte_draws.map(r=>({type:'fte_run',...r}));if(node.owner==='text_line'){const tb=getFte3D()?.textLineBounds?.(nodeProxy(node));if(tb)return[{type:'fte_run',x:tb.x,y:tb.y,width:tb.width,font_size:tb.height/1.2}];}return node.kind?[node.kind]:[];}
+    function leafStrokeHalf(kind,world){
+      const hasPaint=Boolean((kind.stroke&&kind.stroke[3]>0)||kind.stroke_gradient||kind.stroke_bitmap);
+      if(!hasPaint)return 0;
+      const wsx=Math.hypot(world[0],world[1])||1,wsy=Math.hypot(world[2],world[3])||1,avg=Math.max(1e-6,(wsx+wsy)*0.5);
+      if(kind.stroke_hairline)return 0.5/avg;
+      const w=kind.stroke_width||0;if(w<=0)return 0;
+      const mode=kind.stroke_scale_mode||'normal';
+      return mode==='none'?(w*0.5)/avg:mode==='horizontal'?(w*0.5*wsx)/avg:mode==='vertical'?(w*0.5*wsy)/avg:w*0.5;
+    }
     function leafHit(node,x,y){
       let q;try{q=point(inverse(node.world),x,y);}catch(_){return false;}
       for(const kind of [...nodeShapes(node),...(node.graphics||[])]){
-        if(kind.type==='rectangle'){const stroke=kind.stroke_width>0&&kind.stroke?.[3]>0?kind.stroke_width/2:0;const inside=q.x>=0&&q.y>=0&&q.x<=kind.width&&q.y<=kind.height,outer=q.x>=-stroke&&q.y>=-stroke&&q.x<=kind.width+stroke&&q.y<=kind.height+stroke,inner=q.x>stroke&&q.y>stroke&&q.x<kind.width-stroke&&q.y<kind.height-stroke;if((kind.fill?.[3]>0&&inside)||(stroke&&outer&&!inner))return true;}
+        if(kind.type==='rectangle'){const stroke=leafStrokeHalf(kind,node.world);const hasFill=Boolean((kind.fill&&kind.fill[3]>0)||kind.fill_gradient||kind.fill_bitmap);const inside=q.x>=0&&q.y>=0&&q.x<=kind.width&&q.y<=kind.height,outer=q.x>=-stroke&&q.y>=-stroke&&q.x<=kind.width+stroke&&q.y<=kind.height+stroke,inner=q.x>stroke&&q.y>stroke&&q.x<kind.width-stroke&&q.y<kind.height-stroke;if((hasFill&&inside)||(stroke&&outer&&!inner))return true;}
         else if(kind.type==='fte_run'){const w=kind.width||kind.text.length*kind.font_size*0.6,h=kind.font_size*1.2;if(q.x>=kind.x&&q.x<=kind.x+w&&q.y>=kind.y&&q.y<=kind.y+h)return true;}
-        else if(kind.type==='ellipse'){const stroke=kind.stroke_width>0&&kind.stroke?.[3]>0?kind.stroke_width/2:0;if(kind.width>0&&kind.height>0){const ellipse=(rx,ry)=>rx>0&&ry>0&&Math.pow((q.x-kind.width/2)/rx,2)+Math.pow((q.y-kind.height/2)/ry,2)<=1;if((kind.fill?.[3]>0&&ellipse(kind.width/2,kind.height/2))||(stroke&&ellipse(kind.width/2+stroke,kind.height/2+stroke)&&!ellipse(kind.width/2-stroke,kind.height/2-stroke)))return true;}}
+        else if(kind.type==='ellipse'){const stroke=leafStrokeHalf(kind,node.world);const hasFill=Boolean((kind.fill&&kind.fill[3]>0)||kind.fill_gradient||kind.fill_bitmap);if(kind.width>0&&kind.height>0){const ellipse=(rx,ry)=>rx>0&&ry>0&&Math.pow((q.x-kind.width/2)/rx,2)+Math.pow((q.y-kind.height/2)/ry,2)<=1;if((hasFill&&ellipse(kind.width/2,kind.height/2))||(stroke&&ellipse(kind.width/2+stroke,kind.height/2+stroke)&&!ellipse(kind.width/2-stroke,kind.height/2-stroke)))return true;}}
         else if(kind.type==='text_field'){const b=kind.field.box?{left:0,top:0,right:kind.field.box.width,bottom:kind.field.box.height}:getText().bounds({...kind.field,alpha:255},true);if(b&&q.x>=b.left&&q.y>=b.top&&q.x<=b.right&&q.y<=b.bottom)return true;}
         else if(kind.type==='text'){const lines=kind.text.split('\n');if(q.x>=0&&q.y>=0&&q.y<=lines.length*kind.font_size*1.2&&q.x<=Math.max(0,...lines.map(line=>measureText(line,kind))))return true;}
         else if(kind.type==='bitmap_pixels'){if(getBitmap()?.cache.hit(kind,q.x,q.y))return true;}
         else if(kind.type==='video_frame'){if(getVideo()?.get(nodeProxy(node),'videoWidth')>0&&q.x>=0&&q.y>=0&&q.x<kind.width&&q.y<kind.height)return true;}
-        else if(kind.type==='path'||kind.type==='gradient_path'){if(!shapeContains)throw new Error('Shape hit testing requires the Canvas Path2D service.');if(shapeContains(kind,q.x,q.y))return true;}
+        else if(kind.type==='path'||kind.type==='gradient_path'){if(!shapeContains)throw new Error('Shape hit testing requires the Canvas Path2D service.');if(shapeContains(kind,q.x,q.y,node.world))return true;}
       }
       return false;
     }
@@ -1157,6 +1206,9 @@
     }
     function shapeHit(target,x,y,snap=snapshot(),respectVisibility=false){
       const list=snap.objects,source=descriptor(target,list);
+      if(source.owner==='button'&&(source.button_hit_authoritative||source.button_hits?.length)){
+        return (!respectVisibility||source.effective_visible)&&(!source.clip_ids?.length||clipsContain?.(snap,source.clip_ids,x,y))&&buttonHit(source,x,y);
+      }
       for(const node of list)if(descendant(node,source,list)&&(!respectVisibility||node.effective_visible)&&(!node.clip_ids?.length||clipsContain?.(snap,node.clip_ids,x,y))&&leafHit(node,x,y))return true;
       return false;
     }
@@ -1166,7 +1218,7 @@
       for(let node=descriptor(target,list);node;node=parentNode(node,list)){
         if(node.on_stage===false||node.effective_visible===false)return null;
         const input=inputOf(node);if(!input)continue;
-        if(node.owner==='button'&&node.button_hits?.length&&x!==null&&!buttonHit(node,x,y))return null;
+        if(node.owner==='button'&&(node.button_hit_authoritative||node.button_hits?.length)&&x!==null&&!buttonHit(node,x,y))return null;
         if(node.owner==='button'&&input.mouse_enabled)chosen=node;
         if(!chosen&&input.mouse_enabled)chosen=node;
         if(input.mouse_children===false&&nodeKey(node)!==referenceOf(target).key){if(!input.mouse_enabled)return null;chosen=node;}
@@ -1191,7 +1243,7 @@
       for(let i=list.length-1;i>=0;i--){const node=list[i];if(node.on_stage===false||node.effective_visible===false||(excluded&&descendant(node,excluded,list)))continue;
         if(node.clip_ids?.length&&!clipsContain?.(snap,node.clip_ids,x,y))continue;
         const area=node.input?.hit_area;
-        const hit=area?shapeHit(proxyForRef(area),x,y,snap):node.owner==='button'&&node.button_hits?.length?buttonHit(node,x,y):painted.has(nodeKey(node))&&leafHit(node,x,y);
+        const hit=area?shapeHit(proxyForRef(area),x,y,snap):node.owner==='button'&&(node.button_hit_authoritative||node.button_hits?.length)?buttonHit(node,x,y):painted.has(nodeKey(node))&&leafHit(node,x,y);
         if(!hit)continue;const result=inputRoute(nodeProxy(node),list,x,y);if(result)return result;
       }
       return null;
@@ -1234,7 +1286,11 @@
       if(['mouseMove','mouseDown','mouseUp'].includes(type)){
         const next=authoredButton(target);
         if(buttonOver!==next){buttonState(buttonOver,0);buttonOver=next;}
-        if(type==='mouseMove'&&buttonPressed&&next&&buttonPressed!==next&&as2Input(buttonPressed,{op:'menu_transfer',target:referenceOf(next).objectRef})){buttonState(buttonPressed,0);buttonPressed=next;}
+        const menuMode=btn=>Boolean(btn&&(as2Input(btn).track_as_menu||nativeInput(btn).track_as_menu));
+        const menuTransfer=(a,b)=>as2Input(a,{op:'menu_transfer',target:referenceOf(b).objectRef})||(menuMode(a)&&menuMode(b));
+        if(type==='mouseMove'&&buttonPressed&&next&&buttonPressed!==next&&menuTransfer(buttonPressed,next)){buttonState(buttonPressed,0);buttonPressed=next;}
+        if(type==='mouseMove'&&buttonPressed&&!next&&menuMode(buttonPressed)){buttonState(buttonPressed,0);buttonPressed=null;}
+        if(type==='mouseMove'&&!buttonPressed&&((event.buttons??0)&1)&&next&&menuMode(next))buttonPressed=next;
         if(type==='mouseDown'&&(event.button===undefined||event.button===0))buttonPressed=next;
         if(type==='mouseUp'&&(event.button===undefined||event.button===0)){buttonState(buttonPressed,buttonPressed===next?1:0);buttonPressed=null;}
         buttonState(next,buttonPressed===next?2:buttonPressed?0:1);
@@ -1311,7 +1367,7 @@
       }
       return null;
     }
-    function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.owner==='text'&&as2Input(current).enabled){const field=getText()?.info?.(ref.key);if(field?.format?.url||field?.format_runs?.some(r=>r.format?.url)||(field?.html&&/<a\s/i.test(field.text||'')))return true;}if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.owner!=='movie_clip'||node.input.movieclip_enabled!==false)&&(node.owner!=='button'||node.input.button_enabled!==false)&&(node.input.button_mode||[...buttonCallbacks].some(name=>hasCallback(record,name))))return true;}return false;}
+    function handCursor(target){const isEnabled=cur=>typeof player.as2_input_command==='function'?as2Input(cur).enabled:true;for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),inp=inputOf(node),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.owner==='text'&&isEnabled(current)){const field=getText()?.info?.(ref.key);if(field?.format?.url||field?.format_runs?.some(r=>r.format?.url)||(field?.html&&/<a\s/i.test(field.text||'')))return true;}if(inp?.use_hand_cursor&&(node.owner!=='movie_clip'||inp.movieclip_enabled!==false)&&(node.owner!=='button'||inp.button_enabled!==false)&&(inp.button_mode||[...buttonCallbacks].some(name=>hasCallback(record,name)))&&isEnabled(current))return true;}return false;}
     function methods(target) {
       const {owner,staticText}=ownerInfo(target);
       const result={
@@ -1460,8 +1516,25 @@
       if(owner==='button'){
         if(name==='enabled')return nativeInput(target).button_enabled!==false;
         if(name==='trackAsMenu')return Boolean(nativeInput(target).track_as_menu);
-        if(['upState','overState','downState','hitTestState'].includes(name)){descriptor(target);return buttonRecord(target)[name];}
-        if(name==='soundTransform'){descriptor(target);const ST=getAudio()?.SoundTransform;if(!ST)throw new Error('SimpleButton.soundTransform requires the audio host.');const rec=buttonRecord(target);return new ST(rec.volume,rec.pan);}
+        if(['upState','overState','downState','hitTestState'].includes(name)){
+          descriptor(target);
+          const slotIdx={upState:0,overState:1,downState:2,hitTestState:3}[name];
+          if(typeof player.object_button_slot_json==='function'){
+            const ref=JSON.parse(player.object_button_slot_json(referenceOf(target).key,slotIdx));
+            const val=ref?proxyForRef(ref):null;
+            buttonRecord(target)[name]=val;
+            return val;
+          }
+          return buttonRecord(target)[name];
+        }
+        if(name==='soundTransform'){
+          descriptor(target);const ST=getAudio()?.SoundTransform;if(!ST)throw new Error('SimpleButton.soundTransform requires the audio host.');
+          if(typeof player.object_button_sound_transform_json==='function'){
+            const [vol,pan]=JSON.parse(player.object_button_sound_transform_json(referenceOf(target).key));
+            return new ST(vol,pan);
+          }
+          const rec=buttonRecord(target);return new ST(rec.volume,rec.pan);
+        }
       }
       if(name==='dropTarget'||name==='_droptarget'){descriptor(target);const dropped=drops.get(target);return name==='_droptarget'?legacyPath(dropped):dropped&&alive(dropped)?dropped:null;}
       if(owner==='text_line'&&getFte3D()){
@@ -1535,8 +1608,14 @@
       }
       if(name==='name'||name==='_name')return descriptor(target).name;
       if(name==='numChildren'){if(!containerOwners.includes(owner))return UNHANDLED;return children(target).length;}
-      if(name==='width'||name==='_width')return bounds(target,parentSpace(target),true).width;
-      if(name==='height'||name==='_height')return bounds(target,parentSpace(target),true).height;
+      if(name==='width'||name==='_width'||name==='height'||name==='_height'){
+        const isWidth=name.includes('width'),node=descriptor(target);
+        if(nonAxisAligned(node)){
+          const local=bounds(target,target,true),m=node.local_matrix||matrix(node.transform);
+          return isWidth?Math.abs(m[0])*local.width+Math.abs(m[2])*local.height:Math.abs(m[1])*local.width+Math.abs(m[3])*local.height;
+        }
+        return isWidth?bounds(target,parentSpace(target),true).width:bounds(target,parentSpace(target),true).height;
+      }
       if(name==='stage') {return descriptor(target).on_stage===false?null:getStage();}
       if(name==='graphics'&&graph&&['movie_clip','sprite','shape'].includes(owner))return graphics(target);
       return UNHANDLED;
@@ -1554,10 +1633,41 @@
       }
       if(name==='textSnapshot'&&containerOwners.includes(owner))throw new TypeError('DisplayObjectContainer.textSnapshot is read-only.');
       if(owner==='button'){
-        if(name==='enabled'){inputWrite(target,'button_enabled',value);return true;}
+        if(name==='enabled'){
+          inputWrite(target,'button_enabled',value);
+          if(!value){
+            if(buttonOver===target)buttonOver=null;
+            if(buttonPressed===target)buttonPressed=null;
+            buttonState(target,0);
+          }
+          return true;
+        }
         if(name==='trackAsMenu'){inputWrite(target,'track_as_menu',value);return true;}
-        if(['upState','overState','downState','hitTestState'].includes(name)){descriptor(target);validateButtonState(value);buttonRecord(target)[name]=value;return true;}
-        if(name==='soundTransform'){descriptor(target);const ST=getAudio()?.SoundTransform;if(!ST||!ST.__nfIs(value))throw new TypeError('SimpleButton.soundTransform requires a SoundTransform.');const rec=buttonRecord(target);rec.volume=value.volume;rec.pan=value.pan;return true;}
+        if(['upState','overState','downState','hitTestState'].includes(name)){
+          descriptor(target);validateButtonState(value);
+          if(value!==null){
+            descriptor(value);
+            const curParent=parentSpace(value);
+            if(curParent&&curParent!==getStage()&&curParent!==target&&containerOwners.includes(ownerOf(curParent))){
+              containerMethods(curParent).removeChild(value);
+            }
+          }
+          const slotIdx={upState:0,overState:1,downState:2,hitTestState:3}[name];
+          if(typeof player.object_set_button_slot==='function'){
+            try{player.object_set_button_slot(referenceOf(target).key,slotIdx,value===null?'null':referenceOf(value).key);}
+            catch(error){const err=new RangeError(String(error));err.name='ArgumentError';throw err;}
+          }
+          buttonRecord(target)[name]=value;
+          return true;
+        }
+        if(name==='soundTransform'){
+          descriptor(target);const ST=getAudio()?.SoundTransform;if(!ST||!ST.__nfIs(value))throw new TypeError('SimpleButton.soundTransform requires a SoundTransform.');
+          const rec=buttonRecord(target);rec.volume=value.volume;rec.pan=value.pan;
+          if(typeof player.object_set_button_sound_transform==='function'){
+            player.object_set_button_sound_transform(referenceOf(target).key,value.volume,value.pan);
+          }
+          return true;
+        }
       }
       if(name==='accessibilityProperties'){descriptor(target);if(value!==null&&value!==undefined&&typeof value!=='object')throw new TypeError('DisplayObject.accessibilityProperties requires an AccessibilityProperties or null.');if(value===null||value===undefined)accProps.delete(target);else accProps.set(target,value);return true;}
       if(name==='contextMenu'||name==='accessibilityImplementation'){if(staticText||!interactiveOwners.includes(owner))return false;descriptor(target);if(value!==null&&value!==undefined&&typeof value!=='object')throw new TypeError(`${name} requires an Object or null.`);(name==='contextMenu'?contextMenus:accessImpls).set(target,value??null);return true;}
@@ -1635,8 +1745,7 @@
       if(owner==='text'&&staticText){
         if(name==='text')throw new TypeError('StaticText.text is read-only.');
       }else if(getText()&&owner==='text'){
-        if(['width','height','_width','_height'].includes(name)&&nonAxisAligned(descriptor(target)))throw new RangeError('Setting dimensions of a rotated TextField or skewed TextField is not supported yet. Set its logical box before applying the matrix.');
-        if(getText().set(referenceOf(target).key,name,value))return true;
+        if((!['width','height','_width','_height'].includes(name)||!nonAxisAligned(descriptor(target)))&&getText().set(referenceOf(target).key,name,value))return true;
       }
       if(['bitmapData','smoothing','pixelSnapping'].includes(name)&&owner==='bitmap'){
         descriptor(target);
@@ -1665,10 +1774,37 @@
       if(name==='width'||name==='height'||name==='_width'||name==='_height') {
         const node=descriptor(target);if(name[0]==='_'){value=Number(value);if(!Number.isFinite(value)||value<0)return true;}
         if(!Number.isFinite(value)||value<0)throw new RangeError('Display dimensions must be finite nonnegative numbers.');
-        if(nonAxisAligned(node))throw new RangeError('Setting dimensions of a rotated object or skewed object is not supported yet. Set scaleX/scaleY explicitly; transformed bounds remain available.');
-        const axis=name.includes('width')?'width':'height',local=bounds(target,target,true)[axis];
-        if(local===0){if(value===0||name[0]==='_')return true;throw new RangeError('Cannot resize empty geometry to a nonzero dimension.');}
-        if(!invoke(target,'set_property',axis==='width'?'scale_x':'scale_y',value/local))throw new RangeError('Runtime rejected the requested display dimension.');return true;
+        const isWidth=name.includes('width'),local=bounds(target,target,true);
+        const lw=local.width,lh=local.height,t=node.transform;
+        const r=t.rotation*Math.PI/180,y=r+(t.skew||0)*Math.PI/180;
+        const ux=Math.abs(Math.cos(r)),uy=Math.abs(Math.sin(r));
+        const vx=Math.abs(Math.sin(y)),vy=Math.abs(Math.cos(y));
+        const cx=isWidth?ux*lw:uy*lw,cy=isWidth?vx*lh:vy*lh;
+        const signX=t.scale_x<0?-1:1,signY=t.scale_y<0?-1:1;
+        if(cx<=1e-12&&cy<=1e-12){
+          invoke(target,'set_property','scale_x',0);
+          invoke(target,'set_property','scale_y',0);
+          return true;
+        }
+        if(cx>1e-12&&cy<=1e-12){
+          if(!invoke(target,'set_property','scale_x',signX*(value/cx)))throw new RangeError('Runtime rejected the requested display dimension.');
+          return true;
+        }
+        if(cy>1e-12&&cx<=1e-12){
+          if(!invoke(target,'set_property','scale_y',signY*(value/cy)))throw new RangeError('Runtime rejected the requested display dimension.');
+          return true;
+        }
+        const cur=Math.abs(t.scale_x)*cx+Math.abs(t.scale_y)*cy;
+        let nextX,nextY;
+        if(cur>1e-12){
+          const factor=value/cur;
+          nextX=t.scale_x*factor;nextY=t.scale_y*factor;
+        }else{
+          const u=value/(cx+cy);
+          nextX=signX*u;nextY=signY*u;
+        }
+        if(!invoke(target,'set_property','scale_x',nextX)||!invoke(target,'set_property','scale_y',nextY))throw new RangeError('Runtime rejected the requested display dimension.');
+        return true;
       }
       if(name==='numChildren'||name==='stage'||(name==='graphics'&&graph&&['movie_clip','sprite','shape'].includes(owner)))throw new TypeError(`${name} is read-only.`);
       return false;
@@ -1806,8 +1942,10 @@
     }
     function initializeSimpleButton(receiver,args){
       const [upState,overState,downState,hitTestState]=simpleButtonArguments(args);
-      const rec=buttonRecord(receiver);
-      rec.upState=upState;rec.overState=overState;rec.downState=downState;rec.hitTestState=hitTestState;
+      set(receiver,'upState',upState);
+      set(receiver,'overState',overState);
+      set(receiver,'downState',downState);
+      set(receiver,'hitTestState',hitTestState);
       refreshLegacyCallbacks(receiver);
     }
     const solidFillSet=new WeakSet(),gradientFillMap=new WeakMap(),bitmapFillSet=new WeakSet(),endFillSet=new WeakSet(),strokeMap=new WeakMap(),pathMap=new WeakMap(),triPathMap=new WeakMap();

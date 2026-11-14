@@ -1018,6 +1018,37 @@ impl WebPlayer {
             .bitmap_pixels_transformed(&pixel_ref(target)?, color_transform(color)?)
             .map_err(display_error)
     }
+    pub fn bitmap_render_snapshot(
+        &self,
+        source: &str,
+        matrix: &str,
+        color: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<u8>, JsValue> {
+        if source.is_empty() {
+            return self
+                .player
+                .render_snapshot_rgba(&self.project, width, height)
+                .map_err(display_error);
+        }
+        if matrix.len() > 4096 {
+            return Err(JsValue::from_str("Matrix input exceeds 4096 bytes"));
+        }
+        let matrix: [f64; 6] = serde_json::from_str(matrix).map_err(display_error)?;
+        let snapshot = self
+            .player
+            .bitmap_draw_snapshot(
+                &self.project,
+                &object_ref(source)?,
+                matrix,
+                color_transform(color)?,
+            )
+            .map_err(display_error)?;
+        self.player
+            .render_runtime_snapshot_rgba(&self.project, &snapshot, width, height)
+            .map_err(display_error)
+    }
     pub fn bitmap_get_pixels(
         &self,
         target: &str,
@@ -1528,6 +1559,41 @@ impl WebPlayer {
         Ok(self
             .player
             .object_button_state(&self.project, &object_ref(target)?, state))
+    }
+    pub fn object_button_slot_json(&mut self, target: &str, slot: u8) -> Result<String, JsValue> {
+        let value = self
+            .player
+            .object_button_slot(&self.project, &object_ref(target)?, slot)
+            .map_err(display_error)?;
+        serde_json::to_string(&value).map_err(display_error)
+    }
+    pub fn object_set_button_slot(
+        &mut self,
+        target: &str,
+        slot: u8,
+        value_json: &str,
+    ) -> Result<bool, JsValue> {
+        let value: Option<ObjectRef> = serde_json::from_str(value_json).map_err(display_error)?;
+        self.player
+            .object_set_button_slot(&self.project, &object_ref(target)?, slot, value)
+            .map_err(display_error)
+    }
+    pub fn object_button_sound_transform_json(&self, target: &str) -> Result<String, JsValue> {
+        let value = self
+            .player
+            .object_button_sound_transform(&self.project, &object_ref(target)?)
+            .map_err(display_error)?;
+        serde_json::to_string(&value).map_err(display_error)
+    }
+    pub fn object_set_button_sound_transform(
+        &mut self,
+        target: &str,
+        volume: f64,
+        pan: f64,
+    ) -> Result<bool, JsValue> {
+        self.player
+            .object_set_button_sound_transform(&self.project, &object_ref(target)?, volume, pan)
+            .map_err(display_error)
     }
     pub fn object_set_property(
         &mut self,

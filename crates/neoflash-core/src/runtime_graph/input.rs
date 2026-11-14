@@ -124,6 +124,17 @@ impl RuntimeGraph {
     pub(super) fn retire_input(&mut self, retired: &BTreeSet<ObjectRef>) {
         self.input_states
             .retain(|reference, _| !retired.contains(reference));
+        self.button_states
+            .retain(|reference, _| !retired.contains(reference));
+        for button in self.button_states.values_mut() {
+            for slot in &mut button.slots {
+                if let Some(Some(state_ref)) = slot
+                    && retired.contains(state_ref)
+                {
+                    *slot = Some(None);
+                }
+            }
+        }
         self.as2_accessibility
             .retain(|reference, _| !retired.contains(reference));
         for reference in retired {

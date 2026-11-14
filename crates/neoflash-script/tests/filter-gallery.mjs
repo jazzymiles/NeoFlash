@@ -47,6 +47,40 @@ export async function verifyFilterGallery(root,cargo){
     assert.ok(blendGroup);assert.equal(blendGroup.composite_operation,'multiply');assert.equal(blendGroup.cache_as_bitmap,true);assert.deepEqual(blendGroup.opaque_background,[0x11,0x22,0x33,255]);
     cards[0].opaqueBackground=null;cards[0].cacheAsBitmap=false;cards[0].blendMode=BlendMode.NORMAL;
     assert.deepEqual([cards[0].blendMode,cards[0].cacheAsBitmap,cards[0].opaqueBackground],['normal',false,null]);
+    for(const [mode,expectedOp] of [[BlendMode.SUBTRACT,'subtract'],[BlendMode.INVERT,'invert'],[BlendMode.ERASE,'destination-out'],[BlendMode.LAYER,'source-over']]){
+      cards[0].blendMode=mode;
+      assert.equal(cards[0].blendMode,mode);
+      const grp=snapshot().filter_groups.find(group=>JSON.stringify(group.owner_ref)===key(cards[0]));
+      assert.ok(grp,`expected filter_group for blendMode=${mode}`);
+      assert.equal(grp.composite_operation,expectedOp);
+    }
+    cards[0].blendMode=BlendMode.ALPHA;
+    assert.equal(snapshot().filter_groups.find(group=>JSON.stringify(group.owner_ref)===key(cards[0])).composite_operation,'source-over','top-level ALPHA without enclosing LAYER does not wipe root stage');
+    cards[2].blendMode=BlendMode.LAYER;
+    nested.blendMode=BlendMode.ALPHA;
+    assert.equal(snapshot().filter_groups.find(group=>JSON.stringify(group.owner_ref)===key(nested)).composite_operation,'destination-in','nested ALPHA inside LAYER masks the enclosing group');
+    nested.blendMode=BlendMode.NORMAL;
+    cards[2].blendMode=BlendMode.NORMAL;
+    cards[0].blendMode=BlendMode.NORMAL;
+    const Sprite=host.program().type('flash.display.Sprite');
+    const Shape=host.program().type('flash.display.Shape');
+    const BitmapData=host.program().type('flash.display.BitmapData');
+    const blendStage=new Sprite();
+    const bg=new Shape();bg.graphics.beginFill(0xc86432);bg.graphics.drawRect(0,0,40,20);bg.graphics.endFill();blendStage.addChild(bg);
+    const sub=new Shape();sub.graphics.beginFill(0x32141e);sub.graphics.drawRect(0,0,20,20);sub.graphics.endFill();sub.blendMode=BlendMode.SUBTRACT;blendStage.addChild(sub);
+    const inv=new Shape();inv.graphics.beginFill(0xffffff);inv.graphics.drawRect(20,0,20,20);inv.graphics.endFill();inv.blendMode=BlendMode.INVERT;blendStage.addChild(inv);
+    const blendBmp=new BitmapData(40,20,true,0x00000000);blendBmp.draw(blendStage);
+    assert.equal(blendBmp.getPixel(10,10),0x965014);
+    assert.equal(blendBmp.getPixel(30,10),0x379bcd);
+    const layerGrp=new Sprite();layerGrp.blendMode=BlendMode.LAYER;
+    const layerBase=new Shape();layerBase.graphics.beginFill(0xff0000);layerBase.graphics.drawRect(0,0,40,20);layerBase.graphics.endFill();layerGrp.addChild(layerBase);
+    const hole=new Shape();hole.graphics.beginFill(0x000000);hole.graphics.drawRect(0,0,15,20);hole.graphics.endFill();hole.blendMode=BlendMode.ERASE;layerGrp.addChild(hole);
+    const maskA=new Shape();maskA.graphics.beginFill(0x000000,0.5);maskA.graphics.drawRect(0,0,30,20);maskA.graphics.endFill();maskA.blendMode=BlendMode.ALPHA;layerGrp.addChild(maskA);
+    const layerBmp=new BitmapData(40,20,true,0x00000000);layerBmp.draw(layerGrp);
+    assert.equal((layerBmp.getPixel32(5,10)>>>24)&0xff,0);
+    assert.ok((((layerBmp.getPixel32(20,10)>>>24)&0xff)>=124)&&(((layerBmp.getPixel32(20,10)>>>24)&0xff)<=131));
+    assert.equal((layerBmp.getPixel32(35,10)>>>24)&0xff,0);
+    blendBmp.dispose();layerBmp.dispose();
     host.resetProject();scene=host.proxyFor([]);assert.deepEqual([scene.phase,scene.clicks,scene.legacyClicks],[0,0,0]);assert.equal(scene.copySafe,true);assert.throws(()=>cards[0].filters,/removed|replaced|stale|session/i);host.stage().handlePointer('click',{},scene.cards[1]);assert.equal(scene.clicks,1);
   }finally{host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});}
   console.log('Filter gallery: actual Rust/WASM values/pixels, copied filters, nested graph groups, AS2 order, clear/restore identity and Restart passed.');

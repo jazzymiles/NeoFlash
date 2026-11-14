@@ -56,7 +56,10 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     click('identity');
     assert.equal(host.lastTrace(), 'rename true true 1 true');
     assert.equal(widget.renamed, tile); assert.equal(widget.getChildByName('tile'), null);
-    assert.throws(() => { widget.width = 50; }, /rotated object/);
+    widget.width = 113.13708498984761;
+    assert.equal(widget.rotation, 45);
+    assert.ok(Math.abs(widget.width - 113.13708498984761) < 1e-6);
+    widget.scaleX = 2; widget.scaleY = 1.5;
     widget.rotation = 0; widget.width = 0; widget.width = 100;
     assert.equal(widget.width, 100, 'local geometry allows recovery from zero scale');
 
@@ -130,7 +133,101 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     host.broadcastFrame();player.tick();host.dispatchScripts();assert.equal(widget.parent,null,'timeline refresh retains explicit authored detachment');
     scene.addChildAt(widget,0);assert.equal(scene.widget,widget);assert.equal(scene.getChildAt(0),widget);assert.equal(tile.stage,scene.stage);
     assert.deepEqual(widget.toJSON().object_ref,widgetIdentity);assert.equal(authoredEvents.at(-1)[0],'added','authored listeners survive detachment');
-    assert.throws(()=>shape.graphics.lineStyle(0),/hairlines/);
+    assert.throws(()=>shape.graphics.lineStyle(-1),/0 through 255/);
+    const hair=new Shape();
+    hair.graphics.lineStyle(0,0x224466,1,true,'none','square','miter',5);
+    hair.graphics.moveTo(0,0);hair.graphics.lineTo(20,0);
+    assert.equal(hair.getRect(hair).height,0,'getRect excludes hairline stroke thickness');
+    assert.equal(hair.getBounds(hair).height,1,'getBounds includes hairline stroke thickness');
+
+    // T-304: dynamic SimpleButton states + soundTransform, rotated/skewed width/height,
+    // lineStyle options, gradient spread/linearRGB, and blend modes.
+    {
+      const SimpleButton=host.program().type('flash.display.SimpleButton');
+      const Matrix=host.program().type('flash.geom.Matrix');
+      const BitmapData=host.program().type('flash.display.BitmapData');
+      const SoundTransform=host.program().type('flash.media.SoundTransform');
+      const TextField=host.program().type('flash.text.TextField');
+      const upS=new Sprite(),overS=new Sprite(),downS=new Sprite(),hitS=new Shape();
+      upS.graphics.beginFill(0xcc0000);upS.graphics.drawRect(0,0,60,30);upS.graphics.endFill();
+      overS.graphics.beginFill(0x00cc00);overS.graphics.drawRect(0,0,60,30);overS.graphics.endFill();
+      downS.graphics.beginFill(0x0000cc);downS.graphics.drawRect(0,0,60,30);downS.graphics.endFill();
+      hitS.graphics.beginFill(0xffffff);hitS.graphics.drawRect(10,5,40,20);hitS.graphics.endFill();
+      const dynBtn=new SimpleButton(upS,overS,downS,hitS);
+      dynBtn.x=300;dynBtn.y=40;scene.addChild(dynBtn);
+      assert.equal(dynBtn.upState,upS);assert.equal(dynBtn.overState,overS);assert.equal(dynBtn.downState,downS);assert.equal(dynBtn.hitTestState,hitS);
+      assert.equal(upS.parent,dynBtn);assert.equal(overS.parent,null);
+      assert.equal(host.display().pick(305,45),null,'outside hitTestState does not hit even though upState covers (305,45)');
+      assert.equal(host.display().pick(325,55),dynBtn,'inside hitTestState resolves to SimpleButton');
+      assert.equal(host.display().handCursor(dynBtn),true);
+      dynBtn.useHandCursor=false;assert.equal(host.display().handCursor(dynBtn),false);
+      dynBtn.useHandCursor=true;
+      host.stage().handlePointer('pointermove',{clientX:325,clientY:55},dynBtn);
+      assert.equal(overS.parent,dynBtn);assert.equal(upS.parent,null);
+      host.stage().handlePointer('pointerdown',{button:0,buttons:1},dynBtn);
+      assert.equal(downS.parent,dynBtn);assert.equal(overS.parent,null);
+      dynBtn.enabled=false;
+      assert.equal(upS.parent,dynBtn,'disabling SimpleButton returns it to upState');
+      assert.equal(host.display().handCursor(dynBtn),false);
+      dynBtn.enabled=true;
+      dynBtn.hitTestState=null;
+      assert.equal(host.display().pick(325,55),null,'null hitTestState never hits');
+      dynBtn.hitTestState=hitS;
+      assert.equal(dynBtn.soundTransform.volume,1);assert.equal(dynBtn.soundTransform.pan,0);
+      const st=new SoundTransform(0.4,-0.5);dynBtn.soundTransform=st;st.volume=0.9;
+      assert.ok(Math.abs(dynBtn.soundTransform.volume-0.4)<1e-9&&Math.abs(dynBtn.soundTransform.pan+0.5)<1e-9,'soundTransform clones on get/set');
+
+      // Rotated 90° and skewed width/height + zero-size local bounds
+      const emptySp=new Sprite();emptySp.rotation=35;emptySp.width=80;
+      assert.equal(emptySp.scaleX,0);assert.equal(emptySp.scaleY,0);assert.equal(Number.isFinite(emptySp.width),true);
+      const rotBox=new Sprite();rotBox.graphics.beginFill(0x4488cc);rotBox.graphics.drawRect(0,0,100,40);rotBox.graphics.endFill();
+      rotBox.rotation=90;
+      assert.ok(Math.abs(rotBox.width-40)<1e-6&&Math.abs(rotBox.height-100)<1e-6);
+      rotBox.width=80;rotBox.height=150;
+      assert.equal(rotBox.rotation,90);
+      assert.ok(Math.abs(rotBox.width-80)<1e-6&&Math.abs(rotBox.height-150)<1e-6);
+      assert.ok(Math.abs(rotBox.scaleY-2)<1e-6&&Math.abs(rotBox.scaleX-1.5)<1e-6);
+      const skewBox=new Sprite();skewBox.graphics.beginFill(0xcc8844);skewBox.graphics.drawRect(0,0,100,40);skewBox.graphics.endFill();
+      skewBox.transform.matrix=new Matrix(1,0,0.5,1,10,20);
+      assert.ok(Math.abs(skewBox.width-120)<1e-6&&Math.abs(skewBox.height-40)<1e-6);
+      skewBox.width=240;
+      assert.ok(Math.abs(skewBox.width-240)<1e-6&&Math.abs(skewBox.transform.matrix.c-1.0)<1e-6);
+      const rotTf=new TextField();rotTf.width=120;rotTf.height=30;rotTf.rotation=90;
+      assert.ok(Math.abs(rotTf.width-30)<1e-6&&Math.abs(rotTf.height-120)<1e-6);
+      rotTf.width=60;assert.equal(rotTf.rotation,90);assert.ok(Math.abs(rotTf.width-60)<1e-6);
+
+      // Gradient reflect/repeat/linearRGB + subtract/invert/alpha/erase/layer pixel verification via BitmapData.draw
+      const gradSp=new Sprite();const gm=new Matrix();gm.createGradientBox(20,20,0,0,0);
+      gradSp.graphics.beginGradientFill('linear',[0xff0000,0x00ff00],[1,1],[0,255],gm,'reflect','linearRGB',0);
+      gradSp.graphics.drawRect(0,0,60,20);gradSp.graphics.endFill();
+      const gradBmp=new BitmapData(60,20,true,0x00000000);gradBmp.draw(gradSp);
+      const pMid1=gradBmp.getPixel(10,10),pMid2=gradBmp.getPixel(29,10),pPeak=gradBmp.getPixel(19,10);
+      assert.equal(pMid1,pMid2,'reflect gradient mirrors first (10.5) and second (29.5) pixel centers around x=20');
+      assert.ok(((pMid1>>>16)&0xff)>160&&((pMid1>>>8)&0xff)>160,'linearRGB midpoint is brighter than ~128 sRGB');
+      assert.ok(((pPeak>>>8)&0xff)>240&&((pPeak>>>16)&0xff)<60,'reflect peak near x=20 hits stop 255 green');
+      gradBmp.dispose();
+
+      const blendRoot=new Sprite();
+      const bg=new Shape();bg.graphics.beginFill(0xc86432);bg.graphics.drawRect(0,0,40,20);bg.graphics.endFill();blendRoot.addChild(bg);
+      const sub=new Shape();sub.graphics.beginFill(0x32141e);sub.graphics.drawRect(0,0,20,20);sub.graphics.endFill();sub.blendMode='subtract';blendRoot.addChild(sub);
+      const inv=new Shape();inv.graphics.beginFill(0xffffff);inv.graphics.drawRect(20,0,20,20);inv.graphics.endFill();inv.blendMode='invert';blendRoot.addChild(inv);
+      const blendBmp=new BitmapData(40,20,true,0x00000000);blendBmp.draw(blendRoot);
+      assert.equal(blendBmp.getPixel(10,10),0x965014,'subtract blend computes max(0, dst - src)');
+      assert.equal(blendBmp.getPixel(30,10),0x379bcd,'invert blend computes 255 - dst');
+      blendBmp.dispose();
+
+      const layerGrp=new Sprite();layerGrp.blendMode='layer';
+      const baseFill=new Shape();baseFill.graphics.beginFill(0xff0000);baseFill.graphics.drawRect(0,0,40,20);baseFill.graphics.endFill();layerGrp.addChild(baseFill);
+      const eraseHole=new Shape();eraseHole.graphics.beginFill(0x000000);eraseHole.graphics.drawRect(0,0,15,20);eraseHole.graphics.endFill();eraseHole.blendMode='erase';layerGrp.addChild(eraseHole);
+      const alphaMask=new Shape();alphaMask.graphics.beginFill(0x000000,0.5);alphaMask.graphics.drawRect(0,0,30,20);alphaMask.graphics.endFill();alphaMask.blendMode='alpha';layerGrp.addChild(alphaMask);
+      const layerBmp=new BitmapData(40,20,true,0x00000000);layerBmp.draw(layerGrp);
+      assert.equal((layerBmp.getPixel32(5,10)>>>24)&0xff,0,'erase clears alpha inside layer group');
+      const midA=(layerBmp.getPixel32(20,10)>>>24)&0xff;assert.ok(midA>=124&&midA<=131,`alpha blend scales group alpha to ~128, got ${midA}`);
+      assert.equal((layerBmp.getPixel32(35,10)>>>24)&0xff,0,'alpha blend clears outside its coverage');
+      layerBmp.dispose();
+
+      scene.removeChild(dynBtn);
+    }
     const legacy=scene.createEmptyMovieClip('legacyRuntime',scene.getNextHighestDepth());
     legacy.beginFill(0xaa33bb,100);legacy.moveTo(0,0);legacy.lineTo(20,0);legacy.lineTo(10,20);legacy.endFill();
     assert.equal(legacy.totalFrames,1);assert.equal(legacy.width,20);

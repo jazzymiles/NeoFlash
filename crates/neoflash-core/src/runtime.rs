@@ -145,6 +145,8 @@ pub struct Player {
     scenes: Vec<SceneRange>,
     /// Timeline sound commands for the host and the active stream channels.
     pub(crate) sound: crate::timeline_sound::SoundState,
+    /// Temporary sound transform forwarded from a parent player during linked button state transitions.
+    pub(crate) pending_button_sound_transform: Option<[f64; 2]>,
     /// Authored timeline-video commands and active decoder channels.
     pub(crate) video: crate::timeline_video::TimelineVideoState,
 }
@@ -184,6 +186,7 @@ impl Player {
             overflowed: false,
             scenes: vec![],
             sound: Default::default(),
+            pending_button_sound_transform: None,
             video: Default::default(),
         };
         player.reset_with_playing(project, playing);
@@ -723,8 +726,22 @@ impl Player {
                 let entered = forced.contains(&node.path) || moved;
                 if entered && let Some(symbol) = project.symbol(symbol_id) {
                     // A one-frame timeline that "loops" in place does not re-enter its frame.
-                    if self.playing && (moved || symbol.timeline.frame_count > 1) {
-                        self.sound.frame_entered(symbol, node.frame);
+                    // Button transitions still play their frame sounds even when transport is paused.
+                    let is_button = symbol.kind == SymbolKind::Button;
+                    if (self.playing || is_button) && (moved || symbol.timeline.frame_count > 1) {
+                        let sound_transform = if is_button {
+                            self.object_ref(&node.path)
+                                .and_then(|r| self.graph.button_states.get(&r))
+                                .and_then(|b| b.sound_transform)
+                                .or(self.pending_button_sound_transform)
+                        } else {
+                            None
+                        };
+                        self.sound.frame_entered_with_transform(
+                            symbol,
+                            node.frame,
+                            sound_transform,
+                        );
                     }
                     for script in &symbol.timeline.scripts {
                         if script.frame == node.frame {
@@ -839,6 +856,16 @@ impl Player {
     }
 
     pub(crate) fn button_state(&mut self, project: &Project, path: &[Id], state: u32) -> bool {
+        self.button_state_with_sound(project, path, state, None)
+    }
+
+    pub(crate) fn button_state_with_sound(
+        &mut self,
+        project: &Project,
+        path: &[Id],
+        state: u32,
+        sound_transform: Option<[f64; 2]>,
+    ) -> bool {
         if state > 2
             || !self
                 .previous
@@ -849,12 +876,19 @@ impl Player {
         {
             return false;
         }
+        let prev_pending = self.pending_button_sound_transform;
+        self.pending_button_sound_transform = sound_transform;
         if path.is_empty()
             && let Some(clock) = self.clocks.get_mut(path)
         {
-            clock.frame = state;
-            clock.playing = false;
-            self.refresh(project, false, &HashSet::new());
+            if clock.frame != state {
+                clock.frame = state;
+                clock.playing = false;
+                self.refresh(project, false, &HashSet::new());
+            } else {
+                clock.playing = false;
+            }
+            self.pending_button_sound_transform = prev_pending;
             return true;
         }
         let patch = self.overrides.entry(path.to_vec()).or_default();
@@ -862,6 +896,7 @@ impl Player {
             patch.button_frame = Some(state);
             self.refresh(project, false, &HashSet::new());
         }
+        self.pending_button_sound_transform = prev_pending;
         true
     }
 

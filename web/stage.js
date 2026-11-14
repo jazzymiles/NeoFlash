@@ -1390,7 +1390,7 @@
       if(target!==stage&&!alive(target)){over=null;options.afterInput?.();return true;}
       if(type===MouseEvent.MOUSE_UP&&primary){
         const oldPressed=pressedTarget;
-        clickTarget=oldPressed===target?target:null;pressedTarget=null;releaseCapture();
+        clickTarget=(oldPressed===target||Boolean(hadPress&&target&&target!==stage&&target.trackAsMenu===true))?target:null;pressedTarget=null;releaseCapture();
         if(oldPressed&&oldPressed!==target&&oldPressed!==stage&&alive(oldPressed)){
           deliver(oldPressed,mouse(MouseEvent.RELEASE_OUTSIDE||'releaseOutside',oldPressed,domEvent,target),domEvent);
         }

@@ -76,7 +76,10 @@
     const m=item.transform, kind=item.kind;
     if (!m.every(Number.isFinite) || Math.abs(m[0]*m[3]-m[1]*m[2])<1e-12) return null;
     let bounds=null;
-    const stroke=paints.paintVisible(kind,'stroke') && kind.stroke_width>0 ? kind.stroke_width/2 : 0;
+    const sx=Math.hypot(m[0],m[1]),sy=Math.hypot(m[2],m[3]),avgScale=Math.max(1e-6,Math.sqrt((sx*sx+sy*sy)/2));
+    const miterFactor=kind.stroke_joints==='miter'&&Number.isFinite(kind.stroke_miter_limit)?Math.max(1,kind.stroke_miter_limit/2):1;
+    const rawStroke=kind.stroke_hairline?1/avgScale:kind.stroke_scale_mode==='none'?(kind.stroke_width||0)/avgScale:kind.stroke_scale_mode==='horizontal'?(kind.stroke_width||0)*sx/avgScale:kind.stroke_scale_mode==='vertical'?(kind.stroke_width||0)*sy/avgScale:(kind.stroke_width||0);
+    const stroke=paints.paintVisible(kind,'stroke') && rawStroke>0 ? (rawStroke/2)*miterFactor : 0;
     if (kind.type==='rectangle' || kind.type==='ellipse' || kind.type==='path' || kind.type==='gradient_path') {
       if (!paints.paintVisible(kind,'fill') && !stroke) return null;
       if (!stroke && ((kind.type==='rectangle'||kind.type==='ellipse') && (kind.width<=0||kind.height<=0))) return null;

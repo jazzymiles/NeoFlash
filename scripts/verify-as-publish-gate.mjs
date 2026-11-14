@@ -762,6 +762,71 @@ async function runSinglePageCheck(cdp, url, caseSpec, opts = {}) {
       }
     }
 
+    if (caseSpec.id === 'focus-t304-display-graphics') {
+      await sleep(60);
+      const pixelAudit = await cdp.send(
+        'Runtime.evaluate',
+        {
+          expression: `(() => {
+            const canvas = document.querySelector('#stage canvas, canvas');
+            if (!canvas) return { ok: false, reason: 'missing canvas' };
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return { ok: false, reason: 'missing 2d context' };
+            const sw = ${caseSpec.stageWidth}, sh = ${caseSpec.stageHeight};
+            const sample = (sx, sy) => {
+              const cx = Math.min(canvas.width - 1, Math.max(0, Math.round((sx / sw) * canvas.width)));
+              const cy = Math.min(canvas.height - 1, Math.max(0, Math.round((sy / sh) * canvas.height)));
+              return Array.from(ctx.getImageData(cx, cy, 1, 1).data);
+            };
+            const close = (px, exp, tol = 14) => Math.abs(px[0] - exp[0]) <= tol && Math.abs(px[1] - exp[1]) <= tol && Math.abs(px[2] - exp[2]) <= tol;
+            const countRedRows = (sx, y0, y1) => {
+              const cx = Math.round((sx / sw) * canvas.width);
+              const cy0 = Math.max(0, Math.floor((y0 / sh) * canvas.height));
+              const cy1 = Math.min(canvas.height - 1, Math.ceil((y1 / sh) * canvas.height));
+              let rows = 0;
+              for (let cy = cy0; cy <= cy1; cy++) {
+                const d = ctx.getImageData(cx, cy, 1, 1).data;
+                if (d[0] > 140 && d[1] < 90) rows++;
+              }
+              return rows;
+            };
+            const dynOver = sample(290, 65);
+            const hairRows = countRedRows(260, 196, 212);
+            const normRows = countRedRows(430, 196, 212);
+            const gradMid1 = sample(70, 300);
+            const gradMid2 = sample(130, 300);
+            const gradPeak = sample(99, 300);
+            const rep1 = sample(55, 380);
+            const rep2 = sample(115, 380);
+            const subPx = sample(290, 310);
+            const invPx = sample(350, 310);
+            const layerErase = sample(450, 310);
+            const layerKeep = sample(510, 310);
+            const layerMaskOut = sample(570, 310);
+            const checks = {
+              dynOverSkyBlue: close(dynOver, [56, 189, 248]),
+              hairlineStaysThin: hairRows >= 1 && hairRows <= 3 && normRows >= 6 && normRows > hairRows * 2,
+              reflectLinearRgb: gradMid1[0] > 165 && gradMid1[1] > 165 && gradMid1[2] < 25 && close(gradMid1, gradMid2, 16) && gradPeak[1] > 210 && gradPeak[0] < 90,
+              repeatPeriodic: rep1[2] > 150 && close(rep1, rep2, 18),
+              subtractBlend: close(subPx, [150, 80, 20]),
+              invertBlend: close(invPx, [55, 155, 205]),
+              layerEraseHole: close(layerErase, [200, 100, 50]),
+              layerAlphaKeep: close(layerKeep, [0, 220, 100]),
+              layerAlphaMaskOut: close(layerMaskOut, [200, 100, 50]),
+            };
+            const ok = Object.values(checks).every(Boolean);
+            return { ok, checks, samples: { dynOver, hairRows, normRows, gradMid1, gradMid2, gradPeak, rep1, rep2, subPx, invPx, layerErase, layerKeep, layerMaskOut } };
+          })()`,
+          returnByValue: true,
+        },
+        sessionId
+      );
+      const val = pixelAudit.result?.value;
+      if (!val || !val.ok) {
+        throw new Error(`T-304 live Canvas pixel verification failed: ${JSON.stringify(val)}`);
+      }
+    }
+
     // Verify Restart reset when requested.
     if (caseSpec.verifyRestart) {
       const dom = await evalDom();
