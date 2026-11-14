@@ -37,7 +37,8 @@ still open.
 - **Resolved, waiting for the editor to adopt the new API:** R-016 (`set_tooltip_shortcuts`), R-047
   (`CompactTypeHeader`), R-081 (`paint_gradient_overflow_preview`).
 - **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
-- **Answered, waiting for implementation:** R-061, R-062, R-063, R-068, R-069, R-072–R-087; earlier R-022, R-038, R-043.
+- **Answered, waiting for implementation:** R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091;
+  earlier R-022, R-038, R-043.
 - Everything else is resolved.
 
 ### R-033 · Actions diagnostic peek, fix selection and debugger connection states
@@ -1153,7 +1154,7 @@ still open.
 - **Proposal (optional):** add `Dialog / Batch Rename Library`, `Dialog / Batch Linkage`, `Dialog / Batch Bitmap Compression`,
   `Dialog / Auto Instance Namer`, and `Dialog / Randomize Selection` to the `Dialogs` page in Figma (`420 pt` modal width,
   `NF2/Section Header` + `PropertyRow` + `NF2/Field` / `NF2/Select` / `NF2/Checkbox` rows + right-aligned Cancel/Primary footer).
-- **Answer (14 November 2026):** the five dialogs are accepted as built for Beta 1: 420 pt modal, `SectionHeader` groups, `Field` / `TextField` / `Select` / `Checkbox` rows, footer `Cancel` · Primary. Their reference boards follow with the next Figma export; until then they are provisional and must not be copied as a pattern.
+- **Answer (14 November 2026):** the five dialogs are drawn as built on the Figma board `Productivity — dialogs` (four themes): 480 pt modal, `SectionHeader` groups, `Field` / `Select` / `Checkbox` rows in two equal columns, footer `Cancel` · Primary. Labels follow the board: sentence case and "and" instead of "&" — titles "Batch bitmap compression and smoothing", "Auto instance namer", "Randomize selection"; sections "Affixes and find / replace", "Sequential numbering", "ActionScript linkage", "Compression and quality", "Naming pattern", "Seed", "Transform and alpha ranges"; "Scope: All library symbols and sounds". Auto instance namer is 480 pt wide like the others. PNG and outline exports follow with the next Figma export.
 
 ### R-069 · UI Layout Studio composition, artboard states and history contract
 - **Status:** answered
@@ -1223,7 +1224,7 @@ still open.
 - **Proposal (optional):** change only the existing label and detail heading to
   `Desktop app (macOS / Windows / Linux)`; keep its component, position, settings and output-folder behavior
   unchanged.
-- **Answer (14 November 2026):** approved: `Desktop app (macOS / Windows / Linux)` in the target list and as the detail heading. Component, position and settings do not change; the reference board follows with the next Figma export.
+- **Answer (14 November 2026):** the detail heading reads `Desktop app (macOS / Windows / Linux)`. The row in the 260 pt target list reads `Desktop app`: the full label does not fit on one line there. Component, position and settings do not change; the reference board follows with the next Figma export.
 
 ## Beta 1 design answers (design track, 14 November 2026)
 
@@ -1330,7 +1331,7 @@ wires them with the components named in each answer.
      minimum; below the minimum it snaps to the collapsed header.
 
 ### R-078 · Minimum window 1024 × 720
-- **Status:** answered (reference board `Editor / Main — 1024 × 720` follows with the next Figma export)
+- **Status:** answered (reference board `NF2 / Editor — Main — 1024 × 720` is drawn in Figma in four themes; its PNG and outline follow with the next export)
 - **Requested by / for:** design track · Beta 1 interface gate
 - **Where:** `dock_grid.rs` (`MIN_STAGE_HEIGHT`), `panels/tools.rs` (`tools_contents`, two-column branch),
   `shell.rs` (`top_bar_actions`), Stage view fitting.
@@ -1444,3 +1445,45 @@ wires them with the components named in each answer.
 - **Answer:** Print…, Duplicate window, Edit in new window and the Preferences controls without an engine (follow
   system, Accent, Language, Highlight, colour-scheme Duplicate / Import, parts of Clipboard, Text ▸ Behaviour,
   Drawing ▸ Show solid points / Snap align) stay visible and disabled with their reason. Nothing is hidden for Beta 1.
+
+### R-089 · Publish settings: product additions and the reference board
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `crates/neoflash-editor/src/panels/publish_settings.rs`; Figma `Dialog / Publish settings` (four themes).
+- **Need:** the dialog grew after v2.25 (profile actions, runtime size levels, Fullscreen, Align, Sequences, Network
+  startup simulator) without a reference, is about 880 pt tall and truncates the Sequences select.
+- **Answer:** the reference board now shows the product. Accepted as built: the Ghost row `Duplicate` · `Import JSON` ·
+  `Export JSON` under the Profile select; the Runtime segmented control (Full, Balanced, Compact, Shared runtime)
+  with its trade-off line and weight breakdown (R-032); `Fullscreen`; `Align`. To change in the product:
+  1. *Options order.* One row of checkboxes (Loop, Autoplay, Preloader, Fullscreen, Source maps), then one row with
+     `Scale` (200 pt) and `Align` (180 pt).
+  2. *Assets.* `Sequences` is a 280 pt `Select` on its own row under the two checkboxes, so its label is never cut.
+  3. *Network startup simulator* is a `SectionHeader`, collapsed by default; its select and readings show when it is
+     expanded.
+  4. *Height.* The dialog is never taller than the window minus 80 pt. When the settings do not fit, the right column
+     scrolls; the header, the target list and the footer stay in place. At 1024 × 720 the dialog is 640 pt tall.
+  5. *Target list.* The target whose settings are shown has the `bg/selected` row fill, as on the board; its checkbox
+     still only switches publishing on or off.
+  6. *Output.* An empty Output field shows the hint "Choose a file" (R-086).
+
+### R-090 · Motion editor: Wiggler and Motion sketch tools
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `crates/neoflash-editor/src/panels/motion_editor.rs`.
+- **Need:** the Wiggler / Motion Sketch row sits under the "No motion tween" empty state, where it cannot act.
+- **Answer:** the tools are one toolbar row at the top of the Motion editor, shown only while a motion tween is in
+  context; the empty state shows nothing else. Row, left to right: Small label `Wiggler`, `Field` Freq (Hz), `Field`
+  Mag (px), Secondary button `Apply wiggler`, vertical `Divider`, Small label `Motion sketch`, `Field` Smooth,
+  Secondary button `Capture sketch`. Control height and gaps follow the Timeline controls row at the current density.
+
+### R-091 · Colours of 3D, bone, puppet and deform gizmos on the Stage
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `panels/properties_movie_clip.rs`, `panels/properties_tool.rs` (Stage gizmo painters).
+- **Need:** the gizmos use hard-coded colours that are not NF2 values; artwork under them is not themed.
+- **Answer:** gizmo colours identify an axis or a pin, so they are fixed canvas values, the same in every theme:
+  X `#E64444`, Y `#38C462`, Z `#428AF5`, vanishing point and pins `#F5B234`. Red here names the X axis, as the
+  playhead red names the playhead; it is not an error colour. To stay visible on any artwork every coloured stroke is
+  drawn over a black underlay 2 pt wider at 70 % opacity, and every handle or pin is the colour fill with a 1 pt white
+  ring inside a 1 pt black ring. Keep the four values in one editor constant block next to `theme::StageOverlay`.
+

@@ -236,8 +236,8 @@ the black/white-pair rule):
 
 | Value | Where |
 | --- | --- |
-| 3D gizmo axes X `#E64444`, Y `#38C462`, Z `#428AF5`, vanishing point `#F5B234` | `panels/properties_movie_clip.rs` |
-| Puppet / bone pins `#F5B234` with a black ring | `panels/properties_tool.rs` |
+| 3D gizmo axes X `#E64444`, Y `#38C462`, Z `#428AF5`, vanishing point `#F5B234` | `panels/properties_movie_clip.rs`; kept as fixed canvas values with a black underlay (R-091) |
+| Puppet / bone pins `#F5B234` with a black ring | `panels/properties_tool.rs`; fixed canvas value, white ring inside a black ring (R-091) |
 | Gradient overflow preview greys and a red dashed boundary (red is reserved for errors) | `authoring_modify.rs` (`paint_overflow_preview`); replaced by `paint_gradient_overflow_preview` (R-081) |
 | Stage text-preview error in `DARK_RED` monospace 12 | `stage_primitives.rs`; replaced by the error plate of R-085 |
 
@@ -258,8 +258,8 @@ These colours never carry meaning alone: an error, warning or success state alwa
 | Control boundaries | `border/default` against `bg/field` / `bg/panel` is 1.39–2.02:1 in all four themes (WCAG 1.4.11 asks 3:1). Accepted: a field is identified by its fill, label and border together, and keyboard focus adds the 2 pt ring. |
 | Idle scrollbar thumb (`text/disabled` on `bg/hover`) ≈ 2:1 | Accepted: a quiet 4 pt floating thumb; hover and drag reach ≥ 3:1. |
 | Stacked side dock | Decided in R-077: the second group keeps a useful minimum (Library 245 / 213 / 185 pt by density) or collapses to its header. Implementation pending. |
-| Minimum window 1024 × 720 | Decided in R-078 (Stage row ≥ 360 pt, pinned Tools block with "…" overflow, workspace select 132–180 pt). Implementation and the reference board pending. |
-| `editor-main` export predates v2.25 details | Decided in R-087: the boards are redrawn to the product (label "Classic", Scene selector, three dock tabs, two-column Tools, Mode / Solo); Properties ▸ Publish settings… is added to the product. |
+| Minimum window 1024 × 720 | Decided in R-078 (Stage row ≥ 360 pt, pinned Tools block with "…" overflow, workspace select 132–180 pt). Reference screen `NF2 / Editor — Main — 1024 × 720` is drawn in four themes (`editor-main-1024x720` in the export manifest); implementation and the PNG export are pending. |
+| `editor-main` export predates v2.25 details | Decided in R-087. The Figma screens now show the label "Classic", the Scene selector, three dock tabs and two-column Tools; the Mode / Solo layer columns are still to be drawn; Properties ▸ Publish settings… is added to the product. PNG export pending. |
 | §3.2 says "field rows gap 8", outlines use 12 in the inspector | The editor follows the outlines (inspector 12, Library 8). |
 
 ## Provisional surfaces after v2.25
@@ -269,14 +269,14 @@ reference; changes to them still need a design-track answer.
 
 | Surface | Code | What is provisional |
 | --- | --- | --- |
-| Publish settings extensions | `panels/publish_settings.rs` | Profile Duplicate / Import JSON / Export JSON row, Runtime segmented control (Full / Balanced / Compact / Shared runtime) instead of the designed WASM select, Fullscreen, Align and Sequences rows, Network startup simulator. R-071 resolved (profile in File ▸ Export); R-072 answered (label adds Linux). |
+| Publish settings extensions | `panels/publish_settings.rs` | Drawn on the `Dialog / Publish settings` board in four themes and decided in R-089 (options order, Sequences row, collapsed Network startup simulator, scrolling right column); export and implementation pending. |
 | Preferences ▸ Updates | `panels/preferences.rs` | Still shows the design board's sample data (version, extensions); it is being replaced by a real GitHub Releases check and verified download (owner decision 2026-11-14). |
 | Video montage | `panels/properties_video.rs`, `timeline_preview.rs`, Video edit workspace | 44 pt preview rows with thumbnails, Razor tool, linked audio/video spans, trim / cue points / Split at playhead / Extract audio. |
 | Properties ▸ Appearance | `panels/appearance.rs` | Multi-paint stack, path modifiers, vector effects, Graphic Styles. |
 | Stage gizmos | `panels/properties_movie_clip.rs`, `panels/properties_tool.rs` | 3D, puppet / bone and deform handles with hard-coded colours (activation ratified in R-070; masters in R-067b). |
 | Motion editor tools | `panels/motion_editor.rs` | Wiggler and Motion Sketch row. |
 | Live Debugger and Quick-Fixes | `panels/debugger.rs`, `debugger*.rs` | Live states beyond the static `panel-debugger` board. |
-| Productivity dialogs | `panels/productivity_tools.rs` | Batch rename / linkage / bitmap compression, Auto Instance Namer, Randomize selection (accepted as built for Beta 1 in R-068; boards pending). |
+| Productivity dialogs | `panels/productivity_tools.rs` | Drawn on the `Productivity — dialogs` board in four themes (R-068); export pending. |
 | Project and Selection colours | `panels/swatches.rs`, `panels/properties.rs` | Usage badges, select-by-colour and project-wide replace rows. |
 | UI Layout Studio | `panels/ui_studio/` (Window ▸ UI Layout Studio…) | Developer tool composition and history contract (R-069). |
 
