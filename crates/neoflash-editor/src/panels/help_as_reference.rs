@@ -908,12 +908,12 @@ pub(crate) fn chapter_as1_as2_fundamentals(
                     );
                     let split_x = row.left() + row.width() * 0.54;
                     let left_clip = Rect::from_min_max(
-                        row.min + vec2(8.0, 2.0),
+                        row.min + vec2(space::S2, 2.0),
                         egui::pos2(split_x, row.bottom() - 2.0),
                     );
                     let right_clip = Rect::from_min_max(
                         egui::pos2(split_x + 6.0, row.top() + 2.0),
-                        row.max - vec2(8.0, 2.0),
+                        row.max - vec2(space::S2, 2.0),
                     );
                     paint_clipped_text(
                         painter,

@@ -26,7 +26,7 @@ use neoflash_ui::{
         },
     },
     icons::{self, i16},
-    metrics::FrameView,
+    metrics::{FrameView, ICON_UI, STAGE_RULER},
     tokens::{radius, space},
     typography::{font, rich},
 };
@@ -1457,7 +1457,7 @@ fn chapter_workspace_and_stage(ui: &mut Ui, _state: &mut HelpManualState) {
             );
 
             // Rulers & Corner
-            let corner = Rect::from_min_size(inner.min, vec2(20.0, 20.0));
+            let corner = Rect::from_min_size(inner.min, egui::Vec2::splat(STAGE_RULER));
             let h_ruler = Rect::from_min_max(
                 egui::pos2(corner.right(), inner.top()),
                 egui::pos2(inner.right(), corner.bottom()),
@@ -2109,7 +2109,10 @@ fn chapter_vector_and_pen_states(ui: &mut Ui, _state: &mut HelpManualState) {
                 icons::paint(
                     painter,
                     ctx,
-                    Rect::from_min_size(cell.min + vec2(8.0, (ch - 16.0) * 0.5), vec2(16.0, 16.0)),
+                    Rect::from_min_size(
+                        cell.min + vec2(space::S2, (ch - ICON_UI) * 0.5),
+                        egui::Vec2::splat(ICON_UI),
+                    ),
                     i16::PEN,
                     p.accent_default,
                 );
@@ -2557,7 +2560,10 @@ fn chapter_timeline_layers_and_masks(ui: &mut Ui, _state: &mut HelpManualState) 
                 icons::paint(
                     painter,
                     ctx,
-                    Rect::from_min_size(l_rect.min + vec2(4.0, 4.0), vec2(16.0, 16.0)),
+                    Rect::from_min_size(
+                        l_rect.min + egui::Vec2::splat(space::S1),
+                        egui::Vec2::splat(ICON_UI),
+                    ),
                     *icon,
                     p.text_secondary,
                 );

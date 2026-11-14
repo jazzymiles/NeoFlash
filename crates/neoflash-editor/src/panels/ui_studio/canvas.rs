@@ -1382,7 +1382,7 @@ fn paint_timeline_studio_canvas(
             icons::paint(
                 ui.painter(),
                 ui.ctx(),
-                Rect::from_center_size(b_rect.center(), egui::vec2(16.0, 16.0)),
+                Rect::from_center_size(b_rect.center(), Vec2::splat(neoflash_ui::metrics::ICON_UI)),
                 ico,
                 if active { text_pri } else { text_sec },
             );
@@ -2111,7 +2111,7 @@ fn paint_node_wysiwyg(
                 ui.ctx(),
                 Rect::from_center_size(
                     egui::pos2(hdr_rect.left() + 8.0, hdr_rect.center().y),
-                    egui::vec2(16.0, 16.0),
+                    Vec2::splat(neoflash_ui::metrics::ICON_UI),
                 ),
                 chev,
                 nf.text_secondary,

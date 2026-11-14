@@ -4070,5 +4070,57 @@
   "w": 1529,
   "h": 727,
   "pngMaxDimension": 3058
+ },
+ {
+  "id": "339:53046",
+  "name": "AI connections — Preferences, connection and consent",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "ai-connections",
+  "png": "exports/panels/dark/boards/png/ai-connections.png",
+  "svg": "exports/panels/dark/boards/svg/ai-connections.svg",
+  "w": 2560,
+  "h": 564,
+  "pngMaxDimension": 5120,
+  "split": true
+ },
+ {
+  "id": "340:53347",
+  "name": "AI connections — Preferences, connection and consent",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "ai-connections",
+  "png": "exports/panels/mid-neutral-gray/boards/png/ai-connections.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/ai-connections.svg",
+  "w": 2560,
+  "h": 564,
+  "pngMaxDimension": 5120,
+  "split": true
+ },
+ {
+  "id": "340:53476",
+  "name": "AI connections — Preferences, connection and consent",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "ai-connections",
+  "png": "exports/panels/dark-graphite/boards/png/ai-connections.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/ai-connections.svg",
+  "w": 2560,
+  "h": 564,
+  "pngMaxDimension": 5120,
+  "split": true
+ },
+ {
+  "id": "340:53218",
+  "name": "AI connections — Preferences, connection and consent",
+  "group": "panels",
+  "theme": "light",
+  "slug": "ai-connections",
+  "png": "exports/panels/light/boards/png/ai-connections.png",
+  "svg": "exports/panels/light/boards/svg/ai-connections.svg",
+  "w": 2560,
+  "h": 564,
+  "pngMaxDimension": 5120,
+  "split": true
  }
 ]

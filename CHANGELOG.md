@@ -11,6 +11,7 @@
   surface. Mid Neutral Gray is unchanged.
 - Windows and Linux previews now show shortcuts in menus, tooltips and key chips as `Ctrl+Shift+S` instead of macOS
   symbols. macOS is unchanged.
+- The Razor tool has its own pixel-fitted icon (a blade with the cut line) in the Tools panel.
 
 - Replaced fabricated placeholder status and inactive toggles in `Preferences ▸ Updates` with real build metadata (`BuildIdentity` shared with `About NeoFlash`) and non-blocking GitHub Releases update checking (`jazzymiles/NeoFlash`), `Stable`/`Beta` SemVer 2.0.0 prerelease filtering, opt-in daily checks, release-notes handoff, streaming platform downloads with cancellation, fail-closed `SHA256SUMS` verification before saving, Finder/Explorer reveal for manual replacement (no silent self-install in Beta 1), real installed-extension count, and visibly disabled non-collecting Privacy switches (`T-298`).
 - Connected live `Export image`, `Import video`, `Stroke style`, `Font embedding`, `Bitmap fill`, primitive/Deco/Spray/Bone/Graphic property panels and `Test Movie` to real document state, thumbnails and Undo-able mutations with explicit `Not available yet` or honest empty states where engine support is absent, replaced leftover placeholder sample strings, and upgraded `UI Layout Studio` with atomic Undo snapshots, session persistence, start-state dragging and ellipsized headers (`T-297`).

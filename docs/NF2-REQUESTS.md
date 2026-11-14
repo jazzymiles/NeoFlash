@@ -36,7 +36,7 @@ still open.
 - **Resolved, waiting for the editor to adopt the new API or assets:** R-016 (`set_tooltip_shortcuts`), R-047
   (`CompactTypeHeader`), R-049 (mask icons), R-067b (tool masters), R-081 (`paint_gradient_overflow_preview`).
 - **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
-- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-096;
+- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-097;
   earlier R-022, R-038, R-043.
 - Everything else is resolved.
 
@@ -1511,7 +1511,8 @@ wires them with the components named in each answer.
      not a fourth density preset: it applies only while Preview is on.
   3. *Video edit workspace.* The template (Properties · Scene and Library · Project tab groups, Preview rows) and the
      Razor tool are accepted as built for Beta 1. The reference screen is `NF2 / Editor — Video edit workspace`
-     (four themes). The Razor tool keeps the `scissors` glyph; a 20 px tool master for it is not drawn yet.
+     (four themes). The Razor tool has its own masters `tool-razor` on the 12, 16 and 20 px grids (a blade with the
+     cut line above and below); `scissors` stays the Cut glyph.
 
 ### R-094 · Properties for a multi-selection: Selection colours
 - **Status:** answered
@@ -1565,4 +1566,52 @@ wires them with the components named in each answer.
   6. *Windows.* The main window keeps the native title bar; floating panels stay borderless, as on macOS.
   7. *Scale.* The smallest NF2 text is 10 px (Small, Caption, Overline, Mono Small). Its legibility at 1× on Windows
      and Linux displays has not been checked on hardware; the interface scale in Preferences (80–150 %) is the user control.
+
+### R-097 · AI connections: settings and the consent to send
+- **Status:** answered
+- **Requested by / for:** design track · `ai_connections.rs` (provider profiles, secret stores, context pack) has no UI
+- **Where:** `panels/preferences.rs` (new page), two new dialogs; Figma board
+  `AI connections — Preferences, connection and consent` (four themes).
+- **Need:** a place to add a provider and its key, and a review step before anything leaves the computer.
+- **Answer:**
+  1. *Preferences ▸ AI.* A tenth category, between Publish and Updates, icon `wand`. *Connections*: a table of
+     profiles — name (`Body`), "provider · model" (`Small`, `text/secondary`), status `Badge`: `Ready` (Accent) after
+     a successful test, `Not tested` (Neutral), `No key` (Warning) while a provider that needs a key has none, and
+     `Failed` (Warning) after a failed test. Under it Secondary `Add connection…` and Ghost `Edit…`, `Test`,
+     `Remove`; the Ghost buttons need a selected row. With no profiles the table is the `EmptyState`
+     "No AI connections" with the `Add connection…` button. *Default*: `Select` "Default connection". *Privacy*: two
+     Info `InlineMessage` lines, no switches — sending always goes through the review dialog, so there is nothing to
+     turn off.
+  2. *Dialog "AI connection"* (480 pt). `Select` Provider (OpenAI, Anthropic, Google Gemini, Local
+     (OpenAI-compatible)); fields Name, Base URL, Model, API key; `Small` note that the key goes to the system
+     keychain. The API key field never shows a stored key: an existing key reads as dots, typing replaces it. For the
+     local provider the field is disabled and reads "Not required", and the note explains that only a local provider
+     may use `http://`. Section *Advanced*: Timeout / Retries, checkboxes `Streaming responses`, `Image input`.
+     Secondary `Test connection` with the result beside it as an `InlineMessage`: success in `success/default` with
+     the `check` icon ("Connected · <model>"), failure as Error with the text of `AiConnectionError`. Footer
+     `Cancel` · `Save`; Save does not require a successful test.
+  3. *Dialog "Send to AI"* (560 pt) — the consent. `Select` Connection; *Request* field; *What will be sent*: a
+     table with one `Checkbox` row per part of `AiContextPack` (project and symbol names, selected elements, script
+     excerpt, asset list) and its size or content summary on the right; unticking a row removes that part from the
+     request. Under the table: `Small` `text/tertiary` line naming what was left out and why (type not allowed,
+     larger than the limit, script cut at 16 KB), an Info `InlineMessage` about redaction, and a `Small` line with
+     the destination host. Footer `Cancel` · Primary `Send`.
+  4. *Rules.* No feature sends a request without this dialog, and there is no "do not ask again". Commands that
+     need AI are hidden until one connection is `Ready`. An answer is a proposal: applying it to the document is a
+     separate, explicit action. The surface that shows the answer and applies a proposal is not designed yet and
+     needs its own request.
+
+### R-098 · Hard-coded geometry in Help illustrations and UI Layout Studio
+- **Status:** resolved
+- **Requested by / for:** design track · Beta 1 interface review (code scan of `panels/help_manual.rs`,
+  `panels/help_as_reference.rs`, `panels/ui_studio/canvas.rs`)
+- **Need:** the three files hold literal sizes and offsets; rule 1 forbids magic paddings.
+- **Answer:**
+  1. A literal that stands for a real interface part uses its metric: icon boxes `metrics::ICON_UI`, the ruler
+     corner `metrics::STAGE_RULER`, text insets `space::S1` / `space::S2`. These are replaced.
+  2. Coordinates of the drawing itself — where a curve ends, how large a sample shape is inside a Help illustration,
+     the offset of a painted shadow in the Studio canvas — are artwork, like the path data of an icon. They stay
+     literal and are not design tokens; rule 1 does not apply to them.
+  3. Layout around an illustration (gaps between cards, paddings of the page) keeps using `space` tokens, as it
+     already does.
 
