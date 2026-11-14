@@ -304,6 +304,13 @@ Gradient Stop, shortcut rows and layer cells; keyboard colour picking; one share
 test. One finding needs a runtime check before Beta 1: single-key shortcuts are blocked only by text focus, so Enter
 or Space on a Tab-focused button may also trigger a global command.
 
+### Density profiles
+
+`Density profiles — Comfortable, Compact, Classic Flash` (Figma, four themes; `density-profiles` in the export
+manifest) shows one sample panel per profile and the metric table of `neoflash_ui::metrics`. Type sizes, icons,
+colours and spacing tokens do not change with density; only the listed heights and widths do. Every other board is
+drawn at Comfortable size.
+
 ## Provisional surfaces after v2.25
 
 Implemented with NF2 components but without a Figma board, export or outline. They are product behaviour, not design
@@ -313,13 +320,13 @@ reference; changes to them still need a design-track answer.
 | --- | --- | --- |
 | Publish settings extensions | `panels/publish_settings.rs` | Drawn on the `Dialog / Publish settings` board in four themes and decided in R-089 (options order, Sequences row, collapsed Network startup simulator, scrolling right column); export and implementation pending. |
 | Preferences ▸ Updates | `panels/preferences.rs` | Still shows the design board's sample data (version, extensions); it is being replaced by a real GitHub Releases check and verified download (owner decision 2026-11-14). |
-| Video montage | `panels/properties_video.rs`, `timeline_preview.rs`, Video edit workspace | 44 pt preview rows with thumbnails, Razor tool, linked audio/video spans, trim / cue points / Split at playhead / Extract audio. |
-| Properties ▸ Appearance | `panels/appearance.rs` | Multi-paint stack, path modifiers, vector effects, Graphic Styles. |
+| Video montage | `panels/properties_video.rs`, `timeline_preview.rs`, Video edit workspace | Drawn in four themes: `NF2 / Editor — Video edit workspace` (tab groups, 44 pt Preview rows, linked video and audio spans) and the frame Video section on `Properties and Motion editor — additions after v2.25` (R-093). Razor tool has no icon master yet. Export and implementation pending. |
+| Properties ▸ Appearance | `panels/appearance.rs` | Drawn on the `Properties — Appearance` board in four themes and specified in R-095; the shipped panel still uses text buttons. Export and implementation pending. |
 | Stage gizmos | `panels/properties_movie_clip.rs`, `panels/properties_tool.rs` | 3D, puppet / bone and deform handles with hard-coded colours kept as fixed canvas values (R-091); tool masters delivered (R-067b). |
-| Motion editor tools | `panels/motion_editor.rs` | Wiggler and Motion Sketch row. |
-| Live Debugger and Quick-Fixes | `panels/debugger.rs`, `debugger*.rs` | Live states beyond the static `panel-debugger` board. |
+| Motion editor tools | `panels/motion_editor.rs` | Tools row drawn in four themes; shown only with a motion tween in context (R-090). Implementation pending. |
+| Live Debugger and Quick-Fixes | `panels/debugger.rs`, `debugger*.rs` | Ratified as built (R-092, states of R-033). |
 | Productivity dialogs | `panels/productivity_tools.rs` | Drawn on the `Productivity — dialogs` board in four themes (R-068); export pending. |
-| Project and Selection colours | `panels/swatches.rs`, `panels/properties.rs` | Usage badges, select-by-colour and project-wide replace rows. |
+| Project and Selection colours | `panels/swatches.rs`, `panels/properties.rs` | Selection colours panel drawn in four themes; usage is Small text, not a Badge (R-094). Implementation pending. |
 | UI Layout Studio | `panels/ui_studio/` (Window ▸ UI Layout Studio…) | Developer tool composition and history contract (R-069). |
 
 ## Verifying

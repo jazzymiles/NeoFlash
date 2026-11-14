@@ -1524,10 +1524,21 @@ wires them with the components named in each answer.
 ### R-095 · Properties ▸ Appearance
 - **Status:** answered
 - **Requested by / for:** design track · Beta 1 interface review
-- **Where:** `panels/appearance.rs`.
-- **Answer:** the multi-paint stack, path modifiers (Offset paths, Round corners, Repeater, Mirror), vector effects
-  (Zig zag, Pucker and bloat, Roughen, Twist) and Graphic styles are accepted as built for Beta 1. The section stays
-  provisional: its reference board is drawn after Beta 1, and it must not be copied as a pattern until then.
+- **Where:** `panels/appearance.rs`; Figma board `Properties — Appearance` (two panels, four themes).
+- **Answer:** the functions stay; the composition follows the board.
+  1. *Graphic style.* `Select` "Style: <name>", then Secondary `Save style…` and Ghost `Unlink`, `Delete`.
+  2. *Appearance (paint stack).* Each paint is one item: a header line with the visibility `Checkbox` labelled
+     `Fill` or `Stroke` and, right-aligned, three icon buttons `Move up` (chevup), `Move down` (chevdown), `Remove`
+     (trash); under it the `ColorField` (hex and opacity — there is no separate Opacity field) and one two-column
+     row: `dX` / `dY` for a fill, `W` / `Offset` for a stroke. Under the stack: Secondary `Add fill`, `Add stroke`
+     and Ghost `Expand appearance`.
+  3. *Path modifiers.* `Select` "Add modifier" (Offset path, Round corners, Repeater, Mirror) replaces the row of
+     buttons. Each modifier is an item with its name in `NF2/Body Strong` and the same three icon buttons. Fields:
+     Offset path — `Offset`; Round corners — `Radius`; Repeater — `Copies` / `Scale`, `dX` / `dY`, `Rotation`;
+     Mirror — checkboxes `Mirror X`, `Mirror Y`, then `X` / `Y`.
+  4. *Vector effects.* `Select` "Add effect" and the same item pattern. Zig zag — `Size` / `Ridges`, checkbox
+     `Smooth`; Offset path — `Offset`; Pucker and bloat — `Amount`; Roughen — `Size` / `Detail`, `Seed`; Twist — `Angle`.
+  5. Text buttons such as "↑", "↓", "Remove", "+ Fill" are not used. Labels are sentence case.
 
 ### R-096 · Shortcut labels and wording on Windows and Linux
 - **Status:** answered (not yet checked on Windows or Linux hardware)
