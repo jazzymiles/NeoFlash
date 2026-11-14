@@ -6554,8 +6554,7 @@ mod tests {
         let served_mp4 = mp4_bytes.clone();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0u8; 2048];
-            let _ = stream.read(&mut request);
+            drain_http_request(&stream);
             write!(
                 stream,
                 "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -6563,6 +6562,7 @@ mod tests {
             )
             .unwrap();
             stream.write_all(&served_mp4).unwrap();
+            stream.flush().unwrap();
         });
         let remote_url = format!("http://{address}/streams/remote.mp4");
         let remote_prog_proj = make_prog_project(
@@ -6584,6 +6584,30 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    fn drain_http_request(stream: &std::net::TcpStream) {
+        // Consume complete request headers and any body before answering or dropping so
+        // Windows loopback does not emit WSAECONNABORTED on short responses.
+        let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+        let mut content_length = 0usize;
+        loop {
+            let mut line = String::new();
+            assert_ne!(
+                std::io::BufRead::read_line(&mut reader, &mut line).unwrap(),
+                0
+            );
+            if line == "\r\n" || line == "\n" {
+                break;
+            }
+            if let Some((name, value)) = line.split_once(':')
+                && name.eq_ignore_ascii_case("content-length")
+            {
+                content_length = value.trim().parse().unwrap();
+            }
+        }
+        let mut body = vec![0u8; content_length];
+        std::io::Read::read_exact(&mut reader, &mut body).unwrap();
+    }
+
     #[test]
     fn progressive_download_reports_http_errors_and_enforces_declared_and_streamed_limits() {
         fn serve_once(response: Vec<u8>) -> (String, std::thread::JoinHandle<()>) {
@@ -6591,9 +6615,9 @@ mod tests {
             let address = listener.local_addr().unwrap();
             let handle = std::thread::spawn(move || {
                 let (mut stream, _) = listener.accept().unwrap();
-                let mut request = [0u8; 2048];
-                let _ = stream.read(&mut request);
-                stream.write_all(&response).unwrap();
+                drain_http_request(&stream);
+                let _ = stream.write_all(&response);
+                let _ = stream.flush();
             });
             (format!("http://{address}/clip.mp4"), handle)
         }
@@ -6678,8 +6702,7 @@ mod tests {
         let served_mp4 = mp4_bytes.clone();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0u8; 2048];
-            let _ = stream.read(&mut request);
+            drain_http_request(&stream);
             write!(
                 stream,
                 "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -6687,6 +6710,7 @@ mod tests {
             )
             .unwrap();
             stream.write_all(&served_mp4).unwrap();
+            stream.flush().unwrap();
         });
         let url = format!("http://{address}/fresh.mp4?token=do-not-log");
         stage_progressive_video_bytes(url.clone(), b"not a video".to_vec());

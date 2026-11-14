@@ -5,7 +5,9 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import shutil
+import stat
 import tarfile
 import tempfile
 import unittest
@@ -344,23 +346,28 @@ class PortablePackageTests(unittest.TestCase):
         large = stage / "large.bin"
         with large.open("wb") as handle:
             handle.truncate(12 * 1024 * 1024)
-        tool = self.write(stage, "tool", b"executable")
+        tool_name = "tool.exe" if os.name == "nt" else "tool"
+        tool = self.write(stage, tool_name, b"executable")
         tool.chmod(0o755)
         first, second = self.root / "first.zip", self.root / "second.zip"
-        package_portable.deterministic_zip(stage, first, "NeoFlash")
-        package_portable.deterministic_zip(stage, second, "NeoFlash")
+        with mock.patch("os.access", return_value=True):
+            package_portable.deterministic_zip(stage, first, "NeoFlash")
+            package_portable.deterministic_zip(stage, second, "NeoFlash")
         self.assertEqual(digest_file(first), digest_file(second))
         with zipfile.ZipFile(first) as archive:
             self.assertEqual(archive.getinfo("NeoFlash/large.bin").file_size, large.stat().st_size)
+            self.assertEqual(archive.getinfo("NeoFlash/large.bin").external_attr >> 16, stat.S_IFREG | 0o644)
+            self.assertEqual(archive.getinfo(f"NeoFlash/{tool_name}").external_attr >> 16, stat.S_IFREG | 0o755)
         with self.assertRaisesRegex(package_portable.PortablePackageError, "unsafe|archive root"):
             package_portable.deterministic_zip(stage, self.root / "escape.zip", "../escape")
         first_tar, second_tar = self.root / "first.tar.gz", self.root / "second.tar.gz"
-        package_portable.deterministic_tar_gz(stage, first_tar, "NeoFlash")
-        package_portable.deterministic_tar_gz(stage, second_tar, "NeoFlash")
+        with mock.patch("os.access", return_value=True):
+            package_portable.deterministic_tar_gz(stage, first_tar, "NeoFlash")
+            package_portable.deterministic_tar_gz(stage, second_tar, "NeoFlash")
         self.assertEqual(digest_file(first_tar), digest_file(second_tar))
         with tarfile.open(first_tar, "r:gz") as archive:
             self.assertEqual(archive.getmember("NeoFlash/large.bin").mode, 0o644)
-            self.assertEqual(archive.getmember("NeoFlash/tool").mode, 0o755)
+            self.assertEqual(archive.getmember(f"NeoFlash/{tool_name}").mode, 0o755)
 
     def test_end_to_end_windows_package_has_guides_hashes_and_shared_source(self):
         source_root, _ = self.source_tree()

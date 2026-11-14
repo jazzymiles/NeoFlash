@@ -13,17 +13,24 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PerformanceAbTests(unittest.TestCase):
-    def write_report(self, root: Path, name: str, values: dict[str, float]) -> Path:
+    def write_report(
+        self,
+        root: Path,
+        name: str,
+        values: dict[str, float],
+        *,
+        platform: str = "linux",
+    ) -> Path:
         path = root / f"{name}.json"
         results = [
             {
                 "suite": suite,
-                "frames": 240,
+                "frames": MODULE.EXPECTED_FRAMES,
                 "rawCpuMsPerFrame": value,
                 "snapshotsPerFrame": 1.0,
                 "draws": 500,
                 "node": MODULE.EXPECTED_NODE,
-                "platform": "linux",
+                "platform": platform,
                 "arch": "x64",
             }
             for suite, value in sorted(values.items())
@@ -34,11 +41,11 @@ class PerformanceAbTests(unittest.TestCase):
                     "schema": 1,
                     "mode": "report",
                     "node": MODULE.EXPECTED_NODE,
-                    "platform": "linux",
+                    "platform": platform,
                     "arch": "x64",
-                    "sample_count": 1,
-                    "frames_per_sample": 240,
-                    "warmup_frames": 240,
+                    "sample_count": MODULE.EXPECTED_SAMPLE_COUNT,
+                    "frames_per_sample": MODULE.EXPECTED_FRAMES,
+                    "warmup_frames": MODULE.EXPECTED_WARMUP_FRAMES,
                     "results": results,
                 }
             ),
@@ -66,30 +73,34 @@ class PerformanceAbTests(unittest.TestCase):
             )
         return current, baseline
 
-    def test_five_balanced_pairs_pass_below_five_percent(self):
+    def test_six_balanced_pairs_pass_below_five_percent(self):
         with tempfile.TemporaryDirectory() as temp:
-            current, baseline = self.reports(Path(temp), [1.01, 1.02, 1.00, 1.03, 1.01])
+            current, baseline = self.reports(
+                Path(temp), [1.01, 1.02, 1.00, 1.03, 1.01, 1.00]
+            )
             summary = MODULE.compare_reports(current, baseline)
-        self.assertEqual(summary["pair_count"], 5)
+        self.assertEqual(summary["pair_count"], MODULE.PAIR_COUNT)
         self.assertFalse(summary["failures"])
         self.assertLess(summary["suites"][0]["geometric_mean"], 1.05)
 
     def test_sustained_regression_fails_without_dropping_a_pair(self):
         with tempfile.TemporaryDirectory() as temp:
-            current, baseline = self.reports(Path(temp), [1.08] * 5)
+            current, baseline = self.reports(Path(temp), [1.08] * MODULE.PAIR_COUNT)
             with self.assertRaisesRegex(MODULE.PerformanceGateError, "sustained regression"):
                 MODULE.compare_reports(current, baseline)
 
     def test_excessive_ratio_dispersion_is_inconclusive_failure(self):
         with tempfile.TemporaryDirectory() as temp:
-            current, baseline = self.reports(Path(temp), [0.8, 1.2, 0.8, 1.2, 1.0])
+            current, baseline = self.reports(
+                Path(temp), [0.8, 1.2, 0.8, 1.2, 1.0, 1.0]
+            )
             with self.assertRaisesRegex(MODULE.PerformanceGateError, "inconclusive dispersion"):
                 MODULE.compare_reports(current, baseline)
 
     def test_suite_inventory_mismatch_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            current, baseline = self.reports(root, [1.0] * 5)
+            current, baseline = self.reports(root, [1.0] * MODULE.PAIR_COUNT)
             mismatched = json.loads(current[2].read_text(encoding="utf-8"))
             mismatched["results"].pop()
             current[2].write_text(json.dumps(mismatched), encoding="utf-8")
@@ -98,7 +109,7 @@ class PerformanceAbTests(unittest.TestCase):
 
     def test_shared_suite_omission_still_fails_required_inventory(self):
         with tempfile.TemporaryDirectory() as temp:
-            current, baseline = self.reports(Path(temp), [1.0] * 5)
+            current, baseline = self.reports(Path(temp), [1.0] * MODULE.PAIR_COUNT)
             for path in current + baseline:
                 report = json.loads(path.read_text(encoding="utf-8"))
                 report["results"].pop()
@@ -108,7 +119,7 @@ class PerformanceAbTests(unittest.TestCase):
 
     def test_report_mode_mismatch_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
-            current, baseline = self.reports(Path(temp), [1.0] * 5)
+            current, baseline = self.reports(Path(temp), [1.0] * MODULE.PAIR_COUNT)
             mismatched = json.loads(current[0].read_text(encoding="utf-8"))
             mismatched["mode"] = "functional"
             current[0].write_text(json.dumps(mismatched), encoding="utf-8")
@@ -117,12 +128,61 @@ class PerformanceAbTests(unittest.TestCase):
 
     def test_functional_counter_mismatch_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
-            current, baseline = self.reports(Path(temp), [1.0] * 5)
+            current, baseline = self.reports(Path(temp), [1.0] * MODULE.PAIR_COUNT)
             mismatched = json.loads(current[1].read_text(encoding="utf-8"))
             mismatched["results"][0]["draws"] += 1
             current[1].write_text(json.dumps(mismatched), encoding="utf-8")
             with self.assertRaisesRegex(MODULE.PerformanceGateError, "draw coverage changed"):
                 MODULE.compare_reports(current, baseline)
+
+    def test_pair_sequence_is_symmetric_and_complete(self):
+        self.assertEqual(MODULE.PAIR_COUNT % 2, 0)
+        self.assertEqual(len(MODULE.PAIR_SEQUENCE), 2 * MODULE.PAIR_COUNT)
+        first_slots = {"current": 0, "baseline": 0}
+        seen = set()
+        for pair_index in range(MODULE.PAIR_COUNT):
+            pair_entries = [
+                label for label, idx in MODULE.PAIR_SEQUENCE if idx == pair_index
+            ]
+            self.assertEqual(sorted(pair_entries), ["baseline", "current"])
+            first_slots[pair_entries[0]] += 1
+            for label in pair_entries:
+                seen.add((label, pair_index))
+        self.assertEqual(len(seen), 2 * MODULE.PAIR_COUNT)
+        self.assertEqual(first_slots["current"], MODULE.PAIR_COUNT // 2)
+        self.assertEqual(first_slots["baseline"], MODULE.PAIR_COUNT // 2)
+
+    def test_single_suite_validation_and_pair_assembly_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            per_suite = []
+            for suite in sorted(MODULE.EXPECTED_SUITES):
+                p = self.write_report(root, f"one-{suite}", {suite: 1.5})
+                per_suite.append(
+                    MODULE._load_report(p, expected_suites=frozenset({suite}))
+                )
+            with self.assertRaisesRegex(MODULE.PerformanceGateError, "suite inventory"):
+                MODULE._load_report(
+                    root / "one-snake-as2.json",
+                    expected_suites=frozenset({"tetris-as2"}),
+                )
+            assembled = root / "assembled.json"
+            MODULE._write_assembled_pair_report(
+                assembled, label="current-pair-1", suite_reports=per_suite
+            )
+            loaded = MODULE._load_report(assembled)
+            self.assertEqual(set(MODULE._suite_map(loaded, assembled)), MODULE.EXPECTED_SUITES)
+
+            mismatch_p = self.write_report(
+                root, "mismatch", {"tetris-as2": 1.5}, platform="darwin"
+            )
+            bad_reports = per_suite[:-1] + [
+                MODULE._load_report(mismatch_p, expected_suites=frozenset({"tetris-as2"}))
+            ]
+            with self.assertRaisesRegex(MODULE.PerformanceGateError, "host identity changed"):
+                MODULE._write_assembled_pair_report(
+                    root / "bad.json", label="current-pair-1", suite_reports=bad_reports
+                )
 
 
 if __name__ == "__main__":

@@ -44,13 +44,23 @@ fn write_mock_wasm_runtime(runtime_dir: &Path) {
         .expect("write neoflash_web_bg.wasm");
 }
 
-fn node_binary() -> &'static str {
-    for candidate in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
-        if Path::new(candidate).exists() {
-            return candidate;
+fn node_binary() -> std::path::PathBuf {
+    let exe = if cfg!(windows) { "node.exe" } else { "node" };
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join(exe);
+            if candidate.is_file() {
+                return candidate;
+            }
         }
     }
-    "node"
+    for candidate in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
+        let path = Path::new(candidate);
+        if path.exists() {
+            return path.to_path_buf();
+        }
+    }
+    std::path::PathBuf::from(exe)
 }
 
 fn node_module_url(path: &Path) -> String {
@@ -835,14 +845,28 @@ const PERF_MODE = process.env.NEOFLASH_PERF_MODE || 'absolute';
 assert.ok(['absolute', 'functional', 'report'].includes(PERF_MODE), `unknown performance mode ${{PERF_MODE}}`);
 const FRAME_SAMPLE_COUNT = Number(process.env.NEOFLASH_PERF_SAMPLE_COUNT || (PERF_MODE === 'absolute' ? 3 : 1));
 const FRAMES_PER_SAMPLE = Number(process.env.NEOFLASH_PERF_FRAMES || 240);
-const WARMUP_FRAMES = Number(process.env.NEOFLASH_PERF_WARMUP_FRAMES || (PERF_MODE === 'report' ? 240 : 5));
+const WARMUP_FRAMES = Number(process.env.NEOFLASH_PERF_WARMUP_FRAMES || (PERF_MODE === 'report' ? 480 : 5));
 assert.ok(Number.isInteger(FRAME_SAMPLE_COUNT) && FRAME_SAMPLE_COUNT > 0 && FRAME_SAMPLE_COUNT <= 10);
 assert.ok(Number.isInteger(FRAMES_PER_SAMPLE) && FRAMES_PER_SAMPLE >= 60 && FRAMES_PER_SAMPLE <= 2400);
 assert.ok(Number.isInteger(WARMUP_FRAMES) && WARMUP_FRAMES >= 0 && WARMUP_FRAMES <= 2400);
+const SUITE_FILTER = process.env.NEOFLASH_PERF_SUITES
+  ? new Set(process.env.NEOFLASH_PERF_SUITES.split(',').map((s) => s.trim()).filter(Boolean))
+  : null;
+if (SUITE_FILTER) {{
+  assert.ok(SUITE_FILTER.size > 0, 'NEOFLASH_PERF_SUITES must not be empty');
+  const knownSuites = new Set([...gameBundles, ...stressBundles].map(([slug]) => slug));
+  for (const slug of SUITE_FILTER) {{
+    assert.ok(knownSuites.has(slug), `unknown performance suite ${{slug}}`);
+  }}
+}}
 
 function mean(values) {{
   return values.reduce((total, value) => total + value, 0) / values.length;
 }}
+
+const readCpuUsage = typeof process.threadCpuUsage === 'function'
+  ? process.threadCpuUsage.bind(process)
+  : process.cpuUsage.bind(process);
 
 function benchmarkFrames(label, runFrame) {{
   assert.equal(typeof globalThis.gc, 'function', `${{label}} requires Node --expose-gc`);
@@ -851,11 +875,11 @@ function benchmarkFrames(label, runFrame) {{
   const rawCpuSamples = [];
   for (let sample = 0; sample < FRAME_SAMPLE_COUNT; sample++) {{
     const wallStart = performance.now();
-    const cpuStart = process.cpuUsage();
+    const cpuStart = readCpuUsage();
     for (let frameWithinSample = 0; frameWithinSample < FRAMES_PER_SAMPLE; frameWithinSample++) {{
       runFrame(sample * FRAMES_PER_SAMPLE + frameWithinSample);
     }}
-    const cpuElapsed = process.cpuUsage(cpuStart);
+    const cpuElapsed = readCpuUsage(cpuStart);
     const wallMs = performance.now() - wallStart;
     const rawCpuMsPerFrame =
       (cpuElapsed.user + cpuElapsed.system) / 1000 / FRAMES_PER_SAMPLE;
@@ -909,6 +933,7 @@ function recordResult(slug, benchmark, snapshotsPerFrame, draws, budget) {{
 
 // 1. Benchmark all 6 exported games over gameplay + Canvas 2D samples.
 for (const [slug, bundlePath] of gameBundles) {{
+  if (SUITE_FILTER && !SUITE_FILTER.has(slug)) continue;
   const {{ clip, env, ctx, paintFrame, getSnapshotCalls, resetSnapshotCalls }} = loadBundle(bundlePath);
 
   for (let w = 0; w < WARMUP_FRAMES; w++) {{
@@ -951,6 +976,7 @@ for (const [slug, bundlePath] of gameBundles) {{
 
 // 2. Benchmark all AS2/AS3 runtime & rendering stress suites.
 for (const [slug, bundlePath] of stressBundles) {{
+  if (SUITE_FILTER && !SUITE_FILTER.has(slug)) continue;
   const {{ clip, env, ctx, paintFrame, getSnapshotCalls, resetSnapshotCalls }} = loadBundle(bundlePath);
 
   for (let w = 0; w < WARMUP_FRAMES; w++) {{

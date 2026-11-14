@@ -27,6 +27,10 @@ from typing import Any
 BASELINE_REVISION = "5fac0290d20ffa0970541882cacf6eee6661fb3c"
 EXPECTED_NODE = "v22.23.5"
 PERF_TEST = "exported_games_and_stress_suites_meet_html5_frame_time_budgets"
+PAIR_COUNT = 6
+EXPECTED_SAMPLE_COUNT = 1
+EXPECTED_FRAMES = 480
+EXPECTED_WARMUP_FRAMES = 480
 RATIO_LIMIT = 1.05
 GEOMETRIC_STDDEV_LIMIT = 1.12
 RATIO_SPREAD_LIMIT = 1.35
@@ -53,12 +57,14 @@ PAIR_SEQUENCE = (
     ("baseline", 0),
     ("baseline", 1),
     ("current", 1),
-    ("current", 2),
     ("baseline", 2),
-    ("baseline", 3),
+    ("current", 2),
     ("current", 3),
+    ("baseline", 3),
     ("current", 4),
     ("baseline", 4),
+    ("baseline", 5),
+    ("current", 5),
 )
 
 
@@ -106,7 +112,9 @@ def _tool(name: str) -> str:
     return found
 
 
-def _load_report(path: Path) -> dict[str, Any]:
+def _load_report(
+    path: Path, *, expected_suites: frozenset[str] = EXPECTED_SUITES
+) -> dict[str, Any]:
     try:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -119,10 +127,17 @@ def _load_report(path: Path) -> dict[str, Any]:
         raise PerformanceGateError(
             f"{path} used {report.get('node')!r}; expected exact Node {EXPECTED_NODE}"
         )
-    if report.get("sample_count") != 1 or report.get("frames_per_sample") != 240:
-        raise PerformanceGateError(f"{path} did not contain one 240-frame measurement")
-    if report.get("warmup_frames") != 240:
-        raise PerformanceGateError(f"{path} did not contain the 240-frame warmup")
+    if (
+        report.get("sample_count") != EXPECTED_SAMPLE_COUNT
+        or report.get("frames_per_sample") != EXPECTED_FRAMES
+    ):
+        raise PerformanceGateError(
+            f"{path} did not contain {EXPECTED_SAMPLE_COUNT} {EXPECTED_FRAMES}-frame measurement"
+        )
+    if report.get("warmup_frames") != EXPECTED_WARMUP_FRAMES:
+        raise PerformanceGateError(
+            f"{path} did not contain the {EXPECTED_WARMUP_FRAMES}-frame warmup"
+        )
     if not isinstance(report.get("platform"), str) or not report["platform"]:
         raise PerformanceGateError(f"{path} has no platform identity")
     if not isinstance(report.get("arch"), str) or not report["arch"]:
@@ -130,7 +145,41 @@ def _load_report(path: Path) -> dict[str, Any]:
     results = report.get("results")
     if not isinstance(results, list) or not results:
         raise PerformanceGateError(f"{path} has no suite results")
+    if expected_suites is not EXPECTED_SUITES:
+        suites = _suite_map(report, path)
+        if set(suites) != expected_suites:
+            raise PerformanceGateError(
+                f"{path} suite inventory {sorted(suites)} != {sorted(expected_suites)}"
+            )
     return report
+
+
+def _write_assembled_pair_report(
+    path: Path, *, label: str, suite_reports: list[dict[str, Any]]
+) -> None:
+    if not suite_reports:
+        raise PerformanceGateError(f"{path}: no per-suite reports collected for {label}")
+    first = suite_reports[0]
+    host = (first["node"], first["platform"], first["arch"])
+    results: list[dict[str, Any]] = []
+    for suite_report in suite_reports:
+        if (suite_report["node"], suite_report["platform"], suite_report["arch"]) != host:
+            raise PerformanceGateError(f"{path}: host identity changed during {label}")
+        results.extend(suite_report["results"])
+    results.sort(key=lambda row: row["suite"])
+    payload = {
+        "schema": 1,
+        "mode": "report",
+        "label": label,
+        "node": first["node"],
+        "platform": first["platform"],
+        "arch": first["arch"],
+        "sample_count": EXPECTED_SAMPLE_COUNT,
+        "frames_per_sample": EXPECTED_FRAMES,
+        "warmup_frames": EXPECTED_WARMUP_FRAMES,
+        "results": results,
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def _suite_map(report: dict[str, Any], path: Path) -> dict[str, dict[str, Any]]:
@@ -144,7 +193,7 @@ def _suite_map(report: dict[str, Any], path: Path) -> dict[str, dict[str, Any]]:
         value = result.get("rawCpuMsPerFrame")
         if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
             raise PerformanceGateError(f"{path} has invalid CPU time for {name}: {value!r}")
-        if result.get("frames") != 240:
+        if result.get("frames") != EXPECTED_FRAMES:
             raise PerformanceGateError(f"{path} has an invalid frame count for {name}")
         snapshots = result.get("snapshotsPerFrame")
         draws = result.get("draws")
@@ -170,8 +219,10 @@ def _suite_map(report: dict[str, Any], path: Path) -> dict[str, dict[str, Any]]:
 def compare_reports(
     current_paths: list[Path], baseline_paths: list[Path]
 ) -> dict[str, Any]:
-    if len(current_paths) != 5 or len(baseline_paths) != 5:
-        raise PerformanceGateError("the hosted gate requires exactly five A/B pairs")
+    if len(current_paths) != PAIR_COUNT or len(baseline_paths) != PAIR_COUNT:
+        raise PerformanceGateError(
+            f"the hosted gate requires exactly {PAIR_COUNT} A/B pairs"
+        )
     current_reports = [_load_report(path) for path in current_paths]
     baseline_reports = [_load_report(path) for path in baseline_paths]
 
@@ -205,7 +256,7 @@ def compare_reports(
     rows = []
     failures = []
     for name in sorted(expected_names):
-        for index in range(5):
+        for index in range(PAIR_COUNT):
             current_result = current_suites[index][name]
             baseline_result = baseline_suites[index][name]
             if current_result["draws"] != baseline_result["draws"]:
@@ -225,7 +276,7 @@ def compare_reports(
         ratios = [
             current_suites[index][name]["rawCpuMsPerFrame"]
             / baseline_suites[index][name]["rawCpuMsPerFrame"]
-            for index in range(5)
+            for index in range(PAIR_COUNT)
         ]
         logs = [math.log(ratio) for ratio in ratios]
         mean_log = sum(logs) / len(logs)
@@ -259,7 +310,7 @@ def compare_reports(
         "node": EXPECTED_NODE,
         "platform": host[0],
         "arch": host[1],
-        "pair_count": 5,
+        "pair_count": PAIR_COUNT,
         "ratio_limit": RATIO_LIMIT,
         "geometric_stddev_limit": GEOMETRIC_STDDEV_LIMIT,
         "ratio_spread_limit": RATIO_SPREAD_LIMIT,
@@ -429,15 +480,20 @@ def run_gate(root: Path) -> dict[str, Any]:
         )
 
         report_paths: dict[str, list[Path]] = {"current": [], "baseline": []}
-        for sequence_index, (label, pair_index) in enumerate(PAIR_SEQUENCE):
-            report_path = artifact_dir / f"{sequence_index:02d}-{label}-pair-{pair_index + 1}.json"
-            runner = current_runner if label == "current" else baseline_runner
-            run_env = current_env.copy()
-            run_env.update(
+        prime_reports = artifact_dir / "prime"
+        prime_reports.mkdir(parents=True, exist_ok=True)
+        for prime_index, (label, runner, cwd) in enumerate(
+            (
+                ("current", current_runner, root),
+                ("baseline", baseline_runner, baseline_root),
+            )
+        ):
+            prime_env = current_env.copy()
+            prime_env.update(
                 {
                     "NEOFLASH_PERF_MODE": "report",
-                    "NEOFLASH_PERF_REPORT": str(report_path),
-                    "NEOFLASH_PERF_LABEL": f"{label}-pair-{pair_index + 1}",
+                    "NEOFLASH_PERF_REPORT": str(prime_reports / f"prime-{prime_index:02d}-{label}.json"),
+                    "NEOFLASH_PERF_LABEL": f"prime-{label}",
                     "NEOFLASH_PERF_SAMPLE_COUNT": "1",
                     "NEOFLASH_PERF_FRAMES": "240",
                     "NEOFLASH_PERF_WARMUP_FRAMES": "240",
@@ -445,11 +501,57 @@ def run_gate(root: Path) -> dict[str, Any]:
             )
             _run(
                 [node, "--expose-gc", str(runner)],
-                cwd=root if label == "current" else baseline_root,
-                env=run_env,
-                log_path=artifact_dir / f"{sequence_index:02d}-{label}-pair-{pair_index + 1}.log",
+                cwd=cwd,
+                env=prime_env,
+                log_path=prime_reports / f"prime-{prime_index:02d}-{label}.log",
             )
-            report_paths[label].append(report_path)
+
+        per_suite_dir = artifact_dir / "per-suite"
+        per_suite_dir.mkdir(parents=True, exist_ok=True)
+        assembled: dict[tuple[str, int], list[dict[str, Any]]] = {
+            (label, pair_index): []
+            for label in ("current", "baseline")
+            for pair_index in range(PAIR_COUNT)
+        }
+        for slug in sorted(EXPECTED_SUITES):
+            for label, pair_index in PAIR_SEQUENCE:
+                suite_report_path = per_suite_dir / f"{slug}-p{pair_index + 1}-{label}.json"
+                runner = current_runner if label == "current" else baseline_runner
+                run_env = current_env.copy()
+                run_env.update(
+                    {
+                        "NEOFLASH_PERF_MODE": "report",
+                        "NEOFLASH_PERF_REPORT": str(suite_report_path),
+                        "NEOFLASH_PERF_LABEL": f"{label}-pair-{pair_index + 1}-{slug}",
+                        "NEOFLASH_PERF_SAMPLE_COUNT": str(EXPECTED_SAMPLE_COUNT),
+                        "NEOFLASH_PERF_FRAMES": str(EXPECTED_FRAMES),
+                        "NEOFLASH_PERF_WARMUP_FRAMES": str(EXPECTED_WARMUP_FRAMES),
+                        "NEOFLASH_PERF_SUITES": slug,
+                    }
+                )
+                _run(
+                    [node, "--expose-gc", str(runner)],
+                    cwd=root if label == "current" else baseline_root,
+                    env=run_env,
+                    log_path=per_suite_dir / f"{slug}-p{pair_index + 1}-{label}.log",
+                )
+                suite_report = _load_report(
+                    suite_report_path, expected_suites=frozenset({slug})
+                )
+                assembled[(label, pair_index)].append(suite_report)
+
+        for pair_index in range(PAIR_COUNT):
+            for offset, label in enumerate(("current", "baseline")):
+                sequence_index = pair_index * 2 + offset
+                report_path = (
+                    artifact_dir / f"{sequence_index:02d}-{label}-pair-{pair_index + 1}.json"
+                )
+                _write_assembled_pair_report(
+                    report_path,
+                    label=f"{label}-pair-{pair_index + 1}",
+                    suite_reports=assembled[(label, pair_index)],
+                )
+                report_paths[label].append(report_path)
 
         summary = compare_reports(report_paths["current"], report_paths["baseline"])
         current_revision = subprocess.check_output(
@@ -500,10 +602,10 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--compare-only",
-        nargs=10,
+        nargs=2 * PAIR_COUNT,
         type=Path,
         metavar="REPORT",
-        help="compare five current reports followed by five baseline reports",
+        help=f"compare {PAIR_COUNT} current reports followed by {PAIR_COUNT} baseline reports",
     )
     return parser.parse_args()
 
@@ -512,7 +614,9 @@ def main() -> int:
     args = _parse_args()
     try:
         if args.compare_only:
-            summary = compare_reports(args.compare_only[:5], args.compare_only[5:])
+            summary = compare_reports(
+                args.compare_only[:PAIR_COUNT], args.compare_only[PAIR_COUNT:]
+            )
             print(json.dumps(summary, indent=2))
         else:
             run_gate(args.project_root.resolve())

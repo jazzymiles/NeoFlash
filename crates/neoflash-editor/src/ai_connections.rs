@@ -2122,10 +2122,13 @@ mod tests {
         )
     }
 
-    fn drain_http_request(socket: &std::net::TcpStream) {
+    fn drain_http_request_with_headers(socket: &std::net::TcpStream) -> (String, Vec<String>) {
         // Windows resets a connection that closes with unread request bytes. Test
-        // servers must consume the complete POST before sending a short response.
+        // servers must consume the complete HTTP request before sending a short response.
         let mut reader = BufReader::new(socket.try_clone().unwrap());
+        let mut request_line = String::new();
+        assert_ne!(reader.read_line(&mut request_line).unwrap(), 0);
+        let mut headers = Vec::new();
         let mut content_length = 0usize;
         loop {
             let mut line = String::new();
@@ -2138,9 +2141,15 @@ mod tests {
             {
                 content_length = value.trim().parse().unwrap();
             }
+            headers.push(line.trim().to_owned());
         }
         let mut body = vec![0; content_length];
         reader.read_exact(&mut body).unwrap();
+        (request_line, headers)
+    }
+
+    fn drain_http_request(socket: &std::net::TcpStream) {
+        let _ = drain_http_request_with_headers(socket);
     }
 
     #[test]
@@ -2161,18 +2170,7 @@ mod tests {
 
             let server = std::thread::spawn(move || {
                 let (mut socket, _) = listener.accept().unwrap();
-                let mut reader = BufReader::new(socket.try_clone().unwrap());
-                let mut request_line = String::new();
-                reader.read_line(&mut request_line).unwrap();
-                let mut headers = Vec::new();
-                loop {
-                    let mut line = String::new();
-                    reader.read_line(&mut line).unwrap();
-                    if line == "\r\n" || line == "\n" || line.is_empty() {
-                        break;
-                    }
-                    headers.push(line.trim().to_owned());
-                }
+                let (request_line, headers) = drain_http_request_with_headers(&socket);
 
                 match expected_kind {
                     AiProviderKind::OpenAi => {
@@ -2232,6 +2230,7 @@ mod tests {
                     "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n{sse_payload}"
                 );
                 socket.write_all(response.as_bytes()).unwrap();
+                socket.flush().unwrap();
             });
 
             let store = MemorySecretStore::new();
@@ -2569,26 +2568,22 @@ mod tests {
             // First attempt -> 429 Too Many Requests
             {
                 let (mut s1, _) = listener.accept().unwrap();
-                let mut r1 = BufReader::new(s1.try_clone().unwrap());
-                let mut line = String::new();
-                let _ = r1.read_line(&mut line);
+                drain_http_request(&s1);
                 s1.write_all(
                     b"HTTP/1.1 429 Too Many Requests\r\nRetry-After-Ms: 10\r\nConnection: close\r\n\r\nRate limit exceeded",
                 )
                 .unwrap();
-                let _ = s1.shutdown(std::net::Shutdown::Both);
+                s1.flush().unwrap();
             }
 
             // Second attempt -> 200 OK
             let (mut s2, _) = listener.accept().unwrap();
-            let mut r2 = BufReader::new(s2.try_clone().unwrap());
-            let mut line = String::new();
-            let _ = r2.read_line(&mut line);
+            drain_http_request(&s2);
             s2.write_all(
                 b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"choices\":[{\"delta\":{\"content\":\"Recovered after 429\"}}]}\n\ndata: [DONE]\n\n",
             )
             .unwrap();
-            let _ = s2.shutdown(std::net::Shutdown::Both);
+            s2.flush().unwrap();
         });
 
         let store = MemorySecretStore::new();
@@ -2637,9 +2632,7 @@ mod tests {
         let cancel_addr = cancel_listener.local_addr().unwrap();
         let cancel_server = std::thread::spawn(move || {
             let (mut s, _) = cancel_listener.accept().unwrap();
-            let mut r = BufReader::new(s.try_clone().unwrap());
-            let mut line = String::new();
-            let _ = r.read_line(&mut line);
+            drain_http_request(&s);
             s.write_all(
                 b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"choices\":[{\"delta\":{\"content\":\"chunk-1\"}}]}\n\n",
             )
@@ -2649,6 +2642,7 @@ mod tests {
             let _ = s.write_all(
                 b"data: {\"choices\":[{\"delta\":{\"content\":\"chunk-2\"}}]}\n\ndata: [DONE]\n\n",
             );
+            let _ = s.flush();
         });
 
         let cancel_profile = AiProviderProfile::new(

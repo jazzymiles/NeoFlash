@@ -882,7 +882,7 @@ mod tests {
             "c".repeat(65)
         );
         let doc_dir = tmp_root.join(&deep_sub);
-        std::fs::create_dir_all(&doc_dir).unwrap();
+        std::fs::create_dir_all(normalize_windows_path(&doc_dir)).unwrap();
         let unicode_doc_path = doc_dir.join("Проект_НеоФлеш_テスト_🎬.nflash");
         assert!(
             unicode_doc_path.to_string_lossy().len() >= 260,

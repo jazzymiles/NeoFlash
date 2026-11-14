@@ -1434,6 +1434,28 @@ mod tests {
     use std::io::Write as _;
     use std::net::TcpListener;
 
+    fn drain_http_request(socket: &std::net::TcpStream) {
+        use std::io::{BufRead as _, BufReader, Read as _};
+        // Consume the complete request headers (and any body) before writing or closing so
+        // Windows loopback does not turn short responses into WSAECONNABORTED.
+        let mut reader = BufReader::new(socket.try_clone().unwrap());
+        let mut content_length = 0usize;
+        loop {
+            let mut line = String::new();
+            assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+            if line == "\r\n" || line == "\n" {
+                break;
+            }
+            if let Some((name, value)) = line.split_once(':')
+                && name.eq_ignore_ascii_case("content-length")
+            {
+                content_length = value.trim().parse().unwrap();
+            }
+        }
+        let mut body = vec![0u8; content_length];
+        reader.read_exact(&mut body).unwrap();
+    }
+
     #[test]
     fn failed_progressive_preview_retries_after_error_is_reported() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1456,13 +1478,13 @@ mod tests {
         );
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            let mut request = [0u8; 2048];
-            let _ = socket.read(&mut request);
+            drain_http_request(&socket);
             socket
                 .write_all(
                     b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 9\r\nConnection: close\r\n\r\ntry later",
                 )
                 .unwrap();
+            socket.flush().unwrap();
         });
         assert!(
             poll_or_start_progressive_preview_fetch(&url, "video/mp4"),
@@ -1545,14 +1567,14 @@ mod tests {
         let remote_bytes = mp4_bytes.clone();
         let remote_server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            let mut request = [0u8; 2048];
-            let _ = socket.read(&mut request);
+            drain_http_request(&socket);
             let response_header = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 remote_bytes.len()
             );
             socket.write_all(response_header.as_bytes()).unwrap();
             socket.write_all(&remote_bytes).unwrap();
+            socket.flush().unwrap();
         });
         let remote_draft = ImportVideoDraft {
             file_path: format!("http://{remote_addr}/streams/remote_only.mp4"),

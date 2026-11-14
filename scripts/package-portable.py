@@ -801,6 +801,13 @@ def write_internal_manifest(stage_dir: Path) -> None:
     )
 
 
+def _normalized_archive_file_mode(path: Path) -> int:
+    # Windows `os.access(path, os.X_OK)` reports every existing file as executable,
+    # whereas `st_mode & stat.S_IXUSR` follows POSIX bits on Unix and executable
+    # suffixes (`.exe`/`.bat`/`.cmd`/`.com`) on Windows.
+    return 0o755 if (path.stat().st_mode & stat.S_IXUSR) else 0o644
+
+
 def deterministic_zip(stage_dir: Path, archive_path: Path, root_name: str) -> None:
     root_name = safe_archive_root(root_name)
     archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -814,7 +821,7 @@ def deterministic_zip(stage_dir: Path, archive_path: Path, root_name: str) -> No
             relative = path.relative_to(stage_dir).as_posix()
             info = zipfile.ZipInfo(f"{root_name}/{relative}", date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
-            mode = 0o755 if os.access(path, os.X_OK) else 0o644
+            mode = _normalized_archive_file_mode(path)
             info.external_attr = (stat.S_IFREG | mode) << 16
             info.create_system = 3
             with path.open("rb") as source, archive.open(info, "w", force_zip64=True) as output:
@@ -841,7 +848,7 @@ def deterministic_tar_gz(stage_dir: Path, archive_path: Path, root_name: str) ->
                     info.gname = "root"
                     info.mtime = DETERMINISTIC_MTIME
                     if info.isfile():
-                        info.mode = 0o755 if os.access(path, os.X_OK) else 0o644
+                        info.mode = _normalized_archive_file_mode(path)
                         with path.open("rb") as handle:
                             archive.addfile(info, handle)
                     elif info.isdir():
