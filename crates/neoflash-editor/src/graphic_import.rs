@@ -1404,17 +1404,22 @@ fn prepare_figma_graphic(
     remaining: &mut usize,
 ) -> Result<PreparedImportGraphic, String> {
     let display = path.display().to_string();
-    let meta = std::fs::metadata(path).map_err(|e| format!("{display}: {e}"))?;
-    let len = usize::try_from(meta.len()).unwrap_or(usize::MAX);
-    if len > *remaining {
-        return Err(format!(
-            "{display}: file size exceeds remaining import budget."
-        ));
-    }
-    *remaining = remaining.saturating_sub(len);
     let (mut imported, report) =
         neoflash_import::import_figma_path(path, &neoflash_import::FigmaImportOptions::default())
             .map_err(|e| format!("{display} [figma-import]: {e}"))?;
+    let resource_bytes = imported
+        .resources
+        .iter()
+        .try_fold(0usize, |total, resource| {
+            total.checked_add(resource.byte_len())
+        })
+        .ok_or_else(|| format!("{display}: Figma resource byte count overflowed."))?;
+    if resource_bytes > *remaining {
+        return Err(format!(
+            "{display}: imported Figma resources exceed remaining import budget."
+        ));
+    }
+    *remaining -= resource_bytes;
     freshen_imported_project_ids(&mut imported, "fig");
     let root_id = imported.root.clone();
     let root_symbol = imported

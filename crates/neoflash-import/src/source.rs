@@ -121,8 +121,8 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
     }
     if header[..read].starts_with(b"PK\x03\x04") {
         let archive_len = file.metadata()?.len();
-        if archive_len > 256 * 1024 * 1024 {
-            return Err(ImportError::Container("archive exceeds 256 MiB".into()));
+        if archive_len > crate::figma::MAX_FIGMA_FILE_BYTES as u64 {
+            return Err(ImportError::Container("archive exceeds 512 MiB".into()));
         }
         let mut zip = zip::ZipArchive::new(File::open(path)?)
             .map_err(|e| ImportError::Container(e.to_string()))?;
@@ -161,14 +161,14 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
             }
         }
         if has_canvas_fig && !has_xfl_or_swc {
-            if zip.len() > 4096 {
+            if zip.len() > 8192 {
                 return Err(ImportError::Container(
-                    ".fig archive exceeds 4096 entries".into(),
+                    ".fig archive exceeds 8192 entries".into(),
                 ));
             }
-            if peek_total > 256 * 1024 * 1024 {
+            if peek_total > 1024 * 1024 * 1024 {
                 return Err(ImportError::Container(
-                    ".fig archive exceeds 256 MiB total uncompressed limit".into(),
+                    ".fig archive exceeds 1 GiB total uncompressed limit".into(),
                 ));
             }
             return Ok(Source {
