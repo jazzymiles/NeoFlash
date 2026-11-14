@@ -53,7 +53,7 @@
   "crates/neoflash-ui/tests/timeline_geometry.rs": "30d076f3687080cac36c7762a4425e625b9da21b8055d70ea123d8c06e86c7bc",
   "crates/neoflash-ui/tests/timeline_mode_solo.rs": "8ce591071173c4f826e54c1fb1ca04c43312bd335955d5f0c492a1333104814e",
   "crates/neoflash-ui/tests/typography_symbols.rs": "e4a30037661575f96be67e86477639c34854cdd48ed456e3b4103e25633e92cf",
-  "docs/DESIGN-SYSTEM.md": "0a70708b04d4aaf4ce696addd143849fddea8280ddf3520c3cf32a5f3f5c4fb1",
+  "docs/DESIGN-SYSTEM.md": "9be3466fe44dd664152d96c52db718b34088cb13eceae1373789326a3d240903",
   "interface/design-system/AGENTS.md": "adbca45610a5a3b2c644b62b54a2b2ee00409e3b7fd0ee5fe9ba664ac4310f42",
   "interface/design-system/README.md": "3fe0217eae218e27cfd8c6a3c0c77f9db2fc608200746c47c0e35fc2abb98e74",
   "interface/design-system/docs/NeoFlash-Design-System.codex.md": "9734d442eb3ccaf14935cd3e1f0389ab34041296fcdd4c1bb1e9035a2b3c603b",

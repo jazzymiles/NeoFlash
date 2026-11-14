@@ -31,7 +31,7 @@ Authoring tools: stage, vectors, text, selection and library.
 - Working: Responsive aligned two-column value rows across editor forms
 - Planned: Arbitrary nested splits in the main window
 - Working: Save, update, rename, reset and delete named workspace layouts
-- Working: Premiere non-linear montage workspace template and Razor tool (C) for timeline clip splits and synchronized keyframes
+- Working: Video edit non-linear montage workspace template and Razor tool (C) for timeline clip splits and synchronized keyframes
 - Working: Document tabs, document list, safe batch closing and empty-window state
 - Working: Timeline row heights (Normal 28, Short 22, Compact 16), centred frame labels, Fit selection and Fit content, snap playhead and placement on any dock edge
 - Working: Compact Color panel with recent colours and an on-demand colour picker

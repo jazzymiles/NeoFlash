@@ -408,7 +408,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "The Hand and Zoom tools, Focus Mode, Fit Stage and percentage controls change only the view and never mutate authored geometry.",
         "Ruler guides can be dragged from either ruler, moved on the Pasteboard, locked, hidden or removed by dropping them back on a ruler.",
         "Object, pixel, grid, guide and alignment snapping can be combined; visible snap rings identify the winning target.",
-        "Switch between Animator, Classic, Designer, Developer, Small Screen and Premiere montage workspaces, four NF2 themes (Dark, Light, Mid Neutral Gray, Dark Graphite) and three densities (Comfortable, Compact, Classic Flash).",
+        "Switch between Animator, Classic, Designer, Developer, Small Screen and Video edit montage workspaces, four NF2 themes (Dark, Light, Mid Neutral Gray, Dark Graphite) and three densities (Comfortable, Compact, Classic Flash).",
         "NeoFlash 0.1.0-beta.1 targets macOS 15+ (Apple Silicon) and provides Windows x64 and Ubuntu 24.04-compatible Linux x64 Technical Previews; the portable archives include their licence bundle, checksums and media-source notice.",
     ],
     &[
@@ -1543,12 +1543,12 @@ fn chapter_workspace_and_stage(ui: &mut Ui, _state: &mut HelpManualState) {
     mode_card(
         ui,
         Some(i16::DESKTOP),
-        "Workspaces (Including Premiere Montage), 4 NF2 Themes & 3 Density Profiles",
+        "Workspaces (Including Video Edit Montage), 4 NF2 Themes & 3 Density Profiles",
         "Layout & Theme",
         BadgeType::Accent,
         "Window ▸ Workspaces",
         &[
-            "Workspace Presets: Switch between Animator, Classic, Designer, Developer, Small Screen, and Premiere (non-linear video/audio montage with Layer frame previews, Properties + Scene, Library + Project, and Timeline + Output + Actions).",
+            "Workspace Presets: Switch between Animator, Classic, Designer, Developer, Small Screen, and Video edit (non-linear video/audio montage with Layer frame previews, Properties + Scene, Library + Project, and Timeline + Output + Actions).",
             "4 Interface Themes & UI Studio: Choose Dark, Light, Mid Neutral Gray, or Dark Graphite under Window ▸ Appearance, and inspect all four side by side in NeoFlash UI Studio (Compare 4 Themes).",
             "3 Density Profiles: Comfortable, Compact, and Classic Flash scale top-bar, toolbar, and Timeline row metrics proportionally without clipping.",
         ],
@@ -2577,7 +2577,7 @@ fn chapter_timeline_layers_and_masks(ui: &mut Ui, _state: &mut HelpManualState) 
         &[
             "Razor Tool (C) & Split Clip at Playhead (Modify ▸ Timeline ▸ Split Clip at Playhead): Splits Video and Stream Audio spans cleanly—tightening the left clip's Out point, advancing the right clip's In point, and partitioning cue points—while inserting a keyframe (advancing Graphic first_frame) on standard Graphic, Button, MovieClip, and Shape spans.",
             "Link / Unlink Video & Audio: Modify ▸ Timeline ▸ Link Video & Audio pairs reciprocal video and audio tracks so Split Clip and ripple Insert, Delete, Move, and SetEnd edits stay frame-locked until unlinked.",
-            "Premiere Workspace (Window ▸ Workspaces ▸ Premiere): Switches to layer-strip previews with Properties + Scene above Library + Project and a wide Timeline + Output + Actions dock for non-linear montage.",
+            "Video edit workspace (Window ▸ Workspaces ▸ Video edit): Switches to layer-strip previews with Properties + Scene above Library + Project and a wide Timeline + Output + Actions dock for non-linear montage.",
         ],
     );
 }

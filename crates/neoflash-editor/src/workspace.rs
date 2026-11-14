@@ -3269,7 +3269,9 @@ pub enum WorkspaceTemplate {
     /// Scripting: tall Actions editor with Output, timeline as a tab.
     Developer,
     /// Non-linear video & audio montage: tall preview Timeline, media Library/Project bin and Inspector.
-    Premiere,
+    /// Serialized as `video_edit`; `premiere` is the pre-beta name kept for saved preferences.
+    #[serde(alias = "premiere")]
+    VideoEdit,
     /// Small screens: one-column tools, one inspector group, compact bottom dock.
     Essentials,
 }
@@ -3280,7 +3282,7 @@ impl WorkspaceTemplate {
         Self::Animator,
         Self::Designer,
         Self::Developer,
-        Self::Premiere,
+        Self::VideoEdit,
         Self::Essentials,
     ];
 
@@ -3290,7 +3292,7 @@ impl WorkspaceTemplate {
             Self::Animator => "Animator",
             Self::Designer => "Designer",
             Self::Developer => "Developer",
-            Self::Premiere => "Premiere",
+            Self::VideoEdit => "Video edit",
             Self::Essentials => "Essentials",
         }
     }
@@ -3303,7 +3305,7 @@ impl WorkspaceTemplate {
             Self::Animator => "Tall timeline for keyframing, Transform beside Properties.",
             Self::Designer => "Properties, Color, Align and Transform open; shorter timeline.",
             Self::Developer => "Tall Actions editor with Output; Timeline as a tab.",
-            Self::Premiere => {
+            Self::VideoEdit => {
                 "Non-linear video and audio montage with linked tracks, Razor cuts and filmstrip preview."
             }
             Self::Essentials => "One-column tools and a compact dock for small screens.",
@@ -3473,7 +3475,7 @@ impl WorkspaceTemplate {
                 };
                 (dock, BottomTab::Actions)
             }
-            Self::Premiere => {
+            Self::VideoEdit => {
                 visible.project = true;
                 visible.scene = true;
                 let dock = DockLayout {
@@ -3920,7 +3922,7 @@ impl WorkspacePrefs {
             template,
             ..Self::default()
         };
-        if template == WorkspaceTemplate::Premiere {
+        if template == WorkspaceTemplate::VideoEdit {
             self.timeline.preview = FramePreview::Layer;
         }
         self.sanitize();
@@ -4311,6 +4313,25 @@ impl WorkspacePrefs {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn video_edit_template_keeps_the_pre_beta_premiere_preference_key() {
+        assert_eq!(WorkspaceTemplate::VideoEdit.label(), "Video edit");
+        assert_eq!(
+            serde_json::to_string(&WorkspaceTemplate::VideoEdit).unwrap(),
+            "\"video_edit\""
+        );
+        assert_eq!(
+            serde_json::from_str::<WorkspaceTemplate>("\"premiere\"").unwrap(),
+            WorkspaceTemplate::VideoEdit
+        );
+        assert!(
+            WorkspaceTemplate::ALL
+                .iter()
+                .all(|template| !template.label().contains("Premiere"))
+        );
+    }
+
     #[derive(Default)]
     struct Storage {
         values: BTreeMap<String, String>,

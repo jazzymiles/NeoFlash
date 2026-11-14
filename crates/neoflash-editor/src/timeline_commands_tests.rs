@@ -6135,7 +6135,7 @@ fn t204_swf_runtime_display_list_projects_onto_stage_across_seek_step_restart_an
 }
 
 #[test]
-fn t253_t217_premiere_workspace_razor_linked_montage_trim_extract_audio_and_sync_async_preview() {
+fn t253_t217_video_edit_workspace_razor_linked_montage_trim_extract_audio_and_sync_async_preview() {
     use crate::commands::{CommandId, queue_command};
     use crate::panels::function_search::function_search_results;
     use crate::panels::import_video::update_import_video_draft;
@@ -6149,8 +6149,10 @@ fn t253_t217_premiere_workspace_razor_linked_montage_trim_extract_audio_and_sync
     proj.fps = 10; // 1 frame = 100 ms
     let mut editor = Editor::from_project(&ctx, proj);
 
-    // 1. Premiere workspace template docks montage panels and activates Layer frame previews.
-    editor.workspace.apply_template(WorkspaceTemplate::Premiere);
+    // 1. Video edit workspace template docks montage panels and activates Layer frame previews.
+    editor
+        .workspace
+        .apply_template(WorkspaceTemplate::VideoEdit);
     assert_eq!(editor.workspace.timeline.preview, FramePreview::Layer);
     assert!(
         function_search_results("razor").contains(&CommandId::ToolRazor),
