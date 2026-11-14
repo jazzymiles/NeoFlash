@@ -32,9 +32,10 @@ still open.
 
 ### Status index (14 November 2026)
 
-- **Open, owed by the design track:** R-016 (tooltip flag in `neoflash-ui`), R-047 (compact `TypeHeader`), R-049 (mask
-  icons), R-057 (accessibility matrix), R-065 (Pen cursor metadata), R-067b (narrow Tools header, Puppet and 16 px
-  tool masters).
+- **Open, owed by the design track:** R-049 (mask icons), R-057 (accessibility matrix), R-065 (Pen cursor metadata),
+  R-067b (narrow Tools header, Puppet and 16 px tool masters).
+- **Resolved, waiting for the editor to adopt the new API:** R-016 (`set_tooltip_shortcuts`), R-047
+  (`CompactTypeHeader`), R-081 (`paint_gradient_overflow_preview`).
 - **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
 - **Answered, waiting for implementation:** R-061, R-062, R-063, R-068, R-069, R-072–R-087; earlier R-022, R-038, R-043.
 - Everything else is resolved.
@@ -171,7 +172,7 @@ still open.
 - **Triage (14 November 2026):** not implemented; still needed. Scheduled after Beta 1; its control stays disabled or absent until then (R-088). Crash recovery keeps using the warning modal.
 
 ### R-016 · Preferences ▸ General ▸ Show tooltips with shortcuts inside locked NF2 components
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track · DL-01 / W3.6
 - **Where:** `crates/neoflash-ui/src/components/display.rs` (`tooltip`), `headers.rs`, `view_settings.rs`, `swatches.rs`
 - **Need:** a `ctx` flag or helper option read by `neoflash_ui::components::display::tooltip` so setting `Show tooltips
@@ -181,6 +182,7 @@ still open.
   `I`) are passed inside locked `neoflash-ui` components.
 - **Checked:** `crates/neoflash-ui/src/components/display.rs`, `button.rs`, `headers.rs`, `view_settings.rs`, `swatches.rs`.
 - **Triage (14 November 2026):** partly live — the switch works and editor tooltips obey it; `neoflash_ui::tooltip` has no flag yet. Design-track change in `neoflash-ui`.
+- **Answer (14 November 2026):** `neoflash_ui::components::set_tooltip_shortcuts(ctx, show)` hides the shortcut chip of every `NF2/Tooltip`, including the ones inside `neoflash-ui` components and `Button` / `IconButton`. The editor calls it each frame from the Preferences value.
 
 ### R-017 · Preferences ▸ Code editor ▸ Custom syntax colour schemes
 - **Status:** open
@@ -723,7 +725,7 @@ still open.
   SHORTCUT_RECORDER`; “▸” in menu paths renders through the NF2 Symbols fallback font. Gallery section `shortcuts`.
 
 ### R-047 · Compact TypeHeader for Brush and Pencil properties
-- **Status:** open
+- **Status:** resolved
 - **Requested by / for:** implementation track · T-029 / R-038 Brush and Pencil properties
 - **Where:** `crates/neoflash-editor/src/panels/brushes.rs::{brush_tool_contents, pencil_tool_contents}`;
   shared `crates/neoflash-ui/src/components/inspector.rs::TypeHeader`.
@@ -736,6 +738,7 @@ still open.
 - **Proposal (optional):** add a compact `TypeHeader` variant/API with the approved geometry, preserving the
   existing 48 pt default for other properties panels. No editor-local replacement or locked-file changes made.
 - **Triage (14 November 2026):** still needed; the compact variant is a design-track change in `neoflash-ui`.
+- **Answer (14 November 2026):** `neoflash_ui::components::CompactTypeHeader` — 36 pt row and tile, 20 pt tool icon, 10 pt gap, same fields as `TypeHeader`. Brush and Pencil properties use it; every other properties panel keeps the 48 pt `TypeHeader`.
 
 ### R-048 · Explicit soft-alpha mode for timeline masks
 - **Status:** resolved
@@ -1376,12 +1379,12 @@ wires them with the components named in each answer.
   (whole numbers, 1…frame count), both in the standard property row at the current density. No fixed 76 × 22 size.
 
 ### R-081 · Gradient overflow preview follows the approved masters
-- **Status:** answered (painter is added to `neoflash-ui` by the design track)
+- **Status:** resolved — `neoflash_ui::components::paint_gradient_overflow_preview(painter, ctx, rect, GradientOverflowMode)` is available
 - **Requested by / for:** design track · Beta 1 interface review
 - **Where:** `crates/neoflash-editor/src/authoring_modify.rs` (`paint_overflow_preview`); Figma
   `NF2/Gradient Overflow Preview` (Mode = Extend / Reflect / Repeat).
 - **Answer:** the Overflow select and its rows show the approved previews. The hand-painted grey ramp and the red
-  dashed boundary are removed: red is reserved for errors. The editor calls the shared painter once it is published.
+  dashed boundary are removed: red is reserved for errors. The editor calls the shared painter for the closed select and for each row.
 
 ### R-082 · Menu separators
 - **Status:** answered
