@@ -241,7 +241,7 @@
     }
     return result;
   }
-  function matrixOf(context){const m=context.getTransform();return[m.a,m.b,m.c,m.d,m.e,m.f];}
+  function matrixOf(context){if(typeof context.getTransform!=='function')return[1,0,0,1,0,0];const m=context.getTransform();return m?[m.a,m.b,m.c,m.d,m.e,m.f]:[1,0,0,1,0,0];}
   function brush(context,paint,width,height) {
     context.transform(...paint.matrix);const inverseBrush=inverse(matrixOf(context)),area=box([[0,0],[width,0],[width,height],[0,height]].map(p=>point(inverseBrush,...p)));
     if(!area)throw new Error('Gradient brush bounds exceed finite rendering limits.');context.fillStyle=gradientFor(context,paint,area);context.fillRect(area.left,area.top,area.right-area.left,area.bottom-area.top);
@@ -283,6 +283,7 @@
   const lineCapOf = kind => kind.stroke_caps === 'none' ? 'butt' : kind.stroke_caps === 'square' ? 'square' : 'round';
   const lineJoinOf = kind => kind.stroke_joints === 'bevel' ? 'bevel' : kind.stroke_joints === 'miter' ? 'miter' : 'round';
   const miterLimitOf = kind => Number.isFinite(kind.stroke_miter_limit) && kind.stroke_miter_limit >= 1 ? kind.stroke_miter_limit : 3;
+  const needsScreenStroke = kind => Boolean(kind.stroke_hairline) || (Boolean(kind.stroke_scale_mode) && kind.stroke_scale_mode !== 'normal') || Boolean(kind.stroke_pixel_hinting);
   function strokeScreenGeometry(kind, matrix, offsetX = 0, offsetY = 0) {
     const sx = Math.hypot(matrix[0], matrix[1]), sy = Math.hypot(matrix[2], matrix[3]);
     const scaleMode = kind.stroke_scale_mode || 'normal', hairline = Boolean(kind.stroke_hairline);
@@ -323,7 +324,7 @@
             context[channel+'Style']=rgba(kind[channel]);
             if(channel==='fill')context.fill(path,kind.fill_rule||'nonzero');
             else {
-              const sg=strokeScreenGeometry(kind,matrixOf(context),0,0);
+              const sg=needsScreenStroke(kind)?strokeScreenGeometry(kind,matrixOf(context),0,0):null;
               if(sg){context.setTransform(1,0,0,1,0,0);context.lineWidth=sg.lineWidth;context.stroke(sg.path);}
               else context.stroke(path);
             }
