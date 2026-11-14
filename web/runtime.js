@@ -1523,7 +1523,7 @@
       const hasRegistered = Boolean(symLinkage && registeredClasses.has(symLinkage));
       return { symLinkage, hasRegistered };
     }
-    function attachNodeClass(node, receiver, key, lifetime, symLinkage, hasRegistered) {
+    function attachLinkedClass(className, receiver, key, lifetime, symLinkage, hasRegistered) {
       if (attachedClasses.get(key) === lifetime) return;
       attachedClasses.set(key, lifetime);
       if (hasRegistered) {
@@ -1537,11 +1537,14 @@
           }
           display.refreshLegacyCallbacks(receiver, true);
         }
-      } else if (node.class_name) {
-        if (!program?.attach) throw new Error(`Linked class ${node.class_name} has no compiled project program.`);
-        program.attach(node.class_name, receiver);
-        if (program.dialect?.(node.class_name) === 'as2') display.refreshLegacyCallbacks(receiver, true);
+      } else if (className) {
+        if (!program?.attach) throw new Error(`Linked class ${className} has no compiled project program.`);
+        program.attach(className, receiver);
+        if (program.dialect?.(className) === 'as2') display.refreshLegacyCallbacks(receiver, true);
       }
+    }
+    function attachNodeClass(node, receiver, key, lifetime, symLinkage, hasRegistered) {
+      attachLinkedClass(node.class_name, receiver, key, lifetime, symLinkage, hasRegistered);
     }
     const constructingNodeKeys = new Set();
     function constructChildrenOf(node, session, nodes, byKey, hasTextVars, needAddedProxy) {
@@ -1674,9 +1677,9 @@
       if (allowAddedToStage && session.addedToStage.length) deliverDisplayEvents(session.addedToStage);
     }
     function prepareLinked(receiver,allocatedByProgram,linkageId=null) {
+      const nodeClassName=display.descriptor(receiver)?.class_name||null;
       const hasRegistered=linkageId!==null&&registeredClasses.has(linkageId);
-      const registered=hasRegistered?registeredClasses.get(linkageId):undefined;
-      if(!hasRegistered&&!program?.attach&&display.descriptor(receiver).class_name)throw new Error('Linked symbol class construction requires an initialized project program; creation during static field initialization is not supported yet.');
+      if(!hasRegistered&&!program?.attach&&nodeClassName)throw new Error('Linked symbol class construction requires an initialized project program; creation during static field initialization is not supported yet.');
       const ref=references.get(receiver);
       if(allocatedByProgram){
         attachedClasses.set(ref.key,ref.lifetime);
@@ -1684,19 +1687,9 @@
         if(ref.key)offstageLinkedTargets.add(ref.key);
         return;
       }
-      if(hasRegistered){attachedClasses.set(ref.key,ref.lifetime);constructedNodes.set(ref.key,ref.lifetime);}
-      if(hasRegistered&&registered!==null){
-        if(registered.kind==='project')program.attach(registered.name,receiver);
-        else{
-          if(registered.ctor.prototype&&typeof registered.ctor.prototype==='object')Object.setPrototypeOf(receiver,registered.ctor.prototype);
-          Object.defineProperty(receiver,'__constructor__',{configurable:true,writable:true,enumerable:false,value:registered.ctor});
-          Reflect.apply(registered.ctor,receiver,[]);
-          handleSuperConstruct(receiver);
-        }
-        display.refreshLegacyCallbacks(receiver,true);
-      }else{
-        handleSuperConstruct(receiver);
-      }
+      constructedNodes.set(ref.key,ref.lifetime);
+      if(hasRegistered||nodeClassName)attachLinkedClass(nodeClassName,receiver,ref.key,ref.lifetime,linkageId,hasRegistered);
+      handleSuperConstruct(receiver);
     }
     function attachNewInstances(scope=null) {
       if(!display)return;
