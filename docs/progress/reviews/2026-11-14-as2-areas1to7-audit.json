@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "4229b45d5cefb945c58894350f68e5dec8bafa0543835f289c8ba766373f10cb",
+  "reviews": [
+    {
+      "id": "AS2-AREAS1TO7-AUDIT-20261114",
+      "date": "2026-11-14",
+      "commit": "5cc195e9b99aabcdcdd236d16c03c60f9a190496",
+      "title": "Re-verify AS2 Areas 1-7 against current code and shared tests",
+      "summary": "Executable audit of AS2 Areas 1-7 demotes unwired TextRenderer, Stage.wmodeGPU, showRedrawRegions and NetStream publishing stubs plus incomplete Boolean/MovieClip/ContextMenu/Selection/NetStream options to missing or partial, and documents notes on setMask.",
+      "tests": [
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "crates/neoflash-script/tests/display-transforms.mjs",
+        "crates/neoflash-script/tests/gradient-graphics.mjs",
+        "crates/neoflash-script/tests/sound-playback.mjs",
+        "crates/neoflash-script/tests/text-layout.mjs",
+        "crates/neoflash-script/tests/video-playback.mjs",
+        "web/tests/as2-timeline.test.cjs",
+        "web/tests/display-family.test.cjs",
+        "web/tests/runtime.test.cjs",
+        "web/tests/stage.test.cjs",
+        "web/tests/timeline-video.test.cjs",
+        "web/tests/wasm.test.cjs",
+        "crates/neoflash-core/tests/as2_display.rs",
+        "crates/neoflash-core/tests/as2_input.rs",
+        "crates/neoflash-core/tests/as2_text.rs",
+        "crates/neoflash-core/tests/as2_text_snapshot.rs",
+        "crates/neoflash-core/tests/runtime_masks.rs",
+        "crates/neoflash-export/tests/publish_correctness_gate.rs",
+        "web/tests/publish-gate-wasm.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:Boolean.html#Boolean()",
+          "status": "partial",
+          "note": "Primitive Boolean(v) conversion works; new Boolean(v) throws unsupported boxed Boolean construction."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#setMask()",
+          "status": "partial",
+          "note": "Applies live MovieClip vector masks; string target paths and authored alpha or gradient masks reject or stay unsupported."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_width",
+          "status": "partial",
+          "note": "Reads and axis-aligned writes work; setting _width on rotated or skewed clips throws RangeError."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_height",
+          "status": "partial",
+          "note": "Reads and axis-aligned writes work; setting _height on rotated or skewed clips throws RangeError."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#blendMode",
+          "status": "partial",
+          "note": "Supports standard Canvas2D blend modes; subtract, invert, alpha, erase and shader reject in as2_render.rs."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#lineStyle()",
+          "status": "partial",
+          "note": "Draws width, color and alpha; hairline <= 0 throws RangeError and pixelHinting, scaleMode, caps, joints and miterLimit are dropped."
+        },
+        {
+          "catalogId": "as2:Stage.html#wmodeGPU",
+          "status": "missing",
+          "note": "Hardcodes false without GPU wmode compositing."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#builtInItems",
+          "status": "partial",
+          "note": "Supports play, rewind, forward_back and print toggles; zoom, quality and loop throw unavailable errors."
+        },
+        {
+          "catalogId": "as2:Selection.html#setFocus()",
+          "status": "partial",
+          "note": "Focuses live MovieClip or TextField instances and null; string target paths throw unsupported."
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "missing",
+          "note": "Mutates redraw_regions flag in as2_settings with zero readers in web rendering or runtime."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#class",
+          "status": "missing",
+          "note": "Stores rendererState properties and tables never read by Canvas text rendering."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "missing",
+          "note": "Stores displayMode in rendererState without affecting Canvas text rendering."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "missing",
+          "note": "Stores maxLevel in rendererState without affecting Canvas text rendering."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "missing",
+          "note": "Validates and stores table entries never read by AS2 text rendering."
+        },
+        {
+          "catalogId": "as2:NetStream.html#liveDelay",
+          "status": "missing",
+          "note": "Hardcodes 0 without live RTMP buffer latency."
+        },
+        {
+          "catalogId": "as2:NetStream.html#publish()",
+          "status": "missing",
+          "note": "Always emits NetStream.Publish.BadName because RTMP media server publishing is absent."
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachAudio()",
+          "status": "missing",
+          "note": "Stores Microphone reference only without RTMP audio encoding or transmission."
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachVideo()",
+          "status": "missing",
+          "note": "Stores Camera reference only without RTMP video encoding or transmission."
+        },
+        {
+          "catalogId": "as2:NetStream.html#getInfo()",
+          "status": "partial",
+          "note": "Reports buffer lengths while byteCounts, throughput, srtt, droppedFrames and isLive are hardcoded 0 or false."
+        }
+      ]
+    }
+  ]
+}

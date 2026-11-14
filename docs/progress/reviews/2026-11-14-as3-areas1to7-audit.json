@@ -1,0 +1,533 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "46ad813617dadd43280a304d68d6738fc4a3ed19fac9ac6a41841de23d279c10",
+  "reviews": [
+    {
+      "id": "AS3-AREAS1TO7-AUDIT-20261114",
+      "date": "2026-11-14",
+      "commit": "5cc195e9b99aabcdcdd236d16c03c60f9a190496",
+      "title": "Re-verify AS3 Areas 1-7 against current code and shared tests",
+      "summary": "Executable audit of AS3 Areas 1-7 demotes unimplemented stubs, ignored options, dead setter bags and unsupported throwers to missing or partial, and documents notes on existing partial entries. Array prototype and AS3 lifecycle verification rely on merged T-011 and T-010 commits.",
+      "tests": [
+        "crates/neoflash-script/tests/execute.mjs",
+        "crates/neoflash-script/tests/project-execute.mjs",
+        "crates/neoflash-script/tests/bitmap-pixels.mjs",
+        "crates/neoflash-script/tests/collections-fixtures.mjs",
+        "crates/neoflash-script/tests/core-surface.mjs",
+        "crates/neoflash-script/tests/display-transforms.mjs",
+        "crates/neoflash-script/tests/gradient-graphics.mjs",
+        "crates/neoflash-script/tests/host-integration.mjs",
+        "crates/neoflash-script/tests/sound-playback.mjs",
+        "crates/neoflash-script/tests/text-layout.mjs",
+        "crates/neoflash-script/tests/typed-collections.mjs",
+        "crates/neoflash-script/tests/video-playback.mjs",
+        "crates/neoflash-script/tests/xml-catalog.mjs",
+        "web/tests/display-family.test.cjs",
+        "web/tests/runtime.test.cjs",
+        "web/tests/stage.test.cjs",
+        "web/tests/timeline-video.test.cjs",
+        "web/tests/wasm.test.cjs",
+        "crates/neoflash-core/tests/bitmap_pixels.rs",
+        "crates/neoflash-core/tests/display_family.rs",
+        "crates/neoflash-core/tests/runtime_masks.rs",
+        "crates/neoflash-core/tests/text_field.rs",
+        "crates/neoflash-core/tests/runtime_lifecycle.rs",
+        "web/tests/as3-frame-lifecycle.test.cjs",
+        "crates/neoflash-export/tests/publish_correctness_gate.rs",
+        "web/tests/publish-gate-wasm.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#describeType()",
+          "status": "partial",
+          "note": "Describes AS3 project classes and objects; rejects native display instances and external builtins."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedClassName()",
+          "status": "partial",
+          "note": "Returns names for user/core values; rejects native display objects and AS2 or unregistered native instances."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedSuperclassName()",
+          "status": "partial",
+          "note": "Resolves user class inheritance; rejects native display hierarchies and interfaces."
+        },
+        {
+          "catalogId": "AS3:class:Function.html#",
+          "status": "partial",
+          "note": "Calls, apply, bind and closures work; dynamic new Function(body), constructing Function instances and arguments.caller throw TypeError."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#attribute_identifier",
+          "status": "partial",
+          "note": "Works inside compiled E4X selectors (xml.@attr); standalone @ syntax fails compilation and dynamic attribute keys throw."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#descendant_accessor",
+          "status": "partial",
+          "note": "Descendant reads (xml..tag) work; direct descendant assignment or deletion throws and standalone .. fails compilation."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#name_qualifier",
+          "status": "partial",
+          "note": "Static ns::name and *::name resolve; computed (expr)::name qualifiers fail compilation."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#delete_(XML)",
+          "status": "partial",
+          "note": "Attribute and named child deletion work in lowered E4X; indexed XML, direct descendant and proxy deleteProperty throw."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#dot_(XML)",
+          "status": "partial",
+          "note": "Compiled E4X child reads work; dynamic proxy keys and direct XML or XMLList property assignments throw."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#object_proxy",
+          "status": "missing",
+          "note": "Compiler pre-seeds flash_proxy namespace URI only; runtime lacks ObjectProxy class and has zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#sort()",
+          "status": "partial",
+          "note": "Comparator and basic flag sorting work; Array.RETURNINDEXEDARRAY throws unsupported TypeError."
+        },
+        {
+          "catalogId": "AS3:class:RegExp.html#",
+          "status": "partial",
+          "note": "Supports g/i/m/s/x flags and matching; PCRE named groups, conditionals, inline flags and \\a..\\Z escapes throw unsupported."
+        },
+        {
+          "catalogId": "AS3:constructor:RegExp.html#RegExp()",
+          "status": "partial",
+          "note": "Constructs standard and extended-x RegExp patterns; PCRE named groups, conditionals, inline flags and unsupported escapes throw."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "partial",
+          "note": "Supports live display-object vector and shape masks; alpha, BitmapData, gradient and external draw masks remain unsupported."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#width",
+          "status": "partial",
+          "note": "Reads and axis-aligned writes work; setting width on rotated or skewed DisplayObject or TextField throws RangeError."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#height",
+          "status": "partial",
+          "note": "Reads and axis-aligned writes work; setting height on rotated or skewed DisplayObject or TextField throws RangeError."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#areInaccessibleObjectsUnderPoint()",
+          "status": "missing",
+          "note": "Validates Point argument and hardcodes false without security-domain tracking or behavioral tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/SimpleButton.html#",
+          "status": "partial",
+          "note": "Authored timeline button symbols hit-test and dispatch; script-constructed SimpleButton states do not render or route state audio."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/SimpleButton.html#SimpleButton()",
+          "status": "partial",
+          "note": "Validates up to four state arguments into an internal WeakMap without attaching, rendering or hit-testing them."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#upState",
+          "status": "missing",
+          "note": "Stores WeakMap field only; never rendered or read by web runtime with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#overState",
+          "status": "missing",
+          "note": "Stores WeakMap field only; never rendered or read by web runtime with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#downState",
+          "status": "missing",
+          "note": "Stores WeakMap field only; never rendered or read by web runtime with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#hitTestState",
+          "status": "missing",
+          "note": "Stores WeakMap field only; never used for hit testing or read by web runtime with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#soundTransform",
+          "status": "missing",
+          "note": "Stores WeakMap field only; never routed to SimpleButton sound output or read by web runtime."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrectionSupport",
+          "status": "missing",
+          "note": "Hardcodes 'unsupported' without color profile detection."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrection",
+          "status": "missing",
+          "note": "Validates and stores colorCorrection string with no ICC or color-managed stage rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#mouseLock",
+          "status": "missing",
+          "note": "Stores boolean in fullScreenInteractive mode without calling browser Pointer Lock or emitting relative deltas."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#wmodeGPU",
+          "status": "missing",
+          "note": "Hardcodes false without GPU wmode compositing."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#quality",
+          "status": "missing",
+          "note": "Invokes unwired onQualityChanged callback; web runtime leaves stage and Canvas rendering quality unaffected."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#supportsNativeCursor",
+          "status": "missing",
+          "note": "Hardcodes false without custom native cursor support."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#registerCursor()",
+          "status": "missing",
+          "note": "Stores entries in customCursors Map that DOM cursor rendering never reads."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#unregisterCursor()",
+          "status": "missing",
+          "note": "Removes entries from unwired customCursors Map that DOM cursor rendering never reads."
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/MouseCursorData.html#",
+          "status": "missing",
+          "note": "Stores cursor metadata only for unwired Mouse.registerCursor Map without bitmap cursor rendering."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/ui/MouseCursorData.html#MouseCursorData()",
+          "status": "missing",
+          "note": "Constructs cursor metadata bag for unwired Mouse.registerCursor without rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#data",
+          "status": "missing",
+          "note": "Stores Vector.<BitmapData> field on unwired MouseCursorData without cursor rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#frameRate",
+          "status": "missing",
+          "note": "Stores frameRate field on unwired MouseCursorData without cursor animation."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#hotSpot",
+          "status": "missing",
+          "note": "Stores Point hotSpot on unwired MouseCursorData without cursor rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SHADER",
+          "status": "missing",
+          "note": "DisplayObject maps BlendMode.SHADER to source-over and BitmapData.draw maps 'shader' to 'normal'."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SUBTRACT",
+          "status": "partial",
+          "note": "Supported in Rust BitmapData.draw pixel blending; DisplayObject.blendMode falls back to source-over with no display test."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#INVERT",
+          "status": "partial",
+          "note": "Supported in Rust BitmapData.draw pixel blending; DisplayObject.blendMode falls back to source-over with no display test."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ALPHA",
+          "status": "partial",
+          "note": "Supported in Rust BitmapData.draw pixel blending; DisplayObject.blendMode falls back to source-over with no display test."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ERASE",
+          "status": "partial",
+          "note": "Supported in Rust BitmapData.draw pixel blending; DisplayObject.blendMode falls back to source-over with no display test."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#LAYER",
+          "status": "partial",
+          "note": "Accepted on DisplayObject.blendMode, but collapses to source-over without isolated group-alpha compositing."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REPEAT",
+          "status": "missing",
+          "note": "Gradient fill runtime throws TypeError 'repeat and reflect are pending' with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REFLECT",
+          "status": "missing",
+          "note": "Gradient fill runtime throws TypeError 'repeat and reflect are pending' with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/InterpolationMethod.html#LINEAR_RGB",
+          "status": "missing",
+          "note": "Gradient fill runtime throws TypeError 'linearRGB is pending' with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineStyle()",
+          "status": "partial",
+          "note": "Draws thickness, color and alpha; hairline thickness <= 0 throws RangeError and pixelHinting, scaleMode, caps, joints and miterLimit are dropped."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsStroke.html#",
+          "status": "partial",
+          "note": "Renders thickness and fill via drawGraphicsData; drops pixelHinting, scaleMode, caps, joints and miterLimit before Rust lineStyle."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#caps",
+          "status": "missing",
+          "note": "Stored on GraphicsStroke and discarded when Graphics.drawGraphicsData calls lineStyle."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#joints",
+          "status": "missing",
+          "note": "Stored on GraphicsStroke and discarded when Graphics.drawGraphicsData calls lineStyle."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#miterLimit",
+          "status": "missing",
+          "note": "Stored on GraphicsStroke and discarded when Graphics.drawGraphicsData calls lineStyle."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#pixelHinting",
+          "status": "missing",
+          "note": "Stored on GraphicsStroke and discarded when Graphics.drawGraphicsData calls lineStyle."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#scaleMode",
+          "status": "missing",
+          "note": "Stored on GraphicsStroke and discarded when Graphics.drawGraphicsData calls lineStyle."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#NONE",
+          "status": "missing",
+          "note": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#SQUARE",
+          "status": "missing",
+          "note": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#BEVEL",
+          "status": "missing",
+          "note": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#MITER",
+          "status": "missing",
+          "note": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#HORIZONTAL",
+          "status": "missing",
+          "note": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#NONE",
+          "status": "missing",
+          "note": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#VERTICAL",
+          "status": "missing",
+          "note": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+          "status": "partial",
+          "note": "Encodes PNG and JPEG options; JPEGXREncoderOptions explicitly throws 'JPEG-XR encoding is not supported'."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JPEGXREncoderOptions.html#",
+          "status": "missing",
+          "note": "Constructs options bag only; sole consumer BitmapData.encode throws JPEG-XR encoding unsupported."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()",
+          "status": "missing",
+          "note": "Constructs options bag only; BitmapData.encode rejects JPEG-XR encoding."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace",
+          "status": "missing",
+          "note": "Stores colorSpace option without JPEG-XR encoder support in BitmapData.encode."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#quantization",
+          "status": "missing",
+          "note": "Stores quantization option without JPEG-XR encoder support in BitmapData.encode."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits",
+          "status": "missing",
+          "note": "Stores trimFlexBits option without JPEG-XR encoder support in BitmapData.encode."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapEncodingColorSpace.html#",
+          "status": "missing",
+          "note": "Constants used solely with unsupported JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0",
+          "status": "missing",
+          "note": "Constant used solely with unsupported JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2",
+          "status": "missing",
+          "note": "Constant used solely with unsupported JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4",
+          "status": "missing",
+          "note": "Constant used solely with unsupported JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO",
+          "status": "missing",
+          "note": "Constant used solely with unsupported JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#drawWithQuality()",
+          "status": "partial",
+          "note": "Applies quality downsampling and linearGamma only for BitmapData sources; ignores quality for DisplayObject sources and maps 'shader' to 'normal'."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#lock()",
+          "status": "missing",
+          "note": "Validates receiver only without deferring display redraw invalidations."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#unlock()",
+          "status": "missing",
+          "note": "Validates receiver and optional Rect only without flushing deferred display invalidations."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textInteractionMode",
+          "status": "missing",
+          "note": "Getter returns hardcoded 'normal' (TextInteractionMode.NORMAL); SELECTION mode is unimplemented."
+        },
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:textInteractionModeChange",
+          "status": "missing",
+          "note": "Event is never dispatched by TextField."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextInteractionMode.html#",
+          "status": "partial",
+          "note": "Defines NORMAL and SELECTION string constants; TextField reports hardcoded NORMAL and SELECTION mode is unimplemented."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextInteractionMode.html#SELECTION",
+          "status": "missing",
+          "note": "No TextField or runtime path implements SELECTION interaction mode."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#useRichTextClipboard",
+          "status": "missing",
+          "note": "Stores boolean flag in web/text.js with zero reads in clipboard or text-input handling."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextRenderer.html#",
+          "status": "missing",
+          "note": "Stores static displayMode, maxLevel and CSM tables never read by Canvas text rendering."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextRenderer.html#setAdvancedAntiAliasingTable()",
+          "status": "missing",
+          "note": "Validates and stores table entries never read by text layout or Canvas glyph rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#displayMode",
+          "status": "missing",
+          "note": "Stores displayMode string in rendererState without affecting glyph rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#maxLevel",
+          "status": "missing",
+          "note": "Stores maxLevel integer in rendererState without affecting glyph rendering."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/CSMSettings.html#",
+          "status": "missing",
+          "note": "Stores font cutoff parameters solely for unused TextRenderer.setAdvancedAntiAliasingTable."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/CSMSettings.html#CSMSettings()",
+          "status": "missing",
+          "note": "Constructs CSM parameter bag never consumed during text rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#fontSize",
+          "status": "missing",
+          "note": "Stored on unused CSMSettings instances with zero text rendering reads."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#insideCutoff",
+          "status": "missing",
+          "note": "Stored on unused CSMSettings instances with zero text rendering reads."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#outsideCutoff",
+          "status": "missing",
+          "note": "Stored on unused CSMSettings instances with zero text rendering reads."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextDisplayMode.html#",
+          "status": "missing",
+          "note": "Constants solely configure unwired TextRenderer.displayMode."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#CRT",
+          "status": "missing",
+          "note": "Accepted by TextRenderer.displayMode only; no CRT subpixel rendering exists."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#DEFAULT",
+          "status": "missing",
+          "note": "Accepted by TextRenderer.displayMode only; no advanced anti-aliasing engine reads it."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#LCD",
+          "status": "missing",
+          "note": "Accepted by TextRenderer.displayMode only; no LCD subpixel rendering exists."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#hasGlyphs()",
+          "status": "partial",
+          "note": "Validates Unicode scalar ranges only without checking actual font glyph or cmap coverage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#soundTransform",
+          "status": "partial",
+          "note": "Applies volume to media elements; non-zero pan or channel matrix transforms throw unsupported."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/Sound.html#isURLInaccessible",
+          "status": "missing",
+          "note": "Hardcodes false without tracking cross-origin or redirect access restrictions."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesLoaded",
+          "status": "partial",
+          "note": "Returns byte size for bundled embedded video resources; throws unsupported for HTTP progressive URLs."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesTotal",
+          "status": "partial",
+          "note": "Returns byte size for bundled embedded video resources; throws unsupported for HTTP progressive URLs."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play()",
+          "status": "partial",
+          "note": "Plays bundled and progressive streams by URL/name; start, len, reset and playlist arguments throw unsupported."
+        }
+      ]
+    }
+  ]
+}

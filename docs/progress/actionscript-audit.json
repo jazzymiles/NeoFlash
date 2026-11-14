@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "46ad813617dadd43280a304d68d6738fc4a3ed19fac9ac6a41841de23d279c10",
+  "catalogSha256": "71febb12c7daaa3cc052ac7cfafd293d7e2468c358e4b2abfcf51519537d39db",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -35198,6 +35198,84 @@
             "evidenceKind": "test_backed_review"
           }
         ]
+      },
+      {
+        "id": "AS3-MASK-SOURCES-20261105",
+        "title": "Preserve authored gradient and bitmap alpha in animated masks",
+        "reason": "Cached authored gradients and decoded PNG sources share the dynamic alpha path, including mixed/nested transforms, animated sources and Restart. Geometry defaults remain unchanged. Text/video, fully scripted mask-of-mask graphs and cache/error edge behavior remain bounded.",
+        "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+        "evidence": [
+          {
+            "path": "crates/neoflash-core/tests/runtime_masks.rs",
+            "sha256": "fbd7a3729f8fc952a967e9c3a712500dac2e350d54456cbb75bac091da43d7d8"
+          },
+          {
+            "path": "crates/neoflash-core/tests/timeline_masks.rs",
+            "sha256": "f4eb50f4b9ed8f3461e4aef0da0c8be302aa3f3eddde4dabd0e5f7df3682a636"
+          },
+          {
+            "path": "crates/neoflash-script/tests/clipped-scene.mjs",
+            "sha256": "5ff00b713fa845126855358b79f9f30804dd4f60bc4a39c4e36810188b3e6778"
+          },
+          {
+            "path": "web/tests/path-browser.html",
+            "sha256": "46067ce5982ace75fd2686acd3545e9a24a0f03591484ce5f23a37da52554162"
+          }
+        ],
+        "reviewedEntries": [
+          {
+            "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+            "status": "partial",
+            "scopeNote": "Authored/dynamic gradient, PNG and mixed animated sources preserve cached alpha. Text/video and fully scripted masked-source graphs remain unsupported; filter-only cache downgrade remains limited."
+          }
+        ],
+        "previousEntries": [
+          {
+            "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+            "status": "partial",
+            "ruleId": "AS3-EVIDENCE-CALIBRATION-20261105",
+            "evidenceKind": "test_backed_review"
+          }
+        ]
+      },
+      {
+        "id": "AS2-MASK-SOURCES-20261105",
+        "title": "Preserve authored gradient and bitmap alpha in animated masks",
+        "reason": "Cached authored gradients and decoded PNG sources share the dynamic alpha path, including mixed/nested transforms, animated sources and Restart. Geometry defaults remain unchanged. Text/video, fully scripted mask-of-mask graphs and cache/error edge behavior remain bounded.",
+        "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+        "evidence": [
+          {
+            "path": "crates/neoflash-core/tests/runtime_masks.rs",
+            "sha256": "fbd7a3729f8fc952a967e9c3a712500dac2e350d54456cbb75bac091da43d7d8"
+          },
+          {
+            "path": "crates/neoflash-core/tests/timeline_masks.rs",
+            "sha256": "f4eb50f4b9ed8f3461e4aef0da0c8be302aa3f3eddde4dabd0e5f7df3682a636"
+          },
+          {
+            "path": "crates/neoflash-script/tests/clipped-scene.mjs",
+            "sha256": "5ff00b713fa845126855358b79f9f30804dd4f60bc4a39c4e36810188b3e6778"
+          },
+          {
+            "path": "web/tests/path-browser.html",
+            "sha256": "46067ce5982ace75fd2686acd3545e9a24a0f03591484ce5f23a37da52554162"
+          }
+        ],
+        "reviewedEntries": [
+          {
+            "catalogId": "as2:MovieClip.html#setMask()",
+            "status": "partial",
+            "scopeNote": "Authored/dynamic gradient, PNG and mixed animated sources preserve cached alpha. Text/video and fully scripted masked-source graphs remain unsupported; filter-only cache downgrade remains limited. String target paths and raw-host-error catch compatibility remain unsupported."
+          }
+        ],
+        "previousEntries": [
+          {
+            "catalogId": "as2:MovieClip.html#setMask()",
+            "status": "partial",
+            "ruleId": "AS2-MASK-EVIDENCE-20261105",
+            "evidenceKind": "test_backed_review"
+          }
+        ]
       }
     ],
     "normalizedReviewInputs": [
@@ -35540,6 +35618,22 @@
         "reviewIds": [
           "AS3-MASK-SOURCES-20261105"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-14-as3-areas1to7-audit.json",
+        "sha256": "7c81e6d6c65e3074db8192543b241456c84f4ed1a19aa4bd8580d10020e22067",
+        "baseCatalogSha256": "46ad813617dadd43280a304d68d6738fc4a3ed19fac9ac6a41841de23d279c10",
+        "reviewIds": [
+          "AS3-AREAS1TO7-AUDIT-20261114"
+        ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-14-as2-areas1to7-audit.json",
+        "sha256": "50ce1deb3384c279abadf4f6524dda3468cd18f566c723385e60321c1615091e",
+        "baseCatalogSha256": "4229b45d5cefb945c58894350f68e5dec8bafa0543835f289c8ba766373f10cb",
+        "reviewIds": [
+          "AS2-AREAS1TO7-AUDIT-20261114"
+        ]
       }
     ],
     "statusReviews": [
@@ -35829,29 +35923,49 @@
         "commit": "c9189c57be5ab1a282f965f6c8147991528e506a",
         "path": "docs/progress/reviews/2026-11-05-as3-mask-sources.json",
         "changes": {}
+      },
+      {
+        "id": "AS3-AREAS1TO7-AUDIT-20261114",
+        "date": "2026-11-14",
+        "commit": "5cc195e9b99aabcdcdd236d16c03c60f9a190496",
+        "path": "docs/progress/reviews/2026-11-14-as3-areas1to7-audit.json",
+        "changes": {
+          "missing": 66,
+          "partial": 27
+        }
+      },
+      {
+        "id": "AS2-AREAS1TO7-AUDIT-20261114",
+        "date": "2026-11-14",
+        "commit": "5cc195e9b99aabcdcdd236d16c03c60f9a190496",
+        "path": "docs/progress/reviews/2026-11-14-as2-areas1to7-audit.json",
+        "changes": {
+          "missing": 10,
+          "partial": 8
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 5792,
-      "partial": 1624,
-      "missing": 38631,
+      "implemented_subset": 5681,
+      "partial": 1659,
+      "missing": 38707,
       "needs_review": 0,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
-        "implemented_subset": 1203,
-        "partial": 466,
-        "missing": 638,
+        "implemented_subset": 1185,
+        "partial": 474,
+        "missing": 648,
         "needs_review": 0,
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 4589,
-        "partial": 1158,
-        "missing": 37993,
+        "implemented_subset": 4496,
+        "partial": 1185,
+        "missing": 38059,
         "needs_review": 0,
         "total": 43740
       }
@@ -35865,8 +35979,8 @@
         "total": 3083
       },
       "core": {
-        "implemented_subset": 521,
-        "partial": 0,
+        "implemented_subset": 516,
+        "partial": 5,
         "missing": 0,
         "needs_review": 0,
         "total": 521
@@ -35879,9 +35993,9 @@
         "total": 35805
       },
       "language": {
-        "implemented_subset": 308,
-        "partial": 1,
-        "missing": 0,
+        "implemented_subset": 301,
+        "partial": 6,
+        "missing": 2,
         "needs_review": 0,
         "total": 309
       },
@@ -35893,9 +36007,9 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 4963,
-        "partial": 1068,
-        "missing": 127,
+        "implemented_subset": 4864,
+        "partial": 1093,
+        "missing": 201,
         "needs_review": 0,
         "total": 6158
       }
@@ -35910,8 +36024,8 @@
           "total": 1044
         },
         "core": {
-          "implemented_subset": 145,
-          "partial": 0,
+          "implemented_subset": 144,
+          "partial": 1,
           "missing": 0,
           "needs_review": 0,
           "total": 145
@@ -35924,9 +36038,9 @@
           "total": 15
         },
         "language": {
-          "implemented_subset": 184,
+          "implemented_subset": 183,
           "partial": 1,
-          "missing": 0,
+          "missing": 1,
           "needs_review": 0,
           "total": 185
         },
@@ -35938,9 +36052,9 @@
           "total": 10
         },
         "runtime": {
-          "implemented_subset": 874,
-          "partial": 34,
-          "missing": 0,
+          "implemented_subset": 858,
+          "partial": 41,
+          "missing": 9,
           "needs_review": 0,
           "total": 908
         }
@@ -35954,8 +36068,8 @@
           "total": 2039
         },
         "core": {
-          "implemented_subset": 376,
-          "partial": 0,
+          "implemented_subset": 372,
+          "partial": 4,
           "missing": 0,
           "needs_review": 0,
           "total": 376
@@ -35968,9 +36082,9 @@
           "total": 35790
         },
         "language": {
-          "implemented_subset": 124,
-          "partial": 0,
-          "missing": 0,
+          "implemented_subset": 118,
+          "partial": 5,
+          "missing": 1,
           "needs_review": 0,
           "total": 124
         },
@@ -35982,9 +36096,9 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 4089,
-          "partial": 1034,
-          "missing": 127,
+          "implemented_subset": 4006,
+          "partial": 1052,
+          "missing": 192,
           "needs_review": 0,
           "total": 5250
         }
@@ -173666,79 +173780,1500 @@
       ]
     },
     {
-      "id": "AS2-MASK-SOURCES-20261105",
-      "title": "Preserve authored gradient and bitmap alpha in animated masks",
-      "reason": "Cached authored gradients and decoded PNG sources share the dynamic alpha path, including mixed/nested transforms, animated sources and Restart. Geometry defaults remain unchanged. Text/video, fully scripted mask-of-mask graphs and cache/error edge behavior remain bounded.",
+      "id": "AS3-AREAS1TO7-AUDIT-20261114",
+      "title": "Re-verify AS3 Areas 1-7 against current code and shared tests",
+      "reason": "Executable audit of AS3 Areas 1-7 demotes unimplemented stubs, ignored options, dead setter bags and unsupported throwers to missing or partial, and documents notes on existing partial entries. Array prototype and AS3 lifecycle verification rely on merged T-011 and T-010 commits.",
       "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
       "evidence": [
         {
+          "path": "crates/neoflash-script/tests/execute.mjs",
+          "sha256": "4e5725806cb769055b704d21cc3f022a95db5d5e155de0bb9092620912c654d4"
+        },
+        {
+          "path": "crates/neoflash-script/tests/project-execute.mjs",
+          "sha256": "fa3fa524b09dfd082112b8a9ce4673cf1a940586cd84d141b7b2471ce84784a7"
+        },
+        {
+          "path": "crates/neoflash-script/tests/bitmap-pixels.mjs",
+          "sha256": "9ff46b001f83aa706576e813b5591bb2f5150b2cd40b8da62f9f437509230610"
+        },
+        {
+          "path": "crates/neoflash-script/tests/collections-fixtures.mjs",
+          "sha256": "d160bcf6d26052b447e167ad6fe68b8741b1a1ceddafb5ac23e997e92def0f5d"
+        },
+        {
+          "path": "crates/neoflash-script/tests/core-surface.mjs",
+          "sha256": "f3f8e6190a884d2abd7561c367dcaeb93f0262b276deb01e5132b5ce7567ce43"
+        },
+        {
+          "path": "crates/neoflash-script/tests/display-transforms.mjs",
+          "sha256": "06de9df3f15476729da78ac6f1a6664bbf500cd7af447c3fcab646ca19f04795"
+        },
+        {
+          "path": "crates/neoflash-script/tests/gradient-graphics.mjs",
+          "sha256": "5a80f6c12a53ace49548ff39ea86839de4332dce1995c58433cf43a314cb6b94"
+        },
+        {
+          "path": "crates/neoflash-script/tests/host-integration.mjs",
+          "sha256": "da6b5d8875f21ccf3f02eb3d8ab38b10d296b76f3522d15801407801091b60dc"
+        },
+        {
+          "path": "crates/neoflash-script/tests/sound-playback.mjs",
+          "sha256": "3b15378efca14213c0bc4b5cd5ecfb54d5081cd8b6625c4c0784f0bfb6159324"
+        },
+        {
+          "path": "crates/neoflash-script/tests/text-layout.mjs",
+          "sha256": "6ff7a6a03b41a2e2b58c39e94f9d02e45603e78c80fa95db0512fe3c6bf682cd"
+        },
+        {
+          "path": "crates/neoflash-script/tests/typed-collections.mjs",
+          "sha256": "8081f9ffd1b8b7f528d0803d87e8be8e220a44308a8763b7f2e6b5de5a146a2c"
+        },
+        {
+          "path": "crates/neoflash-script/tests/video-playback.mjs",
+          "sha256": "b9cb80b458005a3cf9b3296b83db23dc54ff8a8378a50200ed420a08c245a795"
+        },
+        {
+          "path": "crates/neoflash-script/tests/xml-catalog.mjs",
+          "sha256": "c970a4efc02322525d45b4a4da0c6c4f1bb4d7596ab1ed5e210b07fecb6be78c"
+        },
+        {
+          "path": "web/tests/display-family.test.cjs",
+          "sha256": "9f267e2cb46cdd06441d4e8da83da2edbbc5e53e24c85db908a19fcb09277b7e"
+        },
+        {
+          "path": "web/tests/runtime.test.cjs",
+          "sha256": "1767114cf5890465a05b6e98bda1286f7eea3bfdd85b956c4776b402be4e19a7"
+        },
+        {
+          "path": "web/tests/stage.test.cjs",
+          "sha256": "a0ee9c0bc21233d505779ecd79ae2b8c9241c4143830e384bd5b6ceaf1ae81f0"
+        },
+        {
+          "path": "web/tests/timeline-video.test.cjs",
+          "sha256": "a244d1875ce0262adb94f12c2643050b61d42b55d88783fea402d243d219c7b9"
+        },
+        {
+          "path": "web/tests/wasm.test.cjs",
+          "sha256": "e5c76c6939fafe25714e066ddfb01b04b4b03863e1069622395e3eee1358cee1"
+        },
+        {
+          "path": "crates/neoflash-core/tests/bitmap_pixels.rs",
+          "sha256": "bf3d5d15a751ba2be0189aad64b6ac015aee871dd0200b9b71a7927caa2171a2"
+        },
+        {
+          "path": "crates/neoflash-core/tests/display_family.rs",
+          "sha256": "dd96cff295537738687fc0fc15cc4d4458fb034172682d72c6f2c67bb2f94943"
+        },
+        {
           "path": "crates/neoflash-core/tests/runtime_masks.rs",
-          "sha256": "fbd7a3729f8fc952a967e9c3a712500dac2e350d54456cbb75bac091da43d7d8"
+          "sha256": "d2e1f879ff8b5f9d0f14fe6a67453e3c3e9dfae223ddec2e22ec56424de3c095"
         },
         {
-          "path": "crates/neoflash-core/tests/timeline_masks.rs",
-          "sha256": "f4eb50f4b9ed8f3461e4aef0da0c8be302aa3f3eddde4dabd0e5f7df3682a636"
+          "path": "crates/neoflash-core/tests/text_field.rs",
+          "sha256": "e9ca02d829c7ed7e2a19c53d41edf3f2d444848d660cf21c1e35dee5ddd70ffb"
         },
         {
-          "path": "crates/neoflash-script/tests/clipped-scene.mjs",
-          "sha256": "5ff00b713fa845126855358b79f9f30804dd4f60bc4a39c4e36810188b3e6778"
+          "path": "crates/neoflash-core/tests/runtime_lifecycle.rs",
+          "sha256": "a9f4927aa6aeea0bd67366a9818e8e1e40760356cbd621c49cb5318c8ff08813"
         },
         {
-          "path": "web/tests/path-browser.html",
-          "sha256": "46067ce5982ace75fd2686acd3545e9a24a0f03591484ce5f23a37da52554162"
+          "path": "web/tests/as3-frame-lifecycle.test.cjs",
+          "sha256": "7bedfdf89a0dbd7e048c5d488098c83a63d08618f6aad54b21d75855b6563d9d"
+        },
+        {
+          "path": "crates/neoflash-export/tests/publish_correctness_gate.rs",
+          "sha256": "e11b0bd49efd9c6fa5b7622d9938d888119bf60d774c1d38fd678ca84efd84a1"
+        },
+        {
+          "path": "web/tests/publish-gate-wasm.test.cjs",
+          "sha256": "a4d897e47f32be1a3e4df8583b4b8c3d96cad9478969c3f615c608685ecd1def"
         }
       ],
       "reviewedEntries": [
         {
-          "catalogId": "as2:MovieClip.html#setMask()",
+          "catalogId": "AS3:function:flash/utils/package.html#describeType()",
           "status": "partial",
-          "scopeNote": "Authored/dynamic gradient, PNG and mixed animated sources preserve cached alpha. Text/video and fully scripted masked-source graphs remain unsupported; filter-only cache downgrade remains limited. String target paths and raw-host-error catch compatibility remain unsupported."
+          "scopeNote": "Describes AS3 project classes and objects; rejects native display instances and external builtins."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedClassName()",
+          "status": "partial",
+          "scopeNote": "Returns names for user/core values; rejects native display objects and AS2 or unregistered native instances."
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedSuperclassName()",
+          "status": "partial",
+          "scopeNote": "Resolves user class inheritance; rejects native display hierarchies and interfaces."
+        },
+        {
+          "catalogId": "AS3:class:Function.html#",
+          "status": "partial",
+          "scopeNote": "Calls, apply, bind and closures work; dynamic new Function(body), constructing Function instances and arguments.caller throw TypeError."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#attribute_identifier",
+          "status": "partial",
+          "scopeNote": "Works inside compiled E4X selectors (xml.@attr); standalone @ syntax fails compilation and dynamic attribute keys throw."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#descendant_accessor",
+          "status": "partial",
+          "scopeNote": "Descendant reads (xml..tag) work; direct descendant assignment or deletion throws and standalone .. fails compilation."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#name_qualifier",
+          "status": "partial",
+          "scopeNote": "Static ns::name and *::name resolve; computed (expr)::name qualifiers fail compilation."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#delete_(XML)",
+          "status": "partial",
+          "scopeNote": "Attribute and named child deletion work in lowered E4X; indexed XML, direct descendant and proxy deleteProperty throw."
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#dot_(XML)",
+          "status": "partial",
+          "scopeNote": "Compiled E4X child reads work; dynamic proxy keys and direct XML or XMLList property assignments throw."
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#object_proxy",
+          "status": "missing",
+          "scopeNote": "Compiler pre-seeds flash_proxy namespace URI only; runtime lacks ObjectProxy class and has zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#sort()",
+          "status": "partial",
+          "scopeNote": "Comparator and basic flag sorting work; Array.RETURNINDEXEDARRAY throws unsupported TypeError."
+        },
+        {
+          "catalogId": "AS3:class:RegExp.html#",
+          "status": "partial",
+          "scopeNote": "Supports g/i/m/s/x flags and matching; PCRE named groups, conditionals, inline flags and \\a..\\Z escapes throw unsupported."
+        },
+        {
+          "catalogId": "AS3:constructor:RegExp.html#RegExp()",
+          "status": "partial",
+          "scopeNote": "Constructs standard and extended-x RegExp patterns; PCRE named groups, conditionals, inline flags and unsupported escapes throw."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "partial",
+          "scopeNote": "Supports live display-object vector and shape masks; alpha, BitmapData, gradient and external draw masks remain unsupported."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#width",
+          "status": "partial",
+          "scopeNote": "Reads and axis-aligned writes work; setting width on rotated or skewed DisplayObject or TextField throws RangeError."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#height",
+          "status": "partial",
+          "scopeNote": "Reads and axis-aligned writes work; setting height on rotated or skewed DisplayObject or TextField throws RangeError."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#areInaccessibleObjectsUnderPoint()",
+          "status": "missing",
+          "scopeNote": "Validates Point argument and hardcodes false without security-domain tracking or behavioral tests."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/SimpleButton.html#",
+          "status": "partial",
+          "scopeNote": "Authored timeline button symbols hit-test and dispatch; script-constructed SimpleButton states do not render or route state audio."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/SimpleButton.html#SimpleButton()",
+          "status": "partial",
+          "scopeNote": "Validates up to four state arguments into an internal WeakMap without attaching, rendering or hit-testing them."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#upState",
+          "status": "missing",
+          "scopeNote": "Stores WeakMap field only; never rendered or read by web runtime with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#overState",
+          "status": "missing",
+          "scopeNote": "Stores WeakMap field only; never rendered or read by web runtime with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#downState",
+          "status": "missing",
+          "scopeNote": "Stores WeakMap field only; never rendered or read by web runtime with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#hitTestState",
+          "status": "missing",
+          "scopeNote": "Stores WeakMap field only; never used for hit testing or read by web runtime with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#soundTransform",
+          "status": "missing",
+          "scopeNote": "Stores WeakMap field only; never routed to SimpleButton sound output or read by web runtime."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrectionSupport",
+          "status": "missing",
+          "scopeNote": "Hardcodes 'unsupported' without color profile detection."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrection",
+          "status": "missing",
+          "scopeNote": "Validates and stores colorCorrection string with no ICC or color-managed stage rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#mouseLock",
+          "status": "missing",
+          "scopeNote": "Stores boolean in fullScreenInteractive mode without calling browser Pointer Lock or emitting relative deltas."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#wmodeGPU",
+          "status": "missing",
+          "scopeNote": "Hardcodes false without GPU wmode compositing."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#quality",
+          "status": "missing",
+          "scopeNote": "Invokes unwired onQualityChanged callback; web runtime leaves stage and Canvas rendering quality unaffected."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#supportsNativeCursor",
+          "status": "missing",
+          "scopeNote": "Hardcodes false without custom native cursor support."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#registerCursor()",
+          "status": "missing",
+          "scopeNote": "Stores entries in customCursors Map that DOM cursor rendering never reads."
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#unregisterCursor()",
+          "status": "missing",
+          "scopeNote": "Removes entries from unwired customCursors Map that DOM cursor rendering never reads."
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/MouseCursorData.html#",
+          "status": "missing",
+          "scopeNote": "Stores cursor metadata only for unwired Mouse.registerCursor Map without bitmap cursor rendering."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/ui/MouseCursorData.html#MouseCursorData()",
+          "status": "missing",
+          "scopeNote": "Constructs cursor metadata bag for unwired Mouse.registerCursor without rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#data",
+          "status": "missing",
+          "scopeNote": "Stores Vector.<BitmapData> field on unwired MouseCursorData without cursor rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#frameRate",
+          "status": "missing",
+          "scopeNote": "Stores frameRate field on unwired MouseCursorData without cursor animation."
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#hotSpot",
+          "status": "missing",
+          "scopeNote": "Stores Point hotSpot on unwired MouseCursorData without cursor rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SHADER",
+          "status": "missing",
+          "scopeNote": "DisplayObject maps BlendMode.SHADER to source-over and BitmapData.draw maps 'shader' to 'normal'."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SUBTRACT",
+          "status": "partial",
+          "scopeNote": "Supported in Rust BitmapData.draw pixel blending; DisplayObject.blendMode falls back to source-over with no display test."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#INVERT",
+          "status": "partial",
+          "scopeNote": "Supported in Rust BitmapData.draw pixel blending; DisplayObject.blendMode falls back to source-over with no display test."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ALPHA",
+          "status": "partial",
+          "scopeNote": "Supported in Rust BitmapData.draw pixel blending; DisplayObject.blendMode falls back to source-over with no display test."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ERASE",
+          "status": "partial",
+          "scopeNote": "Supported in Rust BitmapData.draw pixel blending; DisplayObject.blendMode falls back to source-over with no display test."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#LAYER",
+          "status": "partial",
+          "scopeNote": "Accepted on DisplayObject.blendMode, but collapses to source-over without isolated group-alpha compositing."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REPEAT",
+          "status": "missing",
+          "scopeNote": "Gradient fill runtime throws TypeError 'repeat and reflect are pending' with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REFLECT",
+          "status": "missing",
+          "scopeNote": "Gradient fill runtime throws TypeError 'repeat and reflect are pending' with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/InterpolationMethod.html#LINEAR_RGB",
+          "status": "missing",
+          "scopeNote": "Gradient fill runtime throws TypeError 'linearRGB is pending' with zero behavioral tests."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineStyle()",
+          "status": "partial",
+          "scopeNote": "Draws thickness, color and alpha; hairline thickness <= 0 throws RangeError and pixelHinting, scaleMode, caps, joints and miterLimit are dropped."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsStroke.html#",
+          "status": "partial",
+          "scopeNote": "Renders thickness and fill via drawGraphicsData; drops pixelHinting, scaleMode, caps, joints and miterLimit before Rust lineStyle."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#caps",
+          "status": "missing",
+          "scopeNote": "Stored on GraphicsStroke and discarded when Graphics.drawGraphicsData calls lineStyle."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#joints",
+          "status": "missing",
+          "scopeNote": "Stored on GraphicsStroke and discarded when Graphics.drawGraphicsData calls lineStyle."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#miterLimit",
+          "status": "missing",
+          "scopeNote": "Stored on GraphicsStroke and discarded when Graphics.drawGraphicsData calls lineStyle."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#pixelHinting",
+          "status": "missing",
+          "scopeNote": "Stored on GraphicsStroke and discarded when Graphics.drawGraphicsData calls lineStyle."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#scaleMode",
+          "status": "missing",
+          "scopeNote": "Stored on GraphicsStroke and discarded when Graphics.drawGraphicsData calls lineStyle."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#NONE",
+          "status": "missing",
+          "scopeNote": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#SQUARE",
+          "status": "missing",
+          "scopeNote": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#BEVEL",
+          "status": "missing",
+          "scopeNote": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#MITER",
+          "status": "missing",
+          "scopeNote": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#HORIZONTAL",
+          "status": "missing",
+          "scopeNote": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#NONE",
+          "status": "missing",
+          "scopeNote": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#VERTICAL",
+          "status": "missing",
+          "scopeNote": "Accepted in validation only; ignored by Graphics.lineStyle and GraphicsStroke rendering."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+          "status": "partial",
+          "scopeNote": "Encodes PNG and JPEG options; JPEGXREncoderOptions explicitly throws 'JPEG-XR encoding is not supported'."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JPEGXREncoderOptions.html#",
+          "status": "missing",
+          "scopeNote": "Constructs options bag only; sole consumer BitmapData.encode throws JPEG-XR encoding unsupported."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()",
+          "status": "missing",
+          "scopeNote": "Constructs options bag only; BitmapData.encode rejects JPEG-XR encoding."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace",
+          "status": "missing",
+          "scopeNote": "Stores colorSpace option without JPEG-XR encoder support in BitmapData.encode."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#quantization",
+          "status": "missing",
+          "scopeNote": "Stores quantization option without JPEG-XR encoder support in BitmapData.encode."
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits",
+          "status": "missing",
+          "scopeNote": "Stores trimFlexBits option without JPEG-XR encoder support in BitmapData.encode."
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapEncodingColorSpace.html#",
+          "status": "missing",
+          "scopeNote": "Constants used solely with unsupported JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0",
+          "status": "missing",
+          "scopeNote": "Constant used solely with unsupported JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2",
+          "status": "missing",
+          "scopeNote": "Constant used solely with unsupported JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4",
+          "status": "missing",
+          "scopeNote": "Constant used solely with unsupported JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO",
+          "status": "missing",
+          "scopeNote": "Constant used solely with unsupported JPEGXREncoderOptions."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#drawWithQuality()",
+          "status": "partial",
+          "scopeNote": "Applies quality downsampling and linearGamma only for BitmapData sources; ignores quality for DisplayObject sources and maps 'shader' to 'normal'."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#lock()",
+          "status": "missing",
+          "scopeNote": "Validates receiver only without deferring display redraw invalidations."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#unlock()",
+          "status": "missing",
+          "scopeNote": "Validates receiver and optional Rect only without flushing deferred display invalidations."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textInteractionMode",
+          "status": "missing",
+          "scopeNote": "Getter returns hardcoded 'normal' (TextInteractionMode.NORMAL); SELECTION mode is unimplemented."
+        },
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:textInteractionModeChange",
+          "status": "missing",
+          "scopeNote": "Event is never dispatched by TextField."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextInteractionMode.html#",
+          "status": "partial",
+          "scopeNote": "Defines NORMAL and SELECTION string constants; TextField reports hardcoded NORMAL and SELECTION mode is unimplemented."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextInteractionMode.html#SELECTION",
+          "status": "missing",
+          "scopeNote": "No TextField or runtime path implements SELECTION interaction mode."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#useRichTextClipboard",
+          "status": "missing",
+          "scopeNote": "Stores boolean flag in web/text.js with zero reads in clipboard or text-input handling."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextRenderer.html#",
+          "status": "missing",
+          "scopeNote": "Stores static displayMode, maxLevel and CSM tables never read by Canvas text rendering."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextRenderer.html#setAdvancedAntiAliasingTable()",
+          "status": "missing",
+          "scopeNote": "Validates and stores table entries never read by text layout or Canvas glyph rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#displayMode",
+          "status": "missing",
+          "scopeNote": "Stores displayMode string in rendererState without affecting glyph rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#maxLevel",
+          "status": "missing",
+          "scopeNote": "Stores maxLevel integer in rendererState without affecting glyph rendering."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/CSMSettings.html#",
+          "status": "missing",
+          "scopeNote": "Stores font cutoff parameters solely for unused TextRenderer.setAdvancedAntiAliasingTable."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/CSMSettings.html#CSMSettings()",
+          "status": "missing",
+          "scopeNote": "Constructs CSM parameter bag never consumed during text rendering."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#fontSize",
+          "status": "missing",
+          "scopeNote": "Stored on unused CSMSettings instances with zero text rendering reads."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#insideCutoff",
+          "status": "missing",
+          "scopeNote": "Stored on unused CSMSettings instances with zero text rendering reads."
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#outsideCutoff",
+          "status": "missing",
+          "scopeNote": "Stored on unused CSMSettings instances with zero text rendering reads."
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextDisplayMode.html#",
+          "status": "missing",
+          "scopeNote": "Constants solely configure unwired TextRenderer.displayMode."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#CRT",
+          "status": "missing",
+          "scopeNote": "Accepted by TextRenderer.displayMode only; no CRT subpixel rendering exists."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#DEFAULT",
+          "status": "missing",
+          "scopeNote": "Accepted by TextRenderer.displayMode only; no advanced anti-aliasing engine reads it."
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#LCD",
+          "status": "missing",
+          "scopeNote": "Accepted by TextRenderer.displayMode only; no LCD subpixel rendering exists."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#hasGlyphs()",
+          "status": "partial",
+          "scopeNote": "Validates Unicode scalar ranges only without checking actual font glyph or cmap coverage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#soundTransform",
+          "status": "partial",
+          "scopeNote": "Applies volume to media elements; non-zero pan or channel matrix transforms throw unsupported."
+        },
+        {
+          "catalogId": "AS3:property:flash/media/Sound.html#isURLInaccessible",
+          "status": "missing",
+          "scopeNote": "Hardcodes false without tracking cross-origin or redirect access restrictions."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesLoaded",
+          "status": "partial",
+          "scopeNote": "Returns byte size for bundled embedded video resources; throws unsupported for HTTP progressive URLs."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesTotal",
+          "status": "partial",
+          "scopeNote": "Returns byte size for bundled embedded video resources; throws unsupported for HTTP progressive URLs."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play()",
+          "status": "partial",
+          "scopeNote": "Plays bundled and progressive streams by URL/name; start, len, reset and playlist arguments throw unsupported."
         }
       ],
       "previousEntries": [
         {
-          "catalogId": "as2:MovieClip.html#setMask()",
+          "catalogId": "AS3:function:flash/utils/package.html#describeType()",
           "status": "partial",
-          "ruleId": "AS2-MASK-EVIDENCE-20261105",
+          "ruleId": "AS3-EVIDENCE-CALIBRATION-20261105",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedClassName()",
+          "status": "partial",
+          "ruleId": "AS3-EVIDENCE-CALIBRATION-20261105",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:function:flash/utils/package.html#getQualifiedSuperclassName()",
+          "status": "partial",
+          "ruleId": "AS3-EVIDENCE-CALIBRATION-20261105",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:Function.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS1TO7-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#attribute_identifier",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS1TO7-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#descendant_accessor",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS1TO7-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#name_qualifier",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS1TO7-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#delete_(XML)",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS1TO7-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:operator:operators.html#dot_(XML)",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS1TO7-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:statement:statements.html#object_proxy",
+          "status": "implemented_subset",
+          "ruleId": "AS3-WAVE6-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:Vector.html#sort()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:RegExp.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS1TO7-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:RegExp.html#RegExp()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS1TO7-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "partial",
+          "ruleId": "AS3-MASK-SOURCES-20261105",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#width",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#height",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/DisplayObjectContainer.html#areInaccessibleObjectsUnderPoint()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/SimpleButton.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/SimpleButton.html#SimpleButton()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#upState",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#overState",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#downState",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#hitTestState",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/SimpleButton.html#soundTransform",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrectionSupport",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#colorCorrection",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#mouseLock",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS1TO7-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#wmodeGPU",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/Stage.html#quality",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS1TO7-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/Mouse.html#supportsNativeCursor",
+          "status": "implemented_subset",
+          "ruleId": "AS3-STAGE-UI-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#registerCursor()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/ui/Mouse.html#unregisterCursor()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/ui/MouseCursorData.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/ui/MouseCursorData.html#MouseCursorData()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#data",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#frameRate",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/ui/MouseCursorData.html#hotSpot",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SHADER",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#SUBTRACT",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#INVERT",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ALPHA",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#ERASE",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BlendMode.html#LAYER",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REPEAT",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/SpreadMethod.html#REFLECT",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/InterpolationMethod.html#LINEAR_RGB",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Graphics.html#lineStyle()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/GraphicsStroke.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#caps",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#joints",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#miterLimit",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#pixelHinting",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/GraphicsStroke.html#scaleMode",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#NONE",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/CapsStyle.html#SQUARE",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#BEVEL",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/JointStyle.html#MITER",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#HORIZONTAL",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#NONE",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/LineScaleMode.html#VERTICAL",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JPEGXREncoderOptions.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#quantization",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapEncodingColorSpace.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#drawWithQuality()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-WAVE6-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#lock()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#unlock()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-DISPLAY-BITMAP-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textInteractionMode",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:textInteractionModeChange",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS1TO7-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextInteractionMode.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextInteractionMode.html#SELECTION",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#useRichTextClipboard",
+          "status": "implemented_subset",
+          "ruleId": "AS3-FOUNDATION-GEOM3D-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextRenderer.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/TextRenderer.html#setAdvancedAntiAliasingTable()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#displayMode",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextRenderer.html#maxLevel",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/CSMSettings.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/text/CSMSettings.html#CSMSettings()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#fontSize",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#insideCutoff",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/CSMSettings.html#outsideCutoff",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/text/TextDisplayMode.html#",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#CRT",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#DEFAULT",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextDisplayMode.html#LCD",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#hasGlyphs()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#soundTransform",
+          "status": "partial",
+          "ruleId": "AS3-EVIDENCE-CALIBRATION-20261105",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/Sound.html#isURLInaccessible",
+          "status": "implemented_subset",
+          "ruleId": "AS3-AREAS1TO7-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesLoaded",
+          "status": "implemented_subset",
+          "ruleId": "AS3-WAVE6-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesTotal",
+          "status": "implemented_subset",
+          "ruleId": "AS3-WAVE6-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-WAVE6-GENUINE-CONFORMANCE-20261102",
           "evidenceKind": "test_backed_review"
         }
       ]
     },
     {
-      "id": "AS3-MASK-SOURCES-20261105",
-      "title": "Preserve authored gradient and bitmap alpha in animated masks",
-      "reason": "Cached authored gradients and decoded PNG sources share the dynamic alpha path, including mixed/nested transforms, animated sources and Restart. Geometry defaults remain unchanged. Text/video, fully scripted mask-of-mask graphs and cache/error edge behavior remain bounded.",
+      "id": "AS2-AREAS1TO7-AUDIT-20261114",
+      "title": "Re-verify AS2 Areas 1-7 against current code and shared tests",
+      "reason": "Executable audit of AS2 Areas 1-7 demotes unwired TextRenderer, Stage.wmodeGPU, showRedrawRegions and NetStream publishing stubs plus incomplete Boolean/MovieClip/ContextMenu/Selection/NetStream options to missing or partial, and documents notes on setMask.",
       "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
       "evidence": [
         {
+          "path": "crates/neoflash-script/tests/execute.mjs",
+          "sha256": "4e5725806cb769055b704d21cc3f022a95db5d5e155de0bb9092620912c654d4"
+        },
+        {
+          "path": "crates/neoflash-script/tests/project-execute.mjs",
+          "sha256": "fa3fa524b09dfd082112b8a9ce4673cf1a940586cd84d141b7b2471ce84784a7"
+        },
+        {
+          "path": "crates/neoflash-script/tests/as2-project-input.mjs",
+          "sha256": "8e6eafa331439a68cda70a537fe425ff1d470994d3628a7e7fa4f5faf4ce4e2a"
+        },
+        {
+          "path": "crates/neoflash-script/tests/display-transforms.mjs",
+          "sha256": "06de9df3f15476729da78ac6f1a6664bbf500cd7af447c3fcab646ca19f04795"
+        },
+        {
+          "path": "crates/neoflash-script/tests/gradient-graphics.mjs",
+          "sha256": "5a80f6c12a53ace49548ff39ea86839de4332dce1995c58433cf43a314cb6b94"
+        },
+        {
+          "path": "crates/neoflash-script/tests/sound-playback.mjs",
+          "sha256": "3b15378efca14213c0bc4b5cd5ecfb54d5081cd8b6625c4c0784f0bfb6159324"
+        },
+        {
+          "path": "crates/neoflash-script/tests/text-layout.mjs",
+          "sha256": "6ff7a6a03b41a2e2b58c39e94f9d02e45603e78c80fa95db0512fe3c6bf682cd"
+        },
+        {
+          "path": "crates/neoflash-script/tests/video-playback.mjs",
+          "sha256": "b9cb80b458005a3cf9b3296b83db23dc54ff8a8378a50200ed420a08c245a795"
+        },
+        {
+          "path": "web/tests/as2-timeline.test.cjs",
+          "sha256": "6bf0ace25599ba6f3dadc86de7c7270cef00a5a37cb0373f351eff621296f713"
+        },
+        {
+          "path": "web/tests/display-family.test.cjs",
+          "sha256": "9f267e2cb46cdd06441d4e8da83da2edbbc5e53e24c85db908a19fcb09277b7e"
+        },
+        {
+          "path": "web/tests/runtime.test.cjs",
+          "sha256": "1767114cf5890465a05b6e98bda1286f7eea3bfdd85b956c4776b402be4e19a7"
+        },
+        {
+          "path": "web/tests/stage.test.cjs",
+          "sha256": "a0ee9c0bc21233d505779ecd79ae2b8c9241c4143830e384bd5b6ceaf1ae81f0"
+        },
+        {
+          "path": "web/tests/timeline-video.test.cjs",
+          "sha256": "a244d1875ce0262adb94f12c2643050b61d42b55d88783fea402d243d219c7b9"
+        },
+        {
+          "path": "web/tests/wasm.test.cjs",
+          "sha256": "e5c76c6939fafe25714e066ddfb01b04b4b03863e1069622395e3eee1358cee1"
+        },
+        {
+          "path": "crates/neoflash-core/tests/as2_display.rs",
+          "sha256": "8728db2eccb8df8cdce4015a2427febff2d111be83f3eb36e6c529a43d9a7d94"
+        },
+        {
+          "path": "crates/neoflash-core/tests/as2_input.rs",
+          "sha256": "473a1db217155fc0e5fa4fd356adc73ecb6efc095a89ed6516350bb25f8c09ac"
+        },
+        {
+          "path": "crates/neoflash-core/tests/as2_text.rs",
+          "sha256": "8d61925dac0ebacf8ad06833d22201cef7a4e1356f225980dfa60aeb28beaa9c"
+        },
+        {
+          "path": "crates/neoflash-core/tests/as2_text_snapshot.rs",
+          "sha256": "a293674822b3a17ea8ae3caad827ee95a50bccbf354084ff386ae36ac3444671"
+        },
+        {
           "path": "crates/neoflash-core/tests/runtime_masks.rs",
-          "sha256": "fbd7a3729f8fc952a967e9c3a712500dac2e350d54456cbb75bac091da43d7d8"
+          "sha256": "d2e1f879ff8b5f9d0f14fe6a67453e3c3e9dfae223ddec2e22ec56424de3c095"
         },
         {
-          "path": "crates/neoflash-core/tests/timeline_masks.rs",
-          "sha256": "f4eb50f4b9ed8f3461e4aef0da0c8be302aa3f3eddde4dabd0e5f7df3682a636"
+          "path": "crates/neoflash-export/tests/publish_correctness_gate.rs",
+          "sha256": "e11b0bd49efd9c6fa5b7622d9938d888119bf60d774c1d38fd678ca84efd84a1"
         },
         {
-          "path": "crates/neoflash-script/tests/clipped-scene.mjs",
-          "sha256": "5ff00b713fa845126855358b79f9f30804dd4f60bc4a39c4e36810188b3e6778"
-        },
-        {
-          "path": "web/tests/path-browser.html",
-          "sha256": "46067ce5982ace75fd2686acd3545e9a24a0f03591484ce5f23a37da52554162"
+          "path": "web/tests/publish-gate-wasm.test.cjs",
+          "sha256": "a4d897e47f32be1a3e4df8583b4b8c3d96cad9478969c3f615c608685ecd1def"
         }
       ],
       "reviewedEntries": [
         {
-          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "catalogId": "as2:Boolean.html#Boolean()",
           "status": "partial",
-          "scopeNote": "Authored/dynamic gradient, PNG and mixed animated sources preserve cached alpha. Text/video and fully scripted masked-source graphs remain unsupported; filter-only cache downgrade remains limited."
+          "scopeNote": "Primitive Boolean(v) conversion works; new Boolean(v) throws unsupported boxed Boolean construction."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#setMask()",
+          "status": "partial",
+          "scopeNote": "Applies live MovieClip vector masks; string target paths and authored alpha or gradient masks reject or stay unsupported."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_width",
+          "status": "partial",
+          "scopeNote": "Reads and axis-aligned writes work; setting _width on rotated or skewed clips throws RangeError."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_height",
+          "status": "partial",
+          "scopeNote": "Reads and axis-aligned writes work; setting _height on rotated or skewed clips throws RangeError."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#blendMode",
+          "status": "partial",
+          "scopeNote": "Supports standard Canvas2D blend modes; subtract, invert, alpha, erase and shader reject in as2_render.rs."
+        },
+        {
+          "catalogId": "as2:MovieClip.html#lineStyle()",
+          "status": "partial",
+          "scopeNote": "Draws width, color and alpha; hairline <= 0 throws RangeError and pixelHinting, scaleMode, caps, joints and miterLimit are dropped."
+        },
+        {
+          "catalogId": "as2:Stage.html#wmodeGPU",
+          "status": "missing",
+          "scopeNote": "Hardcodes false without GPU wmode compositing."
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#builtInItems",
+          "status": "partial",
+          "scopeNote": "Supports play, rewind, forward_back and print toggles; zoom, quality and loop throw unavailable errors."
+        },
+        {
+          "catalogId": "as2:Selection.html#setFocus()",
+          "status": "partial",
+          "scopeNote": "Focuses live MovieClip or TextField instances and null; string target paths throw unsupported."
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "missing",
+          "scopeNote": "Mutates redraw_regions flag in as2_settings with zero readers in web rendering or runtime."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#class",
+          "status": "missing",
+          "scopeNote": "Stores rendererState properties and tables never read by Canvas text rendering."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "missing",
+          "scopeNote": "Stores displayMode in rendererState without affecting Canvas text rendering."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "missing",
+          "scopeNote": "Stores maxLevel in rendererState without affecting Canvas text rendering."
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "missing",
+          "scopeNote": "Validates and stores table entries never read by AS2 text rendering."
+        },
+        {
+          "catalogId": "as2:NetStream.html#liveDelay",
+          "status": "missing",
+          "scopeNote": "Hardcodes 0 without live RTMP buffer latency."
+        },
+        {
+          "catalogId": "as2:NetStream.html#publish()",
+          "status": "missing",
+          "scopeNote": "Always emits NetStream.Publish.BadName because RTMP media server publishing is absent."
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachAudio()",
+          "status": "missing",
+          "scopeNote": "Stores Microphone reference only without RTMP audio encoding or transmission."
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachVideo()",
+          "status": "missing",
+          "scopeNote": "Stores Camera reference only without RTMP video encoding or transmission."
+        },
+        {
+          "catalogId": "as2:NetStream.html#getInfo()",
+          "status": "partial",
+          "scopeNote": "Reports buffer lengths while byteCounts, throughput, srtt, droppedFrames and isLive are hardcoded 0 or false."
         }
       ],
       "previousEntries": [
         {
-          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "catalogId": "as2:Boolean.html#Boolean()",
+          "status": "implemented_subset",
+          "ruleId": "AS2-CONFORMANCE-LEGACY-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#setMask()",
           "status": "partial",
-          "ruleId": "AS3-EVIDENCE-CALIBRATION-20261105",
+          "ruleId": "AS2-MASK-SOURCES-20261105",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_width",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE5-COMPLETE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#_height",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE5-COMPLETE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#blendMode",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE5-COMPLETE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:MovieClip.html#lineStyle()",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE5-COMPLETE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Stage.html#wmodeGPU",
+          "status": "implemented_subset",
+          "ruleId": "AS2-FOUNDATION-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:ContextMenu.html#builtInItems",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE6-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:Selection.html#setFocus()",
+          "status": "implemented_subset",
+          "ruleId": "AS2-CONFORMANCE-LEGACY-GRAPHICS-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:global_functions.html#showRedrawRegions()",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#class",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE5-COMPLETE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#displayMode",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#maxLevel",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:flash/text/TextRenderer.html#setAdvancedAntialiasingTable()",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#liveDelay",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#publish()",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachAudio()",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#attachVideo()",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:NetStream.html#getInfo()",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
           "evidenceKind": "test_backed_review"
         }
       ]

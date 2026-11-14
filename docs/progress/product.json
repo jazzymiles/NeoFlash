@@ -34,7 +34,7 @@
       "title": "Classic workspace",
       "status": "partial",
       "scope": "Classic stage, tools, timeline, Library, Properties, Actions, Accessibility, Output (with live same-frame search filtering and filtered Copy without mutating session logs), Align, Transform, Color, Swatches, Info, Filters, Ease, History, Scene, Motion editor, Project, Compiler errors, Code snippets and Movie Explorer panels plus the modal Find and Replace dialog (⌘F) with Dark (default), Light, Mid Neutral Gray (`bg/app` `#505050`) and Dark Graphite (`bg/app` `#171717`, `timeline/grid` `#2E2E2E`) themes and density-proportional top-bar branding (`28 / 22 / 18 pt` across `48 / 40 / 32 pt` top bars). Dockable panels share a four-sided configurable dock grid with resizable areas/groups, ordered tabs, native floating windows and Window ▸ Hide panels (F4). File ▸ Open recent, Close and Revert manage recent and saved documents; Revert also reloads imported FLA/XFL/SWF sources and retains unsaved edits if reload fails, and Control ▸ Enable simple buttons (⌥⌘B) previews Button Up/Over/Down states and press/release feedback live on the authoring Stage. Stage object context actions open under every active tool, including Break apart (⌘B), Group (⌘G), Ungroup (⇧⌘G) and Trace bitmap…. Header drag supports docking, tab merging/reordering, splits and undocking, with actual panel contents previewed while the button is held over the Stage and between dock targets inside NeoFlash windows. Inactive dragged tabs preview their own contents without changing the saved active tab. Panels torn from top/bottom docks immediately reflow to their compact floating size, keeping normal text and control scale; detaching retains that preview position and size. Previously saved dock-wide sizes are bounded by the standard floating size. Saved workspace geometry is separate from document content. Actions provides frame/object/source editing and source-specific feedback. Info edits selection W/H/X/Y as one Undo step and shows live cursor coordinates in ruler units plus RGBA color under the stage pointer. Shared label/value rows and compact system fonts align controls across panels; the Library preview stays above the scrolling browser. Panels move between native windows; borderless floating windows use the shared NF2 header and retain their own tab groups and horizontal/vertical split trees. Panel-specific logical minima remain scale-correct; docked groups enforce width while floating windows also enforce height. A lone Tools window has eight persisted magnetic Stage-workspace anchors, using a narrow vertical rail at the side centres and compact horizontal layout elsewhere. Escape and source-window closure cancel an active drag. Dedicated boundary grips resize dock areas, including Timeline height; menu shortcuts use separate aligned columns. The top-level Document menu sits immediately before Window, combines Document settings with the open-document list, and Window ▸ Panels contains all panel visibility rows; Help ▸ Search functions… (F1) opens a focused fuzzy-search command palette that accepts the first keystroke and runs registered menu actions directly, while Keyboard shortcuts remains a separate editor. The illustrated Help manual keeps fixed bounds while chapters scroll and opens portable self-contained Authoring Manual and Scripting Reference browser editions on `file://` with chapter routing, structured reference tables and CSS-themed inline SVGs across all four themes. Individual tabs and complete tab groups have distinct drag handles. Floating Edit/Dock commands live in the compact header menu. Numeric controls support click/type and drag/scrub. Properties chooses object, Timeline, Stage or active-tool context automatically, without a Selection/Tool switch; semantically paired value rows across Properties, Transform/Color, Text, Filters, Motion, Info, Accessibility, tool panels and Sound Properties share equal responsive cells with the NF2 S2 gap and an 80 pt minimum, keep trailing controls inside their own cell, keep colour swatch+hex beside alpha, and stack left before right below the fit threshold; a blank Stage click clears Timeline frame/range focus so the Background control is directly available; Library keeps search and commands fixed around one scrolling list. Native palettes are bundled from the shared design tokens. All panels use the common control density and semantic themes, bounded menus with aligned shortcuts, and explicit overflow controls. Fresh compact workspaces group Library and Properties without replacing saved custom layouts. Older saved live built-in layouts refresh once when the canonical NF2 composition changes, while theme, editor preferences and named layout presets are preserved. View ▸ Rulers / Grid / Guides, zoom-control toggles and the Rulers, guides & grid popover share one setting state; Save as default stores it in the editor preferences. The Stage breadcrumb opens the Symbols & scenes popover (with live search, Scenes, Matches, Recent, expandable folders, keyboard ↑↓ / ←→ / ↵ / ⌥↵ navigation and … overflow). The Stage shows NF2 tool and handle cursors and NF2 selection/transform boxes, anchors and marquee in all four themes. Preferences (⌘U) and Keyboard shortcuts (⌥⇧⌘K) persist General (four-theme live preview with Save/Cancel restoration, UI scale, on launch + File ▸ Open recent, undo levels, autosave/recovery, tooltip shortcuts, Shift-select), Code editor, Timeline, Drawing, Text, Clipboard, Shortcuts (106-command registry, custom sets, key recording, conflict detection, HTML export) and Publish settings. Grid settings offer Dynamic (default: page-aware colour/opacity and adaptive display density) and Static (fixed manual colour/spacing), retaining the configured snapping step and saved manual colour. New/Open insert tabs after the active document; opening an already open native or imported source activates its tab without reloading. Document tabs, the Window list and keyboard cycling retain independent selection, playhead, drafts, Undo and recovery. Close others, Close all and Quit ask for dirty documents in tab order; Cancel or failed Save stops on the prompted tab and preserves deferred discard decisions. Closing the last tab shows New document/Open and disables document commands. Named workspace Save/Replace/Update/Rename/Delete/Reset stores complete dock and floating-window layouts independently of documents and global tool preferences. The window notification host stacks at most three notices above the canvas or status bar, delays them during modals, coalesces repeats, pauses expiry on hover and retains messages in Output; drawing refusals and Save/internal Reload errors are connected. Customize tools edits global tool groups with draft Add/Remove/reorder, Restore default and OK/Cancel. Live floating panels (`Export image`, `Import video`, `Stroke style`, `Font embedding`, `Bitmap fill`, primitive/Deco/Spray/Bone/Graphic properties and `Test Movie`) are backed by real document state, thumbnails and Undo-able edits with explicit unavailable states where engine support is absent, and `1024×720` layouts keep an auto-fitting Stage above collapsible Library, non-scrolling overflowed Tools, bounded `Publish settings`, generated NF2 12/16/20 pt mask and tool icon masters, cached waveform audio preview, determinate video export pause/resume status, Motion editor `Wiggler`/`Motion sketch` toolbar, Swatches colour usage labels, Video frame trim/cue controls and OS-aware shortcut formatting.",
-      "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits remain unavailable. Output history belongs to each session and is not a persistent disk log; broader operation-specific notification routing is not complete. The standalone dockable `Debugger` and clean `Output` routing remain queued separately (`T-291`). VoiceOver/IME and mixed-DPI monitors need broader platform acceptance. Follow-system theme, custom syntax colour schemes and controls awaiting NF2 design decisions or standalone subsystems stay disabled. Dynamic grid contrast follows the page background rather than each artwork pixel. Static preserves manual colour/opacity and hides only an axis whose fixed spacing is below one screen point. Commands/.nfsl execution remains undefined. Brush/Pencil headers use the existing shared TypeHeader until its approved compact variant is supplied; unsupported brush and stroke options remain disabled.",
+      "limitations": "Main-window side groups remain stacked rows/columns; arbitrary recursive main-window splits remain unavailable. Output history belongs to each session (Output starts empty cleanly rather than seeding a synthetic boot line) and is not a persistent disk log; broader operation-specific notification routing is not complete. Live panels, dialogs, Tool Options and Test Movie route directly without Planned feature placeholders (Debugger is a persistent dockable panel under Window ▸ Panels, and Actions/Debugger/Output/Test Movie state is isolated per open document tab); custom ScriptTab multi-tab bars, clickable gutter chrome and overview rulers remain queued in NF2-REQUESTS. VoiceOver/IME and mixed-DPI monitors need broader platform acceptance. Follow-system theme, custom syntax colour schemes and controls awaiting NF2 design decisions or standalone subsystems stay disabled. Dynamic grid contrast follows the page background rather than each artwork pixel. Static preserves manual colour/opacity and hides only an axis whose fixed spacing is below one screen point. Commands/.nfsl execution remains undefined. Brush/Pencil headers use the existing shared TypeHeader until its approved compact variant is supplied; unsupported brush and stroke options remain disabled.",
       "items": [
         {
           "id": "docked-panels",
@@ -245,6 +245,11 @@
           "id": "stage-object-context-actions",
           "title": "Open object context actions under every Stage tool, including Break Apart, Group, Ungroup and Trace bitmap",
           "status": "working"
+        },
+        {
+          "id": "dockable-debugger-workspace",
+          "title": "Dockable Debugger panel, empty initial Output state and per-tab Actions/Debugger/Output isolation",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -314,7 +319,10 @@
         "crates/neoflash-editor/src/panels/properties_video.rs",
         "crates/neoflash-editor/src/panels/export_audio.rs",
         "crates/neoflash-editor/src/panels/export_video.rs",
-        "crates/neoflash-editor/src/panels/help_manual.rs"
+        "crates/neoflash-editor/src/panels/help_manual.rs",
+        "crates/neoflash-editor/src/panels/debugger.rs",
+        "crates/neoflash-editor/src/debugger_protocol.rs",
+        "crates/neoflash-editor/src/document_sessions.rs"
       ]
     },
     {
@@ -1712,9 +1720,9 @@
       "id": "animation-lifecycle",
       "category": "animation",
       "title": "Complete Flash timeline lifecycle",
-      "status": "partial",
-      "scope": "Removing and recreating an instance starts a new lifetime; stale dispatches are rejected and goto has protection against an unbounded queue. Same-path symbol replacement resets subtree overrides, custom fields and clocks, invalidates old proxies and preserves siblings; accepted in Chrome/in-app HTML5. Scenes flatten in play order for Test Movie and HTML5 export (preserving scene-local timing for synchronized layers), while Control ▸ Test scene (⌥⌘↵) publishes and previews only the currently edited scene. Native Play all scenes with Loop off plays through the final scene before stopping.",
-      "limitations": "Construction/re-entry order, complex nested goto and complete Flash Player semantics still need conformance work.",
+      "status": "implemented",
+      "scope": "Phased Rust/WASM and HTML5 lifecycle ordering (ENTER_FRAME -> timeline step -> Construct / deepest-child-first REMOVED & REMOVED_FROM_STAGE -> FRAME_CONSTRUCTED -> Event.FRAME_LABEL / FrameScripts -> EXIT_FRAME -> RENDER): parent super() constructs timeline children, assigns typed slots and fires child ADDED before post-super() statements; synchronous AS3 goto*/nextFrame/prevFrame/*Scene supersede stale pending scripts via visit_id while preserving deferred AS2 goto semantics and detached-clip lifecycle events. Removing and recreating an instance starts a new lifetime; same-path symbol replacement resets subtree overrides, custom fields and clocks, invalidates old proxies and preserves siblings; accepted in Chrome/in-app HTML5. Scenes flatten in play order for Test Movie and HTML5 export (preserving scene-local timing for synchronized layers), while Control ▸ Test scene (⌥⌘↵) publishes and previews only the currently edited scene. Native Play all scenes with Loop off plays through the final scene before stopping.",
+      "limitations": "Re-entrant AS3 inner-goto execution is bounded (MAX_LIFECYCLE_DEPTH = 128, MAX_LIFECYCLE_STEPS = 4096), and complete Flash Player edge-case conformance outside the verified lifecycle suites still needs conformance work.",
       "items": [
         {
           "id": "instance-lifetimes",
@@ -1739,7 +1747,7 @@
         {
           "id": "construction-order",
           "title": "Flash construction and re-entry order",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "scenes",
@@ -1760,7 +1768,10 @@
         "examples/symbol-replacement.nflash",
         "docs/VERIFICATION.md",
         "crates/neoflash-core/src/scenes.rs",
-        "crates/neoflash-core/tests/frame_labels.rs"
+        "crates/neoflash-core/tests/frame_labels.rs",
+        "crates/neoflash-core/src/runtime_lifecycle.rs",
+        "crates/neoflash-core/tests/runtime_lifecycle.rs",
+        "web/tests/as3-frame-lifecycle.test.cjs"
       ]
     },
     {
@@ -1998,9 +2009,9 @@
       "id": "web-shared-runtime",
       "category": "web",
       "title": "Shared Rust/WASM core",
-      "status": "implemented",
-      "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM. Runtime-created object identity, hierarchy, solid drawing, transformed bounds/hits and captured lifecycle routes use the shared Rust/WASM scene while authored documents remain immutable. Explicit linked MovieClip namespaces reuse the shared timeline evaluator with independent frame scripts, nested clocks and ref-based semantic targets, including detached playback. Bounded AMF0/AMF3 values are encoded/decoded in Rust and used by ByteArray object records and local AS2/AS3 SharedObject persistence. The second bounded runtime batch adds Rust date/number formatting, four rendered filter families and manual AS3 event payload classes.",
-      "limitations": "A shared implementation does not prove compatibility with Flash behavior. The combined dynamic-display browser workflow and Restart passed; authored/dynamic reordering and full Flash construction order remain bounded. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. This persistence/codec delivery has separate evidence. Typed aliases/class reconstruction, externalizable/XML/Vector/Dictionary values, native .sol files and remote synchronization remain pending. Browser quota/access and HTTP(S) origin rules apply; Restart discards unflushed edits. AMF payload size excludes the storage envelope and historical filesystem overhead.",
+      "status": "partial",
+      "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM. Runtime-created object identity, hierarchy, solid drawing, transformed bounds/hits and captured lifecycle routes use the shared Rust/WASM scene while authored documents remain immutable. Explicit linked MovieClip namespaces reuse the shared timeline evaluator with independent frame scripts, nested clocks and ref-based semantic targets, including detached playback. Bounded AMF0/AMF3 values are encoded/decoded in Rust and used by ByteArray object records and local AS2/AS3 SharedObject persistence. AS3 Array prototype borrowing (`Array.prototype.*`), unbound `toString`/`toLocaleString`, and sparse hole semantics share the runtime collection kernel (`T-011`). The second bounded runtime batch adds Rust date/number formatting, four rendered filter families and manual AS3 event payload classes.",
+      "limitations": "A shared implementation does not prove compatibility with Flash behavior. The combined dynamic-display browser workflow and Restart passed; authored/dynamic reordering and full Flash construction order remain bounded. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. Typed class aliases (`registerClassAlias`/`getClassByAlias`) work in `web/amf.js`, while `IExternalizable`/XML/Vector/Dictionary values, native host `.sol` file I/O and remote RTMP synchronization remain unimplemented. Browser quota/access and HTTP(S) origin rules apply; Restart discards unflushed edits. AMF payload size excludes the storage envelope and historical filesystem overhead.",
       "items": [
         {
           "id": "shared-timeline",
@@ -2049,8 +2060,8 @@
         },
         {
           "id": "sol-remote-sync",
-          "title": "Native .sol files and remote SharedObject sync",
-          "status": "working"
+          "title": "Browser local/cross-tab SharedObject sync and SOL codec (native .sol file I/O and RTMP remote sync remain unimplemented)",
+          "status": "partial"
         }
       ],
       "evidence": [
@@ -2076,7 +2087,9 @@
         "docs/RUNTIME-EVENTS-PROVENANCE.md",
         "docs/RUNTIME-FILTERS-PROVENANCE.md",
         "docs/RUNTIME-DATE-PROVENANCE.md",
-        "docs/RUNTIME-NUMBER-FORMAT-PROVENANCE.md"
+        "docs/RUNTIME-NUMBER-FORMAT-PROVENANCE.md",
+        "crates/neoflash-script/src/actionscript/collections.js",
+        "crates/neoflash-script/tests/collections-fixtures.mjs"
       ]
     },
     {
@@ -2124,7 +2137,7 @@
       "title": "TypeScript frame and object handlers",
       "status": "implemented",
       "scope": "Oxc removes annotations and transforms supported runtime constructs in handlers.",
-      "limitations": "TypeScript type checking is absent; imports/modules, JSX/TSX and external transform helpers are unsupported.",
+      "limitations": "TypeScript checking operates against NeoFlash's bounded ActionScript/authoring profile rather than full tsc generics, ambient declarations or external transform helpers; unsupported dynamic forms report compiler diagnostics.",
       "items": [
         {
           "id": "ts-handlers",
@@ -2161,7 +2174,7 @@
       "title": "Authored events and interactivity",
       "status": "implemented",
       "scope": "Authored frame/Load/Click/EnterFrame handlers plus shared display/Stage EventDispatcher subscriptions, propagation/cancellation, bounded keyboard/pointer input and AS2 onEnterFrame/onPress callbacks. Captured AS2 Key/Mouse/Stage listener objects, keyboard state and hook-based cursor visibility share the same input hub and reset lifecycle. Publication-owned AS3 timers drive the same script/render lifecycle, with completion, elapsed-time queries and Restart cleanup; the geometry-timer example combines this with typed affine geometry and live text. Pointer capture and outside release share the drag lifecycle; AS2 gains onRelease/onReleaseOutside/onRollOver/onRollOut, and mouse target flags/cursor preferences are resolved against the current Rust display graph. Rust-owned callback timer IDs add AS2/AS3 interval/timeout functions; the scripted Tween family shares the existing event/scheduler service. Bounded AS2 AsBroadcaster adds ordered listener identity, dispatch and publication reset cleanup. The second bounded runtime batch adds Rust date/number formatting, four rendered filter families and manual AS3 event payload classes.",
-      "limitations": "Full Flash construction/event order, remaining native callbacks, fullscreen/IME/touch and complete owner-specific API guards remain unfinished. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent frozen-01f1381 browser verification found trusted mouse click events with isPrimary=false dropped by the shared Stage guard; semantic Enter and keyboard paths passed. The corrected input route passed coordinate clicks and Restart in the original class/Stage examples; an unlocated aggregate observer exception remains open. The new AS2 combined scenario has executable host/WASM evidence; representative coordinate clicks, keyboard and Restart also passed in the in-app browser. The combined geometry/Timer browser workflow and Restart passed; historical Flash timing and cross-engine conformance remain unverified. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified. This family has separate grouped input/drag verification; exact historical event ordering, all native-text/semantic combinations, multi-touch and other browser engines remain unverified. The drag delivery separately passed real AS2/AS3 browser drags, invisible donor margin, child/disabled targeting, outside release and fresh Restart callbacks; existing linked-card Canvas and keyboard activation also passed. Native capture-at-Restart and cursor values retain controlled-helper evidence. Full declaration promotion remains a separate audit. Independent 01f2261 evidence (POINTER-HTML5-20261027T1113Z) is restricted to the real drag/drop, child/disabled targeting, outside-release and Restart observations in VERIFICATION.md. The actual AS3 parent is unrotated and AS2 parent is −4 degrees, both scale 1. Cursor effects, active-capture Restart, lockCenter, active bounds mutation, arbitrary donor/transform/cancellation cases and every nested hit path were not independently accepted. The linked regression has successful body/key controls plus one unresolved first coordinate miss; it is not complete nested-target coverage. The shared linked body/semantic controls preserve authored behavior in the tested routes, while the first possible nested-badge miss remains unresolved. Native cursor/accessibility conformance is not inferred. Callback timer/Tween/broadcaster behavior is partial, and the newly added broadcaster browser scenario is pending. Historical event order, arbitrary coercion and direct listener-array mutation are not claimed. This hour's batch remains partial; acceptance and any observed failures are recorded separately in docs/AS-RUNTIME-HOUR.md. Earlier browser evidence does not certify the new entries or full historical conformance.",
+      "limitations": "Full Flash construction/event order, remaining native callbacks and complete owner-specific API guards remain unfinished. Representative family behavior passed in the shared in-app-browser batch; this is not full API or cross-engine acceptance. Independent frozen-01f1381 browser verification found trusted mouse click events with isPrimary=false dropped by the shared Stage guard; semantic Enter and keyboard paths passed. The corrected input route passed coordinate clicks and Restart in the original class/Stage examples; an unlocated aggregate observer exception remains open. The new AS2 combined scenario has executable host/WASM evidence; representative coordinate clicks, keyboard and Restart also passed in the in-app browser. The combined geometry/Timer browser workflow and Restart passed; historical Flash timing and cross-engine conformance remain unverified. Independent a3fedc3 browser evidence covers the specific class/input scenarios in VERIFICATION.md; all untested members remain bounded or unverified. This family has separate grouped input/drag verification; exact historical event ordering, all native-text/semantic combinations, multi-touch and other browser engines remain unverified. The drag delivery separately passed real AS2/AS3 browser drags, invisible donor margin, child/disabled targeting, outside release and fresh Restart callbacks; existing linked-card Canvas and keyboard activation also passed. Native capture-at-Restart and cursor values retain controlled-helper evidence. Full declaration promotion remains a separate audit. Independent 01f2261 evidence (POINTER-HTML5-20261027T1113Z) is restricted to the real drag/drop, child/disabled targeting, outside-release and Restart observations in VERIFICATION.md. The actual AS3 parent is unrotated and AS2 parent is −4 degrees, both scale 1. Cursor effects, active-capture Restart, lockCenter, active bounds mutation, arbitrary donor/transform/cancellation cases and every nested hit path were not independently accepted. The linked regression has successful body/key controls plus one unresolved first coordinate miss; it is not complete nested-target coverage. The shared linked body/semantic controls preserve authored behavior in the tested routes, while the first possible nested-badge miss remains unresolved. Native cursor/accessibility conformance is not inferred. Callback timer/Tween/broadcaster behavior is partial, and the newly added broadcaster browser scenario is pending. Historical event order, arbitrary coercion and direct listener-array mutation are not claimed. This hour's batch remains partial; acceptance and any observed failures are recorded separately in docs/AS-RUNTIME-HOUR.md. Earlier browser evidence does not certify the new entries or full historical conformance.",
       "items": [
         {
           "id": "authored-handlers",
@@ -2329,29 +2342,29 @@
       "id": "web-dom-layout",
       "category": "web",
       "title": "DOM websites and apps",
-      "status": "implemented",
-      "scope": "Semantic DOM text, forms and inputs, web components, responsive layout and breakpoints.",
-      "limitations": "Current publishing uses a fixed Canvas stage; the Button/Image overlay does not provide DOM authoring.",
+      "status": "partial",
+      "scope": "Bundled standalone NeoFlashDomLayout helper in web/dom-layout.js provides tested semantic DOM text, forms/inputs, web component wrapper and responsive breakpoint primitives.",
+      "limitations": "NeoFlashDomLayout is bundled and unit-tested standalone (dom-layout-and-portability.test.cjs), but is not invoked by web/runtime.js during HTML5 publishing; current publishing renders on a fixed Canvas stage and the Button/Image overlay does not provide end-to-end DOM layout authoring.",
       "items": [
         {
           "id": "dom-text",
-          "title": "Semantic DOM text",
-          "status": "working"
+          "title": "Semantic DOM text helper (standalone runtime API; not wired into Canvas stage publishing)",
+          "status": "partial"
         },
         {
           "id": "forms-inputs",
-          "title": "DOM forms and inputs",
-          "status": "working"
+          "title": "DOM forms and inputs helper (standalone runtime API; not wired into Canvas stage publishing)",
+          "status": "partial"
         },
         {
           "id": "web-components",
-          "title": "Web components",
-          "status": "working"
+          "title": "Web components helper (standalone runtime API; not wired into Canvas stage publishing)",
+          "status": "partial"
         },
         {
           "id": "responsive-layout",
-          "title": "Responsive layout and breakpoints",
-          "status": "working"
+          "title": "Responsive layout and breakpoints helper (standalone runtime API; not wired into Canvas stage publishing)",
+          "status": "partial"
         }
       ],
       "evidence": [
@@ -2367,7 +2380,7 @@
       "category": "web",
       "title": "Project sources, modules and debugging",
       "status": "implemented",
-      "scope": "Embedded AS2/AS3 source units use distinct bounded class profiles with exact imports, shared publication programs, authored symbol linkage and source-path diagnostics. AS2 root document linkage is a NeoFlash extension. Sources can be browsed, created, renamed, deleted and published from the Project panel (showing class linkage to symbols or the document class, with double-click opening Actions) and edited in Actions. Actions offers a toolbox and code hints generated from the declarations NeoFlash implements or partially implements, plus project classes scanned from source, 25 classic Flash MX 2004 / Flash 8 AS1/AS2 variable-name suffix (`_mc`, `_btn`, `_txt`, `_fmt`, `_str`, `_array`, `_sound`, `_xml`, `_xmlsocket`, `_lv`, `_cm`, `_cmi`, `_color`, `_date`, `_err`, `_nc`, `_ns`, `_so`, `_video`, `_cam`, `_mic`, `_mcl`, `_pj`, `_style`, `_tl`) and `// Type varName;` comment type hints, a Script navigator, auto-indent formatting, comment commands and a silent live check. The dockable Compiler errors panel (`Window ▸ Panels ▸ Compiler errors` `⌥F2`) filters, copies, jumps to diagnostic locations on double-click and applies one-click safe Quick-Fixes (with single-step Undo), and the Code snippets panel (`Window ▸ Panels ▸ Code snippets`) provides 80 categorized templates across AS3, AS2, AS1, JavaScript and TypeScript with automatic stage-instance binding. AS3 projects can import bounded ByteArray/Endian buffers; unsupported native inheritance and constructor forms produce source diagnostics. Explicit exported MovieClip classes instantiate shared library timelines through AS3 construction or AS2 attachMovie, with independent namespace refs, nested clocks and script targets. Public AS3 get/set accessors and project interface contracts share the existing source compiler. Portable project resources feed the AS3 URLRequest/URLLoader/URLVariables and AS2 LoadVars families; requests share publication lifecycle and binary/event services. AS3 lexical class access, final/dynamic declarations and package wildcards connect encapsulated models to public data/display APIs; AS2 retains distinct compile-time private rules. The bounded AS2/AS3 hour adds and migrates large runtime families through the existing compiler and HTML5 exporter: Math (19 migrated paths), geometry/Color (74 migrated and 46 new entries), strings/codecs (19 migrated and 8 new), easing/Tween/CustomEase/timers (121 new), ByteArray codecs (5 migrated and 12 new), and AsBroadcaster (5 new). Individual licensed algorithms are adapted into the shared Rust core; browser adapters bind object identity, callbacks and browser facilities. Shared aliases and reused kernels are counted separately from algorithms; no editor, FLA or full-VM completion is implied. Actions displays exact diagnostic ranges, hover/F8 explanations, mouse/keyboard safe-fix choices with one Undo and advisory AST type-flow hints. HTML5 maps handler, class and module errors/trace to authored sources. The native Debugger connects to an owned Chromium Test Movie for source breakpoints, conditional and hit-count (`>= N`) breakpoints, actual Pause/Continue and all three steps, mapped stacks, live `Watch` expressions, scalar variable editing (`Debugger.setVariableValue` / `Runtime.evaluate`) and Restart. The Debugger toolbar distinguishes Connecting/Running/Paused/Disconnected, offers Restart after disconnect, inline errors with Retry and unavailable-browser reasons, and hides stale stack/variables without a paused frame.",
+      "scope": "Embedded AS2/AS3 source units use distinct bounded class profiles with exact imports, shared publication programs, authored symbol linkage and source-path diagnostics. AS2 root document linkage is a NeoFlash extension. Sources can be browsed, created, renamed, deleted and published from the Project panel (showing class linkage to symbols or the document class, with double-click opening Actions) and edited in Actions. Actions offers a toolbox and code hints generated from the declarations NeoFlash implements or partially implements, plus project classes scanned from source, 25 classic Flash MX 2004 / Flash 8 AS1/AS2 variable-name suffix (`_mc`, `_btn`, `_txt`, `_fmt`, `_str`, `_array`, `_sound`, `_xml`, `_xmlsocket`, `_lv`, `_cm`, `_cmi`, `_color`, `_date`, `_err`, `_nc`, `_ns`, `_so`, `_video`, `_cam`, `_mic`, `_mcl`, `_pj`, `_style`, `_tl`) and `// Type varName;` comment type hints, a Script navigator, auto-indent formatting, comment commands and a silent live check. The dockable Compiler errors panel (`Window ▸ Panels ▸ Compiler errors` `⌥F2`) filters, copies, jumps to diagnostic locations on double-click and applies one-click safe Quick-Fixes (with single-step Undo), and the Code snippets panel (`Window ▸ Panels ▸ Code snippets`) provides 80 categorized templates across AS3, AS2, AS1, JavaScript and TypeScript with automatic stage-instance binding. AS3 projects can import bounded ByteArray/Endian buffers; unsupported native inheritance and constructor forms produce source diagnostics. Explicit exported MovieClip classes instantiate shared library timelines through AS3 construction or AS2 attachMovie, with independent namespace refs, nested clocks and script targets. Public AS3 get/set accessors and project interface contracts share the existing source compiler. Portable project resources feed the AS3 URLRequest/URLLoader/URLVariables and AS2 LoadVars families; requests share publication lifecycle and binary/event services. AS3 lexical class access, final/dynamic declarations and package wildcards connect encapsulated models to public data/display APIs; AS2 retains distinct compile-time private rules. The bounded AS2/AS3 hour adds and migrates large runtime families through the existing compiler and HTML5 exporter: Math (19 migrated paths), geometry/Color (74 migrated and 46 new entries), strings/codecs (19 migrated and 8 new), easing/Tween/CustomEase/timers (121 new), ByteArray codecs (5 migrated and 12 new), and AsBroadcaster (5 new). Individual licensed algorithms are adapted into the shared Rust core; browser adapters bind object identity, callbacks and browser facilities. Shared aliases and reused kernels are counted separately from algorithms; no editor, FLA or full-VM completion is implied. Actions displays exact diagnostic ranges, hover/F8 explanations, mouse/keyboard safe-fix choices with one Undo and advisory AST type-flow hints. HTML5 maps handler, class and module errors/trace to authored sources. The native Debugger connects to an owned Chromium Test Movie for source breakpoints, conditional and hit-count (`>= N`) breakpoints, actual Pause/Continue and all three steps, mapped stacks, live `Watch` expressions, scalar variable editing (`Debugger.setVariableValue` / `Runtime.evaluate`), mapped `Runtime.consoleAPICalled`/`exceptionThrown` Output routing and Restart. `Debugger` is a persistent dockable panel under `Window ▸ Panels` (`Output` starts cleanly empty, `Actions`/`Debugger`/`Output`/`Test Movie` state is isolated per document tab), distinguishes Connecting/Running/Paused/Disconnected/Not running, manages breakpoints even while idle, offers Restart after disconnect, inline errors with Retry and unavailable-browser reasons, and hides stale stack/variables without a paused frame.",
       "limitations": "Semantic/type-flow checking and full class semantics remain bounded; dynamic or uncertain facts are conservatively unknown. Debugging requires installed Chromium and uses a private pipe/profile. AS maps identify statement starts, identical handlers share source identity, and generated instructions have bounded step continuation. Watch evaluation is bounded to expressions on the active call frame or global runtime state, and variable editing updates scalar values (`Number`, `Boolean`, `String`, `null`, `undefined`). Representative linked-class behavior and Restart passed in the shared in-app-browser batch. The AS2 combined export/WASM/input scenario passes; representative coordinate clicks, keyboard and Restart also passed in the in-app browser. Bounded binary-buffer workflow has independent browser evidence on 2b5deff; binary memory support does not imply loaders, external IO or resource-document support. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. These are delivery-batch entry counts, not a complete declaration audit or language-compatibility percentage.",
       "items": [
         {
@@ -2535,16 +2548,17 @@
         "examples/as3/07-sound-video-loadpublish.nflash",
         "examples/as3/08-interactive-arcade-miniapp.nflash",
         "examples/midnight-express-5.nflash",
-        "crates/neoflash-export/tests/packet7_examples_and_express5.rs"
+        "crates/neoflash-export/tests/packet7_examples_and_express5.rs",
+        "crates/neoflash-editor/src/document_sessions.rs"
       ]
     },
     {
       "id": "web-font-portability",
       "category": "web",
       "title": "Portable fonts and text layout",
-      "status": "partial",
-      "scope": "Author-selected standalone TrueType/OpenType font resources with technical container validation, exact Family/Style metadata bound from selected TextField Properties, author-responsible licence compliance, real TrueType glyph/table subsetting, portable advance-width metrics tables, simple TrueType glyf contour extraction with synthesized fallback outlines, and deterministic Rust line wrapping across native and WASM hosts.",
-      "limitations": "NeoFlash cannot determine what separate font rights an author holds, so OpenType licence flags do not block an explicit embed choice and lawful use remains the author's responsibility. Full Embed carries the complete face and HTML5 export emits a loadable @font-face data URI. Subset performs real TrueType glyph/table closure for supported faces, while dynamic/input fields and preservation-sensitive or unsupported layouts conservatively retain the complete browser-loadable face with an explicit warning. It never serves NeoFlash's NFPM metrics encoding under a font MIME type. Browser CSS registration is face-global, so a device-font field with the same family/style may also resolve to the registered face. Export for ActionScript/class linkage remains metadata-only. Outline export extracts simple TrueType glyf contours and falls back to synthesized glyph geometry for composite glyphs, CFF/OTF outlines, or missing font bytes. Fonts referenced only by family name without embedded bytes still rely on host fallback and emit an export warning.",
+      "status": "implemented",
+      "scope": "Author-selected standalone TrueType/OpenType/WOFF1 font resources with technical container validation, exact Family/Style metadata bound from selected TextField Properties, author-responsible licence compliance, real SFNT/WOFF1 TrueType glyph and GSUB/composite table subsetting, portable advance-width metrics tables, simple TrueType glyf contour extraction with synthesized fallback outlines, @font-face preloading before Frame 0 layout/render, and deterministic Rust/WASM line wrapping across native and browser hosts.",
+      "limitations": "NeoFlash cannot determine what separate font rights an author holds, so OpenType licence flags do not block an explicit embed choice and lawful use remains the author's responsibility. Full Embed carries the complete face and HTML5 export emits a loadable @font-face data URI. Subset performs real SFNT/WOFF1 TrueType glyph/table closure for supported faces, while CFF (OTTO), WOFF2 (wOF2), collections (ttcf), opaque color/bitmap/MATH tables, active complex-shaping GSUB scripts, cmap Format 14 variation sequences, and runtime-editable Dynamic/Input fields without explicit embed ranges retain complete browser-loadable faces with per-font export warnings. It never serves NeoFlash's NFPM metrics encoding under a font MIME type. Browser CSS registration is face-global, so a device-font field with the same family/style may also resolve to the registered face. Export for ActionScript/class linkage remains metadata-only. Outline export extracts simple TrueType glyf contours and falls back to synthesized glyph geometry for composite glyphs, CFF/OTF outlines, or missing font bytes. Fonts referenced only by family name without embedded bytes still rely on host fallback and emit an export warning.",
       "items": [
         {
           "id": "font-embedding",
@@ -2554,7 +2568,7 @@
         {
           "id": "font-subsetting",
           "title": "TrueType glyph/table subsetting with conservative full-face fallbacks",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "outline-export",
@@ -2569,7 +2583,7 @@
         {
           "id": "portable-layout",
           "title": "Predictable text layout on a clean computer",
-          "status": "partial"
+          "status": "working"
         }
       ],
       "evidence": [
@@ -2578,8 +2592,14 @@
         "crates/neoflash-editor/src/text_boxes.rs",
         "docs/ROADMAP.md",
         "README.md",
+        "crates/neoflash-core/src/fonts.rs",
+        "crates/neoflash-core/src/runtime_graph/text.rs",
+        "crates/neoflash-web/src/lib.rs",
         "crates/neoflash-export/src/fonts.rs",
+        "crates/neoflash-export/src/export_lib_tests.rs",
         "crates/neoflash-core/src/text.rs",
+        "web/runtime.js",
+        "web/dom-layout.js",
         "web/tests/dom-layout-and-portability.test.cjs",
         "web/text.js",
         "web/tests/as3-net-sys.test.cjs"
@@ -2739,8 +2759,8 @@
       "category": "web",
       "title": "Publish validation and script failures",
       "status": "implemented",
-      "scope": "Invalid projects, compilation errors and missing runtime files block export; uncaught runtime failures are shown to the user.",
-      "limitations": "Diagnostics for accepted ActionScript constructs do not establish semantic compatibility for every host interaction.",
+      "scope": "Invalid projects, compilation errors, unsupported profile/target mixes and missing runtime files fail before creating or modifying output targets; #include/class paths and source maps stay accurate, uncaught runtime failures map to authored sources, and an automated HTML5 publish-correctness gate verifies AS2/AS3 bundles across Full, Balanced, Compact and Shared profiles in headless Chrome.",
+      "limitations": "Diagnostics and the automated publish gate prove the covered AS2/AS3 examples, contracts and diagnostic paths; they do not establish full historical Flash compatibility across untested APIs, and standalone Safari remote automation requires host permission.",
       "items": [
         {
           "id": "block-invalid",
@@ -2761,10 +2781,18 @@
           "id": "runtime-errors",
           "title": "Show uncaught runtime errors to the user",
           "status": "working"
+        },
+        {
+          "id": "publish-correctness-gate",
+          "title": "Atomic publish preflight and automated AS2/AS3 HTML5 publish-correctness gate",
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
+        "crates/neoflash-export/tests/publish_correctness_gate.rs",
+        "scripts/verify-as-publish-gate.mjs",
+        "web/tests/publish-gate-wasm.test.cjs",
         "web/tests/script-failures.test.cjs",
         "web/tests/restart-failure.test.cjs"
       ]
@@ -3432,8 +3460,8 @@
       "category": "platform",
       "title": "Save and open projects",
       "status": "partial",
-      "scope": "The editor saves and opens .nflash through serialization and validation without tying the document to absolute paths, opens .swf/.fla/.xfl directly into an editable project, exports versioned .fla/XFL through target-profile preflight, and exports a bounded standalone .swf movie with structural re-import verification. Save As .fla creates a modern Animate compatibility copy without retargeting the open native document, replacing its saved snapshot, clearing dirty/recovery state or changing its recent-project identity. Native, FLA/XFL and SWF writers preflight supported fidelity, reserve a unique adjacent temporary file and atomically replace the destination only after a validated result is complete.",
-      "limitations": "FLA/XFL and SWF are compatibility exports rather than lossless Flash/Animate round trips. The other versioned FLA and uncompressed XFL profiles are explicit File ▸ Export routes. FLA/XFL reports its 120 fps ceiling. SWF accepts a bounded script subset, proven PNG and PCM-WAV/MP3 media layouts, and supported static text outlines; unsupported field semantics, codecs, record capacities and frame rates block before writing. Unsupported filters, video or script syntax block or produce a located approximation according to the selected profile; they are never silently discarded. Autosave, recovery and multiple documents are tracked separately.",
+      "scope": "The editor saves and opens .nflash through serialization and validation without tying the document to absolute paths, opens .swf/.fla/.xfl directly into an editable project, exports derived copies across all seven versioned .fla/XFL profiles (Animate CC, CS6, CS5.5, CS5, Uncompressed XFL, CS4 binary, Flash 8 binary) plus neoflash_import::export_fla through target-profile preflight (retaining frame/object scripts, document_class, class_name/linkage_id, external .as sources, XFL bin/sound*.dat media caches, sound trims/envelopes, filters and video placeholders/items), and exports bounded Flash Player 8 AVM1 and Flash Player 9/10 AVM2 standalone .swf movies with structural re-import and SwfBytecodePlayer verification. Save As .fla creates a modern Animate compatibility copy without retargeting the open native document, replacing its saved snapshot, clearing dirty/recovery state or changing its recent-project identity. Native, FLA/XFL and SWF writers reserve temporary outputs and atomically replace destinations only after a validated result completes.",
+      "limitations": "FLA/XFL and SWF remain bounded compatibility exports rather than lossless Adobe Flash/Animate round trips; CS5+/AS3 constructs target legacy profiles only when supported or explicitly converted, and frame rates above 120 fps approximate at 120 fps (or block in strict mode). Cross-conversion of all seven FLA/XFL profiles is verified externally with JPEXS FLA Convert 3.0.0, while SWF export is verified internally via structural re-import and SwfBytecodePlayer (no standalone Adobe Flash Player or Ruffle binary is installed in the test environment). SWF export compiles a bounded AS1/AS2/AS3 subset (including relative #include, per-instance DefineButton2 handlers, unique DoInitAction sprites, DoABC2/SymbolClass document_class and SimpleButton stubs), converts supported visual text to static outlines when requested, encodes frame Stream audio via StartSound event triggers, and blocks unsupported syntax, invalid handler hosts, codecs, >15 gradient stops, mask depth collisions and record overflows without silent stripping unless allow_scriptless_swf is set. Autosave, recovery and multiple documents are tracked separately.",
       "items": [
         {
           "id": "save",
@@ -3443,7 +3471,7 @@
         {
           "id": "save-fla",
           "title": "Export derived copies through versioned FLA/XFL target profiles with compatibility preflight",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "export-swf",
@@ -3466,6 +3494,7 @@
         "crates/neoflash-import/src/xfl_export.rs",
         "crates/neoflash-export/src/fla_preflight.rs",
         "crates/neoflash-export/src/swf.rs",
+        "crates/neoflash-export/tests/fla_and_swf_export.rs",
         "crates/neoflash-core/src/lib.rs",
         "README.md"
       ]
@@ -3609,7 +3638,7 @@
       "category": "platform",
       "title": "Automated checks",
       "status": "implemented",
-      "scope": "Shared check.sh covers lint, Rust tests, actual WASM and representative script/family scenarios. The no-build batch tool exports selected projects independently and prepares one dashboard with separate export, observed runtime and manual behavior states.",
+      "scope": "Shared check.sh covers lint, Rust tests, actual WASM, the AS2/AS3 HTML5 publish-correctness gate (verify-as-publish-gate.mjs) and representative script/family scenarios; check-performance-ab.py runs paired back-to-back A/B thread-CPU regression gates across 14 runtime suites. The no-build batch tool exports selected projects independently and prepares one dashboard with separate export, observed runtime and manual behavior states.",
       "limitations": "Harness availability and export success do not establish browser behavior or Flash conformance. The current batch has shared automated evidence, eight successful exports and representative in-app-browser behavior; native Sources and other browser engines remain pending.",
       "items": [
         {
@@ -3639,6 +3668,7 @@
         "docs/VERIFICATION.md",
         "scripts/prepare-browser-batch.py",
         "scripts/tests/test_browser_batch.py",
+        "scripts/verify-as-publish-gate.mjs",
         "web/tests/batch-browser.html",
         "examples/browser-batch.json"
       ]
@@ -3682,7 +3712,9 @@
         "web/tests/path-cache.test.cjs",
         "docs/BACKLOG.md",
         "crates/neoflash-core/src/history.rs",
-        "crates/neoflash-editor/src/panels/timeline.rs"
+        "crates/neoflash-editor/src/panels/timeline.rs",
+        "scripts/check-performance-ab.py",
+        "crates/neoflash-export/tests/games_script_export.rs"
       ]
     },
     {
