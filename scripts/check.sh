@@ -19,3 +19,4 @@ node crates/neoflash-script/tests/execute.mjs
 node crates/neoflash-script/tests/project-execute.mjs
 python3 -B -m unittest discover -s scripts/tests -p 'test_browser_batch.py'
 cargo run --locked -p neoflash-export -- --demo --output target/artifacts/demo
+node scripts/verify-as-publish-gate.mjs

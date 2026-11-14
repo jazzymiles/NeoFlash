@@ -66,6 +66,7 @@
     const fetchTransport=options.fetch||(typeof global.fetch==='function'?global.fetch.bind(global):null);
     const baseURL=options.baseURL||global.location?.href||null;
     const assetUrls=new Map(Object.entries(options.assetUrls||{}));
+    const resourceAliases=new Map(Object.entries(options.resourceAliases||{}));
     const requests=new WeakSet(),headers=new WeakSet(),variables=new WeakSet(),loaders=new WeakMap(),legacy=new WeakMap();
     const active=new Set(),resources=new Map(),resourceCache=new Map();
     let generation=1,disposed=false,activeBytes=0;
@@ -77,7 +78,7 @@
       if(resources.has(resource.path))throw new TypeError('Duplicate portable resource path.');
       resources.set(resource.path,{...resource,byteLength:length});resourceBytes+=length;
     }
-    function registerResources(list,extraAssetUrls=null){
+    function registerResources(list,extraAssetUrls=null,extraAliases=null){
       open();const added=[];
       for(const resource of list||[]){
         if(!resource||typeof resource.path!=='string'||!resource.path)continue;
@@ -90,6 +91,9 @@
       if(extraAssetUrls&&typeof extraAssetUrls==='object'){
         for(const[k,v]of Object.entries(extraAssetUrls)){if(typeof k==='string'&&typeof v==='string'&&!assetUrls.has(k))assetUrls.set(k,v);}
       }
+      if(extraAliases&&typeof extraAliases==='object'){
+        for(const[k,v]of Object.entries(extraAliases)){if(typeof k==='string'&&typeof v==='string'&&!resourceAliases.has(k))resourceAliases.set(k,v);}
+      }
       return added;
     }
     function unregisterResources(paths){
@@ -98,6 +102,8 @@
         const existing=resources.get(path);
         if(existing){resourceBytes=Math.max(0,resourceBytes-(existing.byteLength||0));resources.delete(path);resourceCache.delete(path);}
         assetUrls.delete(path);
+        resourceAliases.delete(path);
+        for(const[aliasKey,target]of resourceAliases){if(target===path)resourceAliases.delete(aliasKey);}
       }
     }
     const hub=events.create({weakTargets:true,alive:target=>!disposed&&loaders.get(target)?.generation===generation});
@@ -284,7 +290,7 @@
       if(/^[A-Za-z][A-Za-z0-9+.-]*:/.test(url)||url.startsWith('/'))return null;
       let path;try{path=decodeURIComponent(url.split(/[?#]/,1)[0]).replace(/^(?:\.\/)+/,'');}catch(_){throw new TypeError('Resource URL contains an invalid percent escape.');}
       if(path.includes('\\')||path.split('/').some(part=>part==='..'))throw new TypeError('Resource paths cannot traverse directories or use backslashes.');
-      return resources.get(path)||null;
+      return resources.get(path)||(resourceAliases.has(path)?resources.get(resourceAliases.get(path)):null)||null;
     }
     function decodeResource(resource){
       if(resourceCache.has(resource.path))return resourceCache.get(resource.path);

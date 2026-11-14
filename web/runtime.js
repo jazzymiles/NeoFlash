@@ -351,6 +351,7 @@
     }
     const project = bundle.project;
     const bundleAssetUrls = bundle.asset_urls || null;
+    const bundleResourceAliases = bundle.resource_aliases || null;
     const needsPublishedValidator = Boolean(bundle.sprite_sheet || (bundleAssetUrls && Object.keys(bundleAssetUrls).length > 0));
     // Published bundles carry a flattened main timeline plus its scene ranges.
     const scenesJson = bundle.scenes ? JSON.stringify(bundle.scenes) : undefined;
@@ -890,7 +891,7 @@
         legacyGlobals=Object.freeze({...legacyGlobals,ExternalInterface:externalHost.LegacyExternalInterface});
       }
       if(global.NeoFlashNet&&binaryHost&&global.NeoFlashEvents){
-        netHost=global.NeoFlashNet.create({events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],assetUrls:typeof bundleAssetUrls==='undefined'?null:bundleAssetUrls,onError:netFailure,onAfterDispatch:afterTimerEvent,navigate:prepared=>{if(!externalHost)throw new Error('Browser navigation adapter is unavailable. Re-export this publication.');externalHost.navigate(prepared);},legacyVariables:legacyNavigationVariables});
+        netHost=global.NeoFlashNet.create({events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],assetUrls:typeof bundleAssetUrls==='undefined'?null:bundleAssetUrls,resourceAliases:typeof bundleResourceAliases==='undefined'?null:bundleResourceAliases,onError:netFailure,onAfterDispatch:afterTimerEvent,navigate:prepared=>{if(!externalHost)throw new Error('Browser navigation adapter is unavailable. Re-export this publication.');externalHost.navigate(prepared);},legacyVariables:legacyNavigationVariables});
         legacyGlobals=Object.freeze({...legacyGlobals,LoadVars:netHost.LoadVars,getURL:function(url,target,method){const ctx=legacyContext(this);if(typeof url==='string'&&/^asfunction:/i.test(url)){invokeAsfunction(ctx.base,url.slice(11));return;}const owner=ctx.raw!==null&&typeof ctx.raw==='object'?ctx.raw:proxyFor([]);return netHost.getURL(owner,url,target,method);}});
       }
       if(global.NeoFlashAS2Network&&netHost){
@@ -976,15 +977,28 @@
             const pathMap=mounted.resource_path_map||{};
             const remappedResources=[];
             const childAssetUrls={};
+            const childAliases={};
+            const origToRemapped=new Map();
             const rawChildAssets=(childBundle.asset_urls&&typeof childBundle.asset_urls==='object')?childBundle.asset_urls:null;
+            const rawChildAliases=(childBundle.resource_aliases&&typeof childBundle.resource_aliases==='object')?childBundle.resource_aliases:null;
             for(const res of childBundle.project?.resources||[]){
               const mapped=resMap[res.id];
               const nextId=Array.isArray(mapped)?mapped[0]:(typeof mapped==='string'?mapped:res.id);
               const nextPath=typeof pathMap[res.id]==='string'?pathMap[res.id]:(Array.isArray(mapped)?mapped[1]:res.path);
               remappedResources.push({...res,id:nextId,path:nextPath});
+              origToRemapped.set(res.path,nextPath);
               if(rawChildAssets&&typeof rawChildAssets[res.path]==='string'){
                 const resolvedExt=resolveChildAssetUrl(rawChildAssets[res.path],normUrl);
                 if(resolvedExt)childAssetUrls[nextPath]=resolvedExt;
+              }
+            }
+            if(rawChildAliases){
+              for(const[aliasKey,canonTarget]of Object.entries(rawChildAliases)){
+                const remappedTarget=origToRemapped.get(canonTarget);
+                if(typeof aliasKey==='string'&&typeof remappedTarget==='string'){
+                  const prefix=(typeof canonTarget==='string'&&remappedTarget.endsWith(canonTarget))?remappedTarget.slice(0,remappedTarget.length-canonTarget.length):'';
+                  childAliases[prefix+aliasKey]=remappedTarget;
+                }
               }
             }
             if(childBundle.__hydratedSpriteSheet&&typeof player.hydrate_sprite_sheet==='function'){
@@ -1002,7 +1016,7 @@
                 throw new Error(`Failed to hydrate child bundle sprite sheet: ${err instanceof Error?err.message:String(err)}`);
               }
             }
-            const addedPaths=netHost?.registerResources?netHost.registerResources(remappedResources,childAssetUrls):[];
+            const addedPaths=netHost?.registerResources?netHost.registerResources(remappedResources,childAssetUrls,childAliases):[];
             const addedIds=audioHost?.registerResources?audioHost.registerResources(remappedResources):[];
             if(typeof project!=='undefined'&&Array.isArray(project?.resources)){
               const existingIds=new Set(project.resources.map(r=>r.id));

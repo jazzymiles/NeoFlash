@@ -193,7 +193,7 @@ impl Diagnostic {
     }
 
     pub(crate) fn with_path(mut self, path: &str) -> Self {
-        if !path.is_empty() {
+        if self.path.as_deref().is_none_or(str::is_empty) && !path.is_empty() {
             self.path = Some(path.to_owned());
         }
         self

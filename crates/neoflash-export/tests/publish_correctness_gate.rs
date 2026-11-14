@@ -1,0 +1,2454 @@
+use image::{ExtendedColorType, ImageEncoder};
+use neoflash_core::{
+    Color, Element, ElementKind, FillRule, FrameScript, InstancePlayback, Keyframe, Layer,
+    LayerProperties, ObjectEvent, ObjectScript, PathCommand, Project, ResourceUnit, Script,
+    ScriptLanguage, SourceUnit, Symbol, SymbolKind, Timeline, Transform,
+};
+use neoflash_export::{
+    AudioExportPolicy, ExportError, FontExportPolicy, HtmlPublishConfig, PublishOptions,
+    PublishProfile, SizeLevel, export_desktop_app, export_project_with_config,
+    export_project_with_options, export_project_with_profile, export_shared_runtime,
+};
+use neoflash_import::{SwcConflictPolicy, import_swc_bytes, link_swc_into_project};
+use neoflash_script::{Diagnostic, check_project};
+use serde::Serialize;
+use serde_json::Value;
+use std::collections::BTreeMap;
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use zip::write::SimpleFileOptions;
+
+const EXAMPLE_SLUGS: &[&str] = &[
+    "00-child-module",
+    "01-math-geometry",
+    "02-oop-xml-collections",
+    "03-movieclips-nested-timelines",
+    "04-events-stage-align-drag",
+    "05-drawing-api-filters-bitmapdata",
+    "06-dynamic-input-html-text",
+    "07-sound-video-loadpublish",
+    "08-interactive-arcade-miniapp",
+];
+
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new(label: &str) -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let dir = std::env::temp_dir().join(format!(
+            "neoflash-pub-gate-{label}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        Self(dir)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crates dir")
+        .parent()
+        .expect("repo root")
+        .to_path_buf()
+}
+
+fn runtime_dir() -> PathBuf {
+    let dir = repo_root().join("target").join("web-runtime");
+    assert!(
+        dir.join("neoflash_web.js").is_file() && dir.join("neoflash_web_bg.wasm").is_file(),
+        "real WASM web runtime is required at {} (run ./scripts/build-web.sh first)",
+        dir.display()
+    );
+    dir
+}
+
+fn tf(x: f64, y: f64) -> Transform {
+    Transform {
+        x,
+        y,
+        ..Transform::default()
+    }
+}
+
+fn rect_el(id: &str, name: &str, x: f64, y: f64, w: f64, h: f64, fill: Color) -> Element {
+    Element {
+        id: id.into(),
+        name: name.into(),
+        transform: tf(x, y),
+        kind: ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo { x: w, y: 0.0 },
+                PathCommand::LineTo { x: w, y: h },
+                PathCommand::LineTo { x: 0.0, y: h },
+                PathCommand::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+            fill,
+            stroke: [248, 250, 252, 255],
+            stroke_width: 2.0,
+        },
+        ..Element::default()
+    }
+}
+
+fn text_el(id: &str, name: &str, x: f64, y: f64, text: &str, color: Color) -> Element {
+    Element {
+        id: id.into(),
+        name: name.into(),
+        transform: tf(x, y),
+        kind: ElementKind::Text {
+            text: text.into(),
+            font_family: "Arial".into(),
+            font_size: 16.0,
+            color,
+        },
+        ..Element::default()
+    }
+}
+
+fn instance_el(id: &str, name: &str, symbol_id: &str, x: f64, y: f64) -> Element {
+    Element {
+        id: id.into(),
+        name: name.into(),
+        transform: tf(x, y),
+        kind: ElementKind::Instance {
+            symbol_id: symbol_id.into(),
+            playback: InstancePlayback::Independent,
+        },
+        ..Element::default()
+    }
+}
+
+fn single_key_layer(id: &str, name: &str, elements: Vec<Element>) -> Layer {
+    Layer {
+        id: id.into(),
+        name: name.into(),
+        visible: true,
+        locked: false,
+        keyframes: vec![Keyframe {
+            frame: 0,
+            elements,
+            ..Keyframe::default()
+        }],
+        properties: LayerProperties::default(),
+    }
+}
+
+fn mc_symbol(
+    id: &str,
+    name: &str,
+    frame_count: u32,
+    layers: Vec<Layer>,
+    scripts: Vec<FrameScript>,
+) -> Symbol {
+    Symbol {
+        id: id.into(),
+        name: name.into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count,
+            layers,
+            scripts,
+            guides: Vec::new(),
+        },
+        class_name: None,
+        linkage_id: None,
+    }
+}
+
+fn button_symbol(id: &str, name: &str, fill: Color) -> Symbol {
+    Symbol {
+        id: id.into(),
+        name: name.into(),
+        folder: String::new(),
+        kind: SymbolKind::Button,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![single_key_layer(
+                &format!("{id}_l"),
+                "Up",
+                vec![rect_el(&format!("{id}_r"), "", 0.0, 0.0, 140.0, 56.0, fill)],
+            )],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+        class_name: None,
+        linkage_id: None,
+    }
+}
+
+fn project_from_root(name: &str, root: Symbol, extra_symbols: Vec<Symbol>) -> Project {
+    let mut symbols = extra_symbols;
+    let root_id = root.id.clone();
+    symbols.push(root);
+    let mut project = Project {
+        format_version: 6,
+        name: name.into(),
+        width: 960,
+        height: 540,
+        fps: 24,
+        background: [15, 23, 42, 255],
+        root: root_id,
+        symbols,
+        library_folders: Vec::new(),
+        sources: Vec::new(),
+        resources: Vec::new(),
+        document_class: None,
+        scenes: Vec::new(),
+    };
+    project.upgrade_format_for_features();
+    project
+}
+
+fn frame_script(frame: u32, language: ScriptLanguage, source: &str) -> FrameScript {
+    FrameScript {
+        frame,
+        script: Script {
+            language,
+            source: source.into(),
+        },
+    }
+}
+
+fn obj_script(event: ObjectEvent, language: ScriptLanguage, source: &str) -> ObjectScript {
+    ObjectScript {
+        event,
+        script: Script {
+            language,
+            source: source.into(),
+        },
+    }
+}
+
+fn bundle_json_from_file(bundle_path: &Path) -> Value {
+    let text = fs::read_to_string(bundle_path).expect("read bundle.js");
+    let json_text = text
+        .trim()
+        .strip_prefix("globalThis.NeoFlashBundle = ")
+        .expect("bundle prefix")
+        .strip_suffix(';')
+        .expect("bundle suffix");
+    serde_json::from_str(json_text).expect("parse bundle json")
+}
+
+fn snapshot_tree(root: &Path) -> BTreeMap<String, Vec<u8>> {
+    fn walk(base: &Path, dir: &Path, out: &mut BTreeMap<String, Vec<u8>>) {
+        let mut entries: Vec<_> = fs::read_dir(dir)
+            .expect("read_dir")
+            .map(|r| r.expect("dir entry"))
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let path = entry.path();
+            let rel = path
+                .strip_prefix(base)
+                .expect("strip prefix")
+                .to_string_lossy()
+                .replace('\\', "/");
+            if path.is_dir() {
+                walk(base, &path, out);
+            } else {
+                out.insert(rel, fs::read(&path).expect("read snapshot file"));
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    if root.exists() {
+        walk(root, root, &mut out);
+    }
+    out
+}
+
+// --- Minimal SWC builder for AS3 SWC linkage & asset gate ---
+
+struct BitWriter {
+    buf: u128,
+    len: u32,
+}
+
+impl BitWriter {
+    fn new() -> Self {
+        Self { buf: 0, len: 0 }
+    }
+    fn push(&mut self, val: u64, n: u32) {
+        let mask = if n == 64 { u64::MAX } else { (1u64 << n) - 1 };
+        self.buf = (self.buf << n) | u128::from(val & mask);
+        self.len += n;
+    }
+    fn finish(mut self) -> Vec<u8> {
+        let pad = (8 - (self.len % 8)) % 8;
+        if pad > 0 {
+            self.push(0, pad);
+        }
+        let total = (self.len / 8) as usize;
+        let mut out = Vec::with_capacity(total);
+        for i in (0..total).rev() {
+            out.push(((self.buf >> (i * 8)) & 0xff) as u8);
+        }
+        out
+    }
+}
+
+fn swf_tag(out: &mut Vec<u8>, code: u16, payload: &[u8]) {
+    if payload.len() < 0x3f {
+        out.extend_from_slice(&((code << 6) | (payload.len() as u16)).to_le_bytes());
+    } else {
+        out.extend_from_slice(&((code << 6) | 0x3f).to_le_bytes());
+        out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    }
+    out.extend_from_slice(payload);
+}
+
+fn build_gate_swc_bytes() -> Vec<u8> {
+    let mut shape = Vec::new();
+    shape.extend_from_slice(&1_u16.to_le_bytes());
+    shape.push(0x00);
+    shape.push(1);
+    shape.push(0x00);
+    shape.extend_from_slice(&[56, 189, 248]);
+    shape.push(0);
+    shape.push(0x10);
+    let mut sb = BitWriter::new();
+    sb.push(0b0_00101, 6);
+    sb.push(0, 5);
+    sb.push(1, 1);
+    for (vert, val) in [
+        (0u64, 400u64),
+        (1, 400),
+        (0, (-400i32) as i64 as u64),
+        (1, (-400i32) as i64 as u64),
+    ] {
+        sb.push(0b11, 2);
+        sb.push(8, 4);
+        sb.push(0, 1);
+        sb.push(vert, 1);
+        sb.push(val, 10);
+    }
+    sb.push(0, 6);
+    shape.extend_from_slice(&sb.finish());
+
+    let mut sprite = Vec::new();
+    sprite.extend_from_slice(&2_u16.to_le_bytes());
+    sprite.extend_from_slice(&1_u16.to_le_bytes());
+    let mut mb = BitWriter::new();
+    mb.push(0, 1);
+    mb.push(0, 1);
+    mb.push(5, 5);
+    mb.push(0, 5);
+    mb.push(0, 5);
+    let mut po2 = vec![0x06];
+    po2.extend_from_slice(&1_u16.to_le_bytes());
+    po2.extend_from_slice(&1_u16.to_le_bytes());
+    po2.extend_from_slice(&mb.finish());
+    swf_tag(&mut sprite, 26, &po2);
+    swf_tag(&mut sprite, 1, &[]);
+    swf_tag(&mut sprite, 0, &[]);
+
+    let mut tags = Vec::new();
+    swf_tag(&mut tags, 69, &[0x08, 0x00, 0x00, 0x00]);
+    swf_tag(&mut tags, 2, &shape);
+    swf_tag(&mut tags, 39, &sprite);
+    let mut sym_cls = Vec::new();
+    sym_cls.extend_from_slice(&1_u16.to_le_bytes());
+    sym_cls.extend_from_slice(&2_u16.to_le_bytes());
+    sym_cls.extend_from_slice(b"com.kit.SwcPanel\0");
+    swf_tag(&mut tags, 76, &sym_cls);
+    swf_tag(&mut tags, 1, &[]);
+
+    let mut body = Vec::new();
+    let mut hdr = BitWriter::new();
+    hdr.push(16, 5);
+    hdr.push(0, 16);
+    hdr.push(4000, 16);
+    hdr.push(0, 16);
+    hdr.push(4000, 16);
+    body.extend_from_slice(&hdr.finish());
+    body.extend_from_slice(&0x1800_u16.to_le_bytes());
+    body.extend_from_slice(&1_u16.to_le_bytes());
+    body.extend_from_slice(&tags);
+    swf_tag(&mut body, 0, &[]);
+    let total_len = (8 + body.len()) as u32;
+    let mut swf = vec![b'F', b'W', b'S', 10];
+    swf.extend_from_slice(&total_len.to_le_bytes());
+    swf.extend_from_slice(&body);
+
+    let mut rgba = Vec::with_capacity(16 * 4);
+    for _ in 0..16 {
+        rgba.extend_from_slice(&[34, 211, 238, 255]);
+    }
+    let mut png = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut png)
+        .write_image(&rgba, 4, 4, ExtendedColorType::Rgba8)
+        .unwrap();
+
+    let catalog = r#"<?xml version="1.0" encoding="utf-8"?>
+<swc xmlns="http://www.adobe.com/flash/swccatalog/9">
+  <versions><swc version="1.2"/></versions>
+  <features><feature-script-deps/><feature-components/><feature-files/></features>
+  <components>
+    <component className="com.kit:SwcPanel" name="SwcPanel" icon="assets/swc-icon.png"/>
+  </components>
+  <libraries>
+    <library path="library.swf">
+      <script name="com/kit/SwcPanel" mod="100">
+        <def id="com.kit:SwcPanel"/>
+        <dep id="flash.display:MovieClip" type="i"/>
+      </script>
+      <script name="com/kit/SwcHelper" mod="100">
+        <def id="com.kit:SwcHelper"/>
+      </script>
+    </library>
+  </libraries>
+  <files><file path="assets/swc-icon.png" mod="100"/></files>
+</swc>"#;
+
+    let mut cur = std::io::Cursor::new(Vec::new());
+    {
+        let mut z = zip::ZipWriter::new(&mut cur);
+        let opts = SimpleFileOptions::default();
+        z.start_file("catalog.xml", opts).unwrap();
+        z.write_all(catalog.as_bytes()).unwrap();
+        z.start_file("library.swf", opts).unwrap();
+        z.write_all(&swf).unwrap();
+        z.start_file("assets/swc-icon.png", opts).unwrap();
+        z.write_all(&png).unwrap();
+        z.finish().unwrap();
+    }
+    cur.into_inner()
+}
+
+// --- Focused project builders (shared between unit tests & browser gate exporter) ---
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InteractionSpec {
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    x: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    y: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_x: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_y: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expect_trace: Option<&'static str>,
+}
+
+struct CaseSpec {
+    id: &'static str,
+    group: &'static str,
+    language: &'static str,
+    project: Project,
+    child_project: Option<Project>,
+    clean_chrome: bool,
+    allow_file_protocol: bool,
+    expected_pass: &'static str,
+    expected_error_substrings: Vec<&'static str>,
+    interactions: Vec<InteractionSpec>,
+    verify_restart: bool,
+}
+
+fn build_focus_as2_frame_scripts() -> CaseSpec {
+    let root = mc_symbol(
+        "scene",
+        "Main",
+        4,
+        vec![
+            Layer {
+                id: "l_ui".into(),
+                name: "UI".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![text_el(
+                        "st",
+                        "statusText",
+                        40.0,
+                        40.0,
+                        "init",
+                        [226, 232, 240, 255],
+                    )],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties::default(),
+            },
+            Layer {
+                id: "l0".into(),
+                name: "Labels".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        label: "start".into(),
+                        ..Keyframe::default()
+                    },
+                    Keyframe {
+                        frame: 3,
+                        label: "gate_end".into(),
+                        ..Keyframe::default()
+                    },
+                ],
+                properties: LayerProperties::default(),
+            },
+        ],
+        vec![
+            frame_script(
+                0,
+                ScriptLanguage::ActionScript2,
+                "var logSeq = ['f1'];\ngotoAndStop('gate_end');",
+            ),
+            frame_script(
+                3,
+                ScriptLanguage::ActionScript2,
+                "stop();\nlogSeq.push('f4');\nstatusText.text = logSeq.join('>');\ntrace('[PASS] focus-as2-frame-scripts seq=' + logSeq.join('>'));",
+            ),
+        ],
+    );
+    CaseSpec {
+        id: "focus-as2-frame-scripts",
+        group: "focused",
+        language: "as2",
+        project: project_from_root("Focus AS2 Frame Scripts", root, vec![]),
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "[PASS] focus-as2-frame-scripts seq=f1>f4",
+        expected_error_substrings: vec![],
+        interactions: vec![],
+        verify_restart: true,
+    }
+}
+
+fn build_focus_as3_frame_scripts() -> CaseSpec {
+    let root = mc_symbol(
+        "scene",
+        "Main",
+        4,
+        vec![
+            Layer {
+                id: "l_ui".into(),
+                name: "UI".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![text_el(
+                        "st",
+                        "statusText",
+                        40.0,
+                        40.0,
+                        "init",
+                        [226, 232, 240, 255],
+                    )],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties::default(),
+            },
+            Layer {
+                id: "l0".into(),
+                name: "Labels".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        label: "start".into(),
+                        ..Keyframe::default()
+                    },
+                    Keyframe {
+                        frame: 3,
+                        label: "gate_end".into(),
+                        ..Keyframe::default()
+                    },
+                ],
+                properties: LayerProperties::default(),
+            },
+        ],
+        vec![
+            frame_script(
+                0,
+                ScriptLanguage::ActionScript3,
+                "var logSeq:Array = ['f1'];\ngotoAndStop('gate_end');",
+            ),
+            frame_script(
+                3,
+                ScriptLanguage::ActionScript3,
+                "stop();\nlogSeq.push('f4');\nstatusText.text = logSeq.join('>');\ntrace('[PASS] focus-as3-frame-scripts seq=' + logSeq.join('>'));",
+            ),
+        ],
+    );
+    CaseSpec {
+        id: "focus-as3-frame-scripts",
+        group: "focused",
+        language: "as3",
+        project: project_from_root("Focus AS3 Frame Scripts", root, vec![]),
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "[PASS] focus-as3-frame-scripts seq=f1>f4",
+        expected_error_substrings: vec![],
+        interactions: vec![],
+        verify_restart: true,
+    }
+}
+
+fn build_focus_as2_object_handlers() -> CaseSpec {
+    let clip_sym = mc_symbol(
+        "clip_sym",
+        "ClickClip",
+        1,
+        vec![single_key_layer(
+            "cl",
+            "Art",
+            vec![rect_el(
+                "cr",
+                "",
+                0.0,
+                0.0,
+                140.0,
+                56.0,
+                [56, 189, 248, 255],
+            )],
+        )],
+        vec![],
+    );
+    let btn_sym = button_symbol("btn_sym", "GateButton", [244, 114, 182, 255]);
+    let gem_sym = mc_symbol(
+        "gem_sym",
+        "GemSym",
+        1,
+        vec![single_key_layer(
+            "gl",
+            "Art",
+            vec![rect_el(
+                "gr",
+                "",
+                0.0,
+                0.0,
+                100.0,
+                40.0,
+                [250, 204, 21, 255],
+            )],
+        )],
+        vec![],
+    );
+    let outer_sym = mc_symbol(
+        "outer_sym",
+        "OuterBox",
+        1,
+        vec![single_key_layer(
+            "ol",
+            "Outer",
+            vec![
+                rect_el("obg", "", 0.0, 0.0, 180.0, 90.0, [30, 41, 59, 255]),
+                instance_el("gem_i", "innerGem", "gem_sym", 30.0, 20.0),
+            ],
+        )],
+        vec![],
+    );
+
+    let mut btn_clip = instance_el("clip_i", "clipBtn", "clip_sym", 80.0, 120.0);
+    btn_clip.scripts = vec![
+        obj_script(
+            ObjectEvent::Load,
+            ScriptLanguage::ActionScript2,
+            "_root.objLoaded = (_root.objLoaded || 0) + 1;",
+        ),
+        obj_script(
+            ObjectEvent::EnterFrame,
+            ScriptLanguage::ActionScript2,
+            "if (!_root.efSeen) { _root.efSeen = true; _root.maybePass(); }",
+        ),
+        obj_script(
+            ObjectEvent::Click,
+            ScriptLanguage::ActionScript2,
+            "trace('[EVENT] as2-clip-click target=' + this._name);",
+        ),
+    ];
+    let mut push_btn = instance_el("btn_i", "pushBtn", "btn_sym", 260.0, 120.0);
+    push_btn.scripts = vec![obj_script(
+        ObjectEvent::Click,
+        ScriptLanguage::ActionScript2,
+        "trace('[EVENT] as2-button-click target=' + this._name);",
+    )];
+    let outer_inst = instance_el("outer_i", "outerBox", "outer_sym", 460.0, 120.0);
+
+    let root = mc_symbol(
+        "scene",
+        "Main",
+        1,
+        vec![single_key_layer(
+            "main_l",
+            "Stage",
+            vec![
+                text_el(
+                    "st",
+                    "statusText",
+                    40.0,
+                    40.0,
+                    "waiting",
+                    [226, 232, 240, 255],
+                ),
+                btn_clip,
+                push_btn,
+                outer_inst,
+            ],
+        )],
+        vec![frame_script(
+            0,
+            ScriptLanguage::ActionScript2,
+            r#"stop();
+var owner:MovieClip = this;
+_root.maybePass = function():Void {
+  if (!_root.passEmitted && _root.objLoaded == 1 && _root.efSeen) {
+    _root.passEmitted = true;
+    trace("[PASS] focus-as2-object-handlers loaded=" + _root.objLoaded);
+  }
+};
+this.outerBox.innerGem.onRelease = function():Void {
+  trace("[EVENT] as2-nested-target=" + this._name + " parent=" + this._parent._name);
+};
+_root.maybePass();
+"#,
+        )],
+    );
+    CaseSpec {
+        id: "focus-as2-object-handlers",
+        group: "focused",
+        language: "as2",
+        project: project_from_root(
+            "Focus AS2 Object Handlers",
+            root,
+            vec![clip_sym, btn_sym, gem_sym, outer_sym],
+        ),
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "[PASS] focus-as2-object-handlers loaded=1",
+        expected_error_substrings: vec![],
+        interactions: vec![
+            InteractionSpec {
+                kind: "click",
+                x: Some(150.0),
+                y: Some(148.0),
+                to_x: None,
+                to_y: None,
+                key: None,
+                text: None,
+                expect_trace: Some("[EVENT] as2-clip-click target=clipBtn"),
+            },
+            InteractionSpec {
+                kind: "click",
+                x: Some(330.0),
+                y: Some(148.0),
+                to_x: None,
+                to_y: None,
+                key: None,
+                text: None,
+                expect_trace: Some("[EVENT] as2-button-click target=pushBtn"),
+            },
+            InteractionSpec {
+                kind: "click",
+                x: Some(540.0),
+                y: Some(160.0),
+                to_x: None,
+                to_y: None,
+                key: None,
+                text: None,
+                expect_trace: Some("[EVENT] as2-nested-target=innerGem parent=outerBox"),
+            },
+        ],
+        verify_restart: true,
+    }
+}
+
+fn build_focus_as3_object_handlers() -> CaseSpec {
+    let clip_sym = mc_symbol(
+        "clip_sym",
+        "ClickClip",
+        1,
+        vec![single_key_layer(
+            "cl",
+            "Art",
+            vec![rect_el(
+                "cr",
+                "",
+                0.0,
+                0.0,
+                140.0,
+                56.0,
+                [129, 140, 248, 255],
+            )],
+        )],
+        vec![],
+    );
+    let btn_sym = button_symbol("btn_sym", "SimpleGateButton", [244, 114, 182, 255]);
+    let gem_sym = mc_symbol(
+        "gem_sym",
+        "GemSym",
+        1,
+        vec![single_key_layer(
+            "gl",
+            "Art",
+            vec![rect_el(
+                "gr",
+                "",
+                0.0,
+                0.0,
+                100.0,
+                40.0,
+                [52, 211, 153, 255],
+            )],
+        )],
+        vec![],
+    );
+    let parent_sym = mc_symbol(
+        "parent_sym",
+        "ParentBox",
+        1,
+        vec![single_key_layer(
+            "pl",
+            "Outer",
+            vec![
+                rect_el("pbg", "", 0.0, 0.0, 180.0, 90.0, [30, 41, 59, 255]),
+                instance_el("gem_i", "innerGem", "gem_sym", 30.0, 20.0),
+            ],
+        )],
+        vec![],
+    );
+
+    let mut as3_clip = instance_el("clip_i", "as3ClipBtn", "clip_sym", 80.0, 120.0);
+    as3_clip.scripts = vec![
+        obj_script(
+            ObjectEvent::Load,
+            ScriptLanguage::ActionScript3,
+            "if (root != null) { root.as3ObjLoaded = (root.as3ObjLoaded || 0) + 1; }",
+        ),
+        obj_script(
+            ObjectEvent::Click,
+            ScriptLanguage::ActionScript3,
+            "trace('[EVENT] as3-obj-click name=' + this.name);",
+        ),
+    ];
+    let mut as3_btn = instance_el("btn_i", "as3SimpleBtn", "btn_sym", 260.0, 120.0);
+    as3_btn.scripts = vec![obj_script(
+        ObjectEvent::Click,
+        ScriptLanguage::ActionScript3,
+        "trace('[EVENT] as3-button-click name=' + this.name);",
+    )];
+    let parent_inst = instance_el("parent_i", "parentBox", "parent_sym", 460.0, 120.0);
+
+    let root = mc_symbol(
+        "scene",
+        "Main",
+        1,
+        vec![single_key_layer(
+            "main_l",
+            "Stage",
+            vec![
+                text_el(
+                    "st",
+                    "statusText",
+                    40.0,
+                    40.0,
+                    "waiting",
+                    [226, 232, 240, 255],
+                ),
+                as3_clip,
+                as3_btn,
+                parent_inst,
+            ],
+        )],
+        vec![frame_script(
+            0,
+            ScriptLanguage::ActionScript3,
+            r#"import flash.events.MouseEvent;
+stop();
+var parentRef:MovieClip = this.parentBox as MovieClip;
+parentRef.addEventListener(MouseEvent.CLICK, function(e:MouseEvent):void {
+  trace("[EVENT] as3-target=" + e.target.name + " currentTarget=" + e.currentTarget.name);
+});
+trace("[PASS] focus-as3-object-handlers loaded=" + this.as3ObjLoaded);
+"#,
+        )],
+    );
+    CaseSpec {
+        id: "focus-as3-object-handlers",
+        group: "focused",
+        language: "as3",
+        project: project_from_root(
+            "Focus AS3 Object Handlers",
+            root,
+            vec![clip_sym, btn_sym, gem_sym, parent_sym],
+        ),
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "[PASS] focus-as3-object-handlers loaded=1",
+        expected_error_substrings: vec![],
+        interactions: vec![
+            InteractionSpec {
+                kind: "click",
+                x: Some(150.0),
+                y: Some(148.0),
+                to_x: None,
+                to_y: None,
+                key: None,
+                text: None,
+                expect_trace: Some("[EVENT] as3-obj-click name=as3ClipBtn"),
+            },
+            InteractionSpec {
+                kind: "click",
+                x: Some(330.0),
+                y: Some(148.0),
+                to_x: None,
+                to_y: None,
+                key: None,
+                text: None,
+                expect_trace: Some("[EVENT] as3-button-click name=as3SimpleBtn"),
+            },
+            InteractionSpec {
+                kind: "click",
+                x: Some(540.0),
+                y: Some(160.0),
+                to_x: None,
+                to_y: None,
+                key: None,
+                text: None,
+                expect_trace: Some("[EVENT] as3-target=innerGem currentTarget=parentBox"),
+            },
+        ],
+        verify_restart: true,
+    }
+}
+
+fn build_focus_as2_linkage_class() -> CaseSpec {
+    let mut badge_sym = mc_symbol(
+        "badge_sym",
+        "GateBadge",
+        1,
+        vec![single_key_layer(
+            "bl",
+            "Art",
+            vec![rect_el("br", "", 0.0, 0.0, 90.0, 48.0, [52, 211, 153, 255])],
+        )],
+        vec![],
+    );
+    badge_sym.linkage_id = Some("GateBadge".into());
+    badge_sym.class_name = Some("widgets.BadgeWidget".into());
+
+    let root = mc_symbol(
+        "scene",
+        "Main",
+        1,
+        vec![single_key_layer(
+            "ml",
+            "Stage",
+            vec![
+                text_el("st", "statusText", 40.0, 40.0, "init", [226, 232, 240, 255]),
+                instance_el("placed_badge", "placedBadge", "badge_sym", 120.0, 140.0),
+            ],
+        )],
+        vec![frame_script(
+            0,
+            ScriptLanguage::ActionScript2,
+            r#"import widgets.BadgeWidget;
+stop();
+var attached = this.attachMovie("GateBadge", "dynBadge", 10, { _x: 260, _y: 140 });
+var placedOk = (this.placedBadge instanceof BadgeWidget) && this.placedBadge.labelCode() == "WIDGET-OK";
+var dynOk = (attached instanceof BadgeWidget) && attached.labelCode() == "WIDGET-OK";
+if (placedOk && dynOk) {
+  statusText.text = "PASS linkage=" + attached.labelCode();
+  trace("[PASS] focus-as2-linkage-class placed=" + placedOk + " dyn=" + dynOk);
+} else {
+  throw new Error("AS2 linkage class check failed: placed=" + placedOk + " dyn=" + dynOk);
+}
+"#,
+        )],
+    );
+    let mut project = project_from_root("Focus AS2 Linkage Class", root, vec![badge_sym]);
+    project.sources = vec![SourceUnit {
+        id: "src_badge".into(),
+        path: "widgets/BadgeWidget.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: r#"class widgets.BadgeWidget extends MovieClip {
+  public function labelCode():String {
+    return "WIDGET-OK";
+  }
+}
+"#
+        .into(),
+    }];
+    CaseSpec {
+        id: "focus-as2-linkage-class",
+        group: "focused",
+        language: "as2",
+        project,
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "[PASS] focus-as2-linkage-class placed=true dyn=true",
+        expected_error_substrings: vec![],
+        interactions: vec![],
+        verify_restart: true,
+    }
+}
+
+fn build_focus_as3_doc_and_symbol_class() -> CaseSpec {
+    let mut badge_sym = mc_symbol(
+        "badge_sym",
+        "GateBadge",
+        1,
+        vec![single_key_layer(
+            "bl",
+            "Art",
+            vec![rect_el(
+                "br",
+                "",
+                0.0,
+                0.0,
+                90.0,
+                48.0,
+                [129, 140, 248, 255],
+            )],
+        )],
+        vec![],
+    );
+    badge_sym.linkage_id = Some("GateBadge".into());
+    badge_sym.class_name = Some("widgets.GateBadge".into());
+
+    let root = mc_symbol(
+        "scene",
+        "Main",
+        1,
+        vec![single_key_layer(
+            "ml",
+            "Stage",
+            vec![
+                text_el("st", "statusText", 40.0, 40.0, "init", [226, 232, 240, 255]),
+                instance_el("placed_badge", "placedBadge", "badge_sym", 120.0, 140.0),
+            ],
+        )],
+        vec![],
+    );
+    let mut project = project_from_root("Focus AS3 Doc & Symbol Class", root, vec![badge_sym]);
+    project.document_class = Some("app.GateMain".into());
+    project.sources = vec![
+        SourceUnit {
+            id: "src_main".into(),
+            path: "app/GateMain.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package app {
+  import flash.display.MovieClip;
+  import flash.utils.getDefinitionByName;
+  import widgets.GateBadge;
+  public dynamic class GateMain extends MovieClip {
+    public static var bootCount:int = 0;
+    public function GateMain() {
+      super();
+      stop();
+      bootCount += 1;
+      var cls:Class = getDefinitionByName("widgets.GateBadge") as Class;
+      var dyn:GateBadge = new cls() as GateBadge;
+      dyn.x = 260;
+      dyn.y = 140;
+      addChild(dyn);
+      var stageOk:Boolean = (this.stage != null);
+      var placedOk:Boolean = (this.placedBadge is GateBadge) && (this.placedBadge as GateBadge).tag() == "BADGE-3";
+      var dynOk:Boolean = (dyn != null && dyn.tag() == "BADGE-3");
+      if (stageOk && placedOk && dynOk) {
+        trace("[PASS] focus-as3-doc-and-symbol-class boots=" + bootCount + " stage=" + stageOk);
+      } else {
+        throw new Error("Doc/Symbol class check failed");
+      }
+    }
+  }
+}
+"#
+            .into(),
+        },
+        SourceUnit {
+            id: "src_badge".into(),
+            path: "widgets/GateBadge.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package widgets {
+  import flash.display.MovieClip;
+  public dynamic class GateBadge extends MovieClip {
+    public function GateBadge() {
+      super();
+    }
+    public function tag():String {
+      return "BADGE-3";
+    }
+  }
+}
+"#
+            .into(),
+        },
+    ];
+    CaseSpec {
+        id: "focus-as3-doc-and-symbol-class",
+        group: "focused",
+        language: "as3",
+        project,
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "[PASS] focus-as3-doc-and-symbol-class boots=1 stage=true",
+        expected_error_substrings: vec![],
+        interactions: vec![],
+        verify_restart: true,
+    }
+}
+
+fn build_focus_as2_include_initclip() -> CaseSpec {
+    let init_sym = mc_symbol(
+        "init_comp",
+        "GateInitComp",
+        1,
+        vec![single_key_layer("il", "Art", vec![])],
+        vec![frame_script(
+            0,
+            ScriptLanguage::ActionScript2,
+            r#"#initclip 5
+#include "includes/macros.as"
+_global.gateInitValue = computeGateMagic(21);
+#endinitclip
+"#,
+        )],
+    );
+    let root = mc_symbol(
+        "scene",
+        "Main",
+        1,
+        vec![single_key_layer(
+            "ml",
+            "Stage",
+            vec![
+                text_el("st", "statusText", 40.0, 40.0, "init", [226, 232, 240, 255]),
+                instance_el("ic", "initInst", "init_comp", 0.0, 0.0),
+            ],
+        )],
+        vec![frame_script(
+            0,
+            ScriptLanguage::ActionScript2,
+            r#"#include "includes/macros.as"
+stop();
+var frameVal:Number = computeGateMagic(10);
+if (_global.gateInitValue == 42 && frameVal == 20) {
+  statusText.text = "PASS initclip=" + _global.gateInitValue;
+  trace("[PASS] focus-as2-include-initclip init=" + _global.gateInitValue + " frame=" + frameVal);
+} else {
+  throw new Error("include/initclip mismatch");
+}
+"#,
+        )],
+    );
+    let mut project = project_from_root("Focus AS2 Include Initclip", root, vec![init_sym]);
+    project.resources = vec![
+        ResourceUnit::from_bytes(
+            "res_inc_macros",
+            "includes/macros.as",
+            "text/plain",
+            b"function computeGateMagic(v:Number):Number { return v * 2; }\n",
+        )
+        .unwrap(),
+    ];
+    CaseSpec {
+        id: "focus-as2-include-initclip",
+        group: "focused",
+        language: "as2",
+        project,
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "[PASS] focus-as2-include-initclip init=42 frame=20",
+        expected_error_substrings: vec![],
+        interactions: vec![],
+        verify_restart: true,
+    }
+}
+
+fn build_focus_as3_include_swc() -> CaseSpec {
+    let swc_bytes = build_gate_swc_bytes();
+    let swc_lib = import_swc_bytes("gate_kit.swc", &swc_bytes).expect("import gate SWC");
+
+    let root = mc_symbol(
+        "scene",
+        "Main",
+        1,
+        vec![single_key_layer(
+            "ml",
+            "Stage",
+            vec![text_el(
+                "st",
+                "statusText",
+                40.0,
+                40.0,
+                "init",
+                [226, 232, 240, 255],
+            )],
+        )],
+        vec![frame_script(
+            0,
+            ScriptLanguage::ActionScript3,
+            r#"import flash.display.Loader;
+import flash.events.Event;
+import flash.net.URLRequest;
+import flash.utils.getDefinitionByName;
+include "includes/as3_helpers.as";
+stop();
+var panelCls:Class = getDefinitionByName("com.kit.SwcPanel") as Class;
+var panel:* = new panelCls();
+panel.x = 120;
+panel.y = 140;
+addChild(panel);
+var helperCls:Class = getDefinitionByName("com.kit.SwcHelper") as Class;
+var helperObj:* = new helperCls();
+var mulVal:int = doubleGateArg(21);
+var iconLoader:Loader = new Loader();
+iconLoader.contentLoaderInfo.addEventListener(Event.COMPLETE, function(e:Event):void {
+  if (panel != null && helperObj != null && mulVal == 42 && iconLoader.contentLoaderInfo.width == 4) {
+    trace("[PASS] focus-as3-include-swc mul=" + mulVal + " iconW=" + iconLoader.contentLoaderInfo.width);
+  }
+});
+addChild(iconLoader);
+iconLoader.load(new URLRequest("swc/assets/swc-icon.png"));
+"#,
+        )],
+    );
+    let mut project = project_from_root("Focus AS3 Include & SWC", root, vec![]);
+    project.resources.push(
+        ResourceUnit::from_bytes(
+            "res_inc_as3",
+            "includes/as3_helpers.as",
+            "text/plain",
+            b"function doubleGateArg(n:int):int { return n * 2; }\n",
+        )
+        .unwrap(),
+    );
+    let link_rep = link_swc_into_project(&mut project, &swc_lib, SwcConflictPolicy::PreferNewer)
+        .expect("link gate SWC");
+    assert!(
+        link_rep.linked_symbols >= 1 && link_rep.linked_resources >= 1,
+        "expected SWC symbol and PNG asset linked: {link_rep:?}"
+    );
+    CaseSpec {
+        id: "focus-as3-include-swc",
+        group: "focused",
+        language: "as3",
+        project,
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "[PASS] focus-as3-include-swc mul=42 iconW=4",
+        expected_error_substrings: vec![],
+        interactions: vec![],
+        verify_restart: true,
+    }
+}
+
+fn build_focus_as2_scenes() -> CaseSpec {
+    let scene1 = mc_symbol(
+        "scene_1",
+        "Intro",
+        2,
+        vec![single_key_layer(
+            "s1_l",
+            "Intro",
+            vec![text_el(
+                "s1_st",
+                "statusText",
+                40.0,
+                40.0,
+                "intro",
+                [226, 232, 240, 255],
+            )],
+        )],
+        vec![frame_script(
+            0,
+            ScriptLanguage::ActionScript2,
+            "var trail = ['S1'];",
+        )],
+    );
+    let scene2 = mc_symbol(
+        "scene_2",
+        "Finale",
+        2,
+        vec![single_key_layer(
+            "s2_l",
+            "Finale",
+            vec![text_el(
+                "s2_st",
+                "finaleText",
+                40.0,
+                80.0,
+                "finale",
+                [52, 211, 153, 255],
+            )],
+        )],
+        vec![frame_script(
+            0,
+            ScriptLanguage::ActionScript2,
+            "stop();\ntrail.push('S2');\ntrace('[PASS] focus-as2-scenes path=' + trail.join('->'));",
+        )],
+    );
+    let mut project = project_from_root("Focus AS2 Scenes", scene1, vec![scene2]);
+    project.scenes = vec!["scene_1".into(), "scene_2".into()];
+    CaseSpec {
+        id: "focus-as2-scenes",
+        group: "focused",
+        language: "as2",
+        project,
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "[PASS] focus-as2-scenes path=S1->S2",
+        expected_error_substrings: vec![],
+        interactions: vec![],
+        verify_restart: true,
+    }
+}
+
+fn build_focus_as3_scenes() -> CaseSpec {
+    let scene1 = mc_symbol(
+        "scene_1",
+        "Intro",
+        2,
+        vec![single_key_layer(
+            "s1_l",
+            "Intro",
+            vec![text_el(
+                "s1_st",
+                "statusText",
+                40.0,
+                40.0,
+                "intro",
+                [226, 232, 240, 255],
+            )],
+        )],
+        vec![frame_script(
+            0,
+            ScriptLanguage::ActionScript3,
+            "var trail:Array = [this.currentScene.name];\ngotoAndStop(1, 'Finale');",
+        )],
+    );
+    let scene2 = mc_symbol(
+        "scene_2",
+        "Finale",
+        2,
+        vec![single_key_layer(
+            "s2_l",
+            "Finale",
+            vec![text_el(
+                "s2_st",
+                "finaleText",
+                40.0,
+                80.0,
+                "finale",
+                [129, 140, 248, 255],
+            )],
+        )],
+        vec![frame_script(
+            0,
+            ScriptLanguage::ActionScript3,
+            "stop();\ntrail.push(this.currentScene.name);\ntrace('[PASS] focus-as3-scenes path=' + trail.join('->'));",
+        )],
+    );
+    let mut project = project_from_root("Focus AS3 Scenes", scene1, vec![scene2]);
+    project.scenes = vec!["scene_1".into(), "scene_2".into()];
+    CaseSpec {
+        id: "focus-as3-scenes",
+        group: "focused",
+        language: "as3",
+        project,
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "[PASS] focus-as3-scenes path=Intro->Finale",
+        expected_error_substrings: vec![],
+        interactions: vec![],
+        verify_restart: true,
+    }
+}
+
+fn build_focus_loadpublish_html(lang: ScriptLanguage) -> CaseSpec {
+    let (id, slug_lang) = match lang {
+        ScriptLanguage::ActionScript2 => ("focus-as2-loadpublish-html", "as2"),
+        ScriptLanguage::ActionScript3 => ("focus-as3-loadpublish-html", "as3"),
+        _ => unreachable!(),
+    };
+    let child_root = mc_symbol(
+        "child_root",
+        "ChildMain",
+        6,
+        vec![single_key_layer(
+            "cl",
+            "Child",
+            vec![rect_el(
+                "cr",
+                "",
+                0.0,
+                0.0,
+                120.0,
+                80.0,
+                [56, 189, 248, 255],
+            )],
+        )],
+        vec![frame_script(
+            0,
+            lang,
+            "stop();\ntrace('[CHILD-READY] ' + this._totalframes || 'as3');",
+        )],
+    );
+    let mut child_project = project_from_root("Gate HTML Child", child_root, vec![]);
+    child_project.width = 240;
+    child_project.height = 160;
+    if lang == ScriptLanguage::ActionScript3 {
+        child_project
+            .symbol_mut("child_root")
+            .unwrap()
+            .timeline
+            .scripts = vec![frame_script(
+            0,
+            ScriptLanguage::ActionScript3,
+            "stop();\ntrace('[CHILD-READY] as3 frames=' + this.totalFrames);",
+        )];
+    }
+
+    let holder_sym = mc_symbol(
+        "holder_sym",
+        "HolderSym",
+        1,
+        vec![single_key_layer("hl", "H", vec![])],
+        vec![],
+    );
+    let script = match lang {
+        ScriptLanguage::ActionScript2 => {
+            r#"stop();
+var h:MovieClip = this.holder;
+h.loadMovie("child/index.html");
+var done:Boolean = false;
+this.onEnterFrame = function():Void {
+  if (!done && h._totalframes == 6) {
+    done = true;
+    trace("[PASS] focus-as2-loadpublish-html frames=" + h._totalframes);
+  }
+};
+"#
+        }
+        ScriptLanguage::ActionScript3 => {
+            r#"import flash.display.Loader;
+import flash.display.MovieClip;
+import flash.events.Event;
+import flash.net.URLRequest;
+stop();
+var h:MovieClip = this.holder as MovieClip;
+var loader:Loader = new Loader();
+h.addChild(loader);
+loader.contentLoaderInfo.addEventListener(Event.COMPLETE, function(e:Event):void {
+  trace("[PASS] focus-as3-loadpublish-html w=" + int(loader.contentLoaderInfo.width) + " h=" + int(loader.contentLoaderInfo.height));
+});
+loader.load(new URLRequest("child/index.html"));
+"#
+        }
+        _ => unreachable!(),
+    };
+    let root = mc_symbol(
+        "scene",
+        "Main",
+        1,
+        vec![single_key_layer(
+            "ml",
+            "Stage",
+            vec![
+                text_el(
+                    "st",
+                    "statusText",
+                    40.0,
+                    40.0,
+                    "mounting",
+                    [226, 232, 240, 255],
+                ),
+                instance_el("holder_i", "holder", "holder_sym", 120.0, 120.0),
+            ],
+        )],
+        vec![frame_script(0, lang, script)],
+    );
+    CaseSpec {
+        id,
+        group: "focused",
+        language: slug_lang,
+        project: project_from_root(id, root, vec![holder_sym]),
+        child_project: Some(child_project),
+        clean_chrome: false,
+        // External unbundled `child/index.html` fetches from HTTP(S); browsers forbid arbitrary sibling `file://` fetch by default.
+        allow_file_protocol: false,
+        expected_pass: if lang == ScriptLanguage::ActionScript2 {
+            "[PASS] focus-as2-loadpublish-html frames=6"
+        } else {
+            "[PASS] focus-as3-loadpublish-html w=240 h=160"
+        },
+        expected_error_substrings: vec![],
+        interactions: vec![],
+        verify_restart: true,
+    }
+}
+
+fn build_focus_restart_reset(lang: ScriptLanguage) -> CaseSpec {
+    match lang {
+        ScriptLanguage::ActionScript2 => {
+            let root = mc_symbol(
+                "scene",
+                "Main",
+                1,
+                vec![single_key_layer(
+                    "ml",
+                    "Stage",
+                    vec![text_el(
+                        "st",
+                        "statusText",
+                        40.0,
+                        40.0,
+                        "init",
+                        [226, 232, 240, 255],
+                    )],
+                )],
+                vec![frame_script(
+                    0,
+                    ScriptLanguage::ActionScript2,
+                    r#"stop();
+_global.gateRunCount = (_global.gateRunCount || 0) + 1;
+var dyn:MovieClip = this.createEmptyMovieClip("dynClip", 5);
+dyn.beginFill(0x38BDF8, 100);
+dyn.moveTo(0, 0); dyn.lineTo(40, 0); dyn.lineTo(40, 40); dyn.lineTo(0, 40); dyn.endFill();
+var ticks:Number = 0;
+setInterval(function():Void { ticks = ticks + 1; }, 40);
+trace("[PASS] focus-as2-restart-reset run=" + _global.gateRunCount + " dyn=" + (dyn != null));
+"#,
+                )],
+            );
+            CaseSpec {
+                id: "focus-as2-restart-reset",
+                group: "focused",
+                language: "as2",
+                project: project_from_root("Focus AS2 Restart Reset", root, vec![]),
+                child_project: None,
+                clean_chrome: false,
+                allow_file_protocol: true,
+                expected_pass: "[PASS] focus-as2-restart-reset run=1 dyn=true",
+                expected_error_substrings: vec![],
+                interactions: vec![],
+                verify_restart: true,
+            }
+        }
+        ScriptLanguage::ActionScript3 => {
+            let root = mc_symbol(
+                "scene",
+                "Main",
+                1,
+                vec![single_key_layer("ml", "Stage", vec![])],
+                vec![],
+            );
+            let mut project = project_from_root("Focus AS3 Restart Reset", root, vec![]);
+            project.document_class = Some("app.RestartMain".into());
+            project.sources = vec![SourceUnit {
+                id: "src_restart_as3".into(),
+                path: "app/RestartMain.as".into(),
+                language: ScriptLanguage::ActionScript3,
+                source: r#"package app {
+  import flash.display.MovieClip;
+  import flash.display.Sprite;
+  import flash.events.TimerEvent;
+  import flash.utils.Timer;
+  public dynamic class RestartMain extends MovieClip {
+    public static var runCounter:int = 0;
+    public function RestartMain() {
+      super();
+      stop();
+      runCounter += 1;
+      var box:Sprite = new Sprite();
+      box.graphics.beginFill(0x818CF8, 1.0);
+      box.graphics.drawRect(80, 120, 48, 48);
+      box.graphics.endFill();
+      addChild(box);
+      var timer:Timer = new Timer(40, 0);
+      timer.addEventListener(TimerEvent.TIMER, function(e:TimerEvent):void {});
+      timer.start();
+      trace("[PASS] focus-as3-restart-reset run=" + runCounter + " children=" + this.numChildren);
+    }
+  }
+}
+"#
+                .into(),
+            }];
+            CaseSpec {
+                id: "focus-as3-restart-reset",
+                group: "focused",
+                language: "as3",
+                project,
+                child_project: None,
+                clean_chrome: false,
+                allow_file_protocol: true,
+                expected_pass: "[PASS] focus-as3-restart-reset run=1 children=1",
+                expected_error_substrings: vec![],
+                interactions: vec![],
+                verify_restart: true,
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn build_focus_as3_clean_chrome() -> CaseSpec {
+    let root = mc_symbol(
+        "scene",
+        "Main",
+        1,
+        vec![single_key_layer(
+            "ml",
+            "Stage",
+            vec![rect_el(
+                "box",
+                "",
+                100.0,
+                100.0,
+                120.0,
+                120.0,
+                [52, 211, 153, 255],
+            )],
+        )],
+        vec![frame_script(
+            0,
+            ScriptLanguage::ActionScript3,
+            "stop();\ntrace('[PASS] focus-as3-clean-chrome rendered=true');",
+        )],
+    );
+    CaseSpec {
+        id: "focus-as3-clean-chrome",
+        group: "focused",
+        language: "as3",
+        project: project_from_root("Focus AS3 Clean Chrome", root, vec![]),
+        child_project: None,
+        clean_chrome: true,
+        allow_file_protocol: true,
+        expected_pass: "[PASS] focus-as3-clean-chrome rendered=true",
+        expected_error_substrings: vec![],
+        interactions: vec![],
+        verify_restart: false,
+    }
+}
+
+fn build_diagnostic_cases() -> Vec<CaseSpec> {
+    // 1. AS2 mapped frame runtime error
+    let as2_frame = CaseSpec {
+        id: "diag-as2-frame-error",
+        group: "diagnostic",
+        language: "as2",
+        project: project_from_root(
+            "Diag AS2 Frame Error",
+            mc_symbol(
+                "scene",
+                "Main",
+                1,
+                vec![single_key_layer("ml", "Stage", vec![])],
+                vec![frame_script(
+                    0,
+                    ScriptLanguage::ActionScript2,
+                    "var ok:Number = 1;\nthrow new Error('boom-as2-frame');",
+                )],
+            ),
+            vec![],
+        ),
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "",
+        expected_error_substrings: vec!["boom-as2-frame", "Main / frame 1:2:"],
+        interactions: vec![],
+        verify_restart: false,
+    };
+
+    // 2. AS2 mapped #include runtime error
+    let mut as2_inc_proj = project_from_root(
+        "Diag AS2 Include Error",
+        mc_symbol(
+            "scene",
+            "Main",
+            1,
+            vec![single_key_layer("ml", "Stage", vec![])],
+            vec![frame_script(
+                0,
+                ScriptLanguage::ActionScript2,
+                "#include \"includes/fault_as2.as\"\nthrowFromIncluded();",
+            )],
+        ),
+        vec![],
+    );
+    as2_inc_proj.resources.push(
+        ResourceUnit::from_bytes(
+            "inc_fault",
+            "includes/fault_as2.as",
+            "text/plain",
+            b"function throwFromIncluded():Void {\n  throw new Error('boom-as2-include');\n}\n",
+        )
+        .unwrap(),
+    );
+    let as2_inc = CaseSpec {
+        id: "diag-as2-include-error",
+        group: "diagnostic",
+        language: "as2",
+        project: as2_inc_proj,
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "",
+        expected_error_substrings: vec!["boom-as2-include", "includes/fault_as2.as:2:"],
+        interactions: vec![],
+        verify_restart: false,
+    };
+
+    // 3. AS3 mapped SourceUnit class runtime error
+    let mut as3_cls_proj = project_from_root(
+        "Diag AS3 Class Error",
+        mc_symbol(
+            "scene",
+            "Main",
+            1,
+            vec![single_key_layer("ml", "Stage", vec![])],
+            vec![],
+        ),
+        vec![],
+    );
+    as3_cls_proj.document_class = Some("app.FaultyDoc".into());
+    as3_cls_proj.sources.push(SourceUnit {
+        id: "src_fault_as3".into(),
+        path: "app/FaultyDoc.as".into(),
+        language: ScriptLanguage::ActionScript3,
+        source: r#"package app {
+  import flash.display.MovieClip;
+  public class FaultyDoc extends MovieClip {
+    public function FaultyDoc() {
+      super();
+      throw new Error("boom-as3-class");
+    }
+  }
+}
+"#
+        .into(),
+    });
+    let as3_cls = CaseSpec {
+        id: "diag-as3-class-error",
+        group: "diagnostic",
+        language: "as3",
+        project: as3_cls_proj,
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "",
+        expected_error_substrings: vec!["boom-as3-class", "app/FaultyDoc.as:6:"],
+        interactions: vec![],
+        verify_restart: false,
+    };
+
+    // 4. AS3 mapped include runtime error
+    let mut as3_inc_proj = project_from_root(
+        "Diag AS3 Include Error",
+        mc_symbol(
+            "scene",
+            "Main",
+            1,
+            vec![single_key_layer("ml", "Stage", vec![])],
+            vec![frame_script(
+                0,
+                ScriptLanguage::ActionScript3,
+                "include \"includes/fault_as3.as\";\nblowUpNow();",
+            )],
+        ),
+        vec![],
+    );
+    as3_inc_proj.resources.push(
+        ResourceUnit::from_bytes(
+            "res_inc_fault",
+            "includes/fault_as3.as",
+            "text/plain",
+            b"function blowUpNow():void {\n  throw new Error('boom-as3-include');\n}\n",
+        )
+        .unwrap(),
+    );
+    let as3_inc = CaseSpec {
+        id: "diag-as3-include-error",
+        group: "diagnostic",
+        language: "as3",
+        project: as3_inc_proj,
+        child_project: None,
+        clean_chrome: false,
+        allow_file_protocol: true,
+        expected_pass: "",
+        expected_error_substrings: vec!["boom-as3-include", "includes/fault_as3.as:2:"],
+        interactions: vec![],
+        verify_restart: false,
+    };
+
+    vec![as2_frame, as2_inc, as3_cls, as3_inc]
+}
+
+fn load_authored_examples() -> Vec<CaseSpec> {
+    let root = repo_root().join("examples");
+    let mut out = Vec::new();
+    for lang in ["as2", "as3"] {
+        for slug in EXAMPLE_SLUGS {
+            let file = root.join(lang).join(format!("{slug}.nflash"));
+            let json = fs::read_to_string(&file).unwrap_or_else(|e| {
+                panic!("read example {}: {e}", file.display());
+            });
+            let project: Project = serde_json::from_str(&json).unwrap_or_else(|e| {
+                panic!("parse example {}: {e}", file.display());
+            });
+            let allow_file_protocol = *slug != "02-oop-xml-collections";
+            let interactions = match *slug {
+                "04-events-stage-align-drag" => vec![InteractionSpec {
+                    kind: "drag",
+                    x: Some(560.0),
+                    y: Some(360.0),
+                    to_x: Some(700.0),
+                    to_y: Some(360.0),
+                    key: None,
+                    text: None,
+                    expect_trace: None,
+                }],
+                "06-dynamic-input-html-text" => vec![InteractionSpec {
+                    kind: "text_input",
+                    x: Some(640.0),
+                    y: Some(275.0),
+                    to_x: None,
+                    to_y: None,
+                    key: None,
+                    text: Some("OK"),
+                    expect_trace: None,
+                }],
+                "08-interactive-arcade-miniapp" => vec![
+                    InteractionSpec {
+                        kind: "key",
+                        x: None,
+                        y: None,
+                        to_x: None,
+                        to_y: None,
+                        key: Some("ArrowLeft"),
+                        text: None,
+                        expect_trace: None,
+                    },
+                    InteractionSpec {
+                        kind: "key",
+                        x: None,
+                        y: None,
+                        to_x: None,
+                        to_y: None,
+                        key: Some("KeyR"),
+                        text: None,
+                        expect_trace: None,
+                    },
+                ],
+                _ => vec![],
+            };
+            let id = Box::leak(format!("{lang}-{slug}").into_boxed_str());
+            let expected_pass = Box::leak(format!("[PASS] {lang}/{slug}").into_boxed_str());
+            out.push(CaseSpec {
+                id,
+                group: "example",
+                language: lang,
+                project,
+                child_project: None,
+                clean_chrome: false,
+                allow_file_protocol,
+                expected_pass,
+                expected_error_substrings: vec![],
+                interactions,
+                verify_restart: true,
+            });
+        }
+    }
+    out
+}
+
+fn build_all_focused_and_diag_cases() -> Vec<CaseSpec> {
+    let mut cases = vec![
+        build_focus_as2_frame_scripts(),
+        build_focus_as3_frame_scripts(),
+        build_focus_as2_object_handlers(),
+        build_focus_as3_object_handlers(),
+        build_focus_as2_linkage_class(),
+        build_focus_as3_doc_and_symbol_class(),
+        build_focus_as2_include_initclip(),
+        build_focus_as3_include_swc(),
+        build_focus_as2_scenes(),
+        build_focus_as3_scenes(),
+        build_focus_loadpublish_html(ScriptLanguage::ActionScript2),
+        build_focus_loadpublish_html(ScriptLanguage::ActionScript3),
+        build_focus_restart_reset(ScriptLanguage::ActionScript2),
+        build_focus_restart_reset(ScriptLanguage::ActionScript3),
+        build_focus_as3_clean_chrome(),
+    ];
+    cases.extend(build_diagnostic_cases());
+    cases
+}
+
+fn full_options(level: SizeLevel) -> PublishOptions {
+    PublishOptions {
+        fonts: FontExportPolicy::Embed,
+        size: level,
+        audio: AudioExportPolicy::Original,
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GateManifestCase {
+    id: &'static str,
+    group: &'static str,
+    language: &'static str,
+    stage_width: u32,
+    stage_height: u32,
+    levels: Vec<String>,
+    clean_chrome: bool,
+    allow_file_protocol: bool,
+    expected_pass: &'static str,
+    expected_error_substrings: Vec<&'static str>,
+    interactions: Vec<InteractionSpec>,
+    verify_restart: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GateManifest {
+    shared_runtime_dir: String,
+    cases: Vec<GateManifestCase>,
+}
+
+fn export_case_to_dir(case: &CaseSpec, base_dir: &Path, rt: &Path, levels: &[&str]) -> Vec<String> {
+    let mut emitted_levels = Vec::new();
+    let html_cfg = if case.clean_chrome {
+        HtmlPublishConfig::clean_publish_default()
+    } else {
+        HtmlPublishConfig::default()
+    };
+    for &lvl in levels {
+        let size = match lvl {
+            "full" => SizeLevel::Full,
+            "balanced" => SizeLevel::Balanced,
+            "compact" => SizeLevel::Compact,
+            "shared" => SizeLevel::Shared("../../../_shared_runtime/".into()),
+            _ => unreachable!(),
+        };
+        let out_dir = base_dir.join(case.group).join(case.id).join(lvl);
+        let opts = full_options(size);
+        export_project_with_config(&case.project, &out_dir, rt, &opts, &html_cfg)
+            .unwrap_or_else(|e| panic!("export {} [{lvl}] failed: {e}", case.id));
+        if let Some(child) = &case.child_project {
+            let child_dir = out_dir.join("child");
+            export_project_with_config(
+                child,
+                &child_dir,
+                rt,
+                &full_options(SizeLevel::Full),
+                &HtmlPublishConfig::default(),
+            )
+            .unwrap_or_else(|e| panic!("export child for {} [{lvl}] failed: {e}", case.id));
+        }
+        emitted_levels.push(lvl.to_owned());
+    }
+    emitted_levels
+}
+
+#[test]
+fn publish_gate_atomic_output_safety() {
+    let temp = TempDir::new("atomic");
+    let rt = runtime_dir();
+
+    // Seed a valid baseline NeoFlash export directory to verify untouched byte-for-byte on failure.
+    let valid_proj = build_focus_as2_frame_scripts().project;
+    let existing_html = temp.0.join("existing-html");
+    export_project_with_options(
+        &valid_proj,
+        &existing_html,
+        &rt,
+        &full_options(SizeLevel::Full),
+    )
+    .expect("seed existing export");
+    let before_html = snapshot_tree(&existing_html);
+
+    let unrelated = temp.0.join("unrelated-user-dir");
+    fs::create_dir_all(&unrelated).unwrap();
+    fs::write(unrelated.join("notes.txt"), b"keep me intact").unwrap();
+    let before_unrelated = snapshot_tree(&unrelated);
+
+    let desktop_root = temp.0.join("desktop-out");
+    let existing_app = export_desktop_app(
+        &valid_proj,
+        &desktop_root,
+        &rt,
+        &full_options(SizeLevel::Full),
+        &HtmlPublishConfig::clean_publish_default(),
+    )
+    .expect("seed existing desktop app");
+    let before_desktop = snapshot_tree(&desktop_root);
+    assert!(existing_app.is_dir());
+
+    // Build all failure fixtures that must fail preflight/compile/options before touching disk.
+    let mut bad_as2_syntax = valid_proj.clone();
+    bad_as2_syntax.symbol_mut("scene").unwrap().timeline.scripts = vec![frame_script(
+        0,
+        ScriptLanguage::ActionScript2,
+        "var x:Number = ;",
+    )];
+
+    let mut bad_as3_type = valid_proj.clone();
+    bad_as3_type.symbol_mut("scene").unwrap().timeline.scripts = vec![frame_script(
+        0,
+        ScriptLanguage::ActionScript3,
+        "var badVal:int = unknownGateSymbol();",
+    )];
+
+    let mut bad_missing_inc = valid_proj.clone();
+    bad_missing_inc
+        .symbol_mut("scene")
+        .unwrap()
+        .timeline
+        .scripts = vec![frame_script(
+        0,
+        ScriptLanguage::ActionScript2,
+        "#include \"missing/does_not_exist.as\"",
+    )];
+
+    let mut bad_doc_class = valid_proj.clone();
+    bad_doc_class.document_class = Some("missing.UnboundMain".into());
+
+    let mut bad_invalid_project = valid_proj.clone();
+    bad_invalid_project.root = "missing_root_id".into();
+
+    let bad_failures: Vec<(&str, &Project, PublishOptions)> = vec![
+        ("as2-syntax", &bad_as2_syntax, full_options(SizeLevel::Full)),
+        (
+            "as3-compile",
+            &bad_as3_type,
+            full_options(SizeLevel::Balanced),
+        ),
+        (
+            "missing-include",
+            &bad_missing_inc,
+            full_options(SizeLevel::Compact),
+        ),
+        (
+            "missing-doc-class",
+            &bad_doc_class,
+            full_options(SizeLevel::Full),
+        ),
+        (
+            "invalid-project",
+            &bad_invalid_project,
+            full_options(SizeLevel::Full),
+        ),
+        (
+            "invalid-shared-url",
+            &valid_proj,
+            full_options(SizeLevel::Shared("ftp://bad-scheme/runtime".into())),
+        ),
+    ];
+
+    for (label, proj, opts) in &bad_failures {
+        let fresh = temp.0.join(format!("fresh-{label}"));
+        let err = export_project_with_options(proj, &fresh, &rt, opts)
+            .expect_err("failed options export must error");
+        assert!(
+            !fresh.exists(),
+            "{label}: fresh output dir must not be created: {err}"
+        );
+
+        let fresh_cfg = temp.0.join(format!("fresh-cfg-{label}"));
+        export_project_with_config(proj, &fresh_cfg, &rt, opts, &HtmlPublishConfig::default())
+            .expect_err("failed config export must error");
+        assert!(
+            !fresh_cfg.exists(),
+            "{label}: fresh cfg dir must not be created"
+        );
+
+        export_project_with_options(proj, &existing_html, &rt, opts)
+            .expect_err("failed overwrite must error");
+        assert_eq!(
+            snapshot_tree(&existing_html),
+            before_html,
+            "{label}: existing NeoFlash export was mutated after failure"
+        );
+
+        export_project_with_options(proj, &unrelated, &rt, opts)
+            .expect_err("failed unrelated export must error");
+        assert_eq!(
+            snapshot_tree(&unrelated),
+            before_unrelated,
+            "{label}: unrelated directory was mutated after failure"
+        );
+
+        let fresh_desktop = temp.0.join(format!("fresh-desktop-{label}"));
+        export_desktop_app(
+            proj,
+            &fresh_desktop,
+            &rt,
+            opts,
+            &HtmlPublishConfig::clean_publish_default(),
+        )
+        .expect_err("failed fresh desktop export must error");
+        assert!(
+            !fresh_desktop.exists(),
+            "{label}: fresh desktop dir must not be created before compilation"
+        );
+
+        export_desktop_app(
+            proj,
+            &desktop_root,
+            &rt,
+            opts,
+            &HtmlPublishConfig::clean_publish_default(),
+        )
+        .expect_err("failed desktop overwrite must error");
+        assert_eq!(
+            snapshot_tree(&desktop_root),
+            before_desktop,
+            "{label}: existing desktop app was mutated after failure"
+        );
+    }
+
+    // Also verify invalid PublishProfile / broken custom HTML template never creates or mutates output.
+    let mut bad_profile = PublishProfile::new("GateProfile", full_options(SizeLevel::Full));
+    bad_profile.html_template = Some("<html><body>missing placeholders</body></html>".into());
+    let fresh_prof = temp.0.join("fresh-profile");
+    export_project_with_profile(&valid_proj, &fresh_prof, &rt, &bad_profile)
+        .expect_err("bad custom HTML wrapper must fail");
+    assert!(!fresh_prof.exists());
+    export_project_with_profile(&valid_proj, &existing_html, &rt, &bad_profile)
+        .expect_err("bad custom HTML wrapper must not mutate existing export");
+    assert_eq!(snapshot_tree(&existing_html), before_html);
+
+    // Non-empty unrelated folder must be rejected cleanly by export_project_with_options.
+    let unrelated_err =
+        export_project_with_options(&valid_proj, &unrelated, &rt, &full_options(SizeLevel::Full))
+            .expect_err("must reject unrelated non-empty directory");
+    assert!(matches!(unrelated_err, ExportError::Destination(_)));
+    assert_eq!(snapshot_tree(&unrelated), before_unrelated);
+}
+
+#[test]
+fn publish_gate_mapped_diagnostics_and_source_maps() {
+    let temp = TempDir::new("diag");
+    let rt = runtime_dir();
+
+    // 1. Compile-time diagnostic mapping assertions (AS2/AS3 frame, #include, ObjectScript, SourceUnit)
+    let mut compile_checks: Vec<(&str, Project, &str, usize)> = Vec::new();
+
+    compile_checks.push((
+        "as2-frame-compile",
+        project_from_root(
+            "Compile AS2 Frame",
+            mc_symbol(
+                "scene",
+                "Main",
+                1,
+                vec![single_key_layer("ml", "Stage", vec![])],
+                vec![frame_script(
+                    0,
+                    ScriptLanguage::ActionScript2,
+                    "var ok = 1;\nvar bad = ;",
+                )],
+            ),
+            vec![],
+        ),
+        "Main / frame 1",
+        2,
+    ));
+
+    let mut as2_inc_bad = project_from_root(
+        "Compile AS2 Include",
+        mc_symbol(
+            "scene",
+            "Main",
+            1,
+            vec![single_key_layer("ml", "Stage", vec![])],
+            vec![frame_script(
+                0,
+                ScriptLanguage::ActionScript2,
+                "#include \"includes/bad_inc.as\"",
+            )],
+        ),
+        vec![],
+    );
+    as2_inc_bad.resources.push(
+        ResourceUnit::from_bytes(
+            "res_bad_inc",
+            "includes/bad_inc.as",
+            "text/plain",
+            b"var a = 1;\nvar broken = );\n",
+        )
+        .unwrap(),
+    );
+    compile_checks.push(("as2-include-compile", as2_inc_bad, "includes/bad_inc.as", 2));
+
+    let mut btn_el = rect_el("b0", "btnClip", 20.0, 20.0, 80.0, 40.0, [255, 0, 0, 255]);
+    btn_el.scripts = vec![obj_script(
+        ObjectEvent::Click,
+        ScriptLanguage::ActionScript2,
+        "var x = 1;\nvar y = ;",
+    )];
+    compile_checks.push((
+        "as2-obj-compile",
+        project_from_root(
+            "Compile AS2 Object",
+            mc_symbol(
+                "scene",
+                "Main",
+                1,
+                vec![single_key_layer("ml", "Interactions", vec![btn_el])],
+                vec![],
+            ),
+            vec![],
+        ),
+        "Main / Interactions / frame 1 / btnClip / Click",
+        2,
+    ));
+
+    let mut as3_cls_bad = project_from_root(
+        "Compile AS3 Class",
+        mc_symbol(
+            "scene",
+            "Main",
+            1,
+            vec![single_key_layer("ml", "Stage", vec![])],
+            vec![],
+        ),
+        vec![],
+    );
+    as3_cls_bad.document_class = Some("app.BrokenMain".into());
+    as3_cls_bad.sources.push(SourceUnit {
+        id: "s1".into(),
+        path: "app/BrokenMain.as".into(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package app {\n  import flash.display.MovieClip;\n  public class BrokenMain extends MovieClip {\n    public function BrokenMain() {\n      definitelyMissingFn();\n    }\n  }\n}\n".into(),
+    });
+    compile_checks.push(("as3-class-compile", as3_cls_bad, "app/BrokenMain.as", 5));
+
+    for (label, proj, expected_path, expected_line) in compile_checks {
+        let diags: Vec<Diagnostic> = check_project(&proj).expect_err("expected compile diagnostic");
+        assert!(
+            diags.iter().any(|d| {
+                d.details.path.as_deref() == Some(expected_path) && d.line == expected_line
+            }),
+            "{label}: expected path='{expected_path}' line={expected_line}, got: {diags:#?}"
+        );
+    }
+
+    // 2. Runtime diagnostic exports preserve mapped source_locations / source_map metadata in bundle.js.
+    for case in build_diagnostic_cases() {
+        check_project(&case.project).expect("runtime diagnostic project must compile");
+        let out_dir = temp.0.join(case.id);
+        export_project_with_options(&case.project, &out_dir, &rt, &full_options(SizeLevel::Full))
+            .expect("export diagnostic project");
+        let bundle = bundle_json_from_file(&out_dir.join("bundle.js"));
+        let mut all_sources = Vec::<String>::new();
+        if let Some(arr) = bundle["program"]["source_locations"].as_array() {
+            for loc in arr {
+                if let Some(s) = loc["source"].as_str() {
+                    all_sources.push(s.to_owned());
+                }
+            }
+        }
+        if let Some(scripts) = bundle["scripts"].as_array() {
+            for sc in scripts {
+                if let Some(arr) = sc["source_locations"].as_array() {
+                    for loc in arr {
+                        if let Some(s) = loc["source"].as_str() {
+                            all_sources.push(s.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+        let expected_file = case.expected_error_substrings[1]
+            .split(':')
+            .next()
+            .expect("file prefix");
+        assert!(
+            all_sources.iter().any(|s| s == expected_file),
+            "{}: expected mapped source '{expected_file}' in bundle source_locations, got: {all_sources:?}",
+            case.id
+        );
+    }
+}
+
+#[test]
+fn publish_gate_exports_and_runtime_contracts() {
+    let rt = runtime_dir();
+    let export_dir_env = std::env::var_os("NEOFLASH_PUBLISH_GATE_DIR").map(|raw| {
+        let p = PathBuf::from(raw);
+        if p.is_relative() {
+            repo_root().join(p)
+        } else {
+            p
+        }
+    });
+    let temp = TempDir::new("matrix");
+    let out_root = export_dir_env.as_deref().unwrap_or(temp.0.as_path());
+    let full_matrix = export_dir_env.is_some();
+
+    let shared_dir = out_root.join("_shared_runtime");
+    export_shared_runtime(&shared_dir, &rt).expect("export shared runtime");
+
+    let examples = load_authored_examples();
+    assert_eq!(examples.len(), 18, "expected all 18 AS2 + AS3 examples");
+
+    let focused_and_diag = build_all_focused_and_diag_cases();
+    let mut manifest_cases = Vec::new();
+
+    let all_levels = ["full", "balanced", "compact", "shared"];
+    let mut all_cases = examples;
+    all_cases.extend(focused_and_diag);
+
+    let case_levels: Vec<&[&str]> = all_cases
+        .iter()
+        .map(|case| {
+            if full_matrix {
+                &all_levels[..]
+            } else if case.group == "example" {
+                &["full"][..]
+            } else if case.id == "focus-as2-object-handlers"
+                || case.id == "focus-as3-doc-and-symbol-class"
+            {
+                &all_levels[..]
+            } else if case.group == "focused" {
+                &["full", "shared"][..]
+            } else {
+                &["full"][..]
+            }
+        })
+        .collect();
+
+    // Validate & typecheck every case first, then fan out independent (case, level) exports.
+    for case in &all_cases {
+        case.project
+            .validate()
+            .unwrap_or_else(|e| panic!("{} validate failed: {e}", case.id));
+        check_project(&case.project)
+            .unwrap_or_else(|e| panic!("{} check_project failed: {e:?}", case.id));
+    }
+
+    let mut export_jobs: Vec<(&CaseSpec, &str)> = Vec::new();
+    for (case, levels) in all_cases.iter().zip(case_levels.iter()) {
+        for &lvl in *levels {
+            export_jobs.push((case, lvl));
+        }
+    }
+    let next_job = AtomicU64::new(0);
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(1, 6)
+        .min(export_jobs.len().max(1));
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let idx = next_job.fetch_add(1, Ordering::Relaxed) as usize;
+                    if idx >= export_jobs.len() {
+                        break;
+                    }
+                    let (case, lvl) = export_jobs[idx];
+                    export_case_to_dir(case, out_root, &rt, &[lvl]);
+                }
+            });
+        }
+    });
+
+    for (case, levels) in all_cases.iter().zip(case_levels.iter()) {
+        if case.group == "example" && case.id.ends_with("07-sound-video-loadpublish") {
+            let b = bundle_json_from_file(
+                &out_root
+                    .join(case.group)
+                    .join(case.id)
+                    .join("full/bundle.js"),
+            );
+            let resources = b["project"]["resources"].as_array().expect("resources");
+            if resources.iter().any(|r| r["path"] == "media/clip.mp4") {
+                assert_eq!(
+                    b["resource_aliases"]["media/clip.avi"].as_str(),
+                    Some("media/clip.mp4"),
+                    "{}: transcoded AVI must preserve media/clip.avi alias in bundle",
+                    case.id
+                );
+            }
+        }
+        if case.id == "focus-as2-scenes" || case.id == "focus-as3-scenes" {
+            let b = bundle_json_from_file(
+                &out_root
+                    .join(case.group)
+                    .join(case.id)
+                    .join("full/bundle.js"),
+            );
+            let scenes = b["scenes"].as_array().expect("scenes array in bundle");
+            assert_eq!(scenes.len(), 2, "{}: expected 2 scenes in bundle", case.id);
+        }
+        if case.id == "focus-as3-clean-chrome" {
+            let html = fs::read_to_string(
+                out_root
+                    .join(case.group)
+                    .join(case.id)
+                    .join("full/index.html"),
+            )
+            .expect("read clean chrome html");
+            assert!(
+                html.contains("<footer hidden>") && html.contains(r#"id="status" hidden"#),
+                "clean chrome must hide status/restart bar"
+            );
+        }
+        manifest_cases.push(GateManifestCase {
+            id: case.id,
+            group: case.group,
+            language: case.language,
+            stage_width: case.project.width,
+            stage_height: case.project.height,
+            levels: levels.iter().map(|s| (*s).to_owned()).collect(),
+            clean_chrome: case.clean_chrome,
+            allow_file_protocol: case.allow_file_protocol,
+            expected_pass: case.expected_pass,
+            expected_error_substrings: case.expected_error_substrings.clone(),
+            interactions: case.interactions.clone(),
+            verify_restart: case.verify_restart,
+        });
+    }
+
+    let manifest = GateManifest {
+        shared_runtime_dir: "_shared_runtime".into(),
+        cases: manifest_cases,
+    };
+    fs::create_dir_all(out_root).expect("create gate out_root");
+    fs::write(
+        out_root.join("manifest.json"),
+        serde_json::to_vec_pretty(&manifest).expect("serialize manifest"),
+    )
+    .expect("write manifest.json");
+}

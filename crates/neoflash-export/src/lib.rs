@@ -267,6 +267,8 @@ struct Bundle<'a> {
     sprite_sheet: Option<SpriteSheetBundle>,
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     asset_urls: std::collections::BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    resource_aliases: std::collections::BTreeMap<String, String>,
     publish: PublishInfo,
     warnings: Vec<String>,
     load_summary: LoadSummary,
@@ -563,13 +565,28 @@ pub fn export_desktop_app(
     } else {
         safe_name
     };
+    let options = options.validated().map_err(ExportError::Options)?;
+    let prepared = prepare_with_config(
+        project,
+        runtime_dir,
+        options.fonts,
+        options.audio,
+        Some(&app_config),
+    )?;
+    let package = assemble_with_config(project, &prepared, &options.size, Some(&app_config))?;
     let app_dir = output_dir.join(format!("{app_stem}.app"));
     let contents_dir = app_dir.join("Contents");
     let macos_dir = contents_dir.join("MacOS");
     let web_dir = contents_dir.join("Resources").join("web");
+    if app_dir.exists()
+        && fs::read_dir(&app_dir)?.next().is_some()
+        && !web_dir.join(MARKER).exists()
+    {
+        return Err(ExportError::Destination(app_dir.display().to_string()));
+    }
     fs::create_dir_all(&macos_dir)?;
     fs::create_dir_all(&web_dir)?;
-    export_project_with_config(project, &web_dir, runtime_dir, options, &app_config)?;
+    write_package(&web_dir, &package.files, &project.name, "project")?;
     let plist = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -843,6 +860,7 @@ pub(crate) struct Prepared {
     pub(crate) external_videos: Vec<neoflash_core::ExternalVideoAsset>,
     pub(crate) video_manifest: Vec<neoflash_core::VideoManifestEntry>,
     pub(crate) sequence_pack_atlas: bool,
+    pub(crate) resource_aliases: std::collections::BTreeMap<String, String>,
     pub(crate) warnings: Vec<String>,
     pub(crate) bindings: String,
     pub(crate) wasm: Vec<u8>,
@@ -980,7 +998,7 @@ pub(crate) fn prepare_with_config(
     let (published, scenes) = neoflash_core::flatten_scenes_with_ranges(project);
     let (bindings, wasm) = read_runtime(runtime_dir)?;
     let mut published = publishable(&published).unwrap_or(published);
-    let avi_warnings = transcode_avi_resources_for_html5(&mut published);
+    let (avi_warnings, resource_aliases) = transcode_avi_resources_for_html5(&mut published);
     let mut seq_warnings = Vec::new();
     let mut sequence_pack_atlas = false;
     if let Some(cfg) = config {
@@ -1017,6 +1035,7 @@ pub(crate) fn prepare_with_config(
         external_videos,
         video_manifest,
         sequence_pack_atlas,
+        resource_aliases,
         warnings,
         bindings,
         wasm,
@@ -1024,11 +1043,13 @@ pub(crate) fn prepare_with_config(
     })
 }
 
-fn transcode_avi_resources_for_html5(project: &mut Project) -> Vec<String> {
+fn transcode_avi_resources_for_html5(
+    project: &mut Project,
+) -> (Vec<String>, std::collections::BTreeMap<String, String>) {
     let mut warnings = Vec::new();
     let ffmpeg = video::detect_ffmpeg();
-    let mut path_renames: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+    let mut path_renames: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
     for resource in &mut project.resources {
         let is_avi_mime = resource.media_type.eq_ignore_ascii_case("video/x-msvideo")
             || resource.media_type.eq_ignore_ascii_case("video/avi");
@@ -1045,12 +1066,14 @@ fn transcode_avi_resources_for_html5(project: &mut Project) -> Vec<String> {
             ));
             continue;
         };
+        static AVI_TEMP_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
+        let seq = AVI_TEMP_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let temp_dir = std::env::temp_dir().join(format!(
-            "neoflash-avi-transcode-{}-{nonce}",
+            "neoflash-avi-transcode-{}-{nonce}-{seq}",
             std::process::id()
         ));
         if std::fs::create_dir_all(&temp_dir).is_err() {
@@ -1130,7 +1153,7 @@ fn transcode_avi_resources_for_html5(project: &mut Project) -> Vec<String> {
             }
         }
     }
-    warnings
+    (warnings, path_renames)
 }
 
 pub(crate) fn assemble(
@@ -1504,6 +1527,7 @@ pub(crate) fn assemble_with_config(
         video_manifest: &effective_video_manifest,
         sprite_sheet: sprite_sheet_bundle,
         asset_urls,
+        resource_aliases: prepared.resource_aliases.clone(),
         publish: PublishInfo {
             level: level.name(),
             omitted_modules: omitted_titles.clone(),
