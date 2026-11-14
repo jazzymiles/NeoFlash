@@ -22,14 +22,51 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum BatchInput {
-    Array(Vec<BatchOp>),
-    Object {
-        #[serde(default, alias = "steps")]
-        ops: Vec<BatchOp>,
-    },
+fn parse_batch_ops(raw_ops: &str) -> Result<Vec<BatchOp>, CliError> {
+    let root: Value = serde_json::from_str(raw_ops)
+        .map_err(|e| CliError::usage("invalid_batch_json", format!("Invalid batch JSON: {e}")))?;
+    let items = match root {
+        Value::Array(items) => items,
+        Value::Object(mut map) => {
+            let list = map
+                .remove("ops")
+                .or_else(|| map.remove("steps"))
+                .ok_or_else(|| {
+                    CliError::usage(
+                        "invalid_batch_json",
+                        "Invalid batch JSON: expected an array or object with an 'ops' or 'steps' array",
+                    )
+                })?;
+            match list {
+                Value::Array(items) => items,
+                _ => {
+                    return Err(CliError::usage(
+                        "invalid_batch_json",
+                        "Invalid batch JSON: 'ops'/'steps' must be an array",
+                    ));
+                }
+            }
+        }
+        _ => {
+            return Err(CliError::usage(
+                "invalid_batch_json",
+                "Invalid batch JSON: expected a JSON array or object",
+            ));
+        }
+    };
+
+    items
+        .into_iter()
+        .enumerate()
+        .map(|(idx, item)| {
+            serde_json::from_value::<BatchOp>(item).map_err(|e| {
+                CliError::usage(
+                    "invalid_batch_json",
+                    format!("Invalid batch JSON at step {idx}: {e}"),
+                )
+            })
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -159,6 +196,7 @@ enum BatchOp {
         path: Option<String>,
         id: Option<String>,
         language: Option<String>,
+        #[serde(alias = "code")]
         source: String,
         #[serde(default)]
         remove_empty: bool,
@@ -309,12 +347,7 @@ fn run_cmd_batch<R: Read, W1: Write>(
         buf
     };
 
-    let parsed: BatchInput = serde_json::from_str(&raw_ops)
-        .map_err(|e| CliError::usage("invalid_batch_json", format!("Invalid batch JSON: {e}")))?;
-    let ops = match parsed {
-        BatchInput::Array(v) => v,
-        BatchInput::Object { ops } => ops,
-    };
+    let ops = parse_batch_ops(&raw_ops)?;
 
     let mut project = match project_path {
         Some(ref path) => load_project_valid(path)?,

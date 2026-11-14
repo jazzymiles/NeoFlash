@@ -754,6 +754,35 @@ fn batch_pipeline_builds_validates_exports_and_rolls_back_atomically() {
     assert_eq!(err["error"]["code"], "compile_failed");
     assert_eq!(err["error"]["details"]["step_index"], 2);
     assert_eq!(fs::read_to_string(&out_proj).unwrap(), snapshot_before);
+
+    // Per-step diagnostic JSON parse error + `code` alias for `set_script`
+    let bad_shape = json!({
+        "ops": [
+            { "op": "new", "name": "Ok" },
+            { "op": "set_script", "frame": 0, "code": "trace(\"alias_ok\");" },
+            { "op": "add_keyframe", "frame": 1 }
+        ]
+    });
+    let (code, stdout, stderr) =
+        run_args(&["--headless", "batch", "--stdin"], &bad_shape.to_string());
+    assert_eq!(code, 2);
+    assert!(stdout.is_empty());
+    let err: Value = serde_json::from_str(&stderr).unwrap();
+    assert_eq!(err["error"]["code"], "invalid_batch_json");
+    assert!(err["error"]["message"].as_str().unwrap().contains("step 2"));
+
+    let alias_ops = json!({
+        "ops": [
+            { "op": "new", "name": "Alias", "language": "as2" },
+            { "op": "set_script", "frame": 0, "code": "trace(\"alias_ok\");" },
+            { "op": "eval", "frames": "0..=0", "scripts": true }
+        ]
+    });
+    let (code, stdout, stderr) =
+        run_args(&["--headless", "batch", "--stdin"], &alias_ops.to_string());
+    assert_eq!(code, 0, "stderr={stderr}");
+    let alias_res: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(alias_res["results"][2]["result"]["trace_lines"][0], "alias_ok");
 }
 
 #[test]
