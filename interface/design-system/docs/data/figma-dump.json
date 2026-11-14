@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-14T12:42:28.537Z",
+ "generated": "2026-11-14T13:18:03.554Z",
  "file": "Interface test",
  "pages": [
   {
@@ -634,7 +634,7 @@
      "id": "1:9092",
      "name": "Shelf / Icons · 16 and 20 px",
      "w": 700,
-     "h": 178
+     "h": 194
     },
     {
      "id": "1:9503",
@@ -1277,6 +1277,36 @@
      "name": "Density profiles — Comfortable, Compact, Classic Flash — Dark Graphite",
      "w": 1529,
      "h": 727
+    },
+    {
+     "id": "339:53046",
+     "name": "AI connections — Preferences, connection and consent",
+     "w": 2560,
+     "h": 564
+    },
+    {
+     "id": "339:53158",
+     "name": "Divider",
+     "w": 650,
+     "h": 1
+    },
+    {
+     "id": "340:53218",
+     "name": "AI connections — Preferences, connection and consent — Light",
+     "w": 2560,
+     "h": 564
+    },
+    {
+     "id": "340:53347",
+     "name": "AI connections — Preferences, connection and consent — Mid Neutral Gray",
+     "w": 2560,
+     "h": 564
+    },
+    {
+     "id": "340:53476",
+     "name": "AI connections — Preferences, connection and consent — Dark Graphite",
+     "w": 2560,
+     "h": 564
     }
    ]
   },
@@ -8197,6 +8227,17 @@
     "properties": []
    },
    {
+    "name": "NF2 Icon/16/tool-razor",
+    "id": "335:1783",
+    "kind": "component",
+    "variants": 1,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Icons · 16 and 20 px",
+    "description": "",
+    "properties": []
+   },
+   {
     "name": "NF2/Button",
     "id": "1:9565",
     "kind": "set",
@@ -9360,6 +9401,17 @@
    {
     "name": "NF2 Icon/20/tool-puppet",
     "id": "325:1882",
+    "kind": "component",
+    "variants": 1,
+    "w": 20,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — icons",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/20/tool-razor",
+    "id": "335:1790",
     "kind": "component",
     "variants": 1,
     "w": 20,
@@ -15426,6 +15478,17 @@
    {
     "name": "NF2 Icon/12/tool-3d-rotate",
     "id": "325:1876",
+    "kind": "component",
+    "variants": 1,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Icons · 12 px",
+    "description": "",
+    "properties": []
+   },
+   {
+    "name": "NF2 Icon/12/tool-razor",
+    "id": "335:1776",
     "kind": "component",
     "variants": 1,
     "w": 12,

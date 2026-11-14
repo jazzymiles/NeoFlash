@@ -1,6 +1,6 @@
-F Shelf / Icons · 16 and 20 px 700×178 [V gap 12]
+F Shelf / Icons · 16 and 20 px 700×194 [V gap 12]
   T "Icons · 16 and 20 px"
-  F Icon grid 658×108 [H gap 10]
+  F Icon grid 658×124 [H gap 10]
     F NF2 Icon/16/select 16×16
     F NF2 Icon/16/subselect 16×16
     F NF2 Icon/16/transform 16×16
@@ -143,3 +143,4 @@ F Shelf / Icons · 16 and 20 px 700×178 [V gap 12]
     F NF2 Icon/16/tool-spray 16×16
     F NF2 Icon/16/tool-3d-translate 16×16
     F NF2 Icon/16/tool-3d-rotate 16×16
+    F NF2 Icon/16/tool-razor 16×16

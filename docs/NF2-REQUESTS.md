@@ -36,7 +36,7 @@ still open.
 - **Resolved, waiting for the editor to adopt the new API or assets:** R-016 (`set_tooltip_shortcuts`), R-047
   (`CompactTypeHeader`), R-049 (mask icons), R-067b (tool masters), R-081 (`paint_gradient_overflow_preview`).
 - **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
-- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-097;
+- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-097, R-099;
   earlier R-022, R-038, R-043.
 - Everything else is resolved.
 
@@ -1598,8 +1598,7 @@ wires them with the components named in each answer.
      the destination host. Footer `Cancel` · Primary `Send`.
   4. *Rules.* No feature sends a request without this dialog, and there is no "do not ask again". Commands that
      need AI are hidden until one connection is `Ready`. An answer is a proposal: applying it to the document is a
-     separate, explicit action. The surface that shows the answer and applies a proposal is not designed yet and
-     needs its own request.
+     separate, explicit action, specified in R-099.
 
 ### R-098 · Hard-coded geometry in Help illustrations and UI Layout Studio
 - **Status:** resolved
@@ -1614,4 +1613,40 @@ wires them with the components named in each answer.
      literal and are not design tokens; rule 1 does not apply to them.
   3. Layout around an illustration (gaps between cards, paddings of the page) keeps using `space` tokens, as it
      already does.
+
+### R-099 · AI answer: streaming, proposals and applying them
+- **Status:** answered
+- **Requested by / for:** design track · follow-up to R-097 (`AiStreamEvent`, `AiUntrustedProposal`)
+- **Where:** a new dialog opened by `Send` in the Send to AI dialog; Figma board
+  `AI answer — waiting, streaming, proposals and failure` (four dialogs, four themes).
+- **Need:** show the answer while it arrives, show what the model proposes, and change the document only on an
+  explicit action.
+- **Answer:**
+  1. *One dialog, "AI answer".* It replaces the Send to AI dialog in place. Under the header a `Small` line names
+     the connection and model. Width 480 pt while waiting, streaming or failed, 600 pt once proposals are shown.
+  2. *Waiting.* Indeterminate `Progress` labelled "Waiting for the provider…". `RateLimited` / `RetryScheduled` add an
+     Info `InlineMessage` under it ("The provider limits requests. Trying again in 12 s (attempt 2 of 3)."). Footer:
+     Secondary `Stop`, which cancels the request.
+  3. *Streaming.* `Progress` labelled "Receiving the answer…" and the text so far in a read-only box (`bg/field`,
+     `border/subtle`, radius MD, 12 pt padding, `Body`). Footer: `Stop`; text received before Stop stays visible with
+     the Info line "Request cancelled.".
+  4. *Completed.* The explanation in the same box: summary in `Body Strong`, body in `Body`. Under the Overline
+     "Proposals", one card per proposal (`bg/panel`, `border/subtle`, radius MD, 12 pt padding, 10 pt gaps):
+     - *Code.* Neutral `Badge` with the language, then the target hint in `Body Strong`; the code in a `Mono` block on
+       `bg/app` (read-only, at most eight lines, then it scrolls); the model's explanation in `Small`. Buttons:
+       Secondary `Insert into Actions`, Ghost `Copy`. The code is inserted at the caret of the script open in Actions;
+       the target hint is only shown, never used to choose a script.
+     - *Timing.* Neutral `Badge` "Timing", the layer name in `Body Strong`, `Table Row`s `Frames` and `Easing`, notes
+       in `Small`. Buttons: Secondary `Apply to timeline`, Ghost `Dismiss`. If the layer is not in the current
+       timeline or the range does not fit, `Apply to timeline` is disabled and a `Small` line says why.
+     - *After applying.* The buttons give way to a success `InlineMessage` ("Inserted into Actions at the caret.",
+       "Applied to layer ball, frames 1 – 30.") and Ghost `Undo`. A dismissed card collapses to its header line.
+     Above the footer a Warning `InlineMessage`: "NeoFlash does not check AI output. Read a proposal before applying
+     it; each one is a single Undo step." Footer: Ghost `New request…` on the left (back to Send to AI with the same
+     context), Primary `Done`.
+  5. *Failed.* Error `InlineMessage` with the text of `AiConnectionError`, then `Small` "Nothing was changed in the
+     document.". Footer: Ghost `Edit connection…`, Secondary `Close`, Primary `Try again`.
+  6. *Rules.* Nothing is applied automatically, and there is no "apply all". Every applied proposal is one history
+     step named after its kind and can be undone from the card or with Edit ▸ Undo. Closing the dialog during a
+     request cancels it. The answer is not kept after the dialog closes.
 

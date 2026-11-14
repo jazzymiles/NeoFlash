@@ -1,0 +1,126 @@
+F AI connections — Preferences, connection and consent 2560×564 [H gap 40]
+  F Dialog / Preferences — AI 920×507 [V gap 0]
+    I NF2/Dialog Header 918×60 "Preferences"
+    F Main 918×380 [H gap 0]
+      F Categories 220×342 [V gap 2]
+        I NF2/Tree Item {Label=General, Type=Symbol, Selected=False} 196×32 "General"
+        I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=False} 196×32 "Code editor"
+        I NF2/Tree Item {Label=Timeline, Type=Symbol, Selected=False} 196×32 "Timeline"
+        I NF2/Tree Item {Label=Drawing, Type=Symbol, Selected=False} 196×32 "Drawing"
+        I NF2/Tree Item {Label=Text, Type=Symbol, Selected=False} 196×32 "Text"
+        I NF2/Tree Item {Label=Clipboard, Type=Symbol, Selected=False} 196×32 "Clipboard"
+        I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
+        I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
+        I NF2/Tree Item {Label=AI, Type=Symbol, Selected=True} 196×32 "AI"
+        I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=False} 196×32 "Updates"
+      F Content 698×380 [V gap 16]
+        F Connections 650×171 [V gap 10]
+          T "Connections"
+          F Connections table 650×107 [V gap 0]
+            F Row / Work — Anthropic 648×35 [H gap 8]
+              T "Work — Anthropic"
+              T "Anthropic · claude-sonnet-5-5"
+              I NF2/Badge {Label=Ready, Type=Accent} 58×22 "Ready"
+            F Row / Local Ollama 648×35 [H gap 8]
+              T "Local Ollama"
+              T "Local (OpenAI-compatible) · llama3.1"
+              I NF2/Badge {Label=Not tested, Type=Neutral} 79×22 "Not tested"
+            F Row / OpenAI 648×35 [H gap 8]
+              T "OpenAI"
+              T "OpenAI · gpt-4o"
+              I NF2/Badge {Label=No key, Type=Warning} 61×22 "No key"
+          F Row 650×32 [H gap 8]
+            I NF2/Button {Icon=false, Label=Add connection…, Type=Secondary, State=Default} 118×32 "Add connection…"
+            I NF2/Button {Icon=false, Label=Edit…, Type=Ghost, State=Default} 54×32 "Edit…"
+            I NF2/Button {Icon=false, Label=Test, Type=Ghost, State=Default} 47×32 "Test"
+            I NF2/Button {Icon=false, Label=Remove, Type=Ghost, State=Default} 67×32 "Remove"
+        F Default 650×54 [V gap 10]
+          T "Default"
+          F Row 650×32 [H gap 8]
+            T "Default connection"
+            I NF2/Select {Label=Work — Anthropic, State=Default} 280×32 "Work — Anthropic"
+        F Privacy 650×64 [V gap 10]
+          T "Privacy"
+          F Inline message / info 650×16 [H gap 8]
+            I NF2 Icon/16/info 16×16
+            T "Nothing is sent to a provider until you press Send in the review dialog. Every request lists what will leave this computer."
+          F Inline message / info 650×16 [H gap 8]
+            I NF2 Icon/16/info 16×16
+            T "API keys are kept in the system keychain. They are never written to the project, to preferences or to logs."
+    F Row 918×65 [H gap 8]
+      I NF2/Button {Icon=false, Label=Reset to defaults, Type=Ghost, State=Default} 114×32 "Reset to defaults"
+      F Spacer 619×2
+      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+      I NF2/Button {Icon=false, Label=Save, Type=Primary, State=Default} 50×32 "Save"
+  F Dialog / AI connection 480×564 [V gap 0]
+    I NF2/Dialog Header 478×60 "AI connection"
+    F Body 478×502 [V gap 12]
+      I NF2/Select {Label=Provider: Anthropic, State=Default} 430×32 "Provider: Anthropic"
+      I NF2/Field {Show prefix=true, Prefix=Name, Label=Work — Anthropic, State=Default} 430×32 "Name" "Work — Anthropic"
+      I NF2/Field {Show prefix=true, Prefix=Base URL, Label=https://api.anthropic.com, State=Default} 430×32 "Base URL" "https://api.anthropic.com"
+      I NF2/Field {Show prefix=true, Prefix=Model, Label=claude-sonnet-5-5, State=Default} 430×32 "Model" "claude-sonnet-5-5"
+      I NF2/Field {Show prefix=true, Prefix=API key, Label=••••••••••••••••••••, State=Default} 430×32 "API key" "••••••••••••••••••••"
+      T "Stored in the system keychain. The key is never shown again and never saved with the project."
+      I NF2/Section Header {Label=Advanced, State=Expanded} 430×32 "Advanced"
+      F Row 430×32 [H gap 8]
+        I NF2/Field {Show prefix=true, Prefix=Timeout, Label=15 s, State=Default} 211×32 "Timeout" "15 s"
+        I NF2/Field {Show prefix=true, Prefix=Retries, Label=2, State=Default} 211×32 "Retries" "2"
+      I NF2/Checkbox {Label=Streaming responses, Checked=True} 136×18 "Streaming responses"
+      I NF2/Checkbox {Label=Image input, Checked=False} 88×18 "Image input"
+      F Row 430×32 [H gap 12]
+        I NF2/Button {Icon=false, Label=Test connection, Type=Secondary, State=Default} 111×32 "Test connection"
+        F Inline message / check 307×16 [H gap 8]
+          I NF2 Icon/16/check 16×16
+          T "Connected · claude-sonnet-5-5"
+      F Footer 430×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Save, Type=Primary, State=Default} 50×32 "Save"
+  F Dialog / AI connection — local provider, failed test 480×403 [V gap 0]
+    I NF2/Dialog Header 478×60 "AI connection"
+    F Body 478×341 [V gap 12]
+      I NF2/Select {Label=Provider: Local (OpenAI-compatible), State=Default} 430×32 "Provider: Local (OpenAI-compatible)"
+      I NF2/Field {Show prefix=true, Prefix=Name, Label=Local Ollama, State=Default} 430×32 "Name" "Local Ollama"
+      I NF2/Field {Show prefix=true, Prefix=Base URL, Label=http://localhost:11434/v1, State=Default} 430×32 "Base URL" "http://localhost:11434/v1"
+      I NF2/Field {Show prefix=true, Prefix=Model, Label=llama3.1, State=Default} 430×32 "Model" "llama3.1"
+      I NF2/Field {Prefix=API key, Show prefix=true, Label=Not required, State=Disabled} 430×32 "API key" "Not required"
+      T "A local provider may use http:// on this computer. Cloud providers must use https://."
+      F Row 430×32 [H gap 12]
+        I NF2/Button {Icon=false, Label=Test connection, Type=Secondary, State=Default} 111×32 "Test connection"
+        F Inline message / error 307×16 [H gap 8]
+          I NF2 Icon/16/error 16×16
+          T "Provider unreachable (offline): connection refused"
+      F Footer 430×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Save, Type=Primary, State=Default} 50×32 "Save"
+  F Dialog / Send to AI 560×479 [V gap 0]
+    I NF2/Dialog Header 558×60 "Send to AI"
+    F Body 558×417 [V gap 12]
+      I NF2/Select {Label=Connection: Work — Anthropic · claude-sonnet-5-5, State=Default} 510×32 "Connection: Work — Anthropic · claude-sonnet-5-5"
+      T "Request"
+      I NF2/Field {Show prefix=true, Prefix=Ask, Label=Why does the orbit clip stop at frame 30?, State=Default} 510×32 "Ask" "Why does the orbit clip stop at frame 30?"
+      T "What will be sent"
+      F Context table 510×126 [V gap 0]
+        F Row / Project and symbol names 508×31 [H gap 8]
+          I NF2/Checkbox {Label=Project and symbol names, Checked=True} 164×18 "Project and symbol names"
+          F Spacer 135×2
+          T "Ideas in motion · Scene 1 · frame 30"
+        F Row / Selected elements (2) 508×31 [H gap 8]
+          I NF2/Checkbox {Label=Selected elements (2), Checked=True} 141×18 "Selected elements (2)"
+          F Spacer 213×2
+          T "name, type and position"
+        F Row / Script excerpt 508×31 [H gap 8]
+          I NF2/Checkbox {Label=Script excerpt, Checked=True} 99×18 "Script excerpt"
+          F Spacer 256×2
+          T "ActionScript 3.0 · 1.2 KB"
+        F Row / Asset list (2) 508×31 [H gap 8]
+          I NF2/Checkbox {Label=Asset list (2), Checked=True} 92×18 "Asset list (2)"
+          F Spacer 258×2
+          T "name, type and size only"
+      T "Not sent: intro.mp4 (video is not an allowed type), theme.mp3 (larger than 64 KB)."
+      F Inline message / info 510×16 [H gap 8]
+        I NF2 Icon/16/info 16×16
+        T "Keys, tokens and passwords found in the text are replaced with [REDACTED_SECRET] before sending."
+      T "Destination: api.anthropic.com over HTTPS. The answer is a proposal: nothing in the document changes until you apply it."
+      F Footer 510×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Send, Type=Primary, State=Default} 51×32 "Send"

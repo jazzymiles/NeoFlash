@@ -4122,5 +4122,57 @@
   "h": 564,
   "pngMaxDimension": 5120,
   "split": true
+ },
+ {
+  "id": "343:53734",
+  "name": "AI answer — waiting, streaming, proposals and failure",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "ai-answer",
+  "png": "exports/panels/dark/boards/png/ai-answer.png",
+  "svg": "exports/panels/dark/boards/svg/ai-answer.svg",
+  "w": 2160,
+  "h": 661,
+  "pngMaxDimension": 4320,
+  "split": true
+ },
+ {
+  "id": "344:53869",
+  "name": "AI answer — waiting, streaming, proposals and failure",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "ai-answer",
+  "png": "exports/panels/mid-neutral-gray/boards/png/ai-answer.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/ai-answer.svg",
+  "w": 2160,
+  "h": 661,
+  "pngMaxDimension": 4320,
+  "split": true
+ },
+ {
+  "id": "344:53943",
+  "name": "AI answer — waiting, streaming, proposals and failure",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "ai-answer",
+  "png": "exports/panels/dark-graphite/boards/png/ai-answer.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/ai-answer.svg",
+  "w": 2160,
+  "h": 661,
+  "pngMaxDimension": 4320,
+  "split": true
+ },
+ {
+  "id": "344:53795",
+  "name": "AI answer — waiting, streaming, proposals and failure",
+  "group": "panels",
+  "theme": "light",
+  "slug": "ai-answer",
+  "png": "exports/panels/light/boards/png/ai-answer.png",
+  "svg": "exports/panels/light/boards/svg/ai-answer.svg",
+  "w": 2160,
+  "h": 661,
+  "pngMaxDimension": 4320,
+  "split": true
  }
 ]

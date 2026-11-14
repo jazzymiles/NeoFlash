@@ -328,7 +328,7 @@ reference; changes to them still need a design-track answer.
 | Live Debugger and Quick-Fixes | `panels/debugger.rs`, `debugger*.rs` | Ratified as built (R-092, states of R-033). |
 | Productivity dialogs | `panels/productivity_tools.rs` | Drawn on the `Productivity — dialogs` board in four themes (R-068); export pending. |
 | Project and Selection colours | `panels/swatches.rs`, `panels/properties.rs` | Selection colours panel drawn in four themes; usage is Small text, not a Badge (R-094). Implementation pending. |
-| AI connections | `ai_connections.rs` (no panel yet) | Designed, not built: Preferences ▸ AI, the AI connection dialog and the Send to AI review dialog are drawn on `AI connections — Preferences, connection and consent` in four themes and specified in R-097. The surface that shows an answer and applies a proposal is not designed. |
+| AI connections | `ai_connections.rs` (no panel yet) | Designed, not built: Preferences ▸ AI, the AI connection dialog and the Send to AI review dialog are drawn on `AI connections — Preferences, connection and consent`, and the AI answer dialog (waiting, streaming, proposals, failure) on `AI answer — waiting, streaming, proposals and failure`; both in four themes, specified in R-097 and R-099. |
 | UI Layout Studio | `panels/ui_studio/` (Window ▸ UI Layout Studio…) | Developer tool composition and history contract (R-069). |
 
 ## Verifying
