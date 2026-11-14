@@ -175,12 +175,21 @@ pub(crate) fn is_open(ctx: &egui::Context, panel: PlannedPanel) -> bool {
     planned_state(ctx).open.iter().any(|(p, _)| *p == panel)
 }
 
+fn safe_content_area(ctx: &egui::Context) -> egui::Rect {
+    let area = ctx.content_rect();
+    if area.is_finite() && area.width() >= 64.0 && area.height() >= 64.0 {
+        area
+    } else {
+        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0))
+    }
+}
+
 /// Open or close a preview (Window ▸ Panels ▸ Planned panels). New previews cascade from the top-left of the content.
 pub(crate) fn set_open(ctx: &egui::Context, panel: PlannedPanel, open: bool) {
     let mut state = planned_state(ctx);
     state.open.retain(|(p, _)| *p != panel);
     if open {
-        let area = ctx.content_rect();
+        let area = safe_content_area(ctx);
         let step = (state.open.len() % 8) as f32 * space::S6;
         let pos = egui::pos2(
             area.left() + neoflash_ui::metrics::tools_rail() + space::S6 + step,
@@ -428,13 +437,19 @@ fn window_title_bar(
         }
         x += 20.0;
     }
+    let title = match panel {
+        PlannedPanel::TestMovie => editor
+            .as_deref()
+            .map(|ed| ed.project.name.trim())
+            .filter(|name| !name.is_empty())
+            .map(|name| format!("{name} — Test Movie"))
+            .unwrap_or_else(|| "Test Movie".to_owned()),
+        other => other.title().to_owned(),
+    };
     ui.painter().text(
         egui::pos2(x + space::S2, rect.center().y),
         egui::Align2::LEFT_CENTER,
-        match panel {
-            PlannedPanel::TestMovie => "Ideas in motion — Test Movie",
-            other => other.title(),
-        },
+        title,
         neoflash_ui::typography::font(TextStyle::BodyStrong),
         nf.text_primary,
     );
@@ -654,6 +669,17 @@ pub(crate) fn footer_clicked(
     ghost: Option<(&str, bool)>,
     buttons: &[&str],
 ) -> Option<FooterClick> {
+    let specs: Vec<(&str, bool)> = buttons.iter().copied().map(|b| (b, true)).collect();
+    footer_clicked_with_enabled(ui, left, ghost, &specs)
+}
+
+/// [`footer_clicked`] where each trailing button carries its own enabled flag.
+pub(crate) fn footer_clicked_with_enabled(
+    ui: &mut Ui,
+    left: &str,
+    ghost: Option<(&str, bool)>,
+    buttons: &[(&str, bool)],
+) -> Option<FooterClick> {
     let nf = neoflash_ui::palette(ui.ctx());
     let mut clicked = None;
     ui.add_space(space::S2);
@@ -674,12 +700,13 @@ pub(crate) fn footer_clicked(
             caption(ui, left);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            for (i, b) in buttons.iter().rev().enumerate() {
-                let response = ui.add(if i == 0 {
+            for (i, (b, enabled)) in buttons.iter().rev().enumerate() {
+                let widget = if i == 0 {
                     c::Button::primary(b)
                 } else {
                     c::Button::new(b)
-                });
+                };
+                let response = ui.add_enabled(*enabled, widget);
                 if response.clicked() {
                     clicked = Some(FooterClick::Button(buttons.len() - 1 - i));
                 }

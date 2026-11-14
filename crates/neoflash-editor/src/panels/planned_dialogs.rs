@@ -26,7 +26,7 @@ pub(super) fn export_image(ui: &mut Ui, format: &mut usize) {
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(300.0);
-            preview_box(ui, 300.0, 188.0, "Stage preview");
+            preview_box(ui, 300.0, 188.0, "No preview rendered");
             caption(ui, "Frame 30 of 120 · 960 × 600");
         });
         ui.add_space(space::S5);
@@ -111,12 +111,12 @@ pub(super) fn import_video(ui: &mut Ui) {
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(300.0);
-            preview_box(ui, 300.0, 169.0, "Video preview");
+            preview_box(ui, 300.0, 169.0, "No video selected");
             let (span, _) = ui.allocate_exact_size(egui::vec2(300.0, 27.0), egui::Sense::hover());
             tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Video, true);
             ui.horizontal(|ui| {
                 text(ui, "00:00.00", "In", 146.0);
-                text(ui, "00:24.00", "Out", 146.0);
+                text(ui, "00:04.00", "Out", 146.0);
             });
             caption(ui, "Drag the in / out handles on the strip to trim.");
         });
@@ -124,7 +124,7 @@ pub(super) fn import_video(ui: &mut Ui) {
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = space::S2;
             ui.horizontal(|ui| {
-                text(ui, "~/Movies/intro.mp4", "File", 260.0);
+                text(ui, "", "File", 260.0);
                 let _ = ui.add(c::Button::new("Browse…"));
             });
             group(ui, "Deployment");
@@ -137,7 +137,7 @@ pub(super) fn import_video(ui: &mut Ui) {
                 (
                     false,
                     "Load external video",
-                    "Streams with a player component; keeps .nfl small",
+                    "Streams with a player component; keeps the .nflash file small",
                 ),
                 (
                     false,
@@ -165,7 +165,7 @@ pub(super) fn import_video(ui: &mut Ui) {
     });
     footer(
         ui,
-        "1280×720 · 30 fps → 24 fps · 24.0 s · ~6.1 MB",
+        "Select a video file or stream URL",
         None,
         &["Cancel", "Import"],
     );

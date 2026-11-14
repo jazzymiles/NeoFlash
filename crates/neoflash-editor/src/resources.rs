@@ -20,7 +20,10 @@ pub(crate) struct ResourcePanel {
 }
 
 impl Editor {
-    fn import_resource_paths(&mut self, paths: &[std::path::PathBuf]) -> Result<(), String> {
+    pub(crate) fn import_resource_paths(
+        &mut self,
+        paths: &[std::path::PathBuf],
+    ) -> Result<(), String> {
         if paths.len() + self.project.resources.len() > MAX_RESOURCES {
             return Err("The project supports at most 1024 resource files.".into());
         }

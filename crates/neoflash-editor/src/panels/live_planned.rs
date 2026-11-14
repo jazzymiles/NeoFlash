@@ -10,19 +10,22 @@
 //! - `TestMovie` in-editor preview (`DL-12`)
 
 use super::planned::{PlannedPanel, PlannedState, caption, form_label, mono};
+use super::stroke_style::StrokeStyleKind;
 use crate::app::Editor;
-use crate::paint_controls::two_column_row;
+use crate::paint_controls::{show_rgba_color_popup, two_column_row};
 use eframe::egui::{self, Color32, Ui};
 use image::{ImageFormat, RgbaImage};
 use neoflash_core::{
-    ElementKind, IkArmature, IkBone, InstancePlayback, Keyframe, OvalOptions, PathCommand,
-    PrimitiveOptions, RectangleOptions, ResourceUnit, evaluate_scene, new_id,
+    Color, ElementKind, IkArmature, InstancePlayback, Keyframe, OvalOptions, PrimitiveOptions,
+    RectangleOptions, ResourceUnit, new_id,
 };
 use neoflash_ui::components as c;
 use neoflash_ui::components::color_picker::hsv;
 use neoflash_ui::icons::{self, i16, i20};
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::{rich, rich_block};
+use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 
 fn section(ui: &mut Ui, label: &str, open: bool, body: impl FnOnce(&mut Ui)) {
@@ -55,6 +58,19 @@ impl Default for DecoDraft {
     }
 }
 
+impl DecoDraft {
+    fn from_stage(opts: &crate::stage::deco_spray::StageDecoOptions) -> Self {
+        Self {
+            effect: opts.effect_index,
+            branch_angle: opts.branch_angle_deg,
+            scale_pct: opts.scale_pct,
+            segment_px: opts.segment_px,
+            step_frames: f64::from(opts.step_frames.max(1)),
+            animate_pattern: opts.animate_pattern,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct SprayDraft {
     symbol_name: String,
@@ -72,7 +88,7 @@ struct SprayDraft {
 impl Default for SprayDraft {
     fn default() -> Self {
         Self {
-            symbol_name: "leaf_mc".to_owned(),
+            symbol_name: String::new(),
             use_dots: false,
             scale_w: 100.0,
             scale_h: 100.0,
@@ -112,11 +128,11 @@ impl Default for BoneDraft {
     fn default() -> Self {
         Self {
             bone_index: 0,
-            name: "arm_lower".to_owned(),
-            x: 210.4,
-            y: 188.0,
-            length: 96.0,
-            angle: -32.0,
+            name: String::new(),
+            x: 0.0,
+            y: 0.0,
+            length: 0.0,
+            angle: 0.0,
             rot_enable: true,
             rot_constrain: true,
             rot_min: -45.0,
@@ -224,8 +240,126 @@ impl Default for TestMovieDraft {
 
 #[derive(Clone, Debug, Default)]
 struct BitmapFillDraft {
-    selected_tile: usize,
-    lock_fill: bool,
+    selected_resource: Option<neoflash_core::Id>,
+    stroke_active: bool,
+}
+
+#[derive(Clone, Default)]
+struct BitmapThumbCache {
+    textures: HashMap<(String, u64), Option<egui::TextureHandle>>,
+}
+
+fn hash_bytes_with_len(data: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    data.len().hash(&mut hasher);
+    data.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn cached_bitmap_thumbnail(
+    ctx: &egui::Context,
+    resource_id: &str,
+    data: &[u8],
+) -> Option<egui::TextureHandle> {
+    let cache_id = egui::Id::new("nf2-bitmap-fill-thumb-cache");
+    let hash = hash_bytes_with_len(data);
+    let key = (resource_id.to_owned(), hash);
+    if let Some(cached) = ctx.data(|d| {
+        d.get_temp::<BitmapThumbCache>(cache_id)
+            .and_then(|c| c.textures.get(&key).cloned())
+    }) {
+        return cached;
+    }
+    let texture = image::load_from_memory(data).ok().map(|img| {
+        let rgba = img.thumbnail(116, 116).to_rgba8();
+        let size = [rgba.width() as usize, rgba.height() as usize];
+        let color_img = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+        ctx.load_texture(
+            format!("bitmap-thumb-{resource_id}-{hash:x}"),
+            color_img,
+            egui::TextureOptions::LINEAR,
+        )
+    });
+    ctx.data_mut(|d| {
+        let mut cache = d.get_temp::<BitmapThumbCache>(cache_id).unwrap_or_default();
+        if cache.textures.len() >= 64 {
+            cache.textures.clear();
+        }
+        cache.textures.insert(key, texture.clone());
+        d.insert_temp(cache_id, cache);
+    });
+    texture
+}
+
+type FrameThumbKey = (String, u64, u32, u32, u32, u32, u32, [u8; 4], bool);
+
+#[derive(Clone, Default)]
+struct FrameThumbCache {
+    textures: HashMap<FrameThumbKey, Option<egui::TextureHandle>>,
+}
+
+fn cached_frame_thumbnail(
+    ctx: &egui::Context,
+    editor: &Editor,
+    symbol_id: &str,
+    frame: u32,
+    pw: u32,
+    ph: u32,
+    runtime_capture: bool,
+) -> Option<egui::TextureHandle> {
+    let pw = pw.clamp(1, 1024);
+    let ph = ph.clamp(1, 1024);
+    let cache_id = egui::Id::new("nf2-live-planned-frame-thumb-cache");
+    let key: FrameThumbKey = (
+        symbol_id.to_owned(),
+        editor.history.revision(),
+        frame,
+        pw,
+        ph,
+        editor.project.width,
+        editor.project.height,
+        editor.project.background,
+        runtime_capture,
+    );
+    if let Some(cached) = ctx.data(|d| {
+        d.get_temp::<FrameThumbCache>(cache_id)
+            .and_then(|c| c.textures.get(&key).cloned())
+    }) {
+        return cached;
+    }
+    let base_dir = editor.path.as_deref().and_then(std::path::Path::parent);
+    let tex = neoflash_export::render_project_frame_rgba_with_base_dir(
+        &editor.project,
+        Some(symbol_id),
+        frame,
+        pw,
+        ph,
+        false,
+        runtime_capture,
+        base_dir,
+    )
+    .ok()
+    .filter(|rgba| rgba.len() == (pw as usize) * (ph as usize) * 4)
+    .map(|rgba| {
+        let image = egui::ColorImage::from_rgba_unmultiplied([pw as usize, ph as usize], &rgba);
+        ctx.load_texture(
+            format!(
+                "planned-frame-thumb-{symbol_id}-{frame}-{pw}x{ph}-r{}",
+                editor.history.revision()
+            ),
+            image,
+            egui::TextureOptions::LINEAR,
+        )
+    });
+    ctx.data_mut(|d| {
+        let mut cache = d.get_temp::<FrameThumbCache>(cache_id).unwrap_or_default();
+        if cache.textures.len() >= 96 {
+            cache.textures.clear();
+        }
+        cache.textures.insert(key, tex.clone());
+        d.insert_temp(cache_id, cache);
+    });
+    tex
 }
 
 fn make_procedural_tile_png(c0: Color32, c1: Color32) -> Vec<u8> {
@@ -240,6 +374,25 @@ fn make_procedural_tile_png(c0: Color32, c1: Color32) -> Vec<u8> {
     let mut cur = Cursor::new(Vec::new());
     let _ = img.write_to(&mut cur, ImageFormat::Png);
     cur.into_inner()
+}
+
+fn unavailable_group(ui: &mut Ui, id_salt: &str, label: &str, add_contents: impl FnOnce(&mut Ui)) {
+    let ir = ui.add_enabled_ui(false, add_contents);
+    if !ir.response.enabled() {
+        let _ = c::not_available(ir.response, label);
+    } else {
+        let resp = ui
+            .scope(|ui| {
+                ui.disable();
+                ui.interact(
+                    ir.response.rect,
+                    ui.id().with(("unavail-probe", id_salt)),
+                    egui::Sense::hover(),
+                )
+            })
+            .inner;
+        let _ = c::not_available(resp, label);
+    }
 }
 
 impl Editor {
@@ -455,6 +608,217 @@ impl Editor {
         Ok(res_id)
     }
 
+    fn selected_element_paint(&self) -> (Color, Color, f64) {
+        if let Some(el) = self.selected_element() {
+            match &el.kind {
+                ElementKind::Rectangle {
+                    fill,
+                    stroke,
+                    stroke_width,
+                    ..
+                }
+                | ElementKind::Ellipse {
+                    fill,
+                    stroke,
+                    stroke_width,
+                    ..
+                }
+                | ElementKind::Path {
+                    fill,
+                    stroke,
+                    stroke_width,
+                    ..
+                }
+                | ElementKind::PaintedPath {
+                    fill,
+                    stroke,
+                    stroke_width,
+                    ..
+                } => return (*fill, *stroke, *stroke_width),
+                ElementKind::Text { color, .. } => return (*color, self.stroke, self.stroke_width),
+                _ => {}
+            }
+        }
+        (self.fill, self.stroke, self.stroke_width)
+    }
+
+    fn selected_element_bitmap_fill_id(&self) -> Option<neoflash_core::Id> {
+        let target = self.selection.single()?;
+        let layer = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .find(|l| l.id == target.layer)?;
+        let key = layer.key_at(self.frame)?;
+        key.bitmap_fill(&target.element)
+            .map(|bf| bf.resource_id.clone())
+    }
+
+    fn apply_selected_element_color(&mut self, stroke_well: bool, next: Color, action_name: &str) {
+        if stroke_well {
+            self.stroke = next;
+        } else {
+            self.fill = next;
+        }
+        if let Some(sel) = self.selection.single().cloned()
+            && self.target_editable(&sel)
+        {
+            self.transact_named(action_name, |editor| {
+                editor.ensure_key_for(&sel.layer, false);
+                let frame = editor.frame;
+                if let Some(layer) = editor
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == sel.layer)
+                    && let Some(el) = layer
+                        .key_at_mut(frame)
+                        .and_then(|k| k.elements.iter_mut().find(|e| e.id == sel.element))
+                {
+                    match &mut el.kind {
+                        ElementKind::Rectangle { fill, stroke, .. }
+                        | ElementKind::Ellipse { fill, stroke, .. }
+                        | ElementKind::Path { fill, stroke, .. }
+                        | ElementKind::PaintedPath { fill, stroke, .. } => {
+                            if stroke_well {
+                                *stroke = next;
+                            } else {
+                                *fill = next;
+                            }
+                        }
+                        ElementKind::Text { color, .. } if !stroke_well => {
+                            *color = next;
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
+    }
+
+    fn apply_selected_stroke_width(&mut self, width: f64, action_name: &str) {
+        let clamped = width.clamp(0.0, 200.0);
+        if clamped > 0.0 {
+            self.stroke_width = clamped.clamp(0.1, 200.0);
+        }
+        if let Some(sel) = self.selection.single().cloned()
+            && self.target_editable(&sel)
+        {
+            self.transact_named(action_name, |editor| {
+                editor.ensure_key_for(&sel.layer, false);
+                let frame = editor.frame;
+                if let Some(layer) = editor
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == sel.layer)
+                    && let Some(el) = layer
+                        .key_at_mut(frame)
+                        .and_then(|k| k.elements.iter_mut().find(|e| e.id == sel.element))
+                {
+                    match &mut el.kind {
+                        ElementKind::Rectangle { stroke_width, .. }
+                        | ElementKind::Ellipse { stroke_width, .. }
+                        | ElementKind::Path { stroke_width, .. }
+                        | ElementKind::PaintedPath { stroke_width, .. } => {
+                            *stroke_width = clamped;
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
+    }
+
+    fn live_shape_fill_stroke_controls(&mut self, ui: &mut Ui, id_prefix: &str, action_name: &str) {
+        let (mut fill_rgba, mut stroke_rgba, mut sw) = self.selected_element_paint();
+        let fill_col = (fill_rgba[3] > 0).then(|| {
+            Color32::from_rgba_unmultiplied(fill_rgba[0], fill_rgba[1], fill_rgba[2], fill_rgba[3])
+        });
+        let stroke_col = (stroke_rgba[3] > 0).then(|| {
+            Color32::from_rgba_unmultiplied(
+                stroke_rgba[0],
+                stroke_rgba[1],
+                stroke_rgba[2],
+                stroke_rgba[3],
+            )
+        });
+        ui.horizontal(|ui| {
+            let fill_resp = c::tooltip(
+                ui.add(c::ColorWell {
+                    target: c::ColorWellTarget::Fill,
+                    color: fill_col,
+                    active: false,
+                }),
+                "Edit fill colour",
+                None,
+            );
+            if show_rgba_color_popup(
+                ui,
+                &fill_resp,
+                fill_resp.rect,
+                &format!("{id_prefix}-fill"),
+                &mut fill_rgba,
+            ) {
+                self.apply_selected_element_color(false, fill_rgba, action_name);
+            }
+            let stroke_resp = c::tooltip(
+                ui.add(c::ColorWell {
+                    target: c::ColorWellTarget::Stroke,
+                    color: stroke_col,
+                    active: false,
+                }),
+                "Edit stroke colour",
+                None,
+            );
+            if show_rgba_color_popup(
+                ui,
+                &stroke_resp,
+                stroke_resp.rect,
+                &format!("{id_prefix}-stroke"),
+                &mut stroke_rgba,
+            ) {
+                self.apply_selected_element_color(true, stroke_rgba, action_name);
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .add(
+                    c::Field::new(&mut sw, "Stroke size")
+                        .range(0.0..=200.0)
+                        .presets(&[0.25, 0.5, 1.0, 2.0, 4.0, 8.0])
+                        .width(80.0),
+                )
+                .changed()
+            {
+                self.apply_selected_stroke_width(sw, action_name);
+            }
+            let current_kind = self.init_stroke_style_draft().kind;
+            let mut style = match current_kind {
+                StrokeStyleKind::Dashed => c::LineStyle::Dashed,
+                StrokeStyleKind::Dotted => c::LineStyle::Dotted,
+                _ => c::LineStyle::Solid,
+            };
+            let rem = ui.available_width();
+            unavailable_group(
+                ui,
+                &format!("{id_prefix}-line-style"),
+                "Line style presets",
+                |ui| {
+                    c::LineStyleSelect::show(
+                        ui,
+                        format!("{id_prefix}-line-style"),
+                        &mut style,
+                        rem,
+                    );
+                },
+            );
+        });
+    }
+
     fn live_bitmap_fill(&mut self, ui: &mut Ui) {
         let nf = neoflash_ui::palette(ui.ctx());
         let draft_id = egui::Id::new("nf2-bitmap-fill-draft");
@@ -463,27 +827,77 @@ impl Editor {
             .data(|d| d.get_temp::<BitmapFillDraft>(draft_id))
             .unwrap_or_default();
 
-        let (ctx_fill, _, ctx_stroke, _, _) = self.contextual_paints();
-        let fill_col =
-            Color32::from_rgba_unmultiplied(ctx_fill[0], ctx_fill[1], ctx_fill[2], ctx_fill[3]);
-        let stroke_col = Color32::from_rgba_unmultiplied(
-            ctx_stroke[0],
-            ctx_stroke[1],
-            ctx_stroke[2],
-            ctx_stroke[3],
-        );
+        let (ctx_fill, fill_grad, ctx_stroke, _, _) = if self.authoring_modify.color_selection {
+            self.contextual_paints()
+        } else {
+            let (f, s, w) = self.selected_element_paint();
+            (f, None, s, None, w)
+        };
+        let fill_col = (ctx_fill[3] > 0).then(|| {
+            Color32::from_rgba_unmultiplied(ctx_fill[0], ctx_fill[1], ctx_fill[2], ctx_fill[3])
+        });
+        let stroke_col = (ctx_stroke[3] > 0).then(|| {
+            Color32::from_rgba_unmultiplied(
+                ctx_stroke[0],
+                ctx_stroke[1],
+                ctx_stroke[2],
+                ctx_stroke[3],
+            )
+        });
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            ui.add(c::ColorWell {
-                target: c::ColorWellTarget::Stroke,
-                color: Some(stroke_col),
-                active: false,
-            });
-            ui.add(c::ColorWell {
-                target: c::ColorWellTarget::Fill,
-                color: Some(fill_col),
-                active: true,
-            });
+            let stroke_well = c::tooltip(
+                ui.add(c::ColorWell {
+                    target: c::ColorWellTarget::Stroke,
+                    color: stroke_col,
+                    active: draft.stroke_active,
+                }),
+                "Stroke colour",
+                None,
+            );
+            crate::authoring_modify::update_color_popover_anchor(
+                ui.ctx(),
+                "live-bitmap-well-stroke",
+                stroke_well.rect,
+            );
+            if stroke_well.clicked() {
+                draft.stroke_active = true;
+                self.authoring_modify.color_selection = true;
+                crate::authoring_modify::request_color_popover(
+                    ui.ctx(),
+                    "live-bitmap-well-stroke",
+                    stroke_well.rect,
+                    true,
+                    true,
+                );
+            }
+            let fill_well = c::tooltip(
+                ui.add(c::ColorWell {
+                    target: c::ColorWellTarget::Fill,
+                    color: fill_col,
+                    active: !draft.stroke_active,
+                }),
+                "Fill colour",
+                None,
+            );
+            crate::authoring_modify::update_color_popover_anchor(
+                ui.ctx(),
+                "live-bitmap-well-fill",
+                fill_well.rect,
+            );
+            if fill_well.clicked() {
+                draft.stroke_active = false;
+                self.authoring_modify.color_selection = true;
+                crate::authoring_modify::request_color_popover(
+                    ui.ctx(),
+                    "live-bitmap-well-fill",
+                    fill_well.rect,
+                    false,
+                    true,
+                );
+            }
+            self.show_active_color_popover(ui);
+
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .add(c::IconButton::new(i20::COLOR_SWAP, "Swap colours").side(28.0))
@@ -496,7 +910,7 @@ impl Editor {
                     .clicked()
                 {
                     self.set_selection_fill_type(
-                        false,
+                        draft.stroke_active,
                         crate::authoring_modify::PaintFillType::None,
                     );
                 }
@@ -509,83 +923,211 @@ impl Editor {
             });
         });
 
-        c::Select::new(ui.id().with("bitmap-fill-kind"), "Bitmap fill")
-            .width(ui.available_width())
-            .show(ui, |ui| {
-                let _ = ui.add(c::MenuItem::new("Bitmap fill").checked(true));
-            });
-
-        let tile = |h: f32, s: f32| -> (Color32, Color32) {
-            (hsv(h, s, 0.85, 1.0).into(), hsv(h, s, 0.35, 1.0).into())
-        };
-        let bitmaps = [
-            tile(0.07, 0.7),
-            tile(0.64, 0.55),
-            tile(0.38, 0.55),
-            tile(0.0, 0.0),
-            tile(0.96, 0.65),
-            tile(0.62, 0.15),
-        ];
-        for (row_idx, row) in bitmaps.chunks(4).enumerate() {
-            ui.horizontal(|ui| {
-                for (col_idx, (from, to)) in row.iter().enumerate() {
-                    let idx = row_idx * 4 + col_idx;
-                    let (rect, resp) =
-                        ui.allocate_exact_size(egui::vec2(58.0, 58.0), egui::Sense::click());
-                    c::swatches::paint_gradient(
-                        ui.painter(),
-                        rect,
-                        c::GradientSwatch {
-                            from: *from,
-                            to: *to,
-                            radial: false,
-                        },
-                    );
-                    let selected = draft.selected_tile == idx;
-                    let (w, color) = if selected {
-                        (2.0_f32, nf.accent_default)
-                    } else {
-                        (1.0, nf.border_subtle)
-                    };
-                    ui.painter().rect_stroke(
-                        rect,
-                        egui::CornerRadius::same(radius::MD as u8),
-                        egui::Stroke::new(w, color),
-                        egui::StrokeKind::Inside,
-                    );
-                    if resp.clicked() {
-                        draft.selected_tile = idx;
-                        let _ = self.apply_bitmap_swatch_tile(idx);
-                    }
-                }
-            });
-        }
-        ui.horizontal(|ui| {
-            if ui.add(c::Button::new("Import…").icon(i16::PLUS)).clicked() {
-                let _ = self.apply_bitmap_swatch_tile(draft.selected_tile);
-            }
-            if ui
-                .add(c::IconButton::new(i16::LOCK_FILL, "Lock fill").selected(draft.lock_fill))
-                .clicked()
-            {
-                draft.lock_fill = !draft.lock_fill;
-            }
-            caption(ui, "Lock fill");
-        });
-        let img_count = self
+        let image_resources: Vec<(neoflash_core::Id, String, Vec<u8>)> = self
             .project
             .resources
             .iter()
             .filter(|r| r.is_image())
-            .count();
-        caption(
-            ui,
-            &format!(
-                "tile_{}.png · {} bitmap resource(s) · tiles across selection",
-                draft.selected_tile + 1,
-                img_count
+            .map(|r| {
+                let name = std::path::Path::new(&r.path)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(&r.path)
+                    .to_owned();
+                let bytes = r.decoded_bytes().unwrap_or_default();
+                (r.id.clone(), name, bytes)
+            })
+            .collect();
+        let active_bitmap_id = self.selected_element_bitmap_fill_id();
+        if let Some(active_bf) = active_bitmap_id.clone()
+            && image_resources.iter().any(|(id, _, _)| id == &active_bf)
+        {
+            draft.selected_resource = Some(active_bf);
+        } else if !draft
+            .selected_resource
+            .as_ref()
+            .is_some_and(|sel| image_resources.iter().any(|(id, _, _)| id == sel))
+        {
+            draft.selected_resource = image_resources.first().map(|(id, _, _)| id.clone());
+        }
+
+        let fill_type_label = if active_bitmap_id.is_some() {
+            "Bitmap fill"
+        } else if let Some(grad) = fill_grad {
+            match grad.kind {
+                neoflash_core::GradientKind::Linear => "Linear gradient",
+                neoflash_core::GradientKind::Radial => "Radial gradient",
+            }
+        } else if self.selected_element().is_some() && ctx_fill[3] > 0 {
+            "Solid colour"
+        } else if self.selected_element().is_some() {
+            "None"
+        } else {
+            "Bitmap fill"
+        };
+        c::Select::new(ui.id().with("bitmap-fill-kind"), fill_type_label)
+            .width(ui.available_width())
+            .show(ui, |ui| {
+                use crate::authoring_modify::PaintFillType;
+                for (mode, label) in [
+                    (PaintFillType::Solid, "Solid colour"),
+                    (PaintFillType::LinearGradient, "Linear gradient"),
+                    (PaintFillType::RadialGradient, "Radial gradient"),
+                ] {
+                    if ui
+                        .add(c::MenuItem::new(label).checked(fill_type_label == label))
+                        .clicked()
+                    {
+                        self.set_selection_fill_type(false, mode);
+                        ui.close();
+                    }
+                }
+                if ui
+                    .add_enabled(
+                        draft.selected_resource.is_some(),
+                        c::MenuItem::new("Bitmap fill").checked(fill_type_label == "Bitmap fill"),
+                    )
+                    .clicked()
+                {
+                    if let Some(res_id) = draft.selected_resource.clone()
+                        && let Err(err) = self.set_selected_bitmap_fill(
+                            res_id,
+                            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                            true,
+                            true,
+                        )
+                    {
+                        self.message(err);
+                    }
+                    ui.close();
+                }
+            });
+
+        if image_resources.is_empty() {
+            caption(
+                ui,
+                "No bitmap resources in library. Click Import… to add an image.",
+            );
+        } else {
+            let mut clicked_resource: Option<neoflash_core::Id> = None;
+            for row in image_resources.chunks(4) {
+                ui.horizontal(|ui| {
+                    for (res_id, res_name, data) in row {
+                        let (rect, resp) =
+                            ui.allocate_exact_size(egui::vec2(58.0, 58.0), egui::Sense::click());
+                        ui.painter().rect_filled(rect, radius::MD, nf.bg_field);
+                        if let Some(tex) = cached_bitmap_thumbnail(ui.ctx(), res_id, data) {
+                            ui.painter().image(
+                                tex.id(),
+                                rect.shrink(1.0),
+                                egui::Rect::from_min_max(
+                                    egui::pos2(0.0, 0.0),
+                                    egui::pos2(1.0, 1.0),
+                                ),
+                                Color32::WHITE,
+                            );
+                        }
+                        let selected = draft.selected_resource.as_deref() == Some(res_id.as_str());
+                        let (w, color) = if selected {
+                            (2.0_f32, nf.accent_default)
+                        } else {
+                            (1.0, nf.border_subtle)
+                        };
+                        ui.painter().rect_stroke(
+                            rect,
+                            egui::CornerRadius::same(radius::MD as u8),
+                            egui::Stroke::new(w, color),
+                            egui::StrokeKind::Inside,
+                        );
+                        let resp = c::tooltip(resp, res_name, None);
+                        if resp.clicked() {
+                            clicked_resource = Some(res_id.clone());
+                        }
+                    }
+                });
+            }
+            if let Some(res_id) = clicked_resource {
+                draft.selected_resource = Some(res_id.clone());
+                if let Err(err) = self.set_selected_bitmap_fill(
+                    res_id,
+                    [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                    true,
+                    true,
+                ) {
+                    self.message(err);
+                }
+            }
+        }
+
+        ui.horizontal(|ui| {
+            let import_resp = c::tooltip(
+                ui.add(c::Button::new("Import…").icon(i16::PLUS)),
+                "Import image file into library",
+                None,
+            );
+            if import_resp.clicked()
+                && let Some(paths) = rfd::FileDialog::new()
+                    .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
+                    .pick_files()
+            {
+                let before_len = self.project.resources.len();
+                match self.import_resource_paths(&paths) {
+                    Ok(()) => {
+                        if let Some(newest) = self
+                            .project
+                            .resources
+                            .iter()
+                            .skip(before_len)
+                            .rfind(|r| r.is_image())
+                            .or_else(|| self.project.resources.iter().rfind(|r| r.is_image()))
+                        {
+                            let new_id = newest.id.clone();
+                            draft.selected_resource = Some(new_id.clone());
+                            let _ = self.set_selected_bitmap_fill(
+                                new_id,
+                                [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                                true,
+                                true,
+                            );
+                        }
+                    }
+                    Err(err) => self.message(err),
+                }
+            }
+            if ui
+                .add(
+                    c::IconButton::new(i16::LOCK_FILL, "Lock fill")
+                        .selected(self.authoring_tools.brush_lock_fill),
+                )
+                .clicked()
+            {
+                self.authoring_tools.brush_lock_fill = !self.authoring_tools.brush_lock_fill;
+            }
+            caption(ui, "Lock fill");
+        });
+
+        let selected_name = draft.selected_resource.as_deref().and_then(|id| {
+            image_resources
+                .iter()
+                .find(|(rid, _, _)| rid == id)
+                .map(|(_, name, _)| name.as_str())
+        });
+        let has_editable = self
+            .selection
+            .single()
+            .is_some_and(|t| self.target_editable(t));
+        let summary = match selected_name {
+            Some(name) if has_editable => {
+                format!("{name} · {} bitmap resource(s)", image_resources.len())
+            }
+            Some(name) => format!(
+                "{name} · {} bitmap resource(s) · select a shape to apply",
+                image_resources.len()
             ),
-        );
+            None => "0 bitmap resources · click Import… to add an image".to_owned(),
+        };
+        caption(ui, &summary);
 
         ui.add_space(space::S1);
         let r = ui.available_rect_before_wrap();
@@ -596,7 +1138,10 @@ impl Editor {
         );
         ui.add_space(space::S2);
         ui.label(rich("Stroke", TextStyle::Overline).color(nf.text_tertiary));
-        let mut sw = self.stroke_width;
+        let stroke_draft = self.init_stroke_style_draft();
+        let mut sw = self.selected_element_paint().2;
+        let sw_before = sw;
+        let current_kind = stroke_draft.kind;
         let (stroke_response, ()) = two_column_row(
             ui,
             |ui, width| {
@@ -604,25 +1149,46 @@ impl Editor {
                     c::Field::new(&mut sw, "Stroke width")
                         .prefix("Width")
                         .unit("px")
-                        .range(0.1..=200.0)
+                        .range(0.0..=200.0)
                         .decimals(1)
                         .width(width),
                 )
             },
             |ui, width| {
-                c::Select::new(ui.id().with("bitmap-fill-stroke-style"), "Solid")
-                    .width(width)
-                    .show(ui, |ui| {
-                        if ui.add(c::MenuItem::new("Custom…")).clicked() {
-                            let ctx = ui.ctx().clone();
-                            self.open_stroke_style(&ctx);
+                c::Select::new(
+                    ui.id().with("bitmap-fill-stroke-style"),
+                    current_kind.label(),
+                )
+                .width(width)
+                .show(ui, |ui| {
+                    for preset in [
+                        StrokeStyleKind::Solid,
+                        StrokeStyleKind::Dashed,
+                        StrokeStyleKind::Dotted,
+                    ] {
+                        if ui
+                            .add(c::MenuItem::new(preset.label()).checked(current_kind == preset))
+                            .clicked()
+                        {
+                            let _ = self.apply_stroke_style_to_selection(
+                                preset,
+                                sw_before.max(0.1),
+                                stroke_draft.dash,
+                                stroke_draft.gap,
+                            );
                             ui.close();
                         }
-                    });
+                    }
+                    if ui.add(c::MenuItem::new("Custom…")).clicked() {
+                        let ctx = ui.ctx().clone();
+                        self.open_stroke_style(&ctx);
+                        ui.close();
+                    }
+                });
             },
         );
         if stroke_response.changed() {
-            self.stroke_width = sw.clamp(0.1, 200.0);
+            self.apply_selected_stroke_width(sw, "Edit stroke width");
         }
 
         ui.ctx().data_mut(|d| d.insert_temp(draft_id, draft));
@@ -634,12 +1200,21 @@ impl Editor {
             .timeline
             .layers
             .get(self.layer)
-            .map(|l| l.name.clone())
-            .unwrap_or_else(|| "Layer 1".to_owned());
+            .map(|l| l.name.clone());
+        let has_sel = self.selected_element().is_some();
+        let can_edit_sel = self
+            .selection
+            .single()
+            .is_some_and(|t| self.target_editable(t));
+        let subtitle = match (has_sel, layer_name) {
+            (true, Some(name)) => format!("Drawing object · layer \"{name}\""),
+            (true, None) => "Drawing object".to_owned(),
+            (false, _) => "No element selected · tool defaults".to_owned(),
+        };
         ui.add(c::TypeHeader {
             icon: i20::TOOL_OVAL,
             title: "Oval primitive",
-            subtitle: &format!("Drawing object · layer \"{layer_name}\""),
+            subtitle: &subtitle,
         });
 
         let (mut x, mut y, mut w, mut h, mut start_deg, mut end_deg, mut inner_pct, mut closed) =
@@ -647,7 +1222,7 @@ impl Editor {
                 let (ew, eh) = match &el.kind {
                     ElementKind::Ellipse { width, height, .. } => (*width, *height),
                     ElementKind::Rectangle { width, height, .. } => (*width, *height),
-                    _ => (100.0, 100.0),
+                    _ => (0.0, 0.0),
                 };
                 let (s_a, e_a, inn, cl) = match &el.transform.primitive {
                     Some(PrimitiveOptions::Oval(opts)) => (
@@ -670,10 +1245,10 @@ impl Editor {
             } else {
                 let o = self.authoring_tools.oval_options;
                 (
-                    100.0,
-                    100.0,
-                    50.0,
-                    50.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
                     o.start_angle,
                     o.end_angle,
                     o.inner_radius * 100.0,
@@ -681,98 +1256,97 @@ impl Editor {
                 )
             };
 
+        let link_id = egui::Id::new("nf2-live-oval-lock-proportions");
+        let mut locked = ui
+            .ctx()
+            .data(|d| d.get_temp::<bool>(link_id))
+            .unwrap_or(false);
+        let (old_w, old_h) = (w, h);
         let mut geom_changed = false;
         let mut prim_changed = false;
+        let size_range = if can_edit_sel {
+            1.0..=4000.0
+        } else {
+            0.0..=4000.0
+        };
         section(ui, "Position and size", true, |ui| {
-            let (x_response, (y_response, _link)) = two_column_row(
-                ui,
-                |ui, width| {
-                    ui.add(
-                        c::Field::new(&mut x, "X")
-                            .prefix("X")
-                            .decimals(1)
-                            .width(width),
-                    )
-                },
-                |ui, width| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        let field_width = (width - crate::theme::control_h() - space::S2).max(0.0);
-                        let response = ui.add(
-                            c::Field::new(y_ref(&mut y), "Y")
-                                .prefix("Y")
-                                .decimals(1)
-                                .width(field_width),
-                        );
-                        let link = ui
-                            .add(c::IconButton::new(i16::LINK, "Lock proportions").selected(true));
-                        (response, link)
-                    })
-                    .inner
-                },
-            );
-            geom_changed |= x_response.changed() || y_response.changed();
-            let (w_response, h_response) = two_column_row(
-                ui,
-                |ui, width| {
-                    ui.add(
-                        c::Field::new(&mut w, "W")
-                            .prefix("W")
-                            .range(1.0..=4000.0)
-                            .decimals(1)
-                            .width(width),
-                    )
-                },
-                |ui, width| {
-                    ui.add(
-                        c::Field::new(&mut h, "H")
-                            .prefix("H")
-                            .range(1.0..=4000.0)
-                            .decimals(1)
-                            .width(width),
-                    )
-                },
-            );
-            geom_changed |= w_response.changed() || h_response.changed();
+            let geom_resp = ui
+                .add_enabled_ui(can_edit_sel, |ui| {
+                    let (x_response, (y_response, link)) = two_column_row(
+                        ui,
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut x, "X")
+                                    .prefix("X")
+                                    .decimals(1)
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S2;
+                                let field_width =
+                                    (width - crate::theme::control_h() - space::S2).max(0.0);
+                                let response = ui.add(
+                                    c::Field::new(y_ref(&mut y), "Y")
+                                        .prefix("Y")
+                                        .decimals(1)
+                                        .width(field_width),
+                                );
+                                let link = ui.add(
+                                    c::IconButton::new(i16::LINK, "Lock proportions")
+                                        .selected(locked),
+                                );
+                                (response, link)
+                            })
+                            .inner
+                        },
+                    );
+                    if link.clicked() {
+                        locked = !locked;
+                    }
+                    geom_changed |= x_response.changed() || y_response.changed();
+                    let (w_response, h_response) = two_column_row(
+                        ui,
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut w, "W")
+                                    .prefix("W")
+                                    .range(size_range.clone())
+                                    .decimals(1)
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut h, "H")
+                                    .prefix("H")
+                                    .range(size_range.clone())
+                                    .decimals(1)
+                                    .width(width),
+                            )
+                        },
+                    );
+                    let w_changed = w_response.changed() && (w - old_w).abs() > 1e-6;
+                    let h_changed = h_response.changed() && (h - old_h).abs() > 1e-6;
+                    if locked && old_w > 0.0 && old_h > 0.0 {
+                        if w_changed {
+                            h = (w * old_h / old_w).clamp(1.0, 4000.0);
+                        } else if h_changed {
+                            w = (h * old_w / old_h).clamp(1.0, 4000.0);
+                        }
+                    }
+                    geom_changed |= w_response.changed() || h_response.changed();
+                })
+                .response;
+            if !can_edit_sel {
+                c::tooltip(geom_resp, "Select an editable oval or shape on stage", None);
+            }
         });
+        ui.ctx().data_mut(|d| d.insert_temp(link_id, locked));
 
-        let fill_col =
-            Color32::from_rgba_unmultiplied(self.fill[0], self.fill[1], self.fill[2], self.fill[3]);
-        let stroke_col = Color32::from_rgba_unmultiplied(
-            self.stroke[0],
-            self.stroke[1],
-            self.stroke[2],
-            self.stroke[3],
-        );
         section(ui, "Fill and stroke", true, |ui| {
-            ui.horizontal(|ui| {
-                ui.add(c::ColorWell {
-                    target: c::ColorWellTarget::Fill,
-                    color: Some(fill_col),
-                    active: false,
-                });
-                ui.add(c::ColorWell {
-                    target: c::ColorWellTarget::Stroke,
-                    color: Some(stroke_col),
-                    active: false,
-                });
-            });
-            ui.horizontal(|ui| {
-                let mut sw = self.stroke_width;
-                if ui
-                    .add(
-                        c::Field::new(&mut sw, "Stroke size")
-                            .presets(&[0.25, 0.5, 1.0, 2.0, 4.0, 8.0])
-                            .width(80.0),
-                    )
-                    .changed()
-                {
-                    self.stroke_width = sw.clamp(0.1, 200.0);
-                }
-                let mut style = c::LineStyle::Solid;
-                let rem = ui.available_width();
-                c::LineStyleSelect::show(ui, "live-oval-line-style", &mut style, rem);
-            });
+            self.live_shape_fill_stroke_controls(ui, "live-oval", "Edit oval paint");
             ui.horizontal(|ui| {
                 if ui
                     .add(c::Button::new("Custom…").icon(i16::SETTINGS))
@@ -782,28 +1356,40 @@ impl Editor {
                     self.open_stroke_style(&ctx);
                 }
                 let mut hinting = false;
-                ui.add(c::Switch::new(&mut hinting, "Stroke hinting"));
+                let hint_resp =
+                    ui.add_enabled(false, c::Switch::new(&mut hinting, "Stroke hinting"));
+                let _ = c::not_available(hint_resp, "Stroke hinting");
             });
             let mut miter = 3.0;
             two_column_row(
                 ui,
                 |ui, width| {
-                    c::Select::new(ui.id().with("oval-scale"), "Scale: Normal")
-                        .width(width)
-                        .show(ui, |_| {});
+                    let scale_resp = ui
+                        .scope(|ui| {
+                            ui.disable();
+                            c::Select::new(ui.id().with("oval-scale"), "Scale: Normal")
+                                .width(width)
+                                .show(ui, |_| {})
+                                .0
+                        })
+                        .inner;
+                    let _ = c::not_available(scale_resp, "Stroke scaling");
                 },
                 |ui, width| {
-                    ui.add(
+                    let miter_resp = ui.add_enabled(
+                        false,
                         c::Field::new(&mut miter, "Miter")
                             .prefix("Miter")
                             .decimals(0)
                             .width(width),
                     );
+                    let _ = c::not_available(miter_resp, "Miter limit");
                 },
             );
-            for (label, items) in [
+            for (label, reason, items) in [
                 (
                     "Cap",
+                    "Stroke caps",
                     [
                         (i16::CAP_NONE, "No cap"),
                         (i16::CAP_ROUND, "Round cap"),
@@ -812,6 +1398,7 @@ impl Editor {
                 ),
                 (
                     "Join",
+                    "Stroke joins",
                     [
                         (i16::JOIN_MITER, "Miter join"),
                         (i16::JOIN_ROUND, "Round join"),
@@ -821,11 +1408,13 @@ impl Editor {
             ] {
                 ui.horizontal(|ui| {
                     form_label(ui, label, 48.0);
-                    c::IconGroup {
-                        items: &items,
-                        selected: Some(1),
-                    }
-                    .show(ui);
+                    unavailable_group(ui, label, reason, |ui| {
+                        c::IconGroup {
+                            items: &items,
+                            selected: Some(1),
+                        }
+                        .show(ui);
+                    });
                 });
             }
         });
@@ -925,16 +1514,26 @@ impl Editor {
     }
 
     fn live_properties_rect(&mut self, ui: &mut Ui) {
+        let can_edit_sel = self
+            .selection
+            .single()
+            .is_some_and(|t| self.target_editable(t));
+        let subtitle = if self.selected_element().is_some() {
+            "Drawing object · editable corners"
+        } else {
+            "No element selected · tool defaults"
+        };
         ui.add(c::TypeHeader {
             icon: i20::TOOL_RECT_PRIMITIVE,
             title: "Rectangle primitive",
-            subtitle: "Drawing object · editable corners",
+            subtitle,
         });
 
         let (mut x, mut y, mut w, mut h, mut radii) = if let Some(el) = self.selected_element() {
             let (rw, rh) = match &el.kind {
                 ElementKind::Rectangle { width, height, .. } => (*width, *height),
-                _ => (240.0, 120.0),
+                ElementKind::Ellipse { width, height, .. } => (*width, *height),
+                _ => (0.0, 0.0),
             };
             let r = match &el.transform.primitive {
                 Some(PrimitiveOptions::Rectangle(opts)) => opts.corner_radii,
@@ -943,97 +1542,78 @@ impl Editor {
             (el.transform.x, el.transform.y, rw, rh, r)
         } else {
             (
-                140.0,
-                96.0,
-                240.0,
-                120.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
                 self.authoring_tools.rect_options.corner_radii,
             )
         };
 
         let mut changed = false;
+        let size_range = if can_edit_sel {
+            1.0..=4000.0
+        } else {
+            0.0..=4000.0
+        };
         section(ui, "Position and size", true, |ui| {
-            let (x_response, y_response) = two_column_row(
-                ui,
-                |ui, width| {
-                    ui.add(
-                        c::Field::new(&mut x, "X")
-                            .prefix("X")
-                            .decimals(1)
-                            .width(width),
-                    )
-                },
-                |ui, width| {
-                    ui.add(
-                        c::Field::new(&mut y, "Y")
-                            .prefix("Y")
-                            .decimals(1)
-                            .width(width),
-                    )
-                },
-            );
-            changed |= x_response.changed() || y_response.changed();
-            let (w_response, h_response) = two_column_row(
-                ui,
-                |ui, width| {
-                    ui.add(
-                        c::Field::new(&mut w, "W")
-                            .prefix("W")
-                            .range(1.0..=4000.0)
-                            .decimals(1)
-                            .width(width),
-                    )
-                },
-                |ui, width| {
-                    ui.add(
-                        c::Field::new(&mut h, "H")
-                            .prefix("H")
-                            .range(1.0..=4000.0)
-                            .decimals(1)
-                            .width(width),
-                    )
-                },
-            );
-            changed |= w_response.changed() || h_response.changed();
+            let geom_resp = ui
+                .add_enabled_ui(can_edit_sel, |ui| {
+                    let (x_response, y_response) = two_column_row(
+                        ui,
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut x, "X")
+                                    .prefix("X")
+                                    .decimals(1)
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut y, "Y")
+                                    .prefix("Y")
+                                    .decimals(1)
+                                    .width(width),
+                            )
+                        },
+                    );
+                    changed |= x_response.changed() || y_response.changed();
+                    let (w_response, h_response) = two_column_row(
+                        ui,
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut w, "W")
+                                    .prefix("W")
+                                    .range(size_range.clone())
+                                    .decimals(1)
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut h, "H")
+                                    .prefix("H")
+                                    .range(size_range.clone())
+                                    .decimals(1)
+                                    .width(width),
+                            )
+                        },
+                    );
+                    changed |= w_response.changed() || h_response.changed();
+                })
+                .response;
+            if !can_edit_sel {
+                c::tooltip(
+                    geom_resp,
+                    "Select an editable rectangle or shape on stage",
+                    None,
+                );
+            }
         });
 
-        let fill_col =
-            Color32::from_rgba_unmultiplied(self.fill[0], self.fill[1], self.fill[2], self.fill[3]);
-        let stroke_col = Color32::from_rgba_unmultiplied(
-            self.stroke[0],
-            self.stroke[1],
-            self.stroke[2],
-            self.stroke[3],
-        );
         section(ui, "Fill and stroke", true, |ui| {
-            ui.horizontal(|ui| {
-                ui.add(c::ColorWell {
-                    target: c::ColorWellTarget::Fill,
-                    color: Some(fill_col),
-                    active: false,
-                });
-                ui.add(c::ColorWell {
-                    target: c::ColorWellTarget::Stroke,
-                    color: Some(stroke_col),
-                    active: false,
-                });
-            });
-            ui.horizontal(|ui| {
-                let mut sw = self.stroke_width;
-                if ui
-                    .add(
-                        c::Field::new(&mut sw, "Stroke size")
-                            .presets(&[0.25, 0.5, 1.0, 2.0, 4.0, 8.0])
-                            .width(80.0),
-                    )
-                    .changed()
-                {
-                    self.stroke_width = sw.clamp(0.1, 200.0);
-                }
-                let mut style = c::LineStyle::Solid;
-                let rem = ui.available_width();
-                c::LineStyleSelect::show(ui, "live-rect-line-style", &mut style, rem);
-            });
+            self.live_shape_fill_stroke_controls(ui, "live-rect", "Edit rectangle paint");
         });
 
         let mut corners_locked = self.authoring_tools.rect_options.corners_locked;
@@ -1314,7 +1894,7 @@ impl Editor {
         let mut draft = ui
             .ctx()
             .data(|d| d.get_temp::<DecoDraft>(id))
-            .unwrap_or_default();
+            .unwrap_or_else(|| DecoDraft::from_stage(&self.stage_deco_options()));
 
         ui.add(c::TypeHeader {
             icon: i20::TOOL_DECO,
@@ -1326,7 +1906,6 @@ impl Editor {
             .iter()
             .map(|e| e.label())
             .collect();
-        let mut edit_default_shape = false;
         section(ui, "Drawing effect", true, |ui| {
             let eff_lbl = effects[draft.effect.min(effects.len() - 1)];
             c::Select::new(ui.id().with("deco-effect"), eff_lbl)
@@ -1343,8 +1922,24 @@ impl Editor {
                     }
                 });
             for (label, color) in [
-                ("Leaf", hsv(0.42, 0.6, 0.8, 1.0).into()),
-                ("Flower", hsv(0.06, 0.6, 1.0, 1.0).into()),
+                (
+                    "Leaf",
+                    Color32::from_rgba_unmultiplied(
+                        self.fill[0],
+                        self.fill[1],
+                        self.fill[2],
+                        self.fill[3],
+                    ),
+                ),
+                (
+                    "Flower",
+                    Color32::from_rgba_unmultiplied(
+                        self.stroke[0],
+                        self.stroke[1],
+                        self.stroke[2],
+                        self.stroke[3],
+                    ),
+                ),
             ] {
                 ui.horizontal(|ui| {
                     form_label(ui, label, 64.0);
@@ -1352,9 +1947,8 @@ impl Editor {
                         ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::hover());
                     neoflash_ui::components::display::paint_swatch(ui, chip, color, radius::SM);
                     ui.label(rich("Default shape", TextStyle::Body).color(nf.text_secondary));
-                    if ui.add(c::Button::ghost("Edit…")).clicked() {
-                        edit_default_shape = true;
-                    }
+                    let edit_resp = ui.add_enabled(false, c::Button::ghost("Edit…"));
+                    let _ = c::not_available(edit_resp, "Custom Deco symbols");
                 });
             }
         });
@@ -1428,11 +2022,6 @@ impl Editor {
             secondary_color: self.stroke,
         });
         ui.ctx().data_mut(|d| d.insert_temp(id, draft));
-        if edit_default_shape {
-            self.message(
-                "Default Deco shapes are procedural and cannot be edited as Library symbols; no artwork was changed.",
-            );
-        }
     }
 
     /// Spray symbol instances or dots onto the active keyframe in one `"Spray brush"` Undo step.
@@ -1550,10 +2139,31 @@ impl Editor {
             subtitle: "Sprays copies of a symbol or dots",
         });
         section(ui, "Symbol", true, |ui| {
+            let trimmed = draft.symbol_name.trim().to_owned();
+            let can_edit_symbol = !trimmed.is_empty()
+                && self.project.symbols.iter().any(|symbol| {
+                    symbol.id != self.project.root
+                        && !self.project.is_scene(&symbol.id)
+                        && (symbol.name.eq_ignore_ascii_case(&trimmed)
+                            || symbol.id.eq_ignore_ascii_case(&trimmed))
+                });
             ui.horizontal(|ui| {
-                ui.add(c::TextField::new(&mut draft.symbol_name, "Symbol").width(200.0));
-                if ui.add(c::Button::new("Edit…")).clicked() {
-                    edit_symbol = true;
+                ui.add(
+                    c::TextField::new(&mut draft.symbol_name, "Symbol")
+                        .hint("Library symbol name")
+                        .width(200.0),
+                );
+                let edit_resp = ui.add_enabled(can_edit_symbol, c::Button::new("Edit…"));
+                if can_edit_symbol {
+                    if edit_resp.clicked() {
+                        edit_symbol = true;
+                    }
+                } else {
+                    c::tooltip(
+                        edit_resp,
+                        "Enter a matching Library symbol name to edit",
+                        None,
+                    );
                 }
             });
             ui.add(c::Checkbox::new(
@@ -1730,28 +2340,44 @@ impl Editor {
             .and_then(|k| k.ik_armatures.first())
             .cloned();
 
-        let (arm_name, bone_total) = existing_armature
-            .as_ref()
-            .map(|a| (a.name.clone(), a.bones.len().max(1)))
-            .unwrap_or_else(|| ("arm".to_owned(), 3));
+        let Some(armature) = existing_armature else {
+            ui.add(c::TypeHeader {
+                icon: i16::ARMATURE,
+                title: "IK bone",
+                subtitle: "No armature on current frame",
+            });
+            caption(
+                ui,
+                "Draw an IK armature with the Bone tool on the active frame to edit bone constraints.",
+            );
+            return;
+        };
+
+        let bone_total = armature.bones.len().max(1);
         draft.bone_index = draft.bone_index.min(bone_total.saturating_sub(1));
-        if let Some(armature) = &existing_armature {
-            draft.load_persisted_bone_fields(armature, draft.bone_index);
-        }
+        draft.load_persisted_bone_fields(&armature, draft.bone_index);
 
         let mut changed = false;
         ui.add(c::TypeHeader {
             icon: i16::ARMATURE,
             title: "IK bone",
             subtitle: &format!(
-                "Armature \"{arm_name}\" · bone {} of {bone_total}",
+                "Armature \"{}\" · bone {} of {bone_total}",
+                armature.name,
                 draft.bone_index + 1
             ),
         });
         ui.horizontal(|ui| {
-            changed |= ui
-                .add(c::TextField::new(&mut draft.name, "Bone name").width(200.0))
-                .changed();
+            let mut bone_id_label = armature
+                .bones
+                .get(draft.bone_index)
+                .map(|b| b.id.clone())
+                .unwrap_or_else(|| draft.name.clone());
+            let name_resp = ui.add_enabled(
+                false,
+                c::TextField::new(&mut bone_id_label, "Bone name").width(200.0),
+            );
+            let _ = c::not_available(name_resp, "Bone renaming");
             if ui
                 .add_enabled(
                     draft.bone_index > 0,
@@ -1780,7 +2406,7 @@ impl Editor {
             );
             changed |= x_response.changed() || y_response.changed();
             let (length, angle) = (&mut draft.length, &mut draft.angle);
-            let (length_response, angle_response) = two_column_row(
+            let (length_response, ()) = two_column_row(
                 ui,
                 |ui, width| {
                     ui.add(
@@ -1793,17 +2419,19 @@ impl Editor {
                     )
                 },
                 |ui, width| {
-                    ui.add(
+                    let angle_resp = ui.add_enabled(
+                        false,
                         c::Field::new(angle, "Angle")
                             .prefix("Angle")
                             .unit("°")
                             .range(-360.0..=360.0)
                             .decimals(0)
                             .width(width),
-                    )
+                    );
+                    let _ = c::not_available(angle_resp, "Manual bone angle");
                 },
             );
-            changed |= length_response.changed() || angle_response.changed();
+            changed |= length_response.changed();
         });
         section(ui, "Joint: rotation", true, |ui| {
             ui.horizontal(|ui| {
@@ -1844,12 +2472,13 @@ impl Editor {
         });
         section(ui, "Joint: X / Y translation", false, |ui| {
             ui.horizontal(|ui| {
-                changed |= ui
-                    .add(c::Switch::new(&mut draft.trans_enable, "Enable"))
-                    .changed();
-                changed |= ui
-                    .add(c::Switch::new(&mut draft.trans_constrain, "Constrain"))
-                    .changed();
+                let t_en = ui.add_enabled(false, c::Switch::new(&mut draft.trans_enable, "Enable"));
+                let _ = c::not_available(t_en, "IK translation joint");
+                let t_con = ui.add_enabled(
+                    false,
+                    c::Switch::new(&mut draft.trans_constrain, "Constrain"),
+                );
+                let _ = c::not_available(t_con, "IK translation constraint");
             });
         });
         section(ui, "Spring", true, |ui| {
@@ -1891,40 +2520,31 @@ impl Editor {
             } else {
                 "Style: Solid"
             };
-            let (armature_runtime, armature_wireframe) =
-                (&mut draft.armature_runtime, &mut draft.armature_wireframe);
             two_column_row(
                 ui,
                 |ui, width| {
-                    c::Select::new(ui.id().with("arm-type"), type_lbl)
-                        .width(width)
-                        .show(ui, |ui| {
-                            for (rt, lbl) in [(false, "Type: Authortime"), (true, "Type: Runtime")]
-                            {
-                                if ui
-                                    .add(c::MenuItem::new(lbl).checked(*armature_runtime == rt))
-                                    .clicked()
-                                {
-                                    *armature_runtime = rt;
-                                    ui.close();
-                                }
-                            }
-                        });
+                    let type_resp = ui
+                        .scope(|ui| {
+                            ui.disable();
+                            c::Select::new(ui.id().with("arm-type"), type_lbl)
+                                .width(width)
+                                .show(ui, |_| {})
+                                .0
+                        })
+                        .inner;
+                    let _ = c::not_available(type_resp, "Armature type mode");
                 },
                 |ui, width| {
-                    c::Select::new(ui.id().with("arm-style"), style_lbl)
-                        .width(width)
-                        .show(ui, |ui| {
-                            for (wf, lbl) in [(false, "Style: Solid"), (true, "Style: Wire")] {
-                                if ui
-                                    .add(c::MenuItem::new(lbl).checked(*armature_wireframe == wf))
-                                    .clicked()
-                                {
-                                    *armature_wireframe = wf;
-                                    ui.close();
-                                }
-                            }
-                        });
+                    let style_resp = ui
+                        .scope(|ui| {
+                            ui.disable();
+                            c::Select::new(ui.id().with("arm-style"), style_lbl)
+                                .width(width)
+                                .show(ui, |_| {})
+                                .0
+                        })
+                        .inner;
+                    let _ = c::not_available(style_resp, "Armature display style");
                 },
             );
             // FORM_GRID_EXCEPTION: Speed is deliberately paired with an action switch.
@@ -1951,33 +2571,7 @@ impl Editor {
         ui.ctx().data_mut(|d| d.insert_temp(id, draft));
 
         if changed && self.layer_editable() {
-            let mut arm = existing_armature.unwrap_or_else(|| {
-                let el_id = self
-                    .symbol()
-                    .timeline
-                    .layers
-                    .get(self.layer)
-                    .and_then(|l| l.key_at(self.frame))
-                    .and_then(|k| k.elements.first())
-                    .map(|e| e.id.clone())
-                    .unwrap_or_else(|| "bone_el".to_owned());
-                IkArmature {
-                    id: new_id("armature"),
-                    name: "arm".to_owned(),
-                    bones: vec![IkBone {
-                        id: snapshot_draft.name.clone(),
-                        element_id: el_id,
-                        parent_bone_id: None,
-                        length: snapshot_draft.length.max(4.0),
-                        min_angle: None,
-                        max_angle: None,
-                        stiffness: 1.0,
-                    }],
-                    effector_bone_id: snapshot_draft.name.clone(),
-                    target_pos: [snapshot_draft.x, snapshot_draft.y],
-                    pole_pos: None,
-                }
-            });
+            let mut arm = armature;
             let b_idx = snapshot_draft
                 .bone_index
                 .min(arm.bones.len().saturating_sub(1));
@@ -1993,20 +2587,77 @@ impl Editor {
 
     fn live_graphic_properties(&mut self, ui: &mut Ui) {
         let nf = neoflash_ui::palette(ui.ctx());
-        let (sym_name, sym_frames, current_playback) = self
-            .selected_element()
-            .and_then(|el| match &el.kind {
-                ElementKind::Instance {
-                    symbol_id,
-                    playback,
-                } => {
-                    let sym = self.project.symbol(symbol_id)?;
-                    Some((sym.name.clone(), sym.timeline.frame_count.max(1), *playback))
-                }
-                _ => None,
-            })
-            .unwrap_or_else(|| ("planet".to_owned(), 24, InstancePlayback::Loop));
+        let selected_instance = self.selected_element().and_then(|el| match &el.kind {
+            ElementKind::Instance {
+                symbol_id,
+                playback,
+            } => {
+                let sym = self.project.symbol(symbol_id)?;
+                Some((
+                    symbol_id.clone(),
+                    sym.name.clone(),
+                    sym.timeline.frame_count.max(1),
+                    *playback,
+                    el.transform.x,
+                    el.transform.y,
+                    el.transform.scale_x * 100.0,
+                    el.transform.scale_y * 100.0,
+                    el.transform.alpha * 100.0,
+                ))
+            }
+            _ => None,
+        });
 
+        let Some((
+            sym_id,
+            sym_name,
+            sym_frames,
+            current_playback,
+            mut x,
+            mut y,
+            mut scale_x_pct,
+            mut scale_y_pct,
+            mut alpha_pct,
+        )) = selected_instance
+        else {
+            ui.add(c::TypeHeader {
+                icon: i16::GRAPHIC,
+                title: "Graphic",
+                subtitle: "No graphic instance selected",
+            });
+            ui.horizontal(|ui| {
+                let w = ui.available_width() - 72.0 - space::S2;
+                ui.allocate_ui_with_layout(
+                    egui::vec2(w, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_width(w);
+                        ui.add(
+                            egui::Label::new(
+                                rich_block(
+                                    "Graphics have no instance name — their timeline is synced to the parent.",
+                                    TextStyle::Small,
+                                )
+                                .color(nf.text_secondary),
+                            )
+                            .wrap(),
+                        );
+                    },
+                );
+                let swap_resp = ui.add_enabled(false, c::Button::new("Swap…"));
+                c::tooltip(swap_resp, "Select a symbol instance on stage", None);
+            });
+            caption(
+                ui,
+                "Select a Graphic or symbol instance on Stage to edit looping and first-frame thumbnails.",
+            );
+            return;
+        };
+
+        let can_edit_sel = self
+            .selection
+            .single()
+            .is_some_and(|t| self.target_editable(t));
         ui.add(c::TypeHeader {
             icon: i16::GRAPHIC,
             title: "Graphic",
@@ -2031,15 +2682,107 @@ impl Editor {
                     );
                 },
             );
-            if ui.add(c::Button::new("Swap…")).clicked() {
+            if ui
+                .add_enabled(can_edit_sel, c::Button::new("Swap…"))
+                .clicked()
+            {
                 let _ = self.swap_selected_instance_with_library_or_next();
             }
         });
-        for label in ["Position and size", "Colour effect"] {
-            c::SectionHeader::new(label)
-                .id_salt(("live-graphic", label))
-                .default_open(false)
-                .show(ui, |_| {});
+
+        let mut xform_changed = false;
+        c::SectionHeader::new("Position and size")
+            .id_salt(("live-graphic", "Position and size"))
+            .default_open(false)
+            .show(ui, |ui| {
+                let (xr, yr) = two_column_row(
+                    ui,
+                    |ui, width| {
+                        ui.add_enabled(
+                            can_edit_sel,
+                            c::Field::new(&mut x, "X")
+                                .prefix("X")
+                                .decimals(1)
+                                .width(width),
+                        )
+                    },
+                    |ui, width| {
+                        ui.add_enabled(
+                            can_edit_sel,
+                            c::Field::new(&mut y, "Y")
+                                .prefix("Y")
+                                .decimals(1)
+                                .width(width),
+                        )
+                    },
+                );
+                let (sxr, syr) = two_column_row(
+                    ui,
+                    |ui, width| {
+                        ui.add_enabled(
+                            can_edit_sel,
+                            c::Field::new(&mut scale_x_pct, "Scale X")
+                                .prefix("W")
+                                .unit("%")
+                                .range(-10_000.0..=10_000.0)
+                                .decimals(1)
+                                .width(width),
+                        )
+                    },
+                    |ui, width| {
+                        ui.add_enabled(
+                            can_edit_sel,
+                            c::Field::new(&mut scale_y_pct, "Scale Y")
+                                .prefix("H")
+                                .unit("%")
+                                .range(-10_000.0..=10_000.0)
+                                .decimals(1)
+                                .width(width),
+                        )
+                    },
+                );
+                xform_changed |= xr.changed() || yr.changed() || sxr.changed() || syr.changed();
+            });
+        c::SectionHeader::new("Colour effect")
+            .id_salt(("live-graphic", "Colour effect"))
+            .default_open(false)
+            .show(ui, |ui| {
+                let alpha_resp = ui.add_enabled(
+                    can_edit_sel,
+                    c::Field::new(&mut alpha_pct, "Opacity")
+                        .prefix("Alpha")
+                        .unit("%")
+                        .range(0.0..=100.0)
+                        .decimals(0)
+                        .width(ui.available_width()),
+                );
+                xform_changed |= alpha_resp.changed();
+            });
+
+        if xform_changed
+            && can_edit_sel
+            && let Some(sel) = self.selection.single().cloned()
+        {
+            self.transact_named("Edit graphic transform", |editor| {
+                editor.ensure_key_for(&sel.layer, false);
+                let frame = editor.frame;
+                if let Some(layer) = editor
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == sel.layer)
+                    && let Some(el) = layer
+                        .key_at_mut(frame)
+                        .and_then(|k| k.elements.iter_mut().find(|e| e.id == sel.element))
+                {
+                    el.transform.x = x;
+                    el.transform.y = y;
+                    el.transform.scale_x = scale_x_pct / 100.0;
+                    el.transform.scale_y = scale_y_pct / 100.0;
+                    el.transform.alpha = (alpha_pct / 100.0).clamp(0.0, 1.0);
+                }
+            });
         }
 
         let (mut mode_idx, mut first_zero) = match current_playback {
@@ -2054,27 +2797,33 @@ impl Editor {
         c::SectionHeader::new("Looping")
             .id_salt("live-graphic-looping")
             .show(ui, |ui| {
-                for (i, label) in [
-                    "Loop",
-                    "Play once",
-                    "Single frame",
-                    "Loop reverse",
-                    "Play once reverse",
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    if ui.add(c::Radio::new(i == mode_idx, label)).clicked() {
-                        mode_idx = i.min(2);
-                        playback_changed = true;
+                for (i, label, supported) in [
+                    (0usize, "Loop", true),
+                    (1, "Play once", true),
+                    (2, "Single frame", true),
+                    (3, "Loop reverse", false),
+                    (4, "Play once reverse", false),
+                ] {
+                    if supported {
+                        if ui
+                            .add_enabled(can_edit_sel, c::Radio::new(i == mode_idx, label))
+                            .clicked()
+                        {
+                            mode_idx = i;
+                            playback_changed = true;
+                        }
+                    } else {
+                        let resp = ui.add_enabled(false, c::Radio::new(false, label));
+                        let _ = c::not_available(resp, "Reverse graphic playback");
                     }
                 }
                 let mut first_1 = (first_zero + 1).min(sym_frames) as f64;
                 let mut last_1 = sym_frames as f64;
-                let (first_response, _last_response) = two_column_row(
+                let (first_response, ()) = two_column_row(
                     ui,
                     |ui, width| {
-                        ui.add(
+                        ui.add_enabled(
+                            can_edit_sel,
                             c::Field::new(&mut first_1, "First frame")
                                 .prefix("First")
                                 .range(1.0..=f64::from(sym_frames))
@@ -2084,14 +2833,16 @@ impl Editor {
                         )
                     },
                     |ui, width| {
-                        ui.add(
+                        let last_resp = ui.add_enabled(
+                            false,
                             c::Field::new(&mut last_1, "Last frame")
                                 .prefix("Last")
                                 .range(1.0..=f64::from(sym_frames))
                                 .decimals(0)
                                 .stepper()
                                 .width(width),
-                        )
+                        );
+                        let _ = c::not_available(last_resp, "Custom last frame limit");
                     },
                 );
                 if first_response.changed() {
@@ -2109,14 +2860,15 @@ impl Editor {
                     nf.bg_field,
                 );
                 let entries = self.graphic_frame_picker_entries();
-                for i in 0..7u32 {
+                let slots = sym_frames.min(7);
+                for i in 0..slots {
                     let cell = egui::Rect::from_min_size(
                         egui::pos2(strip.left() + 4.0 + i as f32 * 40.0, strip.top() + 4.0),
                         egui::vec2(36.0, 36.0),
                     );
                     let resp = ui.interact(
                         cell,
-                        ui.id().with(("graphic-thumb", i)),
+                        ui.id().with(("graphic-thumb", &sym_id, i)),
                         egui::Sense::click(),
                     );
                     ui.painter().rect_filled(
@@ -2124,6 +2876,16 @@ impl Editor {
                         egui::CornerRadius::same(radius::SM as u8),
                         nf.bg_raised,
                     );
+                    if let Some(tex) =
+                        cached_frame_thumbnail(ui.ctx(), self, &sym_id, i, 72, 72, false)
+                    {
+                        ui.painter().image(
+                            tex.id(),
+                            cell.shrink(2.0),
+                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
+                    }
                     let selected = first_zero == i;
                     let (w, color) = if selected {
                         (2.0_f32, nf.accent_default)
@@ -2136,26 +2898,22 @@ impl Editor {
                         egui::Stroke::new(w, color),
                         egui::StrokeKind::Inside,
                     );
-                    let x = cell.left() + 8.0 + (i % 2) as f32 * 2.0;
-                    let orange: Color32 = hsv(0.06, 0.7, 0.95, 1.0).into();
-                    ui.painter()
-                        .circle_filled(egui::pos2(x + 2.0, cell.center().y), 4.0, orange);
-                    if resp.clicked() {
+                    if resp.clicked() && can_edit_sel {
                         first_zero = i.min(sym_frames.saturating_sub(1));
                         if !self.pick_graphic_frame(first_zero) {
                             playback_changed = true;
                         }
                     }
                     if let Some((_, tip)) = entries.get(i as usize) {
-                        resp.on_hover_text(tip);
+                        c::tooltip(resp, tip, None);
                     }
                 }
                 caption(ui, "Click a thumbnail to set the first frame");
             });
 
         if playback_changed
+            && can_edit_sel
             && let Some(sel) = self.selection.single().cloned()
-            && self.target_editable(&sel)
         {
             let next_pb = match (mode_idx, first_zero) {
                 (0, 0) => InstancePlayback::Loop,
@@ -2199,18 +2957,21 @@ impl Editor {
                 let ctx = ui.ctx().clone();
                 self.start_debug_movie(&ctx);
             }
-            let _ = ui.add_enabled(
+            let step_over = ui.add_enabled(
                 false,
                 c::IconButton::new(i16::STEP_OVER, "Step over").shortcut("F10"),
             );
-            let _ = ui.add_enabled(
+            let _ = c::not_available(step_over, "Debugger step over");
+            let step_in = ui.add_enabled(
                 false,
                 c::IconButton::new(i16::STEP_INTO, "Step in").shortcut("F11"),
             );
-            let _ = ui.add_enabled(
+            let _ = c::not_available(step_in, "Debugger step in");
+            let step_out = ui.add_enabled(
                 false,
                 c::IconButton::new(i16::STEP_OUT, "Step out").shortcut("⇧F11"),
             );
+            let _ = c::not_available(step_out, "Debugger step out");
             if ui
                 .add(c::IconButton::new(i16::STOP, "Stop debugging"))
                 .clicked()
@@ -2365,103 +3126,32 @@ impl Editor {
             egui::Sense::hover(),
         );
         ui.painter().rect_filled(area, 0.0, nf.bg_canvas);
-        let stage = egui::Rect::from_center_size(area.center(), egui::vec2(640.0, 400.0));
+        let aspect = (self.project.width.max(1) as f32) / (self.project.height.max(1) as f32);
+        let max_w = area.width().clamp(120.0, 640.0);
+        let max_h = area.height().clamp(90.0, 420.0);
+        let (fit_w, fit_h) = if max_w / max_h > aspect {
+            (max_h * aspect, max_h)
+        } else {
+            (max_w, max_w / aspect)
+        };
+        let stage = egui::Rect::from_center_size(area.center(), egui::vec2(fit_w, fit_h));
         let bg = self.project.background;
         ui.painter().rect_filled(
             stage,
             0.0,
             Color32::from_rgba_unmultiplied(bg[0], bg[1], bg[2], bg[3]),
         );
-
-        let scene = evaluate_scene(&self.project, self.symbol_id(), draft.frame, false, true);
-        let sx = stage.width() / (self.project.width.max(1) as f32);
-        let sy = stage.height() / (self.project.height.max(1) as f32);
-        for draw in &scene.draws {
-            let item = &draw.item;
-            let tx = item.transform[4];
-            let ty = item.transform[5];
-            let pos = egui::pos2(
-                stage.left() + (tx as f32) * sx,
-                stage.top() + (ty as f32) * sy,
+        let pw = (fit_w.round() as u32).clamp(64, 640);
+        let ph = (fit_h.round() as u32).clamp(64, 480);
+        if let Some(tex) =
+            cached_frame_thumbnail(ui.ctx(), self, self.symbol_id(), draft.frame, pw, ph, true)
+        {
+            ui.painter().image(
+                tex.id(),
+                stage,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                Color32::WHITE,
             );
-            match &item.kind {
-                ElementKind::Rectangle {
-                    width,
-                    height,
-                    fill,
-                    ..
-                } => {
-                    let r = egui::Rect::from_min_size(
-                        pos,
-                        egui::vec2((*width as f32) * sx, (*height as f32) * sy),
-                    );
-                    ui.painter().rect_filled(
-                        r,
-                        0.0,
-                        Color32::from_rgba_unmultiplied(fill[0], fill[1], fill[2], fill[3]),
-                    );
-                }
-                ElementKind::Ellipse {
-                    width,
-                    height,
-                    fill,
-                    ..
-                } => {
-                    let c_pos =
-                        pos + egui::vec2((*width as f32) * 0.5 * sx, (*height as f32) * 0.5 * sy);
-                    ui.painter().circle_filled(
-                        c_pos,
-                        ((*width as f32) * 0.5 * sx).max(2.0),
-                        Color32::from_rgba_unmultiplied(fill[0], fill[1], fill[2], fill[3]),
-                    );
-                }
-                ElementKind::Text { text, color, .. } => {
-                    ui.painter().text(
-                        pos,
-                        egui::Align2::LEFT_TOP,
-                        text,
-                        neoflash_ui::typography::font(TextStyle::Body),
-                        Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]),
-                    );
-                }
-                ElementKind::TextBox { text, format, .. } => {
-                    let c = format.color;
-                    let r = ((c >> 16) & 0xff) as u8;
-                    let g = ((c >> 8) & 0xff) as u8;
-                    let b = (c & 0xff) as u8;
-                    ui.painter().text(
-                        pos,
-                        egui::Align2::LEFT_TOP,
-                        text,
-                        neoflash_ui::typography::font(TextStyle::Body),
-                        Color32::from_rgb(r, g, b),
-                    );
-                }
-                ElementKind::Path {
-                    commands, stroke, ..
-                }
-                | ElementKind::PaintedPath {
-                    commands, stroke, ..
-                } => {
-                    if let Some(PathCommand::MoveTo { x, y }) = commands.first() {
-                        let p = egui::pos2(
-                            stage.left() + ((*x + tx) as f32) * sx,
-                            stage.top() + ((*y + ty) as f32) * sy,
-                        );
-                        ui.painter().circle_filled(
-                            p,
-                            3.0,
-                            Color32::from_rgba_unmultiplied(
-                                stroke[0],
-                                stroke[1],
-                                stroke[2],
-                                stroke[3].max(180),
-                            ),
-                        );
-                    }
-                }
-                _ => {}
-            }
         }
 
         ui.horizontal(|ui| {
@@ -2570,12 +3260,17 @@ impl Editor {
         if draft.show_output {
             ui.spacing_mut().item_spacing.y = 2.0;
             if self.output.is_empty() {
+                let title = if self.project.name.trim().is_empty() {
+                    "Movie"
+                } else {
+                    self.project.name.trim()
+                };
                 ui.add(c::LogLine {
                     severity: c::Severity::Info,
                     time: "",
                     text: &format!(
                         "trace: {} ready ({} frames @ {} fps)",
-                        self.project.name, total_frames, self.project.fps
+                        title, total_frames, self.project.fps
                     ),
                 });
             } else {
@@ -2606,7 +3301,7 @@ mod bone_panel_tests {
         let mut armature = IkArmature {
             id: "arm".into(),
             name: "Arm".into(),
-            bones: vec![IkBone {
+            bones: vec![neoflash_core::IkBone {
                 id: "bone".into(),
                 element_id: "bone-element".into(),
                 parent_bone_id: None,
@@ -2650,5 +3345,241 @@ mod bone_panel_tests {
         assert!(elements[0].transform.rotation >= -7.5 - 1e-6);
         assert!(elements[0].transform.rotation <= 6.5 + 1e-6);
         assert!((elements[0].transform.rotation - 6.5).abs() <= 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod t297_planned_wiring_tests {
+    use super::*;
+    use crate::panels::planned;
+    use neoflash_core::{ElementKind, Keyframe, Layer, Project, Symbol, SymbolKind, Timeline};
+
+    fn collect_shape_texts(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => out.push(text.galley.text().to_owned()),
+            egui::Shape::Vec(shapes) => {
+                for child in shapes {
+                    collect_shape_texts(child, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_output_texts(out: &egui::FullOutput) -> Vec<String> {
+        let mut texts = Vec::new();
+        for clipped in &out.shapes {
+            collect_shape_texts(&clipped.shape, &mut texts);
+        }
+        texts
+    }
+
+    fn test_ctx() -> egui::Context {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+        neoflash_ui::theme::install(&ctx, crate::theme::ThemeMode::Dark.nf2());
+        ctx
+    }
+
+    #[test]
+    fn all_planned_panels_render_without_fake_sample_data_on_blank_project() {
+        let ctx = test_ctx();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        let raw_1920 = || egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1920.0, 1080.0),
+            )),
+            time: Some(1.0),
+            ..Default::default()
+        };
+        let _ = ctx.run(raw_1920(), |_| {});
+        for panel in PlannedPanel::ALL {
+            planned::set_open(&ctx, panel, true);
+        }
+
+        let _ = ctx.run(raw_1920(), |ctx| {
+            editor.planned_panels(ctx);
+        });
+        let out = ctx.run(raw_1920(), |ctx| {
+            editor.planned_panels(ctx);
+        });
+        let texts = collect_output_texts(&out);
+        let joined = texts.join("\n");
+
+        for forbidden in [
+            "~/Movies/intro.mp4",
+            "1280×720 · 30 fps",
+            "Ideas in motion",
+            "Stage preview",
+            "keeps .nfl small",
+            "leaf_mc",
+            "arm_lower",
+            "planet",
+            "tile_1.png",
+        ] {
+            assert!(
+                !joined.contains(forbidden),
+                "unexpected fake sample string {forbidden:?} in live planned panels"
+            );
+        }
+
+        assert!(joined.contains("No graphic instance selected"));
+        assert!(joined.contains("No armature on current frame"));
+        assert!(joined.contains("No embedded fonts"));
+        assert!(joined.contains("keeps the .nflash file small"));
+    }
+
+    #[test]
+    fn bitmap_fill_oval_rect_and_stroke_style_bind_selection_and_undo() {
+        let ctx = test_ctx();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.add_element(
+            ElementKind::Rectangle {
+                width: 120.0,
+                height: 80.0,
+                fill: [10, 20, 30, 255],
+                stroke: [40, 50, 60, 255],
+                stroke_width: 2.0,
+            },
+            10.0,
+            20.0,
+        );
+        assert!(editor.selection.single().is_some());
+
+        // Bitmap resource imported into project updates fill and undoes cleanly
+        let png_bytes: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        let tmp_png = std::env::temp_dir().join(format!("nf-t297-tile-{}.png", std::process::id()));
+        std::fs::write(&tmp_png, png_bytes).expect("write test png");
+        editor
+            .import_resource_paths(std::slice::from_ref(&tmp_png))
+            .expect("import png resource");
+        let _ = std::fs::remove_file(&tmp_png);
+        let res_id = editor.project.resources[0].id.clone();
+
+        editor
+            .set_selected_bitmap_fill(res_id.clone(), [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], true, true)
+            .expect("apply bitmap fill");
+        assert_eq!(editor.selected_element_bitmap_fill_id(), Some(res_id));
+        editor.undo();
+        assert_eq!(editor.selected_element_bitmap_fill_id(), None);
+
+        // Color & stroke width edits bind to real selection and Undo cleanly
+        editor.apply_selected_element_color(false, [200, 100, 50, 255], "Edit fill");
+        assert_eq!(editor.selected_element_paint().0, [200, 100, 50, 255]);
+        editor.undo();
+        assert_eq!(editor.selected_element_paint().0, [10, 20, 30, 255]);
+
+        editor.apply_selected_stroke_width(6.5, "Edit stroke width");
+        assert!((editor.selected_element_paint().2 - 6.5).abs() < 1e-4);
+        editor.undo();
+        assert!((editor.selected_element_paint().2 - 2.0).abs() < 1e-4);
+
+        // Stroke style dashed application & undo
+        assert!(editor.apply_stroke_style_to_selection(StrokeStyleKind::Dashed, 4.0, 12.0, 6.0));
+        let draft = editor.init_stroke_style_draft();
+        assert_eq!(draft.kind, StrokeStyleKind::Dashed);
+        assert_eq!(draft.dash, 12.0);
+        assert_eq!(draft.gap, 6.0);
+        editor.undo();
+        assert_eq!(
+            editor.init_stroke_style_draft().kind,
+            StrokeStyleKind::Solid
+        );
+    }
+
+    #[test]
+    fn deco_spray_graphic_test_movie_and_import_video_bind_document_and_undo() {
+        let ctx = test_ctx();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.project.name = "HeroScene".into();
+
+        // ImportVideo defaults have no fake path/fps
+        let iv_default = crate::panels::import_video::ImportVideoDraft::default();
+        assert!(iv_default.file_path.is_empty());
+        assert_eq!(iv_default.source_fps, 0);
+
+        // FontEmbedding defaults start empty without synthetic entries
+        let fe_default = crate::panels::font_embedding::FontEmbeddingDraft::default();
+        assert!(fe_default.entries.is_empty());
+
+        // SprayBrush default has no fake leaf_mc symbol
+        let spray_default = SprayDraft::default();
+        assert!(spray_default.symbol_name.is_empty());
+
+        // DecoDraft syncs with real editor StageDecoOptions
+        let mut deco = DecoDraft::from_stage(&editor.stage_deco_options());
+        deco.scale_pct = 150.0;
+        let mut updated_opts = editor.stage_deco_options();
+        updated_opts.scale_pct = deco.scale_pct;
+        editor.set_stage_deco_options(updated_opts);
+        assert_eq!(editor.stage_deco_options().scale_pct, 150.0);
+
+        // GraphicProperties binds real Graphic symbol instance and renders cached thumbnails
+        let sym_id = new_id("sym");
+        editor.project.symbols.push(Symbol {
+            id: sym_id.clone(),
+            name: "HeroGraphic".into(),
+            folder: String::new(),
+            kind: SymbolKind::Graphic,
+            class_name: None,
+            linkage_id: None,
+            timeline: Timeline {
+                guides: vec![],
+                frame_count: 3,
+                layers: vec![Layer {
+                    properties: Default::default(),
+                    id: new_id("layer"),
+                    name: "Layer 1".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![],
+                        tween: None,
+                        label: String::new(),
+                        ..Default::default()
+                    }],
+                }],
+                scripts: vec![],
+            },
+        });
+        editor.add_element(
+            ElementKind::Instance {
+                symbol_id: sym_id.clone(),
+                playback: InstancePlayback::Loop,
+            },
+            40.0,
+            50.0,
+        );
+        assert!(cached_frame_thumbnail(&ctx, &editor, &sym_id, 0, 72, 72, false).is_some());
+
+        let raw_1920 = |time| egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1920.0, 1080.0),
+            )),
+            time: Some(time),
+            ..Default::default()
+        };
+        let _ = ctx.run(raw_1920(1.0), |_| {});
+        planned::set_open(&ctx, PlannedPanel::GraphicProperties, true);
+        planned::set_open(&ctx, PlannedPanel::TestMovie, true);
+        let _ = ctx.run(raw_1920(1.5), |ctx| {
+            editor.planned_panels(ctx);
+        });
+        let out = ctx.run(raw_1920(2.0), |ctx| {
+            editor.planned_panels(ctx);
+        });
+        let joined = collect_output_texts(&out).join("\n");
+        assert!(joined.contains("HeroGraphic"));
+        assert!(joined.contains("HeroScene — Test Movie"));
+        assert!(!joined.contains("No graphic instance selected"));
     }
 }

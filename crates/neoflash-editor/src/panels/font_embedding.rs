@@ -8,7 +8,8 @@ use eframe::egui::{self, Ui};
 use neoflash_core::{ResourceUnit, new_id};
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
-use neoflash_ui::tokens::space;
+use neoflash_ui::tokens::{TextStyle, space};
+use neoflash_ui::typography::rich;
 use serde::{Deserialize, Serialize};
 
 const FONT_EMBEDDING_METADATA_PATH: &str = "fonts/embedding.json";
@@ -68,7 +69,7 @@ impl EmbeddedFontEntry {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct FontEmbeddingDraft {
     pub(crate) entries: Vec<EmbeddedFontEntry>,
     pub(crate) selected: usize,
@@ -81,48 +82,6 @@ struct PendingTextEmbedding {
     symbol_id: String,
     frame: u32,
     element_id: String,
-}
-
-impl Default for FontEmbeddingDraft {
-    fn default() -> Self {
-        Self {
-            entries: vec![
-                EmbeddedFontEntry {
-                    id: "font-inter-regular".to_owned(),
-                    name: "Inter Regular".to_owned(),
-                    family: "Inter".to_owned(),
-                    style: "Regular".to_owned(),
-                    ranges: [true, true, true, true, false, true, false, false],
-                    extra_chars: "→ ← ★ © ®".to_owned(),
-                    export_for_actionscript: true,
-                    class_name: "InterRegular".to_owned(),
-                },
-                EmbeddedFontEntry {
-                    id: "font-inter-semibold".to_owned(),
-                    name: "Inter Semi Bold".to_owned(),
-                    family: "Inter".to_owned(),
-                    style: "Semi Bold".to_owned(),
-                    ranges: [true, true, true, true, false, false, false, false],
-                    extra_chars: String::new(),
-                    export_for_actionscript: false,
-                    class_name: "InterSemiBold".to_owned(),
-                },
-                EmbeddedFontEntry {
-                    id: "font-roboto-mono".to_owned(),
-                    name: "Roboto Mono".to_owned(),
-                    family: "Roboto Mono".to_owned(),
-                    style: "Regular".to_owned(),
-                    ranges: [true, true, true, true, true, false, false, false],
-                    extra_chars: String::new(),
-                    export_for_actionscript: false,
-                    class_name: "RobotoMono".to_owned(),
-                },
-            ],
-            selected: 0,
-            original_entries: Vec::new(),
-            pending_text_target: None,
-        }
-    }
 }
 
 fn draft_id() -> egui::Id {
@@ -503,11 +462,13 @@ impl Editor {
     ) -> (bool, bool) {
         let mut close_cancel = false;
         let mut do_apply = false;
+        let nf = neoflash_ui::palette(ui.ctx());
 
-        if draft.entries.is_empty() {
-            *draft = FontEmbeddingDraft::default();
+        if !draft.entries.is_empty() {
+            draft.selected = draft.selected.min(draft.entries.len() - 1);
+        } else {
+            draft.selected = 0;
         }
-        draft.selected = draft.selected.min(draft.entries.len().saturating_sub(1));
 
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = space::S5;
@@ -517,37 +478,50 @@ impl Editor {
                 |ui| {
                     ui.set_width(220.0);
                     ui.spacing_mut().item_spacing.y = 2.0;
-                    for i in 0..draft.entries.len() {
-                        let font_name = draft.entries[i].name.clone();
-                        let out = c::TreeItem::new(&font_name, c::TreeItemType::Symbol(i16::FONT))
-                            .selected(i == draft.selected)
-                            .show(ui);
-                        if out.row.clicked() {
-                            draft.selected = i;
+                    if draft.entries.is_empty() {
+                        ui.label(
+                            rich("No embedded fonts", TextStyle::Small).color(nf.text_secondary),
+                        );
+                    } else {
+                        for i in 0..draft.entries.len() {
+                            let font_name = draft.entries[i].name.clone();
+                            let out =
+                                c::TreeItem::new(&font_name, c::TreeItemType::Symbol(i16::FONT))
+                                    .selected(i == draft.selected)
+                                    .show(ui);
+                            if out.row.clicked() {
+                                draft.selected = i;
+                            }
                         }
                     }
                     ui.horizontal(|ui| {
                         if ui.add(c::IconButton::new(i16::PLUS, "Add font")).clicked() {
                             let idx = draft.entries.len() + 1;
+                            let default_family = self
+                                .fonts
+                                .families
+                                .first()
+                                .cloned()
+                                .unwrap_or_else(|| "Inter".to_owned());
                             draft.entries.push(EmbeddedFontEntry {
                                 id: new_id("res"),
                                 name: format!("Embedded Font {idx}"),
-                                family: "Inter".to_owned(),
+                                family: default_family,
                                 style: "Regular".to_owned(),
                                 ranges: [true, true, true, true, false, false, false, false],
                                 extra_chars: String::new(),
                                 export_for_actionscript: false,
-                                class_name: format!("EmbeddedFont{idx}"),
+                                class_name: String::new(),
                             });
                             draft.selected = draft.entries.len() - 1;
                         }
                         if ui
                             .add_enabled(
-                                draft.entries.len() > 1,
+                                !draft.entries.is_empty(),
                                 c::IconButton::new(i16::MINUS, "Remove font"),
                             )
                             .clicked()
-                            && draft.entries.len() > 1
+                            && !draft.entries.is_empty()
                         {
                             draft.entries.remove(draft.selected);
                             draft.selected =
@@ -557,87 +531,115 @@ impl Editor {
                 },
             );
 
-            let entry = &mut draft.entries[draft.selected];
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = space::S3;
-                ui.horizontal(|ui| {
-                    ui.add(
-                        c::TextField::new(&mut entry.name, "Name")
-                            .prefix("Name")
-                            .width(220.0),
-                    );
-                    let fam_lbl = format!("Family: {}", entry.family);
-                    c::Select::new(ui.id().with("font-embed-family"), &fam_lbl)
-                        .width(200.0)
+            if let Some(entry) = draft.entries.get_mut(draft.selected) {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = space::S3;
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            c::TextField::new(&mut entry.name, "Name")
+                                .prefix("Name")
+                                .width(220.0),
+                        );
+                        let fam_lbl = format!("Family: {}", entry.family);
+                        c::Select::new(ui.id().with("font-embed-family"), &fam_lbl)
+                            .width(200.0)
+                            .show(ui, |ui| {
+                                let mut families: Vec<&str> =
+                                    self.fonts.families.iter().map(String::as_str).collect();
+                                families.extend(FONT_FAMILIES);
+                                families.sort_unstable_by_key(|family| family.to_ascii_lowercase());
+                                families.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+                                for fam in families {
+                                    if ui
+                                        .add(
+                                            c::MenuItem::new(&format!("Family: {fam}"))
+                                                .checked(entry.family == fam),
+                                        )
+                                        .clicked()
+                                    {
+                                        entry.family = fam.to_owned();
+                                        ui.close();
+                                    }
+                                }
+                            });
+                    });
+                    let style_lbl = format!("Style: {}", entry.style);
+                    c::Select::new(ui.id().with("font-embed-style"), &style_lbl)
+                        .width(220.0)
                         .show(ui, |ui| {
-                            let mut families: Vec<&str> =
-                                self.fonts.families.iter().map(String::as_str).collect();
-                            families.extend(FONT_FAMILIES);
-                            families.sort_unstable_by_key(|family| family.to_ascii_lowercase());
-                            families.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
-                            for fam in families {
+                            for st in FONT_STYLES {
                                 if ui
                                     .add(
-                                        c::MenuItem::new(&format!("Family: {fam}"))
-                                            .checked(entry.family == fam),
+                                        c::MenuItem::new(&format!("Style: {st}"))
+                                            .checked(entry.style == st),
                                     )
                                     .clicked()
                                 {
-                                    entry.family = fam.to_owned();
+                                    entry.style = st.to_owned();
                                     ui.close();
                                 }
                             }
                         });
-                });
-                let style_lbl = format!("Style: {}", entry.style);
-                c::Select::new(ui.id().with("font-embed-style"), &style_lbl)
-                    .width(220.0)
-                    .show(ui, |ui| {
-                        for st in FONT_STYLES {
-                            if ui
-                                .add(
-                                    c::MenuItem::new(&format!("Style: {st}"))
-                                        .checked(entry.style == st),
-                                )
-                                .clicked()
-                            {
-                                entry.style = st.to_owned();
-                                ui.close();
-                            }
+                    group(ui, "Character ranges");
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(space::S4, space::S2);
+                        for (idx, (label, _)) in RANGE_SPECS.iter().enumerate() {
+                            ui.add(c::Checkbox::new(&mut entry.ranges[idx], label));
                         }
                     });
-                group(ui, "Character ranges");
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(space::S4, space::S2);
-                    for (idx, (label, _)) in RANGE_SPECS.iter().enumerate() {
-                        ui.add(c::Checkbox::new(&mut entry.ranges[idx], label));
-                    }
-                });
-                ui.add(
-                    c::TextField::new(&mut entry.extra_chars, "Also include")
-                        .prefix("Also include")
-                        .width(ui.available_width()),
-                );
-                ui.horizontal(|ui| {
-                    ui.add(c::Checkbox::new(
-                        &mut entry.export_for_actionscript,
-                        "Export for ActionScript",
-                    ));
                     ui.add(
-                        c::TextField::new(&mut entry.class_name, "Class")
-                            .prefix("Class")
-                            .width(200.0),
+                        c::TextField::new(&mut entry.extra_chars, "Also include")
+                            .prefix("Also include")
+                            .width(ui.available_width()),
+                    );
+                    ui.horizontal(|ui| {
+                        let as_resp = ui.add_enabled(
+                            false,
+                            c::Checkbox::new(
+                                &mut entry.export_for_actionscript,
+                                "Export for ActionScript",
+                            ),
+                        );
+                        let _ = c::not_available(as_resp, "ActionScript font class export");
+                        let cls_resp = ui.add_enabled(
+                            false,
+                            c::TextField::new(&mut entry.class_name, "Class")
+                                .prefix("Class")
+                                .width(200.0),
+                        );
+                        let _ = c::not_available(cls_resp, "ActionScript font class name");
+                    });
+                });
+            } else {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = space::S2;
+                    ui.label(
+                        rich(
+                            "No embedded fonts configured in this document.",
+                            TextStyle::BodyStrong,
+                        )
+                        .color(nf.text_primary),
+                    );
+                    ui.label(
+                        rich(
+                            "Click + to add a font face and choose character ranges to embed.",
+                            TextStyle::Small,
+                        )
+                        .color(nf.text_secondary),
                     );
                 });
-            });
+            }
         });
 
-        let entry = &draft.entries[draft.selected];
-        let badge_text = format!(
-            "{} glyphs · subset estimate ~ {} kB",
-            entry.glyph_count(),
-            entry.approx_kb()
-        );
+        let badge_text = if let Some(entry) = draft.entries.get(draft.selected) {
+            format!(
+                "{} glyphs · subset estimate ~ {} kB",
+                entry.glyph_count(),
+                entry.approx_kb()
+            )
+        } else {
+            "0 embedded fonts".to_owned()
+        };
         ui.add_space(space::S2);
         ui.horizontal(|ui| {
             ui.add(c::Badge::new(&badge_text, c::BadgeType::Accent));

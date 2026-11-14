@@ -2,18 +2,19 @@
 //! `W3.1` / `W3.2`; reference `dialogs-export.png`), opened from `File ▸ Export ▸ Export image…`
 //! and `Window ▸ Panels ▸ Planned panels ▸ Export image`.
 
-use super::dialog_helpers::{group, preview_box};
+use super::dialog_helpers::group;
 use super::planned::{FooterClick, caption, footer_clicked};
 use crate::app::Editor;
 use eframe::egui::{self, Ui};
+use neoflash_core::Color;
 use neoflash_export::{
     ImageExportFormat, ImageExportOptions, ImageExportRange, ImageExportReport,
-    estimate_image_export_summary, export_project_image,
+    estimate_image_export_summary, export_project_image, render_project_frame_rgba_with_base_dir,
 };
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
-use neoflash_ui::tokens::space;
-use std::path::Path;
+use neoflash_ui::tokens::{TextStyle, radius, space};
+use std::path::{Path, PathBuf};
 
 const IMAGE_FORMATS: [(usize, &str); 5] =
     [(0, "PNG"), (1, "SVG"), (2, "PSD"), (3, "AI"), (4, "PDF")];
@@ -62,6 +63,180 @@ pub(crate) fn update_export_image_draft(
 #[cfg(test)]
 pub(crate) fn set_inline_export_image_draft(ctx: &egui::Context, draft: ExportImageDraft) {
     ctx.data_mut(|data| data.insert_temp(inline_draft_id(), draft));
+}
+
+#[derive(Clone, PartialEq)]
+struct ExportImagePreviewKey {
+    revision: u64,
+    symbol_id: Option<String>,
+    frame: u32,
+    transparent: bool,
+    runtime_capture: bool,
+    pw: u32,
+    ph: u32,
+    project_w: u32,
+    project_h: u32,
+    background: Color,
+    base_dir: Option<PathBuf>,
+}
+
+#[derive(Clone)]
+struct ExportImagePreviewCache {
+    key: ExportImagePreviewKey,
+    tex: Option<egui::TextureHandle>,
+    unavailable: bool,
+}
+
+fn export_image_preview_cache_id() -> egui::Id {
+    egui::Id::new("nf2-export-image-preview-cache")
+}
+
+fn paint_export_image_preview_box(
+    ui: &mut Ui,
+    editor: &Editor,
+    options: &ImageExportOptions,
+    preview_frame: u32,
+    res_w: u32,
+    res_h: u32,
+) {
+    let nf = neoflash_ui::palette(ui.ctx());
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(300.0, 188.0), egui::Sense::hover());
+    let r = egui::CornerRadius::same(radius::LG as u8);
+    ui.painter().rect_filled(rect, r, nf.bg_canvas);
+
+    let max_w = 272.0_f32;
+    let max_h = 164.0_f32;
+    let aspect = res_w.max(1) as f32 / res_h.max(1) as f32;
+    let (pw, ph) = if aspect >= max_w / max_h {
+        let w = max_w.round() as u32;
+        let h = ((max_w / aspect).round() as u32).clamp(1, max_h as u32);
+        (w.max(1), h)
+    } else {
+        let h = max_h.round() as u32;
+        let w = ((max_h * aspect).round() as u32).clamp(1, max_w as u32);
+        (w, h.max(1))
+    };
+
+    let base_dir = editor
+        .path
+        .as_deref()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf);
+    let key = ExportImagePreviewKey {
+        revision: editor.history.revision(),
+        symbol_id: options.symbol_id.clone(),
+        frame: preview_frame,
+        transparent: options.transparent_background,
+        runtime_capture: options.runtime_capture,
+        pw,
+        ph,
+        project_w: editor.project.width,
+        project_h: editor.project.height,
+        background: editor.project.background,
+        base_dir: base_dir.clone(),
+    };
+
+    let mut cache = ui
+        .ctx()
+        .data(|d| d.get_temp::<ExportImagePreviewCache>(export_image_preview_cache_id()));
+    if cache.as_ref().is_none_or(|c| c.key != key) {
+        let (tex, unavailable) = match render_project_frame_rgba_with_base_dir(
+            &editor.project,
+            key.symbol_id.as_deref(),
+            key.frame,
+            key.pw,
+            key.ph,
+            key.transparent,
+            key.runtime_capture,
+            base_dir.as_deref(),
+        ) {
+            Ok(rgba) if rgba.len() == (key.pw as usize) * (key.ph as usize) * 4 => {
+                let image = egui::ColorImage::from_rgba_unmultiplied(
+                    [key.pw as usize, key.ph as usize],
+                    &rgba,
+                );
+                let tex = ui.ctx().load_texture(
+                    "export-image-live-preview",
+                    image,
+                    egui::TextureOptions::LINEAR,
+                );
+                (Some(tex), false)
+            }
+            _ => (None, true),
+        };
+        let next = ExportImagePreviewCache {
+            key,
+            tex,
+            unavailable,
+        };
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(export_image_preview_cache_id(), next.clone()));
+        cache = Some(next);
+    }
+
+    if let Some(tex) = cache.as_ref().and_then(|c| c.tex.as_ref()) {
+        let tex_size = tex.size_vec2();
+        let max_size = rect.size() * 0.86;
+        let fit_scale = (max_size.x / tex_size.x.max(1.0))
+            .min(max_size.y / tex_size.y.max(1.0))
+            .min(2.0);
+        let stage_rect = egui::Rect::from_center_size(rect.center(), tex_size * fit_scale);
+        if options.transparent_background {
+            ui.painter().rect_filled(stage_rect, 0.0, nf.bg_field);
+            let cell = 8.0_f32;
+            let cols = (stage_rect.width() / cell).ceil() as i32;
+            let rows = (stage_rect.height() / cell).ceil() as i32;
+            for row in 0..rows {
+                for col in 0..cols {
+                    if (row + col) % 2 == 0 {
+                        let min = egui::pos2(
+                            stage_rect.left() + col as f32 * cell,
+                            stage_rect.top() + row as f32 * cell,
+                        );
+                        let max = egui::pos2(
+                            (min.x + cell).min(stage_rect.right()),
+                            (min.y + cell).min(stage_rect.bottom()),
+                        );
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_max(min, max),
+                            0.0,
+                            nf.bg_raised,
+                        );
+                    }
+                }
+            }
+        } else {
+            ui.painter().rect_filled(stage_rect, 0.0, nf.bg_stage);
+        }
+        ui.painter().image(
+            tex.id(),
+            stage_rect,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+    } else {
+        let stage = egui::Rect::from_center_size(rect.center(), rect.size() * 0.8);
+        ui.painter().rect_filled(stage, 0.0, nf.bg_stage);
+        let msg = if cache.as_ref().is_some_and(|c| c.unavailable) {
+            "Preview unavailable"
+        } else {
+            "Rendering…"
+        };
+        ui.painter().text(
+            stage.center(),
+            egui::Align2::CENTER_CENTER,
+            msg,
+            neoflash_ui::typography::font(TextStyle::Small),
+            nf.text_tertiary,
+        );
+    }
+
+    ui.painter().rect_stroke(
+        rect,
+        r,
+        egui::Stroke::new(1.0_f32, nf.border_subtle),
+        egui::StrokeKind::Inside,
+    );
 }
 
 impl Editor {
@@ -182,15 +357,30 @@ impl Editor {
             .resolve_frames(&self.project, draft.options.symbol_id.as_deref());
         let span_frames = end_f.saturating_sub(start_f).saturating_add(1).max(1);
 
+        let preview_frame = match draft.options.range {
+            ImageExportRange::CurrentFrame(f) => f.min(total_frames.saturating_sub(1)),
+            ImageExportRange::WholeMovie | ImageExportRange::CurrentScene { .. } => {
+                self.frame.min(total_frames.saturating_sub(1))
+            }
+            ImageExportRange::Frames { start, .. } => start.min(end_f),
+        };
+
         ui.horizontal_top(|ui| {
             ui.vertical(|ui| {
                 ui.set_width(300.0);
-                preview_box(ui, 300.0, 188.0, "Stage preview");
+                paint_export_image_preview_box(
+                    ui,
+                    self,
+                    &draft.options,
+                    preview_frame,
+                    res_w,
+                    res_h,
+                );
                 caption(
                     ui,
                     &format!(
                         "Frame {} of {} · {} × {}",
-                        (self.frame + 1).min(total_frames),
+                        (preview_frame + 1).min(total_frames),
                         total_frames,
                         res_w,
                         res_h
@@ -392,30 +582,17 @@ impl Editor {
                     ImageExportFormat::Svg => {
                         group(ui, "SVG options");
                         ui.horizontal(|ui| {
-                            let img_lbl = if draft.options.svg_embed_images {
-                                "Images: Embed"
-                            } else {
-                                "Images: Link"
-                            };
-                            c::Select::new(ui.id().with("svg-images"), img_lbl)
-                                .width(180.0)
-                                .show(ui, |ui| {
-                                    for (embed, label) in
-                                        [(true, "Images: Embed"), (false, "Images: Link")]
-                                    {
-                                        if ui
-                                            .add(
-                                                c::MenuItem::new(label).checked(
-                                                    draft.options.svg_embed_images == embed,
-                                                ),
-                                            )
-                                            .clicked()
-                                        {
-                                            draft.options.svg_embed_images = embed;
-                                            ui.close();
-                                        }
-                                    }
-                                });
+                            let img_lbl = "Images: Embed";
+                            let svg_img = ui
+                                .scope(|ui| {
+                                    ui.disable();
+                                    c::Select::new(ui.id().with("svg-images"), img_lbl)
+                                        .width(180.0)
+                                        .show(ui, |_| {})
+                                        .0
+                                })
+                                .inner;
+                            let _ = c::not_available(svg_img, "SVG linked images");
                             let txt_lbl = if draft.options.svg_text_as_outlines {
                                 "Text: Convert to outlines"
                             } else {
@@ -444,10 +621,14 @@ impl Editor {
                             &mut draft.options.svg_minify,
                             "Minify output",
                         ));
-                        ui.add(c::Switch::new(
-                            &mut draft.options.svg_css_classes,
-                            "Use CSS classes for styles",
-                        ));
+                        let css_resp = ui.add_enabled(
+                            false,
+                            c::Switch::new(
+                                &mut draft.options.svg_css_classes,
+                                "Use CSS classes for styles",
+                            ),
+                        );
+                        let _ = c::not_available(css_resp, "SVG CSS class extraction");
                         ui.add(c::Checkbox::new(
                             &mut draft.options.svg_include_hidden_guides,
                             "Include hidden & guide layers",
@@ -493,36 +674,42 @@ impl Editor {
                         {
                             draft.options.psd_keep_layers = false;
                         }
-                        ui.add(c::Checkbox::new(
-                            &mut draft.options.psd_folders_to_groups,
-                            "Folders → layer groups",
-                        ));
-                        ui.add(c::Checkbox::new(
-                            &mut draft.options.psd_symbols_to_smart_objects,
-                            "Symbols → smart objects",
-                        ));
-                        ui.add(c::Checkbox::new(
-                            &mut draft.options.psd_keep_text_editable,
-                            "Keep text editable",
-                        ));
+                        let r1 = ui.add_enabled(
+                            false,
+                            c::Checkbox::new(
+                                &mut draft.options.psd_folders_to_groups,
+                                "Folders → layer groups",
+                            ),
+                        );
+                        let _ = c::not_available(r1, "PSD folder groups");
+                        let r2 = ui.add_enabled(
+                            false,
+                            c::Checkbox::new(
+                                &mut draft.options.psd_symbols_to_smart_objects,
+                                "Symbols → smart objects",
+                            ),
+                        );
+                        let _ = c::not_available(r2, "PSD smart objects");
+                        let r3 = ui.add_enabled(
+                            false,
+                            c::Checkbox::new(
+                                &mut draft.options.psd_keep_text_editable,
+                                "Keep text editable",
+                            ),
+                        );
+                        let _ = c::not_available(r3, "Editable PSD text layers");
                         ui.horizontal(|ui| {
                             let col_lbl = format!("Colour: {}", draft.options.psd_color_space);
-                            c::Select::new(ui.id().with("psd-color"), &col_lbl)
-                                .width(200.0)
-                                .show(ui, |ui| {
-                                    for cs in ["sRGB 8-bit", "Display P3 8-bit"] {
-                                        if ui
-                                            .add(
-                                                c::MenuItem::new(&format!("Colour: {cs}"))
-                                                    .checked(draft.options.psd_color_space == cs),
-                                            )
-                                            .clicked()
-                                        {
-                                            draft.options.psd_color_space = cs.to_owned();
-                                            ui.close();
-                                        }
-                                    }
-                                });
+                            let col_resp = ui
+                                .scope(|ui| {
+                                    ui.disable();
+                                    c::Select::new(ui.id().with("psd-color"), &col_lbl)
+                                        .width(200.0)
+                                        .show(ui, |_| {})
+                                        .0
+                                })
+                                .inner;
+                            let _ = c::not_available(col_resp, "PSD colour profiles");
                             let res_lbl =
                                 format!("Resolution: {} ppi", draft.options.psd_resolution_ppi);
                             c::Select::new(ui.id().with("psd-res"), &res_lbl)

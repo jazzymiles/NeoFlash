@@ -43,7 +43,7 @@ impl StandaloneUiStudioApp {
         let json_path = Path::new(DEFAULT_STUDIO_JSON_PATH);
         if json_path.exists()
             && std::env::var_os("NEOFLASH_SCREENSHOT").is_none()
-            && state.load_studio_json(json_path).is_ok()
+            && state.load_studio_json_initial(json_path).is_ok()
         {
             theme = state.preview_theme;
             state.preview_theme_locked = true;
@@ -199,6 +199,7 @@ impl eframe::App for StandaloneUiStudioApp {
                     self.theme.apply(ctx);
                 }
             });
+        super::persist_studio_session(ctx, &self.state);
         crate::shell::capture(ctx, self.frame_index);
     }
 }

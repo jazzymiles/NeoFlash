@@ -25,7 +25,7 @@ pub(super) fn graphic_properties(ui: &mut Ui) {
     ui.add(c::TypeHeader {
         icon: i16::GRAPHIC,
         title: "Graphic",
-        subtitle: "Instance of \"planet\" · 24 frames",
+        subtitle: "No graphic instance selected",
     });
     ui.horizontal(|ui| {
         let w = ui.available_width() - 72.0 - space::S2;
@@ -179,7 +179,7 @@ pub(super) fn font_embedding(ui: &mut Ui) {
             |ui| {
                 ui.set_width(220.0);
                 ui.spacing_mut().item_spacing.y = 2.0;
-                for (i, font) in ["Inter Regular", "Inter Semi Bold", "Roboto Mono"]
+                for (i, font) in ["Primary font", "Bold font", "Monospace font"]
                     .into_iter()
                     .enumerate()
                 {
@@ -196,8 +196,8 @@ pub(super) fn font_embedding(ui: &mut Ui) {
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = space::S3;
             ui.horizontal(|ui| {
-                text(ui, "Inter Regular", "Name", 220.0);
-                select(ui, "Family: Inter", 200.0);
+                text(ui, "Primary font", "Name", 220.0);
+                select(ui, "Family: System", 200.0);
             });
             select(ui, "Style: Regular", 220.0);
             group(ui, "Character ranges");
@@ -209,23 +209,23 @@ pub(super) fn font_embedding(ui: &mut Ui) {
                     ("Numerals [0–9] (11)", true),
                     ("Punctuation (52)", true),
                     ("Basic Latin (95)", false),
-                    ("Cyrillic (256)", true),
+                    ("Cyrillic (256)", false),
                     ("Latin Extended A (128)", false),
                     ("Greek (117)", false),
                 ] {
                     check(ui, on, label);
                 }
             });
-            text(ui, "→ ← ★ © ®", "Also include", ui.available_width());
+            text(ui, "", "Also include", ui.available_width());
             ui.horizontal(|ui| {
-                check(ui, true, "Export for ActionScript");
-                text(ui, "InterRegular", "Class", 200.0);
+                check(ui, false, "Export for ActionScript");
+                text(ui, "", "Class", 200.0);
             });
         });
     });
     ui.add_space(space::S2);
     ui.horizontal(|ui| {
-        ui.add(c::Badge::new("378 glyphs · ~ 46 kB", c::BadgeType::Accent));
+        ui.add(c::Badge::new("No document fonts", c::BadgeType::Accent));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let _ = ui.add(c::Button::primary("OK"));
             let _ = ui.add(c::Button::new("Cancel"));
@@ -243,26 +243,20 @@ pub(super) fn test_movie(ui: &mut Ui) {
     );
     ui.painter().rect_filled(area, 0.0, nf.bg_canvas);
     let stage = egui::Rect::from_center_size(area.center(), egui::vec2(640.0, 400.0));
-    ui.painter()
-        .rect_filled(stage, 0.0, Color32::from(hsv(0.59, 0.46, 0.094, 1.0)));
-    let ink: Color32 = hsv(0.0, 0.0, 0.95, 1.0).into();
+    ui.painter().rect_filled(stage, 0.0, nf.bg_panel);
+    ui.painter().rect_stroke(
+        stage,
+        0.0,
+        egui::Stroke::new(1.0_f32, nf.border_subtle),
+        egui::StrokeKind::Inside,
+    );
     ui.painter().text(
-        stage.left_center() + egui::vec2(40.0, -90.0),
-        egui::Align2::LEFT_CENTER,
-        "Ideas in motion.",
-        neoflash_ui::typography::font(TextStyle::DialogTitle),
-        ink,
+        stage.center(),
+        egui::Align2::CENTER_CENTER,
+        "No active stage preview",
+        neoflash_ui::typography::font(TextStyle::Small),
+        nf.text_secondary,
     );
-    let orbit = stage.center() + egui::vec2(140.0, 20.0);
-    ui.painter().circle_stroke(
-        orbit,
-        66.0,
-        egui::Stroke::new(1.0_f32, Color32::from(hsv(0.0, 0.0, 0.4, 1.0))),
-    );
-    ui.painter()
-        .circle_filled(orbit, 20.0, Color32::from(hsv(0.62, 0.6, 1.0, 1.0)));
-    ui.painter()
-        .circle_filled(orbit + egui::vec2(52.0, -34.0), 7.0, planet_orange());
 
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
@@ -275,41 +269,27 @@ pub(super) fn test_movie(ui: &mut Ui) {
         );
         let _ = ui.add(c::IconButton::new(i16::STEPFWD, "Next frame"));
         let _ = ui.add(c::IconButton::new(i16::LAST, "Last frame"));
-        let _ = ui.add(c::IconButton::new(i16::LOOP, "Loop").selected(true));
+        let _ = ui.add(c::IconButton::new(i16::LOOP, "Loop"));
         let (rail, _) = ui.allocate_exact_size(egui::vec2(420.0, 6.0), egui::Sense::hover());
         let r = egui::CornerRadius::same(radius::FULL.min(127.0) as u8);
         ui.painter().rect_filled(rail, r, nf.bg_hover);
-        let done = egui::Rect::from_min_size(
-            rail.min,
-            egui::vec2(rail.width() * 30.0 / 120.0, rail.height()),
-        );
-        ui.painter().rect_filled(done, r, nf.accent_default);
-        mono(ui, "Frame 30 / 120 · 00:01.21");
+        mono(ui, "Frame 0 / 0 · 00:00.00");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let _ = ui.add(c::IconButton::new(i16::ROTATE_CW, "Restart"));
             select(ui, "Speed 1×", 110.0);
         });
     });
     ui.spacing_mut().item_spacing.y = 2.0;
-    for (severity, line) in [
-        (c::Severity::Info, "trace: NeoFlash: the stage is ready"),
-        (c::Severity::Info, "trace: animator started (60 frames)"),
-        (
-            c::Severity::Warning,
-            "Font \"Inter Semi Bold\" not embedded — fallback",
-        ),
-    ] {
-        ui.add(c::LogLine {
-            severity,
-            time: "",
-            text: line,
-        });
-    }
+    ui.add(c::LogLine {
+        severity: c::Severity::Info,
+        time: "",
+        text: "No runtime session active",
+    });
 }
 
 /// Title-bar trailing items of the Test Movie window: performance badge, browser preview, output drawer.
 pub(super) fn test_movie_title_actions(ui: &mut Ui) {
     let _ = ui.add(c::IconButton::new(i16::SIDEBAR, "Output drawer").selected(true));
     let _ = ui.add(c::IconButton::new(i16::GLOBE, "Open in browser"));
-    ui.add(c::Badge::new("24 / 24 fps · 38 MB", c::BadgeType::Neutral));
+    ui.add(c::Badge::new("No runtime active", c::BadgeType::Neutral));
 }

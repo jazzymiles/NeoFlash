@@ -221,7 +221,7 @@ pub(super) fn spray_brush(ui: &mut Ui) {
     });
     section(ui, "Symbol", true, |ui| {
         ui.horizontal(|ui| {
-            text(ui, "leaf_mc", "", 200.0);
+            text(ui, "", "", 200.0);
             let _ = ui.add(c::Button::new("Edit…"));
         });
         check(ui, false, "Use default shape (dots)");
@@ -243,10 +243,10 @@ pub(super) fn bone(ui: &mut Ui) {
     ui.add(c::TypeHeader {
         icon: i16::ARMATURE,
         title: "IK bone",
-        subtitle: "Armature \"arm\" · bone 2 of 3",
+        subtitle: "No armature on current frame",
     });
     ui.horizontal(|ui| {
-        text(ui, "arm_lower", "", 200.0);
+        text(ui, "", "", 200.0);
         let _ = ui.add(c::IconButton::new(i16::CHEVUP, "Parent bone"));
         let _ = ui.add(c::IconButton::new(i16::CHEVDOWN, "Child bone"));
     });

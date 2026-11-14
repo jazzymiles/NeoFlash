@@ -3,7 +3,7 @@
 //! and `Window ▸ Panels ▸ Planned panels ▸ Import video`.
 
 use super::dialog_helpers::{group, preview_box};
-use super::planned::{FooterClick, caption, footer_clicked};
+use super::planned::{FooterClick, caption, footer_clicked_with_enabled};
 use crate::app::Editor;
 use eframe::egui::{self, Ui};
 use neoflash_core::{
@@ -297,7 +297,7 @@ pub(crate) struct ImportVideoDraft {
 impl Default for ImportVideoDraft {
     fn default() -> Self {
         Self {
-            file_path: "~/Movies/intro.mp4".to_owned(),
+            file_path: String::new(),
             in_time: "00:00.00".to_owned(),
             out_time: "00:04.00".to_owned(),
             deployment: 0,
@@ -307,9 +307,34 @@ impl Default for ImportVideoDraft {
             expand_timeline: true,
             include_audio: true,
             match_fps: false,
-            source_fps: 30,
+            source_fps: 0,
         }
     }
+}
+
+#[derive(Clone, PartialEq)]
+struct VideoPreviewCacheKey {
+    file_path: String,
+    deployment: usize,
+    codec: String,
+    in_time: String,
+    include_audio: bool,
+    base_dir: Option<std::path::PathBuf>,
+    staged_present: bool,
+    file_len: Option<u64>,
+}
+
+#[derive(Clone)]
+struct VideoPreviewCache {
+    key: VideoPreviewCacheKey,
+    dims: Option<(u32, u32)>,
+    fps: Option<f32>,
+    duration_ms: Option<u32>,
+    tex: Option<egui::TextureHandle>,
+}
+
+fn preview_cache_id() -> egui::Id {
+    egui::Id::new("nf2-import-video-preview-cache")
 }
 
 fn draft_id() -> egui::Id {
@@ -654,7 +679,7 @@ impl Editor {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .filter(|s| !s.is_empty())
-                .unwrap_or("intro.mp4")
+                .unwrap_or("video.mp4")
                 .to_owned();
             let diagnostics =
                 neoflash_core::inspect_video_resource(&file_name, media_type, &raw_bytes, None);
@@ -714,6 +739,7 @@ impl Editor {
             (res_id, rel_path, file_name, resource, span)
         };
 
+        let probed_stream = self.resolve_import_video_stream(&draft, false);
         let layer_idx = self.layer;
         let frame = self.frame;
         let symbol_id = self.symbol_id().to_owned();
@@ -722,7 +748,18 @@ impl Editor {
         }
         candidate.format_version = candidate.format_version.max(3);
         if draft.match_fps {
-            candidate.fps = draft.source_fps.clamp(1, 120);
+            let resolved_fps = if draft.source_fps > 0 {
+                draft.source_fps
+            } else {
+                probed_stream
+                    .as_ref()
+                    .filter(|s| s.fps.is_finite() && s.fps > 0.0)
+                    .map(|s| s.fps.round() as u32)
+                    .unwrap_or(0)
+            };
+            if resolved_fps > 0 {
+                candidate.fps = resolved_fps.clamp(1, 120);
+            }
         }
         let fps = candidate.fps.max(1);
         let needed_frames =
@@ -767,18 +804,23 @@ impl Editor {
         key.keyed_properties = None;
         key.video = Some(video_span);
         if draft.place_on_stage {
+            let (vid_w, vid_h) = probed_stream
+                .as_ref()
+                .filter(|s| s.width > 0 && s.height > 0)
+                .map(|s| (f64::from(s.width), f64::from(s.height)))
+                .unwrap_or((320.0, 240.0));
             let center = placement.unwrap_or([240.0, 180.0]);
             key.elements.push(Element {
                 id: new_id("video"),
                 name: file_name.to_owned(),
                 transform: Transform {
-                    x: center[0] - 160.0,
-                    y: center[1] - 120.0,
+                    x: center[0] - vid_w * 0.5,
+                    y: center[1] - vid_h * 0.5,
                     ..Transform::default()
                 },
                 kind: ElementKind::Video {
-                    width: 320.0,
-                    height: 240.0,
+                    width: vid_w,
+                    height: vid_h,
                 },
                 ..Element::default()
             });
@@ -800,13 +842,11 @@ impl Editor {
         Ok(res_id)
     }
 
-    /// Decode the active `Import video` preview frame at `scrub_time_ms` (or `draft.in_time` when
-    /// `None`) for `Embedded`, `External`, and `Progressive` video sources (`T-274`).
-    pub(crate) fn decode_import_video_preview_frame(
+    fn resolve_import_video_stream(
         &mut self,
         draft: &ImportVideoDraft,
-        scrub_time_ms: Option<u32>,
-    ) -> Option<neoflash_export::DecodedVideoFrame> {
+        allow_network_fetch: bool,
+    ) -> Option<neoflash_export::DecodedVideoStream> {
         let raw_input = draft.file_path.trim();
         if raw_input.is_empty() {
             return None;
@@ -818,7 +858,7 @@ impl Editor {
             .map(Path::to_path_buf);
         let mime_type = progressive_preview_mime(raw_input, &draft.codec);
 
-        let stream = if draft.deployment == 2 {
+        if draft.deployment == 2 {
             if let Some(staged) = neoflash_export::lookup_staged_progressive_video_bytes(raw_input)
             {
                 match neoflash_export::decode_video_stream_bytes(
@@ -826,13 +866,13 @@ impl Editor {
                     mime_type,
                     &staged,
                 ) {
-                    Ok(stream) => stream,
+                    Ok(stream) => Some(stream),
                     Err(error) => {
                         neoflash_export::discard_staged_progressive_video_bytes(raw_input);
                         self.message(format!(
                             "Staged Progressive preview could not be decoded and was discarded: {error}"
                         ));
-                        return None;
+                        None
                     }
                 }
             } else if let Some(local_path) = neoflash_export::resolve_progressive_local_path(
@@ -846,20 +886,20 @@ impl Editor {
                     mime_type,
                     &bytes,
                 ) {
-                    Ok(stream) => stream,
+                    Ok(stream) => Some(stream),
                     Err(error) => {
                         self.message(format!(
                             "Progressive preview file '{}' could not be decoded: {error}",
                             local_path.display()
                         ));
-                        return None;
+                        None
                     }
                 }
-            } else if validate_progressive_video_url(raw_input).is_ok() {
+            } else if allow_network_fetch && validate_progressive_video_url(raw_input).is_ok() {
                 poll_or_start_progressive_preview_fetch(raw_input, mime_type);
-                return None;
+                None
             } else {
-                return None;
+                None
             }
         } else {
             let expanded = expand_import_path(raw_input);
@@ -873,13 +913,23 @@ impl Editor {
             };
             if let Some(path) = candidate {
                 let bytes = std::fs::read(&path).ok()?;
-                neoflash_export::decode_video_stream_bytes(raw_input, mime_type, &bytes).ok()?
+                neoflash_export::decode_video_stream_bytes(raw_input, mime_type, &bytes).ok()
             } else {
                 let staged = neoflash_export::lookup_staged_progressive_video_bytes(raw_input)?;
-                neoflash_export::decode_video_stream_bytes(raw_input, mime_type, &staged).ok()?
+                neoflash_export::decode_video_stream_bytes(raw_input, mime_type, &staged).ok()
             }
-        };
+        }
+    }
 
+    /// Decode the active `Import video` preview frame at `scrub_time_ms` (or `draft.in_time` when
+    /// `None`) for `Embedded`, `External`, and `Progressive` video sources (`T-274`).
+    #[cfg(test)]
+    pub(crate) fn decode_import_video_preview_frame(
+        &mut self,
+        draft: &ImportVideoDraft,
+        scrub_time_ms: Option<u32>,
+    ) -> Option<neoflash_export::DecodedVideoFrame> {
+        let stream = self.resolve_import_video_stream(draft, true)?;
         let in_ms = (parse_timecode_seconds(&draft.in_time).unwrap_or(0.0) * 1000.0)
             .round()
             .max(0.0) as u32;
@@ -904,6 +954,112 @@ impl Editor {
         stream.frame_at_placement(&placement).map(|(_, f)| f)
     }
 
+    fn resolve_cached_video_preview(
+        &mut self,
+        ctx: &egui::Context,
+        draft: &ImportVideoDraft,
+    ) -> VideoPreviewCache {
+        let raw_input = draft.file_path.trim().to_owned();
+        let base_dir = self
+            .path
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf);
+        let staged_present = !raw_input.is_empty()
+            && neoflash_export::lookup_staged_progressive_video_bytes(&raw_input).is_some();
+        let file_len = if raw_input.is_empty() {
+            None
+        } else {
+            let expanded = expand_import_path(&raw_input);
+            let candidate = if expanded.is_file() {
+                Some(expanded)
+            } else if draft.deployment == 2 {
+                neoflash_export::resolve_progressive_local_path(
+                    &raw_input,
+                    None,
+                    base_dir.as_deref(),
+                )
+            } else {
+                base_dir
+                    .as_deref()
+                    .map(|dir| dir.join(&raw_input))
+                    .filter(|p| p.is_file())
+            };
+            candidate.and_then(|p| std::fs::metadata(p).ok().map(|m| m.len()))
+        };
+        let key = VideoPreviewCacheKey {
+            file_path: raw_input,
+            deployment: draft.deployment,
+            codec: draft.codec.clone(),
+            in_time: draft.in_time.clone(),
+            include_audio: draft.include_audio,
+            base_dir,
+            staged_present,
+            file_len,
+        };
+        if let Some(existing) = ctx.data(|d| d.get_temp::<VideoPreviewCache>(preview_cache_id()))
+            && existing.key == key
+        {
+            return existing;
+        }
+        let stream = self.resolve_import_video_stream(draft, true);
+        let (dims, fps, duration_ms, tex) = if let Some(stream) = stream {
+            let dims =
+                (stream.width > 0 && stream.height > 0).then_some((stream.width, stream.height));
+            let fps = (stream.fps.is_finite() && stream.fps > 0.0).then_some(stream.fps);
+            let duration_ms = (stream.duration_ms > 0).then_some(stream.duration_ms);
+            let in_ms = (parse_timecode_seconds(&draft.in_time).unwrap_or(0.0) * 1000.0)
+                .round()
+                .max(0.0) as u32;
+            let out_ms = parse_timecode_seconds(&draft.out_time)
+                .map(|s| (s * 1000.0).round().max(f64::from(in_ms + 1)) as u32);
+            let placement = neoflash_core::ResolvedVideoPlacement {
+                channel: "import-preview".into(),
+                target_path: vec!["preview".into()],
+                layer_id: "preview".into(),
+                resource: "preview".into(),
+                source: None,
+                sync: VideoSyncMode::Stream,
+                time_ms: in_ms,
+                in_point_ms: in_ms,
+                out_point_ms: out_ms,
+                playing: false,
+                loop_video: false,
+                muted: !draft.include_audio,
+                stopped: false,
+            };
+            let tex = stream
+                .frame_at_placement(&placement)
+                .and_then(|(_, decoded_frame)| {
+                    let w = decoded_frame.image.width.max(1) as usize;
+                    let h = decoded_frame.image.height.max(1) as usize;
+                    (decoded_frame.image.rgba.len() >= w * h * 4).then(|| {
+                        let color_img = egui::ColorImage::from_rgba_unmultiplied(
+                            [w, h],
+                            &decoded_frame.image.rgba[..w * h * 4],
+                        );
+                        ctx.load_texture(
+                            "import-video-live-preview",
+                            color_img,
+                            egui::TextureOptions::LINEAR,
+                        )
+                    })
+                });
+            (dims, fps, duration_ms, tex)
+        } else {
+            (None, None, None, None)
+        };
+        let cache = VideoPreviewCache {
+            key,
+            dims,
+            fps,
+            duration_ms,
+            tex,
+        };
+        ctx.data_mut(|d| d.insert_temp(preview_cache_id(), cache.clone()));
+        cache
+    }
+
     pub(crate) fn import_video_body(
         &mut self,
         ui: &mut Ui,
@@ -911,11 +1067,15 @@ impl Editor {
     ) -> (bool, bool) {
         let mut close_cancel = false;
         let mut do_import = false;
+        let cached_preview = self.resolve_cached_video_preview(ui.ctx(), draft);
+        if let Some(fps) = cached_preview.fps {
+            draft.source_fps = (fps.round() as u32).clamp(1, 120);
+        }
 
         ui.horizontal_top(|ui| {
             ui.vertical(|ui| {
                 ui.set_width(300.0);
-                if let Some(decoded_frame) = self.decode_import_video_preview_frame(draft, None) {
+                if let Some(tex) = &cached_preview.tex {
                     let p = neoflash_ui::palette(ui.ctx());
                     let (rect, _) =
                         ui.allocate_exact_size(egui::vec2(300.0, 169.0), egui::Sense::hover());
@@ -926,33 +1086,26 @@ impl Editor {
                         egui::Stroke::new(1.0_f32, p.border_subtle),
                         egui::StrokeKind::Inside,
                     );
-                    let w = decoded_frame.image.width.max(1) as usize;
-                    let h = decoded_frame.image.height.max(1) as usize;
-                    if decoded_frame.image.rgba.len() >= w * h * 4 {
-                        let color_img = egui::ColorImage::from_rgba_unmultiplied(
-                            [w, h],
-                            &decoded_frame.image.rgba[..w * h * 4],
-                        );
-                        let tex = ui.ctx().load_texture(
-                            "import-video-live-preview",
-                            color_img,
-                            egui::TextureOptions::LINEAR,
-                        );
-                        let inner = rect.shrink(2.0);
-                        let scale = (inner.width() / w as f32)
-                            .min(inner.height() / h as f32)
-                            .max(0.01);
-                        let draw_size = egui::vec2(w as f32 * scale, h as f32 * scale);
-                        let draw_rect = egui::Rect::from_center_size(inner.center(), draw_size);
-                        ui.painter().image(
-                            tex.id(),
-                            draw_rect,
-                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                            egui::Color32::WHITE,
-                        );
-                    }
+                    let tex_size = tex.size_vec2();
+                    let inner = rect.shrink(2.0);
+                    let scale = (inner.width() / tex_size.x.max(1.0))
+                        .min(inner.height() / tex_size.y.max(1.0))
+                        .max(0.01);
+                    let draw_size = tex_size * scale;
+                    let draw_rect = egui::Rect::from_center_size(inner.center(), draw_size);
+                    ui.painter().image(
+                        tex.id(),
+                        draw_rect,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
                 } else {
-                    preview_box(ui, 300.0, 169.0, "Video preview");
+                    let empty_lbl = if draft.file_path.trim().is_empty() {
+                        "No video selected"
+                    } else {
+                        "Preview unavailable"
+                    };
+                    preview_box(ui, 300.0, 169.0, empty_lbl);
                     if draft.deployment == 2
                         && validate_progressive_video_url(draft.file_path.trim()).is_ok()
                     {
@@ -1093,7 +1246,7 @@ impl Editor {
                     (
                         1,
                         "Load external video",
-                        "Streams with a player component; keeps .nfl small",
+                        "Streams with a player component; keeps the .nflash file small",
                     ),
                     (
                         2,
@@ -1173,18 +1326,47 @@ impl Editor {
             .filter(|v| v.is_finite())
             .unwrap_or(0.0)
             .clamp(0.0, 36_000.0);
-        let out_sec = parse_timecode_seconds(&draft.out_time)
-            .filter(|v| v.is_finite())
-            .unwrap_or(24.0)
-            .clamp(in_sec + 0.1, in_sec + 600.0);
+        let probed_out_sec = cached_preview
+            .duration_ms
+            .map(|ms| f64::from(ms) / 1000.0)
+            .unwrap_or(4.0);
+        let out_sec = if draft.out_time.trim() == "00:04.00" {
+            probed_out_sec
+        } else {
+            parse_timecode_seconds(&draft.out_time)
+                .filter(|v| v.is_finite())
+                .unwrap_or(probed_out_sec)
+        }
+        .clamp(in_sec + 0.1, in_sec + 600.0);
         let dur = out_sec - in_sec;
-        let summary = format!(
-            "1280×720 · {} fps → {} fps · {:.1} s · {}",
-            draft.source_fps, self.project.fps, dur, draft.codec
-        );
-        match footer_clicked(ui, &summary, None, &["Cancel", "Import"]) {
+        let has_path = !draft.file_path.trim().is_empty();
+        let summary = if !has_path {
+            "Select a video file or stream URL".to_owned()
+        } else {
+            let mut parts = Vec::new();
+            if let Some((w, h)) = cached_preview.dims {
+                parts.push(format!("{w}×{h}"));
+            }
+            if draft.source_fps > 0 {
+                parts.push(format!(
+                    "{} fps → {} fps",
+                    draft.source_fps, self.project.fps
+                ));
+            } else {
+                parts.push(format!("Target {} fps", self.project.fps));
+            }
+            parts.push(format!("{dur:.1} s"));
+            parts.push(draft.codec.clone());
+            parts.join(" · ")
+        };
+        match footer_clicked_with_enabled(
+            ui,
+            &summary,
+            None,
+            &[("Cancel", true), ("Import", has_path)],
+        ) {
             Some(FooterClick::Button(0)) => close_cancel = true,
-            Some(FooterClick::Button(1)) => do_import = true,
+            Some(FooterClick::Button(1)) if has_path => do_import = true,
             _ => {}
         }
         (close_cancel, do_import)
@@ -1198,7 +1380,13 @@ impl Editor {
         let (close_cancel, do_import) = self.import_video_body(ui, &mut draft);
         ctx.data_mut(|d| d.insert_temp(inline_draft_id(), draft));
         if do_import {
-            return self.confirm_import_video(&ctx).is_ok();
+            return match self.confirm_import_video(&ctx) {
+                Ok(_) => true,
+                Err(err) => {
+                    self.message(err);
+                    false
+                }
+            };
         }
         close_cancel
     }
@@ -1251,8 +1439,8 @@ impl Editor {
             self.cancel_import_video(ctx);
             return;
         }
-        if do_import {
-            let _ = self.confirm_import_video(ctx);
+        if do_import && let Err(err) = self.confirm_import_video(ctx) {
+            self.message(err);
         }
     }
 }

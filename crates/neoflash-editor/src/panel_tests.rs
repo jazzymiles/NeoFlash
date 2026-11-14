@@ -6404,6 +6404,10 @@ fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
     Editor::open_planned(&ctx, "Tool options ▸ Stroke style…");
     editor.drain_converted_entry_triggers(&ctx);
     assert!(has_stroke_style_dialog(&ctx));
+    crate::panels::stroke_style::update_stroke_style_draft(&ctx, |draft| {
+        draft.kind = crate::panels::stroke_style::StrokeStyleKind::Dashed;
+        draft.thickness = 4.0;
+    });
     assert!(editor.confirm_stroke_style(&ctx));
     assert!(!has_stroke_style_dialog(&ctx));
     assert_eq!(editor.history.undo_label(), Some("Stroke style"));
@@ -6416,8 +6420,46 @@ fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
     Editor::open_planned(&ctx, "Library menu ▸ Font embedding…");
     editor.drain_converted_entry_triggers(&ctx);
     assert!(has_font_embedding_dialog(&ctx));
+    assert!(
+        font_embedding_draft(&ctx)
+            .expect("opened font embedding draft")
+            .entries
+            .is_empty(),
+        "blank project Font embedding dialog must start empty with no fake sample fonts"
+    );
     update_font_embedding_draft(&ctx, |draft| {
-        draft.entries[0].family = "NeoFlash definitely missing font".into();
+        draft.entries = vec![
+            crate::panels::font_embedding::EmbeddedFontEntry {
+                id: new_id("res"),
+                name: "Missing Font".to_owned(),
+                family: "NeoFlash definitely missing font".to_owned(),
+                style: "Regular".to_owned(),
+                ranges: [true, true, true, true, false, false, false, false],
+                extra_chars: String::new(),
+                export_for_actionscript: false,
+                class_name: String::new(),
+            },
+            crate::panels::font_embedding::EmbeddedFontEntry {
+                id: new_id("res"),
+                name: "Inter Semi Bold".to_owned(),
+                family: "Inter".to_owned(),
+                style: "Semi Bold".to_owned(),
+                ranges: [true, true, true, true, false, false, false, false],
+                extra_chars: String::new(),
+                export_for_actionscript: false,
+                class_name: String::new(),
+            },
+            crate::panels::font_embedding::EmbeddedFontEntry {
+                id: new_id("res"),
+                name: "Roboto Mono".to_owned(),
+                family: "Roboto Mono".to_owned(),
+                style: "Regular".to_owned(),
+                ranges: [true, true, true, true, true, false, false, false],
+                extra_chars: String::new(),
+                export_for_actionscript: false,
+                class_name: String::new(),
+            },
+        ];
     });
     assert!(editor.confirm_font_embedding(&ctx).is_err());
     assert_eq!(
@@ -6429,7 +6471,8 @@ fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
         "failed font embedding closed dialog"
     );
     update_font_embedding_draft(&ctx, |draft| {
-        draft.entries[0].family = "Inter".into();
+        draft.entries[0].name = "Inter Regular".to_owned();
+        draft.entries[0].family = "Inter".to_owned();
     });
     set_inline_font_embedding_draft(&ctx, FontEmbeddingDraft::default());
     let embedded = editor.confirm_font_embedding(&ctx).expect("embed fonts");

@@ -73,6 +73,10 @@ fn inline_draft_id() -> egui::Id {
     egui::Id::new("nf2-stroke-style-inline-draft")
 }
 
+fn inline_sig_id() -> egui::Id {
+    egui::Id::new("nf2-stroke-style-inline-sig")
+}
+
 pub(crate) fn has_stroke_style_dialog(ctx: &egui::Context) -> bool {
     ctx.data(|d| d.get_temp::<StrokeStyleDraft>(draft_id()))
         .is_some()
@@ -100,14 +104,13 @@ pub(crate) fn update_stroke_style_draft(
 }
 
 impl Editor {
-    /// Open the `Stroke style` modal dialog (`PR-03`).
-    pub(crate) fn open_stroke_style(&mut self, ctx: &egui::Context) {
-        self.finish_edits();
+    pub(crate) fn init_stroke_style_draft(&self) -> StrokeStyleDraft {
         let mut draft = StrokeStyleDraft {
-            thickness: self.stroke_width.clamp(0.25, 200.0),
+            thickness: self.stroke_width.clamp(0.1, 200.0),
+            kind: StrokeStyleKind::Solid,
             ..StrokeStyleDraft::default()
         };
-        if let Some(el) = self.selected_element()
+        if let Some((_, el)) = self.sampled_targets().into_iter().next()
             && let Some(sw) = match &el.kind {
                 ElementKind::Rectangle { stroke_width, .. }
                 | ElementKind::Ellipse { stroke_width, .. }
@@ -117,8 +120,41 @@ impl Editor {
             }
             && sw > 0.0
         {
-            draft.thickness = sw;
+            draft.thickness = sw.clamp(0.1, 200.0);
         }
+        if let Some(target) = self.selection.single()
+            && let Some(layer) = self
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .find(|l| l.id == target.layer)
+            && let Some(key) = layer.key_at(self.frame)
+            && let Some(app) = key
+                .appearances
+                .iter()
+                .find(|a| a.element_id == target.element)
+            && let Some(PatternBrushKind::DashPattern { dash, gap }) =
+                app.entries.iter().find_map(|entry| match entry {
+                    AppearancePaintEntry::Stroke { pattern_brush, .. } => pattern_brush.as_ref(),
+                    _ => None,
+                })
+        {
+            draft.dash = (*dash).clamp(1.0, 200.0);
+            draft.gap = (*gap).clamp(1.0, 200.0);
+            draft.kind = if (*dash - draft.thickness).abs() <= 0.25 && *gap >= 2.0 {
+                StrokeStyleKind::Dotted
+            } else {
+                StrokeStyleKind::Dashed
+            };
+        }
+        draft
+    }
+
+    /// Open the `Stroke style` modal dialog (`PR-03`).
+    pub(crate) fn open_stroke_style(&mut self, ctx: &egui::Context) {
+        self.finish_edits();
+        let draft = self.init_stroke_style_draft();
         ctx.data_mut(|d| d.insert_temp(draft_id(), draft));
     }
 
@@ -128,13 +164,16 @@ impl Editor {
 
     /// Apply the active `Stroke style` draft to the tool stroke width and any editable selected
     /// elements in one `"Stroke style"` Undo step.
-    pub(crate) fn confirm_stroke_style(&mut self, ctx: &egui::Context) -> bool {
-        let draft = ctx
-            .data(|d| d.get_temp::<StrokeStyleDraft>(draft_id()))
-            .or_else(|| ctx.data(|d| d.get_temp::<StrokeStyleDraft>(inline_draft_id())))
-            .unwrap_or_default();
-
-        let width = draft.thickness.clamp(0.1, 200.0);
+    /// Apply a supported stroke style (`Solid`, `Dashed`, `Dotted`) and thickness to editable
+    /// selected elements in one atomic `"Stroke style"` Undo step.
+    pub(crate) fn apply_stroke_style_to_selection(
+        &mut self,
+        kind: StrokeStyleKind,
+        thickness: f64,
+        dash: f64,
+        gap: f64,
+    ) -> bool {
+        let width = thickness.clamp(0.1, 200.0);
         self.stroke_width = width;
         let selected_targets: Vec<_> = self
             .sampled_targets()
@@ -151,18 +190,26 @@ impl Editor {
             })
             .collect();
 
+        let pattern = match kind {
+            StrokeStyleKind::Solid => None,
+            StrokeStyleKind::Dotted => Some(PatternBrushKind::DashPattern {
+                dash: width.max(1.0),
+                gap: gap.max(2.0),
+            }),
+            StrokeStyleKind::Dashed => Some(PatternBrushKind::DashPattern {
+                dash: dash.max(1.0),
+                gap: gap.max(1.0),
+            }),
+            StrokeStyleKind::Ragged | StrokeStyleKind::Stipple | StrokeStyleKind::Hatched => {
+                self.message(format!(
+                    "{} stroke style is not available yet.",
+                    kind.label()
+                ));
+                return false;
+            }
+        };
+
         if !selected_targets.is_empty() {
-            let pattern = match draft.kind {
-                StrokeStyleKind::Solid => None,
-                StrokeStyleKind::Dotted => Some(PatternBrushKind::DashPattern {
-                    dash: width.max(1.0),
-                    gap: draft.gap.max(2.0),
-                }),
-                _ => Some(PatternBrushKind::DashPattern {
-                    dash: draft.dash.max(1.0),
-                    gap: draft.gap.max(1.0),
-                }),
-            };
             self.finish_edits();
             self.transact_named("Stroke style", |editor| {
                 let frame = editor.frame;
@@ -188,32 +235,117 @@ impl Editor {
                             }
                         }
                         if let Some(pat) = pattern.clone() {
-                            key.appearances.retain(|a| a.element_id != target.element);
-                            key.appearances.push(ElementAppearance {
-                                element_id: target.element.clone(),
-                                fill_swatch_id: None,
-                                stroke_swatch_id: None,
-                                style_id: None,
-                                entries: vec![AppearancePaintEntry::Stroke {
-                                    color: stroke_col,
-                                    gradient: None,
-                                    width,
-                                    swatch_id: None,
-                                    offset_distance: 0.0,
-                                    pattern_brush: Some(pat),
-                                    opacity: 1.0,
-                                }],
-                                modifiers: Vec::new(),
-                                text_binding: None,
+                            if let Some(app) = key
+                                .appearances
+                                .iter_mut()
+                                .find(|a| a.element_id == target.element)
+                            {
+                                let mut updated_stroke = false;
+                                for entry in &mut app.entries {
+                                    if let AppearancePaintEntry::Stroke {
+                                        color,
+                                        width: entry_w,
+                                        pattern_brush,
+                                        ..
+                                    } = entry
+                                    {
+                                        *color = stroke_col;
+                                        *entry_w = width;
+                                        *pattern_brush = Some(pat.clone());
+                                        updated_stroke = true;
+                                    }
+                                }
+                                if !updated_stroke {
+                                    app.entries.push(AppearancePaintEntry::Stroke {
+                                        color: stroke_col,
+                                        gradient: None,
+                                        width,
+                                        swatch_id: None,
+                                        offset_distance: 0.0,
+                                        pattern_brush: Some(pat),
+                                        opacity: 1.0,
+                                    });
+                                }
+                            } else {
+                                key.appearances.push(ElementAppearance {
+                                    element_id: target.element.clone(),
+                                    fill_swatch_id: None,
+                                    stroke_swatch_id: None,
+                                    style_id: None,
+                                    entries: vec![AppearancePaintEntry::Stroke {
+                                        color: stroke_col,
+                                        gradient: None,
+                                        width,
+                                        swatch_id: None,
+                                        offset_distance: 0.0,
+                                        pattern_brush: Some(pat),
+                                        opacity: 1.0,
+                                    }],
+                                    modifiers: Vec::new(),
+                                    text_binding: None,
+                                });
+                            }
+                        } else if let Some(pos) = key
+                            .appearances
+                            .iter()
+                            .position(|a| a.element_id == target.element)
+                        {
+                            let app = &mut key.appearances[pos];
+                            app.entries.retain(|entry| {
+                                !matches!(
+                                    entry,
+                                    AppearancePaintEntry::Stroke {
+                                        pattern_brush: Some(PatternBrushKind::DashPattern { .. }),
+                                        swatch_id: None,
+                                        gradient: None,
+                                        offset_distance,
+                                        ..
+                                    } if *offset_distance == 0.0
+                                )
                             });
-                        } else {
-                            key.appearances.retain(|a| a.element_id != target.element);
+                            for entry in &mut app.entries {
+                                if let AppearancePaintEntry::Stroke {
+                                    width: entry_w,
+                                    pattern_brush,
+                                    ..
+                                } = entry
+                                {
+                                    *entry_w = width;
+                                    if matches!(
+                                        pattern_brush,
+                                        Some(PatternBrushKind::DashPattern { .. })
+                                    ) {
+                                        *pattern_brush = None;
+                                    }
+                                }
+                            }
+                            if app.entries.is_empty()
+                                && app.fill_swatch_id.is_none()
+                                && app.stroke_swatch_id.is_none()
+                                && app.style_id.is_none()
+                                && app.modifiers.is_empty()
+                                && app.text_binding.is_none()
+                            {
+                                key.appearances.remove(pos);
+                            }
                         }
                     }
                 }
             });
         }
+        true
+    }
 
+    pub(crate) fn confirm_stroke_style(&mut self, ctx: &egui::Context) -> bool {
+        let draft = ctx
+            .data(|d| d.get_temp::<StrokeStyleDraft>(draft_id()))
+            .or_else(|| ctx.data(|d| d.get_temp::<StrokeStyleDraft>(inline_draft_id())))
+            .unwrap_or_default();
+        if !self.apply_stroke_style_to_selection(draft.kind, draft.thickness, draft.dash, draft.gap)
+        {
+            return false;
+        }
+        let width = draft.thickness.clamp(0.1, 200.0);
         ctx.data_mut(|d| d.remove::<StrokeStyleDraft>(draft_id()));
         self.message(format!(
             "Applied {} stroke style ({:.1} pt).",
@@ -276,15 +408,26 @@ impl Editor {
                 .show(ui, |ui| {
                     for kind in StrokeStyleKind::ALL {
                         let lbl = format!("Type: {}", kind.label());
-                        if ui
-                            .add(c::MenuItem::new(&lbl).checked(draft.kind == kind))
-                            .clicked()
-                        {
-                            draft.kind = kind;
-                            if kind == StrokeStyleKind::Dotted {
-                                draft.dash = draft.thickness.max(1.0);
+                        let supported = matches!(
+                            kind,
+                            StrokeStyleKind::Solid
+                                | StrokeStyleKind::Dashed
+                                | StrokeStyleKind::Dotted
+                        );
+                        if supported {
+                            if ui
+                                .add(c::MenuItem::new(&lbl).checked(draft.kind == kind))
+                                .clicked()
+                            {
+                                draft.kind = kind;
+                                if kind == StrokeStyleKind::Dotted {
+                                    draft.dash = draft.thickness.max(1.0);
+                                }
+                                ui.close();
                             }
-                            ui.close();
+                        } else {
+                            let resp = ui.add_enabled(false, c::MenuItem::new(&lbl));
+                            let _ = c::not_available(resp, kind.label());
                         }
                     }
                 });
@@ -298,7 +441,9 @@ impl Editor {
             ui.add(c::Switch::new(&mut draft.zoom_4x, "4× zoom"));
         });
         ui.horizontal(|ui| {
-            ui.add(
+            let dash_enabled = draft.kind == StrokeStyleKind::Dashed;
+            let dash_resp = ui.add_enabled(
+                dash_enabled,
                 c::Field::new(&mut draft.dash, "Dash")
                     .prefix("Dash")
                     .unit("pt")
@@ -307,7 +452,22 @@ impl Editor {
                     .stepper()
                     .width(140.0),
             );
-            ui.add(
+            if !dash_enabled {
+                let _ = c::not_available(
+                    dash_resp,
+                    if draft.kind == StrokeStyleKind::Dotted {
+                        "Independent dot dash length"
+                    } else {
+                        "Dash length (Solid)"
+                    },
+                );
+            }
+            let gap_enabled = matches!(
+                draft.kind,
+                StrokeStyleKind::Dashed | StrokeStyleKind::Dotted
+            );
+            let gap_resp = ui.add_enabled(
+                gap_enabled,
                 c::Field::new(&mut draft.gap, "Gap")
                     .prefix("Gap")
                     .unit("pt")
@@ -316,7 +476,14 @@ impl Editor {
                     .stepper()
                     .width(140.0),
             );
-            ui.add(c::Checkbox::new(&mut draft.sharp_corners, "Sharp corners"));
+            if !gap_enabled {
+                let _ = c::not_available(gap_resp, "Gap length (Solid)");
+            }
+            let sharp_resp = ui.add_enabled(
+                false,
+                c::Checkbox::new(&mut draft.sharp_corners, "Sharp corners"),
+            );
+            let _ = c::not_available(sharp_resp, "Sharp corners");
         });
         ui.horizontal(|ui| {
             if ui.add(c::Button::ghost("Reset")).clicked() {
@@ -336,11 +503,22 @@ impl Editor {
 
     pub(crate) fn stroke_style_inline_panel(&mut self, ui: &mut Ui) -> bool {
         let ctx = ui.ctx().clone();
-        let mut draft = ctx
-            .data(|d| d.get_temp::<StrokeStyleDraft>(inline_draft_id()))
-            .unwrap_or_default();
+        let sig = (self.history.revision(), self.selection.targets.clone());
+        let needs_sync = ctx
+            .data(|d| d.get_temp::<(u64, Vec<crate::selection::SelectionTarget>)>(inline_sig_id()))
+            .as_ref()
+            != Some(&sig);
+        let mut draft = if needs_sync {
+            self.init_stroke_style_draft()
+        } else {
+            ctx.data(|d| d.get_temp::<StrokeStyleDraft>(inline_draft_id()))
+                .unwrap_or_else(|| self.init_stroke_style_draft())
+        };
         let (close_cancel, do_apply) = self.stroke_style_body(ui, &mut draft);
-        ctx.data_mut(|d| d.insert_temp(inline_draft_id(), draft));
+        ctx.data_mut(|d| {
+            d.insert_temp(inline_draft_id(), draft);
+            d.insert_temp(inline_sig_id(), sig);
+        });
         if do_apply {
             self.confirm_stroke_style(&ctx);
             return true;

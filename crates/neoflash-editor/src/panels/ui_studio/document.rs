@@ -758,6 +758,10 @@ impl UiStudioDocument {
     }
 }
 
+fn default_snapshot_zoom() -> f32 {
+    1.0
+}
+
 /// Snapshot entry in [`UiStudioHistory`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UiStudioSnapshot {
@@ -768,6 +772,12 @@ pub struct UiStudioSnapshot {
     pub artboards: Vec<StudioArtboard>,
     #[serde(default)]
     pub active_artboard_idx: usize,
+    #[serde(default)]
+    pub solo_active_artboard: bool,
+    #[serde(default)]
+    pub canvas_pan: [f32; 2],
+    #[serde(default = "default_snapshot_zoom")]
+    pub canvas_zoom: f32,
 }
 
 /// Multi-step Undo/Redo history stack for the UI Layout Studio.
@@ -804,6 +814,20 @@ impl UiStudioHistory {
         artboards: &[StudioArtboard],
         active_artboard_idx: usize,
     ) {
+        self.push_snapshot_entry(UiStudioSnapshot {
+            label: label.into(),
+            document: document.clone(),
+            systems: systems.clone(),
+            artboards: artboards.to_vec(),
+            active_artboard_idx,
+            solo_active_artboard: false,
+            canvas_pan: [0.0, 0.0],
+            canvas_zoom: 1.0,
+        });
+    }
+
+    /// Record a pre-built atomic studio snapshot covering document, systems, artboards, and view state.
+    pub fn push_snapshot_entry(&mut self, snapshot: UiStudioSnapshot) {
         let cap = if self.max_entries == 0 {
             64
         } else {
@@ -812,13 +836,7 @@ impl UiStudioHistory {
         if self.undo_stack.len() >= cap {
             self.undo_stack.remove(0);
         }
-        self.undo_stack.push(UiStudioSnapshot {
-            label: label.into(),
-            document: document.clone(),
-            systems: systems.clone(),
-            artboards: artboards.to_vec(),
-            active_artboard_idx,
-        });
+        self.undo_stack.push(snapshot);
         self.redo_stack.clear();
     }
 
@@ -852,6 +870,31 @@ impl UiStudioHistory {
         current_artboards: &mut Vec<StudioArtboard>,
         current_active_idx: &mut usize,
     ) -> Option<String> {
+        let mut solo = false;
+        let mut pan = [0.0, 0.0];
+        let mut zoom = 1.0;
+        self.undo_studio(
+            current_doc,
+            current_systems,
+            current_artboards,
+            current_active_idx,
+            &mut solo,
+            &mut pan,
+            &mut zoom,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn undo_studio(
+        &mut self,
+        current_doc: &mut UiStudioDocument,
+        current_systems: &mut UiStudioSystems,
+        current_artboards: &mut Vec<StudioArtboard>,
+        current_active_idx: &mut usize,
+        current_solo: &mut bool,
+        current_pan: &mut [f32; 2],
+        current_zoom: &mut f32,
+    ) -> Option<String> {
         let prev = self.undo_stack.pop()?;
         let label = prev.label.clone();
         self.redo_stack.push(UiStudioSnapshot {
@@ -860,6 +903,9 @@ impl UiStudioHistory {
             systems: current_systems.clone(),
             artboards: current_artboards.clone(),
             active_artboard_idx: *current_active_idx,
+            solo_active_artboard: *current_solo,
+            canvas_pan: *current_pan,
+            canvas_zoom: *current_zoom,
         });
         *current_doc = prev.document;
         *current_systems = prev.systems;
@@ -869,6 +915,9 @@ impl UiStudioHistory {
                 .active_artboard_idx
                 .min(current_artboards.len().saturating_sub(1));
         }
+        *current_solo = prev.solo_active_artboard;
+        *current_pan = prev.canvas_pan;
+        *current_zoom = prev.canvas_zoom.clamp(0.35, 2.5);
         Some(label)
     }
 
@@ -894,6 +943,31 @@ impl UiStudioHistory {
         current_artboards: &mut Vec<StudioArtboard>,
         current_active_idx: &mut usize,
     ) -> Option<String> {
+        let mut solo = false;
+        let mut pan = [0.0, 0.0];
+        let mut zoom = 1.0;
+        self.redo_studio(
+            current_doc,
+            current_systems,
+            current_artboards,
+            current_active_idx,
+            &mut solo,
+            &mut pan,
+            &mut zoom,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn redo_studio(
+        &mut self,
+        current_doc: &mut UiStudioDocument,
+        current_systems: &mut UiStudioSystems,
+        current_artboards: &mut Vec<StudioArtboard>,
+        current_active_idx: &mut usize,
+        current_solo: &mut bool,
+        current_pan: &mut [f32; 2],
+        current_zoom: &mut f32,
+    ) -> Option<String> {
         let next = self.redo_stack.pop()?;
         let label = next.label.clone();
         self.undo_stack.push(UiStudioSnapshot {
@@ -902,6 +976,9 @@ impl UiStudioHistory {
             systems: current_systems.clone(),
             artboards: current_artboards.clone(),
             active_artboard_idx: *current_active_idx,
+            solo_active_artboard: *current_solo,
+            canvas_pan: *current_pan,
+            canvas_zoom: *current_zoom,
         });
         *current_doc = next.document;
         *current_systems = next.systems;
@@ -911,6 +988,9 @@ impl UiStudioHistory {
                 .active_artboard_idx
                 .min(current_artboards.len().saturating_sub(1));
         }
+        *current_solo = next.solo_active_artboard;
+        *current_pan = next.canvas_pan;
+        *current_zoom = next.canvas_zoom.clamp(0.35, 2.5);
         Some(label)
     }
 }

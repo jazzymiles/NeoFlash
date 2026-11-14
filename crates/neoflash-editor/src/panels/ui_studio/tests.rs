@@ -728,3 +728,333 @@ fn four_theme_switching_locks_preview_theme_and_side_by_side_comparison_renders_
     assert_eq!(reloaded.preview_theme, ThemeMode::MidNeutralGray);
     assert!(reloaded.preview_theme_locked);
 }
+
+fn collect_shape_texts(shape: &egui::Shape, out: &mut Vec<String>) {
+    match shape {
+        egui::Shape::Text(text) => out.push(text.galley.text().to_owned()),
+        egui::Shape::Vec(shapes) => {
+            for child in shapes {
+                collect_shape_texts(child, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_output_texts(out: &egui::FullOutput) -> Vec<String> {
+    let mut texts = Vec::new();
+    for clipped in &out.shapes {
+        collect_shape_texts(&clipped.shape, &mut texts);
+    }
+    texts
+}
+
+#[test]
+fn r069_atomic_snapshot_undo_redo_covers_document_systems_artboards_and_view_state() {
+    let mut state = UiLayoutStudioState::default();
+    let initial_artboard_count = state.artboards.len();
+    let initial_density = state.systems.density.active_profile;
+    let initial_pan = state.canvas_pan;
+    let initial_root_children = state.document.root.children.len();
+
+    // 1. Add artboard records atomic history
+    let added_idx = state.add_artboard(StudioPanelPreset::FiltersPanel);
+    assert_eq!(state.artboards.len(), initial_artboard_count + 1);
+    assert_eq!(state.active_artboard_idx, added_idx);
+    assert!(state.undo());
+    assert_eq!(state.artboards.len(), initial_artboard_count);
+    assert!(state.redo());
+    assert_eq!(state.artboards.len(), initial_artboard_count + 1);
+
+    // 2. Duplicate artboard + Auto-arrange + Remove artboard all record undoable board snapshots
+    let dup_idx = state.duplicate_artboard(added_idx);
+    assert_eq!(state.artboards.len(), initial_artboard_count + 2);
+    state.canvas_pan = [120.0, 48.0];
+    state.solo_active_artboard = true;
+    state.auto_arrange_artboards();
+    assert_eq!(state.canvas_pan, [0.0, 0.0]);
+    assert!(state.undo());
+    assert_eq!(state.canvas_pan, [120.0, 48.0]);
+    assert!(state.solo_active_artboard);
+
+    state.remove_artboard(dup_idx);
+    assert_eq!(state.artboards.len(), initial_artboard_count + 1);
+    assert!(state.undo());
+    assert_eq!(state.artboards.len(), initial_artboard_count + 2);
+
+    // Undo back to original baseline
+    while state.undo() {}
+    assert_eq!(state.artboards.len(), initial_artboard_count);
+    assert_eq!(state.systems.density.active_profile, initial_density);
+    assert_eq!(state.canvas_pan, initial_pan);
+    assert_eq!(state.document.root.children.len(), initial_root_children);
+}
+
+#[test]
+fn r069_drag_math_derives_from_start_plus_total_delta_without_clamp_drift_and_coalesces_history() {
+    // 1. Pure drag helpers: clamping past boundary and pulling back derives strictly from start + total_delta
+    assert_eq!(
+        canvas::apply_artboard_move_drag([24.0, 40.0], egui::vec2(-100.0, -100.0)),
+        [8.0, 28.0]
+    );
+    assert_eq!(
+        canvas::apply_artboard_move_drag([24.0, 40.0], egui::vec2(50.0, 20.0)),
+        [74.0, 60.0]
+    );
+    assert_eq!(
+        canvas::apply_pan_drag([10.0, 10.0], egui::vec2(-1000.0, 25.0)),
+        [-600.0, 35.0]
+    );
+    assert_eq!(
+        canvas::apply_artboard_resize_drag([200.0, 300.0], egui::vec2(100.0, -50.0), 2.0),
+        [250.0, 275.0]
+    );
+    // Pulling past min size (76x80) and returning never accumulates clamp error
+    assert_eq!(
+        canvas::apply_artboard_resize_drag([200.0, 300.0], egui::vec2(-300.0, -400.0), 1.0),
+        [76.0, 80.0]
+    );
+    assert_eq!(
+        canvas::apply_artboard_resize_drag([200.0, 300.0], egui::vec2(40.0, 20.0), 1.0),
+        [240.0, 320.0]
+    );
+
+    // 2. Coalesced Inspector drag over multiple frames produces exactly 1 Undo step
+    let ctx = egui::Context::default();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, ThemeMode::Dark.nf2());
+
+    let mut state = UiLayoutStudioState {
+        open: true,
+        inspector_tab: StudioInspectorTab::SystemsTab,
+        systems_subtab: SystemsSubTab::TimelineGeometry,
+        ..Default::default()
+    };
+    let initial_head = state.systems.timeline_geometry.tween_arrow_head_length_px;
+    let pointer_down = egui::Event::PointerButton {
+        pos: Pos2::new(100.0, 100.0),
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let pointer_up = egui::Event::PointerButton {
+        pos: Pos2::new(112.0, 100.0),
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+
+    // Frame 1 & 2 while pointer is down with continuous mutations
+    let mut t = 1.0_f64;
+    for delta in [3.0_f32, 6.0, 9.0] {
+        state.systems.timeline_geometry.tween_arrow_head_length_px = initial_head + delta;
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1920.0, 1080.0))),
+                time: Some(t),
+                events: vec![
+                    egui::Event::PointerMoved(Pos2::new(100.0 + delta, 100.0)),
+                    pointer_down.clone(),
+                ],
+                ..Default::default()
+            },
+            |ctx| ui_layout_studio_window_ui(ctx, &mut state),
+        );
+        t += 0.1;
+    }
+    // Simulated SystemsTab helper directly: verify drag coalescing commits once on pointer-up
+    let mut before_drag = UiStudioSystems::default();
+    before_drag.timeline_geometry.tween_arrow_head_length_px = initial_head;
+    state.systems.timeline_geometry.tween_arrow_head_length_px = initial_head + 9.0;
+    let snap = state.capture_snapshot("Edit NF2 system tokens");
+    let mut held_snap = snap;
+    held_snap.systems = before_drag;
+    let sys_drag_id = egui::Id::new("nf2-studio-inspector-systems-drag");
+    ctx.data_mut(|d| d.insert_temp(sys_drag_id, held_snap));
+
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1920.0, 1080.0))),
+            time: Some(t + 0.1),
+            events: vec![
+                egui::Event::PointerMoved(Pos2::new(112.0, 100.0)),
+                pointer_up,
+            ],
+            ..Default::default()
+        },
+        |ctx| ui_layout_studio_window_ui(ctx, &mut state),
+    );
+    assert_eq!(state.history.undo_stack.len(), 1);
+    assert!(state.undo());
+    assert_eq!(
+        state.systems.timeline_geometry.tween_arrow_head_length_px,
+        initial_head
+    );
+}
+
+#[test]
+fn r069_session_bundle_and_editor_persist_artboards_across_reload() {
+    let mut state = UiLayoutStudioState::default();
+    let new_idx = state.add_artboard(StudioPanelPreset::FiltersPanel);
+    state.artboards[new_idx].canvas_pos = [444.0, 222.0];
+    state.artboards[new_idx].canvas_size = [375.0, 515.0];
+    state.solo_active_artboard = true;
+    state.canvas_pan = [32.0, -18.0];
+    state.canvas_zoom = 1.25;
+    state.show_wireframe_outlines = false;
+    state.show_dimension_badges = false;
+    state.inspector_tab = StudioInspectorTab::CodeExport;
+    state.systems_subtab = SystemsSubTab::PaletteTokens;
+    state.set_preview_theme(ThemeMode::DarkGraphite);
+
+    let tmp_json =
+        std::env::temp_dir().join(format!("nf-ui-studio-session-{}.json", std::process::id()));
+    state
+        .save_studio_json(&tmp_json)
+        .expect("save session json");
+
+    let mut reloaded = UiLayoutStudioState::default();
+    reloaded
+        .load_studio_json_initial(&tmp_json)
+        .expect("restore initial session");
+    let _ = std::fs::remove_file(&tmp_json);
+
+    assert_eq!(reloaded.artboards.len(), state.artboards.len());
+    assert_eq!(reloaded.active_artboard_idx, new_idx);
+    assert_eq!(reloaded.active_preset, StudioPanelPreset::FiltersPanel);
+    assert_eq!(reloaded.artboards[new_idx].canvas_pos, [444.0, 222.0]);
+    assert_eq!(reloaded.artboards[new_idx].canvas_size, [375.0, 515.0]);
+    assert!(reloaded.solo_active_artboard);
+    assert_eq!(reloaded.canvas_pan, [32.0, -18.0]);
+    assert_eq!(reloaded.canvas_zoom, 1.25);
+    assert!(!reloaded.show_wireframe_outlines);
+    assert!(!reloaded.show_dimension_badges);
+    assert_eq!(reloaded.inspector_tab, StudioInspectorTab::CodeExport);
+    assert_eq!(reloaded.systems_subtab, SystemsSubTab::PaletteTokens);
+    assert_eq!(reloaded.preview_theme, ThemeMode::DarkGraphite);
+    assert!(
+        !reloaded.history.can_undo(),
+        "initial session restore must not record a spurious undo entry"
+    );
+
+    // Legacy JSON without new session keys still deserializes cleanly via #[serde(default)]
+    let legacy_json = serde_json::json!({
+        "document": state.document,
+        "systems": state.systems,
+        "artboards": state.artboards,
+        "preview_theme": "light",
+        "preview_theme_locked": true
+    })
+    .to_string();
+    let legacy: StudioPersistedBundle =
+        serde_json::from_str(&legacy_json).expect("deserialize legacy bundle");
+    assert_eq!(legacy.canvas_zoom, 1.0);
+    assert!(legacy.show_wireframe_outlines);
+    assert!(legacy.show_dimension_badges);
+    assert!(!legacy.solo_active_artboard);
+}
+
+#[test]
+fn r069_artboard_header_truncates_title_places_size_badge_inside_without_overlap() {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, ThemeMode::Dark.nf2());
+
+    let font = neoflash_ui::typography::font(TextStyle::MonoSmall);
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1920.0, 1080.0))),
+            time: Some(0.5),
+            ..Default::default()
+        },
+        |ctx| {
+            let painter = ctx.layer_painter(egui::LayerId::background());
+            for w in [180.0_f32, 225.0, 260.0, 300.0, 620.0, 1310.0] {
+                let hdr_rect = Rect::from_min_size(Pos2::new(24.0, 12.0), egui::vec2(w, 22.0));
+                let layout = canvas::compute_artboard_header_layout(hdr_rect, 66.0, w >= 225.0);
+
+                let badge = layout
+                    .size_badge_rect
+                    .expect("size badge should fit inside artboard header");
+                assert!(hdr_rect.contains_rect(badge));
+                assert!(hdr_rect.contains_rect(layout.title_rect));
+
+                let mut rects = vec![layout.title_rect, badge];
+                for pill in [layout.svg_rect, layout.dup_rect, layout.close_rect]
+                    .into_iter()
+                    .flatten()
+                {
+                    assert!(hdr_rect.contains_rect(pill));
+                    rects.push(pill);
+                }
+                for i in 0..rects.len() {
+                    for j in (i + 1)..rects.len() {
+                        assert!(
+                            !rects[i].intersects(rects[j]),
+                            "header rects must never overlap at width {w}: {:?} vs {:?}",
+                            rects[i],
+                            rects[j]
+                        );
+                    }
+                }
+
+                let (galley, truncated) = canvas::truncate_galley_with_ellipsis(
+                    &painter,
+                    "Properties — Movie Clip · Mid Neutral Gray",
+                    font.clone(),
+                    layout.title_rect.width(),
+                    Color32::WHITE,
+                );
+                assert!(
+                    galley.size().x <= layout.title_rect.width() + 0.5,
+                    "galley width {} exceeded title_rect width {} at width {w}",
+                    galley.size().x,
+                    layout.title_rect.width()
+                );
+                if w <= 260.0 {
+                    assert!(truncated);
+                    assert!(galley.text().ends_with('…'));
+                }
+            }
+        },
+    );
+
+    // Rendered UI check: Add to Canvas has no leading '+', size badge lives in header, no overlapping root pill
+    let mut state = UiLayoutStudioState {
+        open: true,
+        solo_active_artboard: true,
+        show_dimension_badges: true,
+        ..Default::default()
+    };
+    state.select_single(state.document.root.id);
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1920.0, 1080.0))),
+            time: Some(0.8),
+            ..Default::default()
+        },
+        |ctx| ui_layout_studio_window_ui(ctx, &mut state),
+    );
+    let out = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1920.0, 1080.0))),
+            time: Some(1.0),
+            ..Default::default()
+        },
+        |ctx| ui_layout_studio_window_ui(ctx, &mut state),
+    );
+    let texts = collect_output_texts(&out);
+    assert!(
+        texts.iter().any(|t| t == "Add to Canvas"),
+        "expected 'Add to Canvas' in rendered UI texts: {texts:?}"
+    );
+    assert!(!texts.iter().any(|t| t == "+ Add to Canvas"));
+    assert!(
+        texts.iter().any(|t| t == "300×480px"),
+        "artboard size badge should render inside artboard header: {texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t.starts_with("Col · ")),
+        "root floating badge must not overlap panel header: {texts:?}"
+    );
+}

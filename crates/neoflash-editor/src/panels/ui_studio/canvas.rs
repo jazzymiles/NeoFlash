@@ -62,24 +62,6 @@ pub(super) fn render_live_canvas_column(
         if ui.add(c::Button::new("Open All 6 Panels")).clicked() {
             state.open_all_core_artboards();
         }
-        if ui.add(c::Button::new("Auto-Arrange")).clicked() {
-            state.auto_arrange_artboards();
-        }
-
-        let mut density = state.systems.density.active_profile;
-        if c::Select::options(
-            ui,
-            "studio-canvas-density",
-            &mut density,
-            &[
-                (StudioDensityProfile::Comfortable, "Comfortable (32pt)"),
-                (StudioDensityProfile::Compact, "Compact (28pt)"),
-                (StudioDensityProfile::ClassicFlash, "Classic Flash (24pt)"),
-            ],
-            144.0,
-        ) {
-            state.systems.density.active_profile = density;
-        }
     });
 
     let canvas_h = (height - 40.0).max(240.0);
@@ -163,13 +145,47 @@ pub(super) fn render_live_canvas_column(
                         gx += grid_step;
                     }
 
-                    // Middle-mouse or Space+drag pans the entire board
+                    // Middle-mouse or Space+drag pans the entire board from captured start state + total delta
+                    let pan_drag_id = ui.id().with("studio-canvas-pan-drag");
+                    let space_down = ui.input(|i| i.key_down(egui::Key::Space));
+                    let panning_started = board_resp.drag_started_by(egui::PointerButton::Middle)
+                        || (board_resp.drag_started() && space_down);
+                    if panning_started {
+                        let start_ptr = ui.input(|i| {
+                            i.pointer
+                                .press_origin()
+                                .or_else(|| i.pointer.interact_pos())
+                        });
+                        ui.ctx().data_mut(|d| {
+                            d.insert_temp(
+                                pan_drag_id,
+                                CanvasPanDrag {
+                                    start_pan: state.canvas_pan,
+                                    start_pointer: start_ptr,
+                                    total_delta: Vec2::ZERO,
+                                },
+                            );
+                        });
+                    }
                     if board_resp.dragged_by(egui::PointerButton::Middle)
-                        || (board_resp.dragged() && ui.input(|i| i.key_down(egui::Key::Space)))
+                        || (board_resp.dragged() && space_down)
                     {
-                        let d = board_resp.drag_delta();
-                        state.canvas_pan[0] = (state.canvas_pan[0] + d.x).max(-600.0);
-                        state.canvas_pan[1] = (state.canvas_pan[1] + d.y).max(-600.0);
+                        let cur_ptr = ui.input(|i| i.pointer.interact_pos());
+                        if let Some(mut pan_drag) =
+                            ui.ctx().data(|d| d.get_temp::<CanvasPanDrag>(pan_drag_id))
+                        {
+                            let total_delta = match (pan_drag.start_pointer, cur_ptr) {
+                                (Some(s), Some(c)) => c - s,
+                                _ => {
+                                    pan_drag.total_delta += board_resp.drag_delta();
+                                    pan_drag.total_delta
+                                }
+                            };
+                            ui.ctx().data_mut(|d| d.insert_temp(pan_drag_id, pan_drag.clone()));
+                            state.canvas_pan = apply_pan_drag(pan_drag.start_pan, total_delta);
+                        }
+                    } else if board_resp.drag_stopped() {
+                        ui.ctx().data_mut(|d| d.remove::<CanvasPanDrag>(pan_drag_id));
                     }
 
                     let mut pending_select_artboard: Option<usize> = None;
@@ -200,11 +216,11 @@ pub(super) fn render_live_canvas_column(
                             egui::vec2(ab_w, ab_h),
                         );
 
-                        // ── 1. Artboard Header Bar (draggable title + [W×H px] + [SVG] [Dup] [✕]) ──
+                        // ── 1. Artboard Header Bar (dot + truncated title + size badge + [SVG] [Dup] [×]) ──
                         let hdr_h = 22.0_f32;
                         let hdr_rect = Rect::from_min_size(
                             egui::pos2(ab_rect.left(), ab_rect.top() - hdr_h - 2.0),
-                            egui::vec2(ab_rect.width().max(150.0), hdr_h),
+                            egui::vec2(ab_rect.width().max(180.0), hdr_h),
                         );
                         let hdr_bg = if is_active {
                             nf.accent_default.gamma_multiply(0.24)
@@ -224,7 +240,24 @@ pub(super) fn render_live_canvas_column(
                             StrokeKind::Inside,
                         );
 
-                        // Active indicator dot + title + size badge
+                        let header_font = neoflash_ui::typography::font(TextStyle::MonoSmall);
+                        let size_txt = format!(
+                            "{:.0}×{:.0}px",
+                            ab_snapshot.canvas_size[0], ab_snapshot.canvas_size[1]
+                        );
+                        let size_galley = ui.painter().layout_no_wrap(
+                            size_txt.clone(),
+                            header_font.clone(),
+                            nf.text_secondary,
+                        );
+                        let size_badge_w = size_galley.size().x + 10.0;
+                        let hdr_layout = compute_artboard_header_layout(
+                            hdr_rect,
+                            size_badge_w,
+                            hdr_rect.width() >= 225.0,
+                        );
+
+                        // Active indicator dot + ellipsis-truncated title inside title_rect
                         let dot_c = if is_active {
                             nf.accent_default
                         } else {
@@ -235,124 +268,172 @@ pub(super) fn render_live_canvas_column(
                             3.5,
                             dot_c,
                         );
-                        let title_txt = if let Some(ab_theme) = ab_snapshot.theme_override {
-                            format!(
-                                "{}  [{}]  ({:.0}×{:.0}px)",
-                                ab_snapshot.document.name,
-                                ab_theme.label(),
-                                ab_snapshot.canvas_size[0],
-                                ab_snapshot.canvas_size[1]
-                            )
+                        let raw_title = if let Some(ab_theme) = ab_snapshot.theme_override {
+                            format!("{} · {}", ab_snapshot.document.name, ab_theme.label())
                         } else {
-                            format!(
-                                "{}  ({:.0}×{:.0}px)",
-                                ab_snapshot.document.name,
-                                ab_snapshot.canvas_size[0],
-                                ab_snapshot.canvas_size[1]
-                            )
+                            ab_snapshot.document.name.clone()
                         };
-                        ui.painter().text(
-                            egui::pos2(hdr_rect.left() + 16.0, hdr_rect.center().y),
-                            egui::Align2::LEFT_CENTER,
-                            title_txt,
-                            neoflash_ui::typography::font(TextStyle::MonoSmall),
-                            if is_active {
-                                nf.text_primary
-                            } else {
-                                nf.text_secondary
-                            },
-                        );
+                        let title_color = if is_active {
+                            nf.text_primary
+                        } else {
+                            nf.text_secondary
+                        };
+                        if hdr_layout.title_rect.width() >= 12.0 {
+                            let (title_galley, _) = truncate_galley_with_ellipsis(
+                                ui.painter(),
+                                &raw_title,
+                                header_font.clone(),
+                                hdr_layout.title_rect.width(),
+                                title_color,
+                            );
+                            let text_pos = egui::pos2(
+                                hdr_layout.title_rect.left(),
+                                hdr_layout.title_rect.center().y - title_galley.size().y * 0.5,
+                            );
+                            ui.painter()
+                                .with_clip_rect(hdr_layout.title_rect)
+                                .galley(text_pos, title_galley, title_color);
+                        }
 
-                        // Header action pills on the right: [SVG] [Dup] [✕]
-                        let close_r = Rect::from_min_size(
-                            egui::pos2(hdr_rect.right() - 20.0, hdr_rect.top() + 2.0),
-                            egui::vec2(18.0, hdr_h - 4.0),
-                        );
-                        let dup_r = Rect::from_min_size(
-                            egui::pos2(close_r.left() - 30.0, hdr_rect.top() + 2.0),
-                            egui::vec2(28.0, hdr_h - 4.0),
-                        );
-                        let svg_r = Rect::from_min_size(
-                            egui::pos2(dup_r.left() - 30.0, hdr_rect.top() + 2.0),
-                            egui::vec2(28.0, hdr_h - 4.0),
-                        );
-                        if hdr_rect.width() >= 190.0 {
-                            for (pill_r, pill_txt) in [
-                                (svg_r, "SVG"),
-                                (dup_r, "Dup"),
-                                (close_r, "×"),
-                            ] {
+                        // Size badge placed cleanly inside artboard header (never overlapping title or buttons)
+                        if let Some(badge_rect) = hdr_layout.size_badge_rect {
+                            ui.painter().rect_filled(
+                                badge_rect,
+                                3.0,
+                                nf.bg_panel.gamma_multiply(0.92),
+                            );
+                            ui.painter().rect_stroke(
+                                badge_rect,
+                                3.0,
+                                Stroke::new(1.0_f32, nf.border_subtle),
+                                StrokeKind::Inside,
+                            );
+                            let badge_pos = egui::pos2(
+                                badge_rect.center().x - size_galley.size().x * 0.5,
+                                badge_rect.center().y - size_galley.size().y * 0.5,
+                            );
+                            ui.painter()
+                                .with_clip_rect(badge_rect)
+                                .galley(badge_pos, size_galley, nf.text_secondary);
+                        }
+
+                        // Header action pills on the right: [SVG] [Dup] [×]
+                        for (rect_opt, pill_txt) in [
+                            (hdr_layout.svg_rect, "SVG"),
+                            (hdr_layout.dup_rect, "Dup"),
+                            (hdr_layout.close_rect, "×"),
+                        ] {
+                            if let Some(pill_r) = rect_opt {
                                 ui.painter()
                                     .rect_filled(pill_r, 3.0, nf.bg_panel.gamma_multiply(0.85));
                                 ui.painter().text(
                                     pill_r.center(),
                                     egui::Align2::CENTER_CENTER,
                                     pill_txt,
-                                    egui::FontId::monospace(8.5),
+                                    header_font.clone(),
                                     nf.text_secondary,
                                 );
                             }
                         }
 
-                        let hdr_drag_rect = Rect::from_min_max(
-                            hdr_rect.min,
-                            egui::pos2(
-                                if hdr_rect.width() >= 190.0 {
-                                    svg_r.left() - 2.0
-                                } else {
-                                    hdr_rect.right()
-                                },
-                                hdr_rect.bottom(),
-                            ),
-                        );
                         let hdr_resp = ui.interact(
-                            hdr_drag_rect,
+                            hdr_layout.drag_rect,
                             ui.id().with(("studio-ab-hdr", ab_snapshot.id)),
                             Sense::click_and_drag(),
                         );
                         if hdr_resp.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                         }
-                        if hdr_resp.clicked() || hdr_resp.drag_started() {
+                        if hdr_resp.clicked() && !hdr_resp.drag_started() {
                             pending_select_artboard = Some(idx);
                         }
-                        if hdr_resp.dragged() && !state.solo_active_artboard {
-                            let d = hdr_resp.drag_delta();
-                            if let Some(ab_mut) = state.artboards.get_mut(idx) {
-                                ab_mut.canvas_pos[0] = (ab_mut.canvas_pos[0] + d.x).max(8.0);
-                                ab_mut.canvas_pos[1] = (ab_mut.canvas_pos[1] + d.y).max(28.0);
+                        let move_drag_id = ui.id().with(("studio-ab-move-drag", ab_snapshot.id));
+                        if hdr_resp.drag_started() {
+                            if !is_active {
+                                state.select_artboard(idx);
+                            }
+                            if !state.solo_active_artboard {
+                                let start_ptr = ui.input(|i| {
+                                    i.pointer
+                                        .press_origin()
+                                        .or_else(|| i.pointer.interact_pos())
+                                });
+                                let start_pos = state
+                                    .artboards
+                                    .get(idx)
+                                    .map(|a| a.canvas_pos)
+                                    .unwrap_or(ab_snapshot.canvas_pos);
+                                let start_snapshot = state.capture_snapshot("Move artboard");
+                                ui.ctx().data_mut(|d| {
+                                    d.insert_temp(
+                                        move_drag_id,
+                                        ArtboardMoveDrag {
+                                            idx,
+                                            start_pos,
+                                            start_pointer: start_ptr,
+                                            total_delta: Vec2::ZERO,
+                                            start_snapshot,
+                                        },
+                                    );
+                                });
                             }
                         }
-
-                        if hdr_rect.width() >= 190.0 {
-                            if ui
-                                .interact(
-                                    svg_r,
-                                    ui.id().with(("studio-ab-svg", ab_snapshot.id)),
-                                    Sense::click(),
-                                )
-                                .clicked()
+                        if hdr_resp.dragged() && !state.solo_active_artboard {
+                            let cur_ptr = ui.input(|i| i.pointer.interact_pos());
+                            if let Some(mut drag_st) =
+                                ui.ctx().data(|d| d.get_temp::<ArtboardMoveDrag>(move_drag_id))
                             {
+                                let total_delta = match (drag_st.start_pointer, cur_ptr) {
+                                    (Some(s), Some(c)) => c - s,
+                                    _ => {
+                                        drag_st.total_delta += hdr_resp.drag_delta();
+                                        drag_st.total_delta
+                                    }
+                                };
+                                ui.ctx()
+                                    .data_mut(|d| d.insert_temp(move_drag_id, drag_st.clone()));
+                                let next_pos = apply_artboard_move_drag(drag_st.start_pos, total_delta);
+                                if let Some(ab_mut) = state.artboards.get_mut(idx) {
+                                    ab_mut.canvas_pos = next_pos;
+                                }
+                            }
+                        } else if let Some(drag_st) =
+                            take_temp::<ArtboardMoveDrag>(ui.ctx(), move_drag_id)
+                            && state
+                                .artboards
+                                .get(drag_st.idx)
+                                .is_some_and(|a| a.canvas_pos != drag_st.start_pos)
+                        {
+                            state.push_history_snapshot(drag_st.start_snapshot);
+                        }
+
+                        if let Some(svg_r) = hdr_layout.svg_rect {
+                            let resp = ui.interact(
+                                svg_r,
+                                ui.id().with(("studio-ab-svg", ab_snapshot.id)),
+                                Sense::click(),
+                            );
+                            if c::tooltip(resp, "Export artboard SVG", None).clicked() {
                                 pending_svg_export_artboard = Some(idx);
                             }
-                            if ui
-                                .interact(
-                                    dup_r,
-                                    ui.id().with(("studio-ab-dup", ab_snapshot.id)),
-                                    Sense::click(),
-                                )
-                                .clicked()
-                            {
+                        }
+                        if let Some(dup_r) = hdr_layout.dup_rect {
+                            let resp = ui.interact(
+                                dup_r,
+                                ui.id().with(("studio-ab-dup", ab_snapshot.id)),
+                                Sense::click(),
+                            );
+                            if c::tooltip(resp, "Duplicate artboard", None).clicked() {
                                 pending_dup_artboard = Some(idx);
                             }
-                            if ui
-                                .interact(
-                                    close_r,
-                                    ui.id().with(("studio-ab-close", ab_snapshot.id)),
-                                    Sense::click(),
-                                )
-                                .clicked()
-                            {
+                        }
+                        if let Some(close_r) = hdr_layout.close_rect {
+                            let resp = ui.interact(
+                                close_r,
+                                ui.id().with(("studio-ab-close", ab_snapshot.id)),
+                                Sense::click(),
+                            );
+                            if c::tooltip(resp, "Close artboard", None).clicked() {
                                 pending_remove_artboard = Some(idx);
                             }
                         }
@@ -486,26 +567,77 @@ pub(super) fn render_live_canvas_column(
                         if grip_resp.hovered() || grip_resp.dragged() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNwSe);
                         }
-                        if grip_resp.dragged() {
-                            let d = grip_resp.drag_delta() / zoom;
-                            if let Some(ab_mut) = state.artboards.get_mut(idx) {
-                                ab_mut.canvas_size[0] =
-                                    (ab_mut.canvas_size[0] + d.x).clamp(76.0, 2400.0);
-                                ab_mut.canvas_size[1] =
-                                    (ab_mut.canvas_size[1] + d.y).clamp(80.0, 1800.0);
-                                ab_mut.document.root.box_constraints.width =
-                                    UiSizeUnit::Percent(100.0);
-                                if is_active {
-                                    state.document.root.box_constraints.width =
-                                        UiSizeUnit::Percent(100.0);
-                                }
-                                state.status_message = format!(
-                                    "Resized '{}' artboard to {:.0}×{:.0}px (testing live % vs px layout).",
-                                    ab_mut.document.name,
-                                    ab_mut.canvas_size[0],
-                                    ab_mut.canvas_size[1]
-                                );
+                        let resize_drag_id =
+                            ui.id().with(("studio-ab-resize-drag", ab_snapshot.id));
+                        if grip_resp.drag_started() {
+                            if !is_active {
+                                state.select_artboard(idx);
                             }
+                            let start_ptr = ui.input(|i| {
+                                i.pointer
+                                    .press_origin()
+                                    .or_else(|| i.pointer.interact_pos())
+                            });
+                            let start_size = state
+                                .artboards
+                                .get(idx)
+                                .map(|a| a.canvas_size)
+                                .unwrap_or(ab_snapshot.canvas_size);
+                            let start_snapshot = state.capture_snapshot("Resize artboard");
+                            ui.ctx().data_mut(|d| {
+                                d.insert_temp(
+                                    resize_drag_id,
+                                    ArtboardResizeDrag {
+                                        idx,
+                                        start_size,
+                                        start_pointer: start_ptr,
+                                        total_delta: Vec2::ZERO,
+                                        start_snapshot,
+                                    },
+                                );
+                            });
+                        }
+                        if grip_resp.dragged() {
+                            let cur_ptr = ui.input(|i| i.pointer.interact_pos());
+                            if let Some(mut drag_st) = ui
+                                .ctx()
+                                .data(|d| d.get_temp::<ArtboardResizeDrag>(resize_drag_id))
+                            {
+                                let total_delta = match (drag_st.start_pointer, cur_ptr) {
+                                    (Some(s), Some(c)) => c - s,
+                                    _ => {
+                                        drag_st.total_delta += grip_resp.drag_delta();
+                                        drag_st.total_delta
+                                    }
+                                };
+                                ui.ctx()
+                                    .data_mut(|d| d.insert_temp(resize_drag_id, drag_st.clone()));
+                                let next_size =
+                                    apply_artboard_resize_drag(drag_st.start_size, total_delta, zoom);
+                                if let Some(ab_mut) = state.artboards.get_mut(idx) {
+                                    ab_mut.canvas_size = next_size;
+                                    ab_mut.document.root.box_constraints.width =
+                                        UiSizeUnit::Percent(100.0);
+                                    if idx == state.active_artboard_idx {
+                                        state.document.root.box_constraints.width =
+                                            UiSizeUnit::Percent(100.0);
+                                    }
+                                    state.status_message = format!(
+                                        "Resized '{}' artboard to {:.0}×{:.0}px (testing live % vs px layout).",
+                                        ab_mut.document.name,
+                                        ab_mut.canvas_size[0],
+                                        ab_mut.canvas_size[1]
+                                    );
+                                }
+                            }
+                        } else if let Some(drag_st) =
+                            take_temp::<ArtboardResizeDrag>(ui.ctx(), resize_drag_id)
+                            && state
+                                .artboards
+                                .get(drag_st.idx)
+                                .is_some_and(|a| a.canvas_size != drag_st.start_size)
+                        {
+                            state.push_history_snapshot(drag_st.start_snapshot);
                         }
                     }
 
@@ -879,7 +1011,7 @@ fn paint_stage_viewport_mock(
                 egui::pos2(tx + 2.0, top_ruler.center().y),
                 egui::Align2::LEFT_CENTER,
                 format!("{val}"),
-                egui::FontId::monospace(8.5),
+                neoflash_ui::typography::font(TextStyle::MonoSmall),
                 text_sec,
             );
             tx += 50.0;
@@ -1732,7 +1864,7 @@ fn paint_interactive_timeline_surface(
         egui::pos2(flag_x + flag_sz + 3.0, flag_y + flag_sz * 0.5),
         egui::Align2::LEFT_CENTER,
         "motion_guide",
-        egui::FontId::monospace(8.5),
+        neoflash_ui::typography::font(TextStyle::MonoSmall),
         red_flag,
     );
     // Action marker `a` + Blank keyframe `○` at frame 23
@@ -2243,6 +2375,7 @@ fn paint_canvas_overlays(
         );
 
         if state.show_dimension_badges
+            && sel_id != state.document.root.id
             && let Some(node) = state.document.find_node(sel_id)
         {
             let badge_txt = format!(
@@ -2253,11 +2386,26 @@ fn paint_canvas_overlays(
                 b.resolved_height
             );
             let font = neoflash_ui::typography::font(TextStyle::MonoSmall);
-            let galley = ui.painter().layout_no_wrap(badge_txt, font, badge_fg);
+            let max_badge_w = (computed.root_rect.width() - 8.0).max(24.0);
+            let max_text_w = (max_badge_w - 10.0).max(12.0);
+            let (galley, _) =
+                truncate_galley_with_ellipsis(ui.painter(), &badge_txt, font, max_text_w, badge_fg);
             let pill_size = galley.size() + egui::vec2(10.0, 4.0);
+            let header_clearance = computed.root_rect.top() + 28.0;
+            let pill_y = if b.rect.top() - pill_size.y - 2.0 >= header_clearance {
+                b.rect.top() - pill_size.y - 2.0
+            } else if b.rect.bottom() + 2.0 + pill_size.y <= computed.root_rect.bottom() {
+                b.rect.bottom() + 2.0
+            } else {
+                (computed.root_rect.bottom() - pill_size.y - 2.0).max(header_clearance)
+            };
+            let max_left = (computed.root_rect.right() - pill_size.x - 2.0)
+                .max(computed.root_rect.left() + 2.0);
             let pill_min = egui::pos2(
-                b.rect.left(),
-                (b.rect.top() - pill_size.y - 2.0).max(computed.root_rect.top()),
+                b.rect
+                    .left()
+                    .clamp(computed.root_rect.left() + 2.0, max_left),
+                pill_y,
             );
             let pill_rect = Rect::from_min_size(pill_min, pill_size);
             ui.painter().rect_filled(pill_rect, 3.0, badge_bg);
@@ -2267,8 +2415,178 @@ fn paint_canvas_overlays(
                 Stroke::new(1.0_f32, accent),
                 StrokeKind::Inside,
             );
-            ui.painter()
-                .galley(pill_rect.min + egui::vec2(5.0, 2.0), galley, badge_fg);
+            ui.painter().with_clip_rect(pill_rect).galley(
+                pill_rect.min + egui::vec2(5.0, 2.0),
+                galley,
+                badge_fg,
+            );
         }
     }
+}
+
+#[derive(Clone)]
+struct CanvasPanDrag {
+    start_pan: [f32; 2],
+    start_pointer: Option<Pos2>,
+    total_delta: Vec2,
+}
+
+#[derive(Clone)]
+struct ArtboardMoveDrag {
+    idx: usize,
+    start_pos: [f32; 2],
+    start_pointer: Option<Pos2>,
+    total_delta: Vec2,
+    start_snapshot: UiStudioSnapshot,
+}
+
+#[derive(Clone)]
+struct ArtboardResizeDrag {
+    idx: usize,
+    start_size: [f32; 2],
+    start_pointer: Option<Pos2>,
+    total_delta: Vec2,
+    start_snapshot: UiStudioSnapshot,
+}
+
+pub(super) fn apply_pan_drag(start_pan: [f32; 2], total_delta: Vec2) -> [f32; 2] {
+    [
+        (start_pan[0] + total_delta.x).max(-600.0),
+        (start_pan[1] + total_delta.y).max(-600.0),
+    ]
+}
+
+pub(super) fn apply_artboard_move_drag(start_pos: [f32; 2], total_delta: Vec2) -> [f32; 2] {
+    [
+        (start_pos[0] + total_delta.x).max(8.0),
+        (start_pos[1] + total_delta.y).max(28.0),
+    ]
+}
+
+pub(super) fn apply_artboard_resize_drag(
+    start_size: [f32; 2],
+    total_screen_delta: Vec2,
+    zoom: f32,
+) -> [f32; 2] {
+    let z = zoom.max(0.1);
+    [
+        (start_size[0] + total_screen_delta.x / z).clamp(76.0, 2400.0),
+        (start_size[1] + total_screen_delta.y / z).clamp(80.0, 1800.0),
+    ]
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct ArtboardHeaderLayout {
+    pub title_rect: Rect,
+    pub size_badge_rect: Option<Rect>,
+    pub svg_rect: Option<Rect>,
+    pub dup_rect: Option<Rect>,
+    pub close_rect: Option<Rect>,
+    pub drag_rect: Rect,
+}
+
+pub(super) fn compute_artboard_header_layout(
+    hdr_rect: Rect,
+    size_badge_w: f32,
+    show_action_pills: bool,
+) -> ArtboardHeaderLayout {
+    let pill_top = hdr_rect.top() + 2.0;
+    let pill_h = (hdr_rect.height() - 4.0).max(12.0);
+    let mut cursor_right = hdr_rect.right() - 4.0;
+
+    let close_rect = if hdr_rect.width() >= 96.0 {
+        let r = Rect::from_min_size(
+            egui::pos2(cursor_right - 18.0, pill_top),
+            egui::vec2(18.0, pill_h),
+        );
+        cursor_right = r.left() - 3.0;
+        Some(r)
+    } else {
+        None
+    };
+
+    let (dup_rect, svg_rect) = if show_action_pills && hdr_rect.width() >= 225.0 {
+        let dup_r = Rect::from_min_size(
+            egui::pos2(cursor_right - 32.0, pill_top),
+            egui::vec2(32.0, pill_h),
+        );
+        cursor_right = dup_r.left() - 3.0;
+        let svg_r = Rect::from_min_size(
+            egui::pos2(cursor_right - 32.0, pill_top),
+            egui::vec2(32.0, pill_h),
+        );
+        cursor_right = svg_r.left() - 4.0;
+        (Some(dup_r), Some(svg_r))
+    } else {
+        (None, None)
+    };
+
+    let drag_right = svg_rect
+        .or(close_rect)
+        .map_or(hdr_rect.right(), |r| (r.left() - 2.0).max(hdr_rect.left()));
+    let drag_rect = Rect::from_min_max(hdr_rect.min, egui::pos2(drag_right, hdr_rect.bottom()));
+
+    let title_left = hdr_rect.left() + 16.0;
+    let badge_w = size_badge_w.max(24.0);
+    let size_badge_rect = if cursor_right - title_left >= badge_w + 22.0 {
+        let r = Rect::from_min_size(
+            egui::pos2(cursor_right - badge_w, pill_top),
+            egui::vec2(badge_w, pill_h),
+        );
+        cursor_right = r.left() - 6.0;
+        Some(r)
+    } else {
+        None
+    };
+
+    let title_rect = Rect::from_min_max(
+        egui::pos2(title_left, hdr_rect.top()),
+        egui::pos2(cursor_right.max(title_left), hdr_rect.bottom()),
+    );
+
+    ArtboardHeaderLayout {
+        title_rect,
+        size_badge_rect,
+        svg_rect,
+        dup_rect,
+        close_rect,
+        drag_rect,
+    }
+}
+
+pub(super) fn truncate_galley_with_ellipsis(
+    painter: &egui::Painter,
+    text: &str,
+    font: egui::FontId,
+    max_width: f32,
+    color: Color32,
+) -> (std::sync::Arc<egui::Galley>, bool) {
+    let full = painter.layout_no_wrap(text.to_owned(), font.clone(), color);
+    if full.size().x <= max_width {
+        return (full, false);
+    }
+    let chars: Vec<char> = text.chars().collect();
+    if chars.is_empty() || max_width <= 8.0 {
+        return (painter.layout_no_wrap("…".to_owned(), font, color), true);
+    }
+    let mut lo = 0usize;
+    let mut hi = chars.len();
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        let mut candidate: String = chars[..mid].iter().collect();
+        candidate.push('…');
+        if painter
+            .layout_no_wrap(candidate, font.clone(), color)
+            .size()
+            .x
+            <= max_width
+        {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    let mut best: String = chars[..lo].iter().collect();
+    best.push('…');
+    (painter.layout_no_wrap(best, font, color), true)
 }

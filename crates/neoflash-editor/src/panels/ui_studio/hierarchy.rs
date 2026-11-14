@@ -173,12 +173,48 @@ pub(super) fn render_hierarchy_and_palette_column(
                         } else {
                             c::TreeItemType::Symbol(kind_icon)
                         };
-                        let tree_item = c::TreeItem::new(&label, item_kind)
-                            .icon(kind_icon)
-                            .depth(depth)
-                            .selected(is_selected)
-                            .meta(&meta)
-                            .show(ui);
+                        let avail_row_w = (width - space::S2 - 14.0).max(140.0);
+                        let prefix_w = space::S2
+                            + depth as f32 * neoflash_ui::metrics::LAYER_INDENT
+                            + 16.0
+                            + space::S1
+                            + 16.0
+                            + space::S2;
+                        let meta_w = ui.fonts_mut(|f| {
+                            f.layout_no_wrap(
+                                meta.clone(),
+                                neoflash_ui::typography::font(TextStyle::Small),
+                                nf.text_tertiary,
+                            )
+                            .size()
+                            .x
+                        });
+                        let max_label_w =
+                            (avail_row_w - prefix_w - meta_w - space::S2 * 2.0).max(28.0);
+                        let display_label = super::canvas::truncate_galley_with_ellipsis(
+                            ui.painter(),
+                            &label,
+                            neoflash_ui::typography::font(TextStyle::Body),
+                            max_label_w,
+                            nf.text_secondary,
+                        )
+                        .0
+                        .text()
+                        .to_owned();
+                        let tree_item = ui
+                            .allocate_ui_with_layout(
+                                egui::vec2(avail_row_w, neoflash_ui::metrics::control()),
+                                egui::Layout::top_down(egui::Align::Min),
+                                |ui| {
+                                    c::TreeItem::new(&display_label, item_kind)
+                                        .icon(kind_icon)
+                                        .depth(depth)
+                                        .selected(is_selected)
+                                        .meta(&meta)
+                                        .show(ui)
+                                },
+                            )
+                            .inner;
 
                         if tree_item.row.clicked() {
                             let multi = ui.input(|i| i.modifiers.shift || i.modifiers.command);

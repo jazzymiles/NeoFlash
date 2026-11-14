@@ -691,11 +691,38 @@ fn render_node_inspector_tab(ui: &mut Ui, state: &mut UiLayoutStudioState, _widt
             }
         });
 
+    let node_drag_id = ui.id().with("studio-inspector-node-drag");
+    let pointer_down = ui.input(|i| i.pointer.any_down());
     if modified {
-        state.commit_history(format!("Edit node #{sel_id}"));
+        let doc_before = state.document.clone();
         if let Some(target) = state.document.find_node_mut(sel_id) {
             *target = node_clone;
         }
+        state.sync_active_to_artboard();
+        let mut snap = state.capture_snapshot(format!("Edit node #{sel_id}"));
+        snap.document = doc_before.clone();
+        if let Some(ab) = snap.artboards.get_mut(snap.active_artboard_idx) {
+            ab.document = doc_before;
+        }
+        if pointer_down {
+            let has_pending = ui
+                .ctx()
+                .data(|d| d.get_temp::<UiStudioSnapshot>(node_drag_id).is_some());
+            if !has_pending {
+                ui.ctx().data_mut(|d| d.insert_temp(node_drag_id, snap));
+            }
+        } else if let Some(pending) = take_temp::<UiStudioSnapshot>(ui.ctx(), node_drag_id) {
+            if state.document != pending.document {
+                state.push_history_snapshot(pending);
+            }
+        } else if state.document != snap.document {
+            state.push_history_snapshot(snap);
+        }
+    } else if !pointer_down
+        && let Some(pending) = take_temp::<UiStudioSnapshot>(ui.ctx(), node_drag_id)
+        && state.document != pending.document
+    {
+        state.push_history_snapshot(pending);
     }
 }
 
@@ -1245,6 +1272,7 @@ fn render_systems_inspector_tab(ui: &mut Ui, state: &mut UiLayoutStudioState, _w
         return;
     }
 
+    let systems_before = state.systems.clone();
     match state.systems_subtab {
         SystemsSubTab::TimelineGeometry => {
             render_timeline_geometry_controls(ui, state);
@@ -1604,7 +1632,7 @@ fn render_systems_inspector_tab(ui: &mut Ui, state: &mut UiLayoutStudioState, _w
                                     ),
                                     StrokeKind::Inside,
                                 );
-                                if sw_resp.on_hover_text(swatch_theme.label()).clicked() {
+                                if c::tooltip(sw_resp, swatch_theme.label(), None).clicked() {
                                     state.set_preview_theme(swatch_theme);
                                 }
                             }
@@ -1620,6 +1648,38 @@ fn render_systems_inspector_tab(ui: &mut Ui, state: &mut UiLayoutStudioState, _w
                     }
                 });
         }
+    }
+    coalesce_systems_history(ui.ctx(), state, &systems_before);
+}
+
+fn coalesce_systems_history(
+    ctx: &egui::Context,
+    state: &mut UiLayoutStudioState,
+    systems_before: &UiStudioSystems,
+) {
+    let sys_drag_id = egui::Id::new("nf2-studio-inspector-systems-drag");
+    let pointer_down = ctx.input(|i| i.pointer.any_down());
+    let mutated_this_frame = state.systems != *systems_before;
+    if mutated_this_frame {
+        let mut snap = state.capture_snapshot("Edit NF2 system tokens");
+        snap.systems = systems_before.clone();
+        if pointer_down {
+            let has_pending = ctx.data(|d| d.get_temp::<UiStudioSnapshot>(sys_drag_id).is_some());
+            if !has_pending {
+                ctx.data_mut(|d| d.insert_temp(sys_drag_id, snap));
+            }
+        } else if let Some(pending) = take_temp::<UiStudioSnapshot>(ctx, sys_drag_id) {
+            if state.systems != pending.systems {
+                state.push_history_snapshot(pending);
+            }
+        } else {
+            state.push_history_snapshot(snap);
+        }
+    } else if !pointer_down
+        && let Some(pending) = take_temp::<UiStudioSnapshot>(ctx, sys_drag_id)
+        && state.systems != pending.systems
+    {
+        state.push_history_snapshot(pending);
     }
 }
 

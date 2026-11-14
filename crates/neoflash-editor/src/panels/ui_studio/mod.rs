@@ -180,6 +180,10 @@ impl StudioArtboard {
     }
 }
 
+fn default_true() -> bool {
+    true
+}
+
 /// Persisted JSON bundle combining the studio document, multi-panel artboards, and system token scales.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StudioPersistedBundle {
@@ -187,6 +191,24 @@ pub struct StudioPersistedBundle {
     pub systems: UiStudioSystems,
     #[serde(default)]
     pub artboards: Vec<StudioArtboard>,
+    #[serde(default)]
+    pub active_artboard_idx: usize,
+    #[serde(default)]
+    pub active_preset: Option<StudioPanelPreset>,
+    #[serde(default)]
+    pub solo_active_artboard: bool,
+    #[serde(default)]
+    pub canvas_pan: [f32; 2],
+    #[serde(default = "default_canvas_zoom")]
+    pub canvas_zoom: f32,
+    #[serde(default = "default_true")]
+    pub show_wireframe_outlines: bool,
+    #[serde(default = "default_true")]
+    pub show_dimension_badges: bool,
+    #[serde(default)]
+    pub inspector_tab: StudioInspectorTab,
+    #[serde(default)]
+    pub systems_subtab: SystemsSubTab,
     #[serde(default)]
     pub preview_theme: Option<ThemeMode>,
     #[serde(default)]
@@ -328,6 +350,7 @@ impl UiLayoutStudioState {
     /// Add a new panel artboard to the multi-panel canvas and select it.
     pub fn add_artboard(&mut self, preset: StudioPanelPreset) -> usize {
         self.sync_active_to_artboard();
+        self.commit_history(format!("Add '{}' artboard", preset.label()));
         let next_id = self
             .artboards
             .iter()
@@ -366,6 +389,7 @@ impl UiLayoutStudioState {
         let Some(src) = self.artboards.get(idx).cloned() else {
             return self.active_artboard_idx;
         };
+        self.commit_history("Duplicate artboard");
         let next_id = self
             .artboards
             .iter()
@@ -394,6 +418,7 @@ impl UiLayoutStudioState {
             return;
         }
         self.sync_active_to_artboard();
+        self.commit_history("Close artboard");
         let removed_name = self.artboards[idx].document.name.clone();
         self.artboards.remove(idx);
         let next_idx = self.active_artboard_idx.min(self.artboards.len() - 1);
@@ -494,6 +519,7 @@ impl UiLayoutStudioState {
     /// Auto-arrange all visible artboards into a non-overlapping multi-row grid on the canvas.
     pub fn auto_arrange_artboards(&mut self) {
         self.sync_active_to_artboard();
+        self.commit_history("Auto-arrange artboards");
         let gap_x = 24.0_f32;
         let gap_y = 32.0_f32;
         let max_row_w = 1360.0_f32;
@@ -540,25 +566,42 @@ impl UiLayoutStudioState {
         self.status_message = format!("Loaded preset '{}'.", preset.label());
     }
 
+    /// Capture an atomic snapshot covering `document`, `systems`, `artboards`, and view state.
+    pub fn capture_snapshot(&mut self, action_label: impl Into<String>) -> UiStudioSnapshot {
+        self.sync_active_to_artboard();
+        UiStudioSnapshot {
+            label: action_label.into(),
+            document: self.document.clone(),
+            systems: self.systems.clone(),
+            artboards: self.artboards.clone(),
+            active_artboard_idx: self.active_artboard_idx,
+            solo_active_artboard: self.solo_active_artboard,
+            canvas_pan: self.canvas_pan,
+            canvas_zoom: self.canvas_zoom,
+        }
+    }
+
+    /// Push a previously captured snapshot onto the Undo history stack.
+    pub fn push_history_snapshot(&mut self, snapshot: UiStudioSnapshot) {
+        self.history.push_snapshot_entry(snapshot);
+    }
+
     /// Record an undoable snapshot before mutating `document`, `systems`, or `artboards`.
     pub fn commit_history(&mut self, action_label: impl Into<String>) {
-        self.sync_active_to_artboard();
-        self.history.push_board_snapshot(
-            action_label,
-            &self.document,
-            &self.systems,
-            &self.artboards,
-            self.active_artboard_idx,
-        );
+        let snapshot = self.capture_snapshot(action_label);
+        self.history.push_snapshot_entry(snapshot);
     }
 
     pub fn undo(&mut self) -> bool {
         self.sync_active_to_artboard();
-        if let Some(lbl) = self.history.undo_board(
+        if let Some(lbl) = self.history.undo_studio(
             &mut self.document,
             &mut self.systems,
             &mut self.artboards,
             &mut self.active_artboard_idx,
+            &mut self.solo_active_artboard,
+            &mut self.canvas_pan,
+            &mut self.canvas_zoom,
         ) {
             if let Some(ab) = self.artboards.get(self.active_artboard_idx) {
                 self.active_preset = ab.preset;
@@ -574,11 +617,14 @@ impl UiLayoutStudioState {
 
     pub fn redo(&mut self) -> bool {
         self.sync_active_to_artboard();
-        if let Some(lbl) = self.history.redo_board(
+        if let Some(lbl) = self.history.redo_studio(
             &mut self.document,
             &mut self.systems,
             &mut self.artboards,
             &mut self.active_artboard_idx,
+            &mut self.solo_active_artboard,
+            &mut self.canvas_pan,
+            &mut self.canvas_zoom,
         ) {
             if let Some(ab) = self.artboards.get(self.active_artboard_idx) {
                 self.active_preset = ab.preset;
@@ -700,27 +746,86 @@ impl UiLayoutStudioState {
         Ok(new_idx)
     }
 
-    /// Save studio document and system token overrides as pretty JSON (`target/ui-studio/ui-layout-overrides.json`).
-    pub fn save_studio_json(&self, path: &Path) -> Result<PathBuf, String> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {e}"))?;
-        }
+    /// Snapshot the full studio session state as a serializable bundle.
+    pub fn to_persisted_bundle(&self) -> StudioPersistedBundle {
         let mut artboards = self.artboards.clone();
         if let Some(ab) = artboards.get_mut(self.active_artboard_idx) {
             ab.document = self.document.clone();
             ab.preset = self.active_preset;
         }
-        let bundle = StudioPersistedBundle {
+        StudioPersistedBundle {
             document: self.document.clone(),
             systems: self.systems.clone(),
             artboards,
+            active_artboard_idx: self.active_artboard_idx,
+            active_preset: Some(self.active_preset),
+            solo_active_artboard: self.solo_active_artboard,
+            canvas_pan: self.canvas_pan,
+            canvas_zoom: self.canvas_zoom.clamp(0.35, 2.5),
+            show_wireframe_outlines: self.show_wireframe_outlines,
+            show_dimension_badges: self.show_dimension_badges,
+            inspector_tab: self.inspector_tab,
+            systems_subtab: self.systems_subtab,
             preview_theme: Some(self.preview_theme),
             preview_theme_locked: self.preview_theme_locked,
-        };
+        }
+    }
+
+    /// Restore full studio session state (artboards, active selection, systems, view settings) from a bundle.
+    pub fn restore_persisted_bundle(&mut self, bundle: StudioPersistedBundle) {
+        self.document = bundle.document;
+        self.systems = bundle.systems;
+        if let Some(theme) = bundle.preview_theme {
+            self.preview_theme = theme;
+            self.preview_theme_locked = bundle.preview_theme_locked;
+        }
+        if !bundle.artboards.is_empty() {
+            self.artboards = bundle.artboards;
+            self.active_artboard_idx = bundle
+                .active_artboard_idx
+                .min(self.artboards.len().saturating_sub(1));
+            self.artboards[self.active_artboard_idx].document = self.document.clone();
+            self.active_preset = bundle
+                .active_preset
+                .unwrap_or(self.artboards[self.active_artboard_idx].preset);
+            self.artboards[self.active_artboard_idx].preset = self.active_preset;
+        } else {
+            if let Some(preset) = bundle.active_preset {
+                self.active_preset = preset;
+            }
+            self.sync_active_to_artboard();
+        }
+        self.solo_active_artboard = bundle.solo_active_artboard;
+        self.canvas_pan = bundle.canvas_pan;
+        self.canvas_zoom = bundle.canvas_zoom.clamp(0.35, 2.5);
+        self.show_wireframe_outlines = bundle.show_wireframe_outlines;
+        self.show_dimension_badges = bundle.show_dimension_badges;
+        self.inspector_tab = bundle.inspector_tab;
+        self.systems_subtab = bundle.systems_subtab;
+        self.selected_nodes = vec![self.document.root.id];
+    }
+
+    /// Save studio document and system token overrides as pretty JSON (`target/ui-studio/ui-layout-overrides.json`).
+    pub fn save_studio_json(&self, path: &Path) -> Result<PathBuf, String> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {e}"))?;
+        }
+        let bundle = self.to_persisted_bundle();
         let json = serde_json::to_string_pretty(&bundle)
             .map_err(|e| format!("Failed to serialize studio JSON: {e}"))?;
         fs::write(path, json).map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
         Ok(path.to_path_buf())
+    }
+
+    /// Load studio session state without recording an undo step (used on session restore).
+    pub fn load_studio_json_initial(&mut self, path: &Path) -> Result<(), String> {
+        let raw = fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+        let bundle: StudioPersistedBundle =
+            serde_json::from_str(&raw).map_err(|e| format!("Failed to parse studio JSON: {e}"))?;
+        self.restore_persisted_bundle(bundle);
+        self.status_message = format!("Restored studio session from {}", path.display());
+        Ok(())
     }
 
     /// Load studio document and system token overrides from JSON.
@@ -730,20 +835,7 @@ impl UiLayoutStudioState {
         let bundle: StudioPersistedBundle =
             serde_json::from_str(&raw).map_err(|e| format!("Failed to parse studio JSON: {e}"))?;
         self.commit_history("Load JSON overrides");
-        self.document = bundle.document;
-        self.systems = bundle.systems;
-        if let Some(theme) = bundle.preview_theme {
-            self.preview_theme = theme;
-            self.preview_theme_locked = bundle.preview_theme_locked;
-        }
-        if !bundle.artboards.is_empty() {
-            self.artboards = bundle.artboards;
-            self.active_artboard_idx = self.active_artboard_idx.min(self.artboards.len() - 1);
-            self.artboards[self.active_artboard_idx].document = self.document.clone();
-        } else {
-            self.sync_active_to_artboard();
-        }
-        self.selected_nodes = vec![self.document.root.id];
+        self.restore_persisted_bundle(bundle);
         self.status_message = format!("Loaded studio overrides from {}", path.display());
         Ok(())
     }
@@ -767,6 +859,61 @@ fn studio_temp_id() -> egui::Id {
     egui::Id::new("nf2-ui-layout-studio-state")
 }
 
+pub(super) fn take_temp<T: Clone + Send + Sync + 'static>(
+    ctx: &egui::Context,
+    id: egui::Id,
+) -> Option<T> {
+    ctx.data_mut(|d| {
+        let val = d.get_temp::<T>(id);
+        if val.is_some() {
+            d.remove::<T>(id);
+        }
+        val
+    })
+}
+
+fn studio_persisted_id() -> egui::Id {
+    egui::Id::new("nf2-ui-layout-studio-session-v1")
+}
+
+fn studio_disk_persistence_enabled() -> bool {
+    !cfg!(test) && std::env::var_os("NEOFLASH_SCREENSHOT").is_none()
+}
+
+pub(crate) fn persist_studio_session(ctx: &egui::Context, state: &UiLayoutStudioState) {
+    let bundle = state.to_persisted_bundle();
+    let last_sig_id = egui::Id::new("nf2-ui-layout-studio-last-saved-bundle");
+    let changed = ctx
+        .data(|d| d.get_temp::<StudioPersistedBundle>(last_sig_id))
+        .as_ref()
+        != Some(&bundle);
+    if !changed {
+        return;
+    }
+    ctx.data_mut(|d| {
+        d.insert_persisted(studio_persisted_id(), bundle.clone());
+        d.insert_temp(last_sig_id, bundle);
+    });
+    if studio_disk_persistence_enabled() {
+        let _ = state.save_studio_json(Path::new(DEFAULT_STUDIO_JSON_PATH));
+    }
+}
+
+pub(crate) fn restore_studio_session(ctx: &egui::Context) -> UiLayoutStudioState {
+    let mut state = UiLayoutStudioState::default();
+    if let Some(bundle) =
+        ctx.data_mut(|d| d.get_persisted::<StudioPersistedBundle>(studio_persisted_id()))
+    {
+        state.restore_persisted_bundle(bundle);
+    } else if studio_disk_persistence_enabled() {
+        let path = Path::new(DEFAULT_STUDIO_JSON_PATH);
+        if path.exists() {
+            let _ = state.load_studio_json_initial(path);
+        }
+    }
+    state
+}
+
 /// Check whether the context-managed UI Layout Studio window is currently open.
 pub fn is_studio_open(ctx: &egui::Context) -> bool {
     ctx.data(|d| {
@@ -779,8 +926,11 @@ pub fn is_studio_open(ctx: &egui::Context) -> bool {
 pub fn set_studio_open(ctx: &egui::Context, open: bool) {
     let mut state = ctx
         .data(|d| d.get_temp::<UiLayoutStudioState>(studio_temp_id()))
-        .unwrap_or_default();
+        .unwrap_or_else(|| restore_studio_session(ctx));
     state.open = open;
+    if !open {
+        persist_studio_session(ctx, &state);
+    }
     ctx.data_mut(|d| d.insert_temp(studio_temp_id(), state));
 }
 
@@ -793,6 +943,7 @@ pub fn show_studio_window(ctx: &egui::Context) {
         return;
     }
     ui_layout_studio_window_ui(ctx, &mut state);
+    persist_studio_session(ctx, &state);
     ctx.data_mut(|d| d.insert_temp(studio_temp_id(), state));
 }
 
@@ -803,6 +954,7 @@ pub fn ui_layout_studio_window_ui(ctx: &egui::Context, state: &mut UiLayoutStudi
     }
     let nf = neoflash_ui::palette(ctx);
     let pos_id = egui::Id::new("nf2-ui-studio-win-pos");
+    let drag_start_id = egui::Id::new("nf2-ui-studio-win-drag-start");
     let default_pos = egui::pos2(
         (ctx.content_rect().left() + 72.0).max(16.0),
         (ctx.content_rect().top() + 56.0).max(16.0),
@@ -811,7 +963,7 @@ pub fn ui_layout_studio_window_ui(ctx: &egui::Context, state: &mut UiLayoutStudi
         .data(|d| d.get_temp::<Pos2>(pos_id))
         .unwrap_or(default_pos);
     let mut close_requested = false;
-    let mut drag_delta = Vec2::ZERO;
+    let mut drag_response: Option<egui::Response> = None;
     let win_width = (ctx.content_rect().width() - 96.0).clamp(880.0, 1360.0);
 
     egui::Area::new(egui::Id::new("nf2-ui-layout-studio-window"))
@@ -839,7 +991,7 @@ pub fn ui_layout_studio_window_ui(ctx: &egui::Context, state: &mut UiLayoutStudi
                 if drag.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                 }
-                drag_delta = drag.drag_delta();
+                drag_response = Some(drag);
                 ui.painter().hline(
                     header_rect.x_range(),
                     header_rect.bottom() - 0.5,
@@ -855,12 +1007,43 @@ pub fn ui_layout_studio_window_ui(ctx: &egui::Context, state: &mut UiLayoutStudi
             });
         });
 
-    if drag_delta != Vec2::ZERO {
-        pos += drag_delta;
-        ctx.data_mut(|d| d.insert_temp(pos_id, pos));
+    if let Some(drag) = drag_response {
+        if drag.drag_started() {
+            let start_ptr = ctx.input(|i| {
+                i.pointer
+                    .press_origin()
+                    .or_else(|| i.pointer.interact_pos())
+            });
+            ctx.data_mut(|d| d.insert_temp(drag_start_id, (pos, start_ptr, Vec2::ZERO)));
+        }
+        if drag.dragged() {
+            let cur_ptr = ctx.input(|i| i.pointer.interact_pos());
+            if let Some((start_pos, start_ptr, mut accum)) =
+                ctx.data(|d| d.get_temp::<(Pos2, Option<Pos2>, Vec2)>(drag_start_id))
+            {
+                let total_delta = match (start_ptr, cur_ptr) {
+                    (Some(s), Some(c)) => c - s,
+                    _ => {
+                        accum += drag.drag_delta();
+                        accum
+                    }
+                };
+                ctx.data_mut(|d| d.insert_temp(drag_start_id, (start_pos, start_ptr, accum)));
+                let bounds = ctx.content_rect();
+                pos = egui::pos2(
+                    (start_pos.x + total_delta.x).max(bounds.left() + 4.0),
+                    (start_pos.y + total_delta.y).max(bounds.top() + 4.0),
+                );
+                ctx.data_mut(|d| d.insert_temp(pos_id, pos));
+            }
+        }
+        if drag.drag_stopped() || !drag.dragged() {
+            ctx.data_mut(|d| d.remove::<(Pos2, Option<Pos2>, Vec2)>(drag_start_id));
+        }
     }
     if close_requested {
         state.open = false;
+        persist_studio_session(ctx, state);
     }
 }
 
@@ -883,7 +1066,7 @@ pub fn ui_layout_studio_panel_ui(ui: &mut Ui, state: &mut UiLayoutStudioState) {
 
     // ── Main 3-Column Studio Workspace: [Tree + Palette | Multi-Panel Artboard Canvas | Inspector/Systems] ──
     let total_w = ui.available_width().max(760.0);
-    let left_w = (total_w * 0.16).clamp(185.0, 235.0);
+    let left_w = (total_w * 0.195).clamp(248.0, 275.0);
     let right_w = (total_w * 0.25).clamp(265.0, 345.0);
     let center_w = (total_w - left_w - right_w - space::S3 * 2.0).max(300.0);
     let body_h = (ui.available_height() - 48.0).clamp(420.0, 1400.0);
@@ -1037,7 +1220,7 @@ fn render_studio_top_toolbar(ui: &mut Ui, state: &mut UiLayoutStudioState) {
         }
 
         if ui
-            .add(c::Button::new("+ Add to Canvas").icon(i16::PLUS))
+            .add(c::Button::new("Add to Canvas").icon(i16::PLUS))
             .clicked()
         {
             state.solo_active_artboard = false;
@@ -1083,8 +1266,11 @@ fn render_studio_top_toolbar(ui: &mut Ui, state: &mut UiLayoutStudioState) {
                 (StudioDensityProfile::ClassicFlash, "Density: Classic Flash"),
             ],
             166.0,
-        ) {
+        ) && top_density != state.systems.density.active_profile
+        {
+            state.commit_history("Change density profile");
             state.systems.density.active_profile = top_density;
+            state.status_message = format!("Switched density profile to {}.", top_density.label());
         }
 
         // Undo / Redo
@@ -1109,14 +1295,15 @@ fn render_studio_top_toolbar(ui: &mut Ui, state: &mut UiLayoutStudioState) {
 
         c::divider(ui, true);
 
-        // Quick 1-click Wrap buttons
+        // Quick 1-click Wrap buttons (push Undo step only if mutation changes the tree)
         if ui.add(c::Button::new("Wrap Row")).clicked() {
             let sel = state.selected_nodes.clone();
-            state.commit_history("Wrap in Row");
+            let snap = state.capture_snapshot("Wrap in Row");
             if let Some(new_id) = state
                 .document
                 .wrap_selected_nodes(&sel, ContainerWrapPreset::Row)
             {
+                state.push_history_snapshot(snap);
                 state.select_single(new_id);
                 state.sync_active_to_artboard();
                 state.status_message = "Wrapped selection in Row.".to_owned();
@@ -1124,11 +1311,12 @@ fn render_studio_top_toolbar(ui: &mut Ui, state: &mut UiLayoutStudioState) {
         }
         if ui.add(c::Button::new("Wrap Col")).clicked() {
             let sel = state.selected_nodes.clone();
-            state.commit_history("Wrap in Column");
+            let snap = state.capture_snapshot("Wrap in Column");
             if let Some(new_id) = state
                 .document
                 .wrap_selected_nodes(&sel, ContainerWrapPreset::Column)
             {
+                state.push_history_snapshot(snap);
                 state.select_single(new_id);
                 state.sync_active_to_artboard();
                 state.status_message = "Wrapped selection in Column.".to_owned();
@@ -1153,8 +1341,9 @@ fn render_studio_top_toolbar(ui: &mut Ui, state: &mut UiLayoutStudioState) {
         ] {
             if ui.add(c::Button::new(btn_label)).clicked() {
                 let sel = state.selected_nodes.clone();
-                state.commit_history(format!("Wrap in {desc}"));
+                let snap = state.capture_snapshot(format!("Wrap in {desc}"));
                 if let Some(new_id) = state.document.wrap_selected_nodes(&sel, wrap_preset) {
+                    state.push_history_snapshot(snap);
                     state.select_single(new_id);
                     state.sync_active_to_artboard();
                     state.status_message = format!("Wrapped selection in {desc}.");
@@ -1164,11 +1353,13 @@ fn render_studio_top_toolbar(ui: &mut Ui, state: &mut UiLayoutStudioState) {
 
         if ui.add(c::Button::new("Unwrap")).clicked() {
             let target = state.primary_selected_id();
-            state.commit_history("Unwrap container");
+            let snap = state.capture_snapshot("Unwrap container");
             if state.document.unwrap_selected_container(target) {
+                state.push_history_snapshot(snap);
                 state.sync_active_to_artboard();
                 state.status_message = "Unwrapped container children into parent.".to_owned();
             } else if state.document.extract_node_to_parent(target) {
+                state.push_history_snapshot(snap);
                 state.sync_active_to_artboard();
                 state.status_message = "Extracted node out of parent container.".to_owned();
             }
