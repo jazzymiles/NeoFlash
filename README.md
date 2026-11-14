@@ -115,6 +115,21 @@ System fonts are discovered through CoreText and author-selected standalone font
 
 The [public FLA corpus](examples/fla-corpus/README.md) includes licensed, pinned source files. All eight binary FLA sources (Flash 5, MX, 8 and CS4) and seven external XFL/FLA sources import through the native converter with 21 imports and 0 refusals, and an Adobe CS6 example reproduces its reference trace in HTML5. Unsupported cases retain explicit diagnostics; see [legacy import support and limits](docs/IMPORTS.md).
 
+## Headless CLI & AI automation
+
+`neoflash-editor --headless` (or `NEOFLASH_HEADLESS=1`, `--help`, `--version`) runs a display-free, machine-readable JSON CLI before initializing a native window while keeping macOS Finder `-psn_*` launches untouched:
+
+```sh
+neoflash-editor --headless capabilities
+neoflash-editor --headless new --output app.nflash --name Demo --width 800 --height 600 --fps 24 --language as2
+neoflash-editor --headless jsfl --project app.nflash --in-place --eval 'fl.getDocumentDOM().getTimeline().layers[0].frames[0].actionScript = "trace(\"hi\");";'
+neoflash-editor --headless compile --project app.nflash
+neoflash-editor --headless eval --project app.nflash --frames 0..=1 --scripts
+neoflash-editor --headless export --project app.nflash --target html5 --size-level compact --out dist-web
+```
+
+`inspect`, `validate`, atomic JSON `batch` pipelines (`--stdin` / `--file`), `import`, and capability-gated JSFL `FLfile` access (`--allow-read` / `--allow-write` / `--allow-delete`, default deny-all) return structured JSON on stdout (`{ "ok": true, ... }`) and errors on stderr with non-zero exit codes. See [workspace and headless CLI notes](docs/WORKSPACE.md#headless-cli-and-ai-automation).
+
 ## Project layout
 
 ```text
