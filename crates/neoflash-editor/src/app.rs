@@ -196,6 +196,7 @@ pub struct Editor {
     pub clipboard: crate::clipboard::ClipboardState,
     pub workspace: WorkspacePrefs,
     pub(crate) publish_controller: crate::publish_controller::PublishController,
+    pub(crate) updater: crate::updater::UpdaterController,
     pub(crate) publish_settings: Option<crate::panels::publish_settings::PublishSettingsDraft>,
     pub detached: crate::detached::DetachedState,
     pub(crate) stage_view: crate::stage_view::StageView,
@@ -553,6 +554,7 @@ impl Editor {
             clipboard: crate::clipboard::ClipboardState::default(),
             workspace: WorkspacePrefs::default(),
             publish_controller: Default::default(),
+            updater: Default::default(),
             publish_settings: None,
             detached: crate::detached::DetachedState::default(),
             stage_view: Default::default(),
@@ -590,6 +592,26 @@ impl Editor {
             let tracked = session.tracked_disk_path().map(Path::to_path_buf);
             session.recovery.retarget(tracked.as_deref());
             session.recovery.set_dir(dir.clone());
+        }
+    }
+
+    /// Non-blocking poll for GitHub Releases update checks and verified downloads (`T-298`).
+    pub(crate) fn poll_updater(&mut self, ctx: &egui::Context, allow_auto_check: bool) {
+        let screenshot_mode = std::env::var_os("NEOFLASH_SCREENSHOT").is_some();
+        let (update_check_done, _) = self.updater.poll(ctx, !cfg!(test) && !screenshot_mode);
+        if update_check_done {
+            let now = crate::recovery::unix_now_secs();
+            self.workspace.updates.last_check_unix = Some(now);
+            if let Some(draft) = &mut self.preferences {
+                draft.updates.last_check_unix = Some(now);
+            }
+        }
+        if allow_auto_check && !cfg!(test) && !screenshot_mode {
+            self.updater.maybe_auto_check(
+                &self.workspace.updates,
+                crate::recovery::unix_now_secs(),
+                ctx,
+            );
         }
     }
 
@@ -3415,16 +3437,23 @@ impl Editor {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = space::S3;
                             logo(ui, 40.);
+                            let id = crate::build_info::BuildIdentity::current();
                             ui.vertical(|ui| {
+                                #[cfg(target_os = "macos")]
+                                let edition = "macOS Beta 1";
+                                #[cfg(target_os = "windows")]
+                                let edition = "Windows x64 Preview";
+                                #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+                                let edition = "Linux x64 Preview";
                                 ui.label(
                                     rich(
-                                        format!("NeoFlash {} — macOS Beta 1", env!("CARGO_PKG_VERSION")),
+                                        format!("NeoFlash {} — {edition}", id.version),
                                         TextStyle::Title,
                                     )
                                     .color(p.text_primary),
                                 );
                                 ui.label(
-                                    rich("Open source · MIT OR Apache-2.0", TextStyle::Small)
+                                    rich(id.about_subtitle(), TextStyle::Small)
                                         .color(p.text_secondary),
                                 );
                             });
@@ -3695,6 +3724,7 @@ impl eframe::App for Editor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.apply_density(ctx);
         self.poll_debugger(ctx);
+        self.poll_updater(ctx, true);
         let native_quit = crate::native_quit::take_requested();
         if (native_quit || ctx.input(|i| i.viewport().close_requested())) && !self.allow_close {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);

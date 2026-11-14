@@ -40,6 +40,53 @@ pub(crate) fn open_file(path: &Path) -> Result<(), String> {
     open_url(&url)
 }
 
+/// Reveal a downloaded file in the OS file manager (Finder / Explorer / XDG file manager).
+pub(crate) fn reveal_file(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Err(format!("File '{}' does not exist.", path.display()));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("open")
+            .arg("-R")
+            .arg(path)
+            .status()
+            .map_err(|e| format!("Failed to launch Finder: {e}"))?;
+        if !status.success() {
+            return Err(format!("Finder returned non-zero status ({status})."));
+        }
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let display_str = canonical.to_string_lossy();
+        let cleaned = display_str.strip_prefix(r"\\?\").unwrap_or(&display_str);
+        let mut arg = std::ffi::OsString::from("/select,");
+        arg.push(cleaned);
+        std::process::Command::new("explorer.exe")
+            .arg(arg)
+            .spawn()
+            .map_err(|e| format!("Failed to launch Explorer: {e}"))?;
+        Ok(())
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let dir = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .ok_or_else(|| "File has no parent folder.".to_owned())?;
+        let status = std::process::Command::new("xdg-open")
+            .arg(dir)
+            .status()
+            .map_err(|e| format!("Failed to launch file manager: {e}"))?;
+        if !status.success() {
+            return Err(format!("File manager returned non-zero status ({status})."));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

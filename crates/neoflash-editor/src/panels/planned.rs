@@ -594,12 +594,6 @@ pub(crate) fn slider(ui: &mut Ui, value: f64, label: &str, width: f32) {
     ui.add(c::Slider::new(&mut v, 0.0..=100.0, label).width(width));
 }
 
-pub(crate) fn segmented(ui: &mut Ui, options: &[&str], selected: usize) {
-    let mut v = selected;
-    let opts: Vec<(usize, &str)> = options.iter().copied().enumerate().collect();
-    c::Segmented::show(ui, &mut v, &opts, false);
-}
-
 pub(crate) fn caption(ui: &mut Ui, s: &str) {
     let nf = neoflash_ui::palette(ui.ctx());
     ui.label(rich(s, TextStyle::Small).color(nf.text_secondary));

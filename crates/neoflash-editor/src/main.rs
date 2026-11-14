@@ -6,6 +6,7 @@ mod authoring_symbols;
 mod authoring_tools;
 mod bitmap_trace;
 mod bitmaps;
+mod build_info;
 mod clipboard;
 mod code_tools;
 mod commands;
@@ -69,6 +70,7 @@ mod timeline_shape_hints;
 mod timeline_sound;
 mod transform_geometry;
 mod ui_icons;
+mod updater;
 mod vector;
 mod video_cache;
 #[allow(dead_code)]
@@ -108,6 +110,8 @@ mod timeline_shape_hints_tests;
 mod timeline_sound_tests;
 #[cfg(test)]
 mod transform_gesture_tests;
+#[cfg(test)]
+mod updater_tests;
 #[cfg(test)]
 mod vector_gesture_tests;
 #[cfg(test)]

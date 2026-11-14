@@ -12,6 +12,7 @@ pub mod legacy_fla;
 pub mod lottie;
 pub mod profiles;
 pub mod publish;
+pub mod release_http;
 pub mod svg;
 pub mod swf;
 pub mod video;

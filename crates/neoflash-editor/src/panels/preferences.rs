@@ -6,14 +6,17 @@
 //! `Cancel` / `Esc` / ✕ restores the previous theme and discards it; `Reset to defaults` resets the
 //! current page. Controls whose engine or NF2 design role is not yet defined stay disabled (see
 //! `docs/NF2-WIRING-PLAN.md` W3.6/W3.7 and `docs/NF2-REQUESTS.md`).
-use super::planned::{
-    FooterClick, body_text, caption, footer_clicked, form_label, segmented, select, switch,
-};
+use super::planned::{FooterClick, body_text, caption, footer_clicked, form_label, select, switch};
 use crate::app::Editor;
+use crate::build_info::BuildIdentity;
 use crate::theme::{ScrollTheme as _, ThemeMode};
+use crate::updater::{
+    AvailableUpdate, UpdateState, UpdaterController, format_byte_progress, format_last_checked,
+};
 use crate::workspace::{
     ClipboardPrefs, CodeEditorPrefs, DrawingPrefs, FramePreview, GeneralPrefs, PublishPrefs,
-    PublishTarget, ShortcutPrefs, TextPrefs, TimelinePrefs, TimelineView, WorkspacePrefs,
+    PublishTarget, ShortcutPrefs, TextPrefs, TimelinePrefs, TimelineView, UpdateChannel,
+    UpdatePrefs, WorkspacePrefs,
 };
 use eframe::egui::{self, Color32, Ui};
 use neoflash_export::AudioExportPolicy;
@@ -79,6 +82,7 @@ pub(crate) struct PreferencesDraft {
     pub(crate) publish: PublishPrefs,
     pub(crate) sequence_import_options: neoflash_import::ImageSequenceImportOptions,
     pub(crate) shortcuts: ShortcutPrefs,
+    pub(crate) updates: UpdatePrefs,
     /// Stage view settings edited by Drawing ▸ Snap to pixels (`StageView::prefs`, one state).
     pub(crate) pixels_snap: bool,
 }
@@ -114,6 +118,7 @@ impl PreferencesDraft {
             publish: prefs.publish.clone(),
             sequence_import_options: prefs.sequence_import_options.clone(),
             shortcuts: prefs.shortcuts.clone(),
+            updates: prefs.updates.clone(),
             pixels_snap,
         }
     }
@@ -169,12 +174,19 @@ impl PreferencesDraft {
                 self.paste_in_place = defaults.paste_in_place;
                 self.clipboard_prefs = defaults.clipboard_prefs;
             }
+            PAGE_UPDATES => {
+                let last_check = self.updates.last_check_unix;
+                self.updates = UpdatePrefs {
+                    last_check_unix: last_check,
+                    ..defaults.updates
+                };
+            }
             _ => {}
         }
     }
 
     fn page_has_settings(&self) -> bool {
-        self.page != PAGE_UPDATES
+        true
     }
 }
 
@@ -275,6 +287,12 @@ impl Editor {
         w.publish = draft.publish.clone();
         w.sequence_import_options = draft.sequence_import_options.clone();
         w.shortcuts = draft.shortcuts.clone();
+        let preserved_last_check = w.updates.last_check_unix;
+        w.updates = draft.updates.clone();
+        w.updates.last_check_unix = match (preserved_last_check, draft.updates.last_check_unix) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        };
         // Snap to pixels is the one stage view setting: change it now and in the saved view defaults.
         w.view_defaults
             .get_or_insert_with(Default::default)
@@ -286,10 +304,12 @@ impl Editor {
     }
 
     pub(crate) fn preferences_dialog(&mut self, ctx: &egui::Context) {
+        self.poll_updater(ctx, false);
         let Some(mut draft) = self.preferences.clone() else {
             clear_shortcuts_ui_state(ctx);
             return;
         };
+        let installed_ext_count = self.installed_extensions().len();
         if draft.page != PAGE_SHORTCUTS {
             cancel_shortcut_recording(ctx);
         }
@@ -338,7 +358,9 @@ impl Editor {
                             )
                             .auto_shrink([false, true])
                             .themed()
-                            .show(ui, |ui| body(ui, &mut draft));
+                            .show(ui, |ui| {
+                                body(ui, &mut draft, &mut self.updater, installed_ext_count)
+                            });
                         match footer_clicked(
                             ui,
                             "",
@@ -387,7 +409,12 @@ impl Editor {
 }
 
 /// Category list + the selected page.
-fn body(ui: &mut Ui, draft: &mut PreferencesDraft) {
+fn body(
+    ui: &mut Ui,
+    draft: &mut PreferencesDraft,
+    updater: &mut UpdaterController,
+    installed_ext_count: usize,
+) {
     ui.horizontal_top(|ui| {
         ui.allocate_ui_with_layout(
             egui::vec2(SIDEBAR, 0.0),
@@ -428,7 +455,7 @@ fn body(ui: &mut Ui, draft: &mut PreferencesDraft) {
             5 => prefs_clipboard(ui, draft),
             6 => prefs_shortcuts(ui, draft),
             7 => prefs_publish(ui, draft),
-            _ => disabled(ui, prefs_updates),
+            _ => prefs_updates(ui, draft, updater, installed_ext_count),
         });
     });
 }
@@ -1956,24 +1983,248 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
     });
 }
 
-fn prefs_updates(ui: &mut Ui) {
+enum UpdateUiAction {
+    CheckNow,
+    OpenReleaseNotes,
+    Download(AvailableUpdate),
+    CancelDownload,
+    RevealFile(std::path::PathBuf),
+}
+
+fn reveal_button_label() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "Reveal in Finder"
+    }
+    #[cfg(target_os = "windows")]
+    {
+        "Show in Explorer"
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        "Open folder"
+    }
+}
+
+fn prefs_updates(
+    ui: &mut Ui,
+    draft: &mut PreferencesDraft,
+    updater: &mut UpdaterController,
+    installed_ext_count: usize,
+) {
+    updater.sync_selected_channel(draft.updates.channel);
+    let id = BuildIdentity::current();
+    let now_unix = crate::recovery::unix_now_secs();
+    let checking = updater.is_checking();
+    let downloading = updater.is_downloading();
+    let mut action: Option<UpdateUiAction> = None;
+
     section(ui, "Version");
     ui.horizontal(|ui| {
-        body_text(ui, "NeoFlash 2.0.0 · build 412 · up to date");
-        let _ = ui.add(c::Button::new("Check now"));
-        let _ = ui.add(c::Button::ghost("Release notes"));
+        body_text(ui, &id.version_prefix());
+        if ui
+            .add_enabled(!checking && !downloading, c::Button::new("Check now"))
+            .clicked()
+        {
+            action = Some(UpdateUiAction::CheckNow);
+        }
+        if ui.add(c::Button::ghost("Release notes")).clicked() {
+            action = Some(UpdateUiAction::OpenReleaseNotes);
+        }
     });
-    row(ui, "Channel", |ui| segmented(ui, &["Stable", "Beta"], 0));
+
+    match &updater.state {
+        UpdateState::Idle => {
+            caption(
+                ui,
+                &format!(
+                    "Status: {}",
+                    format_last_checked(draft.updates.last_check_unix, now_unix)
+                ),
+            );
+        }
+        UpdateState::Checking { .. } => {
+            ui.horizontal(|ui| {
+                c::spinner(ui);
+                caption(ui, "Checking GitHub Releases for updates…");
+            });
+        }
+        UpdateState::UpToDate { latest_version, .. } => {
+            let status = match latest_version {
+                Some(v) => format!(
+                    "Up to date (latest {v}) · {}",
+                    format_last_checked(draft.updates.last_check_unix, now_unix)
+                ),
+                None => format!(
+                    "Up to date · {}",
+                    format_last_checked(draft.updates.last_check_unix, now_unix)
+                ),
+            };
+            caption(ui, &status);
+        }
+        UpdateState::UpdateAvailable { update, .. } => {
+            ui.add(c::InlineMessage::info(&format!(
+                "Update {} is available for {}.",
+                update.version,
+                updater.config.platform.label()
+            )));
+            match &update.download {
+                Ok(_) => {
+                    ui.horizontal(|ui| {
+                        if ui.add(c::Button::primary("Download")).clicked() {
+                            action = Some(UpdateUiAction::Download(update.clone()));
+                        }
+                        caption(ui, "Verified via SHA256SUMS before saving; manual install.");
+                    });
+                }
+                Err(reason) => {
+                    ui.add(c::InlineMessage::warning(reason));
+                }
+            }
+        }
+        UpdateState::Downloading {
+            update,
+            received_bytes,
+            total_bytes,
+            ..
+        } => {
+            let fraction = total_bytes
+                .filter(|&tot| tot > 0)
+                .map(|tot| (*received_bytes as f32 / tot as f32).clamp(0.0, 1.0));
+            let label = format!(
+                "Downloading {} ({})",
+                update.version,
+                format_byte_progress(*received_bytes, *total_bytes)
+            );
+            ui.horizontal(|ui| {
+                let bar_w = (ui.available_width() - 140.0).max(180.0);
+                c::progress(ui, &label, fraction, bar_w);
+                if ui.add(c::Button::new("Cancel download")).clicked() {
+                    action = Some(UpdateUiAction::CancelDownload);
+                }
+            });
+        }
+        UpdateState::VerifiedDownloaded {
+            version,
+            path,
+            reveal_note,
+            ..
+        } => {
+            ui.add(c::InlineMessage::info(&format!(
+                "Verified {version} (SHA-256) at {}. Quit NeoFlash and replace the application manually; Beta 1 does not auto-install.",
+                path.display()
+            )));
+            ui.horizontal(|ui| {
+                if ui.add(c::Button::new(reveal_button_label())).clicked() {
+                    action = Some(UpdateUiAction::RevealFile(path.clone()));
+                }
+                if let Some(note) = reveal_note {
+                    caption(ui, note);
+                }
+            });
+        }
+        UpdateState::RateLimited { message, .. } => {
+            ui.add(c::InlineMessage::warning(message));
+        }
+        UpdateState::Error {
+            message,
+            retry_update,
+            ..
+        } => {
+            ui.add(c::InlineMessage::error(message));
+            if let Some(retry) = retry_update
+                && retry.download.is_ok()
+                && ui.add(c::Button::new("Download")).clicked()
+            {
+                action = Some(UpdateUiAction::Download(retry.clone()));
+            }
+        }
+    }
+    if let Some(err) = &updater.action_error {
+        ui.add(c::InlineMessage::error(err));
+    }
+
+    row(ui, "Channel", |ui| {
+        ui.add_enabled_ui(!checking && !downloading, |ui| {
+            c::Segmented::show(
+                ui,
+                &mut draft.updates.channel,
+                &UpdateChannel::OPTIONS,
+                false,
+            );
+        });
+    });
+    updater.sync_selected_channel(draft.updates.channel);
     ui.horizontal(|ui| {
-        switch(ui, true, "Check for updates automatically");
-        switch(ui, true, "Download in background");
+        bound_switch(
+            ui,
+            &mut draft.updates.check_automatically,
+            "Check for updates automatically",
+        );
+        disabled(ui, |ui| {
+            let mut background = false;
+            c::not_available(
+                ui.add(c::Switch::new(&mut background, "Download in background")),
+                "Download in background",
+            );
+        });
     });
-    section(ui, "Privacy");
-    switch(ui, false, "Send anonymous usage statistics");
-    switch(ui, true, "Send crash reports");
+
+    disabled(ui, |ui| {
+        section(ui, "Privacy");
+        let mut usage = false;
+        c::not_available(
+            ui.add(c::Switch::new(
+                &mut usage,
+                "Send anonymous usage statistics",
+            )),
+            "Send anonymous usage statistics",
+        );
+        let mut crashes = false;
+        c::not_available(
+            ui.add(c::Switch::new(&mut crashes, "Send crash reports")),
+            "Send crash reports",
+        );
+    });
+    ui.add(c::InlineMessage::info(
+        "Usage telemetry and crash reports are disabled; no data is collected or transmitted.",
+    ));
+
     section(ui, "Extensions");
+    let ext_label = match installed_ext_count {
+        1 => "1 extension installed".to_owned(),
+        n => format!("{n} extensions installed"),
+    };
     row(ui, "Installed", |ui| {
-        body_text(ui, "3 extensions · 1 update available");
-        let _ = ui.add(c::Button::new("Manage…"));
+        body_text(ui, &ext_label);
+        disabled(ui, |ui| {
+            c::not_available(ui.add(c::Button::new("Manage…")), "Extension management");
+        });
     });
+    disabled(ui, |ui| {
+        caption(ui, "Extension update checks are not available yet.");
+    });
+
+    match action {
+        Some(UpdateUiAction::CheckNow) => {
+            updater.start_check(draft.updates.channel, ui.ctx());
+        }
+        Some(UpdateUiAction::OpenReleaseNotes) => {
+            let _ = updater.open_release_notes();
+        }
+        Some(UpdateUiAction::Download(update)) => {
+            if let Ok(target) = &update.download
+                && let Some(dest) = updater.choose_download_destination(&target.asset_name)
+            {
+                updater.start_download_to_path(draft.updates.channel, update, dest, ui.ctx());
+            }
+        }
+        Some(UpdateUiAction::CancelDownload) => {
+            updater.cancel_download();
+        }
+        Some(UpdateUiAction::RevealFile(path)) => {
+            let _ = updater.reveal_downloaded_file(&path);
+        }
+        None => {}
+    }
 }

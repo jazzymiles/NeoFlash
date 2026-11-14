@@ -66,6 +66,7 @@ mod runtime;
 mod runtime_graph;
 mod runtime_graphics;
 mod scenes;
+pub mod sha256;
 mod shape_tween;
 mod text;
 mod timeline_edit;

@@ -1774,6 +1774,8 @@ pub struct WorkspacePrefs {
     pub clipboard_prefs: ClipboardPrefs,
     pub publish: PublishPrefs,
     pub shortcuts: ShortcutPrefs,
+    #[serde(default)]
+    pub updates: UpdatePrefs,
     /// Complete named layouts, managed through the workspace selector.
     #[serde(
         default,
@@ -2899,6 +2901,31 @@ impl ShortcutPrefs {
     }
 }
 
+/// Release channel selected in `Preferences ▸ Updates` (`T-298`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateChannel {
+    #[default]
+    Stable,
+    Beta,
+}
+
+impl UpdateChannel {
+    pub const OPTIONS: [(Self, &'static str); 2] = [(Self::Stable, "Stable"), (Self::Beta, "Beta")];
+}
+
+/// Persisted updater preferences and daily check timestamp (`T-298`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdatePrefs {
+    pub channel: UpdateChannel,
+    /// Opt-in daily background check against GitHub Releases (never downloads or installs silently).
+    pub check_automatically: bool,
+    /// UNIX epoch seconds of the most recent completed check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_check_unix: Option<u64>,
+}
+
 impl WorkspacePrefs {
     /// Clamp every Preferences group to the ranges its controls offer.
     pub(crate) fn sanitize_preference_groups(&mut self) {
@@ -3124,6 +3151,7 @@ impl Default for WorkspacePrefs {
             clipboard_prefs: ClipboardPrefs::default(),
             publish: PublishPrefs::default(),
             shortcuts: ShortcutPrefs::default(),
+            updates: UpdatePrefs::default(),
             named_presets: std::collections::BTreeMap::new(),
             active_named_preset: None,
             unsaved_layout: false,

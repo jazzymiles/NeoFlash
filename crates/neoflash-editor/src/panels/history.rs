@@ -310,7 +310,6 @@ impl Editor {
     }
 
     /// Return all installed `AuthoringExtensionManifest`s in the active project (`T-167`).
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn installed_extensions(&self) -> Vec<AuthoringExtensionManifest> {
         self.read_installed_extensions().unwrap_or_default()
     }
