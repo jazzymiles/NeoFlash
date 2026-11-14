@@ -1510,7 +1510,8 @@ wires them with the components named in each answer.
   2. *Preview rows.* The 44 pt layer row with thumbnails is accepted as the row height of Timeline ▸ Preview and is
      not a fourth density preset: it applies only while Preview is on.
   3. *Video edit workspace.* The template (Properties · Scene and Library · Project tab groups, Preview rows) and the
-     Razor tool are accepted as built for Beta 1. Their main-window reference screen is still to be drawn.
+     Razor tool are accepted as built for Beta 1. The reference screen is `NF2 / Editor — Video edit workspace`
+     (four themes). The Razor tool keeps the `scissors` glyph; a 20 px tool master for it is not drawn yet.
 
 ### R-094 · Properties for a multi-selection: Selection colours
 - **Status:** answered
