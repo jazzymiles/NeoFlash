@@ -6,7 +6,10 @@
 //! compatible with Adobe Flash CS5.5/CS6/Animate and round-trip importable by
 //! `crate::xfl` whenever the project stays within NeoFlash's XFL importer subset.
 
-use crate::{ImportError, source, xfl::media::inspect_audio_bytes};
+use crate::{
+    ImportError, source,
+    xfl::media::{FlashSoundCache, build_flash_sound_cache, inspect_audio_bytes},
+};
 use neoflash_core::{
     Color, ColorTransform, Easing, Element, ElementKind, FilterSpec, FrameSound, GradientKind,
     GradientPaint, GradientStop, Id, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole,
@@ -60,7 +63,7 @@ pub fn export_fla_bytes(project: &Project) -> Result<Vec<u8>, ImportError> {
         }
     }
 
-    let as_sources = collect_actionscript_sources(project, &ctx.doc_stem);
+    let as_sources = collect_actionscript_sources(project, &ctx.doc_stem)?;
 
     let mut writer = ArchiveBuilder::new();
     writer.add_file("mimetype", FLA_MIMETYPE, CompressionMethod::Stored)?;
@@ -91,6 +94,13 @@ pub fn export_fla_bytes(project: &Project) -> Result<Vec<u8>, ImportError> {
     for snd_id in &ctx.sound_order {
         if let Some(snd) = ctx.sounds.get(snd_id) {
             writer.add_file(&snd.zip_path, &snd.bytes, CompressionMethod::Deflated)?;
+            if let (Some(dat_href), Some(cache)) = (&snd.cache_href, &snd.cache) {
+                writer.add_file(
+                    &format!("bin/{dat_href}"),
+                    &cache.cache_bytes,
+                    CompressionMethod::Deflated,
+                )?;
+            }
         }
     }
     for (entry_path, source_text) in &as_sources {
@@ -256,6 +266,14 @@ struct SoundExport {
     bytes: Vec<u8>,
     duration_44: u64,
     emit_mp3_sample_count: bool,
+    cache_href: Option<String>,
+    cache: Option<FlashSoundCache>,
+}
+
+struct VideoExport {
+    item_name: String,
+    width: f64,
+    height: f64,
 }
 
 struct ExportContext {
@@ -270,13 +288,24 @@ struct ExportContext {
     bitmaps: HashMap<Id, BitmapExport>,
     sound_order: Vec<Id>,
     sounds: HashMap<Id, SoundExport>,
+    video_order: Vec<(u64, u64)>,
+    videos: HashMap<(u64, u64), VideoExport>,
 }
 
 impl ExportContext {
     fn build(project: &Project) -> Result<Self, ImportError> {
+        let mut video_order = Vec::new();
+        let mut videos = HashMap::new();
+        let mut used_video_names = HashSet::new();
         for sym in &project.symbols {
             for layer in &sym.timeline.layers {
                 for key in &layer.keyframes {
+                    if key.video.is_some() {
+                        return Err(ImportError::Container(format!(
+                            "frame video stream metadata in symbol {:?} layer {:?} frame {} cannot be represented in XFL 2.2 .fla",
+                            sym.name, layer.name, key.frame
+                        )));
+                    }
                     for elem in &key.elements {
                         if !matches!(elem.kind, ElementKind::Instance { .. })
                             && elem
@@ -288,6 +317,35 @@ impl ExportContext {
                                 "object scripts on non-symbol element {:?} in symbol {:?} cannot be represented in XFL 2.2 .fla; convert the element to a symbol first",
                                 elem.name, sym.name
                             )));
+                        }
+                        if let ElementKind::Video { width, height } = &elem.kind {
+                            if !width.is_finite()
+                                || !height.is_finite()
+                                || *width <= 0.0
+                                || *height <= 0.0
+                            {
+                                return Err(ImportError::Container(format!(
+                                    "video element {:?} in symbol {:?} has invalid dimensions {}x{}",
+                                    elem.name, sym.name, width, height
+                                )));
+                            }
+                            let key = video_size_key(*width, *height);
+                            videos.entry(key).or_insert_with(|| {
+                                let clamped_w = width.clamp(1.0, 8192.0);
+                                let clamped_h = height.clamp(1.0, 8192.0);
+                                let desired = format!(
+                                    "Video_{}x{}",
+                                    clamped_w.round() as u32,
+                                    clamped_h.round() as u32
+                                );
+                                let item_name = dedup_exact_name(&mut used_video_names, &desired);
+                                video_order.push(key);
+                                VideoExport {
+                                    item_name,
+                                    width: clamped_w,
+                                    height: clamped_h,
+                                }
+                            });
                         }
                     }
                 }
@@ -318,8 +376,16 @@ impl ExportContext {
             bitmaps,
             sound_order,
             sounds,
+            video_order,
+            videos,
         })
     }
+}
+
+fn video_size_key(width: f64, height: f64) -> (u64, u64) {
+    let w_twips = (width.clamp(1.0, 8192.0) * 20.0).round() as u64;
+    let h_twips = (height.clamp(1.0, 8192.0) * 20.0).round() as u64;
+    (w_twips, h_twips)
 }
 
 fn is_actionscript(lang: ScriptLanguage) -> bool {
@@ -363,6 +429,11 @@ fn detect_as_version(project: &Project) -> u8 {
         .sources
         .iter()
         .any(|s| s.language == ScriptLanguage::ActionScript3)
+        || project.symbols.iter().any(|s| {
+            s.class_name
+                .as_deref()
+                .is_some_and(|c| !c.trim().is_empty())
+        })
     {
         return 3;
     }
@@ -692,6 +763,10 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
                 &format!(".{}", audio.extension),
             );
             let emit_mp3_sample_count = audio.is_mp3 && custom_env_sounds.contains(res.id.as_str());
+            let cache = build_flash_sound_cache(&raw);
+            let cache_href = cache
+                .as_ref()
+                .map(|_| format!("sound{}.dat", sound_order.len() + 1));
             sound_order.push(res.id.clone());
             sounds.insert(
                 res.id.clone(),
@@ -702,6 +777,8 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
                     bytes: raw,
                     duration_44: audio.duration_44,
                     emit_mp3_sample_count,
+                    cache_href,
+                    cache,
                 },
             );
         }
@@ -791,8 +868,12 @@ fn normalize_bitmap_bytes(raw: &[u8]) -> Option<(Vec<u8>, &'static str)> {
     Some((png_bytes, "png"))
 }
 
-fn collect_actionscript_sources(project: &Project, doc_stem: &str) -> Vec<(String, String)> {
+fn collect_actionscript_sources(
+    project: &Project,
+    doc_stem: &str,
+) -> Result<Vec<(String, String)>, ImportError> {
     let mut out = Vec::new();
+    let mut emitted_bytes: HashMap<String, Vec<u8>> = HashMap::new();
     let mut used_lower: HashSet<String> = [
         "mimetype".to_owned(),
         format!("{doc_stem}.xfl").to_ascii_lowercase(),
@@ -825,10 +906,64 @@ fn collect_actionscript_sources(project: &Project, doc_stem: &str) -> Vec<(Strin
             } else {
                 src.source.clone()
             };
+            emitted_bytes.insert(rel_path.to_ascii_lowercase(), body.as_bytes().to_vec());
             out.push((rel_path, body));
         }
     }
-    out
+
+    for res in &project.resources {
+        let is_as_res = res.media_type.eq_ignore_ascii_case("text/x-actionscript")
+            || res.path.to_ascii_lowercase().ends_with(".as");
+        if !is_as_res {
+            continue;
+        }
+        let raw = res.decoded_bytes().map_err(|err| {
+            ImportError::Container(format!(
+                "invalid ActionScript resource {:?}: {err}",
+                res.path
+            ))
+        })?;
+        let text = String::from_utf8(raw).map_err(|_| {
+            ImportError::Container(format!(
+                "ActionScript resource {:?} is not valid UTF-8",
+                res.path
+            ))
+        })?;
+        let cleaned = sanitize_as_source_path(&res.path);
+        let (dir_prefix, file_stem) = match cleaned.rsplit_once('/') {
+            Some((dir, base)) => (format!("{dir}/"), base),
+            None => (String::new(), cleaned.as_str()),
+        };
+        let rel_path = format!("{dir_prefix}{file_stem}.as");
+        let lower = rel_path.to_ascii_lowercase();
+        if let Some(existing) = emitted_bytes.get(&lower) {
+            if existing.as_slice() == text.as_bytes() {
+                continue;
+            }
+            return Err(ImportError::Container(format!(
+                "ActionScript resource {:?} collides with archive path {:?}",
+                res.path, rel_path
+            )));
+        }
+        source::safe_name(&rel_path)?;
+        if !used_lower.insert(lower.clone()) {
+            return Err(ImportError::Container(format!(
+                "ActionScript resource {:?} collides with archive path {:?}",
+                res.path, rel_path
+            )));
+        }
+        emitted_bytes.insert(lower, text.as_bytes().to_vec());
+        out.push((rel_path, text));
+    }
+
+    if out.len() > 1024 {
+        return Err(ImportError::Container(format!(
+            "bundled ActionScript source count ({}) exceeds 1024 XFL import limit",
+            out.len()
+        )));
+    }
+
+    Ok(out)
 }
 
 fn sanitize_as_source_path(raw_path: &str) -> String {
@@ -929,7 +1064,7 @@ fn render_dom_document(project: &Project, ctx: &ExportContext) -> String {
         xml.push_str("  </folders>\n");
     }
 
-    if !ctx.bitmap_order.is_empty() || !ctx.sound_order.is_empty() {
+    if !ctx.bitmap_order.is_empty() || !ctx.sound_order.is_empty() || !ctx.video_order.is_empty() {
         xml.push_str("  <media>\n");
         for bmp_id in &ctx.bitmap_order {
             if let Some(bmp) = ctx.bitmaps.get(bmp_id) {
@@ -945,7 +1080,22 @@ fn render_dom_document(project: &Project, ctx: &ExportContext) -> String {
         }
         for snd_id in &ctx.sound_order {
             if let Some(snd) = ctx.sounds.get(snd_id) {
-                if snd.emit_mp3_sample_count {
+                if let (Some(dat_href), Some(cache)) = (&snd.cache_href, &snd.cache) {
+                    let compressed_attrs = cache
+                        .data_length
+                        .map(|dl| format!(" dataLength=\"{dl}\" exportNative=\"true\""))
+                        .unwrap_or_default();
+                    writeln!(
+                        xml,
+                        "    <DOMSoundItem name=\"{}\" href=\"{}\" soundDataHRef=\"{}\" format=\"{}\" sampleCount=\"{}\"{compressed_attrs}/>",
+                        escape_xml_attr(&snd.item_name),
+                        escape_xml_attr(&snd.href),
+                        escape_xml_attr(dat_href),
+                        escape_xml_attr(&cache.format_label),
+                        cache.sample_count,
+                    )
+                    .unwrap();
+                } else if snd.emit_mp3_sample_count {
                     writeln!(
                         xml,
                         "    <DOMSoundItem name=\"{}\" href=\"{}\" format=\"44kHz 16bit Stereo\" sampleCount=\"44100\"/>",
@@ -962,6 +1112,18 @@ fn render_dom_document(project: &Project, ctx: &ExportContext) -> String {
                     )
                     .unwrap();
                 }
+            }
+        }
+        for vid_key in &ctx.video_order {
+            if let Some(vid) = ctx.videos.get(vid_key) {
+                writeln!(
+                    xml,
+                    "    <DOMVideoItem name=\"{}\" width=\"{}\" height=\"{}\"/>",
+                    escape_xml_attr(&vid.item_name),
+                    fmt_num(vid.width),
+                    fmt_num(vid.height),
+                )
+                .unwrap();
             }
         }
         xml.push_str("  </media>\n");
@@ -2332,19 +2494,11 @@ fn render_element(element: &Element, ctx: &ExportContext) -> (Vec<String>, bool)
             true,
         ),
         ElementKind::Video { width, height } => {
-            if !width.is_finite() || !height.is_finite() || *width <= 0.0 || *height <= 0.0 {
-                return (Vec::new(), false);
+            if let Some(vid_info) = ctx.videos.get(&video_size_key(*width, *height)) {
+                (vec![render_video_instance(element, vid_info)], false)
+            } else {
+                (Vec::new(), false)
             }
-            (
-                vec![render_primitive_object(
-                    "DOMRectangleObject",
-                    element,
-                    *width,
-                    *height,
-                    ct.apply([0, 0, 0, 64]),
-                )],
-                false,
-            )
         }
     }
 }
@@ -2746,6 +2900,36 @@ fn render_bitmap_instance(element: &Element, bmp_info: &BitmapExport) -> String 
         xml.push_str(">\n");
         xml.push_str(&children);
         xml.push_str("</DOMBitmapInstance>");
+    }
+    xml
+}
+
+fn render_video_instance(element: &Element, vid_info: &VideoExport) -> String {
+    let mut xml = String::with_capacity(180);
+    write!(
+        xml,
+        "<DOMVideoInstance libraryItemName=\"{}\"",
+        escape_xml_attr(&vid_info.item_name)
+    )
+    .unwrap();
+    if !element.name.trim().is_empty() {
+        write!(xml, " name=\"{}\"", escape_xml_attr(&element.name)).unwrap();
+    }
+    write!(
+        xml,
+        " frameLeft=\"0\" frameRight=\"{}\" frameTop=\"0\" frameBottom=\"{}\"",
+        fmt_num(vid_info.width * 20.0),
+        fmt_num(vid_info.height * 20.0)
+    )
+    .unwrap();
+    let mut children = String::new();
+    append_matrix_and_pivot(&mut children, element.transform);
+    if children.is_empty() {
+        xml.push_str("/>");
+    } else {
+        xml.push_str(">\n");
+        xml.push_str(&children);
+        xml.push_str("</DOMVideoInstance>");
     }
     xml
 }

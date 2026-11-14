@@ -37,6 +37,8 @@ pub use swf::{
     SwfInspection, SwfPlaybackResult, SwfTagCounts, SwfVmKind, play_swf_bytes, play_swf_path,
 };
 pub use vector_fidelity::*;
+#[doc(hidden)]
+pub use xfl::media::{FlashSoundCache, build_flash_sound_cache};
 pub use xfl_export::{export_fla, export_fla_bytes};
 
 use neoflash_core::Project;

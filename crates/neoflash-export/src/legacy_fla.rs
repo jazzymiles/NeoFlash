@@ -7,7 +7,9 @@
 
 use crate::ExportError;
 use crate::fla_preflight::{
-    FlaCompatibilityReport, FlaExportOptions, FlaTargetProfile, prepare_project_for_fla_profile,
+    FlaCompatibilityReport, FlaExportOptions, FlaTargetProfile, is_actionscript_resource,
+    is_internal_provenance_resource, is_unreferenced_sidecar_resource,
+    prepare_project_for_fla_profile, sanitize_source_rel_path,
 };
 use image::ImageReader;
 use neoflash_core::*;
@@ -277,136 +279,119 @@ fn encode_native_bitmap_stream(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> 
     out
 }
 
-fn parse_wav_pcm(bytes: &[u8]) -> Option<(u16, u32, Vec<u8>)> {
-    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
-        return None;
-    }
-    let mut pos = 12usize;
-    let mut channels = 1u16;
-    let mut sample_rate = 44100u32;
-    let mut bits_per_sample = 16u16;
-    let mut pcm_data: Option<Vec<u8>> = None;
-    while pos + 8 <= bytes.len() {
-        let id = &bytes[pos..pos + 4];
-        let size = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().ok()?) as usize;
-        pos += 8;
-        let end = pos.saturating_add(size).min(bytes.len());
-        if id == b"fmt " && end - pos >= 16 {
-            let fmt_tag = u16::from_le_bytes(bytes[pos..pos + 2].try_into().ok()?);
-            if fmt_tag != 1 {
-                return None;
-            }
-            channels = u16::from_le_bytes(bytes[pos + 2..pos + 4].try_into().ok()?);
-            sample_rate = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().ok()?);
-            bits_per_sample = u16::from_le_bytes(bytes[pos + 14..pos + 16].try_into().ok()?);
-        } else if id == b"data" {
-            pcm_data = Some(bytes[pos..end].to_vec());
-            break;
-        }
-        pos = end + (size & 1);
-    }
-    let pcm = pcm_data?;
-    let rate_code: u16 = if sample_rate <= 6000 {
-        0
-    } else if sample_rate <= 12000 {
-        1
-    } else if sample_rate <= 24000 {
-        2
-    } else {
-        3
-    };
-    let size_bit = u16::from(bits_per_sample >= 16);
-    let stereo_bit = u16::from(channels >= 2);
-    let flags = (rate_code << 2) | (size_bit << 1) | stereo_bit;
-    let block_align = usize::from(1 + stereo_bit) * usize::from(1 + size_bit);
-    let samples = (pcm.len() / block_align.max(1)) as u32;
-    if samples == 0 {
-        return None;
-    }
-    Some((flags, samples, pcm))
-}
-
-pub(crate) fn build_media_catalog(project: &Project) -> MediaExportCatalog {
+pub(crate) fn build_media_catalog(project: &Project) -> Result<MediaExportCatalog, ExportError> {
     let mut catalog = MediaExportCatalog::default();
     let mut next_media_id = 1u16;
     for res in &project.resources {
-        if matches!(
-            res.media_type.as_str(),
-            "application/x-neoflash-fla-source"
-                | "application/x-neoflash-fla-provenance"
-                | "application/x-neoflash-swf-source"
-                | "application/x-neoflash-swf-provenance"
-                | "application/x-neoflash-swc-source"
-                | "application/x-neoflash-swc-provenance"
-        ) {
+        if is_internal_provenance_resource(res)
+            || crate::fonts::is_font_resource(res)
+            || is_actionscript_resource(res)
+            || is_unreferenced_sidecar_resource(project, res)
+        {
             continue;
         }
-        let Ok(raw) = res.decoded_bytes() else {
-            continue;
-        };
-        if res.media_type.starts_with("image/") {
-            if let Ok(reader) = ImageReader::new(Cursor::new(&raw)).with_guessed_format()
-                && let Ok(decoded) = reader.decode()
+        let raw = res.decoded_bytes().map_err(|err| {
+            ExportError::InvalidProject(format!(
+                "Resource {:?} failed base64 decoding: {err}",
+                res.path
+            ))
+        })?;
+        let mime = res.media_type.trim().to_ascii_lowercase();
+        if mime.starts_with("image/") {
+            let decoded = ImageReader::new(Cursor::new(&raw))
+                .with_guessed_format()
+                .map_err(|err| {
+                    ExportError::InvalidProject(format!(
+                        "Image resource {:?} could not be probed: {err}",
+                        res.path
+                    ))
+                })?
+                .decode()
+                .map_err(|err| {
+                    ExportError::InvalidProject(format!(
+                        "Image resource {:?} ({}) cannot be decoded: {err}",
+                        res.path, res.media_type
+                    ))
+                })?;
+            let rgba = decoded.into_rgba8();
+            if rgba.width() == 0
+                || rgba.height() == 0
+                || rgba.width() > 4096
+                || rgba.height() > 4096
             {
-                let rgba = decoded.into_rgba8();
-                if rgba.width() >= 1
-                    && rgba.height() >= 1
-                    && rgba.width() <= 4096
-                    && rgba.height() <= 4096
-                {
-                    let media_id = next_media_id;
-                    next_media_id = next_media_id.saturating_add(1);
-                    let stream_name = format!("Media {media_id}");
-                    let library_name = res.path.rsplit('/').next().unwrap_or(&res.id).to_owned();
-                    let smoothing = find_smoothing_for_resource(project, &res.id);
-                    let stream_bytes =
-                        encode_native_bitmap_stream(rgba.width(), rgba.height(), rgba.as_raw());
-                    catalog.bitmap_by_resource.insert(res.id.clone(), media_id);
-                    catalog.bitmaps.push(PreparedBitmapMedia {
-                        media_id,
-                        stream_name,
-                        library_name,
-                        smoothing,
-                        stream_bytes,
-                    });
-                }
+                return Err(ExportError::InvalidProject(format!(
+                    "Bitmap {:?} dimensions {}x{} exceed legacy binary FLA limits (1..=4096 px).",
+                    res.path,
+                    rgba.width(),
+                    rgba.height()
+                )));
             }
-        } else if res.media_type.starts_with("audio/") {
+            if next_media_id == u16::MAX {
+                return Err(ExportError::InvalidProject(
+                    "Legacy binary FLA media library item count exceeds u16 limit (65534)."
+                        .to_owned(),
+                ));
+            }
+            let media_id = next_media_id;
+            next_media_id += 1;
+            let stream_name = format!("Media {media_id}");
+            let library_name = res.path.rsplit('/').next().unwrap_or(&res.id).to_owned();
+            let smoothing = find_smoothing_for_resource(project, &res.id);
+            let stream_bytes =
+                encode_native_bitmap_stream(rgba.width(), rgba.height(), rgba.as_raw());
+            catalog.bitmap_by_resource.insert(res.id.clone(), media_id);
+            catalog.bitmaps.push(PreparedBitmapMedia {
+                media_id,
+                stream_name,
+                library_name,
+                smoothing,
+                stream_bytes,
+            });
+        } else if mime.starts_with("audio/") {
+            if next_media_id == u16::MAX {
+                return Err(ExportError::InvalidProject(
+                    "Legacy binary FLA media library item count exceeds u16 limit (65534)."
+                        .to_owned(),
+                ));
+            }
             let media_id = next_media_id;
             let stream_name = format!("Media {media_id}");
             let library_name = res.path.rsplit('/').next().unwrap_or(&res.id).to_owned();
-            if let Some((format_flags, sample_count, pcm_bytes)) = parse_wav_pcm(&raw) {
-                next_media_id = next_media_id.saturating_add(1);
+            if let Some(cache) = neoflash_import::build_flash_sound_cache(&raw) {
+                let encoded_byte_count = match cache.data_length {
+                    Some(dl) => dl,
+                    None => u32::try_from(cache.cache_bytes.len()).map_err(|_| {
+                        ExportError::InvalidProject(format!(
+                            "Audio resource {:?} exceeds legacy FLA u32 stream size limit.",
+                            res.path
+                        ))
+                    })?,
+                };
+                next_media_id += 1;
                 catalog.sound_by_resource.insert(res.id.clone(), media_id);
                 catalog.sounds.push(PreparedSoundMedia {
                     media_id,
                     stream_name,
                     library_name,
-                    format_flags,
-                    sample_count,
-                    encoded_byte_count: pcm_bytes.len() as u32,
-                    stream_bytes: pcm_bytes,
-                });
-            } else if res.media_type == "audio/mpeg" && !raw.is_empty() {
-                next_media_id = next_media_id.saturating_add(1);
-                catalog.sound_by_resource.insert(res.id.clone(), media_id);
-                // Codec 2 = MP3, 44.1 kHz stereo (flags = (2 << 4) | (3 << 2) | 2 | 1 = 0x2f).
-                let format_flags = 0x002f;
-                let sample_count = ((raw.len() as u32) * 8).max(576);
-                let encoded_byte_count = raw.len() as u32;
-                catalog.sounds.push(PreparedSoundMedia {
-                    media_id,
-                    stream_name,
-                    library_name,
-                    format_flags,
-                    sample_count,
+                    format_flags: cache.format_flags,
+                    sample_count: cache.sample_count,
                     encoded_byte_count,
-                    stream_bytes: raw,
+                    stream_bytes: cache.cache_bytes,
                 });
+            } else {
+                return Err(ExportError::InvalidProject(format!(
+                    "Audio resource {:?} ({}) is not a valid PCM WAV or MP3 stream for legacy binary FLA.",
+                    res.path, res.media_type
+                )));
             }
+        } else {
+            return Err(ExportError::InvalidProject(format!(
+                "Resource {:?} ({}) cannot be represented in legacy binary FLA.",
+                res.path, res.media_type
+            )));
         }
     }
-    catalog
+    Ok(catalog)
 }
 
 #[derive(Clone, Debug)]
@@ -486,12 +471,15 @@ fn write_linkage(w: &mut MfcWriter, linkage_id: Option<&str>, class_name: Option
     w.u8(5); // linkage revision = 5
     let has_id = linkage_id.is_some_and(|s| !s.is_empty());
     let has_class = class_name.is_some_and(|s| !s.is_empty());
-    let flags = if has_id || has_class { 5 } else { 0 };
-    w.u32(flags);
+    // Revision 5 stores mode selector (0 = none, 1 = export, 2 = import) in `flags`
+    // and Export-for-AS + Export-in-first-frame bits (1 | 4 = 5) in `export_flags`.
+    let mode = if has_id || has_class { 1 } else { 0 };
+    let export_flags = if has_id || has_class { 5 } else { 0 };
+    w.u32(mode);
     w.cstring(linkage_id.unwrap_or(""));
     w.cstring(""); // url
     w.cstring(class_name.unwrap_or(""));
-    w.u8(0); // export_flags
+    w.u8(export_flags);
     w.u32(0); // aux revision = 0
     w.cstring("");
     w.cstring("");
@@ -514,12 +502,44 @@ fn write_page_library_metadata(
 }
 
 fn detect_project_as_version(project: &Project, profile: FlaTargetProfile) -> &'static str {
+    let allow_as3 = profile.supports_as3();
+    let mut found_avm1: Option<&'static str> = None;
+
+    if allow_as3
+        && (project
+            .document_class
+            .as_deref()
+            .is_some_and(|s| !s.trim().is_empty())
+            || project.symbols.iter().any(|s| {
+                s.class_name
+                    .as_deref()
+                    .is_some_and(|c| !c.trim().is_empty())
+            }))
+    {
+        return "3";
+    }
+
+    for src in &project.sources {
+        match src.language {
+            ScriptLanguage::ActionScript3 if allow_as3 => return "3",
+            ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3 => found_avm1 = Some("2"),
+            ScriptLanguage::ActionScript1 => {
+                found_avm1.get_or_insert("1");
+            }
+            _ => {}
+        }
+    }
+
     for sym in &project.symbols {
         for fs in &sym.timeline.scripts {
             match fs.script.language {
-                ScriptLanguage::ActionScript3 if profile.supports_as3() => return "3",
-                ScriptLanguage::ActionScript1 => return "1",
-                ScriptLanguage::ActionScript2 => return "2",
+                ScriptLanguage::ActionScript3 if allow_as3 => return "3",
+                ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3 => {
+                    found_avm1 = Some("2");
+                }
+                ScriptLanguage::ActionScript1 => {
+                    found_avm1.get_or_insert("1");
+                }
                 _ => {}
             }
         }
@@ -528,9 +548,13 @@ fn detect_project_as_version(project: &Project, profile: FlaTargetProfile) -> &'
                 for el in &kf.elements {
                     for os in &el.scripts {
                         match os.script.language {
-                            ScriptLanguage::ActionScript3 if profile.supports_as3() => return "3",
-                            ScriptLanguage::ActionScript1 => return "1",
-                            ScriptLanguage::ActionScript2 => return "2",
+                            ScriptLanguage::ActionScript3 if allow_as3 => return "3",
+                            ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3 => {
+                                found_avm1 = Some("2");
+                            }
+                            ScriptLanguage::ActionScript1 => {
+                                found_avm1.get_or_insert("1");
+                            }
                             _ => {}
                         }
                     }
@@ -538,10 +562,7 @@ fn detect_project_as_version(project: &Project, profile: FlaTargetProfile) -> &'
             }
         }
     }
-    if project.document_class.is_some() && profile.supports_as3() {
-        return "3";
-    }
-    "2"
+    found_avm1.unwrap_or(if allow_as3 { "3" } else { "2" })
 }
 
 fn build_contents_stream(
@@ -550,7 +571,86 @@ fn build_contents_stream(
     scenes: &[&Symbol],
     library_symbols: &[(u32, &Symbol)],
     media: &MediaExportCatalog,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, ExportError> {
+    if scenes.len() >= usize::from(u16::MAX) {
+        return Err(ExportError::InvalidProject(format!(
+            "Scene count {} exceeds legacy binary FLA u16 limit.",
+            scenes.len()
+        )));
+    }
+    if library_symbols.len() >= usize::from(u16::MAX) {
+        return Err(ExportError::InvalidProject(format!(
+            "Library symbol count {} exceeds legacy binary FLA u16 limit.",
+            library_symbols.len()
+        )));
+    }
+    let total_media = media.bitmaps.len() + media.sounds.len();
+    if total_media >= usize::from(u16::MAX) {
+        return Err(ExportError::InvalidProject(format!(
+            "Media library item count {total_media} exceeds legacy binary FLA u16 limit."
+        )));
+    }
+    let default_as_lang = match detect_project_as_version(project, profile) {
+        "1" => "as1",
+        "3" => "as3",
+        _ => "as2",
+    };
+    let mut stored_sources: Vec<(String, String)> = Vec::new();
+    let mut used_source_paths_lower: std::collections::BTreeSet<String> =
+        std::collections::BTreeSet::new();
+    for (idx, src) in project.sources.iter().enumerate() {
+        let rel_path = sanitize_source_rel_path(&src.path, idx);
+        let lower = rel_path.to_ascii_lowercase();
+        if !used_source_paths_lower.insert(lower) {
+            return Err(ExportError::InvalidProject(format!(
+                "Duplicate source path {:?} in legacy binary FLA.",
+                rel_path
+            )));
+        }
+        let lang_tag = match src.language {
+            ScriptLanguage::ActionScript1 => "as1",
+            ScriptLanguage::ActionScript2 => "as2",
+            ScriptLanguage::ActionScript3 => "as3",
+            ScriptLanguage::JavaScript => "js",
+            ScriptLanguage::TypeScript => "ts",
+        };
+        stored_sources.push((
+            format!("NeoFlash::Source::{lang_tag}::{rel_path}"),
+            src.source.clone(),
+        ));
+    }
+    for (idx, res) in project.resources.iter().enumerate() {
+        if !is_actionscript_resource(res) {
+            continue;
+        }
+        let bytes = res.decoded_bytes().map_err(|err| {
+            ExportError::InvalidProject(format!(
+                "ActionScript resource {:?} failed base64 decoding: {err}",
+                res.path
+            ))
+        })?;
+        let text = std::str::from_utf8(&bytes).map_err(|err| {
+            ExportError::InvalidProject(format!(
+                "ActionScript resource {:?} is not UTF-8: {err}",
+                res.path
+            ))
+        })?;
+        let rel_path = sanitize_source_rel_path(&res.path, idx);
+        let lower = rel_path.to_ascii_lowercase();
+        if !used_source_paths_lower.insert(lower) {
+            continue;
+        }
+        stored_sources.push((
+            format!("NeoFlash::Source::{default_as_lang}::{rel_path}"),
+            text.to_owned(),
+        ));
+    }
+    if stored_sources.len() > 1024 {
+        return Err(ExportError::InvalidProject(format!(
+            "External ActionScript source count {} exceeds legacy binary FLA limit (1024).",
+            stored_sources.len()
+        )));
+    }
     let version: u8 = match profile {
         FlaTargetProfile::LegacyFlash8 => 0x3f,
         _ => 0x47,
@@ -702,24 +802,10 @@ fn build_contents_stream(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
-    let stored_sources_count = project.sources.len().min(1024);
-    w.u16(stored_sources_count as u16); // document_properties count
-    for (idx, src) in project
-        .sources
-        .iter()
-        .take(stored_sources_count)
-        .enumerate()
-    {
-        let rel_path = crate::fla_preflight::sanitize_source_rel_path(&src.path, idx);
-        let lang_tag = match src.language {
-            ScriptLanguage::ActionScript1 => "as1",
-            ScriptLanguage::ActionScript2 => "as2",
-            ScriptLanguage::ActionScript3 => "as3",
-            ScriptLanguage::JavaScript => "js",
-            ScriptLanguage::TypeScript => "ts",
-        };
-        w.cstring(&format!("NeoFlash::Source::{lang_tag}::{rel_path}"));
-        w.cstring(&src.source);
+    w.u16(stored_sources.len() as u16); // document_properties count
+    for (key, value) in &stored_sources {
+        w.cstring(key);
+        w.cstring(value);
     }
     w.u32(1); // 1 publish profile
     w.u16(if doc_class.is_some() { 3 } else { 2 }); // properties in profile 0
@@ -767,7 +853,8 @@ fn build_contents_stream(
     w.u32(0); // font library header (0x1d)
     w.u32(0); // embedded font count = 0 (0x1d)
     w.cstring(""); // shared_library_url (0x1e)
-    w.zeros(14); // grid flags, accuracy, Y spacing (0x1f)
+    w.zeros(10); // grid flags, snap accuracy (0x1f)
+    w.u32(360 << 16); // grid_spacing_y_fixed16_twips (18 px, matching X spacing)
     w.cstring(""); // template description (0x22)
     w.cstring(""); // template filename (0x22)
     w.u32(0); // preview frame (0x23)
@@ -810,7 +897,7 @@ fn build_contents_stream(
         w.zeros(4);
     }
 
-    w.buf
+    Ok(w.buf)
 }
 
 fn write_legacy_cfb_archive(
@@ -848,8 +935,9 @@ fn write_legacy_cfb_archive(
         library_symbols.push((lib_id, sym));
     }
 
-    let media = build_media_catalog(project);
-    let contents_bytes = build_contents_stream(project, profile, &scenes, &library_symbols, &media);
+    let media = build_media_catalog(project)?;
+    let contents_bytes =
+        build_contents_stream(project, profile, &scenes, &library_symbols, &media)?;
 
     let cursor = Cursor::new(Vec::new());
     let mut comp = cfb::CompoundFile::create_with_version(cfb::Version::V3, cursor)
@@ -864,7 +952,7 @@ fn write_legacy_cfb_archive(
 
     for (idx, scene) in scenes.iter().enumerate() {
         let stream_path = format!("/Page {}", idx + 1);
-        let bytes = build_timeline_stream(&scene.timeline, &symbol_lib_ids, &symbol_kinds, &media);
+        let bytes = build_timeline_stream(&scene.timeline, &symbol_lib_ids, &symbol_kinds, &media)?;
         let mut stream = comp
             .create_stream(&stream_path)
             .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
@@ -873,7 +961,7 @@ fn write_legacy_cfb_archive(
 
     for (idx, (_, sym)) in library_symbols.iter().enumerate() {
         let stream_path = format!("/Symbol {}", idx + 1);
-        let bytes = build_timeline_stream(&sym.timeline, &symbol_lib_ids, &symbol_kinds, &media);
+        let bytes = build_timeline_stream(&sym.timeline, &symbol_lib_ids, &symbol_kinds, &media)?;
         let mut stream = comp
             .create_stream(&stream_path)
             .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
@@ -1283,8 +1371,14 @@ fn collect_element_geometry(
     }
 }
 
-fn write_binary_fill(w: &mut MfcWriter, fill: &EncodedFill) {
+fn write_binary_fill(w: &mut MfcWriter, fill: &EncodedFill) -> Result<(), ExportError> {
     if let Some(grad) = &fill.gradient {
+        if grad.stops.is_empty() || grad.stops.len() > 15 {
+            return Err(ExportError::InvalidProject(format!(
+                "Binary FLA gradients require 1..=15 color stops (found {})",
+                grad.stops.len()
+            )));
+        }
         w.u32(color_to_word(fill.color));
         let flags: u8 = match grad.kind {
             GradientKind::Linear => 0x10,
@@ -1295,13 +1389,12 @@ fn write_binary_fill(w: &mut MfcWriter, fill: &EncodedFill) {
         for word in matrix_to_words(grad.matrix) {
             w.i32(word);
         }
-        let stops: Vec<&GradientStop> = grad.stops.iter().take(15).collect();
-        w.u8(stops.len() as u8);
+        w.u8(grad.stops.len() as u8);
         // BinaryGradientExtension (shape_revision >= 3)
         let focal = (grad.focal_point_ratio.clamp(-1.0, 1.0) * 255.0).round() as i32;
         w.i32(focal);
         w.u32(0); // pad + RGB
-        for stop in stops {
+        for stop in &grad.stops {
             w.u8(stop.ratio);
             w.u32(color_to_word(stop.color));
         }
@@ -1310,9 +1403,10 @@ fn write_binary_fill(w: &mut MfcWriter, fill: &EncodedFill) {
         w.u8(0); // plain solid fill
         w.u8(0);
     }
+    Ok(())
 }
 
-fn write_frame_shape(w: &mut MfcWriter, elements: &[Element]) {
+fn write_frame_shape(w: &mut MfcWriter, elements: &[Element]) -> Result<(), ExportError> {
     let mut fills = Vec::new();
     let mut strokes = Vec::new();
     let mut edges = Vec::new();
@@ -1330,6 +1424,19 @@ fn write_frame_shape(w: &mut MfcWriter, elements: &[Element]) {
         }
     }
 
+    let fill_count = u16::try_from(fills.len()).map_err(|_| {
+        ExportError::InvalidProject(format!(
+            "Frame binary shape has {} fill styles exceeding binary FLA u16 limit (65535)",
+            fills.len()
+        ))
+    })?;
+    let stroke_count = u16::try_from(strokes.len()).map_err(|_| {
+        ExportError::InvalidProject(format!(
+            "Frame binary shape has {} stroke styles exceeding binary FLA u16 limit (65535)",
+            strokes.len()
+        ))
+    })?;
+
     w.u8(4); // shape_revision = 4
     for word in [65536_i32, 0, 0, 65536, 0, 0] {
         w.i32(word);
@@ -1337,12 +1444,12 @@ fn write_frame_shape(w: &mut MfcWriter, elements: &[Element]) {
     w.u8(4); // data_revision = 4
     w.u32(0); // metadata
 
-    w.u16(fills.len() as u16);
+    w.u16(fill_count);
     for fill in &fills {
-        write_binary_fill(w, fill);
+        write_binary_fill(w, fill)?;
     }
 
-    w.u16(strokes.len() as u16);
+    w.u16(stroke_count);
     for stroke in &strokes {
         w.u32(color_to_word(stroke.color));
         w.u16(stroke.width_twips);
@@ -1360,7 +1467,7 @@ fn write_frame_shape(w: &mut MfcWriter, elements: &[Element]) {
                 color: stroke.color,
                 gradient: stroke.gradient.clone(),
             },
-        );
+        )?;
     }
 
     let mut prev = [0_i32, 0_i32];
@@ -1411,6 +1518,7 @@ fn write_frame_shape(w: &mut MfcWriter, elements: &[Element]) {
         prev = edge.end;
     }
     w.u8(0); // end of edge stream
+    Ok(())
 }
 
 fn pack_filter_rgba(rgb: u32, alpha: f64) -> u32 {
@@ -1986,10 +2094,10 @@ fn serialize_layer(
     symbol_lib_ids: &BTreeMap<String, u32>,
     symbol_kinds: &BTreeMap<String, SymbolKind>,
     media: &MediaExportCatalog,
-) -> u16 {
+) -> Result<u16, ExportError> {
     if let Some(&existing_ref) = serialized_layers.get(&layer_idx) {
         w.write_object_ref(existing_ref);
-        return existing_ref;
+        return Ok(existing_ref);
     }
 
     let layer = &timeline.layers[layer_idx];
@@ -1999,12 +2107,25 @@ fn serialize_layer(
     write_cpic_obj_base_header(w);
 
     let total_frames = timeline.frame_count.max(1);
-    let script_layer_idx = timeline
-        .layers
+    let max_script_frame = timeline
+        .scripts
         .iter()
-        .position(|l| l.properties.role != LayerRole::Folder);
+        .map(|s| s.frame.saturating_add(1))
+        .max()
+        .unwrap_or(1)
+        .min(total_frames);
+    let script_layer_idx = timeline.layers.iter().position(|l| {
+        l.properties.role != LayerRole::Folder
+            && l.properties.end_frame.unwrap_or(total_frames) >= max_script_frame
+    });
     let is_script_layer = Some(layer_idx) == script_layer_idx;
     if layer.properties.role != LayerRole::Folder {
+        let effective_end = layer
+            .properties
+            .end_frame
+            .unwrap_or(total_frames)
+            .min(total_frames)
+            .max(1);
         let mut effective_keyframes: Vec<Keyframe> = if layer.keyframes.is_empty() {
             vec![Keyframe {
                 frame: 0,
@@ -2012,11 +2133,13 @@ fn serialize_layer(
                 ..Default::default()
             }]
         } else {
-            layer.keyframes.clone()
+            let mut kfs = layer.keyframes.clone();
+            kfs.sort_by_key(|k| k.frame);
+            kfs
         };
         if is_script_layer && !timeline.scripts.is_empty() {
             for fs in &timeline.scripts {
-                if fs.frame < total_frames
+                if fs.frame < effective_end
                     && !effective_keyframes.iter().any(|k| k.frame == fs.frame)
                 {
                     let base_elements = effective_keyframes
@@ -2034,10 +2157,19 @@ fn serialize_layer(
             }
         }
         for (k_idx, kf) in effective_keyframes.iter().enumerate() {
+            if kf.frame >= effective_end {
+                break;
+            }
             let next_frame = effective_keyframes
                 .get(k_idx + 1)
-                .map_or(total_frames, |next| next.frame);
-            let duration = next_frame.saturating_sub(kf.frame).clamp(1, 65535) as u16;
+                .map_or(effective_end, |next| next.frame.min(effective_end));
+            let raw_duration = next_frame.saturating_sub(kf.frame).max(1);
+            let duration = u16::try_from(raw_duration).map_err(|_| {
+                ExportError::InvalidProject(format!(
+                    "Layer '{}' frame span at frame {} has duration {} exceeding binary FLA limit (65535)",
+                    layer.name, kf.frame, raw_duration
+                ))
+            })?;
             let joined_scripts: Option<String> = if is_script_layer {
                 let matching: Vec<&str> = timeline
                     .scripts
@@ -2057,7 +2189,7 @@ fn serialize_layer(
                 write_display_element(w, el, symbol_lib_ids, symbol_kinds, media);
             }
             write_cpic_obj_base_footer(w);
-            write_frame_shape(w, &kf.elements);
+            write_frame_shape(w, &kf.elements)?;
             write_cpic_frame_payload(w, duration, Some(kf), frame_script, media);
         }
     }
@@ -2114,7 +2246,7 @@ fn serialize_layer(
             symbol_lib_ids,
             symbol_kinds,
             media,
-        );
+        )?;
     } else {
         w.write_null_ref();
     }
@@ -2127,7 +2259,7 @@ fn serialize_layer(
         };
     w.u8(mask_or_open);
 
-    layer_obj_ref
+    Ok(layer_obj_ref)
 }
 
 fn write_cpic_frame_payload(
@@ -2225,13 +2357,21 @@ fn build_timeline_stream(
     symbol_lib_ids: &BTreeMap<String, u32>,
     symbol_kinds: &BTreeMap<String, SymbolKind>,
     media: &MediaExportCatalog,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, ExportError> {
+    let total_frames = timeline.frame_count.max(1);
+    let max_script_frame = timeline
+        .scripts
+        .iter()
+        .map(|s| s.frame.saturating_add(1))
+        .max()
+        .unwrap_or(1)
+        .min(total_frames);
     let mut synthesized_timeline: Option<Timeline> = None;
     if !timeline.scripts.is_empty()
-        && !timeline
-            .layers
-            .iter()
-            .any(|l| l.properties.role != LayerRole::Folder)
+        && !timeline.layers.iter().any(|l| {
+            l.properties.role != LayerRole::Folder
+                && l.properties.end_frame.unwrap_or(total_frames) >= max_script_frame
+        })
     {
         let mut copy = timeline.clone();
         copy.layers.push(Layer {
@@ -2249,6 +2389,12 @@ fn build_timeline_stream(
         synthesized_timeline = Some(copy);
     }
     let effective_timeline = synthesized_timeline.as_ref().unwrap_or(timeline);
+    let next_layer_id = u16::try_from(effective_timeline.layers.len() + 1).map_err(|_| {
+        ExportError::InvalidProject(format!(
+            "Timeline layer count {} exceeds binary FLA u16 limit (65534)",
+            effective_timeline.layers.len()
+        ))
+    })?;
 
     let mut w = MfcWriter::new();
     w.u8(1); // stream_kind = 1 (CPicPage root)
@@ -2272,15 +2418,15 @@ fn build_timeline_stream(
             symbol_lib_ids,
             symbol_kinds,
             media,
-        );
+        )?;
     }
 
     write_cpic_obj_base_footer(&mut w);
 
     // CPicPage payload (revision = 3)
     w.u8(3);
-    w.u16((effective_timeline.layers.len() + 1) as u16); // next_layer_id
+    w.u16(next_layer_id); // next_layer_id
     w.u32(0); // guide_count = 0
 
-    w.buf
+    Ok(w.buf)
 }

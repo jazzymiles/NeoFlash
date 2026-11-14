@@ -7,6 +7,76 @@ pub(crate) struct AudioInspection {
     pub is_mp3: bool,
 }
 
+/// Decoded Flash-compatible sound cache metadata and `bin/sound*.dat` / `M *` stream bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FlashSoundCache {
+    pub format_flags: u16,
+    pub format_label: String,
+    pub sample_count: u32,
+    pub data_length: Option<u32>,
+    pub cache_bytes: Vec<u8>,
+}
+
+struct ParsedWav<'a> {
+    audio_format: u16,
+    channels: u16,
+    sample_rate: u32,
+    block_align: u16,
+    bits_per_sample: u16,
+    data: &'a [u8],
+}
+
+fn parse_wav_chunks(bytes: &[u8]) -> Option<ParsedWav<'_>> {
+    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return None;
+    }
+    let mut pos = 12usize;
+    let mut fmt_info: Option<(u16, u16, u32, u16, u16)> = None;
+    let mut data: Option<&[u8]> = None;
+    while pos + 8 <= bytes.len() {
+        let tag = &bytes[pos..pos + 4];
+        let chunk_len = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().ok()?) as usize;
+        let payload_start = pos + 8;
+        let payload_end = payload_start.checked_add(chunk_len)?;
+        if payload_end > bytes.len() {
+            return None;
+        }
+        let payload = &bytes[payload_start..payload_end];
+        if tag == b"fmt " {
+            if payload.len() < 16 {
+                return None;
+            }
+            let audio_format = u16::from_le_bytes(payload[0..2].try_into().ok()?);
+            let channels = u16::from_le_bytes(payload[2..4].try_into().ok()?);
+            let sample_rate = u32::from_le_bytes(payload[4..8].try_into().ok()?);
+            let block_align = u16::from_le_bytes(payload[12..14].try_into().ok()?);
+            let bits_per_sample = u16::from_le_bytes(payload[14..16].try_into().ok()?);
+            if channels == 0 || sample_rate == 0 {
+                return None;
+            }
+            fmt_info = Some((
+                audio_format,
+                channels,
+                sample_rate,
+                block_align,
+                bits_per_sample,
+            ));
+        } else if tag == b"data" {
+            data = Some(payload);
+        }
+        pos = payload_end.saturating_add(chunk_len & 1);
+    }
+    let (audio_format, channels, sample_rate, block_align, bits_per_sample) = fmt_info?;
+    Some(ParsedWav {
+        audio_format,
+        channels,
+        sample_rate,
+        block_align,
+        bits_per_sample,
+        data: data?,
+    })
+}
+
 pub(crate) fn inspect_audio_bytes(bytes: &[u8]) -> Option<AudioInspection> {
     if let Some(duration_44) = wav_duration_44(bytes) {
         return Some(AudioInspection {
@@ -25,47 +95,71 @@ pub(crate) fn inspect_audio_bytes(bytes: &[u8]) -> Option<AudioInspection> {
 }
 
 pub(crate) fn wav_duration_44(bytes: &[u8]) -> Option<u64> {
-    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+    let wav = parse_wav_chunks(bytes)?;
+    let derived_align =
+        usize::from(wav.channels) * usize::from(wav.bits_per_sample.max(8)).div_ceil(8);
+    let frame_bytes = usize::from(wav.block_align).max(derived_align).max(1);
+    if wav.data.len() < frame_bytes {
         return None;
     }
-    let mut pos = 12usize;
-    let mut fmt_info: Option<(u32, usize)> = None;
-    let mut data_len: Option<usize> = None;
-    while pos + 8 <= bytes.len() {
-        let tag = &bytes[pos..pos + 4];
-        let chunk_len = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().ok()?) as usize;
-        let payload_start = pos + 8;
-        let payload_end = payload_start.checked_add(chunk_len)?;
-        if payload_end > bytes.len() {
+    let sample_frames = (wav.data.len() / frame_bytes) as u64;
+    Some((sample_frames * 44_100) / u64::from(wav.sample_rate))
+}
+
+/// Extract Adobe Flash-compatible cached sound bytes (`bin/sound*.dat` / legacy `M *` stream)
+/// and format metadata for valid PCM WAV (8/16-bit mono/stereo) or MP3 audio resources.
+pub fn build_flash_sound_cache(bytes: &[u8]) -> Option<FlashSoundCache> {
+    if let Some(wav) = parse_wav_chunks(bytes) {
+        if wav.audio_format != 1
+            || !matches!(wav.bits_per_sample, 8 | 16)
+            || !matches!(wav.channels, 1 | 2)
+        {
             return None;
         }
-        let payload = &bytes[payload_start..payload_end];
-        if tag == b"fmt " {
-            if payload.len() < 16 {
-                return None;
-            }
-            let channels = u16::from_le_bytes(payload[2..4].try_into().ok()?);
-            let sample_rate = u32::from_le_bytes(payload[4..8].try_into().ok()?);
-            let block_align = u16::from_le_bytes(payload[12..14].try_into().ok()?);
-            let bits = u16::from_le_bytes(payload[14..16].try_into().ok()?);
-            if channels == 0 || sample_rate == 0 {
-                return None;
-            }
-            let derived_align = usize::from(channels) * usize::from(bits.max(8)).div_ceil(8);
-            let frame_bytes = usize::from(block_align).max(derived_align).max(1);
-            fmt_info = Some((sample_rate, frame_bytes));
-        } else if tag == b"data" {
-            data_len = Some(payload.len());
+        let (rate_code, rate_label): (u16, &str) = if wav.sample_rate <= 6000 {
+            (0, "5kHz")
+        } else if wav.sample_rate <= 12000 {
+            (1, "11kHz")
+        } else if wav.sample_rate <= 24000 {
+            (2, "22kHz")
+        } else {
+            (3, "44kHz")
+        };
+        let size_bit = u16::from(wav.bits_per_sample >= 16);
+        let stereo_bit = u16::from(wav.channels >= 2);
+        let format_flags = (rate_code << 2) | (size_bit << 1) | stereo_bit;
+        let frame_bytes = usize::from(1 + stereo_bit) * usize::from(1 + size_bit);
+        let sample_count = (wav.data.len() / frame_bytes.max(1)) as u32;
+        if sample_count == 0 {
+            return None;
         }
-        pos = payload_end.saturating_add(chunk_len & 1);
+        let exact_pcm_len = (sample_count as usize).checked_mul(frame_bytes)?;
+        let bits_label = if size_bit == 1 { "16bit" } else { "8bit" };
+        let ch_label = if stereo_bit == 1 { "Stereo" } else { "Mono" };
+        return Some(FlashSoundCache {
+            format_flags,
+            format_label: format!("{rate_label} {bits_label} {ch_label}"),
+            sample_count,
+            data_length: None,
+            cache_bytes: wav.data[..exact_pcm_len].to_vec(),
+        });
     }
-    let (sample_rate, frame_bytes) = fmt_info?;
-    let data_bytes = data_len?;
-    if data_bytes < frame_bytes {
-        return None;
+    if looks_like_mp3(bytes) && !bytes.is_empty() {
+        let len_u32 = u32::try_from(bytes.len()).ok()?;
+        let mut cache_bytes = Vec::with_capacity(bytes.len() + 1);
+        cache_bytes.extend_from_slice(bytes);
+        // Binary/XFL sound media payloads follow compressed frames with a 1-byte
+        // secondary PCM marker (0 = no secondary decoded cache).
+        cache_bytes.push(0);
+        return Some(FlashSoundCache {
+            format_flags: 0x002f,
+            format_label: "44kHz 16bit Stereo".to_owned(),
+            sample_count: len_u32.saturating_mul(8).max(576),
+            data_length: Some(len_u32),
+            cache_bytes,
+        });
     }
-    let sample_frames = (data_bytes / frame_bytes) as u64;
-    Some((sample_frames * 44_100) / u64::from(sample_rate))
+    None
 }
 
 pub(crate) fn looks_like_mp3(bytes: &[u8]) -> bool {

@@ -4,10 +4,11 @@
 use crate::ExportError;
 use crate::fonts::{FontExportPolicy, apply_font_policy, convert_project_text_to_outlines};
 use neoflash_core::{
-    BlendMode, Color, Easing, Element, ElementKind, FilterSpec, GradientKind, GradientPaint, Id,
-    InstancePlayback, Keyframe, Layer, LayerRole, MaskMode, ObjectEvent, ObjectScript, PathCommand,
-    Project, ScriptLanguage, SoundEffect, SoundSync, Symbol, SymbolKind, TextAlign, Timeline,
-    Transform, TweenKind, sample_layer_in, transform_matrix,
+    BlendMode, Color, Easing, Element, ElementKind, FilterSpec, FrameSound, GradientKind,
+    GradientPaint, GradientSpread, Id, InstancePlayback, Keyframe, Layer, LayerRole, MaskMode,
+    ObjectEvent, ObjectScript, PathCommand, Project, ResourceUnit, ScriptLanguage, SoundEffect,
+    SoundSync, Symbol, SymbolKind, TextAlign, Timeline, Transform, TweenKind, sample_layer_in,
+    transform_matrix,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -214,6 +215,217 @@ fn preflight_filter_stack(
             );
         }
     }
+}
+
+pub(crate) fn is_valid_as3_qname(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    trimmed.split('.').all(|seg| {
+        let mut chars = seg.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+        (first.is_ascii_alphabetic() || matches!(first, '_' | '$'))
+            && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'))
+    })
+}
+
+pub(crate) fn is_internal_provenance_resource(res: &ResourceUnit) -> bool {
+    res.id == "fla-provenance"
+        || matches!(
+            res.path.as_str(),
+            "legacy/provenance.json"
+                | "legacy/import-provenance.json"
+                | "legacy/source.fla"
+                | "legacy/source.swf"
+        )
+        || matches!(
+            res.media_type.to_ascii_lowercase().as_str(),
+            "application/x-neoflash-fla-source"
+                | "application/x-neoflash-fla-provenance"
+                | "application/x-neoflash-swf-source"
+                | "application/x-neoflash-swf-provenance"
+                | "application/x-neoflash-swc-source"
+                | "application/x-neoflash-swc-provenance"
+        )
+}
+
+pub(crate) fn is_actionscript_resource(res: &ResourceUnit) -> bool {
+    let mime = res.media_type.trim().to_ascii_lowercase();
+    let is_as_ext = res.path.trim().to_ascii_lowercase().ends_with(".as");
+    mime == "text/x-actionscript"
+        || mime == "application/actionscript"
+        || mime == "application/x-actionscript"
+        || (is_as_ext
+            && (mime.is_empty() || mime == "text/plain" || mime == "application/javascript"))
+}
+
+pub(crate) fn is_unreferenced_sidecar_resource(project: &Project, res: &ResourceUnit) -> bool {
+    if is_actionscript_resource(res) {
+        return false;
+    }
+    let mime = res.media_type.trim().to_ascii_lowercase();
+    if !matches!(mime.as_str(), "text/plain" | "application/json") {
+        return false;
+    }
+    !project.symbols.iter().any(|sym| {
+        sym.timeline.layers.iter().any(|layer| {
+            layer.keyframes.iter().any(|kf| {
+                kf.sound.as_ref().is_some_and(|s| s.resource == res.id)
+                    || kf.elements.iter().any(|el| {
+                        matches!(&el.kind, ElementKind::Bitmap { resource_id, .. } if resource_id == &res.id)
+                    })
+            })
+        })
+    })
+}
+
+pub(crate) fn normalize_fla_bitmap_bytes(
+    bytes: &[u8],
+) -> Option<(Vec<u8>, &'static str, u32, u32)> {
+    let format = image::guess_format(bytes).ok()?;
+    let decoded = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .decode()
+        .ok()?;
+    let (w, h) = (decoded.width(), decoded.height());
+    if w == 0 || h == 0 {
+        return None;
+    }
+    match format {
+        image::ImageFormat::Png => Some((bytes.to_vec(), "png", w, h)),
+        image::ImageFormat::Jpeg => Some((bytes.to_vec(), "jpg", w, h)),
+        _ => {
+            let mut png = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut png);
+            decoded
+                .into_rgba8()
+                .write_to(&mut cursor, image::ImageFormat::Png)
+                .ok()?;
+            Some((png, "png", w, h))
+        }
+    }
+}
+
+pub(crate) fn inspect_wav_pcm_duration_44(bytes: &[u8]) -> Option<u64> {
+    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return None;
+    }
+    let mut pos = 12usize;
+    let mut fmt_info: Option<(u32, usize)> = None;
+    let mut data_len: Option<usize> = None;
+    while pos + 8 <= bytes.len() {
+        let tag = &bytes[pos..pos + 4];
+        let chunk_len = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().ok()?) as usize;
+        let payload_start = pos + 8;
+        let payload_end = payload_start.checked_add(chunk_len)?;
+        if payload_end > bytes.len() {
+            return None;
+        }
+        let payload = &bytes[payload_start..payload_end];
+        if tag == b"fmt " {
+            if payload.len() < 16 {
+                return None;
+            }
+            let audio_format = u16::from_le_bytes(payload[0..2].try_into().ok()?);
+            if audio_format != 1 {
+                return None;
+            }
+            let channels = u16::from_le_bytes(payload[2..4].try_into().ok()?);
+            let sample_rate = u32::from_le_bytes(payload[4..8].try_into().ok()?);
+            let block_align = u16::from_le_bytes(payload[12..14].try_into().ok()?);
+            let bits = u16::from_le_bytes(payload[14..16].try_into().ok()?);
+            if channels == 0 || sample_rate == 0 || bits == 0 {
+                return None;
+            }
+            let derived_align = usize::from(channels) * usize::from(bits.max(8)).div_ceil(8);
+            let frame_bytes = usize::from(block_align).max(derived_align).max(1);
+            fmt_info = Some((sample_rate, frame_bytes));
+        } else if tag == b"data" {
+            data_len = Some(payload.len());
+        }
+        pos = payload_end.saturating_add(chunk_len & 1);
+    }
+    let (sample_rate, frame_bytes) = fmt_info?;
+    let data_bytes = data_len?;
+    if data_bytes < frame_bytes {
+        return None;
+    }
+    let sample_frames = (data_bytes / frame_bytes) as u64;
+    Some((sample_frames * 44_100) / u64::from(sample_rate))
+}
+
+pub(crate) fn looks_like_mp3_bytes(bytes: &[u8]) -> bool {
+    let mut start = 0usize;
+    if bytes.len() >= 10
+        && &bytes[..3] == b"ID3"
+        && (bytes[6] | bytes[7] | bytes[8] | bytes[9]) & 0x80 == 0
+    {
+        let tag_len = ((bytes[6] as usize) << 21)
+            | ((bytes[7] as usize) << 14)
+            | ((bytes[8] as usize) << 7)
+            | (bytes[9] as usize);
+        let footer = if (bytes[5] & 0x10) != 0 { 10 } else { 0 };
+        start = (10 + tag_len + footer).min(bytes.len());
+    }
+    let end = bytes
+        .len()
+        .saturating_sub(3)
+        .min(start.saturating_add(4096));
+    (start..end).any(|i| {
+        let h = &bytes[i..i + 4];
+        h[0] == 0xff
+            && (h[1] & 0xe0) == 0xe0
+            && ((h[1] >> 3) & 3) != 1
+            && ((h[1] >> 1) & 3) != 0
+            && ((h[2] >> 4) & 0xf) != 0xf
+            && ((h[2] >> 2) & 3) != 3
+    })
+}
+
+pub(crate) fn inspect_audio_codec(bytes: &[u8]) -> Option<(&'static str, u64)> {
+    if let Some(duration_44) = inspect_wav_pcm_duration_44(bytes) {
+        return Some(("wav", duration_44));
+    }
+    looks_like_mp3_bytes(bytes).then_some(("mp3", 44_100))
+}
+
+pub(crate) fn encode_sound_envelope_points(
+    snd: &FrameSound,
+    duration_44: u64,
+) -> Vec<(u64, u32, u32)> {
+    let raw = snd.envelope_points();
+    let denom = if duration_44 > 0 { duration_44 } else { 44_100 };
+    let mut encoded: Vec<(u64, u32, u32)> = raw
+        .into_iter()
+        .take(FrameSound::MAX_ENVELOPE_POINTS)
+        .map(|[pos, left, right]| {
+            let p = if pos.is_finite() {
+                pos.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let l = if left.is_finite() {
+                left.clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            let r = if right.is_finite() {
+                right.clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            let mark44 = (p * denom as f64).round() as u64;
+            let level0 = (l * 32_768.0).round() as u32;
+            let level1 = (r * 32_768.0).round() as u32;
+            (mark44, level0, level1)
+        })
+        .collect();
+    encoded.sort_by_key(|pt| pt.0);
+    encoded
 }
 
 /// How an authored feature is handled for a target FLA/XFL or SWF profile.
@@ -452,6 +664,46 @@ pub fn preflight_fla_export_with_options(
         );
     }
 
+    let scene_ids: Vec<&str> = if project.scenes.is_empty() {
+        vec![project.root.as_str()]
+    } else {
+        project.scenes.iter().map(String::as_str).collect()
+    };
+    let scene_set: BTreeSet<&str> = scene_ids.iter().copied().collect();
+    let library_symbol_count = project
+        .symbols
+        .iter()
+        .filter(|sym| !scene_set.contains(sym.id.as_str()))
+        .count();
+
+    if profile.is_legacy_binary() {
+        if scene_ids.len() >= usize::from(u16::MAX) {
+            report.push(
+                "legacy_scene_count_limit",
+                FlaFeatureCategory::Scenes,
+                FlaFeatureDisposition::Blocking,
+                "Project.scenes",
+                format!(
+                    "Scene count {} reaches or exceeds legacy binary FLA u16 limit ({}).",
+                    scene_ids.len(),
+                    usize::from(u16::MAX) - 1
+                ),
+            );
+        }
+        if library_symbol_count >= usize::from(u16::MAX) {
+            report.push(
+                "legacy_symbol_count_limit",
+                FlaFeatureCategory::SymbolsAndLibrary,
+                FlaFeatureDisposition::Blocking,
+                "Project.symbols",
+                format!(
+                    "Library symbol count {library_symbol_count} reaches or exceeds legacy binary FLA u16 limit ({}).",
+                    usize::from(u16::MAX) - 1
+                ),
+            );
+        }
+    }
+
     if project.scenes.len() > 1 {
         report.push(
             "scenes_preserved",
@@ -465,12 +717,14 @@ pub fn preflight_fla_export_with_options(
         );
     }
 
-    // 2. Collect script languages across the project
+    // 2. Collect script languages across the project & check bundled paths / limits
     let mut has_avm1 = false;
     let mut has_avm2 = false;
     let mut has_web_scripts = false;
+    let mut source_archive_paths: BTreeMap<String, String> = BTreeMap::new();
+    let mut bundled_script_count = 0usize;
 
-    for src in &project.sources {
+    for (idx, src) in project.sources.iter().enumerate() {
         let loc = format!("SourceUnit({})", src.path);
         classify_script_language(
             src.language,
@@ -487,29 +741,67 @@ pub fn preflight_fla_export_with_options(
             ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
         ) || (profile.supports_as3()
             && src.language == ScriptLanguage::ActionScript3);
-        if profile.is_legacy_binary() && lang_supported {
-            report.push(
-                "legacy_fla_external_source_approximated",
-                FlaFeatureCategory::Scripts,
-                if options.allow_approximations || options.strip_unsupported_scripts {
-                    FlaFeatureDisposition::Approximated
-                } else {
-                    FlaFeatureDisposition::Blocking
-                },
-                &loc,
-                format!(
-                    "External source file {:?} cannot be stored as a standalone file inside a single-file binary CFB .fla archive ({}); it is preserved in Contents document properties.",
-                    src.path,
-                    profile.label()
-                ),
-            );
+        if lang_supported {
+            bundled_script_count += 1;
+            let rel_path = sanitize_source_rel_path(&src.path, idx);
+            let lower = rel_path.to_ascii_lowercase();
+            if lower == "mimetype"
+                || lower == "publishsettings.xml"
+                || lower == "domdocument.xml"
+                || lower.starts_with("meta-inf/")
+                || lower.starts_with("library/")
+                || source_archive_paths
+                    .insert(lower, format!("SourceUnit({})", src.path))
+                    .is_some()
+            {
+                report.push(
+                    "archive_path_collision",
+                    FlaFeatureCategory::Scripts,
+                    FlaFeatureDisposition::Blocking,
+                    &loc,
+                    format!(
+                        "Source path {:?} (normalized {:?}) collides with an existing bundled script or XFL package path.",
+                        src.path, rel_path
+                    ),
+                );
+            }
+            if profile.is_legacy_binary() {
+                report.push(
+                    "legacy_fla_external_source_approximated",
+                    FlaFeatureCategory::Scripts,
+                    if options.allow_approximations || options.strip_unsupported_scripts {
+                        FlaFeatureDisposition::Approximated
+                    } else {
+                        FlaFeatureDisposition::Blocking
+                    },
+                    &loc,
+                    format!(
+                        "External source file {:?} cannot be stored as a standalone file inside a single-file binary CFB .fla archive ({}); it is preserved in Contents document properties.",
+                        src.path,
+                        profile.label()
+                    ),
+                );
+            }
         }
     }
 
     if let Some(doc_class) = &project.document_class
         && !doc_class.trim().is_empty()
     {
-        if profile.supports_as3() {
+        has_avm2 = true;
+        let trimmed = doc_class.trim();
+        if !is_valid_as3_qname(trimmed) {
+            report.push(
+                "document_class_invalid",
+                FlaFeatureCategory::Scripts,
+                FlaFeatureDisposition::Blocking,
+                "Project.document_class",
+                format!(
+                    "Document class {:?} is not a valid ActionScript 3 qualified class name.",
+                    trimmed
+                ),
+            );
+        } else if profile.supports_as3() {
             report.push(
                 "document_class_preserved",
                 FlaFeatureCategory::Scripts,
@@ -521,14 +813,14 @@ pub fn preflight_fla_export_with_options(
             report.push(
                 "document_class_unsupported",
                 FlaFeatureCategory::Scripts,
-                if options.strip_unsupported_scripts || options.allow_approximations {
+                if options.strip_unsupported_scripts {
                     FlaFeatureDisposition::Omitted
                 } else {
                     FlaFeatureDisposition::Blocking
                 },
                 "Project.document_class",
                 format!(
-                    "Document class {:?} requires ActionScript 3.0 and is omitted in {}.",
+                    "Document class {:?} requires ActionScript 3.0 and cannot be used in {}.",
                     doc_class,
                     profile.label()
                 ),
@@ -536,7 +828,7 @@ pub fn preflight_fla_export_with_options(
         }
     }
 
-    // 3. Library folders & resources
+    // 3. Library folders & resources (bitmaps, sounds, fonts, .as includes)
     if !project.library_folders.is_empty() {
         report.push(
             "library_folders_preserved",
@@ -550,38 +842,319 @@ pub fn preflight_fla_export_with_options(
         );
     }
 
+    let mut bitmap_smoothing_flags: BTreeMap<&str, (bool, bool)> = BTreeMap::new();
+    for sym in &project.symbols {
+        for layer in &sym.timeline.layers {
+            for kf in &layer.keyframes {
+                for el in &kf.elements {
+                    if let ElementKind::Bitmap {
+                        resource_id,
+                        smoothing,
+                        ..
+                    } = &el.kind
+                    {
+                        let entry = bitmap_smoothing_flags
+                            .entry(resource_id.as_str())
+                            .or_insert((false, false));
+                        if *smoothing {
+                            entry.0 = true;
+                        } else {
+                            entry.1 = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut legacy_media_count = 0usize;
+    let mut seen_res_names_lower: BTreeSet<String> = BTreeSet::new();
+    let mut sound_ids: BTreeSet<Id> = BTreeSet::new();
+    let mut bitmap_ids: BTreeSet<Id> = BTreeSet::new();
+
     for res in &project.resources {
+        if is_internal_provenance_resource(res) {
+            continue;
+        }
         let loc = format!("Resource({})", res.path);
-        let mime = res.media_type.to_ascii_lowercase();
-        if mime.starts_with("image/") || mime.starts_with("audio/") {
-            report.push(
-                "media_resource_preserved",
-                FlaFeatureCategory::MediaAndSound,
-                FlaFeatureDisposition::Exact,
-                loc,
-                format!("Media asset ({}) is bundled.", res.media_type),
-            );
+        let mime = res.media_type.trim().to_ascii_lowercase();
+        if mime.starts_with("image/") {
+            bitmap_ids.insert(res.id.clone());
+            legacy_media_count += 1;
+            match res.decoded_bytes() {
+                Err(err) => {
+                    report.push(
+                        "media_resource_corrupt",
+                        FlaFeatureCategory::MediaAndSound,
+                        FlaFeatureDisposition::Blocking,
+                        loc,
+                        format!("Image resource payload failed base64 decoding: {err}"),
+                    );
+                }
+                Ok(raw) => match normalize_fla_bitmap_bytes(&raw) {
+                    None => {
+                        report.push(
+                            "media_resource_unsupported_codec",
+                            FlaFeatureCategory::MediaAndSound,
+                            FlaFeatureDisposition::Blocking,
+                            loc,
+                            format!(
+                                "Image resource ({}) cannot be decoded into a supported Flash bitmap (PNG/JPEG/GIF/BMP/WebP/TIFF).",
+                                res.media_type
+                            ),
+                        );
+                    }
+                    Some((_, _, w, h)) => {
+                        if profile.is_legacy_binary() && (w > 4096 || h > 4096) {
+                            report.push(
+                                "legacy_bitmap_dimension_limit",
+                                FlaFeatureCategory::MediaAndSound,
+                                FlaFeatureDisposition::Blocking,
+                                loc,
+                                format!(
+                                    "Bitmap dimensions {w}x{h} exceed legacy binary FLA maximum of 4096x4096 px."
+                                ),
+                            );
+                        } else if bitmap_smoothing_flags
+                            .get(res.id.as_str())
+                            .is_some_and(|&(t, f)| t && f)
+                        {
+                            report.push(
+                                "bitmap_smoothing_shared_item",
+                                FlaFeatureCategory::MediaAndSound,
+                                if options.allow_approximations {
+                                    FlaFeatureDisposition::Approximated
+                                } else {
+                                    FlaFeatureDisposition::Blocking
+                                },
+                                loc,
+                                "Bitmap instances referencing this library asset disagree on allowSmoothing; FLA/XFL stores smoothing per library DOMBitmapItem.".to_owned(),
+                            );
+                        } else {
+                            report.push(
+                                "media_resource_preserved",
+                                FlaFeatureCategory::MediaAndSound,
+                                FlaFeatureDisposition::Exact,
+                                loc,
+                                format!("Media asset ({}) is bundled.", res.media_type),
+                            );
+                        }
+                    }
+                },
+            }
+        } else if mime.starts_with("audio/") {
+            sound_ids.insert(res.id.clone());
+            legacy_media_count += 1;
+            match res.decoded_bytes() {
+                Err(err) => {
+                    report.push(
+                        "media_resource_corrupt",
+                        FlaFeatureCategory::MediaAndSound,
+                        FlaFeatureDisposition::Blocking,
+                        loc,
+                        format!("Audio resource payload failed base64 decoding: {err}"),
+                    );
+                }
+                Ok(raw) => match inspect_audio_codec(&raw) {
+                    None => {
+                        report.push(
+                            "media_resource_unsupported_codec",
+                            FlaFeatureCategory::MediaAndSound,
+                            FlaFeatureDisposition::Blocking,
+                            loc,
+                            format!(
+                                "Audio resource ({}) is not a supported Flash audio stream (PCM WAV or valid MP3); export is blocked instead of silently corrupting or dropping it.",
+                                res.media_type
+                            ),
+                        );
+                    }
+                    Some((ext, _)) => {
+                        report.push(
+                            "media_resource_preserved",
+                            FlaFeatureCategory::MediaAndSound,
+                            FlaFeatureDisposition::Exact,
+                            loc,
+                            format!("Audio asset ({ext}) is bundled."),
+                        );
+                    }
+                },
+            }
         } else if crate::fonts::is_font_resource(res) {
-            let disp = if options.outline_unsupported_text
-                || options.font_policy == FontExportPolicy::Outlines
-            {
-                FlaFeatureDisposition::Outlined
-            } else if profile.is_legacy_binary() {
-                FlaFeatureDisposition::Approximated
+            if let Err(err) = res.decoded_bytes() {
+                report.push(
+                    "font_resource_corrupt",
+                    FlaFeatureCategory::TextAndFonts,
+                    FlaFeatureDisposition::Blocking,
+                    loc,
+                    format!("Font resource failed decoding: {err}"),
+                );
             } else {
-                FlaFeatureDisposition::Exact
-            };
+                let disp = if options.outline_unsupported_text
+                    || options.font_policy == FontExportPolicy::Outlines
+                {
+                    FlaFeatureDisposition::Outlined
+                } else if profile.is_legacy_binary() {
+                    FlaFeatureDisposition::Approximated
+                } else {
+                    FlaFeatureDisposition::Exact
+                };
+                report.push(
+                    "font_resource",
+                    FlaFeatureCategory::TextAndFonts,
+                    disp,
+                    loc,
+                    "Embedded font resource inspected for target profile.".to_owned(),
+                );
+            }
+        } else if is_actionscript_resource(res) {
+            match res.decoded_bytes() {
+                Err(err) => {
+                    report.push(
+                        "script_resource_invalid",
+                        FlaFeatureCategory::Scripts,
+                        FlaFeatureDisposition::Blocking,
+                        loc,
+                        format!("ActionScript resource failed base64 decoding: {err}"),
+                    );
+                }
+                Ok(bytes) => {
+                    if bytes.len() > 1_048_576 {
+                        report.push(
+                            "script_resource_invalid",
+                            FlaFeatureCategory::Scripts,
+                            FlaFeatureDisposition::Blocking,
+                            loc,
+                            "ActionScript #include resource exceeds 1 MiB limit.".to_owned(),
+                        );
+                    } else if let Err(err) = std::str::from_utf8(&bytes) {
+                        report.push(
+                            "script_resource_invalid",
+                            FlaFeatureCategory::Scripts,
+                            FlaFeatureDisposition::Blocking,
+                            loc,
+                            format!("ActionScript #include resource is not valid UTF-8: {err}"),
+                        );
+                    } else {
+                        let rel = sanitize_source_rel_path(&res.path, 0);
+                        let lower = rel.to_ascii_lowercase();
+                        if let Some(existing) = source_archive_paths.get(&lower) {
+                            let same_as_source =
+                                project.sources.iter().enumerate().any(|(i, s)| {
+                                    sanitize_source_rel_path(&s.path, i).eq_ignore_ascii_case(&rel)
+                                        && s.source.as_bytes() == bytes.as_slice()
+                                });
+                            if !same_as_source {
+                                report.push(
+                                    "archive_path_collision",
+                                    FlaFeatureCategory::Scripts,
+                                    FlaFeatureDisposition::Blocking,
+                                    &loc,
+                                    format!(
+                                        "ActionScript resource {:?} collides with {existing} at archive path {:?}.",
+                                        res.path, rel
+                                    ),
+                                );
+                            }
+                        } else if !seen_res_names_lower.insert(lower) {
+                            report.push(
+                                "archive_path_collision",
+                                FlaFeatureCategory::Scripts,
+                                FlaFeatureDisposition::Blocking,
+                                &loc,
+                                format!("Duplicate ActionScript resource archive path {:?}.", rel),
+                            );
+                        } else {
+                            bundled_script_count += 1;
+                            if profile.is_legacy_binary() {
+                                report.push(
+                                    "legacy_fla_external_source_approximated",
+                                    FlaFeatureCategory::Scripts,
+                                    if options.allow_approximations
+                                        || options.strip_unsupported_scripts
+                                    {
+                                        FlaFeatureDisposition::Approximated
+                                    } else {
+                                        FlaFeatureDisposition::Blocking
+                                    },
+                                    &loc,
+                                    format!(
+                                        "Bundled ActionScript include {:?} is preserved in Contents document properties for {}.",
+                                        res.path,
+                                        profile.label()
+                                    ),
+                                );
+                            } else {
+                                report.push(
+                                    "script_include_preserved",
+                                    FlaFeatureCategory::Scripts,
+                                    FlaFeatureDisposition::Exact,
+                                    &loc,
+                                    format!("ActionScript include {:?} is bundled.", res.path),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        } else if is_unreferenced_sidecar_resource(project, res) {
             report.push(
-                "font_resource",
-                FlaFeatureCategory::TextAndFonts,
-                disp,
+                "non_flash_sidecar_omitted",
+                FlaFeatureCategory::MediaAndSound,
+                if options.allow_approximations {
+                    FlaFeatureDisposition::Approximated
+                } else {
+                    FlaFeatureDisposition::Blocking
+                },
                 loc,
-                "Embedded font resource inspected for target profile.".to_owned(),
+                format!(
+                    "Unreferenced text/JSON sidecar resource {:?} ({}) is omitted from {}.",
+                    res.path,
+                    res.media_type,
+                    profile.label()
+                ),
+            );
+        } else {
+            report.push(
+                "resource_unsupported",
+                FlaFeatureCategory::MediaAndSound,
+                FlaFeatureDisposition::Blocking,
+                loc,
+                format!(
+                    "Resource media type {:?} is not representable in {} and cannot be silently omitted.",
+                    res.media_type,
+                    profile.label()
+                ),
             );
         }
     }
 
+    if bundled_script_count > 1024 {
+        report.push(
+            "source_count_limit",
+            FlaFeatureCategory::Scripts,
+            FlaFeatureDisposition::Blocking,
+            "Project.sources",
+            format!(
+                "Project contains {bundled_script_count} external ActionScript files, exceeding the 1024-file FLA/XFL limit."
+            ),
+        );
+    }
+    if profile.is_legacy_binary() && legacy_media_count >= usize::from(u16::MAX) {
+        report.push(
+            "legacy_media_count_limit",
+            FlaFeatureCategory::MediaAndSound,
+            FlaFeatureDisposition::Blocking,
+            "Project.resources",
+            format!(
+                "Media library item count {legacy_media_count} reaches or exceeds legacy binary FLA u16 limit ({}).",
+                usize::from(u16::MAX) - 1
+            ),
+        );
+    }
+
     // 4. Symbols, timelines, layers, keyframes, elements, scripts
+    let mut used_classes: BTreeSet<String> = BTreeSet::new();
+    let mut used_linkages: BTreeSet<String> = BTreeSet::new();
     for sym in &project.symbols {
         let sym_loc = format!("Symbol({})", sym.name);
         if sym.scale9_grid().is_some() {
@@ -601,17 +1174,71 @@ pub fn preflight_fla_export_with_options(
 
         if let Some(cls) = &sym.class_name
             && !cls.trim().is_empty()
-            && !profile.supports_as3()
+        {
+            let trimmed = cls.trim();
+            if !is_valid_as3_qname(trimmed) {
+                report.push(
+                    "symbol_class_invalid",
+                    FlaFeatureCategory::SymbolsAndLibrary,
+                    FlaFeatureDisposition::Blocking,
+                    &sym_loc,
+                    format!(
+                        "Symbol class {:?} is not a valid ActionScript 3 qualified class name.",
+                        trimmed
+                    ),
+                );
+            } else if !used_classes.insert(trimmed.to_owned()) {
+                report.push(
+                    "symbol_duplicate_linkage",
+                    FlaFeatureCategory::SymbolsAndLibrary,
+                    FlaFeatureDisposition::Blocking,
+                    &sym_loc,
+                    format!(
+                        "Duplicate symbol className {:?} across library symbols.",
+                        trimmed
+                    ),
+                );
+            } else if profile.supports_as3() {
+                has_avm2 = true;
+            } else {
+                report.push(
+                    "symbol_as3_class_converted",
+                    FlaFeatureCategory::SymbolsAndLibrary,
+                    FlaFeatureDisposition::Converted,
+                    &sym_loc,
+                    format!(
+                        "Symbol class {:?} converted to AVM1 linkage identifier for {}.",
+                        trimmed,
+                        profile.label()
+                    ),
+                );
+            }
+        }
+        if let Some(lid) = &sym.linkage_id
+            && !lid.trim().is_empty()
+            && !used_linkages.insert(lid.trim().to_owned())
         {
             report.push(
-                "symbol_as3_class_converted",
+                "symbol_duplicate_linkage",
                 FlaFeatureCategory::SymbolsAndLibrary,
-                FlaFeatureDisposition::Converted,
+                FlaFeatureDisposition::Blocking,
                 &sym_loc,
                 format!(
-                    "Symbol class {:?} converted to AVM1 linkage identifier for {}.",
-                    cls,
-                    profile.label()
+                    "Duplicate symbol linkageIdentifier {:?} across library symbols.",
+                    lid.trim()
+                ),
+            );
+        }
+
+        if profile.is_legacy_binary() && sym.timeline.layers.len() >= usize::from(u16::MAX) {
+            report.push(
+                "legacy_layer_count_limit",
+                FlaFeatureCategory::LayersAndMasks,
+                FlaFeatureDisposition::Blocking,
+                &sym_loc,
+                format!(
+                    "Layer count {} reaches or exceeds legacy binary FLA u16 limit.",
+                    sym.timeline.layers.len()
                 ),
             );
         }
@@ -633,11 +1260,14 @@ pub fn preflight_fla_export_with_options(
         for layer in &sym.timeline.layers {
             let layer_loc = format!("{}/Layer({})", sym_loc, layer.name);
             preflight_layer(
+                project,
                 sym,
                 layer,
                 &layer_loc,
                 profile,
                 options,
+                &bitmap_ids,
+                &sound_ids,
                 &mut has_avm1,
                 &mut has_avm2,
                 &mut has_web_scripts,
@@ -741,11 +1371,14 @@ fn classify_script_language(
 
 #[allow(clippy::too_many_arguments)]
 fn preflight_layer(
-    _sym: &Symbol,
+    project: &Project,
+    sym: &Symbol,
     layer: &Layer,
     layer_loc: &str,
     profile: FlaTargetProfile,
     options: &FlaExportOptions,
+    bitmap_ids: &BTreeSet<Id>,
+    sound_ids: &BTreeSet<Id>,
     has_avm1: &mut bool,
     has_avm2: &mut bool,
     has_web_scripts: &mut bool,
@@ -793,12 +1426,12 @@ fn preflight_layer(
 
     // Layer Z-depth & camera attachment
     if props.z_depth != 0.0 || props.attach_to_camera {
-        let disp = if profile.supports_modern_layer_effects() {
-            FlaFeatureDisposition::Approximated
-        } else if options.bake_unsupported_tweens {
+        let disp = if options.bake_unsupported_tweens {
             FlaFeatureDisposition::Baked
-        } else {
+        } else if options.allow_approximations && profile.supports_modern_layer_effects() {
             FlaFeatureDisposition::Approximated
+        } else {
+            FlaFeatureDisposition::Blocking
         };
         report.push(
             "layer_z_depth_camera",
@@ -825,8 +1458,34 @@ fn preflight_layer(
         );
     }
 
-    for kf in &layer.keyframes {
+    let frame_count = sym.timeline.frame_count.max(1);
+    let effective_end = props
+        .end_frame
+        .unwrap_or(frame_count)
+        .min(frame_count)
+        .max(1);
+    let mut sorted_kfs: Vec<&Keyframe> = layer.keyframes.iter().collect();
+    sorted_kfs.sort_by_key(|k| k.frame);
+    for (idx, kf) in sorted_kfs.iter().enumerate() {
         let kf_loc = format!("{}:frame[{}]", layer_loc, kf.frame);
+        if profile.is_legacy_binary() && kf.frame < effective_end {
+            let next_start = sorted_kfs
+                .get(idx + 1)
+                .map(|n| n.frame.min(effective_end))
+                .unwrap_or(effective_end);
+            let duration = next_start.saturating_sub(kf.frame).max(1);
+            if duration > u32::from(u16::MAX) {
+                report.push(
+                    "legacy_frame_duration_limit",
+                    FlaFeatureCategory::AnimationAndRigging,
+                    FlaFeatureDisposition::Blocking,
+                    &kf_loc,
+                    format!(
+                        "Keyframe hold duration ({duration} frames) exceeds legacy binary FLA u16 limit (65535)."
+                    ),
+                );
+            }
+        }
         preflight_filter_stack(&kf.filters, &kf_loc, profile, report);
         for el in &kf.elements {
             let effective_filter_count = props.filters.len() + kf.filters.len() + el.filters.len();
@@ -844,10 +1503,13 @@ fn preflight_layer(
             }
         }
         preflight_keyframe(
+            project,
             kf,
             &kf_loc,
             profile,
             options,
+            bitmap_ids,
+            sound_ids,
             has_avm1,
             has_avm2,
             has_web_scripts,
@@ -858,10 +1520,13 @@ fn preflight_layer(
 
 #[allow(clippy::too_many_arguments)]
 fn preflight_keyframe(
+    project: &Project,
     kf: &Keyframe,
     kf_loc: &str,
     profile: FlaTargetProfile,
     options: &FlaExportOptions,
+    bitmap_ids: &BTreeSet<Id>,
+    sound_ids: &BTreeSet<Id>,
     has_avm1: &mut bool,
     has_avm2: &mut bool,
     has_web_scripts: &mut bool,
@@ -879,23 +1544,22 @@ fn preflight_keyframe(
                         if profile.is_legacy_binary() {
                             if options.bake_unsupported_tweens {
                                 FlaFeatureDisposition::Baked
-                            } else {
+                            } else if options.allow_approximations {
                                 FlaFeatureDisposition::Approximated
+                            } else {
+                                FlaFeatureDisposition::Blocking
                             }
                         } else {
                             FlaFeatureDisposition::Exact
                         }
                     }
                     Easing::Bounce | Easing::Elastic => {
-                        if matches!(
-                            profile,
-                            FlaTargetProfile::AnimateCC | FlaTargetProfile::UncompressedXfl
-                        ) {
-                            FlaFeatureDisposition::Exact
-                        } else if options.bake_unsupported_tweens {
+                        if options.bake_unsupported_tweens {
                             FlaFeatureDisposition::Baked
-                        } else {
+                        } else if options.allow_approximations {
                             FlaFeatureDisposition::Approximated
+                        } else {
+                            FlaFeatureDisposition::Blocking
                         }
                     }
                 };
@@ -974,7 +1638,7 @@ fn preflight_keyframe(
     if kf.camera.is_some() {
         let disp = if options.bake_unsupported_tweens {
             FlaFeatureDisposition::Baked
-        } else if profile.supports_modern_layer_effects() {
+        } else if options.allow_approximations && profile.supports_modern_layer_effects() {
             FlaFeatureDisposition::Approximated
         } else {
             FlaFeatureDisposition::Blocking
@@ -995,8 +1659,10 @@ fn preflight_keyframe(
     {
         let disp = if options.bake_unsupported_tweens {
             FlaFeatureDisposition::Baked
-        } else {
+        } else if options.allow_approximations {
             FlaFeatureDisposition::Approximated
+        } else {
+            FlaFeatureDisposition::Blocking
         };
         report.push(
             "advanced_keyframe_modifiers",
@@ -1009,20 +1675,37 @@ fn preflight_keyframe(
 
     // Frame sound
     if let Some(snd) = &kf.sound {
-        let disp = if (snd.envelope.is_some() || snd.in_point.is_some() || snd.out_point.is_some())
-            && profile.is_legacy_binary()
-        {
-            FlaFeatureDisposition::Approximated
+        if !sound_ids.contains(&snd.resource) {
+            report.push(
+                "missing_sound_resource",
+                FlaFeatureCategory::MediaAndSound,
+                FlaFeatureDisposition::Blocking,
+                kf_loc,
+                format!(
+                    "Frame sound references unknown resource {:?}.",
+                    snd.resource
+                ),
+            );
         } else {
-            FlaFeatureDisposition::Exact
-        };
-        report.push(
-            "frame_sound",
-            FlaFeatureCategory::MediaAndSound,
-            disp,
-            kf_loc,
-            format!("Frame sound ({:?}) inspected.", snd.sync),
-        );
+            let has_trim_or_env =
+                snd.envelope.is_some() || snd.in_point.is_some() || snd.out_point.is_some();
+            let disp = if has_trim_or_env && profile.is_legacy_binary() {
+                if options.allow_approximations {
+                    FlaFeatureDisposition::Approximated
+                } else {
+                    FlaFeatureDisposition::Blocking
+                }
+            } else {
+                FlaFeatureDisposition::Exact
+            };
+            report.push(
+                "frame_sound",
+                FlaFeatureCategory::MediaAndSound,
+                disp,
+                kf_loc,
+                format!("Frame sound ({:?}) inspected.", snd.sync),
+            );
+        }
     }
 
     if kf.video.is_some() {
@@ -1044,10 +1727,12 @@ fn preflight_keyframe(
     for el in &kf.elements {
         let el_loc = format!("{}/Element({})", kf_loc, el.id);
         preflight_element(
+            project,
             el,
             &el_loc,
             profile,
             options,
+            bitmap_ids,
             has_avm1,
             has_avm2,
             has_web_scripts,
@@ -1058,10 +1743,12 @@ fn preflight_keyframe(
 
 #[allow(clippy::too_many_arguments)]
 fn preflight_element(
+    project: &Project,
     el: &Element,
     el_loc: &str,
     profile: FlaTargetProfile,
     options: &FlaExportOptions,
+    bitmap_ids: &BTreeSet<Id>,
     has_avm1: &mut bool,
     has_avm2: &mut bool,
     has_web_scripts: &mut bool,
@@ -1080,6 +1767,84 @@ fn preflight_element(
             has_web_scripts,
             report,
         );
+        if os.script.source.trim().is_empty() {
+            continue;
+        }
+        if os.script.language == ScriptLanguage::ActionScript3 {
+            report.push(
+                "object_script_as3_unsupported",
+                FlaFeatureCategory::Scripts,
+                if options.strip_unsupported_scripts {
+                    FlaFeatureDisposition::Omitted
+                } else {
+                    FlaFeatureDisposition::Blocking
+                },
+                &os_loc,
+                "ActionScript 3.0 does not support instance object scripts (on/onClipEvent); convert to frame scripts or a class.".to_owned(),
+            );
+        } else if matches!(
+            os.script.language,
+            ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+        ) {
+            match &el.kind {
+                ElementKind::Instance {
+                    symbol_id,
+                    playback,
+                } => {
+                    let target_kind = project
+                        .symbols
+                        .iter()
+                        .find(|s| &s.id == symbol_id)
+                        .map(|s| s.kind);
+                    if target_kind == Some(SymbolKind::Graphic)
+                        || !matches!(playback, InstancePlayback::Independent)
+                    {
+                        report.push(
+                            "object_script_invalid_target",
+                            FlaFeatureCategory::Scripts,
+                            if options.strip_unsupported_scripts {
+                                FlaFeatureDisposition::Omitted
+                            } else {
+                                FlaFeatureDisposition::Blocking
+                            },
+                            &os_loc,
+                            "Graphic symbol instances cannot carry Flash object scripts; use a MovieClip or Button instance.".to_owned(),
+                        );
+                    } else if target_kind == Some(SymbolKind::Button)
+                        && !matches!(os.event, ObjectEvent::Click)
+                        && !script_starts_with_event_wrapper(&os.script.source)
+                    {
+                        report.push(
+                            "object_script_invalid_button_event",
+                            FlaFeatureCategory::Scripts,
+                            if options.strip_unsupported_scripts {
+                                FlaFeatureDisposition::Omitted
+                            } else {
+                                FlaFeatureDisposition::Blocking
+                            },
+                            &os_loc,
+                            format!(
+                                "Button instances only support click/key events in Flash, not {:?}.",
+                                os.event
+                            ),
+                        );
+                    }
+                }
+                _ => {
+                    report.push(
+                        "object_script_invalid_target",
+                        FlaFeatureCategory::Scripts,
+                        if options.strip_unsupported_scripts {
+                            FlaFeatureDisposition::Omitted
+                        } else {
+                            FlaFeatureDisposition::Blocking
+                        },
+                        &os_loc,
+                        "Object scripts on non-symbol elements (shapes/bitmaps/text/video) cannot run in Flash; convert the element to a symbol first.".to_owned(),
+                    );
+                }
+            }
+        }
     }
 
     // Filters & Blend modes
@@ -1089,8 +1854,22 @@ fn preflight_element(
             el.kind,
             ElementKind::Instance { .. } | ElementKind::Text { .. } | ElementKind::TextBox { .. }
         );
-        let disp = if profile.is_legacy_binary() && !is_instance_or_text {
-            FlaFeatureDisposition::Approximated
+        let disp = if matches!(el.kind, ElementKind::Bitmap { .. }) {
+            if profile.is_legacy_binary() || !el.blend_mode.is_normal() {
+                if options.allow_approximations {
+                    FlaFeatureDisposition::Approximated
+                } else {
+                    FlaFeatureDisposition::Blocking
+                }
+            } else {
+                FlaFeatureDisposition::Exact
+            }
+        } else if profile.is_legacy_binary() && !is_instance_or_text {
+            if options.allow_approximations {
+                FlaFeatureDisposition::Approximated
+            } else {
+                FlaFeatureDisposition::Blocking
+            }
         } else {
             FlaFeatureDisposition::Exact
         };
@@ -1135,6 +1914,44 @@ fn preflight_element(
             );
         }
         ElementKind::Path { commands, .. } | ElementKind::PaintedPath { commands, .. } => {
+            if let ElementKind::PaintedPath {
+                fill_gradient,
+                stroke_gradient,
+                ..
+            } = &el.kind
+            {
+                for grad in [fill_gradient.as_ref(), stroke_gradient.as_ref()]
+                    .into_iter()
+                    .flatten()
+                {
+                    if grad.stops.is_empty() || grad.stops.len() > 15 {
+                        report.push(
+                            "gradient_stop_count_limit",
+                            FlaFeatureCategory::ShapesAndPaints,
+                            FlaFeatureDisposition::Blocking,
+                            el_loc,
+                            format!(
+                                "Shape gradient has {} stops, outside Flash/XFL supported range (1..=15).",
+                                grad.stops.len()
+                            ),
+                        );
+                    } else if profile.is_legacy_binary()
+                        && (grad.spread != GradientSpread::Extend || grad.linear_rgb)
+                    {
+                        report.push(
+                            "legacy_gradient_mode_approximated",
+                            FlaFeatureCategory::ShapesAndPaints,
+                            if options.allow_approximations {
+                                FlaFeatureDisposition::Approximated
+                            } else {
+                                FlaFeatureDisposition::Blocking
+                            },
+                            el_loc,
+                            "Gradient spreadMode/linearRGB is approximated as pad/RGB in legacy binary FLA.".to_owned(),
+                        );
+                    }
+                }
+            }
             let has_cubic = commands
                 .iter()
                 .any(|c| matches!(c, PathCommand::CubicTo { .. }));
@@ -1175,14 +1992,36 @@ fn preflight_element(
                 },
             );
         }
-        ElementKind::Bitmap { .. } => {
-            report.push(
-                "bitmap_instance",
-                FlaFeatureCategory::MediaAndSound,
-                FlaFeatureDisposition::Exact,
-                el_loc,
-                "Bitmap instance preserved.".to_owned(),
-            );
+        ElementKind::Bitmap { resource_id, .. } => {
+            if !bitmap_ids.contains(resource_id) {
+                report.push(
+                    "missing_bitmap_resource",
+                    FlaFeatureCategory::MediaAndSound,
+                    FlaFeatureDisposition::Blocking,
+                    el_loc,
+                    format!(
+                        "Bitmap element references missing image resource {:?}.",
+                        resource_id
+                    ),
+                );
+            } else {
+                let disp = if !el.visible || el.cache_as_bitmap {
+                    if options.allow_approximations {
+                        FlaFeatureDisposition::Approximated
+                    } else {
+                        FlaFeatureDisposition::Blocking
+                    }
+                } else {
+                    FlaFeatureDisposition::Exact
+                };
+                report.push(
+                    "bitmap_instance",
+                    FlaFeatureCategory::MediaAndSound,
+                    disp,
+                    el_loc,
+                    "Bitmap instance inspected.".to_owned(),
+                );
+            }
         }
         ElementKind::Video { .. } => {
             report.push(
@@ -1194,18 +2033,28 @@ fn preflight_element(
                     FlaFeatureDisposition::Blocking
                 },
                 el_loc,
-                "Video media is not serialized by the current FLA/XFL writer; approximation keeps only a viewport placeholder."
+                "Video viewport and transform are serialized as a DOMVideoItem/DOMVideoInstance placeholder; embedded FLV/video stream payload is not bundled."
                     .to_owned(),
             );
         }
-        ElementKind::Instance { .. } => {
-            report.push(
-                "symbol_instance",
-                FlaFeatureCategory::SymbolsAndLibrary,
-                FlaFeatureDisposition::Exact,
-                el_loc,
-                "Library symbol instance preserved.".to_owned(),
-            );
+        ElementKind::Instance { symbol_id, .. } => {
+            if !project.symbols.iter().any(|s| &s.id == symbol_id) {
+                report.push(
+                    "missing_symbol_instance_target",
+                    FlaFeatureCategory::SymbolsAndLibrary,
+                    FlaFeatureDisposition::Blocking,
+                    el_loc,
+                    format!("Symbol instance references unknown symbol {:?}.", symbol_id),
+                );
+            } else {
+                report.push(
+                    "symbol_instance",
+                    FlaFeatureCategory::SymbolsAndLibrary,
+                    FlaFeatureDisposition::Exact,
+                    el_loc,
+                    "Library symbol instance preserved.".to_owned(),
+                );
+            }
         }
     }
 }
@@ -1230,36 +2079,71 @@ pub fn prepare_project_for_fla_profile(
     derived.height = derived.height.clamp(1, max_dim);
     derived.fps = derived.fps.clamp(1, 120);
 
-    // 2. Strip unsupported scripts if requested
+    // 2. Strip unsupported scripts & resolve mixed-VM conflicts when requested
     if options.strip_unsupported_scripts {
         let allow_as3 = profile.supports_as3();
-        derived.sources.retain(|s| {
-            matches!(
-                s.language,
-                ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
-            ) || (allow_as3 && s.language == ScriptLanguage::ActionScript3)
-        });
+        let target_as3 = allow_as3
+            && detect_project_script_language(&derived, profile) == ScriptLanguage::ActionScript3;
+        let allow_script_lang = |lang: ScriptLanguage| -> bool {
+            if !allow_as3 {
+                matches!(
+                    lang,
+                    ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+                )
+            } else if target_as3 {
+                lang == ScriptLanguage::ActionScript3
+            } else {
+                matches!(
+                    lang,
+                    ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+                )
+            }
+        };
+        derived.sources.retain(|s| allow_script_lang(s.language));
         if !allow_as3 {
             derived.document_class = None;
         }
+        let symbol_kinds: BTreeMap<Id, SymbolKind> = derived
+            .symbols
+            .iter()
+            .map(|s| (s.id.clone(), s.kind))
+            .collect();
         for sym in &mut derived.symbols {
             if !allow_as3 && sym.linkage_id.is_none() && sym.class_name.is_some() {
                 sym.linkage_id = sym.class_name.take();
             }
-            sym.timeline.scripts.retain(|fs| {
-                matches!(
-                    fs.script.language,
-                    ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
-                ) || (allow_as3 && fs.script.language == ScriptLanguage::ActionScript3)
-            });
+            sym.timeline
+                .scripts
+                .retain(|fs| allow_script_lang(fs.script.language));
             for layer in &mut sym.timeline.layers {
                 for kf in &mut layer.keyframes {
                     for el in &mut kf.elements {
+                        let valid_target_kind = match &el.kind {
+                            ElementKind::Instance {
+                                symbol_id,
+                                playback,
+                            } => {
+                                let k = symbol_kinds.get(symbol_id).copied();
+                                matches!(playback, InstancePlayback::Independent)
+                                    && matches!(k, Some(SymbolKind::MovieClip | SymbolKind::Button))
+                            }
+                            _ => false,
+                        };
+                        let is_button_target = match &el.kind {
+                            ElementKind::Instance { symbol_id, .. } => {
+                                symbol_kinds.get(symbol_id).copied() == Some(SymbolKind::Button)
+                            }
+                            _ => false,
+                        };
                         el.scripts.retain(|os| {
                             matches!(
                                 os.script.language,
                                 ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
-                            ) || (allow_as3 && os.script.language == ScriptLanguage::ActionScript3)
+                            ) && !target_as3
+                                && valid_target_kind
+                                && (!is_button_target
+                                    || matches!(os.event, ObjectEvent::Click)
+                                    || script_starts_with_event_wrapper(&os.script.source))
                         });
                     }
                 }
@@ -1346,10 +2230,6 @@ fn layer_needs_baking(layer: &Layer, timeline: &Timeline, profile: FlaTargetProf
         }
         if let Some(easing) = kf.tween
             && matches!(easing, Easing::Bounce | Easing::Elastic)
-            && !matches!(
-                profile,
-                FlaTargetProfile::AnimateCC | FlaTargetProfile::UncompressedXfl
-            )
         {
             return true;
         }
@@ -1686,6 +2566,30 @@ struct XflPackage {
     binary_files: BTreeMap<String, Vec<u8>>,
 }
 
+fn validate_xfl_package_paths(pkg: &XflPackage) -> Result<(), ExportError> {
+    let mut seen_lower: BTreeSet<String> = BTreeSet::new();
+    for path in pkg.text_files.keys().chain(pkg.binary_files.keys()) {
+        if path.is_empty()
+            || path.starts_with('/')
+            || path.contains('\\')
+            || path
+                .split('/')
+                .any(|seg| seg.is_empty() || seg == "." || seg == "..")
+        {
+            return Err(ExportError::InvalidProject(format!(
+                "Invalid XFL archive entry path {path:?}."
+            )));
+        }
+        let lower = path.to_ascii_lowercase();
+        if !seen_lower.insert(lower) {
+            return Err(ExportError::InvalidProject(format!(
+                "Case-insensitive XFL archive path collision for {path:?}."
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn write_uncompressed_xfl_dir(
     project: &Project,
     profile: FlaTargetProfile,
@@ -1693,6 +2597,7 @@ fn write_uncompressed_xfl_dir(
     dir: &Path,
 ) -> Result<(), ExportError> {
     let pkg = build_xfl_package(project, profile, stem)?;
+    validate_xfl_package_paths(&pkg)?;
     fs::create_dir_all(dir)?;
     for (rel, content) in &pkg.text_files {
         let full = dir.join(rel);
@@ -1717,6 +2622,7 @@ fn write_zipped_xfl_bytes(
     stem: &str,
 ) -> Result<Vec<u8>, ExportError> {
     let pkg = build_xfl_package(project, profile, stem)?;
+    validate_xfl_package_paths(&pkg)?;
     let cursor = std::io::Cursor::new(Vec::new());
     let mut zip = zip::ZipWriter::new(cursor);
     let opts = zip::write::SimpleFileOptions::default()
@@ -1739,55 +2645,101 @@ fn write_zipped_xfl_bytes(
 }
 
 fn detect_project_script_language(project: &Project, profile: FlaTargetProfile) -> ScriptLanguage {
-    for src in &project.sources {
-        if matches!(
-            src.language,
-            ScriptLanguage::ActionScript1
-                | ScriptLanguage::ActionScript2
-                | ScriptLanguage::ActionScript3
-        ) {
-            if src.language == ScriptLanguage::ActionScript3 && !profile.supports_as3() {
-                return ScriptLanguage::ActionScript2;
-            }
-            return src.language;
-        }
+    let allow_as3 = profile.supports_as3();
+    let mut found_avm1: Option<ScriptLanguage> = None;
+
+    if allow_as3
+        && (project
+            .document_class
+            .as_deref()
+            .is_some_and(|s| !s.trim().is_empty())
+            || project.symbols.iter().any(|s| {
+                s.class_name
+                    .as_deref()
+                    .is_some_and(|c| !c.trim().is_empty())
+            }))
+    {
+        return ScriptLanguage::ActionScript3;
     }
-    for sym in &project.symbols {
-        for fs in &sym.timeline.scripts {
-            if fs.script.language == ScriptLanguage::ActionScript3 && profile.supports_as3() {
+
+    for src in &project.sources {
+        match src.language {
+            ScriptLanguage::ActionScript3 if allow_as3 => {
                 return ScriptLanguage::ActionScript3;
             }
-            if matches!(
-                fs.script.language,
-                ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
-            ) {
-                return fs.script.language;
+            ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3 => {
+                found_avm1 = Some(ScriptLanguage::ActionScript2);
+            }
+            ScriptLanguage::ActionScript1 => {
+                found_avm1.get_or_insert(ScriptLanguage::ActionScript1);
+            }
+            _ => {}
+        }
+    }
+
+    for sym in &project.symbols {
+        for fs in &sym.timeline.scripts {
+            match fs.script.language {
+                ScriptLanguage::ActionScript3 if allow_as3 => {
+                    return ScriptLanguage::ActionScript3;
+                }
+                ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3 => {
+                    found_avm1 = Some(ScriptLanguage::ActionScript2);
+                }
+                ScriptLanguage::ActionScript1 => {
+                    found_avm1.get_or_insert(ScriptLanguage::ActionScript1);
+                }
+                _ => {}
             }
         }
         for layer in &sym.timeline.layers {
             for kf in &layer.keyframes {
                 for el in &kf.elements {
                     for os in &el.scripts {
-                        if os.script.language == ScriptLanguage::ActionScript3
-                            && profile.supports_as3()
-                        {
-                            return ScriptLanguage::ActionScript3;
-                        }
-                        if matches!(
-                            os.script.language,
-                            ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
-                        ) {
-                            return os.script.language;
+                        match os.script.language {
+                            ScriptLanguage::ActionScript3 if allow_as3 => {
+                                return ScriptLanguage::ActionScript3;
+                            }
+                            ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3 => {
+                                found_avm1 = Some(ScriptLanguage::ActionScript2);
+                            }
+                            ScriptLanguage::ActionScript1 => {
+                                found_avm1.get_or_insert(ScriptLanguage::ActionScript1);
+                            }
+                            _ => {}
                         }
                     }
                 }
             }
         }
     }
-    if profile.supports_as3() {
+
+    if let Some(avm1) = found_avm1 {
+        return avm1;
+    }
+    if allow_as3 {
         ScriptLanguage::ActionScript3
     } else {
         ScriptLanguage::ActionScript2
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct VideoKey(u32, u32);
+
+impl VideoKey {
+    fn from_dims(width: f64, height: f64) -> Self {
+        let w = if width.is_finite() {
+            width.round().clamp(1.0, 8192.0) as u32
+        } else {
+            320
+        };
+        let h = if height.is_finite() {
+            height.round().clamp(1.0, 8192.0) as u32
+        } else {
+            240
+        };
+        Self(w, h)
     }
 }
 
@@ -1863,8 +2815,22 @@ fn build_xfl_package(
     text_files.insert("PublishSettings.xml".to_owned(), publish_xml);
 
     // Bundled .as / .js / .ts source units
+    let mut source_count = 0usize;
+    let mut used_paths_lower: BTreeSet<String> = text_files
+        .keys()
+        .map(|k| k.to_ascii_lowercase())
+        .chain(["mimetype".to_owned(), "domdocument.xml".to_owned()])
+        .collect();
     for (idx, src) in project.sources.iter().enumerate() {
         let rel_path = sanitize_source_rel_path(&src.path, idx);
+        let lower = rel_path.to_ascii_lowercase();
+        if !used_paths_lower.insert(lower) {
+            return Err(ExportError::InvalidProject(format!(
+                "Source path {:?} collides with reserved or duplicate archive path {:?}.",
+                src.path, rel_path
+            )));
+        }
+        source_count += 1;
         let marker = match src.language {
             ScriptLanguage::JavaScript => "/* neoflash:language=javascript */\n",
             ScriptLanguage::TypeScript => "/* neoflash:language=typescript */\n",
@@ -1873,6 +2839,48 @@ fn build_xfl_package(
             ScriptLanguage::ActionScript3 => "/* neoflash:language=actionscript3 */\n",
         };
         text_files.insert(rel_path, format!("{marker}{}", src.source));
+    }
+
+    // Also inspect smoothed bitmaps, custom sound envelopes, and video viewport items
+    let mut bitmap_smoothing_refs: BTreeMap<Id, (bool, bool)> = BTreeMap::new();
+    let mut sound_custom_env: BTreeSet<Id> = BTreeSet::new();
+    let mut video_names: BTreeMap<VideoKey, String> = BTreeMap::new();
+    for sym in &project.symbols {
+        for layer in &sym.timeline.layers {
+            for kf in &layer.keyframes {
+                if let Some(snd) = &kf.sound
+                    && (snd.effect == SoundEffect::Custom
+                        || snd.envelope.as_ref().is_some_and(|v| !v.is_empty()))
+                {
+                    sound_custom_env.insert(snd.resource.clone());
+                }
+                for el in &kf.elements {
+                    match &el.kind {
+                        ElementKind::Bitmap {
+                            resource_id,
+                            smoothing,
+                            ..
+                        } => {
+                            let entry = bitmap_smoothing_refs
+                                .entry(resource_id.clone())
+                                .or_insert((false, false));
+                            if *smoothing {
+                                entry.0 = true;
+                            } else {
+                                entry.1 = true;
+                            }
+                        }
+                        ElementKind::Video { width, height } => {
+                            let key = VideoKey::from_dims(*width, *height);
+                            video_names
+                                .entry(key.clone())
+                                .or_insert_with(|| format!("Video_{}x{}", key.0, key.1));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
     }
 
     // Collect scene symbol IDs vs library symbols
@@ -1905,44 +2913,142 @@ fn build_xfl_package(
         symbol_lib_names.insert(sym.id.clone(), candidate);
     }
 
-    // Media resources (bitmaps & sounds)
+    // Media resources (bitmaps & sounds) & bundled .as include resources
     let mut bitmap_names: BTreeMap<Id, String> = BTreeMap::new();
     let mut sound_names: BTreeMap<Id, String> = BTreeMap::new();
+    let mut sound_durations: BTreeMap<Id, u64> = BTreeMap::new();
     let mut media_xml = String::new();
     for (idx, res) in project.resources.iter().enumerate() {
-        let Ok(bytes) = res.decoded_bytes() else {
+        if is_internal_provenance_resource(res) {
             continue;
-        };
-        let mime = res.media_type.to_ascii_lowercase();
+        }
+        let mime = res.media_type.trim().to_ascii_lowercase();
+        if is_actionscript_resource(res) {
+            let bytes = res.decoded_bytes().map_err(|err| {
+                ExportError::InvalidProject(format!(
+                    "ActionScript include resource {:?} failed base64 decoding: {err}",
+                    res.path
+                ))
+            })?;
+            let text = std::str::from_utf8(&bytes).map_err(|err| {
+                ExportError::InvalidProject(format!(
+                    "ActionScript include resource {:?} is not UTF-8: {err}",
+                    res.path
+                ))
+            })?;
+            let rel_path = sanitize_source_rel_path(&res.path, idx);
+            let lower = rel_path.to_ascii_lowercase();
+            if used_paths_lower.contains(&lower) {
+                if text_files.get(&rel_path).map(|s| s.as_str()) == Some(text)
+                    || project.sources.iter().enumerate().any(|(i, s)| {
+                        sanitize_source_rel_path(&s.path, i).eq_ignore_ascii_case(&rel_path)
+                            && s.source == text
+                    })
+                {
+                    continue;
+                }
+                return Err(ExportError::InvalidProject(format!(
+                    "ActionScript include resource {:?} collides with archive path {:?}.",
+                    res.path, rel_path
+                )));
+            }
+            used_paths_lower.insert(lower);
+            source_count += 1;
+            text_files.insert(rel_path, text.to_owned());
+            continue;
+        }
+        if source_count > 1024 {
+            return Err(ExportError::InvalidProject(
+                "Bundled ActionScript source file count exceeds 1024-file XFL limit.".to_owned(),
+            ));
+        }
+
+        let bytes = res.decoded_bytes().map_err(|err| {
+            ExportError::InvalidProject(format!(
+                "Media resource {:?} failed base64 decoding: {err}",
+                res.path
+            ))
+        })?;
         if mime.starts_with("image/") {
-            let ext = if mime.contains("jpeg") || mime.contains("jpg") {
-                "jpg"
-            } else {
-                "png"
-            };
+            let (norm_bytes, ext, _, _) = normalize_fla_bitmap_bytes(&bytes).ok_or_else(|| {
+                ExportError::InvalidProject(format!(
+                    "Image resource {:?} ({}) cannot be decoded as a supported bitmap.",
+                    res.path, res.media_type
+                ))
+            })?;
             let item_name = format!("bitmap_{}.{ext}", idx + 1);
+            let allow_smoothing = match bitmap_smoothing_refs.get(&res.id).copied() {
+                Some((true, _)) | None => true,
+                Some((false, true)) => false,
+                Some((false, false)) => true,
+            };
             bitmap_names.insert(res.id.clone(), item_name.clone());
-            binary_files.insert(format!("LIBRARY/{item_name}"), bytes);
+            binary_files.insert(format!("LIBRARY/{item_name}"), norm_bytes);
             media_xml.push_str(&format!(
-                "    <DOMBitmapItem name=\"{}\" href=\"{}\" allowSmoothing=\"true\"/>\n",
+                "    <DOMBitmapItem name=\"{}\" href=\"{}\" allowSmoothing=\"{allow_smoothing}\"/>\n",
                 xml_escape(&item_name),
                 xml_escape(&item_name)
             ));
         } else if mime.starts_with("audio/") {
-            let ext = if mime.contains("mpeg") || mime.contains("mp3") {
-                "mp3"
-            } else {
-                "wav"
-            };
+            let (ext, duration_44) = inspect_audio_codec(&bytes).ok_or_else(|| {
+                ExportError::InvalidProject(format!(
+                    "Audio resource {:?} ({}) is not a valid PCM WAV or MP3 stream.",
+                    res.path, res.media_type
+                ))
+            })?;
             let item_name = format!("sound_{}.{ext}", idx + 1);
             sound_names.insert(res.id.clone(), item_name.clone());
+            sound_durations.insert(res.id.clone(), duration_44);
+            let cache = neoflash_import::build_flash_sound_cache(&bytes);
             binary_files.insert(format!("LIBRARY/{item_name}"), bytes);
-            media_xml.push_str(&format!(
-                "    <DOMSoundItem name=\"{}\" href=\"{}\" format=\"44kHz 16bit Stereo\"/>\n",
-                xml_escape(&item_name),
-                xml_escape(&item_name)
-            ));
+            if let Some(cache) = cache {
+                let dat_href = format!("sound{}.dat", idx + 1);
+                binary_files.insert(format!("bin/{dat_href}"), cache.cache_bytes);
+                let compressed_attrs = cache
+                    .data_length
+                    .map(|dl| format!(" dataLength=\"{dl}\" exportNative=\"true\""))
+                    .unwrap_or_default();
+                media_xml.push_str(&format!(
+                    "    <DOMSoundItem name=\"{}\" href=\"{}\" soundDataHRef=\"{}\" format=\"{}\" sampleCount=\"{}\"{compressed_attrs}/>\n",
+                    xml_escape(&item_name),
+                    xml_escape(&item_name),
+                    xml_escape(&dat_href),
+                    xml_escape(&cache.format_label),
+                    cache.sample_count,
+                ));
+            } else {
+                let sample_count_attr = if ext == "mp3" && sound_custom_env.contains(&res.id) {
+                    format!(" sampleCount=\"{duration_44}\"")
+                } else {
+                    String::new()
+                };
+                media_xml.push_str(&format!(
+                    "    <DOMSoundItem name=\"{}\" href=\"{}\" format=\"44kHz 16bit Stereo\"{sample_count_attr}/>\n",
+                    xml_escape(&item_name),
+                    xml_escape(&item_name)
+                ));
+            }
+        } else if !crate::fonts::is_font_resource(res)
+            && !is_unreferenced_sidecar_resource(project, res)
+        {
+            return Err(ExportError::InvalidProject(format!(
+                "Unsupported resource {:?} ({}) cannot be represented in XFL.",
+                res.path, res.media_type
+            )));
         }
+    }
+    if source_count > 1024 {
+        return Err(ExportError::InvalidProject(
+            "Bundled ActionScript source file count exceeds 1024-file XFL limit.".to_owned(),
+        ));
+    }
+    for (v_key, v_name) in &video_names {
+        media_xml.push_str(&format!(
+            "    <DOMVideoItem name=\"{}\" width=\"{}\" height=\"{}\"/>\n",
+            xml_escape(v_name),
+            v_key.0,
+            v_key.1
+        ));
     }
 
     // Write LIBRARY/*.xml for each library symbol
@@ -1963,6 +3069,8 @@ fn build_xfl_package(
             &symbol_lib_names,
             &bitmap_names,
             &sound_names,
+            &sound_durations,
+            &video_names,
         );
         text_files.insert(format!("LIBRARY/{href}"), sym_xml);
     }
@@ -2025,6 +3133,8 @@ fn build_xfl_package(
                 &symbol_lib_names,
                 &bitmap_names,
                 &sound_names,
+                &sound_durations,
+                &video_names,
                 "    ",
             ));
         }
@@ -2066,6 +3176,7 @@ fn build_xfl_package(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_dom_symbol_item_xml(
     sym: &Symbol,
     lib_name: &str,
@@ -2073,6 +3184,8 @@ fn write_dom_symbol_item_xml(
     symbol_lib_names: &BTreeMap<Id, String>,
     bitmap_names: &BTreeMap<Id, String>,
     sound_names: &BTreeMap<Id, String>,
+    sound_durations: &BTreeMap<Id, u64>,
+    video_names: &BTreeMap<VideoKey, String>,
 ) -> String {
     let sym_type = match sym.kind {
         SymbolKind::MovieClip => "movie clip",
@@ -2108,6 +3221,8 @@ fn write_dom_symbol_item_xml(
         symbol_lib_names,
         bitmap_names,
         sound_names,
+        sound_durations,
+        video_names,
         "    ",
     );
     format!(
@@ -2131,6 +3246,8 @@ fn write_dom_timeline_xml(
     symbol_lib_names: &BTreeMap<Id, String>,
     bitmap_names: &BTreeMap<Id, String>,
     sound_names: &BTreeMap<Id, String>,
+    sound_durations: &BTreeMap<Id, u64>,
+    video_names: &BTreeMap<VideoKey, String>,
     indent: &str,
 ) -> String {
     let mut out = format!(
@@ -2192,6 +3309,8 @@ fn write_dom_timeline_xml(
             symbol_lib_names,
             bitmap_names,
             sound_names,
+            sound_durations,
+            video_names,
             &format!("{indent}    "),
         ));
     }
@@ -2210,6 +3329,8 @@ fn write_dom_timeline_xml(
             symbol_lib_names,
             bitmap_names,
             sound_names,
+            sound_durations,
+            video_names,
             &format!("{indent}    "),
         ));
     }
@@ -2228,6 +3349,8 @@ fn write_dom_layer_xml(
     symbol_lib_names: &BTreeMap<Id, String>,
     bitmap_names: &BTreeMap<Id, String>,
     sound_names: &BTreeMap<Id, String>,
+    sound_durations: &BTreeMap<Id, u64>,
+    video_names: &BTreeMap<VideoKey, String>,
     indent: &str,
 ) -> String {
     let mut attrs = format!(
@@ -2330,26 +3453,46 @@ fn write_dom_layer_xml(
             ));
         }
 
+        let mut custom_ease_bezier: Option<[f64; 4]> = None;
         if let Some(easing) = kf.tween {
             match kf.tween_kind {
                 TweenKind::Shape => f_attrs.push_str(" tweenType=\"shape\""),
                 TweenKind::Classic | TweenKind::Motion => f_attrs.push_str(" tweenType=\"motion\""),
             }
-            let accel = match easing {
-                Easing::Linear => 0,
-                Easing::EaseIn => -100,
-                Easing::EaseOut => 100,
-                Easing::Flash { acceleration } => acceleration.round().clamp(-100.0, 100.0) as i32,
-                _ => 0,
-            };
-            if accel != 0 {
-                f_attrs.push_str(&format!(" acceleration=\"{accel}\""));
+            match easing {
+                Easing::Linear => {}
+                Easing::EaseIn => f_attrs.push_str(" acceleration=\"-100\""),
+                Easing::EaseOut => f_attrs.push_str(" acceleration=\"100\""),
+                Easing::Flash { acceleration } => {
+                    let accel = acceleration.round().clamp(-100.0, 100.0) as i32;
+                    if accel != 0 {
+                        f_attrs.push_str(&format!(" acceleration=\"{accel}\""));
+                    }
+                }
+                Easing::EaseInOut => {
+                    f_attrs.push_str(" hasCustomEase=\"true\" useSingleEaseCurve=\"true\"");
+                    custom_ease_bezier = Some([0.42, 0.0, 0.58, 1.0]);
+                }
+                Easing::Bounce | Easing::Elastic => {
+                    f_attrs.push_str(" hasCustomEase=\"true\" useSingleEaseCurve=\"true\"");
+                    custom_ease_bezier = Some([0.34, 1.56, 0.64, 1.0]);
+                }
+                Easing::CubicBezier { x1, y1, x2, y2 } => {
+                    f_attrs.push_str(" hasCustomEase=\"true\" useSingleEaseCurve=\"true\"");
+                    custom_ease_bezier = Some([
+                        x1.clamp(0.0, 1.0),
+                        y1.clamp(-100.0, 100.0),
+                        x2.clamp(0.0, 1.0),
+                        y2.clamp(-100.0, 100.0),
+                    ]);
+                }
             }
             if kf.orient_to_path {
                 f_attrs.push_str(" motionTweenOrientToPath=\"true\"");
             }
         }
 
+        let mut sound_envelope_points: Option<Vec<(u64, u32, u32)>> = None;
         if let Some(snd) = &kf.sound
             && let Some(snd_name) = sound_names.get(&snd.resource)
         {
@@ -2368,25 +3511,81 @@ fn write_dom_layer_xml(
             } else if snd.loops > 1 {
                 f_attrs.push_str(&format!(
                     " soundLoopMode=\"repeat\" soundLoop=\"{}\"",
-                    snd.loops
+                    snd.loops.min(FrameSound::MAX_LOOPS)
                 ));
             }
-            let effect_str = match snd.effect {
-                SoundEffect::None => None,
-                SoundEffect::LeftChannel => Some("left channel"),
-                SoundEffect::RightChannel => Some("right channel"),
-                SoundEffect::FadeLeftToRight => Some("fade left to right"),
-                SoundEffect::FadeRightToLeft => Some("fade right to left"),
-                SoundEffect::FadeIn => Some("fade in"),
-                SoundEffect::FadeOut => Some("fade out"),
-                SoundEffect::Custom => None,
+            if let Some(in_sec) = snd.in_point
+                && in_sec.is_finite()
+                && in_sec > 0.0
+            {
+                let in_44 = (in_sec.clamp(0.0, FrameSound::MAX_SOUND_TRIM_SECONDS) * 44_100.0)
+                    .round() as u64;
+                if in_44 > 0 {
+                    f_attrs.push_str(&format!(" inPoint44=\"{in_44}\""));
+                }
+            }
+            if let Some(out_sec) = snd.out_point
+                && out_sec.is_finite()
+                && out_sec > 0.0
+            {
+                let out_44 = (out_sec.clamp(0.0, FrameSound::MAX_SOUND_TRIM_SECONDS) * 44_100.0)
+                    .round() as u64;
+                if out_44 > 0 {
+                    f_attrs.push_str(&format!(" outPoint44=\"{out_44}\""));
+                }
+            }
+            let has_custom_env = snd.effect == SoundEffect::Custom
+                || snd.envelope.as_ref().is_some_and(|v| !v.is_empty());
+            let effect_str = if has_custom_env {
+                Some("custom")
+            } else {
+                match snd.effect {
+                    SoundEffect::None => None,
+                    SoundEffect::LeftChannel => Some("left channel"),
+                    SoundEffect::RightChannel => Some("right channel"),
+                    SoundEffect::FadeLeftToRight => Some("fade left to right"),
+                    SoundEffect::FadeRightToLeft => Some("fade right to left"),
+                    SoundEffect::FadeIn => Some("fade in"),
+                    SoundEffect::FadeOut => Some("fade out"),
+                    SoundEffect::Custom => Some("custom"),
+                }
             };
             if let Some(eff) = effect_str {
                 f_attrs.push_str(&format!(" soundEffect=\"{eff}\""));
             }
+            if has_custom_env {
+                let dur_44 = sound_durations
+                    .get(&snd.resource)
+                    .copied()
+                    .unwrap_or(44_100);
+                let pts = encode_sound_envelope_points(snd, dur_44);
+                if !pts.is_empty() {
+                    sound_envelope_points = Some(pts);
+                }
+            }
         }
 
         out.push_str(&format!("{indent}    <DOMFrame {f_attrs}>\n"));
+
+        if let Some([x1, y1, x2, y2]) = custom_ease_bezier {
+            out.push_str(&format!(
+                "{indent}      <tweens>\n{indent}        <CustomEase target=\"all\">\n{indent}          <Point x=\"0\" y=\"0\"/>\n{indent}          <Point x=\"{}\" y=\"{}\"/>\n{indent}          <Point x=\"{}\" y=\"{}\"/>\n{indent}          <Point x=\"1\" y=\"1\"/>\n{indent}        </CustomEase>\n{indent}      </tweens>\n",
+                fmt_num(x1),
+                fmt_num(y1),
+                fmt_num(x2),
+                fmt_num(y2),
+            ));
+        }
+
+        if let Some(env_pts) = sound_envelope_points {
+            out.push_str(&format!("{indent}      <SoundEnvelope>\n"));
+            for (mark44, level0, level1) in env_pts {
+                out.push_str(&format!(
+                    "{indent}        <SoundEnvelopePoint mark44=\"{mark44}\" level0=\"{level0}\" level1=\"{level1}\"/>\n"
+                ));
+            }
+            out.push_str(&format!("{indent}      </SoundEnvelope>\n"));
+        }
 
         if let Some(scripts_map) = frame_scripts
             && let Some(sources) = scripts_map.get(&kf.frame)
@@ -2407,6 +3606,7 @@ fn write_dom_layer_xml(
                     project,
                     symbol_lib_names,
                     bitmap_names,
+                    video_names,
                     &format!("{indent}        "),
                 ));
             }
@@ -2425,6 +3625,7 @@ fn write_dom_element_xml(
     project: &Project,
     symbol_lib_names: &BTreeMap<Id, String>,
     bitmap_names: &BTreeMap<Id, String>,
+    video_names: &BTreeMap<VideoKey, String>,
     indent: &str,
 ) -> String {
     let matrix_xml = write_matrix_xml(&el.transform, &format!("{indent}  "));
@@ -2640,7 +3841,7 @@ fn write_dom_element_xml(
                 return String::new();
             };
             format!(
-                "{indent}<DOMBitmapInstance libraryItemName=\"{}\">\n{matrix_xml}{color_xml}{indent}</DOMBitmapInstance>\n",
+                "{indent}<DOMBitmapInstance libraryItemName=\"{}\">\n{matrix_xml}{color_xml}{filters_xml}{indent}</DOMBitmapInstance>\n",
                 xml_escape(bmp_name)
             )
         }
@@ -2741,11 +3942,15 @@ fn write_dom_element_xml(
             )
         }
         ElementKind::Video { width, height } => {
-            // Represent Video viewport as a rectangle object if no video media item is present
+            let v_key = VideoKey::from_dims(*width, *height);
+            let Some(v_name) = video_names.get(&v_key) else {
+                return String::new();
+            };
+            let right_twips = ((*width).max(1.0) * 20.0).round() as i64;
+            let bottom_twips = ((*height).max(1.0) * 20.0).round() as i64;
             format!(
-                "{indent}<DOMRectangleObject objectWidth=\"{}\" objectHeight=\"{}\">\n{matrix_xml}{indent}  <fill>\n{indent}    <SolidColor color=\"#000000\" alpha=\"1\"/>\n{indent}  </fill>\n{indent}</DOMRectangleObject>\n",
-                fmt_num(*width),
-                fmt_num(*height)
+                "{indent}<DOMVideoInstance libraryItemName=\"{}\" frameLeft=\"0\" frameTop=\"0\" frameRight=\"{right_twips}\" frameBottom=\"{bottom_twips}\">\n{matrix_xml}{color_xml}{filters_xml}{indent}</DOMVideoInstance>\n",
+                xml_escape(v_name)
             )
         }
     }
@@ -2815,17 +4020,24 @@ fn write_paint_xml(color: Color, gradient: Option<&GradientPaint>, indent: &str)
             GradientKind::Linear => "LinearGradient",
             GradientKind::Radial => "RadialGradient",
         };
-        let focal_attr = if grad.kind == GradientKind::Radial && grad.focal_point_ratio != 0.0 {
-            format!(
+        let mut attrs = String::new();
+        match grad.spread {
+            GradientSpread::Extend => {}
+            GradientSpread::Reflect => attrs.push_str(" spreadMethod=\"reflect\""),
+            GradientSpread::Repeat => attrs.push_str(" spreadMethod=\"repeat\""),
+        }
+        if grad.linear_rgb {
+            attrs.push_str(" interpolationMethod=\"linearRGB\"");
+        }
+        if grad.kind == GradientKind::Radial && grad.focal_point_ratio != 0.0 {
+            attrs.push_str(&format!(
                 " focalPointRatio=\"{}\"",
                 fmt_num(grad.focal_point_ratio.clamp(-1.0, 1.0))
-            )
-        } else {
-            String::new()
-        };
+            ));
+        }
         let m = grad.matrix;
         let mut out = format!(
-            "{indent}<{tag}{focal_attr}>\n{indent}  <matrix>\n{indent}    <Matrix a=\"{}\" b=\"{}\" c=\"{}\" d=\"{}\" tx=\"{}\" ty=\"{}\"/>\n{indent}  </matrix>\n",
+            "{indent}<{tag}{attrs}>\n{indent}  <matrix>\n{indent}    <Matrix a=\"{}\" b=\"{}\" c=\"{}\" d=\"{}\" tx=\"{}\" ty=\"{}\"/>\n{indent}  </matrix>\n",
             fmt_num(m[0]),
             fmt_num(m[1]),
             fmt_num(m[2]),

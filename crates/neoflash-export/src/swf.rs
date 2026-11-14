@@ -9,14 +9,15 @@
 use crate::ExportError;
 use crate::fla_preflight::{
     FlaCompatibilityCategory, FlaCompatibilityReport, FlaCompatibilityStatus, FlaTargetProfile,
+    encode_sound_envelope_points, is_actionscript_resource, is_valid_as3_qname,
 };
 use flate2::Compression;
 use flate2::write::ZlibEncoder;
 use neoflash_core::{
     BlendMode, Color, ColorTransform, Easing, Element, ElementKind, FilterSpec, FrameSound,
-    GradientKind, GradientPaint, LayerRole, ObjectEvent, ObjectScript, PathCommand, Project,
-    ScriptLanguage, SoundEffect, SoundSync, Symbol, SymbolKind, TextAlign, Timeline, TweenKind,
-    flatten_scenes_with_ranges, transform_matrix,
+    GradientKind, GradientPaint, GradientSpread, LayerRole, ObjectEvent, ObjectScript, PathCommand,
+    Project, ScriptLanguage, SoundEffect, SoundSync, Symbol, SymbolKind, TextAlign, Timeline,
+    TweenKind, flatten_scenes_with_ranges, transform_matrix,
 };
 pub use neoflash_import::{
     SwfAudioEvent, SwfBytecodePlayer, SwfDisplayEntry, SwfFrameState, SwfInspection,
@@ -185,45 +186,184 @@ impl SwfPublishOptions {
     }
 }
 
-fn timeline_depth_bands(timeline: &Timeline) -> Option<Vec<(u16, u16)>> {
-    let mut next_depth = 1usize;
-    let mut bands = Vec::with_capacity(timeline.layers.len());
-    for layer in &timeline.layers {
-        if !layer.visible || matches!(layer.properties.role, LayerRole::Folder | LayerRole::Guide) {
-            bands.push((0, 0));
-            continue;
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SwfLayoutIssue {
+    DepthOverflow,
+    InvalidMaskTarget(String),
+    NestedMask(String),
+    AdvancedMaskMode(String),
+    MultiElementMask(String),
+    NonContiguousMask(String),
+}
+
+struct SwfTimelineLayout {
+    depth_bands: Vec<(u16, u16)>,
+    mask_clip_depths: BTreeMap<usize, u16>,
+}
+
+fn layer_swf_depth_width(layer: &neoflash_core::Layer, total_frames: u32) -> Option<usize> {
+    let effective_end = layer
+        .properties
+        .end_frame
+        .unwrap_or(total_frames)
+        .min(total_frames)
+        .max(1);
+    let mut width = layer
+        .keyframes
+        .iter()
+        .filter(|kf| kf.frame < effective_end)
+        .map(|keyframe| keyframe.elements.len())
+        .max()
+        .unwrap_or(0)
+        .max(1);
+    for (keyframe_index, keyframe) in layer.keyframes.iter().enumerate() {
+        if keyframe.frame >= effective_end {
+            break;
         }
-        let mut width = layer
-            .keyframes
-            .iter()
-            .map(|keyframe| keyframe.elements.len())
-            .max()
-            .unwrap_or(0)
-            .max(1);
-        for (keyframe_index, keyframe) in layer.keyframes.iter().enumerate() {
-            if keyframe.tween.is_some()
-                && keyframe.tween_kind == TweenKind::Shape
-                && let Some(next_keyframe) = layer.keyframes.get(keyframe_index + 1)
-                && !can_build_morph_shape(&keyframe.elements, &next_keyframe.elements)
-            {
-                // Baked shape-tween sampling can retain unmatched shapes from both endpoints.
-                // Reserve the conservative union so it cannot overlap the following layer's band.
-                width = width.max(
-                    keyframe
-                        .elements
-                        .len()
-                        .checked_add(next_keyframe.elements.len())?,
-                );
+        if keyframe.tween.is_some()
+            && keyframe.tween_kind == TweenKind::Shape
+            && let Some(next_keyframe) = layer.keyframes.get(keyframe_index + 1)
+            && next_keyframe.frame < effective_end
+            && !can_build_morph_shape(&keyframe.elements, &next_keyframe.elements)
+        {
+            // Baked shape-tween sampling can retain unmatched shapes from both endpoints.
+            // Reserve the conservative union so it cannot overlap the following layer's band.
+            width = width.max(
+                keyframe
+                    .elements
+                    .len()
+                    .checked_add(next_keyframe.elements.len())?,
+            );
+        }
+    }
+    Some(width)
+}
+
+fn compute_swf_timeline_layout(timeline: &Timeline) -> Result<SwfTimelineLayout, SwfLayoutIssue> {
+    let total_frames = timeline.frame_count.max(1);
+    let mut depth_bands = vec![(0u16, 0u16); timeline.layers.len()];
+    let mut mask_clip_depths = BTreeMap::new();
+
+    let mut rendered: Vec<usize> = Vec::new();
+    let mut rendered_pos_by_layer: BTreeMap<usize, usize> = BTreeMap::new();
+    let mut mask_id_to_idx: BTreeMap<&str, usize> = BTreeMap::new();
+    for (idx, layer) in timeline.layers.iter().enumerate() {
+        if layer.visible && layer.properties.role == LayerRole::Mask {
+            mask_id_to_idx.insert(layer.id.as_str(), idx);
+        }
+        if layer.visible && !matches!(layer.properties.role, LayerRole::Folder | LayerRole::Guide) {
+            rendered_pos_by_layer.insert(idx, rendered.len());
+            rendered.push(idx);
+        }
+    }
+
+    let mut widths = vec![0usize; timeline.layers.len()];
+    for &idx in &rendered {
+        let layer = &timeline.layers[idx];
+        widths[idx] =
+            layer_swf_depth_width(layer, total_frames).ok_or(SwfLayoutIssue::DepthOverflow)?;
+        if layer.properties.role == LayerRole::Mask {
+            if !layer.properties.mask_mode.is_geometry() || layer.properties.mask_invert {
+                return Err(SwfLayoutIssue::AdvancedMaskMode(layer.name.clone()));
+            }
+            if layer.properties.mask.is_some() {
+                return Err(SwfLayoutIssue::NestedMask(layer.name.clone()));
+            }
+            if widths[idx] > 1 {
+                return Err(SwfLayoutIssue::MultiElementMask(layer.name.clone()));
             }
         }
-        let end_depth = next_depth.checked_add(width)?.checked_sub(1)?;
-        if end_depth > usize::from(u16::MAX) {
-            return None;
-        }
-        bands.push((next_depth as u16, end_depth as u16));
-        next_depth = end_depth + 1;
     }
-    Some(bands)
+
+    // Group masked layers with their target mask and ensure each active mask band is contiguous
+    // in visible render order so SWF clip_depth can strictly precede its masked layers without
+    // accidentally clipping interleaved unmasked layers.
+    let mut mask_to_masked: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for &idx in &rendered {
+        let layer = &timeline.layers[idx];
+        if let Some(mask_id) = &layer.properties.mask {
+            if layer.properties.role != LayerRole::Normal {
+                return Err(SwfLayoutIssue::NestedMask(layer.name.clone()));
+            }
+            let Some(&mask_idx) = mask_id_to_idx.get(mask_id.as_str()) else {
+                return Err(SwfLayoutIssue::InvalidMaskTarget(layer.name.clone()));
+            };
+            mask_to_masked.entry(mask_idx).or_default().push(idx);
+        }
+    }
+
+    let mut block_at_start: BTreeMap<usize, (usize, Vec<usize>, usize)> = BTreeMap::new();
+    for (mask_idx, masked_indices) in &mask_to_masked {
+        let Some(&mask_rpos) = rendered_pos_by_layer.get(mask_idx) else {
+            return Err(SwfLayoutIssue::InvalidMaskTarget(
+                timeline.layers[*mask_idx].name.clone(),
+            ));
+        };
+        let mut all_rpos = Vec::with_capacity(masked_indices.len() + 1);
+        all_rpos.push(mask_rpos);
+        for m_idx in masked_indices {
+            if let Some(&rpos) = rendered_pos_by_layer.get(m_idx) {
+                all_rpos.push(rpos);
+            }
+        }
+        let min_pos = *all_rpos.iter().min().unwrap_or(&mask_rpos);
+        let max_pos = *all_rpos.iter().max().unwrap_or(&mask_rpos);
+        let span = max_pos - min_pos + 1;
+        if span != all_rpos.len() || (mask_rpos != max_pos && mask_rpos != min_pos) {
+            return Err(SwfLayoutIssue::NonContiguousMask(
+                timeline.layers[*mask_idx].name.clone(),
+            ));
+        }
+        block_at_start.insert(min_pos, (*mask_idx, masked_indices.clone(), max_pos));
+    }
+
+    let mut next_depth = 1usize;
+    let mut alloc_band = |width: usize| -> Result<(u16, u16), SwfLayoutIssue> {
+        let end_depth = next_depth
+            .checked_add(width)
+            .and_then(|v| v.checked_sub(1))
+            .ok_or(SwfLayoutIssue::DepthOverflow)?;
+        if end_depth > usize::from(u16::MAX) {
+            return Err(SwfLayoutIssue::DepthOverflow);
+        }
+        let band = (next_depth as u16, end_depth as u16);
+        next_depth = end_depth + 1;
+        Ok(band)
+    };
+
+    let mut pos = 0usize;
+    while pos < rendered.len() {
+        if let Some((mask_idx, masked_indices, end_pos)) = block_at_start.get(&pos) {
+            let mask_band = alloc_band(widths[*mask_idx])?;
+            depth_bands[*mask_idx] = mask_band;
+            let mut max_masked_depth = mask_band.1;
+            for &m_idx in masked_indices {
+                let band = alloc_band(widths[m_idx])?;
+                depth_bands[m_idx] = band;
+                max_masked_depth = max_masked_depth.max(band.1);
+            }
+            if max_masked_depth > mask_band.0 {
+                mask_clip_depths.insert(*mask_idx, max_masked_depth);
+            }
+            pos = end_pos + 1;
+        } else {
+            let l_idx = rendered[pos];
+            depth_bands[l_idx] = alloc_band(widths[l_idx])?;
+            pos += 1;
+        }
+    }
+
+    Ok(SwfTimelineLayout {
+        depth_bands,
+        mask_clip_depths,
+    })
+}
+
+#[cfg(test)]
+fn timeline_depth_bands(timeline: &Timeline) -> Option<Vec<(u16, u16)>> {
+    compute_swf_timeline_layout(timeline)
+        .ok()
+        .map(|layout| layout.depth_bands)
 }
 
 fn used_swf_media_resources(project: &Project) -> (BTreeSet<String>, BTreeSet<String>) {
@@ -279,20 +419,321 @@ fn swf_text_outline_issue(element: &Element) -> Option<String> {
     None
 }
 
-fn swf_script_compilation_issue(
+fn swf_normalize_include_path(parent: &str, requested: &str) -> Result<String, String> {
+    if requested.is_empty() || requested.starts_with('/') || requested.contains(['\\', ':', '\0']) {
+        return Err("#include requires a relative project resource path using '/'".to_owned());
+    }
+    let mut parts: Vec<&str> = parent
+        .rsplit_once('/')
+        .map_or("", |(base, _)| base)
+        .split('/')
+        .filter(|p| !p.is_empty())
+        .collect();
+    for part in requested.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return Err("#include path escapes the project resource root".to_owned());
+                }
+            }
+            value => parts.push(value),
+        }
+    }
+    let result = parts.join("/");
+    if !result.to_ascii_lowercase().ends_with(".as") {
+        return Err("#include expects an .as project resource".to_owned());
+    }
+    Ok(result)
+}
+
+fn swf_scan_comments(line: &str, block: &mut bool) {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    let mut quote = None;
+    while i < bytes.len() {
+        if *block {
+            if bytes[i..].starts_with(b"*/") {
+                *block = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+        } else if let Some(end) = quote {
+            if bytes[i] == b'\\' {
+                i = (i + 2).min(bytes.len());
+            } else {
+                if bytes[i] == end {
+                    quote = None;
+                }
+                i += 1;
+            }
+        } else if bytes[i..].starts_with(b"//") {
+            break;
+        } else if bytes[i..].starts_with(b"/*") {
+            *block = true;
+            i += 2;
+        } else {
+            if matches!(bytes[i], b'\'' | b'"') {
+                quote = Some(bytes[i]);
+            }
+            i += 1;
+        }
+    }
+}
+
+fn swf_parse_as3_include_arg(trimmed: &str) -> Option<&str> {
+    if let Some(rest) = trimmed.strip_prefix("#include")
+        && (rest.is_empty()
+            || rest.starts_with(|c: char| c.is_whitespace() || c == '"' || c == '\''))
+    {
+        return Some(rest.trim());
+    }
+    if let Some(rest) = trimmed.strip_prefix("include")
+        && rest.starts_with(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+    {
+        return Some(rest.trim());
+    }
+    None
+}
+
+fn swf_collect_include_map(project: &Project) -> BTreeMap<String, Result<String, String>> {
+    let mut map: BTreeMap<String, Result<String, String>> = BTreeMap::new();
+    for src in &project.sources {
+        let norm = src
+            .path
+            .replace('\\', "/")
+            .trim_start_matches('/')
+            .to_owned();
+        if norm.to_ascii_lowercase().ends_with(".as") {
+            map.insert(norm.to_ascii_lowercase(), Ok(src.source.clone()));
+        }
+    }
+    for res in &project.resources {
+        if !is_actionscript_resource(res) {
+            continue;
+        }
+        let norm = res
+            .path
+            .replace('\\', "/")
+            .trim_start_matches('/')
+            .to_owned();
+        let entry = match res.decoded_bytes() {
+            Ok(bytes) if bytes.len() <= 1_048_576 => String::from_utf8(bytes)
+                .map(|raw| {
+                    raw.strip_prefix('\u{feff}')
+                        .map_or(raw.clone(), str::to_owned)
+                })
+                .map_err(|_| format!("#include resource '{}' must contain UTF-8 source", res.path)),
+            Ok(_) => Err(format!(
+                "Included source '{}' exceeds 1 MiB limit",
+                res.path
+            )),
+            Err(err) => Err(format!("Invalid #include resource '{}': {err}", res.path)),
+        };
+        map.insert(norm.to_ascii_lowercase(), entry);
+    }
+    map
+}
+
+fn expand_swf_includes_recursive(
+    source: &str,
     language: ScriptLanguage,
+    base_path: &str,
+    files: &BTreeMap<String, Result<String, String>>,
+    stack: &mut Vec<String>,
+    out: &mut String,
+) -> Result<(), String> {
+    let is_as3 = language == ScriptLanguage::ActionScript3;
+    let mut block = false;
+    for raw_line in source.lines() {
+        let trimmed = raw_line.trim();
+        let directive_arg = if !block {
+            if is_as3 {
+                swf_parse_as3_include_arg(trimmed)
+            } else if trimmed.starts_with("#include") {
+                Some(trimmed.strip_prefix("#include").unwrap().trim())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(raw_arg) = directive_arg {
+            let argument = if is_as3 {
+                let no_comment = raw_arg.split("//").next().unwrap_or(raw_arg).trim();
+                no_comment.strip_suffix(';').map_or(no_comment, str::trim)
+            } else {
+                raw_arg.split("//").next().unwrap_or(raw_arg).trim()
+            };
+            let requested = argument
+                .strip_prefix('"')
+                .and_then(|v| v.strip_suffix('"'))
+                .or_else(|| {
+                    argument
+                        .strip_prefix('\'')
+                        .and_then(|v| v.strip_suffix('\''))
+                })
+                .filter(|v| !v.contains(['"', '\'', '\\']))
+                .ok_or_else(|| {
+                    if is_as3 {
+                        "Use include \"path.as\"; on its own line".to_owned()
+                    } else {
+                        "Use #include \"path.as\" on its own line without a semicolon".to_owned()
+                    }
+                })?;
+            let included = swf_normalize_include_path(base_path, requested)?;
+            let included_lower = included.to_ascii_lowercase();
+            if stack.len() >= 32 || stack.contains(&included_lower) {
+                return Err(format!(
+                    "Cyclic or over-deep #include: {included} (maximum 32 levels)"
+                ));
+            }
+            let body = if let Some(entry) = files.get(&included_lower) {
+                entry.clone()?
+            } else {
+                return Err(format!(
+                    "Missing #include source '{included}'; add the .as file to Project resources or sources"
+                ));
+            };
+            stack.push(included_lower);
+            expand_swf_includes_recursive(&body, language, &included, files, stack, out)?;
+            stack.pop();
+        } else {
+            out.push_str(raw_line);
+            out.push('\n');
+            swf_scan_comments(raw_line, &mut block);
+        }
+        if out.len() > 1_048_576 {
+            return Err("Expanded ActionScript source is limited to 1 MiB".to_owned());
+        }
+    }
+    Ok(())
+}
+
+fn expand_swf_includes(
+    project: &Project,
+    language: ScriptLanguage,
+    base_path: &str,
+    source: &str,
+) -> Result<String, String> {
+    if !source.contains("include") {
+        return Ok(source.to_owned());
+    }
+    let files = swf_collect_include_map(project);
+    let mut out = String::with_capacity(source.len());
+    let norm_base = base_path
+        .replace('\\', "/")
+        .trim_start_matches('/')
+        .to_owned();
+    let mut stack = if norm_base.is_empty() {
+        Vec::new()
+    } else {
+        vec![norm_base.to_ascii_lowercase()]
+    };
+    expand_swf_includes_recursive(source, language, &norm_base, &files, &mut stack, &mut out)?;
+    Ok(out)
+}
+
+fn swf_script_compilation_issue(
+    project: &Project,
+    language: ScriptLanguage,
+    base_path: &str,
     source: &str,
     external_source: bool,
+    is_object_script: bool,
 ) -> Option<String> {
     match language {
         ScriptLanguage::JavaScript | ScriptLanguage::TypeScript => {
             Some(format!("{language:?} is not supported by the SWF compiler"))
         }
         ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
-            compile_avm1_actions(source).err()
+            let expanded = match expand_swf_includes(project, language, base_path, source) {
+                Ok(s) => s,
+                Err(err) => return Some(err),
+            };
+            compile_avm1_actions_mode(&expanded, is_object_script).err()
         }
-        ScriptLanguage::ActionScript3 => try_compile_avm2_source(source, external_source).err(),
+        ScriptLanguage::ActionScript3 => {
+            if is_object_script {
+                return Some(
+                    "AS3 does not allow inline object scripts on symbol/button instances"
+                        .to_owned(),
+                );
+            }
+            let expanded = match expand_swf_includes(project, language, base_path, source) {
+                Ok(s) => s,
+                Err(err) => return Some(err),
+            };
+            try_compile_avm2_source(&expanded, external_source).err()
+        }
     }
+}
+
+fn push_swf_layout_issue(
+    report: &mut FlaCompatibilityReport,
+    location: String,
+    flattened: bool,
+    issue: SwfLayoutIssue,
+) {
+    let (code, category, msg) = match issue {
+        SwfLayoutIssue::DepthOverflow => (
+            if flattened {
+                "swf_flattened_scene_depth_limit"
+            } else {
+                "swf_display_depth_limit"
+            },
+            if flattened {
+                FlaCompatibilityCategory::Scenes
+            } else {
+                FlaCompatibilityCategory::LayersAndMasks
+            },
+            format!(
+                "Timeline needs more than {} simultaneous SWF display depths.",
+                u16::MAX
+            ),
+        ),
+        SwfLayoutIssue::InvalidMaskTarget(layer_name) => (
+            "swf_invalid_mask_target",
+            FlaCompatibilityCategory::LayersAndMasks,
+            format!(
+                "Masked layer '{layer_name}' references a missing, non-Mask, or hidden mask layer."
+            ),
+        ),
+        SwfLayoutIssue::NestedMask(layer_name) => (
+            "swf_nested_mask",
+            FlaCompatibilityCategory::LayersAndMasks,
+            format!("Mask layer '{layer_name}' cannot itself be masked in SWF clip layers."),
+        ),
+        SwfLayoutIssue::AdvancedMaskMode(layer_name) => (
+            "swf_advanced_mask_unsupported",
+            FlaCompatibilityCategory::LayersAndMasks,
+            format!(
+                "Mask layer '{layer_name}' uses inverted or non-geometry mask mode, which SWF PlaceObject clip_depth cannot represent."
+            ),
+        ),
+        SwfLayoutIssue::MultiElementMask(layer_name) => (
+            "swf_multi_element_mask_unsupported",
+            FlaCompatibilityCategory::LayersAndMasks,
+            format!(
+                "Mask layer '{layer_name}' places multiple simultaneous elements on one frame; combine mask shapes into one shape or symbol for SWF clip_depth."
+            ),
+        ),
+        SwfLayoutIssue::NonContiguousMask(layer_name) => (
+            "swf_noncontiguous_mask",
+            FlaCompatibilityCategory::LayersAndMasks,
+            format!(
+                "Mask layer '{layer_name}' and its masked layers are interleaved with unrelated visible layers in z-order and cannot be encoded with SWF clip_depth without changing layer stacking."
+            ),
+        ),
+    };
+    report.push(
+        code,
+        category,
+        FlaCompatibilityStatus::Blocking,
+        location,
+        msg,
+    );
 }
 
 /// Run a comprehensive compatibility preflight for publishing `project` as a `.swf` movie.
@@ -359,33 +800,32 @@ pub fn preflight_swf_publish(
     }
 
     let (flattened_project, _) = flatten_scenes_with_ranges(project);
-    if let Some(root) = flattened_project.symbol(&flattened_project.root) {
-        if root.timeline.frame_count > u32::from(u16::MAX) {
-            report.push(
-                "swf_flattened_scene_frame_limit",
-                FlaCompatibilityCategory::Scenes,
-                FlaCompatibilityStatus::Blocking,
-                "project.scenes",
-                format!(
-                    "Flattened scenes need {} frames; SWF declares at most {} frames.",
-                    root.timeline.frame_count,
-                    u16::MAX
-                ),
-            );
-        }
-        if timeline_depth_bands(&root.timeline).is_none() {
-            report.push(
-                "swf_flattened_scene_depth_limit",
-                FlaCompatibilityCategory::Scenes,
-                FlaCompatibilityStatus::Blocking,
-                "project.scenes",
-                format!(
-                    "Flattened scenes need more than {} simultaneous SWF display depths.",
-                    u16::MAX
-                ),
-            );
-        }
-    }
+    let root_has_timeline = flattened_project
+        .symbol(&flattened_project.root)
+        .is_some_and(|root| {
+            if root.timeline.frame_count > u32::from(u16::MAX) {
+                report.push(
+                    "swf_flattened_scene_frame_limit",
+                    FlaCompatibilityCategory::Scenes,
+                    FlaCompatibilityStatus::Blocking,
+                    "project.scenes",
+                    format!(
+                        "Flattened scenes need {} frames; SWF declares at most {} frames.",
+                        root.timeline.frame_count,
+                        u16::MAX
+                    ),
+                );
+            }
+            if let Err(issue) = compute_swf_timeline_layout(&root.timeline) {
+                push_swf_layout_issue(&mut report, "project.scenes".to_owned(), true, issue);
+            }
+            root.timeline.frame_count > 1
+                || root
+                    .timeline
+                    .scripts
+                    .iter()
+                    .any(|s| s.script.language == ScriptLanguage::ActionScript3)
+        });
 
     let (used_bitmaps, used_sounds) = used_swf_media_resources(project);
     for resource_id in used_bitmaps {
@@ -517,40 +957,14 @@ pub fn preflight_swf_publish(
         }
     }
 
-    // Track script languages for mixed-VM detection
+    // Track script languages for mixed-VM detection & SymbolClass/linkage uniqueness
     let mut has_avm1_scripts = false;
     let mut has_avm2_scripts = false;
+    let mut parsed_external_as3_classes: BTreeMap<String, AbcClassSpec> = BTreeMap::new();
+    let mut used_avm2_symbol_classes: BTreeMap<String, String> = BTreeMap::new();
+    let mut used_avm1_linkages: BTreeMap<String, String> = BTreeMap::new();
 
-    if let Some(doc_cls) = &project.document_class
-        && !doc_cls.trim().is_empty()
-    {
-        has_avm2_scripts = true;
-        if options.profile.is_avm2() {
-            report.push(
-                "swf_document_class",
-                FlaCompatibilityCategory::Scripts,
-                FlaCompatibilityStatus::Exact,
-                "project.document_class",
-                format!("Document class '{doc_cls}' bound to root via SymbolClass (ID 0)."),
-            );
-        } else {
-            report.push(
-                "swf_document_class_avm1_unsupported",
-                FlaCompatibilityCategory::Scripts,
-                if options.scriptless_mode {
-                    FlaCompatibilityStatus::Omitted
-                } else {
-                    FlaCompatibilityStatus::Blocking
-                },
-                "project.document_class",
-                format!(
-                    "AS3 document class '{doc_cls}' cannot be bound in FlashPlayer8Avm1 SWF profile."
-                ),
-            );
-        }
-    }
-
-    // 2. Inspect external sources
+    // 2. Inspect external sources first so class definitions are available for document/symbol validation
     for (idx, src) in project.sources.iter().enumerate() {
         let loc = format!("sources[{idx}]:{}", src.path);
         match src.language {
@@ -572,9 +986,42 @@ pub fn preflight_swf_publish(
             }
             ScriptLanguage::ActionScript3 => {
                 has_avm2_scripts = true;
-                let compile_issue = swf_script_compilation_issue(src.language, &src.source, true);
+                let expanded_res =
+                    expand_swf_includes(project, src.language, &src.path, &src.source);
+                let parsed_spec = expanded_res
+                    .as_ref()
+                    .ok()
+                    .and_then(|expanded| try_compile_avm2_source(expanded, true).ok());
+                let compile_issue = match &expanded_res {
+                    Err(err) => Some(err.clone()),
+                    Ok(expanded) => try_compile_avm2_source(expanded, true).err(),
+                };
+                let duplicate_qname = if compile_issue.is_none()
+                    && options.profile.is_avm2()
+                    && !options.scriptless_mode
+                    && let Some(spec) = &parsed_spec
+                {
+                    let qname = if spec.pkg.is_empty() {
+                        spec.class_name.clone()
+                    } else {
+                        format!("{}.{}", spec.pkg, spec.class_name)
+                    };
+                    match parsed_external_as3_classes.entry(qname) {
+                        std::collections::btree_map::Entry::Occupied(entry) => {
+                            Some(entry.key().clone())
+                        }
+                        std::collections::btree_map::Entry::Vacant(entry) => {
+                            entry.insert(spec.clone());
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
                 report.push(
-                    if options.profile.is_avm2() && compile_issue.is_none() {
+                    if duplicate_qname.is_some() {
+                        "swf_duplicate_as3_class"
+                    } else if options.profile.is_avm2() && compile_issue.is_none() {
                         "swf_as3_source_doabc"
                     } else if options.profile.is_avm2() {
                         "swf_as3_source_unsupported_syntax"
@@ -584,13 +1031,18 @@ pub fn preflight_swf_publish(
                     FlaCompatibilityCategory::Scripts,
                     if options.scriptless_mode {
                         FlaCompatibilityStatus::Omitted
-                    } else if options.profile.is_avm2() && compile_issue.is_none() {
+                    } else if options.profile.is_avm2()
+                        && compile_issue.is_none()
+                        && duplicate_qname.is_none()
+                    {
                         FlaCompatibilityStatus::Exact
                     } else {
                         FlaCompatibilityStatus::Blocking
                     },
                     loc,
-                    if options.profile.is_avm2() && compile_issue.is_none() {
+                    if let Some(qname) = duplicate_qname {
+                        format!("Duplicate AS3 class definition '{qname}' in project sources.")
+                    } else if options.profile.is_avm2() && compile_issue.is_none() {
                         format!("AS3 source '{}' compiled into DoABC2 tag.", src.path)
                     } else if let Some(issue) = compile_issue {
                         format!(
@@ -607,7 +1059,14 @@ pub fn preflight_swf_publish(
             }
             ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
                 has_avm1_scripts = true;
-                let compile_issue = swf_script_compilation_issue(src.language, &src.source, true);
+                let compile_issue = swf_script_compilation_issue(
+                    project,
+                    src.language,
+                    &src.path,
+                    &src.source,
+                    true,
+                    false,
+                );
                 report.push(
                     if !options.profile.is_avm2() && compile_issue.is_none() {
                         "swf_avm1_source"
@@ -643,6 +1102,67 @@ pub fn preflight_swf_publish(
         }
     }
 
+    if let Some(doc_cls) = &project.document_class
+        && !doc_cls.trim().is_empty()
+    {
+        let clean = doc_cls.trim();
+        has_avm2_scripts = true;
+        if !options.profile.is_avm2() {
+            report.push(
+                "swf_document_class_avm1_unsupported",
+                FlaCompatibilityCategory::Scripts,
+                if options.scriptless_mode {
+                    FlaCompatibilityStatus::Omitted
+                } else {
+                    FlaCompatibilityStatus::Blocking
+                },
+                "project.document_class",
+                format!(
+                    "AS3 document class '{clean}' cannot be bound in FlashPlayer8Avm1 SWF profile."
+                ),
+            );
+        } else if options.scriptless_mode {
+            report.push(
+                "swf_document_class_omitted",
+                FlaCompatibilityCategory::Scripts,
+                FlaCompatibilityStatus::Omitted,
+                "project.document_class",
+                format!("Document class '{clean}' is omitted in scriptless_mode."),
+            );
+        } else if !is_valid_as3_qname(clean) {
+            report.push(
+                "swf_invalid_document_class",
+                FlaCompatibilityCategory::Scripts,
+                FlaCompatibilityStatus::Blocking,
+                "project.document_class",
+                format!("Document class '{clean}' is not a valid ActionScript 3 class name."),
+            );
+        } else if let Some(ext_spec) = parsed_external_as3_classes.get(clean)
+            && root_has_timeline
+            && !(ext_spec.super_pkg == "flash.display" && ext_spec.super_name == "MovieClip")
+        {
+            report.push(
+                "swf_document_class_requires_movieclip",
+                FlaCompatibilityCategory::Scripts,
+                FlaCompatibilityStatus::Blocking,
+                "project.document_class",
+                format!(
+                    "Document class '{clean}' extends {}.{} but main timeline has multiple frames or frame scripts requiring flash.display.MovieClip.",
+                    ext_spec.super_pkg, ext_spec.super_name
+                ),
+            );
+        } else {
+            used_avm2_symbol_classes.insert(clean.to_owned(), "project.document_class".to_owned());
+            report.push(
+                "swf_document_class",
+                FlaCompatibilityCategory::Scripts,
+                FlaCompatibilityStatus::Exact,
+                "project.document_class",
+                format!("Document class '{clean}' bound to root via SymbolClass (ID 0)."),
+            );
+        }
+    }
+
     // 3. Inspect symbols, timelines, elements, tweens, and scripts
     for sym in &project.symbols {
         let sym_loc = format!("symbol:{}", sym.name);
@@ -659,21 +1179,27 @@ pub fn preflight_swf_publish(
                 ),
             );
         }
-        if timeline_depth_bands(&sym.timeline).is_none() {
-            report.push(
-                "swf_display_depth_limit",
-                FlaCompatibilityCategory::LayersAndMasks,
-                FlaCompatibilityStatus::Blocking,
-                sym_loc.clone(),
-                format!(
-                    "Timeline needs more than {} simultaneous SWF display depths.",
-                    u16::MAX
-                ),
-            );
+        if let Err(issue) = compute_swf_timeline_layout(&sym.timeline) {
+            push_swf_layout_issue(&mut report, sym_loc.clone(), false, issue);
         }
-        if let Some(cls) = &sym.class_name
-            && !cls.is_empty()
-        {
+
+        let trimmed_class = sym
+            .class_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let trimmed_linkage = sym
+            .linkage_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let has_as3_sym_scripts = sym
+            .timeline
+            .scripts
+            .iter()
+            .any(|s| s.script.language == ScriptLanguage::ActionScript3);
+
+        if let Some(cls) = trimmed_class {
             has_avm2_scripts = true;
             if !options.profile.is_avm2() {
                 report.push(
@@ -686,6 +1212,168 @@ pub fn preflight_swf_publish(
                     },
                     sym_loc.clone(),
                     format!("Symbol AS3 class '{cls}' requires an AVM2 SWF profile."),
+                );
+            } else if !options.scriptless_mode {
+                if !is_valid_as3_qname(cls) {
+                    report.push(
+                        "swf_invalid_symbol_class",
+                        FlaCompatibilityCategory::SymbolsAndLibrary,
+                        FlaCompatibilityStatus::Blocking,
+                        sym_loc.clone(),
+                        format!("Symbol class '{cls}' is not a valid ActionScript 3 class name."),
+                    );
+                } else if sym.kind == SymbolKind::Graphic {
+                    report.push(
+                        "swf_graphic_symbol_class_unsupported",
+                        FlaCompatibilityCategory::SymbolsAndLibrary,
+                        FlaCompatibilityStatus::Blocking,
+                        sym_loc.clone(),
+                        format!(
+                            "Graphic symbol '{}' cannot be bound to AS3 class '{cls}'; convert it to MovieClip or Button.",
+                            sym.name
+                        ),
+                    );
+                } else if let Some(prev_loc) =
+                    used_avm2_symbol_classes.insert(cls.to_owned(), sym_loc.clone())
+                {
+                    report.push(
+                        "swf_duplicate_symbol_class",
+                        FlaCompatibilityCategory::SymbolsAndLibrary,
+                        FlaCompatibilityStatus::Blocking,
+                        sym_loc.clone(),
+                        format!("Duplicate AVM2 SymbolClass '{cls}' also bound at {prev_loc}."),
+                    );
+                } else if let Some(ext_spec) = parsed_external_as3_classes.get(cls) {
+                    if sym.kind == SymbolKind::MovieClip
+                        && (has_as3_sym_scripts || sym.timeline.frame_count > 1)
+                        && !(ext_spec.super_pkg == "flash.display"
+                            && ext_spec.super_name == "MovieClip")
+                    {
+                        report.push(
+                            "swf_symbol_class_requires_movieclip",
+                            FlaCompatibilityCategory::SymbolsAndLibrary,
+                            FlaCompatibilityStatus::Blocking,
+                            sym_loc.clone(),
+                            format!(
+                                "Symbol class '{cls}' extends {}.{} but symbol timeline has multiple frames or frame scripts requiring flash.display.MovieClip.",
+                                ext_spec.super_pkg, ext_spec.super_name
+                            ),
+                        );
+                    } else if sym.kind == SymbolKind::Button
+                        && !(ext_spec.super_pkg == "flash.display"
+                            && ext_spec.super_name == "SimpleButton")
+                    {
+                        report.push(
+                            "swf_button_class_requires_simplebutton",
+                            FlaCompatibilityCategory::SymbolsAndLibrary,
+                            FlaCompatibilityStatus::Blocking,
+                            sym_loc.clone(),
+                            format!(
+                                "Button symbol class '{cls}' extends {}.{} instead of flash.display.SimpleButton.",
+                                ext_spec.super_pkg, ext_spec.super_name
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Some(link) = trimmed_linkage {
+            if !options.profile.is_avm2() {
+                if let Some(prev_loc) = used_avm1_linkages.insert(link.to_owned(), sym_loc.clone())
+                {
+                    report.push(
+                        "swf_duplicate_linkage_id",
+                        FlaCompatibilityCategory::SymbolsAndLibrary,
+                        FlaCompatibilityStatus::Blocking,
+                        sym_loc.clone(),
+                        format!(
+                            "Duplicate AVM1 ExportAssets linkage identifier '{link}' (already used at {prev_loc})."
+                        ),
+                    );
+                }
+            } else if !options.scriptless_mode {
+                if sym.kind == SymbolKind::Graphic {
+                    report.push(
+                        "swf_graphic_linkage_unsupported",
+                        FlaCompatibilityCategory::SymbolsAndLibrary,
+                        FlaCompatibilityStatus::Blocking,
+                        sym_loc.clone(),
+                        format!(
+                            "Graphic symbol '{}' cannot export linkage identifier '{link}' in AVM2 SWF.",
+                            sym.name
+                        ),
+                    );
+                } else if let Some(cls) = trimmed_class {
+                    if cls != link {
+                        report.push(
+                            "swf_avm2_linkage_superseded_by_class",
+                            FlaCompatibilityCategory::SymbolsAndLibrary,
+                            FlaCompatibilityStatus::Omitted,
+                            sym_loc.clone(),
+                            format!(
+                                "Symbol '{}' defines AVM1 linkage_id '{link}' alongside AS3 class_name '{cls}'; AVM2 SymbolClass binds '{cls}' and omits the AVM1 linkage identifier.",
+                                sym.name
+                            ),
+                        );
+                    }
+                } else if !is_valid_as3_qname(link) {
+                    report.push(
+                        "swf_avm2_invalid_linkage_class",
+                        FlaCompatibilityCategory::SymbolsAndLibrary,
+                        FlaCompatibilityStatus::Blocking,
+                        sym_loc.clone(),
+                        format!(
+                            "Linkage identifier '{link}' on '{}' is not a valid AS3 SymbolClass name.",
+                            sym.name
+                        ),
+                    );
+                } else if let Some(prev_loc) =
+                    used_avm2_symbol_classes.insert(link.to_owned(), sym_loc.clone())
+                {
+                    report.push(
+                        "swf_duplicate_symbol_class",
+                        FlaCompatibilityCategory::SymbolsAndLibrary,
+                        FlaCompatibilityStatus::Blocking,
+                        sym_loc.clone(),
+                        format!("Duplicate AVM2 SymbolClass '{link}' also bound at {prev_loc}."),
+                    );
+                } else {
+                    report.push(
+                        "swf_avm2_linkage_to_symbol_class",
+                        FlaCompatibilityCategory::SymbolsAndLibrary,
+                        FlaCompatibilityStatus::Converted,
+                        sym_loc.clone(),
+                        format!(
+                            "Linkage identifier '{link}' exported as AVM2 SymbolClass subclass."
+                        ),
+                    );
+                }
+            }
+        }
+
+        if !sym.timeline.scripts.is_empty() && !options.scriptless_mode {
+            if sym.kind == SymbolKind::Button {
+                report.push(
+                    "swf_button_frame_script_unsupported",
+                    FlaCompatibilityCategory::Scripts,
+                    FlaCompatibilityStatus::Blocking,
+                    sym_loc.clone(),
+                    format!(
+                        "Button symbol '{}' cannot execute timeline frame scripts inside DefineButton2; attach click scripts on the Button instance instead.",
+                        sym.name
+                    ),
+                );
+            } else if sym.kind == SymbolKind::Graphic {
+                report.push(
+                    "swf_graphic_frame_script_unsupported",
+                    FlaCompatibilityCategory::Scripts,
+                    FlaCompatibilityStatus::Blocking,
+                    sym_loc.clone(),
+                    format!(
+                        "Graphic symbol '{}' cannot contain timeline frame scripts; convert it to MovieClip.",
+                        sym.name
+                    ),
                 );
             }
         }
@@ -711,8 +1399,14 @@ pub fn preflight_swf_publish(
                 }
                 ScriptLanguage::ActionScript3 => {
                     has_avm2_scripts = true;
-                    let compile_issue =
-                        swf_script_compilation_issue(fs.script.language, &fs.script.source, false);
+                    let compile_issue = swf_script_compilation_issue(
+                        project,
+                        fs.script.language,
+                        "",
+                        &fs.script.source,
+                        false,
+                        false,
+                    );
                     report.push(
                         if options.profile.is_avm2() && compile_issue.is_none() {
                             "swf_avm2_frame_script"
@@ -743,8 +1437,14 @@ pub fn preflight_swf_publish(
                 }
                 ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
                     has_avm1_scripts = true;
-                    let compile_issue =
-                        swf_script_compilation_issue(fs.script.language, &fs.script.source, false);
+                    let compile_issue = swf_script_compilation_issue(
+                        project,
+                        fs.script.language,
+                        "",
+                        &fs.script.source,
+                        false,
+                        false,
+                    );
                     report.push(
                         if !options.profile.is_avm2() && compile_issue.is_none() {
                             "swf_avm1_frame_script"
@@ -777,8 +1477,131 @@ pub fn preflight_swf_publish(
 
         for layer in &sym.timeline.layers {
             let layer_loc = format!("{sym_loc}:layer:{}", layer.name);
+            let layer_has_authored_content = layer
+                .keyframes
+                .iter()
+                .any(|k| !k.elements.is_empty() || k.sound.is_some() || !k.label.is_empty());
+            if !layer.visible {
+                if layer_has_authored_content {
+                    report.push(
+                        "swf_hidden_layer_excluded",
+                        FlaCompatibilityCategory::LayersAndMasks,
+                        FlaCompatibilityStatus::Omitted,
+                        layer_loc.clone(),
+                        format!(
+                            "Hidden layer '{}' is excluded from published SWF output.",
+                            layer.name
+                        ),
+                    );
+                }
+                continue;
+            }
+            if layer.properties.role == LayerRole::Guide {
+                if layer_has_authored_content {
+                    report.push(
+                        "swf_guide_layer_excluded",
+                        FlaCompatibilityCategory::LayersAndMasks,
+                        FlaCompatibilityStatus::Omitted,
+                        layer_loc.clone(),
+                        format!(
+                            "Guide layer '{}' graphics are omitted from SWF (motion guide paths remain baked into guided tweens).",
+                            layer.name
+                        ),
+                    );
+                }
+                continue;
+            }
+            if layer.properties.role != LayerRole::Folder
+                && (!layer.properties.filters.is_empty()
+                    || layer.properties.blend_mode != BlendMode::Normal
+                    || layer.properties.z_depth.abs() > 1e-6
+                    || layer.properties.attach_to_camera)
+            {
+                report.push(
+                    "swf_layer_effects_unsupported",
+                    FlaCompatibilityCategory::FiltersAndBlends,
+                    FlaCompatibilityStatus::Blocking,
+                    layer_loc.clone(),
+                    format!(
+                        "Layer '{}' uses layer-level filters, blend mode, z-depth, or camera attachment not supported by SWF display-list tags.",
+                        layer.name
+                    ),
+                );
+            }
+
             for (k_idx, kf) in layer.keyframes.iter().enumerate() {
                 let kf_loc = format!("{layer_loc}:frame[{}]", kf.frame);
+                if !kf.filters.is_empty() {
+                    report.push(
+                        "swf_keyframe_filters_unsupported",
+                        FlaCompatibilityCategory::FiltersAndBlends,
+                        FlaCompatibilityStatus::Blocking,
+                        kf_loc.clone(),
+                        "Keyframe-level filter stacks are not represented in SWF PlaceObject3."
+                            .to_owned(),
+                    );
+                }
+                if kf.video.is_some() {
+                    report.push(
+                        "swf_video_unsupported",
+                        FlaCompatibilityCategory::MediaAndSound,
+                        FlaCompatibilityStatus::Blocking,
+                        kf_loc.clone(),
+                        "Timeline frame video streams are not supported by the SWF publisher."
+                            .to_owned(),
+                    );
+                }
+                if kf.camera.is_some() {
+                    report.push(
+                        "swf_camera_unsupported",
+                        FlaCompatibilityCategory::AnimationAndRigging,
+                        FlaCompatibilityStatus::Blocking,
+                        kf_loc.clone(),
+                        "Keyframe camera poses are not supported by SWF output.".to_owned(),
+                    );
+                }
+                if !kf.ik_armatures.is_empty() {
+                    report.push(
+                        "swf_ik_unsupported",
+                        FlaCompatibilityCategory::AnimationAndRigging,
+                        FlaCompatibilityStatus::Blocking,
+                        kf_loc.clone(),
+                        "IK armatures are not solved by the current SWF exporter.".to_owned(),
+                    );
+                }
+                if !kf.asset_warps.is_empty() {
+                    report.push(
+                        "swf_asset_warp_unsupported",
+                        FlaCompatibilityCategory::AnimationAndRigging,
+                        FlaCompatibilityStatus::Blocking,
+                        kf_loc.clone(),
+                        "Asset warp rigs are not baked by the current SWF exporter.".to_owned(),
+                    );
+                }
+                if let Some(snd) = &kf.sound {
+                    if snd.in_point.is_some_and(|t| !t.is_finite() || t < 0.0)
+                        || snd.out_point.is_some_and(|t| !t.is_finite() || t < 0.0)
+                    {
+                        report.push(
+                            "swf_sound_trim_invalid",
+                            FlaCompatibilityCategory::MediaAndSound,
+                            FlaCompatibilityStatus::Blocking,
+                            kf_loc.clone(),
+                            "Frame sound trim in/out points must be finite non-negative seconds."
+                                .to_owned(),
+                        );
+                    }
+                    if snd.sync == SoundSync::Stream {
+                        report.push(
+                            "swf_stream_sound_published_as_event",
+                            FlaCompatibilityCategory::MediaAndSound,
+                            FlaCompatibilityStatus::Approximated,
+                            kf_loc.clone(),
+                            "Stream sync sound is published via StartSound (tag 15) as Event playback rather than timeline SoundStreamHead/Block."
+                                .to_owned(),
+                        );
+                    }
+                }
                 if let Some(easing) = &kf.tween {
                     match kf.tween_kind {
                         TweenKind::Motion => {
@@ -845,6 +1668,15 @@ pub fn preflight_swf_publish(
 
                 for el in &kf.elements {
                     let el_loc = format!("{kf_loc}:element:{}", el.id);
+                    let target_sym = match &el.kind {
+                        ElementKind::Instance { symbol_id, .. } => project.symbol(symbol_id),
+                        _ => None,
+                    };
+                    let valid_object_script_host = target_sym.is_some_and(|s| {
+                        matches!(s.kind, SymbolKind::MovieClip | SymbolKind::Button)
+                    });
+                    let is_button_host = target_sym.is_some_and(|s| s.kind == SymbolKind::Button);
+
                     for os in &el.scripts {
                         match os.script.language {
                             ScriptLanguage::JavaScript | ScriptLanguage::TypeScript => {
@@ -877,10 +1709,54 @@ pub fn preflight_swf_publish(
                             }
                             ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
                                 has_avm1_scripts = true;
+                                if !options.scriptless_mode && !valid_object_script_host {
+                                    report.push(
+                                        "swf_object_script_invalid_host",
+                                        FlaCompatibilityCategory::Scripts,
+                                        FlaCompatibilityStatus::Blocking,
+                                        format!("{el_loc}:script"),
+                                        format!(
+                                            "AVM1 object script on '{}' requires a MovieClip or Button instance.",
+                                            el.name
+                                        ),
+                                    );
+                                    continue;
+                                }
+                                if !options.scriptless_mode && is_button_host {
+                                    if os.event != ObjectEvent::Click {
+                                        report.push(
+                                            "swf_button_event_unsupported",
+                                            FlaCompatibilityCategory::Scripts,
+                                            FlaCompatibilityStatus::Blocking,
+                                            format!("{el_loc}:script"),
+                                            format!(
+                                                "Button instance '{}' does not support {:?} object events; only Click / 'on(...)' button handlers are valid in DefineButton2.",
+                                                el.name, os.event
+                                            ),
+                                        );
+                                        continue;
+                                    }
+                                    if !options.profile.is_avm2()
+                                        && let Err(issue) =
+                                            validate_button_script_syntax(project, os)
+                                    {
+                                        report.push(
+                                            "swf_button_event_unsupported",
+                                            FlaCompatibilityCategory::Scripts,
+                                            FlaCompatibilityStatus::Blocking,
+                                            format!("{el_loc}:script"),
+                                            issue,
+                                        );
+                                        continue;
+                                    }
+                                }
                                 let compile_issue = swf_script_compilation_issue(
+                                    project,
                                     os.script.language,
+                                    "",
                                     &os.script.source,
                                     false,
+                                    true,
                                 );
                                 report.push(
                                     if !options.profile.is_avm2() && compile_issue.is_none() {
@@ -918,26 +1794,132 @@ pub fn preflight_swf_publish(
                     }
                     if !options.profile.is_avm2()
                         && !options.scriptless_mode
-                        && project.symbols.iter().any(|symbol| {
-                            matches!(
-                                &el.kind,
-                                ElementKind::Instance { symbol_id, .. }
-                                    if symbol.id == *symbol_id && symbol.kind == SymbolKind::Button
-                            )
-                        })
-                        && let Err(issue) = encode_button2_cond_actions(&el.scripts)
+                        && is_button_host
+                        && let Err(issue) = encode_button2_cond_actions(project, &el.scripts)
                     {
                         report.push(
                             "swf_avm1_button_action_capacity",
                             FlaCompatibilityCategory::Scripts,
                             FlaCompatibilityStatus::Blocking,
                             format!("{el_loc}:script"),
-                            format!("Button actions exceed an SWF record limit: {issue}."),
+                            format!(
+                                "Button actions exceed an SWF limit or invalid event: {issue}."
+                            ),
                         );
                     }
 
+                    let active_filters: Vec<&FilterSpec> =
+                        el.filters.iter().filter(|f| f.is_enabled()).collect();
+                    if active_filters.len() > 16 {
+                        report.push(
+                            "swf_filter_count_limit",
+                            FlaCompatibilityCategory::FiltersAndBlends,
+                            FlaCompatibilityStatus::Blocking,
+                            el_loc.clone(),
+                            format!(
+                                "Element '{}' has {} enabled filters; SWF PlaceObject3 supports at most 16 filters.",
+                                el.name,
+                                active_filters.len()
+                            ),
+                        );
+                    }
+                    for filter in active_filters {
+                        let grad_stops = match filter {
+                            FilterSpec::GradientGlow {
+                                colors,
+                                alphas,
+                                ratios,
+                                ..
+                            }
+                            | FilterSpec::GradientBevel {
+                                colors,
+                                alphas,
+                                ratios,
+                                ..
+                            } => Some(colors.len().min(alphas.len()).min(ratios.len())),
+                            _ => None,
+                        };
+                        if let Some(n) = grad_stops
+                            && !(1..=16).contains(&n)
+                        {
+                            report.push(
+                                "swf_filter_gradient_stop_limit",
+                                FlaCompatibilityCategory::FiltersAndBlends,
+                                FlaCompatibilityStatus::Blocking,
+                                el_loc.clone(),
+                                format!(
+                                    "Gradient filter on '{}' has {n} stops; SWF requires 1..=16.",
+                                    el.name
+                                ),
+                            );
+                        }
+                    }
+
                     match &el.kind {
-                        ElementKind::Path { .. } | ElementKind::PaintedPath { .. } => {
+                        ElementKind::Video { .. } => {
+                            report.push(
+                                "swf_video_unsupported",
+                                FlaCompatibilityCategory::MediaAndSound,
+                                FlaCompatibilityStatus::Blocking,
+                                el_loc,
+                                format!(
+                                    "Video element '{}' has no bundled FLV/H.264 stream and cannot be published to SWF.",
+                                    el.name
+                                ),
+                            );
+                        }
+                        ElementKind::Instance { symbol_id, .. }
+                            if project.symbol(symbol_id).is_none() =>
+                        {
+                            report.push(
+                                "swf_missing_symbol_ref",
+                                FlaCompatibilityCategory::SymbolsAndLibrary,
+                                FlaCompatibilityStatus::Blocking,
+                                el_loc,
+                                format!(
+                                    "Element '{}' references missing symbol '{symbol_id}'.",
+                                    el.name
+                                ),
+                            );
+                        }
+                        ElementKind::PaintedPath {
+                            fill_gradient,
+                            stroke_gradient,
+                            ..
+                        } => {
+                            for grad in [fill_gradient.as_ref(), stroke_gradient.as_ref()]
+                                .into_iter()
+                                .flatten()
+                            {
+                                if grad.stops.is_empty() || grad.stops.len() > 15 {
+                                    report.push(
+                                        "swf_gradient_stop_count_limit",
+                                        FlaCompatibilityCategory::ShapesAndPaints,
+                                        FlaCompatibilityStatus::Blocking,
+                                        el_loc.clone(),
+                                        format!(
+                                            "Shape gradient has {} stops, outside SWF supported range (1..=15).",
+                                            grad.stops.len()
+                                        ),
+                                    );
+                                }
+                            }
+                            if !el.stroke_width_profile().is_default() {
+                                report.push(
+                                    "swf_variable_width_stroke",
+                                    FlaCompatibilityCategory::ShapesAndPaints,
+                                    if options.expand_variable_width_strokes {
+                                        FlaCompatibilityStatus::Baked
+                                    } else {
+                                        FlaCompatibilityStatus::Approximated
+                                    },
+                                    el_loc.clone(),
+                                    "Variable-width stroke expanded into closed filled contour for SWF."
+                                        .to_owned(),
+                                );
+                            }
+                        }
+                        ElementKind::Path { .. } => {
                             if !el.stroke_width_profile().is_default() {
                                 report.push(
                                     "swf_variable_width_stroke",
@@ -1899,7 +2881,7 @@ fn build_define_sound_payload(
 }
 
 /// Build a `StartSound` (tag 15) payload for a `FrameSound`.
-fn build_start_sound_payload(sound_id: u16, sound: &FrameSound) -> Vec<u8> {
+fn build_start_sound_payload(sound_id: u16, sound: &FrameSound, duration_44: u64) -> Vec<u8> {
     let mut w = SwfBitWriter::new();
     w.u16(sound_id);
     let sync_stop = sound.sync == SoundSync::Stop;
@@ -1910,27 +2892,70 @@ fn build_start_sound_payload(sound_id: u16, sound: &FrameSound) -> Vec<u8> {
         sound.loops.clamp(1, 32767) as u16
     };
     let has_loops = !sync_stop && loop_count > 1;
-    let env_points: Vec<(u32, u16, u16)> = match sound.effect {
-        SoundEffect::None | SoundEffect::Custom => Vec::new(),
-        SoundEffect::LeftChannel => vec![(0, 32768, 0)],
-        SoundEffect::RightChannel => vec![(0, 0, 32768)],
-        SoundEffect::FadeLeftToRight => vec![(0, 32768, 0), (44100, 0, 32768)],
-        SoundEffect::FadeRightToLeft => vec![(0, 0, 32768), (44100, 32768, 0)],
-        SoundEffect::FadeIn => vec![(0, 0, 0), (44100, 32768, 32768)],
-        SoundEffect::FadeOut => vec![(0, 32768, 32768), (44100, 0, 0)],
+    let in_samples = if !sync_stop {
+        sound
+            .in_point
+            .filter(|t| t.is_finite() && *t > 0.0)
+            .map(|sec| (sec * 44_100.0).round().clamp(0.0, f64::from(u32::MAX)) as u32)
+    } else {
+        None
+    };
+    let out_samples = if !sync_stop {
+        sound
+            .out_point
+            .filter(|t| t.is_finite() && *t > 0.0)
+            .map(|sec| (sec * 44_100.0).round().clamp(0.0, f64::from(u32::MAX)) as u32)
+    } else {
+        None
+    };
+    let end_mark44 = duration_44.max(1).min(u64::from(u32::MAX)) as u32;
+    let env_points: Vec<(u32, u16, u16)> = if sound.effect == SoundEffect::Custom
+        || sound.envelope.as_ref().is_some_and(|pts| !pts.is_empty())
+    {
+        encode_sound_envelope_points(sound, duration_44)
+            .into_iter()
+            .map(|(m, l, r)| {
+                (
+                    m.min(u64::from(u32::MAX)) as u32,
+                    l.min(u32::from(u16::MAX)) as u16,
+                    r.min(u32::from(u16::MAX)) as u16,
+                )
+            })
+            .collect()
+    } else {
+        match sound.effect {
+            SoundEffect::None | SoundEffect::Custom => Vec::new(),
+            SoundEffect::LeftChannel => vec![(0, 32768, 0)],
+            SoundEffect::RightChannel => vec![(0, 0, 32768)],
+            SoundEffect::FadeLeftToRight => vec![(0, 32768, 0), (end_mark44, 0, 32768)],
+            SoundEffect::FadeRightToLeft => vec![(0, 0, 32768), (end_mark44, 32768, 0)],
+            SoundEffect::FadeIn => vec![(0, 0, 0), (end_mark44, 32768, 32768)],
+            SoundEffect::FadeOut => vec![(0, 32768, 32768), (end_mark44, 0, 0)],
+        }
     };
     let has_envelope = !sync_stop && !env_points.is_empty();
+    let has_in_point = in_samples.is_some();
+    let has_out_point = out_samples.is_some();
     let flags: u8 = (if sync_stop { 0x20 } else { 0 })
         | (if sync_no_multiple { 0x10 } else { 0 })
         | (if has_envelope { 0x08 } else { 0 })
-        | (if has_loops { 0x04 } else { 0 });
+        | (if has_loops { 0x04 } else { 0 })
+        | (if has_out_point { 0x02 } else { 0 })
+        | (if has_in_point { 0x01 } else { 0 });
     w.u8(flags);
+    if let Some(in_pt) = in_samples {
+        w.u32(in_pt);
+    }
+    if let Some(out_pt) = out_samples {
+        w.u32(out_pt);
+    }
     if has_loops {
         w.u16(loop_count);
     }
     if has_envelope {
-        w.u8(env_points.len() as u8);
-        for (pos44, left, right) in env_points {
+        let count = env_points.len().min(usize::from(u8::MAX));
+        w.u8(count as u8);
+        for (pos44, left, right) in env_points.into_iter().take(count) {
             w.u32(pos44);
             w.u16(left);
             w.u16(right);
@@ -2188,8 +3213,13 @@ fn write_single_fill_style(w: &mut SwfBitWriter, fill: &SwfShapeFillStyle) {
         w.u8(fill_type);
         w.matrix_px(grad.matrix);
         let count = grad.stops.len().min(15);
-        // spread(2 bits)=0, interp(2 bits)=0, count(4 bits)
-        w.u8(count as u8);
+        let spread_bits: u8 = match grad.spread {
+            GradientSpread::Extend => 0,
+            GradientSpread::Reflect => 1,
+            GradientSpread::Repeat => 2,
+        };
+        let interp_bits: u8 = u8::from(grad.linear_rgb);
+        w.u8((spread_bits << 6) | (interp_bits << 4) | (count as u8));
         for stop in grad.stops.iter().take(count) {
             w.u8(stop.ratio);
             w.rgba(stop.color);
@@ -2322,7 +3352,7 @@ fn build_define_shape_for_element(
     shape_id: u16,
     element: &Element,
     options: &SwfPublishOptions,
-) -> Option<(u16, Vec<u8>)> {
+) -> Result<Option<(u16, Vec<u8>)>, ExportError> {
     let mut fills: Vec<SwfShapeFillStyle> = Vec::new();
     let mut lines: Vec<SwfShapeLineStyle> = Vec::new();
     let mut edges: Vec<SwfEdge> = Vec::new();
@@ -2332,7 +3362,7 @@ fn build_define_shape_for_element(
             return 0;
         }
         fills.push(SwfShapeFillStyle { color, gradient });
-        fills.len() as u16
+        fills.len().min(usize::from(u16::MAX)) as u16
     };
 
     #[allow(clippy::too_many_arguments)]
@@ -2355,7 +3385,7 @@ fn build_define_shape_for_element(
             stroke_join: join,
             miter_limit: miter,
         });
-        lines.len() as u16
+        lines.len().min(usize::from(u16::MAX)) as u16
     };
 
     match &element.kind {
@@ -2374,10 +3404,13 @@ fn build_define_shape_for_element(
                 StrokeJoin::Round,
                 3.0,
             );
-            let cmds = element
+            let Some(cmds) = element
                 .to_path_commands()
                 .map(|(c, _)| c)
-                .or_else(|| element_vector_commands(element))?;
+                .or_else(|| element_vector_commands(element))
+            else {
+                return Ok(None);
+            };
             convert_commands_to_swf_edges(&cmds, f_idx, l_idx, true, &mut edges);
         }
         ElementKind::Ellipse {
@@ -2490,11 +3523,27 @@ fn build_define_shape_for_element(
                 }
             }
         }
-        _ => return None,
+        _ => return Ok(None),
     }
 
+    if fills.len() > usize::from(u16::MAX) {
+        return Err(ExportError::Options(format!(
+            "Element '{}' has {} fill styles; SWF DefineShape supports at most {}",
+            element.name,
+            fills.len(),
+            u16::MAX
+        )));
+    }
+    if lines.len() > usize::from(u16::MAX) {
+        return Err(ExportError::Options(format!(
+            "Element '{}' has {} line styles; SWF DefineShape supports at most {}",
+            element.name,
+            lines.len(),
+            u16::MAX
+        )));
+    }
     if edges.is_empty() {
-        return None;
+        return Ok(None);
     }
 
     let use_shape4 = options.profile.supports_define_shape4();
@@ -2576,7 +3625,7 @@ fn build_define_shape_for_element(
     let num_line_bits = needed_ub_bits(lines.len() as u32).max(1);
     write_shape_edges_records(&mut w, &edges, num_fill_bits, num_line_bits);
 
-    Some((tag_code, w.buf))
+    Ok(Some((tag_code, w.buf)))
 }
 
 /// Build a `DefineMorphShape` (tag 46) payload for a compatible start/end shape pair.
@@ -4451,17 +5500,139 @@ fn avm1_compile_stmt(out: &mut Vec<u8>, stmt: &SwfStmt, in_function: bool) -> Re
     Ok(())
 }
 
-/// Compile an AS1/AS2 script source into AVM1 action bytecode (terminated by `0x00`).
-pub(crate) fn compile_avm1_actions(source: &str) -> Result<Vec<u8>, String> {
+fn find_event_handler_in_stmts(stmts: &[SwfStmt]) -> Option<&SwfStmt> {
+    for stmt in stmts {
+        match stmt {
+            SwfStmt::EventHandler { .. } => return Some(stmt),
+            SwfStmt::Block(body)
+            | SwfStmt::While { body, .. }
+            | SwfStmt::FunctionDecl { body, .. } => {
+                if let Some(found) = find_event_handler_in_stmts(body) {
+                    return Some(found);
+                }
+            }
+            SwfStmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                if let Some(found) = find_event_handler_in_stmts(then_branch) {
+                    return Some(found);
+                }
+                if let Some(eb) = else_branch
+                    && let Some(found) = find_event_handler_in_stmts(eb)
+                {
+                    return Some(found);
+                }
+            }
+            SwfStmt::For {
+                init, update, body, ..
+            } => {
+                if let Some(i) = init
+                    && let Some(found) =
+                        find_event_handler_in_stmts(std::slice::from_ref(i.as_ref()))
+                {
+                    return Some(found);
+                }
+                if let Some(u) = update
+                    && let Some(found) =
+                        find_event_handler_in_stmts(std::slice::from_ref(u.as_ref()))
+                {
+                    return Some(found);
+                }
+                if let Some(found) = find_event_handler_in_stmts(body) {
+                    return Some(found);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn compile_avm1_actions_mode(source: &str, allow_event_handlers: bool) -> Result<Vec<u8>, String> {
     let stmts = parse_swf_statements_strict(source, false)?;
+    if !allow_event_handlers && find_event_handler_in_stmts(&stmts).is_some() {
+        return Err(
+            "AVM1 object event handler 'on(...)' / 'onClipEvent(...)' is only allowed on MovieClip or Button instances, not frame or init scripts"
+                .to_owned(),
+        );
+    }
     let mut out = Vec::new();
     avm1_compile_stmt_list(&mut out, &stmts, false)?;
     out.push(0x00); // ActionEndFlag
     Ok(out)
 }
 
+/// Compile an AS1/AS2 script source into AVM1 action bytecode (terminated by `0x00`).
+pub(crate) fn compile_avm1_actions(source: &str) -> Result<Vec<u8>, String> {
+    compile_avm1_actions_mode(source, false)
+}
+
+fn button_mouse_cond_mask(events: &[String]) -> Result<(u8, u8), String> {
+    let mut b0 = 0u8;
+    let mut b1 = 0u8;
+    for ev in events {
+        match ev.as_str() {
+            "release" => b0 |= 0x08,        // OverDownToOverUp
+            "press" => b0 |= 0x04,          // OverUpToOverDown
+            "rollOver" => b0 |= 0x01,       // IdleToOverUp
+            "rollOut" => b0 |= 0x02,        // OverUpToIdle
+            "dragOut" => b0 |= 0x10,        // OverDownToOutDown
+            "dragOver" => b0 |= 0x20,       // OutDownToOverDown
+            "releaseOutside" => b0 |= 0x40, // OutDownToIdle
+            other => {
+                return Err(format!(
+                    "Button handler 'on({other})' is not supported by this SWF DefineButton2 writer"
+                ));
+            }
+        }
+    }
+    if b0 == 0 && b1 == 0 {
+        b0 = 0x08;
+    }
+    let _ = &mut b1;
+    Ok((b0, b1))
+}
+
+fn validate_button_script_syntax(project: &Project, os: &ObjectScript) -> Result<(), String> {
+    if os.event != ObjectEvent::Click {
+        return Err(format!(
+            "Button instance does not support {:?} object events; only Click / 'on(...)' button handlers are valid in DefineButton2",
+            os.event
+        ));
+    }
+    let expanded = expand_swf_includes(project, os.script.language, "", &os.script.source)?;
+    let stmts = parse_swf_statements_strict(&expanded, false)?;
+    for stmt in &stmts {
+        if let SwfStmt::EventHandler {
+            is_clip_event,
+            events,
+            ..
+        } = stmt
+        {
+            if *is_clip_event {
+                return Err(
+                    "Button instances only support 'on(...)' mouse handlers, not 'onClipEvent(...)'"
+                        .to_owned(),
+                );
+            }
+            let _ = button_mouse_cond_mask(events)?;
+        } else if find_event_handler_in_stmts(std::slice::from_ref(stmt)).is_some() {
+            return Err(
+                "Nested 'on(...)' / 'onClipEvent(...)' handlers are not supported inside statements"
+                    .to_owned(),
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Encode `BUTTONCONDACTION` records for a `DefineButton2` (tag 34).
-fn encode_button2_cond_actions(scripts: &[ObjectScript]) -> Result<Vec<u8>, String> {
+fn encode_button2_cond_actions(
+    project: &Project,
+    scripts: &[ObjectScript],
+) -> Result<Vec<u8>, String> {
     let mut valid: Vec<(u8, u8, Vec<u8>)> = Vec::new();
     for os in scripts {
         if !matches!(
@@ -4470,15 +5641,40 @@ fn encode_button2_cond_actions(scripts: &[ObjectScript]) -> Result<Vec<u8>, Stri
         ) {
             continue;
         }
-        let actions = compile_avm1_actions(&os.script.source)?;
+        if os.event != ObjectEvent::Click {
+            return Err(format!(
+                "Button instance does not support {:?} object events; only Click / 'on(...)' handlers are valid in DefineButton2",
+                os.event
+            ));
+        }
+        let expanded = expand_swf_includes(project, os.script.language, "", &os.script.source)?;
+        let stmts = parse_swf_statements_strict(&expanded, false)?;
+        let mut handler_mask: Option<(u8, u8)> = None;
+        for stmt in &stmts {
+            if let SwfStmt::EventHandler {
+                is_clip_event,
+                events,
+                ..
+            } = stmt
+            {
+                if *is_clip_event {
+                    return Err(
+                        "Button instances only support 'on(...)' mouse handlers, not 'onClipEvent(...)'"
+                            .to_owned(),
+                    );
+                }
+                let mask = button_mouse_cond_mask(events)?;
+                handler_mask = Some(match handler_mask {
+                    Some((mb0, mb1)) => (mb0 | mask.0, mb1 | mask.1),
+                    None => mask,
+                });
+            }
+        }
+        let actions = compile_avm1_actions_mode(&expanded, true)?;
         if actions.len() <= 1 {
             continue;
         }
-        // OverDownToOverUp (release) = 0x08 in cond_b0
-        let (b0, b1): (u8, u8) = match os.event {
-            ObjectEvent::Click => (0x08, 0x00),
-            ObjectEvent::EnterFrame | ObjectEvent::Load => (0x04, 0x00),
-        };
+        let (b0, b1) = handler_mask.unwrap_or((0x08, 0x00));
         valid.push((b0, b1, actions));
     }
     let mut out = Vec::new();
@@ -4508,7 +5704,10 @@ fn encode_button2_cond_actions(scripts: &[ObjectScript]) -> Result<Vec<u8>, Stri
 }
 
 /// Encode `CLIPACTIONS` for a `PlaceObject2` (tag 26) or `PlaceObject3` (tag 70) in SWF 6+.
-fn encode_clip_actions(scripts: &[ObjectScript]) -> Option<Vec<u8>> {
+fn encode_clip_actions(
+    project: &Project,
+    scripts: &[ObjectScript],
+) -> Result<Option<Vec<u8>>, String> {
     let mut records: Vec<(u32, Option<u8>, Vec<u8>)> = Vec::new();
     let mut all_flags = 0u32;
     for os in scripts {
@@ -4518,8 +5717,8 @@ fn encode_clip_actions(scripts: &[ObjectScript]) -> Option<Vec<u8>> {
         ) {
             continue;
         }
-        let actions = compile_avm1_actions(&os.script.source)
-            .expect("AVM1 action record sizes are checked by SWF preflight");
+        let expanded = expand_swf_includes(project, os.script.language, "", &os.script.source)?;
+        let actions = compile_avm1_actions_mode(&expanded, true)?;
         if actions.len() <= 1 {
             continue;
         }
@@ -4534,7 +5733,7 @@ fn encode_clip_actions(scripts: &[ObjectScript]) -> Option<Vec<u8>> {
         records.push((flag, key, actions));
     }
     if records.is_empty() {
-        return None;
+        return Ok(None);
     }
     let mut w = SwfBitWriter::new();
     w.u16(0); // reserved
@@ -4549,7 +5748,7 @@ fn encode_clip_actions(scripts: &[ObjectScript]) -> Option<Vec<u8>> {
         w.bytes(&actions);
     }
     w.u32(0); // end of clip action records
-    Some(w.buf)
+    Ok(Some(w.buf))
 }
 
 #[derive(Default)]
@@ -4643,6 +5842,7 @@ fn emit_avm2_s24(code: &mut SwfBitWriter, offset: i32) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Clone)]
 struct AbcClassSpec {
     pkg: String,
     class_name: String,
@@ -4881,21 +6081,6 @@ fn parse_as3_source_to_spec_strict(
         ctor_statements,
         frame_scripts: Vec::new(),
         extra_methods,
-    })
-}
-
-fn parse_as3_source_to_spec(source: &str, fallback_qname: &str) -> AbcClassSpec {
-    parse_as3_source_to_spec_strict(source, fallback_qname, true).unwrap_or_else(|_| {
-        let (pkg, fc) = split_qualified_class(fallback_qname);
-        AbcClassSpec {
-            pkg,
-            class_name: if fc.is_empty() { "Main".to_owned() } else { fc },
-            super_pkg: "flash.display".to_owned(),
-            super_name: "MovieClip".to_owned(),
-            ctor_statements: Vec::new(),
-            frame_scripts: Vec::new(),
-            extra_methods: vec![("init".to_owned(), Vec::new(), Vec::new())],
-        }
     })
 }
 
@@ -5904,22 +7089,17 @@ fn compile_avm2_stmt(
                 code.u8(0x47); // returnvoid
             }
         }
-        SwfStmt::EventHandler { body, .. } => {
-            compile_avm2_stmt_list(
-                pool,
-                body,
-                code,
-                method_count,
-                method_params,
-                method_bodies,
-                local_regs,
-            )?;
+        SwfStmt::EventHandler { .. } => {
+            return Err(
+                "ActionScript 3 does not support inline 'on(...)' or 'onClipEvent(...)' handlers"
+                    .to_owned(),
+            );
         }
     }
     Ok(())
 }
 
-fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
+fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, ExportError> {
     let mut pool = AbcPoolBuilder::default();
     let object_mn = pool.add_qname("", "Object");
     let add_frame_script_mn = pool.add_qname("", "addFrameScript");
@@ -5966,8 +7146,13 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
             let mut m_code = SwfBitWriter::new();
             m_code.u8(0xD0); // getlocal_0
             m_code.u8(0x30); // pushscope
-            let stmts = parse_swf_statements_strict(script_src, true)
-                .expect("AVM2 frame scripts are validated by SWF preflight");
+            let stmts = parse_swf_statements_strict(script_src, true).map_err(|err| {
+                ExportError::Options(format!(
+                    "AVM2 frame script on class '{}' frame {} failed to parse: {err}",
+                    cls.class_name,
+                    frame_idx + 1
+                ))
+            })?;
             compile_avm2_stmt_list(
                 &mut pool,
                 &stmts,
@@ -5977,7 +7162,13 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
                 &mut method_bodies,
                 &empty_locals,
             )
-            .expect("AVM2 frame scripts are validated by SWF preflight");
+            .map_err(|err| {
+                ExportError::Options(format!(
+                    "AVM2 frame script on class '{}' frame {} failed to compile: {err}",
+                    cls.class_name,
+                    frame_idx + 1
+                ))
+            })?;
             m_code.u8(0x47); // returnvoid
             let (max_stack, local_count) = compute_avm2_method_metrics(&m_code.buf, 0);
             method_bodies.push((m_idx, max_stack, local_count, 1, 2, m_code.buf));
@@ -6218,7 +7409,7 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
         w.u32_v(0); // trait_count = 0
     }
 
-    w.buf
+    Ok(w.buf)
 }
 
 fn build_do_abc2_payload(name: &str, abc_bytes: &[u8]) -> Vec<u8> {
@@ -6604,17 +7795,65 @@ struct SwfDictionaryCompiler<'a> {
     bitmap_meta: BTreeMap<String, (u32, u32, Option<bool>)>,
     bitmap_quad_ids: BTreeMap<(String, u32, u32, bool), u16>,
     sound_ids: BTreeMap<String, u16>,
+    sound_durations_44: BTreeMap<String, u64>,
     font_ids: BTreeMap<(String, bool, bool), u16>,
     symbol_char_ids: BTreeMap<String, u16>,
-    button_scripts_by_sym: BTreeMap<String, Vec<ObjectScript>>,
+    button_variant_ids: BTreeMap<(String, String), u16>,
     avm1_exports: Vec<(u16, String)>,
     avm2_symbol_classes: Vec<(u16, String)>,
+    avm2_symbol_kinds: BTreeMap<String, SymbolKind>,
+    avm2_symbol_frame_scripts: BTreeMap<String, Vec<(u32, String)>>,
+    avm2_anon_symbol_scripts: Vec<(u16, Vec<(u32, String)>)>,
     avm2_classes: Vec<AbcClassSpec>,
 }
 
 fn element_character_key(element: &Element) -> String {
     serde_json::to_string(&(&element.kind, &element.transform.primitive))
         .unwrap_or_else(|_| format!("{:?}", element.kind))
+}
+
+fn button_scripts_variant_key(scripts: &[ObjectScript]) -> String {
+    if scripts.is_empty() {
+        String::new()
+    } else {
+        serde_json::to_string(scripts).unwrap_or_default()
+    }
+}
+
+fn collect_expanded_as3_frame_scripts(
+    project: &Project,
+    timeline: &Timeline,
+) -> Result<Vec<(u32, String)>, ExportError> {
+    let mut scripts_by_frame: BTreeMap<u32, String> = BTreeMap::new();
+    for fs in &timeline.scripts {
+        if fs.script.language == ScriptLanguage::ActionScript3 {
+            let expanded = expand_swf_includes(project, fs.script.language, "", &fs.script.source)
+                .map_err(|err| {
+                    ExportError::Options(format!(
+                        "Frame {} AS3 include failed: {err}",
+                        fs.frame + 1
+                    ))
+                })?;
+            scripts_by_frame
+                .entry(fs.frame)
+                .and_modify(|existing| {
+                    if !existing.ends_with('\n') {
+                        existing.push('\n');
+                    }
+                    existing.push_str(&expanded);
+                })
+                .or_insert(expanded);
+        }
+    }
+    Ok(scripts_by_frame.into_iter().collect())
+}
+
+fn spec_qname(spec: &AbcClassSpec) -> String {
+    if spec.pkg.is_empty() {
+        spec.class_name.clone()
+    } else {
+        format!("{}.{}", spec.pkg, spec.class_name)
+    }
 }
 
 impl<'a> SwfDictionaryCompiler<'a> {
@@ -6629,11 +7868,15 @@ impl<'a> SwfDictionaryCompiler<'a> {
             bitmap_meta: BTreeMap::new(),
             bitmap_quad_ids: BTreeMap::new(),
             sound_ids: BTreeMap::new(),
+            sound_durations_44: BTreeMap::new(),
             font_ids: BTreeMap::new(),
             symbol_char_ids: BTreeMap::new(),
-            button_scripts_by_sym: BTreeMap::new(),
+            button_variant_ids: BTreeMap::new(),
             avm1_exports: Vec::new(),
             avm2_symbol_classes: Vec::new(),
+            avm2_symbol_kinds: BTreeMap::new(),
+            avm2_symbol_frame_scripts: BTreeMap::new(),
+            avm2_anon_symbol_scripts: Vec::new(),
             avm2_classes: Vec::new(),
         }
     }
@@ -6679,6 +7922,14 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 }
             }
             if used_sounds.contains(&res.id) {
+                let info = analyze_swf_sound_resource(&res.media_type, &raw).map_err(|issue| {
+                    ExportError::Options(format!(
+                        "Frame sound '{}' cannot be encoded as DefineSound: {issue}",
+                        res.path
+                    ))
+                })?;
+                let duration_44 = u64::from(info.sample_count).saturating_mul(44_100)
+                    / u64::from(info.sample_rate.max(1));
                 let sid = self.alloc_char_id();
                 let payload =
                     build_define_sound_payload(sid, &res.media_type, &raw).map_err(|issue| {
@@ -6689,6 +7940,8 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     })?;
                 self.root_tags.write_tag(14, &payload);
                 self.sound_ids.insert(res.id.clone(), sid);
+                self.sound_durations_44
+                    .insert(res.id.clone(), duration_44.max(1));
             }
         }
         Ok(())
@@ -6706,16 +7959,57 @@ impl<'a> SwfDictionaryCompiler<'a> {
         fid
     }
 
-    fn ensure_element_character(&mut self, element: &Element) -> Option<u16> {
+    fn ensure_timeline_element_character(
+        &mut self,
+        element: &Element,
+        cache: &mut BTreeMap<String, u16>,
+    ) -> Result<Option<u16>, ExportError> {
+        if matches!(element.kind, ElementKind::Instance { .. }) {
+            return self.ensure_element_character(element);
+        }
+        let character_key = element_character_key(element);
+        if let Some(&cached) = cache.get(&character_key) {
+            return Ok(Some(cached));
+        }
+        let cid = self.ensure_element_character(element)?;
+        if let Some(cid) = cid {
+            cache.insert(character_key, cid);
+        }
+        Ok(cid)
+    }
+
+    fn ensure_element_character(&mut self, element: &Element) -> Result<Option<u16>, ExportError> {
         match &element.kind {
-            ElementKind::Instance { symbol_id, .. } => self.symbol_char_ids.get(symbol_id).copied(),
+            ElementKind::Instance { symbol_id, .. } => {
+                if !self.options.profile.is_avm2()
+                    && !self.options.scriptless_mode
+                    && !element.scripts.is_empty()
+                    && let Some(sym) = self.project.symbol(symbol_id).cloned()
+                    && sym.kind == SymbolKind::Button
+                {
+                    let key = button_scripts_variant_key(&element.scripts);
+                    if let Some(&cid) = self
+                        .button_variant_ids
+                        .get(&(symbol_id.clone(), key.clone()))
+                    {
+                        return Ok(Some(cid));
+                    }
+                    let cid = self.compile_button_symbol(&sym, &element.scripts)?;
+                    self.button_variant_ids
+                        .insert((symbol_id.clone(), key), cid);
+                    return Ok(Some(cid));
+                }
+                Ok(self.symbol_char_ids.get(symbol_id).copied())
+            }
             ElementKind::Bitmap {
                 resource_id,
                 width,
                 height,
                 smoothing,
             } => {
-                let bid = *self.bitmap_ids.get(resource_id)?;
+                let Some(&bid) = self.bitmap_ids.get(resource_id) else {
+                    return Ok(None);
+                };
                 let (bw, bh, override_smooth) = self
                     .bitmap_meta
                     .get(resource_id)
@@ -6724,7 +8018,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 let eff_smooth = override_smooth.unwrap_or(*smoothing);
                 let quad_key = (resource_id.clone(), *width, *height, eff_smooth);
                 if let Some(&existing) = self.bitmap_quad_ids.get(&quad_key) {
-                    return Some(existing);
+                    return Ok(Some(existing));
                 }
                 let sid = self.alloc_char_id();
                 let payload = build_define_bitmap_quad_shape_payload(
@@ -6732,7 +8026,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 );
                 self.root_tags.write_tag(32, &payload);
                 self.bitmap_quad_ids.insert(quad_key, sid);
-                Some(sid)
+                Ok(Some(sid))
             }
             ElementKind::TextBox {
                 text,
@@ -6748,7 +8042,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     tid, fid, text, *width, *height, format, *word_wrap, *multiline, 1.0,
                 );
                 self.root_tags.write_tag(37, &payload);
-                Some(tid)
+                Ok(Some(tid))
             }
             ElementKind::Text {
                 text,
@@ -6780,38 +8074,69 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     f64::from(color[3]) / 255.0,
                 );
                 self.root_tags.write_tag(37, &payload);
-                Some(tid)
+                Ok(Some(tid))
             }
             _ => {
                 let sid = self.alloc_char_id();
-                let (tag_code, payload) =
-                    build_define_shape_for_element(sid, element, self.options)?;
+                let Some((tag_code, payload)) =
+                    build_define_shape_for_element(sid, element, self.options)?
+                else {
+                    return Ok(None);
+                };
                 self.root_tags.write_tag(tag_code, &payload);
-                Some(sid)
+                Ok(Some(sid))
             }
         }
     }
 
-    fn collect_button_scripts(&mut self) {
-        for sym in &self.project.symbols {
-            for layer in &sym.timeline.layers {
+    fn initial_button_scripts_for_symbol(&self, sym: &Symbol) -> Vec<ObjectScript> {
+        if self.options.profile.is_avm2() || self.options.scriptless_mode {
+            return Vec::new();
+        }
+        let has_exported_name = sym
+            .linkage_id
+            .as_deref()
+            .is_some_and(|s| !s.trim().is_empty())
+            || sym
+                .class_name
+                .as_deref()
+                .is_some_and(|s| !s.trim().is_empty());
+        if has_exported_name {
+            return Vec::new();
+        }
+        let mut seen_unscripted = false;
+        let mut first_scripted: Option<Vec<ObjectScript>> = None;
+        for timeline in
+            std::iter::once(&sym.timeline).chain(self.project.symbols.iter().map(|s| &s.timeline))
+        {
+            for layer in &timeline.layers {
                 for kf in &layer.keyframes {
                     for el in &kf.elements {
                         if let ElementKind::Instance { symbol_id, .. } = &el.kind
-                            && !el.scripts.is_empty()
+                            && symbol_id == &sym.id
                         {
-                            self.button_scripts_by_sym
-                                .entry(symbol_id.clone())
-                                .or_default()
-                                .extend(el.scripts.clone());
+                            if el.scripts.is_empty() {
+                                seen_unscripted = true;
+                            } else if first_scripted.is_none() {
+                                first_scripted = Some(el.scripts.clone());
+                            }
                         }
                     }
                 }
             }
         }
+        if seen_unscripted {
+            Vec::new()
+        } else {
+            first_scripted.unwrap_or_default()
+        }
     }
 
-    fn compile_button_symbol(&mut self, sym: &Symbol) -> Result<u16, ExportError> {
+    fn compile_button_symbol(
+        &mut self,
+        sym: &Symbol,
+        scripts: &[ObjectScript],
+    ) -> Result<u16, ExportError> {
         type ButtonStateRecord = (
             u8,
             u16,
@@ -6823,8 +8148,14 @@ impl<'a> SwfDictionaryCompiler<'a> {
             Vec<FilterSpec>,
         );
         let mut state_records: Vec<ButtonStateRecord> = Vec::new();
-        let depth_bands = timeline_depth_bands(&sym.timeline)
-            .expect("SWF button depth capacity is checked by preflight before compilation");
+        let depth_bands = compute_swf_timeline_layout(&sym.timeline)
+            .map_err(|issue| {
+                ExportError::Options(format!(
+                    "Button '{}' timeline cannot be laid out in SWF: {issue:?}",
+                    sym.name
+                ))
+            })?
+            .depth_bands;
         let mut element_char_cache = BTreeMap::<String, u16>::new();
 
         for (l_idx, layer) in sym.timeline.layers.iter().enumerate() {
@@ -6834,18 +8165,21 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 continue;
             }
             for state_frame in 0..4u32 {
+                if layer
+                    .properties
+                    .end_frame
+                    .is_some_and(|end| state_frame >= end)
+                {
+                    continue;
+                }
                 let state_bit = 1u8 << state_frame;
                 let Some(kf) = layer.keyframes.iter().rfind(|k| k.frame <= state_frame) else {
                     continue;
                 };
                 for (element_offset, el) in kf.elements.iter().enumerate() {
-                    let character_key = element_character_key(el);
-                    let cid = if let Some(&cached) = element_char_cache.get(&character_key) {
-                        cached
-                    } else if let Some(cid) = self.ensure_element_character(el) {
-                        element_char_cache.insert(character_key, cid);
-                        cid
-                    } else {
+                    let Some(cid) =
+                        self.ensure_timeline_element_character(el, &mut element_char_cache)?
+                    else {
                         continue;
                     };
                     // Button states may use different characters at the same depth as long as
@@ -6886,7 +8220,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 },
                 ..Element::default()
             };
-            if let Some(cid) = self.ensure_element_character(&dummy_el) {
+            if let Some(cid) = self.ensure_element_character(&dummy_el)? {
                 state_records.push((
                     0x0F,
                     cid,
@@ -6923,16 +8257,16 @@ impl<'a> SwfDictionaryCompiler<'a> {
         }
         rec_writer.u8(0); // End of button records
 
-        let cond_bytes = if !self.options.profile.is_avm2() && !self.options.scriptless_mode {
-            match self.button_scripts_by_sym.get(&sym.id) {
-                Some(scripts) => encode_button2_cond_actions(scripts).map_err(|error| {
-                    ExportError::Options(format!(
-                        "Button '{}' cannot encode its AVM1 actions: {error}",
-                        sym.name
-                    ))
-                })?,
-                None => Vec::new(),
-            }
+        let cond_bytes = if !self.options.profile.is_avm2()
+            && !self.options.scriptless_mode
+            && !scripts.is_empty()
+        {
+            encode_button2_cond_actions(self.project, scripts).map_err(|error| {
+                ExportError::Options(format!(
+                    "Button '{}' cannot encode its AVM1 actions: {error}",
+                    sym.name
+                ))
+            })?
         } else {
             Vec::new()
         };
@@ -6965,10 +8299,19 @@ impl<'a> SwfDictionaryCompiler<'a> {
         Ok(button_id)
     }
 
-    fn build_timeline_tags(&mut self, timeline: &Timeline, is_root: bool) -> (Vec<u8>, u16) {
+    fn build_timeline_tags(
+        &mut self,
+        timeline: &Timeline,
+        is_root: bool,
+    ) -> Result<(Vec<u8>, u16), ExportError> {
         let total_frames = timeline.frame_count.max(1);
-        let depth_bands = timeline_depth_bands(timeline)
-            .expect("SWF depth capacity is checked by preflight before compilation");
+        let layout = compute_swf_timeline_layout(timeline).map_err(|issue| {
+            ExportError::Options(format!(
+                "SWF timeline layout is not representable: {issue:?}"
+            ))
+        })?;
+        let depth_bands = layout.depth_bands;
+        let mask_clip_depths = layout.mask_clip_depths;
 
         // Pre-allocate morph shapes for compatible shape tween spans
         let mut morph_spans: BTreeMap<(usize, usize), (u16, u32, u32, Easing)> = BTreeMap::new();
@@ -6980,10 +8323,19 @@ impl<'a> SwfDictionaryCompiler<'a> {
             {
                 continue;
             }
+            let effective_end = layer
+                .properties
+                .end_frame
+                .unwrap_or(total_frames)
+                .min(total_frames);
             for (k_idx, kf) in layer.keyframes.iter().enumerate() {
+                if kf.frame >= effective_end {
+                    break;
+                }
                 if let Some(easing) = kf.tween
                     && kf.tween_kind == TweenKind::Shape
                     && let Some(next_kf) = layer.keyframes.get(k_idx + 1)
+                    && next_kf.frame < effective_end
                     && can_build_morph_shape(&kf.elements, &next_kf.elements)
                 {
                     let morph_id = self.alloc_char_id();
@@ -6999,30 +8351,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     }
                 }
                 for el in &kf.elements {
-                    let character_key = element_character_key(el);
-                    if !element_char_cache.contains_key(&character_key)
-                        && let Some(cid) = self.ensure_element_character(el)
-                    {
-                        element_char_cache.insert(character_key, cid);
-                    }
-                }
-            }
-        }
-
-        let mut mask_clip_depths: BTreeMap<usize, u16> = BTreeMap::new();
-        for (l_idx, layer) in timeline.layers.iter().enumerate() {
-            if layer.properties.role == LayerRole::Mask {
-                let mut max_masked_depth = 0u16;
-                for (other_idx, other) in timeline.layers.iter().enumerate() {
-                    if other.properties.mask.as_deref() == Some(layer.id.as_str())
-                        && other_idx > l_idx
-                    {
-                        let d = depth_bands[other_idx].1;
-                        max_masked_depth = max_masked_depth.max(d);
-                    }
-                }
-                if max_masked_depth > depth_bands[l_idx].0 {
-                    mask_clip_depths.insert(l_idx, max_masked_depth);
+                    let _ = self.ensure_timeline_element_character(el, &mut element_char_cache)?;
                 }
             }
         }
@@ -7036,19 +8365,27 @@ impl<'a> SwfDictionaryCompiler<'a> {
             let mut frame_sounds: Vec<&FrameSound> = Vec::new();
 
             for (l_idx, layer) in timeline.layers.iter().enumerate() {
-                for kf in &layer.keyframes {
-                    if kf.frame == frame {
-                        if !kf.label.is_empty() {
-                            frame_labels.push(&kf.label);
-                        }
-                        if let Some(snd) = &kf.sound {
-                            frame_sounds.push(snd);
+                let effective_end = layer
+                    .properties
+                    .end_frame
+                    .unwrap_or(total_frames)
+                    .min(total_frames);
+                if frame < effective_end {
+                    for kf in &layer.keyframes {
+                        if kf.frame == frame {
+                            if !kf.label.is_empty() {
+                                frame_labels.push(&kf.label);
+                            }
+                            if let Some(snd) = &kf.sound {
+                                frame_sounds.push(snd);
+                            }
                         }
                     }
                 }
 
                 if !layer.visible
                     || matches!(layer.properties.role, LayerRole::Folder | LayerRole::Guide)
+                    || frame >= effective_end
                 {
                     continue;
                 }
@@ -7092,16 +8429,9 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 // Evaluate layer at `frame`
                 let sampled_elements = neoflash_core::sample_layer_in(timeline, layer, frame);
                 for (e_offset, el) in sampled_elements.iter().enumerate() {
-                    let character_key = element_character_key(el);
-                    let cid_opt = if let Some(&cached) = element_char_cache.get(&character_key) {
-                        Some(cached)
-                    } else if let Some(cid) = self.ensure_element_character(el) {
-                        element_char_cache.insert(character_key, cid);
-                        Some(cid)
-                    } else {
-                        None
-                    };
-                    let Some(cid) = cid_opt else {
+                    let Some(cid) =
+                        self.ensure_timeline_element_character(el, &mut element_char_cache)?
+                    else {
                         continue;
                     };
                     let depth = base_depth
@@ -7121,7 +8451,12 @@ impl<'a> SwfDictionaryCompiler<'a> {
                         && !self.options.scriptless_mode
                         && !is_button_inst
                     {
-                        encode_clip_actions(&el.scripts)
+                        encode_clip_actions(self.project, &el.scripts).map_err(|error| {
+                            ExportError::Options(format!(
+                                "MovieClip instance '{}' cannot encode its AVM1 actions: {error}",
+                                el.name
+                            ))
+                        })?
                     } else {
                         None
                     };
@@ -7179,30 +8514,26 @@ impl<'a> SwfDictionaryCompiler<'a> {
             }
             active_slots = next_slots;
 
-            // FrameLabel (tag 43)
+            // Emit FrameLabel (tag 43), StartSound (tag 15), and DoAction (tag 12) in stream order
+            // AFTER display-list updates for the frame and BEFORE ShowFrame (tag 1).
             if let Some(lbl) = frame_labels.first() {
                 let mut lw = SwfBitWriter::new();
                 lw.c_string(lbl);
-                if is_root {
-                    self.root_tags.write_tag(43, &lw.buf);
-                } else {
-                    stream_tags.write_tag(43, &lw.buf);
-                }
+                stream_tags.write_tag(43, &lw.buf);
             }
 
-            // StartSound (tag 15)
             for snd in frame_sounds {
                 if let Some(&sid) = self.sound_ids.get(&snd.resource) {
-                    let payload = build_start_sound_payload(sid, snd);
-                    if is_root {
-                        self.root_tags.write_tag(15, &payload);
-                    } else {
-                        stream_tags.write_tag(15, &payload);
-                    }
+                    let duration_44 = self
+                        .sound_durations_44
+                        .get(&snd.resource)
+                        .copied()
+                        .unwrap_or(44_100);
+                    let payload = build_start_sound_payload(sid, snd, duration_44);
+                    stream_tags.write_tag(15, &payload);
                 }
             }
 
-            // AVM1 DoAction (tag 12)
             if !self.options.profile.is_avm2() && !self.options.scriptless_mode {
                 for fs in &timeline.scripts {
                     if fs.frame == frame
@@ -7211,20 +8542,32 @@ impl<'a> SwfDictionaryCompiler<'a> {
                             ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
                         )
                     {
-                        let actions = compile_avm1_actions(&fs.script.source)
-                            .expect("AVM1 action record sizes are checked by SWF preflight");
+                        let expanded = expand_swf_includes(
+                            self.project,
+                            fs.script.language,
+                            "",
+                            &fs.script.source,
+                        )
+                        .map_err(|err| {
+                            ExportError::Options(format!(
+                                "Frame {} AVM1 include failed: {err}",
+                                frame + 1
+                            ))
+                        })?;
+                        let actions = compile_avm1_actions(&expanded).map_err(|err| {
+                            ExportError::Options(format!(
+                                "Frame {} AVM1 script failed to compile: {err}",
+                                frame + 1
+                            ))
+                        })?;
                         if actions.len() > 1 {
-                            if is_root {
-                                self.root_tags.write_tag(12, &actions);
-                            } else {
-                                stream_tags.write_tag(12, &actions);
-                            }
+                            stream_tags.write_tag(12, &actions);
                         }
                     }
                 }
             }
 
-            // Flush any newly defined root dictionary tags before ShowFrame
+            // Flush any newly defined root dictionary tags before this frame's stream tags + ShowFrame
             if is_root {
                 self.root_tags.bytes(&stream_tags.buf);
                 stream_tags.buf.clear();
@@ -7234,19 +8577,13 @@ impl<'a> SwfDictionaryCompiler<'a> {
             }
         }
 
+        let frame_count = u16::try_from(total_frames)
+            .map_err(|_| ExportError::Options("SWF timeline exceeds 65535 frames".to_owned()))?;
         if is_root {
-            (
-                Vec::new(),
-                u16::try_from(total_frames)
-                    .expect("SWF frame capacity is checked by preflight before compilation"),
-            )
+            Ok((Vec::new(), frame_count))
         } else {
             stream_tags.write_tag(0, &[]); // End tag inside DefineSprite
-            (
-                stream_tags.buf,
-                u16::try_from(total_frames)
-                    .expect("SWF frame capacity is checked by preflight before compilation"),
-            )
+            Ok((stream_tags.buf, frame_count))
         }
     }
 
@@ -7275,9 +8612,13 @@ impl<'a> SwfDictionaryCompiler<'a> {
         }
 
         let char_id = if sym.kind == SymbolKind::Button {
-            self.compile_button_symbol(&sym)?
+            let initial_scripts = self.initial_button_scripts_for_symbol(&sym);
+            let bid = self.compile_button_symbol(&sym, &initial_scripts)?;
+            let key = button_scripts_variant_key(&initial_scripts);
+            self.button_variant_ids.insert((sym.id.clone(), key), bid);
+            bid
         } else {
-            let (sprite_tags, frame_count) = self.build_timeline_tags(&sym.timeline, false);
+            let (sprite_tags, frame_count) = self.build_timeline_tags(&sym.timeline, false)?;
             let sid = self.alloc_char_id();
             let mut w = SwfBitWriter::new();
             w.u16(sid);
@@ -7296,40 +8637,28 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 self.avm1_exports.push((char_id, linkage.clone()));
             }
         } else if !self.options.scriptless_mode {
-            let mut scripts_by_frame: BTreeMap<u32, String> = BTreeMap::new();
-            for fs in &sym.timeline.scripts {
-                if fs.script.language == ScriptLanguage::ActionScript3 {
-                    scripts_by_frame
-                        .entry(fs.frame)
-                        .and_modify(|existing| {
-                            if !existing.ends_with('\n') {
-                                existing.push('\n');
-                            }
-                            existing.push_str(&fs.script.source);
-                        })
-                        .or_insert_with(|| fs.script.source.clone());
-                }
-            }
-            let as3_scripts: Vec<(u32, String)> = scripts_by_frame.into_iter().collect();
-            if !as3_scripts.is_empty() {
-                let tl_class_name = format!("Timeline_{char_id}");
-                self.avm2_classes.push(AbcClassSpec {
-                    pkg: String::new(),
-                    class_name: tl_class_name.clone(),
-                    super_pkg: "flash.display".to_owned(),
-                    super_name: "MovieClip".to_owned(),
-                    ctor_statements: Vec::new(),
-                    frame_scripts: as3_scripts,
-                    extra_methods: Vec::new(),
+            let as3_scripts = collect_expanded_as3_frame_scripts(self.project, &sym.timeline)?;
+            let explicit_cls = sym
+                .class_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    sym.linkage_id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
                 });
-                if sym.class_name.as_ref().is_none_or(String::is_empty) {
-                    self.avm2_symbol_classes.push((char_id, tl_class_name));
+            if let Some(cls_name) = explicit_cls {
+                self.avm2_symbol_classes
+                    .push((char_id, cls_name.to_owned()));
+                self.avm2_symbol_kinds.insert(cls_name.to_owned(), sym.kind);
+                if !as3_scripts.is_empty() {
+                    self.avm2_symbol_frame_scripts
+                        .insert(cls_name.to_owned(), as3_scripts);
                 }
-            }
-            if let Some(cls_name) = &sym.class_name
-                && !cls_name.is_empty()
-            {
-                self.avm2_symbol_classes.push((char_id, cls_name.clone()));
+            } else if !as3_scripts.is_empty() {
+                self.avm2_anon_symbol_scripts.push((char_id, as3_scripts));
             }
         }
         Ok(())
@@ -7374,7 +8703,6 @@ pub fn publish_swf_bytes(
         .clone();
 
     let mut compiler = SwfDictionaryCompiler::new(project, options);
-    compiler.collect_button_scripts();
     compiler.ensure_media_resources()?;
 
     // Compile all non-scene library symbols in bottom-up topological order
@@ -7395,20 +8723,36 @@ pub fn publish_swf_bytes(
             compiler.root_tags.write_tag(56, &payload);
         }
         if !options.scriptless_mode {
-            for (idx, src) in project.sources.iter().enumerate() {
+            for src in &project.sources {
                 if matches!(
                     src.language,
                     ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
                 ) {
-                    let actions = compile_avm1_actions(&src.source)
-                        .expect("AVM1 action record sizes are checked by SWF preflight");
+                    let expanded =
+                        expand_swf_includes(project, src.language, &src.path, &src.source)
+                            .map_err(|err| {
+                                ExportError::Options(format!(
+                                    "AVM1 source '{}' include failed: {err}",
+                                    src.path
+                                ))
+                            })?;
+                    let actions = compile_avm1_actions(&expanded).map_err(|err| {
+                        ExportError::Options(format!(
+                            "AVM1 source '{}' failed to compile: {err}",
+                            src.path
+                        ))
+                    })?;
                     if actions.len() > 1 {
-                        let init_sprite_id = compiler
-                            .symbol_char_ids
-                            .values()
-                            .copied()
-                            .next()
-                            .unwrap_or((idx + 1) as u16);
+                        // Emit a dedicated empty DefineSprite so each external AVM1 source has
+                        // its own valid init target sprite ID.
+                        let init_sprite_id = compiler.alloc_char_id();
+                        let mut sw = SwfBitWriter::new();
+                        sw.u16(init_sprite_id);
+                        sw.u16(1);
+                        sw.write_tag(1, &[]); // ShowFrame
+                        sw.write_tag(0, &[]); // End
+                        compiler.root_tags.write_tag(39, &sw.buf);
+
                         let mut w = SwfBitWriter::new();
                         w.u16(init_sprite_id);
                         w.bytes(&actions);
@@ -7431,110 +8775,147 @@ pub fn publish_swf_bytes(
 
     // Prepare AVM2 DoABC2 (tag 82) + SymbolClass (tag 76) before the first ShowFrame so frame 0 scripts execute!
     if options.profile.is_avm2() && !options.scriptless_mode {
-        let mut root_scripts_by_frame: BTreeMap<u32, String> = BTreeMap::new();
-        for fs in &root_timeline.scripts {
-            if fs.script.language == ScriptLanguage::ActionScript3 {
-                root_scripts_by_frame
-                    .entry(fs.frame)
-                    .and_modify(|existing| {
-                        if !existing.ends_with('\n') {
-                            existing.push('\n');
-                        }
-                        existing.push_str(&fs.script.source);
-                    })
-                    .or_insert_with(|| fs.script.source.clone());
-            }
-        }
-        let root_as3_scripts: Vec<(u32, String)> = root_scripts_by_frame.into_iter().collect();
-        let has_doc_class = project
-            .document_class
-            .as_ref()
-            .is_some_and(|s| !s.trim().is_empty());
-        if !root_as3_scripts.is_empty() {
-            compiler.avm2_classes.push(AbcClassSpec {
-                pkg: String::new(),
-                class_name: "MainTimeline".to_owned(),
-                super_pkg: "flash.display".to_owned(),
-                super_name: "MovieClip".to_owned(),
-                ctor_statements: Vec::new(),
-                frame_scripts: root_as3_scripts,
-                extra_methods: Vec::new(),
-            });
-            if !has_doc_class {
-                compiler
-                    .avm2_symbol_classes
-                    .push((0, "MainTimeline".to_owned()));
-            }
-        }
+        let root_as3_scripts = collect_expanded_as3_frame_scripts(project, &root_timeline)?;
 
-        let mut defined_qnames: BTreeSet<String> = compiler
-            .avm2_classes
-            .iter()
-            .map(|c| {
-                if c.pkg.is_empty() {
-                    c.class_name.clone()
-                } else {
-                    format!("{}.{}", c.pkg, c.class_name)
-                }
-            })
-            .collect();
-
+        let mut defined_qnames: BTreeSet<String> = BTreeSet::new();
         for src in &project.sources {
             if src.language == ScriptLanguage::ActionScript3 {
+                let expanded = expand_swf_includes(project, src.language, &src.path, &src.source)
+                    .map_err(|err| {
+                    ExportError::Options(format!("AS3 source '{}' include failed: {err}", src.path))
+                })?;
                 let fallback = src
                     .path
                     .trim_end_matches(".as")
                     .rsplit('/')
                     .next()
                     .unwrap_or("Main");
-                let spec = parse_as3_source_to_spec(&src.source, fallback);
-                let qname = if spec.pkg.is_empty() {
-                    spec.class_name.clone()
-                } else {
-                    format!("{}.{}", spec.pkg, spec.class_name)
-                };
-                if defined_qnames.insert(qname) {
+                let spec =
+                    parse_as3_source_to_spec_strict(&expanded, fallback, true).map_err(|err| {
+                        ExportError::Options(format!(
+                            "AS3 source '{}' failed to parse: {err}",
+                            src.path
+                        ))
+                    })?;
+                let qname = spec_qname(&spec);
+                if defined_qnames.insert(qname.clone()) {
                     compiler.avm2_classes.push(spec);
+                } else {
+                    return Err(ExportError::Options(format!(
+                        "Duplicate AS3 class definition '{qname}' in project sources"
+                    )));
                 }
             }
         }
 
-        if let Some(doc_cls) = &project.document_class
-            && !doc_cls.trim().is_empty()
-        {
-            let clean = doc_cls.trim().to_owned();
-            if defined_qnames.insert(clean.clone()) {
-                let (pkg, cls_name) = split_qualified_class(&clean);
+        // Bind root timeline & document class without creating an orphan MainTimeline.
+        let clean_doc_class = project
+            .document_class
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        if let Some(doc_cls) = clean_doc_class {
+            if let Some(existing) = compiler
+                .avm2_classes
+                .iter_mut()
+                .find(|c| spec_qname(c) == doc_cls)
+            {
+                if !root_as3_scripts.is_empty() {
+                    existing.frame_scripts = root_as3_scripts;
+                }
+            } else {
+                defined_qnames.insert(doc_cls.to_owned());
+                let (pkg, cls_name) = split_qualified_class(doc_cls);
                 compiler.avm2_classes.push(AbcClassSpec {
                     pkg,
                     class_name: cls_name,
                     super_pkg: "flash.display".to_owned(),
                     super_name: "MovieClip".to_owned(),
                     ctor_statements: Vec::new(),
-                    frame_scripts: Vec::new(),
+                    frame_scripts: root_as3_scripts,
                     extra_methods: vec![("init".to_owned(), Vec::new(), Vec::new())],
                 });
             }
-            compiler.avm2_symbol_classes.push((0, clean));
+            compiler.avm2_symbol_classes.push((0, doc_cls.to_owned()));
+        } else if !root_as3_scripts.is_empty() {
+            let mut main_qname = "MainTimeline".to_owned();
+            if defined_qnames.contains(&main_qname) {
+                let mut suffix = 1u32;
+                while defined_qnames.contains(&format!("_NeoFlashMainTimeline_{suffix}")) {
+                    suffix += 1;
+                }
+                main_qname = format!("_NeoFlashMainTimeline_{suffix}");
+            }
+            defined_qnames.insert(main_qname.clone());
+            compiler.avm2_classes.push(AbcClassSpec {
+                pkg: String::new(),
+                class_name: main_qname.clone(),
+                super_pkg: "flash.display".to_owned(),
+                super_name: "MovieClip".to_owned(),
+                ctor_statements: Vec::new(),
+                frame_scripts: root_as3_scripts,
+                extra_methods: Vec::new(),
+            });
+            compiler.avm2_symbol_classes.push((0, main_qname));
+        }
+
+        // Attach frame scripts for un-named symbols using non-colliding generated classes.
+        let anon_scripts = std::mem::take(&mut compiler.avm2_anon_symbol_scripts);
+        for (char_id, as3_scripts) in anon_scripts {
+            let mut tl_class_name = format!("Timeline_{char_id}");
+            if defined_qnames.contains(&tl_class_name) {
+                let mut suffix = 1u32;
+                while defined_qnames.contains(&format!("Timeline_{char_id}_{suffix}")) {
+                    suffix += 1;
+                }
+                tl_class_name = format!("Timeline_{char_id}_{suffix}");
+            }
+            defined_qnames.insert(tl_class_name.clone());
+            compiler.avm2_classes.push(AbcClassSpec {
+                pkg: String::new(),
+                class_name: tl_class_name.clone(),
+                super_pkg: "flash.display".to_owned(),
+                super_name: "MovieClip".to_owned(),
+                ctor_statements: Vec::new(),
+                frame_scripts: as3_scripts,
+                extra_methods: Vec::new(),
+            });
+            compiler.avm2_symbol_classes.push((char_id, tl_class_name));
+        }
+
+        // Attach frame scripts onto existing external classes or generate stubs for bound symbols.
+        let mut sym_frame_scripts = std::mem::take(&mut compiler.avm2_symbol_frame_scripts);
+        for spec in &mut compiler.avm2_classes {
+            let qname = spec_qname(spec);
+            if let Some(scripts) = sym_frame_scripts.remove(&qname) {
+                spec.frame_scripts = scripts;
+            }
         }
 
         for (_, cls_name) in &compiler.avm2_symbol_classes {
             if defined_qnames.insert(cls_name.clone()) {
                 let (pkg, short) = split_qualified_class(cls_name);
+                let super_name =
+                    if compiler.avm2_symbol_kinds.get(cls_name) == Some(&SymbolKind::Button) {
+                        "SimpleButton"
+                    } else {
+                        "MovieClip"
+                    };
+                let frame_scripts = sym_frame_scripts.remove(cls_name).unwrap_or_default();
                 compiler.avm2_classes.push(AbcClassSpec {
                     pkg,
                     class_name: short,
                     super_pkg: "flash.display".to_owned(),
-                    super_name: "MovieClip".to_owned(),
+                    super_name: super_name.to_owned(),
                     ctor_statements: Vec::new(),
-                    frame_scripts: Vec::new(),
+                    frame_scripts,
                     extra_methods: vec![("init".to_owned(), Vec::new(), Vec::new())],
                 });
             }
         }
 
         if !compiler.avm2_classes.is_empty() {
-            let abc_bytes = build_abc_bytes(&compiler.avm2_classes);
+            let abc_bytes = build_abc_bytes(&compiler.avm2_classes)?;
             let do_abc_payload = build_do_abc2_payload("frame1", &abc_bytes);
             compiler.root_tags.write_tag(82, &do_abc_payload);
         }
@@ -7545,7 +8926,7 @@ pub fn publish_swf_bytes(
     }
 
     // Build root timeline display list + ShowFrame tags
-    let (_, root_frame_count) = compiler.build_timeline_tags(&root_timeline, true);
+    let (_, root_frame_count) = compiler.build_timeline_tags(&root_timeline, true)?;
     if compiler.dictionary_overflow {
         return Err(ExportError::Options(format!(
             "SWF dictionary exceeds the {} available character IDs; simplify or split the movie",
@@ -8134,7 +9515,8 @@ mod dictionary_capacity_tests {
                 },
             },
         ];
-        let encoded = encode_clip_actions(&scripts).unwrap();
+        let project = Project::blank();
+        let encoded = encode_clip_actions(&project, &scripts).unwrap().unwrap();
         assert_eq!(
             u32::from_le_bytes(encoded[2..6].try_into().unwrap()),
             0x10C0
@@ -8157,19 +9539,32 @@ mod dictionary_capacity_tests {
 
     #[test]
     fn avm1_record_lengths_refuse_oversized_strings_labels_and_conditional_blocks() {
+        let mut project = Project::blank();
         let oversized_string = "x".repeat(usize::from(u16::MAX) - 1);
         let trace_source = format!("trace(\"{oversized_string}\");");
-        let issue =
-            swf_script_compilation_issue(ScriptLanguage::ActionScript2, &trace_source, false)
-                .expect("oversized ActionPush must fail preflight");
+        let issue = swf_script_compilation_issue(
+            &project,
+            ScriptLanguage::ActionScript2,
+            "",
+            &trace_source,
+            false,
+            false,
+        )
+        .expect("oversized ActionPush must fail preflight");
         assert!(issue.contains("ActionPush"), "got: {issue}");
         assert!(compile_avm1_actions(&trace_source).is_err());
 
         let oversized_label = "l".repeat(usize::from(u16::MAX));
         let goto_source = format!("gotoAndStop(\"{oversized_label}\");");
-        let issue =
-            swf_script_compilation_issue(ScriptLanguage::ActionScript1, &goto_source, false)
-                .expect("oversized ActionGotoLabel must fail preflight");
+        let issue = swf_script_compilation_issue(
+            &project,
+            ScriptLanguage::ActionScript1,
+            "",
+            &goto_source,
+            false,
+            false,
+        )
+        .expect("oversized ActionGotoLabel must fail preflight");
         assert!(issue.contains("ActionGotoLabel"), "got: {issue}");
 
         let many_actions = "stop();".repeat(usize::from(u16::MAX));
@@ -8182,17 +9577,26 @@ mod dictionary_capacity_tests {
                 },
             },
             ObjectScript {
-                event: ObjectEvent::Load,
+                event: ObjectEvent::Click,
                 script: neoflash_core::Script {
                     language: ScriptLanguage::ActionScript2,
-                    source: "play();".to_owned(),
+                    source: "on (rollOver) { play(); }".to_owned(),
                 },
             },
         ];
-        let error = encode_button2_cond_actions(&scripts).unwrap_err();
+        let error = encode_button2_cond_actions(&project, &scripts).unwrap_err();
         assert!(error.contains("BUTTONCONDACTION"), "got: {error}");
 
-        let mut project = Project::blank();
+        let bad_btn_event = vec![ObjectScript {
+            event: ObjectEvent::Load,
+            script: neoflash_core::Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "play();".to_owned(),
+            },
+        }];
+        let bad_err = encode_button2_cond_actions(&project, &bad_btn_event).unwrap_err();
+        assert!(bad_err.contains("Button instance"), "got: {bad_err}");
+
         let mut button = project.symbols[0].clone();
         button.id = "button".to_owned();
         button.name = "Button".to_owned();
@@ -8221,40 +9625,60 @@ mod dictionary_capacity_tests {
 
     #[test]
     fn bounded_script_preflight_rejects_trailing_as3_and_keeps_avm1_associativity() {
+        let project = Project::blank();
         let valid_external = "package app {\nimport flash.display.MovieClip;\npublic class Main extends MovieClip {\ntrace(-1);\n}\n}";
         assert_eq!(
-            swf_script_compilation_issue(ScriptLanguage::ActionScript3, valid_external, true),
+            swf_script_compilation_issue(
+                &project,
+                ScriptLanguage::ActionScript3,
+                "",
+                valid_external,
+                true,
+                false,
+            ),
             None
         );
         assert_eq!(
             swf_script_compilation_issue(
+                &project,
                 ScriptLanguage::ActionScript3,
+                "",
                 "package app { public class Main { trace(1.5); } }",
                 true,
+                false,
             ),
             None
         );
         assert!(
             swf_script_compilation_issue(
+                &project,
                 ScriptLanguage::ActionScript3,
+                "",
                 "package app { public class Main { try { trace(1); } catch (e:Error) {} } }",
                 true,
+                false,
             )
             .is_some()
         );
         assert!(
             swf_script_compilation_issue(
+                &project,
                 ScriptLanguage::ActionScript3,
+                "",
                 "import flash.display.MovieClip; trace(1);",
                 true,
+                false,
             )
             .is_some()
         );
         assert!(
             swf_script_compilation_issue(
+                &project,
                 ScriptLanguage::ActionScript3,
+                "",
                 "evil public class Main extends MovieClip {",
                 true,
+                false,
             )
             .is_some()
         );
@@ -8269,8 +9693,11 @@ mod dictionary_capacity_tests {
         assert!(compile_avm1_actions("gotoAndStop(0);").is_err());
         assert!(compile_avm1_actions("gotoAndStop(-1);").is_err());
         let issue = swf_script_compilation_issue(
+            &project,
             ScriptLanguage::ActionScript2,
+            "",
             "gotoAndStop(65537);",
+            false,
             false,
         )
         .expect("out-of-range numeric AVM1 frame must fail preflight");
@@ -8310,9 +9737,12 @@ mod dictionary_capacity_tests {
         assert_eq!(pool.add_int(i32::MAX), 1);
         assert!(
             swf_script_compilation_issue(
+                &Project::blank(),
                 ScriptLanguage::ActionScript3,
+                "",
                 "trace(2147483647);",
-                false
+                false,
+                false,
             )
             .is_none()
         );

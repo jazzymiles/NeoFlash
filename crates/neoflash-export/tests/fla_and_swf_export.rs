@@ -1,10 +1,11 @@
 use neoflash_core::{
     AssetWarpRig, BlendMode, CameraPose, ColorTransform, Easing, Element, ElementKind, FillRule,
-    FilterSpec, FrameScript, FrameSound, GradientKind, GradientPaint, GradientStop, IkArmature,
-    IkBone, InstancePlayback, Keyframe, Layer, LayerProperties, ObjectEvent, ObjectScript,
-    PathCommand, Project, ResourceUnit, Script, ScriptLanguage, SoundEffect, SoundSync, SourceUnit,
-    StrokeProfilePreset, StrokeWidthProfile, Symbol, SymbolKind, TextAlign, TextFormat, Timeline,
-    Transform, TweenKind, TweenProperty, WarpPin, WarpPinKind,
+    FilterSpec, FrameScript, FrameSound, GradientKind, GradientPaint, GradientSpread, GradientStop,
+    IkArmature, IkBone, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MaskMode,
+    ObjectEvent, ObjectScript, PathCommand, Project, ResourceUnit, Script, ScriptLanguage,
+    SoundEffect, SoundSync, SourceUnit, StrokeProfilePreset, StrokeWidthProfile, Symbol,
+    SymbolKind, TextAlign, TextFormat, Timeline, Transform, TweenKind, TweenProperty, WarpPin,
+    WarpPinKind,
 };
 use neoflash_export::{
     FlaExportOptions, FlaFeatureCategory, FlaFeatureDisposition, FlaTargetProfile, SwfCompression,
@@ -1037,6 +1038,27 @@ fn t205_expanded_avm1_and_avm2_swf_compiler_executes_control_flow_functions_and_
     let mut avm1_proj = build_rich_authoring_project(ScriptLanguage::ActionScript2);
     strip_project_scripts(&mut avm1_proj);
     let root_id = avm1_proj.root.clone();
+    // Reject AVM1 object handlers ('on (release) { ... }') inside timeline frame scripts.
+    avm1_proj
+        .symbol_mut(&root_id)
+        .expect("root")
+        .timeline
+        .scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "on (release) { trace('bad'); }".to_owned(),
+        },
+    }];
+    let bad_frame_handler_report = preflight_swf_publish(
+        &avm1_proj,
+        &SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1),
+    );
+    assert!(
+        !bad_frame_handler_report.can_proceed(),
+        "button 'on (...)' handler in a frame script must be blocked by preflight"
+    );
+
     avm1_proj
         .symbol_mut(&root_id)
         .expect("root")
@@ -1069,9 +1091,7 @@ fn t205_expanded_avm1_and_avm2_swf_compiler_executes_control_flow_functions_and_
                 this._x += 10;
                 heroBadge._x = 220;
                 heroBadge._y = 95;
-                on (release) {
-                    trace("avm1-bonus=" + bonus);
-                }
+                trace("avm1-bonus=" + bonus);
                 trace("avm1-this-x=" + this._x);
                 trace("avm1-hero=" + heroBadge._x + "," + heroBadge._y);
                 stop();
@@ -1079,6 +1099,25 @@ fn t205_expanded_avm1_and_avm2_swf_compiler_executes_control_flow_functions_and_
             .to_owned(),
         },
     }];
+    // Attach a genuine button instance script (`on (release)`) on the button placement.
+    if let Some(btn_el) = avm1_proj
+        .symbol_mut(&root_id)
+        .expect("root")
+        .timeline
+        .layers[0]
+        .keyframes[0]
+        .elements
+        .iter_mut()
+        .find(|el| el.id == "inst_btn")
+    {
+        btn_el.scripts.push(ObjectScript {
+            event: ObjectEvent::Click,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "on (release) { trace('btn-clicked'); }".to_owned(),
+            },
+        });
+    }
 
     let avm1_opts = SwfPublishOptions {
         profile: SwfPublishProfile::FlashPlayer8Avm1,
@@ -2143,5 +2182,794 @@ fn t242_fla_xfl_no_double_wrap_folder_layer_frame_scripts_and_sources_round_trip
                 .source
                 .contains("public class AppMain")
         );
+    }
+}
+
+#[test]
+fn t293_as2_swf_matrix_masks_sounds_buttons_gradients_includes_and_fail_closed() {
+    let mut proj = build_rich_authoring_project(ScriptLanguage::ActionScript2);
+    strip_project_scripts(&mut proj);
+    proj.scenes = vec![proj.root.clone()];
+    proj.symbols
+        .retain(|s| s.id == proj.root || s.id == "sym_badge" || s.id == "sym_btn");
+
+    // Add an `.as` ResourceUnit plus two distinct AVM1 SourceUnits using `#include`.
+    let inc_res = ResourceUnit::from_bytes(
+        "res_inc_as2",
+        "scripts/inc_as2.as",
+        "text/plain",
+        b"var incBonus = 7;\n",
+    )
+    .expect("inc as2 resource");
+    proj.resources.push(inc_res);
+    proj.sources = vec![
+        SourceUnit {
+            id: "src_init_1".to_owned(),
+            path: "scripts/init_one.as".to_owned(),
+            language: ScriptLanguage::ActionScript2,
+            source: "#include \"inc_as2.as\"\nvar initOne = incBonus + 1;\n".to_owned(),
+        },
+        SourceUnit {
+            id: "src_init_2".to_owned(),
+            path: "scripts/init_two.as".to_owned(),
+            language: ScriptLanguage::ActionScript2,
+            source: "var initTwo = 9;\n".to_owned(),
+        },
+    ];
+
+    let root_id = proj.root.clone();
+    {
+        let root_sym = proj.symbol_mut(&root_id).expect("root");
+        root_sym.timeline.frame_count = 4;
+
+        // Layer 0 (bottom): masked layer referencing Mask layer above it (Layer 1).
+        let masked_layer = Layer {
+            id: "layer_masked".to_owned(),
+            name: "MaskedLayer".to_owned(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties {
+                mask: Some("layer_mask".to_owned()),
+                end_frame: Some(3),
+                ..LayerProperties::default()
+            },
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![Element {
+                    id: "masked_grad".to_owned(),
+                    kind: ElementKind::PaintedPath {
+                        commands: vec![
+                            PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                            PathCommand::LineTo { x: 80.0, y: 0.0 },
+                            PathCommand::LineTo { x: 80.0, y: 80.0 },
+                            PathCommand::LineTo { x: 0.0, y: 80.0 },
+                            PathCommand::Close,
+                        ],
+                        fill_rule: FillRule::NonZero,
+                        fill: [200, 50, 50, 255],
+                        stroke: [0, 0, 0, 0],
+                        fill_gradient: Some(GradientPaint {
+                            kind: GradientKind::Linear,
+                            matrix: [0.05, 0.0, 0.0, 0.05, 0.0, 0.0],
+                            stops: vec![
+                                GradientStop {
+                                    ratio: 0,
+                                    color: [255, 0, 0, 255],
+                                },
+                                GradientStop {
+                                    ratio: 255,
+                                    color: [0, 0, 255, 255],
+                                },
+                            ],
+                            focal_point_ratio: 0.0,
+                            spread: GradientSpread::Reflect,
+                            linear_rgb: true,
+                        }),
+                        stroke_gradient: None,
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }],
+                sound: Some(FrameSound {
+                    resource: "res_snd_1".to_owned(),
+                    sync: SoundSync::Start,
+                    loops: 2,
+                    loop_forever: false,
+                    effect: SoundEffect::Custom,
+                    envelope: Some(vec![[0.0, 1.0, 0.25], [1.0, 0.5, 1.0]]),
+                    in_point: Some(0.0005),
+                    out_point: Some(0.0012),
+                }),
+                ..Keyframe::default()
+            }],
+        };
+
+        // Layer 1 (above masked_layer): Mask layer with single vector rect.
+        let mask_layer = Layer {
+            id: "layer_mask".to_owned(),
+            name: "MaskLayer".to_owned(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties {
+                role: LayerRole::Mask,
+                end_frame: Some(3),
+                ..LayerProperties::default()
+            },
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![Element {
+                    id: "mask_rect".to_owned(),
+                    kind: ElementKind::Rectangle {
+                        width: 50.0,
+                        height: 50.0,
+                        fill: [0, 0, 0, 255],
+                        stroke: [0, 0, 0, 0],
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }],
+                ..Keyframe::default()
+            }],
+        };
+
+        // Layer 2: Two instances of the SAME Button symbol with DIFFERENT per-instance scripts!
+        let btn_layer = Layer {
+            id: "layer_buttons".to_owned(),
+            name: "Buttons".to_owned(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties::default(),
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![
+                    Element {
+                        id: "btn_inst_a".to_owned(),
+                        name: "btnA".to_owned(),
+                        transform: Transform {
+                            x: 10.0,
+                            y: 10.0,
+                            ..Transform::default()
+                        },
+                        kind: ElementKind::Instance {
+                            symbol_id: "sym_btn".to_owned(),
+                            playback: InstancePlayback::Independent,
+                        },
+                        scripts: vec![ObjectScript {
+                            event: ObjectEvent::Click,
+                            script: Script {
+                                language: ScriptLanguage::ActionScript2,
+                                source: "on (release) { trace('btnA'); }".to_owned(),
+                            },
+                        }],
+                        ..Element::default()
+                    },
+                    Element {
+                        id: "btn_inst_b".to_owned(),
+                        name: "btnB".to_owned(),
+                        transform: Transform {
+                            x: 120.0,
+                            y: 10.0,
+                            ..Transform::default()
+                        },
+                        kind: ElementKind::Instance {
+                            symbol_id: "sym_btn".to_owned(),
+                            playback: InstancePlayback::Independent,
+                        },
+                        scripts: vec![ObjectScript {
+                            event: ObjectEvent::Click,
+                            script: Script {
+                                language: ScriptLanguage::ActionScript2,
+                                source: "on (rollOver) { trace('btnB'); }".to_owned(),
+                            },
+                        }],
+                        ..Element::default()
+                    },
+                ],
+                ..Keyframe::default()
+            }],
+        };
+
+        root_sym.timeline.layers = vec![masked_layer, mask_layer, btn_layer];
+        root_sym.timeline.scripts = vec![FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source:
+                    "#include \"scripts/inc_as2.as\"\ntrace(\"as2-matrix=\" + incBonus);\nstop();"
+                        .to_owned(),
+            },
+        }];
+    }
+
+    let avm1_opts = SwfPublishOptions {
+        profile: SwfPublishProfile::FlashPlayer8Avm1,
+        compression: SwfCompression::UncompressedFws,
+        outline_text: true,
+        ..SwfPublishOptions::default()
+    };
+    let preflight = preflight_swf_publish(&proj, &avm1_opts);
+    assert!(
+        preflight.can_proceed(),
+        "AVM1 matrix preflight blocked: {:?}",
+        preflight.blocking_items()
+    );
+    let (swf_bytes, report) =
+        publish_swf_bytes(&proj, &avm1_opts).expect("publish AVM1 matrix SWF");
+    assert!(
+        report.can_proceed(),
+        "unexpected blocking items: {:?}",
+        report.items
+    );
+
+    let tags = collect_swf_tags(&swf_bytes);
+    let define_button2_count = tags.iter().filter(|(code, _)| *code == 34).count();
+    assert_eq!(
+        define_button2_count, 2,
+        "two Button instances with distinct scripts must emit two distinct DefineButton2 tags"
+    );
+    let do_init_count = tags.iter().filter(|(code, _)| *code == 59).count();
+    assert_eq!(
+        do_init_count, 2,
+        "two AVM1 SourceUnits must emit two distinct DoInitAction tags"
+    );
+    let do_init_sprite_ids: std::collections::BTreeSet<u16> = tags
+        .iter()
+        .filter(|(code, _)| *code == 59)
+        .map(|(_, payload)| u16::from_le_bytes([payload[0], payload[1]]))
+        .collect();
+    assert_eq!(
+        do_init_sprite_ids.len(),
+        2,
+        "each AVM1 SourceUnit DoInitAction must target a unique DefineSprite ID"
+    );
+    // Verify PlaceObject2 precedes StartSound and DoAction before the first ShowFrame.
+    let first_show = tags
+        .iter()
+        .position(|(code, _)| *code == 1)
+        .expect("ShowFrame");
+    let frame0 = &tags[..first_show];
+    let last_place = frame0
+        .iter()
+        .rposition(|(code, _)| *code == 26 || *code == 70)
+        .expect("PlaceObject2/3 in frame 0");
+    let start_sound_pos = frame0
+        .iter()
+        .position(|(code, _)| *code == 15)
+        .expect("StartSound in frame 0");
+    let do_action_pos = frame0
+        .iter()
+        .position(|(code, _)| *code == 12)
+        .expect("DoAction in frame 0");
+    assert!(
+        start_sound_pos > last_place && do_action_pos > last_place,
+        "StartSound and DoAction must appear after PlaceObject2/3 before ShowFrame"
+    );
+
+    let play = play_swf_bytes(&swf_bytes, 4).expect("play AVM1 matrix SWF");
+    assert_eq!(play.vm_kind, SwfVmKind::Avm1);
+    assert!(play.trace_output.iter().any(|t| t == "as2-matrix=7"));
+    let reimported = import_swf_bytes(&swf_bytes).expect("reimport AVM1 matrix SWF");
+    let re_root = reimported
+        .symbol(&reimported.root)
+        .expect("reimported root");
+    let has_trimmed_sound = re_root.timeline.layers.iter().any(|l| {
+        l.keyframes.iter().any(|k| {
+            k.sound.as_ref().is_some_and(|s| {
+                s.in_point.is_some() && s.out_point.is_some() && s.envelope.is_some()
+            })
+        })
+    });
+    assert!(
+        has_trimmed_sound,
+        "StartSound trims and custom stereo envelope must round-trip"
+    );
+    assert!(
+        re_root
+            .timeline
+            .layers
+            .iter()
+            .any(|l| l.properties.role == LayerRole::Mask),
+        "Mask above masked layer must round-trip cleanly"
+    );
+
+    // Fail-closed negative checks for AVM1 SWF:
+    // 1. ObjectEvent::Load on Button instance must block.
+    let mut bad_btn_event = proj.clone();
+    bad_btn_event.symbol_mut(&root_id).unwrap().timeline.layers[2].keyframes[0].elements[0]
+        .scripts[0]
+        .event = ObjectEvent::Load;
+    assert!(!preflight_swf_publish(&bad_btn_event, &avm1_opts).can_proceed());
+    assert!(publish_swf_bytes(&bad_btn_event, &avm1_opts).is_err());
+
+    // 2. `onClipEvent(load)` on Button instance must block.
+    let mut bad_btn_clip = proj.clone();
+    bad_btn_clip.symbol_mut(&root_id).unwrap().timeline.layers[2].keyframes[0].elements[0]
+        .scripts[0]
+        .script
+        .source = "onClipEvent (load) { trace('bad'); }".to_owned();
+    assert!(!preflight_swf_publish(&bad_btn_clip, &avm1_opts).can_proceed());
+    assert!(publish_swf_bytes(&bad_btn_clip, &avm1_opts).is_err());
+
+    // 3. Object script attached directly to a Shape must block.
+    let mut bad_shape_script = proj.clone();
+    bad_shape_script
+        .symbol_mut(&root_id)
+        .unwrap()
+        .timeline
+        .layers[1]
+        .keyframes[0]
+        .elements[0]
+        .scripts
+        .push(ObjectScript {
+            event: ObjectEvent::Click,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "stop();".to_owned(),
+            },
+        });
+    assert!(!preflight_swf_publish(&bad_shape_script, &avm1_opts).can_proceed());
+    assert!(publish_swf_bytes(&bad_shape_script, &avm1_opts).is_err());
+
+    // 4. Inverted mask, alpha mask mode, and non-contiguous mask must block.
+    let mut bad_inv_mask = proj.clone();
+    bad_inv_mask.symbol_mut(&root_id).unwrap().timeline.layers[1]
+        .properties
+        .mask_invert = true;
+    assert!(!preflight_swf_publish(&bad_inv_mask, &avm1_opts).can_proceed());
+
+    let mut bad_alpha_mask = proj.clone();
+    bad_alpha_mask.symbol_mut(&root_id).unwrap().timeline.layers[1]
+        .properties
+        .mask_mode = MaskMode::Alpha;
+    assert!(!preflight_swf_publish(&bad_alpha_mask, &avm1_opts).can_proceed());
+
+    let mut bad_non_contig = proj.clone();
+    let root_layers = &mut bad_non_contig.symbol_mut(&root_id).unwrap().timeline.layers;
+    root_layers.swap(1, 2); // Puts layer_buttons between layer_masked (0) and layer_mask (2)!
+    assert!(!preflight_swf_publish(&bad_non_contig, &avm1_opts).can_proceed());
+
+    // 5. Missing `#include` must block.
+    let mut bad_include = proj.clone();
+    bad_include.symbol_mut(&root_id).unwrap().timeline.scripts[0]
+        .script
+        .source = "#include \"scripts/does_not_exist.as\"\n".to_owned();
+    assert!(!preflight_swf_publish(&bad_include, &avm1_opts).can_proceed());
+    assert!(publish_swf_bytes(&bad_include, &avm1_opts).is_err());
+
+    // 6. Unsupported audio codec (audio/ogg) must block.
+    let mut bad_audio = proj.clone();
+    bad_audio.resources.retain(|r| r.id != "res_snd_1");
+    bad_audio.resources.push(
+        ResourceUnit::from_bytes("res_snd_1", "bad.ogg", "audio/ogg", b"OggS\x00\x02")
+            .expect("ogg res"),
+    );
+    assert!(!preflight_swf_publish(&bad_audio, &avm1_opts).can_proceed());
+    assert!(publish_swf_bytes(&bad_audio, &avm1_opts).is_err());
+
+    // 7. Mixed AS2 + AS3 VMs without scriptless_mode must block.
+    let mut mixed_vm = proj.clone();
+    mixed_vm.sources.push(SourceUnit {
+        id: "src_as3".to_owned(),
+        path: "app/Other.as".to_owned(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package app { import flash.display.MovieClip; public class Other extends MovieClip {} }"
+            .to_owned(),
+    });
+    assert!(!preflight_swf_publish(&mixed_vm, &avm1_opts).can_proceed());
+    assert!(publish_swf_bytes(&mixed_vm, &avm1_opts).is_err());
+}
+
+#[test]
+fn t293_as3_swf_matrix_document_class_symbols_includes_and_fail_closed() {
+    let mut proj = build_rich_authoring_project(ScriptLanguage::ActionScript3);
+    strip_project_scripts(&mut proj);
+    proj.scenes = vec![proj.root.clone()];
+    proj.symbols
+        .retain(|s| s.id == proj.root || s.id == "sym_badge" || s.id == "sym_btn");
+
+    // External `#include` / `include` resource for AS3
+    let inc_res = ResourceUnit::from_bytes(
+        "res_inc_as3",
+        "scripts/as3_inc.as",
+        "text/plain",
+        b"var incVal:int = 41;\n",
+    )
+    .expect("as3 include resource");
+    proj.resources.push(inc_res);
+
+    // Custom document_class extending MovieClip + external symbol class + Button SimpleButton stub + linkage-only MC.
+    proj.document_class = Some("app.AppRoot".to_owned());
+    proj.sources = vec![
+        SourceUnit {
+            id: "src_root".to_owned(),
+            path: "app/AppRoot.as".to_owned(),
+            language: ScriptLanguage::ActionScript3,
+            source: "package app {\nimport flash.display.MovieClip;\npublic class AppRoot extends MovieClip {\ntrace(\"root-ctor\");\n}\n}\n".to_owned(),
+        },
+        SourceUnit {
+            id: "src_badge".to_owned(),
+            path: "ui/BadgeClip.as".to_owned(),
+            language: ScriptLanguage::ActionScript3,
+            source: "package ui {\nimport flash.display.MovieClip;\npublic class BadgeClip extends MovieClip {\n}\n}\n".to_owned(),
+        },
+        SourceUnit {
+            id: "src_btn".to_owned(),
+            path: "ui/NavBtn.as".to_owned(),
+            language: ScriptLanguage::ActionScript3,
+            source: "package ui {\nimport flash.display.SimpleButton;\npublic class NavBtn extends SimpleButton {\n}\n}\n".to_owned(),
+        },
+    ];
+    let root_id = proj.root.clone();
+    proj.symbol_mut(&root_id).unwrap().timeline.scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source:
+                "include \"scripts/as3_inc.as\";\ntrace(\"as3-root=\" + (incVal + 1));\nstop();"
+                    .to_owned(),
+        },
+    }];
+    // Symbol with class_name + frame script + another symbol with only linkage_id (valid QName)
+    proj.symbol_mut("sym_badge").unwrap().timeline.scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: "trace(\"badge-frame0\");".to_owned(),
+        },
+    }];
+    proj.symbol_mut("sym_btn").unwrap().class_name = Some("ui.NavBtn".to_owned());
+    let mut link_sym = proj.symbol("sym_badge").unwrap().clone();
+    link_sym.id = "sym_linked_only".to_owned();
+    link_sym.name = "LinkedClip".to_owned();
+    link_sym.class_name = None;
+    link_sym.linkage_id = Some("LinkedExport".to_owned());
+    link_sym.timeline.scripts.clear();
+    proj.symbols.push(link_sym);
+
+    for profile in [
+        SwfPublishProfile::FlashPlayer9Avm2,
+        SwfPublishProfile::FlashPlayer10Avm2,
+    ] {
+        let opts = SwfPublishOptions {
+            profile,
+            compression: SwfCompression::UncompressedFws,
+            outline_text: true,
+            ..SwfPublishOptions::default()
+        };
+        let preflight = preflight_swf_publish(&proj, &opts);
+        assert!(
+            preflight.can_proceed(),
+            "AS3 matrix {:?} preflight blocked: {:?}",
+            profile,
+            preflight.blocking_items()
+        );
+        let (swf_bytes, report) = publish_swf_bytes(&proj, &opts).expect("publish AS3 matrix SWF");
+        assert!(report.can_proceed(), "report: {:?}", report.items);
+        assert!(
+            report
+                .items
+                .iter()
+                .any(|i| i.code == "swf_avm2_linkage_to_symbol_class"
+                    && i.disposition == neoflash_export::FlaCompatibilityStatus::Converted)
+        );
+        let play = play_swf_bytes(&swf_bytes, 3).expect("play AS3 matrix SWF");
+        assert_eq!(play.vm_kind, SwfVmKind::Avm2);
+        assert!(
+            play.trace_output.iter().any(|t| t == "as3-root=42"),
+            "root frame script attached onto AppRoot must run: {:?}",
+            play.trace_output
+        );
+        let reimported = import_swf_bytes(&swf_bytes).expect("reimport AS3 matrix SWF");
+        assert_eq!(reimported.document_class.as_deref(), Some("app.AppRoot"));
+        assert!(
+            !reimported
+                .sources
+                .iter()
+                .any(|s| s.path.ends_with("MainTimeline.as")),
+            "document_class must bind frame scripts directly without creating orphan MainTimeline"
+        );
+        assert!(
+            reimported
+                .symbols
+                .iter()
+                .any(|s| s.class_name.as_deref() == Some("LinkedExport")),
+            "linkage_id-only MovieClip must bind via SymbolClass as LinkedExport"
+        );
+    }
+
+    // Verify generated Button stub without external `.as` gets SimpleButton superclass in SymbolClass/DoABC2!
+    let mut stub_btn_proj = proj.clone();
+    stub_btn_proj.sources.retain(|s| s.id != "src_btn");
+    stub_btn_proj.symbol_mut("sym_btn").unwrap().class_name = Some("ui.StubBtn".to_owned());
+    let avm2_opts = SwfPublishOptions {
+        profile: SwfPublishProfile::FlashPlayer10Avm2,
+        compression: SwfCompression::UncompressedFws,
+        outline_text: true,
+        ..SwfPublishOptions::default()
+    };
+    let (stub_bytes, _) = publish_swf_bytes(&stub_btn_proj, &avm2_opts).expect("stub btn SWF");
+    let stub_re = import_swf_bytes(&stub_bytes).expect("reimport stub btn SWF");
+    let stub_src = stub_re
+        .sources
+        .iter()
+        .find(|s| s.path.contains("StubBtn"))
+        .expect("decompiled StubBtn.as");
+    assert!(
+        stub_src.source.contains("SimpleButton"),
+        "generated Button class stub must extend SimpleButton: {}",
+        stub_src.source
+    );
+
+    // Fail-closed negative AS3 SWF checks:
+    // 1. Sprite document_class when root has frame scripts -> blocked.
+    let mut sprite_doc = proj.clone();
+    sprite_doc.sources[0].source =
+        "package app {\nimport flash.display.Sprite;\npublic class AppRoot extends Sprite {}\n}\n"
+            .to_owned();
+    assert!(!preflight_swf_publish(&sprite_doc, &avm2_opts).can_proceed());
+
+    // 2. Duplicate class definition in project.sources -> blocked.
+    let mut dup_cls = proj.clone();
+    let dup_src = dup_cls.sources[1].clone();
+    dup_cls.sources.push(SourceUnit {
+        id: "src_badge_dup".to_owned(),
+        ..dup_src
+    });
+    assert!(!preflight_swf_publish(&dup_cls, &avm2_opts).can_proceed());
+    assert!(publish_swf_bytes(&dup_cls, &avm2_opts).is_err());
+
+    // 3. Button class extending MovieClip -> blocked.
+    let mut bad_btn_super = proj.clone();
+    bad_btn_super.sources[2].source =
+        "package ui {\nimport flash.display.MovieClip;\npublic class NavBtn extends MovieClip {}\n}\n"
+            .to_owned();
+    assert!(!preflight_swf_publish(&bad_btn_super, &avm2_opts).can_proceed());
+
+    // 4. Invalid QName document_class -> blocked.
+    let mut bad_qname = proj.clone();
+    bad_qname.document_class = Some("bad class!".to_owned());
+    assert!(!preflight_swf_publish(&bad_qname, &avm2_opts).can_proceed());
+
+    // 5. Unsupported AS3 syntax (`try/catch`) -> blocked.
+    let mut bad_syntax = proj.clone();
+    bad_syntax.symbol_mut(&root_id).unwrap().timeline.scripts[0]
+        .script
+        .source = "try { trace(1); } catch (e:Error) {}".to_owned();
+    assert!(!preflight_swf_publish(&bad_syntax, &avm2_opts).can_proceed());
+    assert!(publish_swf_bytes(&bad_syntax, &avm2_opts).is_err());
+}
+
+#[test]
+fn t293_fla_xfl_matrix_all_profiles_features_and_fail_closed() {
+    for profile in FlaTargetProfile::ALL {
+        let lang = if profile.supports_as3() {
+            ScriptLanguage::ActionScript3
+        } else {
+            ScriptLanguage::ActionScript2
+        };
+        let mut proj = build_rich_authoring_project(lang);
+        // Add `.as` ResourceUnit alongside SourceUnit, custom envelope + trims, Reflect gradient + linearRGB,
+        // CubicBezier custom ease, and Bounce approximation.
+        proj.resources.push(
+            ResourceUnit::from_bytes(
+                "res_ext_as",
+                "scripts/shared_inc.as",
+                "text/plain",
+                b"// shared external include\nvar extReady = 1;\n",
+            )
+            .expect("ext .as resource"),
+        );
+        let root_id = proj.root.clone();
+        {
+            let root = proj.symbol_mut(&root_id).unwrap();
+            root.timeline.layers[0].keyframes[0].tween = Some(Easing::CubicBezier {
+                x1: 0.25,
+                y1: 0.1,
+                x2: 0.25,
+                y2: 1.0,
+            });
+            root.timeline.layers[0].keyframes[0].sound = Some(FrameSound {
+                resource: "res_snd_1".to_owned(),
+                sync: SoundSync::Event,
+                loops: 2,
+                loop_forever: false,
+                effect: SoundEffect::Custom,
+                envelope: Some(vec![[0.0, 1.0, 0.2], [1.0, 0.0, 1.0]]),
+                in_point: Some(0.0005),
+                out_point: Some(0.0012),
+            });
+        }
+        let report = preflight_fla_export(&proj, profile);
+        assert!(
+            report.can_export(),
+            "Profile {:?} should succeed: {:?}",
+            profile,
+            report.blocking_items()
+        );
+        let temp_dir = std::env::temp_dir().join(format!(
+            "neoflash-t293-fla-{:?}-{}",
+            profile,
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        if matches!(profile, FlaTargetProfile::UncompressedXfl) {
+            export_fla_with_profile(&proj, profile, &FlaExportOptions::default(), &temp_dir)
+                .expect("export uncompressed XFL");
+            let re = neoflash_import::import_project(&temp_dir).expect("reimport XFL");
+            assert!(
+                re.sources.iter().any(|s| s.path == "scripts/shared_inc.as")
+                    || re
+                        .resources
+                        .iter()
+                        .any(|r| r.path == "scripts/shared_inc.as"),
+                "shared_inc.as must round-trip in {:?}: sources={:?}, resources={:?}",
+                profile,
+                re.sources.iter().map(|s| &s.path).collect::<Vec<_>>(),
+                re.resources.iter().map(|r| &r.path).collect::<Vec<_>>()
+            );
+            let _ = std::fs::remove_dir_all(&temp_dir);
+        } else {
+            let (bytes, _) =
+                export_fla_bytes_with_profile(&proj, profile, &FlaExportOptions::default())
+                    .expect("export FLA bytes");
+            let re = import_fla_bytes(&bytes).expect("reimport FLA bytes");
+            assert!(
+                re.sources.iter().any(|s| s.path == "scripts/MainHelper.as"),
+                "MainHelper.as must round-trip in {:?}",
+                profile
+            );
+            assert!(
+                re.sources.iter().any(|s| s.path == "scripts/shared_inc.as")
+                    || re
+                        .resources
+                        .iter()
+                        .any(|r| r.path == "scripts/shared_inc.as"),
+                "shared_inc.as must round-trip in {:?}: sources={:?}, resources={:?}",
+                profile,
+                re.sources.iter().map(|s| &s.path).collect::<Vec<_>>(),
+                re.resources.iter().map(|r| &r.path).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    // Fail-closed negative FLA/XFL matrix checks:
+    let base = build_rich_authoring_project(ScriptLanguage::ActionScript3);
+
+    // 1. Unsupported audio codec (audio/ogg) must block & fail export.
+    let mut bad_audio = base.clone();
+    bad_audio.resources.retain(|r| r.id != "res_snd_1");
+    bad_audio.resources.push(
+        ResourceUnit::from_bytes("res_snd_1", "bad.ogg", "audio/ogg", b"OggS\x00\x02").unwrap(),
+    );
+    for profile in [
+        FlaTargetProfile::AnimateCC,
+        FlaTargetProfile::FlashCS6,
+        FlaTargetProfile::LegacyFlashCS4,
+        FlaTargetProfile::LegacyFlash8,
+    ] {
+        assert!(!preflight_fla_export(&bad_audio, profile).can_export());
+        assert!(
+            export_fla_bytes_with_profile(&bad_audio, profile, &FlaExportOptions::default())
+                .is_err()
+        );
+    }
+
+    // 2. Gradient with 16 stops (>15 Flash limit) must block.
+    let mut bad_grad = base.clone();
+    let stops16: Vec<GradientStop> = (0..16)
+        .map(|i| GradientStop {
+            ratio: (i * 16) as u8,
+            color: [i as u8 * 10, 0, 255, 255],
+        })
+        .collect();
+    if let ElementKind::PaintedPath {
+        fill_gradient: Some(ref mut g),
+        ..
+    } = bad_grad.symbols[0].timeline.layers[0].keyframes[0].elements[2].kind
+    {
+        g.stops = stops16;
+    }
+    assert!(!preflight_fla_export(&bad_grad, FlaTargetProfile::AnimateCC).can_export());
+    assert!(!preflight_fla_export(&bad_grad, FlaTargetProfile::LegacyFlash8).can_export());
+    assert!(
+        export_fla_bytes_with_profile(
+            &bad_grad,
+            FlaTargetProfile::LegacyFlash8,
+            &FlaExportOptions::default()
+        )
+        .is_err()
+    );
+
+    // 3. `.as` ResourceUnit colliding with SourceUnit path must block.
+    let mut bad_dup_as = base.clone();
+    bad_dup_as.resources.push(
+        ResourceUnit::from_bytes(
+            "res_dup_as",
+            "scripts/MainHelper.as",
+            "text/plain",
+            b"package {}",
+        )
+        .unwrap(),
+    );
+    assert!(!preflight_fla_export(&bad_dup_as, FlaTargetProfile::FlashCS6).can_export());
+    assert!(
+        export_fla_bytes_with_profile(
+            &bad_dup_as,
+            FlaTargetProfile::FlashCS6,
+            &FlaExportOptions::default()
+        )
+        .is_err()
+    );
+
+    // 4. Button with ObjectEvent::Load must block.
+    let mut bad_btn = build_rich_authoring_project(ScriptLanguage::ActionScript2);
+    bad_btn.symbols[0].timeline.layers[0].keyframes[0].elements[1].scripts[0].event =
+        ObjectEvent::Load;
+    assert!(!preflight_fla_export(&bad_btn, FlaTargetProfile::LegacyFlash8).can_export());
+    assert!(!preflight_fla_export(&bad_btn, FlaTargetProfile::FlashCS6).can_export());
+
+    // 5. Invalid AS3 `document_class` QName on CS5/Animate must block.
+    let mut bad_doc = base.clone();
+    bad_doc.document_class = Some("bad class!".to_owned());
+    assert!(!preflight_fla_export(&bad_doc, FlaTargetProfile::AnimateCC).can_export());
+
+    // 6. Verify `neoflash_import::export_fla_bytes` entrypoint succeeds on clean project.
+    let direct_bytes = neoflash_import::export_fla_bytes(&base).expect("direct export_fla_bytes");
+    let direct_re = import_fla_bytes(&direct_bytes).expect("reimport direct export_fla_bytes");
+    assert_eq!(direct_re.document_class.as_deref(), Some("MainHelper"));
+}
+
+#[test]
+#[ignore = "writes FLA/XFL/SWF verification artifacts to target/t293-oracle-check for JPEXS oracle check"]
+fn t293_dump_oracle_fixtures_to_target() {
+    let out_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("target/t293-oracle-check/fixtures");
+    let _ = std::fs::remove_dir_all(&out_dir);
+    std::fs::create_dir_all(&out_dir).expect("create oracle fixtures dir");
+
+    let as2_proj = build_rich_authoring_project(ScriptLanguage::ActionScript2);
+    let as3_proj = build_rich_authoring_project(ScriptLanguage::ActionScript3);
+
+    for profile in FlaTargetProfile::ALL {
+        let proj = if profile.supports_as3() {
+            &as3_proj
+        } else {
+            &as2_proj
+        };
+        let label = format!("{profile:?}");
+        if matches!(profile, FlaTargetProfile::UncompressedXfl) {
+            let dir = out_dir.join("xfl_uncompressed");
+            export_fla_with_profile(proj, profile, &FlaExportOptions::default(), &dir)
+                .expect("write uncompressed XFL oracle fixture");
+        } else {
+            let (bytes, _) =
+                export_fla_bytes_with_profile(proj, profile, &FlaExportOptions::default())
+                    .expect("write FLA oracle fixture");
+            std::fs::write(out_dir.join(format!("{label}.fla")), bytes).expect("write .fla");
+        }
+    }
+
+    for profile in [
+        SwfPublishProfile::FlashPlayer8Avm1,
+        SwfPublishProfile::FlashPlayer9Avm2,
+        SwfPublishProfile::FlashPlayer10Avm2,
+    ] {
+        let proj = if profile.is_avm2() {
+            &as3_proj
+        } else {
+            &as2_proj
+        };
+        let opts = SwfPublishOptions {
+            profile,
+            compression: SwfCompression::UncompressedFws,
+            outline_text: true,
+            ..SwfPublishOptions::default()
+        };
+        let (bytes, _) = publish_swf_bytes(proj, &opts).expect("write SWF oracle fixture");
+        std::fs::write(out_dir.join(format!("{profile:?}.swf")), bytes).expect("write .swf");
     }
 }

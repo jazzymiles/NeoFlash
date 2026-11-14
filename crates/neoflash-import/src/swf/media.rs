@@ -549,13 +549,41 @@ pub(crate) fn parse_sound_info(
     let has_in_point = r.bit()?;
     r.align();
 
-    let in_point = if has_in_point { Some(r.u32()?) } else { None };
-    let out_point = if has_out_point { Some(r.u32()?) } else { None };
-    if in_point.is_some_and(|v| v > 0) || out_point.is_some() {
+    let in_raw = if has_in_point { Some(r.u32()?) } else { None };
+    let out_raw = if has_out_point { Some(r.u32()?) } else { None };
+    let mut trim_invalid = false;
+    let in_point = match in_raw {
+        Some(v) if v > 0 => {
+            let sec = f64::from(v) / 44_100.0;
+            if sec.is_finite() && (0.0..=FrameSound::MAX_SOUND_TRIM_SECONDS).contains(&sec) {
+                Some(sec)
+            } else {
+                trim_invalid = true;
+                None
+            }
+        }
+        _ => None,
+    };
+    let out_point = match out_raw {
+        Some(v) if v > 0 && v < 0x3fff_ffff => {
+            let sec = f64::from(v) / 44_100.0;
+            if sec.is_finite()
+                && (0.0..=FrameSound::MAX_SOUND_TRIM_SECONDS).contains(&sec)
+                && in_point.is_none_or(|inp| sec > inp)
+            {
+                Some(sec)
+            } else {
+                trim_invalid = true;
+                None
+            }
+        }
+        _ => None,
+    };
+    if trim_invalid {
         report.warning(
             "swf_frame_sound",
             location,
-            "SWF SOUNDINFO in/out trim points are not applied yet; full audio resource plays.",
+            "SWF SOUNDINFO in/out trim points were out of range and omitted.",
         );
     }
 
@@ -605,8 +633,8 @@ pub(crate) fn parse_sound_info(
         loop_forever,
         effect,
         envelope,
-        in_point: None,
-        out_point: None,
+        in_point,
+        out_point,
     })
 }
 
