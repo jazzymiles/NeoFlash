@@ -1729,6 +1729,49 @@ impl WebPlayer {
             .map_err(display_error)?;
         serde_json::to_string(&result).map_err(display_error)
     }
+
+    pub fn enable_lifecycle(&mut self) {
+        self.player.enable_lifecycle();
+    }
+
+    pub fn reset_generation(&self) -> f64 {
+        self.player.reset_generation() as f64
+    }
+
+    pub fn lifecycle_depth(&self) -> u32 {
+        self.player.lifecycle_depth() as u32
+    }
+
+    pub fn begin_inner_goto(
+        &mut self,
+        target: &str,
+        name: &str,
+        frame: u32,
+    ) -> Result<u32, JsValue> {
+        let depth = self
+            .player
+            .begin_inner_goto(&self.project, &path(target)?, command(name, frame)?)
+            .map_err(display_error)?;
+        Ok(depth as u32)
+    }
+
+    pub fn object_begin_inner_goto(
+        &mut self,
+        target: &str,
+        name: &str,
+        frame: u32,
+    ) -> Result<u32, JsValue> {
+        let depth = self
+            .player
+            .object_begin_inner_goto(&self.project, &object_ref(target)?, command(name, frame)?)
+            .map_err(display_error)?;
+        Ok(depth as u32)
+    }
+
+    pub fn lifecycle_next_step_json(&mut self) -> Result<String, JsValue> {
+        let step = self.player.lifecycle_next_step().map_err(display_error)?;
+        serde_json::to_string(&step).map_err(display_error)
+    }
 }
 
 #[wasm_bindgen]

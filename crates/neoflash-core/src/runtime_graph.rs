@@ -318,6 +318,7 @@ pub(crate) struct RuntimeGraph {
     as2_snapshot_selection: HashMap<ObjectRef, String>,
     events: Vec<DisplayEvent>,
     events_overflowed: bool,
+    lifecycle_mode: bool,
     graphics_cost: usize,
     namespaces: BTreeMap<ObjectRef, LinkedNamespace>,
     linked_authored: BTreeMap<SourceAddress, Authored>,
@@ -392,14 +393,44 @@ impl RuntimeGraph {
             .iter()
             .map(|p| (p.path.as_slice(), p.lifetime))
             .collect();
-        let retired: BTreeSet<_> = self
-            .authored
+        let retired_info: Vec<_> = {
+            let mut list: Vec<_> = self
+                .authored
+                .iter()
+                .filter(|(path, node)| active.get(path.as_slice()) != Some(&node.lifetime))
+                .map(|(path, node)| {
+                    (
+                        path.clone(),
+                        node.reference.clone(),
+                        self.route(&node.reference),
+                        self.on_stage(&node.reference),
+                    )
+                })
+                .collect();
+            // Emit retired children before retiring parents.
+            list.sort_by_key(|a| std::cmp::Reverse(a.0.len()));
+            list
+        };
+        let retired: BTreeSet<_> = retired_info
             .iter()
-            .filter(|(path, node)| active.get(path.as_slice()) != Some(&node.lifetime))
-            .map(|(_, node)| node.reference.clone())
+            .map(|(_, reference, _, _)| reference.clone())
             .collect();
         let retired_sound_commands = self.retire_loader_children(&retired);
         self.retire_hierarchy(&retired);
+        for (_, reference, route, was_on_stage) in retired_info {
+            self.push_timeline_event(DisplayEvent {
+                kind: "removed".into(),
+                target_ref: reference.clone(),
+                route: route.clone(),
+            });
+            if was_on_stage {
+                self.push_timeline_event(DisplayEvent {
+                    kind: "removed_from_stage".into(),
+                    target_ref: reference,
+                    route,
+                });
+            }
+        }
         self.authored
             .retain(|path, node| active.get(path.as_slice()) == Some(&node.lifetime));
         self.paths
@@ -417,6 +448,7 @@ impl RuntimeGraph {
             .retain(|reference, _| !retired.contains(reference));
         self.color_transforms
             .retain(|reference, _| !retired.contains(reference));
+        let mut added_paths = Vec::new();
         for p in placements {
             if !self.authored.contains_key(&p.path) {
                 let reference = self.allocate();
@@ -428,6 +460,7 @@ impl RuntimeGraph {
                         lifetime: p.lifetime,
                     },
                 );
+                added_paths.push(p.path.clone());
             }
             let reference = self.authored[&p.path].reference.clone();
             self.sync_authored_render(&reference, p.blend_mode, p.cache_as_bitmap, &p.filters);
@@ -444,7 +477,62 @@ impl RuntimeGraph {
                     .push(self.authored[&p.path].reference.clone());
             }
         }
+        for path in added_paths {
+            let Some(node) = self.authored.get(&path) else {
+                continue;
+            };
+            let reference = node.reference.clone();
+            let route = self.route(&reference);
+            let on_stage = self.on_stage(&reference);
+            self.push_timeline_event(DisplayEvent {
+                kind: "added".into(),
+                target_ref: reference.clone(),
+                route: route.clone(),
+            });
+            if on_stage {
+                self.push_timeline_event(DisplayEvent {
+                    kind: "added_to_stage".into(),
+                    target_ref: reference,
+                    route,
+                });
+            }
+        }
         retired_sound_commands
+    }
+    pub(crate) fn set_lifecycle_mode(&mut self, enabled: bool) {
+        self.lifecycle_mode = enabled;
+    }
+    pub(crate) fn events_overflowed_flag(&self) -> bool {
+        self.events_overflowed
+    }
+    pub(crate) fn take_lifecycle_events(&mut self) -> Vec<DisplayEvent> {
+        std::mem::take(&mut self.events)
+    }
+    pub(crate) fn prepend_lifecycle_events(&mut self, mut prior: Vec<DisplayEvent>) {
+        if prior.is_empty() {
+            return;
+        }
+        prior.extend(std::mem::take(&mut self.events));
+        self.events = prior;
+    }
+    pub(crate) fn push_timeline_event(&mut self, event: DisplayEvent) {
+        if self.events.len() < MAX_DISPLAY_EVENTS {
+            self.events.push(event);
+        } else if self.lifecycle_mode {
+            self.events_overflowed = true;
+        }
+    }
+    pub(crate) fn object_tree_depth(&self, target: &ObjectRef) -> (bool, usize) {
+        let mut depth = 0usize;
+        let mut current = target.clone();
+        while let Some(parent) = self.parent(&current) {
+            depth += 1;
+            if depth > MAX_GRAPH_DEPTH {
+                break;
+            }
+            current = parent;
+        }
+        (!self.on_stage(target), depth)
     }
     fn alive(&self, id: &ObjectRef) -> bool {
         self.paths.contains_key(id)

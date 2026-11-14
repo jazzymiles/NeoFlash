@@ -641,7 +641,7 @@ const __nfProgram = (() => {
     function runInitClips(root) {
         for (const entry of initClips) __nfRunInitClip(entry.key, root, entry.fn);
     }
-    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, defineNamespace, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, ref, assertDynamicWrite, objectDescriptor, isClass, isInterface, constructClass, className, reflect, defaultObjectMethod, isProxy, hasTrait, invokeProxy, resolveQualifiedSlot,
+    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, defineNamespace, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, isDynamic: dynamicAllowed, ref, assertDynamicWrite, objectDescriptor, isClass, isInterface, constructClass, className, reflect, defaultObjectMethod, isProxy, hasTrait, invokeProxy, resolveQualifiedSlot,
         instanceClassName:value=>identities.get(value)||null,
         setNativeTypes:names=>{nativeTypeNames=names;},
         dialect:name=>definitions.get(name)?.dialect });

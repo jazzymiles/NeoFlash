@@ -605,6 +605,7 @@ impl AuthoredPlayback {
                             target_lifetime: lifetime,
                             event: ScriptEvent::Load,
                             script: handler.script.clone(),
+                            visit_id: 0,
                         });
                     }
                 }

@@ -227,16 +227,45 @@ impl Player {
             .iter()
             .map(|(address, lifetime, _, _, _)| (address, *lifetime))
             .collect();
-        let retired: BTreeSet<_> = self
-            .graph
-            .linked_authored
+        let retired_info: Vec<_> = {
+            let mut list: Vec<_> = self
+                .graph
+                .linked_authored
+                .iter()
+                .filter(|(address, node)| active.get(address) != Some(&node.lifetime))
+                .map(|(address, node)| {
+                    (
+                        address.clone(),
+                        node.reference.clone(),
+                        self.graph.route(&node.reference),
+                        self.graph.on_stage(&node.reference),
+                    )
+                })
+                .collect();
+            list.sort_by_key(|a| std::cmp::Reverse(a.0.path.len()));
+            list
+        };
+        let retired: BTreeSet<_> = retired_info
             .iter()
-            .filter(|(address, node)| active.get(address) != Some(&node.lifetime))
-            .map(|(_, node)| node.reference.clone())
+            .map(|(_, reference, _, _)| reference.clone())
             .collect();
         let retired_sound_commands = self.graph.retire_loader_children(&retired);
         self.sound.extend(retired_sound_commands);
         self.graph.retire_hierarchy(&retired);
+        for (_, reference, route, was_on_stage) in retired_info {
+            self.graph.push_timeline_event(DisplayEvent {
+                kind: "removed".into(),
+                target_ref: reference.clone(),
+                route: route.clone(),
+            });
+            if was_on_stage {
+                self.graph.push_timeline_event(DisplayEvent {
+                    kind: "removed_from_stage".into(),
+                    target_ref: reference,
+                    route,
+                });
+            }
+        }
         self.graph
             .linked_authored
             .retain(|address, node| active.get(address) == Some(&node.lifetime));
@@ -257,6 +286,7 @@ impl Player {
         self.graph
             .color_transforms
             .retain(|reference, _| !retired.contains(reference));
+        let mut added_addresses = Vec::new();
         for (address, lifetime, blend_mode, cache_as_bitmap, filters) in &placements {
             if !self.graph.linked_authored.contains_key(address) {
                 let reference = self.graph.allocate();
@@ -270,6 +300,7 @@ impl Player {
                         lifetime: *lifetime,
                     },
                 );
+                added_addresses.push(address.clone());
             }
             let reference = self.graph.linked_authored[address].reference.clone();
             self.graph
@@ -289,6 +320,26 @@ impl Player {
                 .entry(parent)
                 .or_default()
                 .push(self.graph.linked_authored[&address].reference.clone());
+        }
+        for address in added_addresses {
+            let Some(node) = self.graph.linked_authored.get(&address) else {
+                continue;
+            };
+            let reference = node.reference.clone();
+            let route = self.graph.route(&reference);
+            let on_stage = self.graph.on_stage(&reference);
+            self.graph.push_timeline_event(DisplayEvent {
+                kind: "added".into(),
+                target_ref: reference.clone(),
+                route: route.clone(),
+            });
+            if on_stage {
+                self.graph.push_timeline_event(DisplayEvent {
+                    kind: "added_to_stage".into(),
+                    target_ref: reference,
+                    route,
+                });
+            }
         }
     }
 

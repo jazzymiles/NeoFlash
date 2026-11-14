@@ -60,7 +60,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,getStageHost=()=>null,measureText,pathBounds,onMutation=()=>{},onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
+  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,getStageHost=()=>null,measureText,pathBounds,onMutation=()=>{},onSuperConstruct=null,isRetiring=()=>false,onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
@@ -123,10 +123,10 @@
       return staticTextLifetimes.get(id);
     }
     let snapshotCache=null,nodesCache=null,childMapCache=null,as2SettingsCache=null;
-    const ownerCache=new Map();
+    const ownerCache=new Map(),descriptorCache=new Map();
     const readOnlyPlayerMethods=new Set([
       'runtime_snapshot_json','display_nodes_json','scene_json','accessibility_json',
-      'object_ref','object_alive','lifetime_id','current_frame','total_frames',
+      'object_ref','object_alive','lifetime_id','reset_generation','lifecycle_depth','current_frame','total_frames',
       'is_playing','script_overflowed','is_dispatch_current','timeline_sound_resources_json',
       'property','object_property','visible','object_visible',
       'clip_frame','object_frame','clip_frame_count','object_frame_count',
@@ -259,7 +259,7 @@
         nodesCache=null;
       }
       if(!visualOnly)childMapCache=null;
-      if(isReset){ownerCache.clear();as2SettingsCache=null;}
+      if(isReset){ownerCache.clear();descriptorCache.clear();as2SettingsCache=null;}
     });
     function indexNodes(list){
       if(!list.__byKey){
@@ -273,6 +273,7 @@
           if(lifetime){
             const ck=`${k}\0${lifetime}`;
             if(!ownerCache.has(ck))ownerCache.set(ck,{owner:node.owner,staticText:isStaticTextNode(node)});
+            if(!descriptorCache.has(ck))descriptorCache.set(ck,node);
           }
         }
         Object.defineProperty(list,'__byKey',{value:byKey,enumerable:false});
@@ -297,7 +298,8 @@
     function descriptor(target, list=nodes()) {
       const ref=referenceOf(target);
       if (!ref || !alive(target)) throw new ReferenceError('Display object was removed, replaced, or belongs to another player.');
-      const result=list.__byKey?list.__byKey.get(ref.key):list.find(node=>nodeKey(node)===ref.key);
+      const result=(list.__byKey?list.__byKey.get(ref.key):list.find(node=>nodeKey(node)===ref.key))
+        ||(isRetiring(target)?descriptorCache.get(`${ref.key}\0${ref.lifetime}`):null);
       if (!result) throw new ReferenceError('Display object is no longer active.');
       const ck=`${ref.key}\0${ref.lifetime}`;
       if(!ownerCache.has(ck))ownerCache.set(ck,{owner:result.owner,staticText:isStaticTextNode(result)});
@@ -1763,8 +1765,8 @@
       const handler=record?.dynamic?record.target[name]:record?.handlers.get(name);
       return typeof handler==='function'?handler:null;
     }
-    function alive(target){const ref=referenceOf(target);return !!ref&&(graph?player.object_alive(ref.key):player.lifetime_id(ref.key)===ref.lifetime);}
-    function prune(){for(const[id,record]of legacy)if(!alive(record.target))legacy.delete(id);if(dragging&&(!alive(dragging.target)||descriptor(dragging.target).on_stage===false))dragging=null;if(pressed&&(!alive(pressed)||descriptor(pressed).on_stage===false))pressed=null;if(hovered&&(!alive(hovered)||descriptor(hovered).on_stage===false))hovered=null;}
+    function alive(target){const ref=referenceOf(target);return !!ref&&((graph?player.object_alive(ref.key):player.lifetime_id(ref.key)===ref.lifetime)||isRetiring(target));}
+    function prune(){for(const[id,record]of legacy)if(!alive(record.target))legacy.delete(id);if(graph){for(const ck of descriptorCache.keys()){const k=ck.slice(0,ck.indexOf('\0'));if(!player.object_alive(k))descriptorCache.delete(ck);}for(const ck of ownerCache.keys()){const k=ck.slice(0,ck.indexOf('\0'));if(!player.object_alive(k))ownerCache.delete(ck);}}if(dragging&&(!alive(dragging.target)||descriptor(dragging.target).on_stage===false))dragging=null;if(pressed&&(!alive(pressed)||descriptor(pressed).on_stage===false))pressed=null;if(hovered&&(!alive(hovered)||descriptor(hovered).on_stage===false))hovered=null;}
     function enterFrame(){
       prune();
       for(const record of [...legacy.values()]){
@@ -1961,7 +1963,7 @@
           return owners===null||owners.includes(owner);
         }catch(_){return false;}
       };
-      NativeDisplay.__nfInitialize=(receiver,args)=>{if(name==='Bitmap'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('Bitmap base initialization requires a Bitmap display object.');initializeBitmap(receiver,args);return;}if(name==='SimpleButton'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('SimpleButton base initialization requires a SimpleButton display object.');initializeSimpleButton(receiver,args);return;}if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible display instance and no arguments.`);if(name==='MovieClip')refreshLegacyCallbacks(receiver);};
+      NativeDisplay.__nfInitialize=(receiver,args)=>{if(name==='Bitmap'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('Bitmap base initialization requires a Bitmap display object.');initializeBitmap(receiver,args);onSuperConstruct?.(receiver);return;}if(name==='SimpleButton'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('SimpleButton base initialization requires a SimpleButton display object.');initializeSimpleButton(receiver,args);onSuperConstruct?.(receiver);return;}if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible display instance and no arguments.`);if(name==='MovieClip')refreshLegacyCallbacks(receiver);onSuperConstruct?.(receiver);};
       Object.defineProperty(NativeDisplay,Symbol.hasInstance,{value:NativeDisplay.__nfIs});
       builtins[(name==='TextField'||name==='StaticText'?'flash.text.':'flash.display.')+name]=NativeDisplay;
     }
@@ -1970,7 +1972,7 @@
       if(!text?.isFontCompatible)throw new Error('TextField.isFontCompatible requires the shared text service.');
       return text.isFontCompatible(fontName,fontStyle);
     };
-    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,ownerOf,ownerInfo,childByName,hasChild,snapshot,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{snapshotCache=null;nodesCache=null;childMapCache=null;as2SettingsCache=null;ownerCache.clear();legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,ownerOf,ownerInfo,childByName,hasChild,snapshot,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{snapshotCache=null;nodesCache=null;childMapCache=null;as2SettingsCache=null;ownerCache.clear();descriptorCache.clear();legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

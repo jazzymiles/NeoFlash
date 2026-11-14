@@ -65,6 +65,7 @@ mod resources;
 mod runtime;
 mod runtime_graph;
 mod runtime_graphics;
+mod runtime_lifecycle;
 mod scenes;
 pub mod sha256;
 mod shape_tween;
@@ -201,6 +202,9 @@ pub use runtime_graph::{
 pub use runtime_graphics::{
     BitmapFillSpec, BitmapPaint, GradientKind, GradientPaint, GradientSpec, GradientSpread,
     GradientStop, GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS,
+};
+pub use runtime_lifecycle::{
+    LifecyclePhase, LifecycleStep, MAX_LIFECYCLE_DEPTH, MAX_LIFECYCLE_STEPS,
 };
 pub use scenes::{
     GotoFrame, GotoRequest, SceneMetadata, SceneRange, flatten_scenes, flatten_scenes_cow,

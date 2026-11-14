@@ -1637,9 +1637,17 @@
           if (active.length === 0) return [];
           const nonStage = active.filter(t => t !== stage);
           if (nonStage.length <= 1) return active.includes(stage) ? [stage, ...nonStage] : nonStage;
+          const ordered = [stage, ...targets()];
+          const seen = new Set(ordered);
+          for (const item of nonStage) if (!seen.has(item)) ordered.push(item);
+          return ordered;
         }
       }
       return [stage, ...targets()];
+    }
+    function broadcastPhase(type, targets = []) {
+      const list = resolveBroadcastTargets(type, targets);
+      if (list.length) hub.broadcast(type, list);
     }
     function flushRender(targets = []) {
       if (!invalidated) return false;
@@ -1673,7 +1681,7 @@
     return Object.freeze({ stage, Keyboard, Mouse, mouseState: () => ({ cursor: mouseStateRecord.cursor, visible: mouseStateRecord.visible }),
       focusReason: () => (focus && alive(focus) ? focusReason : null),
       fullScreenSourceRect: () => (fullScreenSourceRect ? { ...fullScreenSourceRect } : null),
-      colorAssigned: () => colorAssigned, flushRender, handlePointer, handleTouch, handleComposition, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
+      colorAssigned: () => colorAssigned, broadcastPhase, flushRender, handlePointer, handleTouch, handleComposition, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
       resolveAccessibilityOverlayNodes: (entries = [], extraOptions = {}) => resolveAccessibilityOverlayNodes(
         entries,
         {

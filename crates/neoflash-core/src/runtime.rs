@@ -1,9 +1,14 @@
 use crate::evaluate::{DisplayPatch, Evaluation, Node, snapshot};
+use crate::runtime_lifecycle::LifecycleScope;
 use crate::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 const SCRIPT_BUDGET: usize = 4096;
+
+fn is_zero_u64(value: &u64) -> bool {
+    *value == 0
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -20,6 +25,8 @@ pub struct ScriptDispatch {
     pub target_lifetime: u64,
     pub event: ScriptEvent,
     pub script: Script,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub visit_id: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -106,6 +113,7 @@ struct Clock {
     frame: u32,
     playing: bool,
     programmatically_played: bool,
+    visit_id: u64,
 }
 
 /// Stateful playback. Scripts are queued as source, never evaluated by authoring code.
@@ -123,7 +131,12 @@ pub struct Player {
     pub(crate) previous: HashMap<Vec<Id>, Node>,
     lifetimes: HashMap<Vec<Id>, u64>,
     next_lifetime: u64,
-    scripts: VecDeque<ScriptDispatch>,
+    pub(crate) next_visit_id: u64,
+    pub(crate) reset_generation: u64,
+    pub(crate) lifecycle_mode: bool,
+    pub(crate) lifecycle_stack: Vec<LifecycleScope>,
+    pub(crate) lifecycle_steps: usize,
+    pub(crate) scripts: VecDeque<ScriptDispatch>,
     playing: bool,
     pub(crate) budget: usize,
     pub(crate) overflowed: bool,
@@ -160,6 +173,11 @@ impl Player {
             previous: HashMap::new(),
             lifetimes: HashMap::new(),
             next_lifetime: 1,
+            next_visit_id: 1,
+            reset_generation: 0,
+            lifecycle_mode: false,
+            lifecycle_stack: Vec::new(),
+            lifecycle_steps: 0,
             scripts: VecDeque::new(),
             playing: true,
             budget: SCRIPT_BUDGET,
@@ -170,6 +188,12 @@ impl Player {
         };
         player.reset_with_playing(project, playing);
         player
+    }
+
+    pub(crate) fn alloc_visit_id(&mut self) -> u64 {
+        let id = self.next_visit_id.max(1);
+        self.next_visit_id = id.wrapping_add(1).max(1);
+        id
     }
 
     fn root_id<'a>(&'a self, project: &'a Project) -> &'a str {
@@ -197,11 +221,15 @@ impl Player {
         self.lifetimes.clear();
         self.scripts.clear();
         self.runtime_scripts.clear();
+        self.lifecycle_stack.clear();
+        self.lifecycle_steps = 0;
+        self.reset_generation = self.reset_generation.wrapping_add(1);
         self.playing = playing;
         self.budget = SCRIPT_BUDGET;
         self.overflowed = false;
         self.sound.reset();
         self.video.reset();
+        let visit_id = self.alloc_visit_id();
         self.clocks.insert(
             vec![],
             Clock {
@@ -211,9 +239,13 @@ impl Player {
                     .symbol(self.root_id(project))
                     .is_none_or(|s| s.kind != SymbolKind::Button),
                 programmatically_played: false,
+                visit_id,
             },
         );
         self.refresh(project, false, &HashSet::new());
+        if self.lifecycle_mode {
+            self.push_lifecycle_scope(false);
+        }
     }
 
     pub fn frame(&self) -> u32 {
@@ -304,16 +336,24 @@ impl Player {
         self.budget = budget;
         self.overflowed = false;
         let mut entered = HashSet::new();
+        let mut next_visit = self.next_visit_id.max(1);
         for (path, clock) in &mut self.clocks {
             if clock.playing
                 && let Some(symbol) = project.symbol(&clock.symbol_id)
             {
                 clock.frame = (clock.frame + 1) % symbol.timeline.frame_count.max(1);
+                clock.visit_id = next_visit;
+                next_visit = next_visit.wrapping_add(1).max(1);
                 entered.insert(path.clone());
             }
         }
+        self.next_visit_id = next_visit;
         self.refresh(project, true, &entered);
         self.tick_linked(project);
+        if self.lifecycle_mode {
+            self.lifecycle_steps = 0;
+            self.push_lifecycle_scope(false);
+        }
     }
 
     /// Explicit preview seek resets nested runtime state. Authoring scrub uses evaluate().
@@ -330,6 +370,9 @@ impl Player {
         self.lifetimes.clear();
         self.scripts.clear();
         self.runtime_scripts.clear();
+        self.lifecycle_stack.clear();
+        self.lifecycle_steps = 0;
+        self.reset_generation = self.reset_generation.wrapping_add(1);
         self.budget = SCRIPT_BUDGET;
         self.overflowed = false;
         self.sound.stop_streams();
@@ -338,6 +381,7 @@ impl Player {
         let count = project
             .symbol(self.root_id(project))
             .map_or(1, |s| s.timeline.frame_count.max(1));
+        let visit_id = self.alloc_visit_id();
         self.clocks.insert(
             vec![],
             Clock {
@@ -345,9 +389,13 @@ impl Player {
                 frame: frame.min(count - 1),
                 playing: true,
                 programmatically_played: false,
+                visit_id,
             },
         );
         self.refresh(project, false, &HashSet::new());
+        if self.lifecycle_mode {
+            self.push_lifecycle_scope(false);
+        }
     }
 
     fn snapshot(&self, project: &Project) -> Evaluation {
@@ -585,6 +633,8 @@ impl Player {
                         }
                     }
                     _ => {
+                        let visit_id = self.next_visit_id.max(1);
+                        self.next_visit_id = visit_id.wrapping_add(1).max(1);
                         self.clocks.insert(
                             node.path.clone(),
                             Clock {
@@ -592,6 +642,7 @@ impl Player {
                                 frame: 0,
                                 playing: true,
                                 programmatically_played: false,
+                                visit_id,
                             },
                         );
                         changed = true;
@@ -619,11 +670,17 @@ impl Player {
             return;
         }
         self.budget -= 1;
+        let visit_id = if matches!(event, ScriptEvent::Frame(_)) {
+            self.clocks.get(&target_path).map_or(0, |c| c.visit_id)
+        } else {
+            0
+        };
         self.scripts.push_back(ScriptDispatch {
             target_lifetime: self.lifetimes.get(&target_path).copied().unwrap_or(0),
             target_path,
             event,
             script,
+            visit_id,
         });
     }
 
@@ -757,6 +814,9 @@ impl Player {
                 }
                 let old_frame = clock.frame;
                 clock.frame = frame;
+                let visit_id = self.next_visit_id.max(1);
+                self.next_visit_id = visit_id.wrapping_add(1).max(1);
+                clock.visit_id = visit_id;
                 clock.playing = matches!(command, PlaybackCommand::GotoAndPlay(_));
                 clock.programmatically_played |= clock.playing && count > 1;
                 if old_frame != frame {
@@ -873,7 +933,13 @@ impl Player {
         };
         match dispatch.event {
             ScriptEvent::Frame(frame) => {
-                if node.frame != frame {
+                if node.frame != frame
+                    || (dispatch.visit_id != 0
+                        && self
+                            .clocks
+                            .get(&dispatch.target_path)
+                            .is_none_or(|clock| clock.visit_id != dispatch.visit_id))
+                {
                     return false;
                 }
                 node.symbol_id

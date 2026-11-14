@@ -438,8 +438,17 @@
       _x: 'x', _y: 'y', _rotation: 'rotation', _alpha: 'alpha', _xscale: 'scale_x', _yscale: 'scale_y',
     };
     const graphMode=typeof player.runtime_snapshot_json==='function';
+    const hasLifecycleApi = typeof player.enable_lifecycle === 'function' && typeof player.lifecycle_next_step_json === 'function';
     const references = new WeakMap();
     const attachedClasses = new Map();
+    const constructedNodes = new Map();
+    const superConstructedNodes = new Map();
+    const constructedNames = new WeakMap();
+    const offstageLinkedTargets = new Set();
+    const retiringTargets = new Set();
+    const constructSessions = [];
+    const frameLabelDispatchedScopes = new Set();
+    let knownResetGeneration = 0;
     const boundTextVariables = new Map();
     const registeredClasses = new Map();
     const executedInitClips = new Set();
@@ -618,7 +627,7 @@
       if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,wasm,events:global.NeoFlashEvents,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document,getProgram:()=>program,geometry:geometryHost,onUpdate:ref=>textInputHost?.sync(ref),onScroll:ref=>{if(eventHub&&global.NeoFlashEvents&&player.object_alive(ref))eventHub.dispatch(proxyForRef(JSON.parse(ref)),new global.NeoFlashEvents.Event('scroll',false,false));},measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
       let invokeAsfunction=()=>{};
       if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,onAsfunction:(ref,spec)=>{const tf=proxyForRef(JSON.parse(ref));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document});
-      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,
+      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,onSuperConstruct:handleSuperConstruct,isRetiring:target=>retiringTargets.has(target),onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,
         shapeContains:(kind,x,y)=>{if(typeof context==='undefined'||typeof context.isPointInPath!=='function')throw new Error('Shape hit testing requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(context,kind,x,y,inputPaths.get(kind.commands));},
         clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[]),x,y,inputPaths);},
         beforeRaster:target=>assertUnfilteredEditing(stageHost?.stage.focus,target),beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,getStageHost:()=>stageHost||null,
@@ -626,7 +635,7 @@
         pathBounds:(commands,matrix)=>global.NeoFlashAccessibility.pathBounds(commands,matrix)});
       if(global.NeoFlashEvents&&global.NeoFlashStage) {
         global.NeoFlashStage.setStageAdapters?.({makePoint:(x,y)=>new geometryHost.Point(x,y),isPoint:value=>geometryHost.Point.__nfIs(value),isRectangle:value=>geometryHost.Rectangle.__nfIs(value),makeRectangle:(x,y,w,h)=>new geometryHost.Rectangle(x,y,w,h),isBitmapData:value=>Boolean(bitmapHost?.BitmapData.__nfIs(value))});
-        const alive=target=>target===stageHost?.stage||Boolean(frameLabelType?.__nfIs(target))||display.alive(target);
+        const alive=target=>retiringTargets.has(target)||target===stageHost?.stage||Boolean(frameLabelType?.__nfIs(target))||display.alive(target);
         const local=(target,x,y)=>{const p=(target===stageHost?.stage||frameLabelType?.__nfIs(target))?{x,y}:display.convert(target,{x,y},false);return[p.x,p.y];};
         eventHub=global.NeoFlashEvents.create({alive,parentOf:target=>(target===stageHost?.stage||frameLabelType?.__nfIs(target))?null:target.parent,
           localPoint:local,globalPoint:(target,x,y)=>{const p=(target===stageHost?.stage||frameLabelType?.__nfIs(target))?{x,y}:display.convert(target,{x,y},true);return[p.x,p.y];}});
@@ -1127,6 +1136,7 @@
       })});
       if(global.NeoFlashDate)legacyGlobals=Object.freeze({...legacyGlobals,date:global.NeoFlashDate.create(wasm)});
       if(geometryHost.Color)legacyGlobals=Object.freeze({...legacyGlobals,Color:geometryHost.Color});
+      enableLifecycleIfReady();
       initializeProgram();
     }
     function initializeProgram() {
@@ -1333,10 +1343,11 @@
       filterHost?.renderer.clear();
       as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
       as3MediaEventsHost?.reset();fte3dHost?.reset();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
-      proxies.clear(); attachedClasses.clear(); boundTextVariables.clear(); registeredClasses.clear(); executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0; if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';lastTraceLocation = '';
+      proxies.clear(); attachedClasses.clear(); constructedNodes.clear(); superConstructedNodes.clear(); offstageLinkedTargets.clear(); retiringTargets.clear(); constructSessions.length = 0; frameLabelDispatchedScopes.clear(); boundTextVariables.clear(); registeredClasses.clear(); executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0; if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';lastTraceLocation = '';
       syncInitialStageLayout();
       soundsPreloaded=false;
       player.reset();
+      enableLifecycleIfReady();
       initializeProgram();
       dispatchScripts();
     }
@@ -1346,27 +1357,284 @@
       filterHost?.renderer.clear();
       as2PrintHost?.dispose();as2BoxingHost?.dispose();as2StageHost?.dispose();as2ConnectionsHost?.dispose();as2DepthManagerHost?.dispose();as2TransitionsHost?.dispose();as2MediaHost?.dispose();as2ServicesHost?.dispose();as2FilesHost?.dispose();as2NetworkHost?.dispose();as2LocaleHost?.dispose();as2TextHost?.dispose();as2BindingHost?.dispose();as2DataHost?.dispose();as2ObjectHost?.dispose();
       as3MediaEventsHost?.dispose();fte3dHost?.dispose();as3NetSysHost?.dispose();airHost?.dispose();externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();amfHost?.reset?.();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();as2CaptureHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
-      boundTextVariables.clear();registeredClasses.clear();executedInitClips.clear();clipFrameLabels.clear();callFrameDepth=0;if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
+      constructedNodes.clear();superConstructedNodes.clear();offstageLinkedTargets.clear();retiringTargets.clear();constructSessions.length=0;frameLabelDispatchedScopes.clear();boundTextVariables.clear();registeredClasses.clear();executedInitClips.clear();clipFrameLabels.clear();callFrameDepth=0;if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
       as2PlatformHost?.dispose();legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function as2RootFor(target) {
       const ref=references.get(target);
       return graphMode&&ref?.objectRef&&typeof player.as2_root==='function'?proxyForRef(JSON.parse(player.as2_root(ref.key))):proxyFor([]);
     }
+    function enableLifecycleIfReady() {
+      if (!hasLifecycleApi) return;
+      player.enable_lifecycle();
+      if (typeof player.reset_generation === 'function') knownResetGeneration = player.reset_generation();
+    }
+    function syncResetGeneration(stepGeneration = null) {
+      if (!hasLifecycleApi) return;
+      const current = stepGeneration !== null ? stepGeneration : (typeof player.reset_generation === 'function' ? player.reset_generation() : knownResetGeneration);
+      if (current === knownResetGeneration) return;
+      knownResetGeneration = current;
+      proxies.clear(); attachedClasses.clear(); constructedNodes.clear(); superConstructedNodes.clear(); offstageLinkedTargets.clear(); retiringTargets.clear(); constructSessions.length = 0; frameLabelDispatchedScopes.clear(); boundTextVariables.clear(); clipFrameLabels.clear();
+      display?.clear(); eventHub?.clear();
+    }
+    function nodeKeyOf(node) {
+      return graphMode ? JSON.stringify(node.object_ref) : JSON.stringify(node.path);
+    }
+    function nodeLifetimeOf(node) {
+      return graphMode ? node.object_ref.generation : node.lifetime_id;
+    }
+    function hasAnyAuthoredTextVariables() {
+      return Boolean(graphMode&&as2ObjectHost&&typeof project!=='undefined'&&project?.symbols?.some(s=>s?.timeline?.layers?.some(l=>l?.keyframes?.some(kf=>kf?.elements?.some(el=>el?.kind?.format?.fieldOptions?.variable||el?.kind?.format?.field_options?.variable)))));
+    }
+    function assignTimelineChild(parentProxy, childNode, childProxy) {
+      const name = childNode?.name;
+      if (!parentProxy || !childProxy || !name) return;
+      if (program?.hasFixedProperty?.(parentProxy, name)) parentProxy[name] = childProxy;
+    }
+    function createConstructSession(events = []) {
+      const addedByTarget = new Map();
+      const addedToStage = [];
+      const retired = [];
+      const added = [];
+      for (const item of events) {
+        if (item.kind === 'added') {
+          added.push(item);
+          const k = JSON.stringify(item.target_ref);
+          let list = addedByTarget.get(k);
+          if (!list) addedByTarget.set(k, list = []);
+          list.push(item);
+        } else if (item.kind === 'added_to_stage') {
+          addedToStage.push(item);
+        } else if (item.kind === 'removed' || item.kind === 'removed_from_stage') {
+          retired.push(item);
+        }
+      }
+      return { added, addedByTarget, addedToStage, retired, deliveredAdded: new Set() };
+    }
+    function deliverAddedFor(targetKey, session) {
+      if (!session) return;
+      const list = session.addedByTarget.get(targetKey);
+      if (!list?.length) return;
+      const pending = [];
+      for (const item of list) {
+        if (!session.deliveredAdded.has(item)) {
+          session.deliveredAdded.add(item);
+          pending.push(item);
+        }
+      }
+      if (pending.length) deliverDisplayEvents(pending);
+    }
+    function pruneDeadRuntimeCaches() {
+      if (!graphMode) {
+        for (const key of constructedNodes.keys()) {
+          if (player.lifetime_id(key) !== constructedNodes.get(key)) { constructedNodes.delete(key); superConstructedNodes.delete(key); }
+        }
+        return;
+      }
+      for (const key of attachedClasses.keys()) if (!player.object_alive(key)) attachedClasses.delete(key);
+      for (const key of constructedNodes.keys()) if (!player.object_alive(key)) constructedNodes.delete(key);
+      for (const key of superConstructedNodes.keys()) if (!player.object_alive(key)) superConstructedNodes.delete(key);
+      for (const key of offstageLinkedTargets.keys()) if (!player.object_alive(key)) offstageLinkedTargets.delete(key);
+      for (const key of boundTextVariables.keys()) if (!player.object_alive(key)) boundTextVariables.delete(key);
+      for (const key of proxies.keys()) if (!player.object_alive(key)) proxies.delete(key);
+      display?.prune();
+      eventHub?.prune();
+    }
+    function directChildrenOf(node, nodes, byKey) {
+      if (graphMode && Array.isArray(node.children)) {
+        const result = [];
+        for (const childRef of node.children) {
+          const child = byKey.get(JSON.stringify(childRef));
+          if (child) result.push(child);
+        }
+        return result;
+      }
+      if (!graphMode) {
+        const prefix = node.path || [];
+        return nodes.filter(candidate => Array.isArray(candidate.path) && candidate.path.length === prefix.length + 1 && prefix.every((seg, i) => candidate.path[i] === seg));
+      }
+      const key = nodeKeyOf(node);
+      return nodes.filter(candidate => candidate.parent_ref && JSON.stringify(candidate.parent_ref) === key);
+    }
+    function nodeRegistrationInfo(node) {
+      const symbolId = node.symbol_id || node.kind?.symbol_id;
+      const symLinkage = symbolId && registeredClasses.size > 0 && typeof project !== 'undefined' ? project?.symbols?.find(s => s.id === symbolId)?.linkage_id : null;
+      const hasRegistered = Boolean(symLinkage && registeredClasses.has(symLinkage));
+      return { symLinkage, hasRegistered };
+    }
+    function attachNodeClass(node, receiver, key, lifetime, symLinkage, hasRegistered) {
+      if (attachedClasses.get(key) === lifetime) return;
+      attachedClasses.set(key, lifetime);
+      if (hasRegistered) {
+        const registered = registeredClasses.get(symLinkage);
+        if (registered !== null) {
+          if (registered.kind === 'project') program.attach(registered.name, receiver);
+          else {
+            if (registered.ctor.prototype && typeof registered.ctor.prototype === 'object') Object.setPrototypeOf(receiver, registered.ctor.prototype);
+            Object.defineProperty(receiver, '__constructor__', { configurable: true, writable: true, enumerable: false, value: registered.ctor });
+            Reflect.apply(registered.ctor, receiver, []);
+          }
+          display.refreshLegacyCallbacks(receiver, true);
+        }
+      } else if (node.class_name) {
+        if (!program?.attach) throw new Error(`Linked class ${node.class_name} has no compiled project program.`);
+        program.attach(node.class_name, receiver);
+        if (program.dialect?.(node.class_name) === 'as2') display.refreshLegacyCallbacks(receiver, true);
+      }
+    }
+    const constructingNodeKeys = new Set();
+    function constructChildrenOf(node, session, nodes, byKey, hasTextVars, needAddedProxy) {
+      for (const childNode of directChildrenOf(node, nodes, byKey)) {
+        constructSubtree(childNode, session, nodes, byKey, hasTextVars, needAddedProxy);
+      }
+    }
+    function constructSubtree(node, session, nodes, byKey, hasTextVars, needAddedProxy) {
+      const key = nodeKeyOf(node), lifetime = nodeLifetimeOf(node);
+      if (constructedNodes.get(key) === lifetime) {
+        constructChildrenOf(node, session, nodes, byKey, hasTextVars, needAddedProxy);
+        return;
+      }
+      if (graphMode && !player.object_alive(key)) return;
+      constructedNodes.set(key, lifetime);
+      if (hasTextVars && node.owner === 'text' && node.text?.variable && !node.text?.html) {
+        const tLife = node.object_ref.generation;
+        if (boundTextVariables.get(key) !== tLife) {
+          boundTextVariables.set(key, tLife);
+          as2ObjectHost.variableRef(proxyForRef(node.object_ref))?.set(node.text.variable);
+        }
+      }
+      const { symLinkage, hasRegistered } = nodeRegistrationInfo(node);
+      const hasClass = Boolean(node.class_name || hasRegistered);
+      const hasChildren = Boolean(node.children?.length || (!graphMode && nodes.some(c => c.path.length === node.path.length + 1 && node.path.every((seg, i) => c.path[i] === seg))));
+      const hasAddedEvent = Boolean(session?.addedByTarget.has(key));
+      const needsProxy = hasClass || hasChildren || Boolean(node.name) || (hasAddedEvent && needAddedProxy);
+      const receiver = needsProxy ? (graphMode ? proxyForRef(node.object_ref) : proxyFor(node.path)) : null;
+      if (receiver && node.name) constructedNames.set(receiver, node.name);
+      constructingNodeKeys.add(key);
+      try {
+        if (hasClass) {
+          attachNodeClass(node, receiver, key, lifetime, symLinkage, hasRegistered);
+          if (superConstructedNodes.get(key) !== lifetime) {
+            superConstructedNodes.set(key, lifetime);
+            constructChildrenOf(node, session, nodes, byKey, hasTextVars, needAddedProxy);
+          }
+        } else {
+          superConstructedNodes.set(key, lifetime);
+          if (hasChildren) constructChildrenOf(node, session, nodes, byKey, hasTextVars, needAddedProxy);
+        }
+      } finally {
+        constructingNodeKeys.delete(key);
+      }
+      if (receiver) {
+        const parentNode = graphMode
+          ? (node.parent_ref ? byKey.get(JSON.stringify(node.parent_ref)) : null)
+          : (node.path.length ? byKey.get(JSON.stringify(node.path.slice(0, -1))) : null);
+        if (parentNode) {
+          const parentProxy = graphMode ? proxyForRef(parentNode.object_ref) : proxyFor(parentNode.path);
+          assignTimelineChild(parentProxy, node, receiver);
+        }
+      }
+      deliverAddedFor(key, session);
+    }
+    function handleSuperConstruct(receiver) {
+      if (!display || !receiver || !references.has(receiver)) return;
+      const ref = references.get(receiver);
+      const key = ref.key;
+      let node = null, nodes = null;
+      try { nodes = display.nodes(); node = (nodes.__byKey ? nodes.__byKey.get(key) : nodes.find(n => nodeKeyOf(n) === key)) || null; } catch (_) { return; }
+      if (!node) return;
+      const lifetime = nodeLifetimeOf(node);
+      if (superConstructedNodes.get(key) === lifetime) return;
+      superConstructedNodes.set(key, lifetime);
+      const byKey = nodes.__byKey || new Map(nodes.map(n => [nodeKeyOf(n), n]));
+      let session = constructSessions[constructSessions.length - 1] || null;
+      let localSession = null;
+      const wasOffstageLinked = offstageLinkedTargets.delete(key);
+      if (wasOffstageLinked && graphMode && typeof player.display_events_json === 'function') {
+        const extra = JSON.parse(player.display_events_json()).events || [];
+        if (session) {
+          for (const item of extra) {
+            if (item.kind === 'added') {
+              session.added.push(item);
+              const k = JSON.stringify(item.target_ref);
+              let list = session.addedByTarget.get(k);
+              if (!list) session.addedByTarget.set(k, list = []);
+              list.push(item);
+            } else deliverDisplayEvents([item]);
+          }
+        } else {
+          localSession = session = createConstructSession(extra);
+        }
+      }
+      const needAddedProxy = Boolean(eventHub && (eventHub.targetsWith('added')?.length || eventHub.targetsWith('removed')?.length || eventHub.targetsWith('addedToStage')?.length || eventHub.targetsWith('removedFromStage')?.length));
+      if (localSession) constructSessions.push(localSession);
+      try {
+        constructChildrenOf(node, session, nodes, byKey, hasAnyAuthoredTextVariables(), needAddedProxy);
+      } finally {
+        if (localSession) constructSessions.pop();
+      }
+      if (localSession) {
+        const leftover = localSession.added.filter(item => !localSession.deliveredAdded.has(item));
+        if (leftover.length) deliverDisplayEvents(leftover);
+        if (localSession.addedToStage.length) deliverDisplayEvents(localSession.addedToStage);
+      }
+    }
+    function runConstructEvents(events = [], allowAddedToStage = true) {
+      const session = createConstructSession(events);
+      if (session.retired.length) deliverDisplayEvents(session.retired, { timelineRetired: true });
+      pruneDeadRuntimeCaches();
+      if (!display) {
+        deliverDisplayEvents(session.added);
+        if (allowAddedToStage) deliverDisplayEvents(session.addedToStage);
+        return;
+      }
+      const nodes = display.nodes();
+      const byKey = nodes.__byKey || new Map(nodes.map(n => [nodeKeyOf(n), n]));
+      const isConstructed = n => constructedNodes.get(nodeKeyOf(n)) === nodeLifetimeOf(n);
+      const parentOfNode = n => graphMode
+        ? (n.parent_ref ? byKey.get(JSON.stringify(n.parent_ref)) : null)
+        : (n.path.length ? byKey.get(JSON.stringify(n.path.slice(0, -1))) : null);
+      const roots = [];
+      for (const node of nodes) {
+        if (isConstructed(node)) continue;
+        const parentNode = parentOfNode(node);
+        if (!parentNode || isConstructed(parentNode)) roots.push(node);
+      }
+      const hasTextVars = hasAnyAuthoredTextVariables();
+      const needAddedProxy = Boolean(eventHub && (eventHub.targetsWith('added')?.length || eventHub.targetsWith('removed')?.length || eventHub.targetsWith('addedToStage')?.length || eventHub.targetsWith('removedFromStage')?.length));
+      constructSessions.push(session);
+      try {
+        for (const rootNode of roots) constructSubtree(rootNode, session, nodes, byKey, hasTextVars, needAddedProxy);
+      } finally {
+        constructSessions.pop();
+      }
+      const remainingAdded = session.added.filter(item => !session.deliveredAdded.has(item));
+      if (remainingAdded.length) deliverDisplayEvents(remainingAdded);
+      if (allowAddedToStage && session.addedToStage.length) deliverDisplayEvents(session.addedToStage);
+    }
     function prepareLinked(receiver,allocatedByProgram,linkageId=null) {
       const hasRegistered=linkageId!==null&&registeredClasses.has(linkageId);
       const registered=hasRegistered?registeredClasses.get(linkageId):undefined;
       if(!hasRegistered&&!program?.attach&&display.descriptor(receiver).class_name)throw new Error('Linked symbol class construction requires an initialized project program; creation during static field initialization is not supported yet.');
-      if(allocatedByProgram||hasRegistered){const ref=references.get(receiver);attachedClasses.set(ref.key,ref.lifetime);}
-      attachNewInstances(receiver);
+      const ref=references.get(receiver);
+      if(allocatedByProgram){
+        attachedClasses.set(ref.key,ref.lifetime);
+        constructedNodes.set(ref.key,ref.lifetime);
+        if(ref.key)offstageLinkedTargets.add(ref.key);
+        return;
+      }
+      if(hasRegistered){attachedClasses.set(ref.key,ref.lifetime);constructedNodes.set(ref.key,ref.lifetime);}
       if(hasRegistered&&registered!==null){
         if(registered.kind==='project')program.attach(registered.name,receiver);
         else{
           if(registered.ctor.prototype&&typeof registered.ctor.prototype==='object')Object.setPrototypeOf(receiver,registered.ctor.prototype);
           Object.defineProperty(receiver,'__constructor__',{configurable:true,writable:true,enumerable:false,value:registered.ctor});
           Reflect.apply(registered.ctor,receiver,[]);
+          handleSuperConstruct(receiver);
         }
         display.refreshLegacyCallbacks(receiver,true);
+      }else{
+        handleSuperConstruct(receiver);
       }
     }
     function attachNewInstances(scope=null) {
@@ -1441,18 +1709,48 @@
       // prior authored placement forever. Externally held stale proxies still reject access.
       if(graphMode)for(const key of proxies.keys())if(!player.object_alive(key))proxies.delete(key);
     }
-    function deliverDisplayEvents(events) {
+    function deliverDisplayEvents(events, options = null) {
       if(!eventHub||!events?.length)return;
       const rootRef=JSON.parse(player.object_ref('[]')),rootKey=JSON.stringify(rootRef);
       const types={added:'added',removed:'removed',added_to_stage:'addedToStage',removed_from_stage:'removedFromStage'};
+      const timelineRetired=Boolean(options?.timelineRetired);
       for(const item of events) {
-        const key=JSON.stringify(item.target_ref);if(!player.object_alive(key))continue;
-        const target=proxyForRef(item.target_ref);
-        const route=item.route.map(ref=>{const key=JSON.stringify(ref);return player.object_alive(key)?proxyForRef(ref):proxies.get(key)?.proxy;}).filter(Boolean);
-        if(item.route.some(ref=>JSON.stringify(ref)===rootKey)&&stageHost)route.push(stageHost.stage);
+        const key=JSON.stringify(item.target_ref);
         const type=types[item.kind];if(!type)throw new Error(`Unsupported display lifecycle event ${item.kind}.`);
-        eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,type==='added'||type==='removed'),route);
-        display?.lifecycle?.(item.kind,target);
+        const isRetirement=type==='removed'||type==='removedFromStage';
+        const aliveNow=player.object_alive(key);
+        if(!aliveNow&&!isRetirement)continue;
+        const target=aliveNow?proxyForRef(item.target_ref):proxies.get(key)?.proxy;
+        if(!target)continue;
+        const route=item.route.map(ref=>{const rk=JSON.stringify(ref);return player.object_alive(rk)?proxyForRef(ref):proxies.get(rk)?.proxy;}).filter(Boolean);
+        if(!route.length||route[0]!==target)route.unshift(target);
+        if(item.route.some(ref=>JSON.stringify(ref)===rootKey)&&stageHost)route.push(stageHost.stage);
+        const temporarilyAlive=[];
+        if(isRetirement){
+          for(const entry of route){
+            if(!retiringTargets.has(entry)){
+              const entryRef=references.get(entry);
+              if(entryRef&&!player.object_alive(entryRef.key)){retiringTargets.add(entry);temporarilyAlive.push(entry);}
+            }
+          }
+          if(!aliveNow&&!retiringTargets.has(target)){retiringTargets.add(target);temporarilyAlive.push(target);}
+        }
+        try {
+          eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,type==='added'||type==='removed'),route);
+          display?.lifecycle?.(item.kind,target);
+        } finally {
+          for(const entry of temporarilyAlive)retiringTargets.delete(entry);
+        }
+        if(timelineRetired&&type==='removed'&&item.route.length>=2){
+          const childName=constructedNames.get(target);
+          if(childName){
+            const pRef=item.route[1],pKey=JSON.stringify(pRef);
+            if(player.object_alive(pKey)){
+              const parentProxy=proxyForRef(pRef);
+              if(program?.hasFixedProperty?.(parentProxy,childName)&&parentProxy[childName]===target)parentProxy[childName]=null;
+            }
+          }
+        }
       }
     }
     function drainDisplayEvents() {
@@ -1498,7 +1796,30 @@
         }
       }
     }
+    function broadcastDisplayPhase(eventType) {
+      if(!display||!stageHost)return;
+      const targets=()=>{
+        if(graphMode&&typeof display.snapshot==='function'){
+          const objects=display.snapshot()?.objects;
+          if(Array.isArray(objects))return objects.map(obj=>proxyForRef(obj.object_ref));
+        }
+        return display.nodes().map(node=>display.nodeProxy(node));
+      };
+      stageHost.broadcastPhase(eventType,targets);
+    }
     function broadcastFrame() {
+      if(hasLifecycleApi){
+        syncResetGeneration();
+        try{
+          if(display){
+            display.enterFrame();
+            broadcastDisplayPhase(global.NeoFlashEvents?.Event?.ENTER_FRAME||'enterFrame');
+          }
+        }
+        catch(error){const cause=unwrapScriptThrow(error);throw new Error(`EnterFrame callback: ${describeThrown(cause)}`,{cause});}
+        dispatchScripts();
+        return;
+      }
       attachNewInstances();
       try {
         if(display){
@@ -1547,7 +1868,8 @@
       const lifetime = objectRef?objectRef.generation:player.lifetime_id(key);
       const cached = proxies.get(key);
       if (cached && cached.lifetime === lifetime) return cached.proxy;
-      const live=()=>objectRef?player.object_alive(key):player.lifetime_id(key)===lifetime;
+      let resolvedProxy = null;
+      const live=()=>retiringTargets.has(resolvedProxy)||(objectRef?player.object_alive(key):player.lifetime_id(key)===lifetime);
       if (!lifetime||!live()) {
         if (cached) return cached.proxy;
         throw new Error(`Display object ${key} is no longer active.`);
@@ -1610,7 +1932,7 @@
         if(Object.hasOwn(target,name))return Reflect.get(target,name,proxy);
         if(Object.hasOwn(custom,name))return custom[name];
         if(Reflect.has(target,name))return Reflect.get(target,name,proxy);
-        if(objectRef){const child=display.childByName?display.childByName(proxy,name):display.children(proxy).find(node=>node.name===name);return child?display.nodeProxy(child):undefined;}
+        if(objectRef){const child=display.childByName?display.childByName(proxy,name):display.children(proxy).find(node=>node.name===name);return child&&!constructingNodeKeys.has(JSON.stringify(child.object_ref))?display.nodeProxy(child):undefined;}
         const child=JSON.parse(player.child_path(key,name));return child?proxyFor(child):undefined;
       }
       function dynamicHas(name){
@@ -1644,10 +1966,10 @@
         stop: () => control('stop'),
         gotoAndPlay: (value, scene) => goto('goto_and_play', value, false, scene),
         gotoAndStop: (value, scene) => goto('goto_and_stop', value, false, scene),
-        nextFrame: () => seek('goto_and_stop', call('clip_frame') + 1),
-        prevFrame: () => seek('goto_and_stop', call('clip_frame') - 1),
-        nextScene: () => sceneStep(1, 'goto_and_play'),
-        prevScene: () => sceneStep(-1, 'goto_and_play'),
+        nextFrame: () => seek('goto_and_stop', call('clip_frame') + 1, false),
+        prevFrame: () => seek('goto_and_stop', call('clip_frame') - 1, false),
+        nextScene: () => sceneStep(1, 'goto_and_play', false),
+        prevScene: () => sceneStep(-1, 'goto_and_play', false),
         trace: (...values) => trace(...values),
       };
       function control(command) {assertAlive();if(!call('control',command,0))throw new Error(`Cannot control timeline at ${key}.`);}
@@ -1671,22 +1993,41 @@
             : oneBasedFrame(value, total, label => call('resolve_frame',label));
         }
         if (frame === null || frame < 0) return; // An unknown AS2 label changes neither frame nor play state.
+        if (!legacy && hasLifecycleApi) {
+          enableLifecycleIfReady();
+          const depth = objectRef
+            ? player.object_begin_inner_goto(key, command, frame)
+            : player.begin_inner_goto(key, command, frame);
+          if (!depth) throw new Error(`Cannot control timeline at ${key}.`);
+          driveLifecycle(depth);
+          return;
+        }
         if (!call('control',command,frame)) throw new Error(`Cannot control timeline at ${key}.`);
-        dispatchFrameLabelEvents();
+        if (!hasLifecycleApi) dispatchFrameLabelEvents();
       }
       // Zero-based seek used by nextFrame/prevFrame, which cross scene boundaries.
-      function seek(command, frame) {
+      function seek(command, frame, legacy = false) {
         assertAlive();
         const total = call('clip_frame_count');
         if (!total) throw new Error('Timeline controls apply to symbols and the root scene.');
-        if (!call('control',command,Math.max(0, Math.min(frame, total - 1)))) throw new Error(`Cannot control timeline at ${key}.`);
-        dispatchFrameLabelEvents();
+        const targetFrame = Math.max(0, Math.min(frame, total - 1));
+        if (!legacy && hasLifecycleApi) {
+          enableLifecycleIfReady();
+          const depth = objectRef
+            ? player.object_begin_inner_goto(key, command, targetFrame)
+            : player.begin_inner_goto(key, command, targetFrame);
+          if (!depth) throw new Error(`Cannot control timeline at ${key}.`);
+          driveLifecycle(depth);
+          return;
+        }
+        if (!call('control',command,targetFrame)) throw new Error(`Cannot control timeline at ${key}.`);
+        if (!hasLifecycleApi) dispatchFrameLabelEvents();
       }
-      function sceneStep(step, command) {
+      function sceneStep(step, command, legacy = false) {
         assertAlive();
         if (sceneCount() <= 1) return; // No adjacent scene: the playhead stays.
         const frame = call('scene_step', step);
-        if (frame >= 0) seek(command, frame);
+        if (frame >= 0) seek(command, frame, legacy);
       }
       function nativeHas(name){
         if(typeof name!=='string')return name===Symbol.toStringTag;
@@ -1761,6 +2102,7 @@
           } else return dynamicSet(name,value);
         },
       });
+      resolvedProxy = proxy;
       const ownerNativeKeys=()=>{
         const owner=objectRef&&display&&live()?proxyOwner():null;
         const common=['_width','_height','_name','_target','_framesloaded','_url','_droptarget','_highquality','_focusrect','_soundbuftime','_quality','_xmouse','_ymouse'];
@@ -1792,9 +2134,11 @@
       };
       as2.register(methods.gotoAndPlay, proxy, 'gotoAndPlay', as2Goto('goto_and_play'));
       as2.register(methods.gotoAndStop, proxy, 'gotoAndStop', as2Goto('goto_and_stop'));
+      as2.register(methods.nextFrame, proxy, 'nextFrame', () => seek('goto_and_stop', call('clip_frame') + 1, true));
+      as2.register(methods.prevFrame, proxy, 'prevFrame', () => seek('goto_and_stop', call('clip_frame') - 1, true));
       // AS2 nextScene/prevScene compile to a frame jump on the root timeline that stops the playhead.
-      as2.register(methods.nextScene, proxy, 'nextScene', () => { assertAlive(); const root = proxyFor([]); if (proxy !== root) return as2.method(root, 'nextScene')(); return sceneStep(1, 'goto_and_stop'); });
-      as2.register(methods.prevScene, proxy, 'prevScene', () => { assertAlive(); const root = proxyFor([]); if (proxy !== root) return as2.method(root, 'prevScene')(); return sceneStep(-1, 'goto_and_stop'); });
+      as2.register(methods.nextScene, proxy, 'nextScene', () => { assertAlive(); const root = proxyFor([]); if (proxy !== root) return as2.method(root, 'nextScene')(); return sceneStep(1, 'goto_and_stop', true); });
+      as2.register(methods.prevScene, proxy, 'prevScene', () => { assertAlive(); const root = proxyFor([]); if (proxy !== root) return as2.method(root, 'prevScene')(); return sceneStep(-1, 'goto_and_stop', true); });
       proxies.set(key, { lifetime, proxy });
       return proxy;
     }
@@ -1808,40 +2152,122 @@
       lastTraceLocation = location;
       emitScriptMessage('trace', message, frames);
     }
+    let lifecycleStepCount = 0;
+    function executeDispatchedScript(item, clickTargetScope) {
+      if (!item.script.source.trim() || !player.is_dispatch_current(JSON.stringify(item))) return;
+      const compiled = functions.get(sourceKey(item.script));
+      if (!compiled) throw new Error('A script is missing from the compiled export. Re-export the project.');
+      const scope = item.target_ref ? proxyForRef(item.target_ref) : proxyFor(item.target_path);
+      const event = Object.freeze({
+        type: typeof item.event === 'string' ? item.event : 'frame',
+        target: item.event === 'click' && clickTargetScope ? clickTargetScope : scope,
+        currentTarget: scope,
+      });
+      try {
+        const isAs2 = ['action_script1', 'action_script2', 'ActionScript1', 'ActionScript2'].includes(item.script.language);
+        const scriptRoot = isAs2 ? as2RootFor(scope) : proxyFor([]);
+        const gotoPlay = isAs2 ? as2.method(scope, 'gotoAndPlay') : scope.gotoAndPlay;
+        const gotoStop = isAs2 ? as2.method(scope, 'gotoAndStop') : scope.gotoAndStop;
+        const nextF = isAs2 ? as2.method(scope, 'nextFrame') : scope.nextFrame;
+        const prevF = isAs2 ? as2.method(scope, 'prevFrame') : scope.prevFrame;
+        compiled.fn.call(scope, event, scriptRoot, scope._parent, trace,
+          scope.play, scope.stop, gotoPlay, gotoStop, nextF, prevF, as2.method, as2.value, program, display,
+          legacyGlobals, xmlHost);
+        display?.flushClipLoads?.();
+      } catch (error) {
+        const cause = unwrapScriptThrow(error);
+        throw new Error(`${compiled.location}: ${describeThrown(cause)}`, { cause });
+      }
+    }
+    function driveLifecycle(minDepth = 1, clickTargetScope = null) {
+      if (!hasLifecycleApi) return;
+      const wasInDispatch = inDispatch;
+      const resetCounter = minDepth <= 1 && !wasInDispatch;
+      if (resetCounter) lifecycleStepCount = 0;
+      inDispatch = true;
+      try {
+        for (;;) {
+          const depth = typeof player.lifecycle_depth === 'function' ? player.lifecycle_depth() : 0;
+          if (depth < minDepth) break;
+          if (++lifecycleStepCount > 4096 || player.script_overflowed()) {
+            throw new Error('Script event limit exceeded. Check recursive gotoAndPlay/gotoAndStop calls.');
+          }
+          const step = JSON.parse(player.lifecycle_next_step_json());
+          if (!step) break;
+          syncResetGeneration(step.generation);
+          const scopeKey = `${step.generation}:${step.depth}`;
+          if (step.phase === 'construct') {
+            frameLabelDispatchedScopes.delete(scopeKey);
+            runConstructEvents(step.display_events || [], true);
+          } else if (step.phase === 'frame_constructed') {
+            if (step.display_events?.length) runConstructEvents(step.display_events, true);
+            try {
+              broadcastDisplayPhase(global.NeoFlashEvents?.Event?.FRAME_CONSTRUCTED || 'frameConstructed');
+            } catch (error) {
+              const cause = unwrapScriptThrow(error);
+              throw new Error(`FrameConstructed callback: ${describeThrown(cause)}`, { cause });
+            }
+          } else if (step.phase === 'frame_scripts') {
+            if (step.display_events?.length) runConstructEvents(step.display_events, true);
+            if (!frameLabelDispatchedScopes.has(scopeKey)) {
+              frameLabelDispatchedScopes.add(scopeKey);
+              try {
+                dispatchFrameLabelEvents();
+              } catch (error) {
+                const cause = unwrapScriptThrow(error);
+                throw new Error(`FrameLabel callback: ${describeThrown(cause)}`, { cause });
+              }
+            }
+            for (const item of (step.scripts || [])) {
+              executeDispatchedScript(item, clickTargetScope);
+            }
+          } else if (step.phase === 'exit_frame') {
+            frameLabelDispatchedScopes.delete(scopeKey);
+            if (step.display_events?.length) runConstructEvents(step.display_events, true);
+            try {
+              broadcastDisplayPhase(global.NeoFlashEvents?.Event?.EXIT_FRAME || 'exitFrame');
+            } catch (error) {
+              const cause = unwrapScriptThrow(error);
+              throw new Error(`ExitFrame callback: ${describeThrown(cause)}`, { cause });
+            }
+          } else if (step.phase === 'render') {
+            if (step.display_events?.length) runConstructEvents(step.display_events, true);
+            flushStageRender();
+          }
+        }
+        if (player.script_overflowed()) throw new Error('Script event limit exceeded. Check recursive timeline controls.');
+      } finally {
+        inDispatch = wasInDispatch;
+      }
+    }
     function dispatchScripts(clickTarget = null) {
       const wasInDispatch = inDispatch;
       inDispatch = true;
       try {
+      syncResetGeneration();
       program?.runInitClips?.(proxyFor([]));
-      attachNewInstances();
       const clickTargetScope = clickTarget ? references.has(clickTarget)?clickTarget:proxyFor(clickTarget) : null;
+      if (hasLifecycleApi) {
+        enableLifecycleIfReady();
+        driveLifecycle(1, clickTargetScope);
+      } else {
+        attachNewInstances();
+      }
       let count = 0;
       for (;;) {
         const events = JSON.parse(player.scripts_json());
         if (!events.length) break;
         for (const item of events) {
           if (++count > 4096 || player.script_overflowed()) throw new Error('Script event limit exceeded. Check recursive gotoAndPlay/gotoAndStop calls.');
-          if (!item.script.source.trim() || !player.is_dispatch_current(JSON.stringify(item))) continue;
-          const compiled = functions.get(sourceKey(item.script));
-          if (!compiled) throw new Error('A script is missing from the compiled export. Re-export the project.');
-          const scope = item.target_ref?proxyForRef(item.target_ref):proxyFor(item.target_path);
-          const event = Object.freeze({
-            type: typeof item.event === 'string' ? item.event : 'frame',
-            target: item.event === 'click' && clickTargetScope ? clickTargetScope : scope,
-            currentTarget: scope,
-          });
-          try {
-            const scriptRoot = ['action_script1', 'action_script2', 'ActionScript1', 'ActionScript2'].includes(item.script.language) ? as2RootFor(scope) : proxyFor([]);
-            compiled.fn.call(scope, event, scriptRoot, scope._parent, trace,
-              scope.play, scope.stop, scope.gotoAndPlay, scope.gotoAndStop, scope.nextFrame, scope.prevFrame, as2.method, as2.value, program, display,
-              legacyGlobals,xmlHost);
-            display?.flushClipLoads?.();
-          } catch (error) {
-            const cause = unwrapScriptThrow(error);
-            throw new Error(`${compiled.location}: ${describeThrown(cause)}`, { cause });
-          }
+          executeDispatchedScript(item, clickTargetScope);
         }
-        attachNewInstances();
+        if (hasLifecycleApi && graphMode && typeof player.display_events_json === 'function') {
+          const extra = JSON.parse(player.display_events_json()).events;
+          if (extra?.length) runConstructEvents(extra, true);
+          else attachNewInstances();
+        } else {
+          attachNewInstances();
+        }
       }
       if (player.script_overflowed()) throw new Error('Script event limit exceeded. Check recursive timeline controls.');
       as2ObjectHost?.syncTextVariables();

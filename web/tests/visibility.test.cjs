@@ -136,9 +136,10 @@ test('published AS2/AS3 fixture filters drawing, click targets and semantics whi
     assert.equal(player.clip_frame('["modern"]'), 11);
     activate('create-children');
     assert.equal(legacy.loads, 1); assert.equal(modern.loads, 1);
-    assert.deepEqual(traceCalls.slice(-2), [
+    assert.deepEqual(traceCalls.slice(-3), [
       ['child Load', false, 'loads', 1, 'ticks', 11],
       ['child Load', false, 'loads', 1, 'ticks', 11],
+      ['children requested'],
     ]);
     activate('show-as2'); activate('show-as3');
     for (const old of targets) {

@@ -153,17 +153,17 @@ test('scenes play as one main timeline with scene-aware goto in AS3 and AS2', as
   ];
   const key = (frame, label = '') => ({ frame, elements: [], label, tween: null });
   const layer = (id, keys) => ({ id, name: id, visible: true, locked: false, keyframes: keys });
-  const scene = (id, name, layers, scripts) => ({ id, name, kind: 'movie_clip', timeline: { frame_count: 3, layers, scripts } });
+  const scene = (id, name, layers, scripts, frame_count = 3) => ({ id, name, kind: 'movie_clip', timeline: { frame_count, layers, scripts } });
   const project = { format_version: 6, name: 'Scenes', width: 100, height: 100, fps: 24, background: [255, 255, 255, 255], root: 'scene-1', scenes: ['scene-1', 'scene-2'], symbols: [
-    scene('scene-1', 'Scene 1', [layer('intro', [key(0, 'begin')])], [{ frame: 0, script: sceneScripts[0] }]),
-    scene('scene-2', 'Scene 2', [layer('main', [key(0), key(1, 'middle')])], [{ frame: 0, script: sceneScripts[3] }, { frame: 1, script: sceneScripts[1] }, { frame: 2, script: sceneScripts[2] }]),
+    scene('scene-1', 'Scene 1', [layer('intro', [key(0, 'begin')])], [{ frame: 0, script: sceneScripts[0] }], 3),
+    scene('scene-2', 'Scene 2', [layer('main', [key(0), key(1, 'middle')])], [{ frame: 0, script: sceneScripts[3] }, { frame: 1, script: sceneScripts[1] }, { frame: 2, script: sceneScripts[2] }], 4),
   ] };
   const player = new runtimeWasm.WebPlayer(JSON.stringify(project));
   try {
-    assert.equal(player.total_frames(), 6, 'the published main timeline concatenates both scenes');
+    assert.equal(player.total_frames(), 7, 'the published main timeline concatenates both scenes');
     const { host, traceCalls } = createRuntimeHost(root, player, compileBatch(sceneScripts, 'scene fixture'));
     host.dispatchScripts();
-    assert.deepEqual(traceCalls, [['Scene 1', 1, 2, 3], ['Scene 2', 2, 'middle', 6, 1]]);
+    assert.deepEqual(traceCalls, [['Scene 1', 1, 2, 3], ['Scene 2', 2, 'middle', 7, 1]]);
     assert.equal(player.current_frame(), 4);
     const rootClip = host.proxyFor([]);
     assert.throws(() => rootClip.gotoAndStop(1, 'Missing'), /Scene 'Missing' was not found\. Available scenes: 'Scene 1', 'Scene 2'/);
@@ -174,10 +174,10 @@ test('scenes play as one main timeline with scene-aware goto in AS3 and AS2', as
     assert.deepEqual(traceCalls.at(-1), [3], 'AS2 gotoAndStop(scene, frame) lands in scene 1');
     assert.equal(player.current_frame(), 2);
     rootClip.nextScene(); host.dispatchScripts();
-    assert.deepEqual(traceCalls.slice(-3), [[1], ['Scene 1', 1, 2, 3], ['Scene 2', 2, 'middle', 6, 1]], 'AS2 prevScene returns to scene 1 frame 1');
-    rootClip.gotoAndStop(3);
-    assert.equal(player.current_frame(), 5, 'AS3 numeric frames are relative to the current scene');
+    assert.deepEqual(traceCalls.slice(-3), [[1], ['Scene 1', 1, 2, 3], ['Scene 2', 2, 'middle', 7, 1]], 'AS2 prevScene returns to scene 1 frame 1');
+    rootClip.gotoAndStop(4);
+    assert.equal(player.current_frame(), 6, 'AS3 numeric frames are relative to the current scene');
     assert.deepEqual([rootClip.currentScene.name, rootClip.currentFrame, rootClip.scenes.map(item => [item.name, item.numFrames, item.labels.map(label => [label.name, label.frame])])],
-      ['Scene 2', 3, [['Scene 1', 3, [['begin', 1]]], ['Scene 2', 3, [['middle', 2]]]]]);
+      ['Scene 2', 4, [['Scene 1', 3, [['begin', 1]]], ['Scene 2', 4, [['middle', 2]]]]]);
   } finally { player.free(); }
 });
