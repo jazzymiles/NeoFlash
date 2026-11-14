@@ -1415,3 +1415,57 @@ fn import_and_export_targets_roundtrip() {
         );
     }
 }
+
+#[test]
+fn t315_headless_new_and_inspect_support_project_script_language() {
+    let tmp = TempDirGuard::new("t315-script");
+    let default_proj = tmp.path.join("default.nflash");
+    let (code, stdout, stderr) = run_args(
+        &["--headless", "new", "--out", default_proj.to_str().unwrap()],
+        "",
+    );
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let created_default: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(created_default["script_language"], "as3");
+    assert_eq!(created_default["also_compile_compatible_scripts"], true);
+
+    let ts_proj = tmp.path.join("ts_app.nflash");
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "new",
+            "--script",
+            "ts",
+            "--out",
+            ts_proj.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let created_ts: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(created_ts["script_language"], "ts");
+    assert_eq!(created_ts["also_compile_compatible_scripts"], true);
+
+    let loaded = Project::from_json(&fs::read_to_string(&ts_proj).unwrap()).unwrap();
+    assert_eq!(loaded.script_language, Some(ScriptLanguage::TypeScript));
+    assert!(loaded.also_compile_compatible_scripts);
+    loaded.validate().unwrap();
+
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "inspect",
+            "--project",
+            ts_proj.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let inspected: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(inspected["metadata"]["script_language"], "ts");
+    assert_eq!(inspected["metadata"]["effective_script_language"], "ts");
+    assert_eq!(
+        inspected["metadata"]["also_compile_compatible_scripts"],
+        true
+    );
+}

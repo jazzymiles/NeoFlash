@@ -730,6 +730,8 @@ fn budget_helpers_shed_bitmaps_compact_provenance_and_degrade_later_vector_shape
         resources: vec![bmp1, bmp2],
         document_class: None,
         scenes: vec![],
+        script_language: None,
+        also_compile_compatible_scripts: true,
     };
     let mut rep = report();
 

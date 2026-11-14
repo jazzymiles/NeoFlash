@@ -209,6 +209,8 @@ fn project_from_root(name: &str, root: Symbol, extra_symbols: Vec<Symbol>) -> Pr
         resources: Vec::new(),
         document_class: None,
         scenes: Vec::new(),
+        script_language: None,
+        also_compile_compatible_scripts: true,
     };
     project.upgrade_format_for_features();
     project

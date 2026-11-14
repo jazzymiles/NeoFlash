@@ -10,6 +10,8 @@ impl Project {
             resources: vec![],
             document_class: None,
             scenes: vec![],
+            script_language: None,
+            also_compile_compatible_scripts: true,
             name: "Untitled".into(),
             width: 960,
             height: 600,

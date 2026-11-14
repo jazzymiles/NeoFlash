@@ -153,6 +153,8 @@ pub fn build_as3_00_child_module() -> Project {
         resources: Vec::new(),
         document_class: None,
         scenes: Vec::new(),
+        script_language: None,
+        also_compile_compatible_scripts: true,
     };
     project.upgrade_format_for_features();
     project

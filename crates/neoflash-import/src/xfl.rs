@@ -669,6 +669,8 @@ pub(crate) fn convert(
     }) {
         p.format_version = p.format_version.max(5);
     }
+    p.script_language = Some(parser.language.unwrap_or_else(|| p.infer_script_language()));
+    p.also_compile_compatible_scripts = true;
     p.upgrade_format_for_features();
     for issue in validate(&p) {
         parser

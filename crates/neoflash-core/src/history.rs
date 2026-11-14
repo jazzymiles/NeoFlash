@@ -437,6 +437,8 @@ struct ProjectHeader {
     sources: Vec<crate::SourceUnit>,
     document_class: Option<String>,
     scenes: Vec<Id>,
+    script_language: Option<crate::ScriptLanguage>,
+    also_compile_compatible_scripts: bool,
 }
 
 impl ProjectHeader {
@@ -453,6 +455,8 @@ impl ProjectHeader {
             sources: p.sources.clone(),
             document_class: p.document_class.clone(),
             scenes: p.scenes.clone(),
+            script_language: p.script_language,
+            also_compile_compatible_scripts: p.also_compile_compatible_scripts,
         }
     }
 
@@ -468,6 +472,8 @@ impl ProjectHeader {
             && self.sources == p.sources
             && self.document_class == p.document_class
             && self.scenes == p.scenes
+            && self.script_language == p.script_language
+            && self.also_compile_compatible_scripts == p.also_compile_compatible_scripts
     }
 
     fn apply_to_project(&self, p: &mut Project) -> Self {
@@ -483,6 +489,8 @@ impl ProjectHeader {
         p.sources.clone_from(&self.sources);
         p.document_class.clone_from(&self.document_class);
         p.scenes.clone_from(&self.scenes);
+        p.script_language = self.script_language;
+        p.also_compile_compatible_scripts = self.also_compile_compatible_scripts;
         prev
     }
 }
@@ -702,6 +710,8 @@ impl CachedProjectBaseline {
             resources: self.resources.clone(),
             document_class: self.header.document_class.clone(),
             scenes: self.header.scenes.clone(),
+            script_language: self.header.script_language,
+            also_compile_compatible_scripts: self.header.also_compile_compatible_scripts,
         }
     }
 
@@ -731,6 +741,8 @@ impl CachedProjectBaseline {
             resources: self.resources.clone(),
             document_class: self.header.document_class.clone(),
             scenes: self.header.scenes.clone(),
+            script_language: self.header.script_language,
+            also_compile_compatible_scripts: self.header.also_compile_compatible_scripts,
         }
     }
 }

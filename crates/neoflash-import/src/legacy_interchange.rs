@@ -436,6 +436,8 @@ pub fn import_fxg_str(
         resources: Vec::new(),
         document_class: None,
         scenes: Vec::new(),
+        script_language: None,
+        also_compile_compatible_scripts: true,
     };
     if project.name.is_empty() {
         project.name = "FXG Document".into();

@@ -817,6 +817,8 @@ mod tests {
             resources: Vec::new(),
             document_class: None,
             scenes: Vec::new(),
+            script_language: None,
+            also_compile_compatible_scripts: true,
         };
 
         let tree = resolve_frame_accessibility_tree(&project, &project.symbols[0].timeline, 0);
@@ -941,6 +943,8 @@ mod tests {
             resources: Vec::new(),
             document_class: None,
             scenes: Vec::new(),
+            script_language: None,
+            also_compile_compatible_scripts: true,
         };
 
         let tree = resolve_frame_accessibility_tree(&project, &project.symbols[0].timeline, 0);

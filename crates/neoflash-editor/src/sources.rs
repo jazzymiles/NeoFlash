@@ -33,28 +33,13 @@ fn diagnostic_severity(severity: DiagnosticSeverity) -> Severity {
     }
 }
 
-/// Languages offered for frame and object actions (Actions toolbar).
-pub(crate) const ACTION_LANGUAGES: [ScriptLanguage; 5] = [
-    ScriptLanguage::ActionScript3,
-    ScriptLanguage::ActionScript2,
-    ScriptLanguage::ActionScript1,
-    ScriptLanguage::JavaScript,
-    ScriptLanguage::TypeScript,
-];
-
-/// Languages offered for project source files.
-const SOURCE_LANGUAGES: [ScriptLanguage; 4] = [
-    ScriptLanguage::ActionScript3,
-    ScriptLanguage::ActionScript2,
-    ScriptLanguage::TypeScript,
-    ScriptLanguage::JavaScript,
-];
-
 impl Editor {
     fn code_fingerprint(&self, script: &Script) -> u64 {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         script.source.hash(&mut hash);
         std::mem::discriminant(&script.language).hash(&mut hash);
+        self.project.script_language.hash(&mut hash);
+        self.project.also_compile_compatible_scripts.hash(&mut hash);
         self.project.root.hash(&mut hash);
         self.project.document_class.hash(&mut hash);
         for unit in &self.project.sources {
@@ -162,10 +147,18 @@ impl Editor {
     }
 
     pub(crate) fn check_action_source(&mut self, script: &Script, announce: bool) {
-        let mut diagnostics = neoflash_script::compile_project(&self.project)
-            .and_then(|program| neoflash_script::compile_with_program(script, &program))
-            .err()
-            .unwrap_or_default();
+        // R-102 item 7: `Check script` checks the open script in its own language (`script.language`).
+        let mut lang_project = self.project.clone();
+        lang_project.script_language = Some(script.language);
+        let mut diagnostics = match neoflash_script::compile_project(&lang_project) {
+            Ok(program) => neoflash_script::compile_with_program(script, &program)
+                .err()
+                .unwrap_or_default(),
+            Err(mut proj_errs) => {
+                proj_errs.extend(neoflash_script::compile(script).err().unwrap_or_default());
+                proj_errs
+            }
+        };
         diagnostics.extend(
             neoflash_script::check_warnings(script)
                 .iter()
@@ -183,12 +176,35 @@ impl Editor {
         self.record_code_check(script, diagnostics, announce);
     }
 
-    /// "Check project": compile every project source; feedback attaches to the selected file.
+    /// "Check project": compile project sources; when the selected file is in a foreign language,
+    /// check it under its own language so editing feedback in Actions follows the file's language.
     pub(crate) fn check_project_sources(&mut self, announce: bool) {
-        let mut diagnostics = neoflash_script::compile_project(&self.project)
+        let selected_unit = self
+            .project
+            .sources
+            .iter()
+            .find(|unit| Some(&unit.id) == self.selected_source.as_ref())
+            .cloned();
+        let check_lang = selected_unit
+            .as_ref()
+            .map(|u| u.language)
+            .unwrap_or_else(|| self.project.effective_script_language());
+        let mut check_proj = self.project.clone();
+        check_proj.script_language = Some(check_lang);
+        let mut diagnostics = neoflash_script::compile_project(&check_proj)
             .err()
             .unwrap_or_default();
         for unit in &self.project.sources {
+            if !check_proj
+                .script_disposition_for(
+                    check_lang,
+                    check_proj.also_compile_compatible_scripts,
+                    unit.language,
+                )
+                .is_compiled()
+            {
+                continue;
+            }
             let script = Script {
                 language: unit.language,
                 source: unit.source.clone(),
@@ -212,13 +228,7 @@ impl Editor {
                 );
             }
         }
-        if let Some(unit) = self
-            .project
-            .sources
-            .iter()
-            .find(|unit| Some(&unit.id) == self.selected_source.as_ref())
-            .cloned()
-        {
+        if let Some(unit) = selected_unit {
             self.record_code_check(
                 &Script {
                     language: unit.language,
@@ -721,7 +731,7 @@ impl Editor {
             .iter()
             .position(|s| Some(&s.id) == self.selected_source.as_ref());
         let original = index.map(|index| self.project.sources[index].clone());
-        let mut unit = original.clone();
+        let unit = original.clone();
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.;
             let file_label = unit
@@ -745,31 +755,45 @@ impl Editor {
                         }
                     }
                 });
-            if let Some(unit) = &mut unit {
-                language_select(
-                    ui,
-                    "source_language",
-                    &mut unit.language,
-                    &SOURCE_LANGUAGES,
-                    160.,
-                );
+            let proj_lang = self.project.effective_script_language();
+            if let Some(unit) = &unit {
+                let skipped = self.project.script_disposition_for(
+                    proj_lang,
+                    self.project.also_compile_compatible_scripts,
+                    unit.language,
+                ) == neoflash_core::ScriptDisposition::SkippedForeign;
+                ui.add_space(space::S1);
+                Self::script_language_badge(ui, unit.language, skipped);
             }
             ui.add_space(space::S1);
             nf::divider(ui, true);
-            let new = ui.add(nf::IconButton::new(
-                neoflash_ui::icons::i16::NEW_FILE,
-                "New class",
-            ));
-            nf::popup_below(&new, 200., |ui| {
-                for (label, language) in [
-                    ("New AS3 class", ScriptLanguage::ActionScript3),
-                    ("New AS2 class", ScriptLanguage::ActionScript2),
-                ] {
+            let new_enabled = matches!(
+                proj_lang,
+                ScriptLanguage::ActionScript3 | ScriptLanguage::ActionScript2
+            );
+            let new_disabled_reason = (!new_enabled).then(|| {
+                format!(
+                    "The project script language is {}",
+                    proj_lang.display_label()
+                )
+            });
+            let new = ui.add_enabled_semantic(
+                new_enabled,
+                nf::IconButton::new(neoflash_ui::icons::i16::NEW_FILE, "New class"),
+            );
+            crate::ui_icons::hover_tooltip(new.clone(), "", None, new_disabled_reason.as_deref());
+            if new_enabled {
+                nf::popup_below(&new, 200., |ui| {
+                    let (label, language) = if proj_lang == ScriptLanguage::ActionScript2 {
+                        ("New AS2 class", ScriptLanguage::ActionScript2)
+                    } else {
+                        ("New AS3 class", ScriptLanguage::ActionScript3)
+                    };
                     if ui.add(nf::MenuItem::new(label)).clicked() {
                         self.new_source_class(language);
                     }
-                }
-            });
+                });
+            }
             if ui
                 .add(nf::IconButton::new(
                     neoflash_ui::icons::i16::OPEN,
@@ -844,15 +868,27 @@ impl Editor {
             });
         }
         let (Some(index), Some(original), Some(mut unit)) = (index, original, unit) else {
+            let proj_lang = self.project.effective_script_language();
+            let empty_action = match proj_lang {
+                ScriptLanguage::ActionScript3 => {
+                    Some(("New AS3 class", ScriptLanguage::ActionScript3))
+                }
+                ScriptLanguage::ActionScript2 => {
+                    Some(("New AS2 class", ScriptLanguage::ActionScript2))
+                }
+                ScriptLanguage::ActionScript1
+                | ScriptLanguage::TypeScript
+                | ScriptLanguage::JavaScript => None,
+            };
             let new = nf::EmptyState {
                 icon: neoflash_ui::icons::i16::FILE_CODE,
                 title: "No project classes",
                 body: "Add a project class to reuse code across frames and symbol instances. Files are stored inside the project.",
-                action: Some("New AS3 class"),
+                action: empty_action.map(|(label, _)| label),
             }
             .show(ui);
-            if new {
-                self.new_source_class(ScriptLanguage::ActionScript3);
+            if new && let Some((_, language)) = empty_action {
+                self.new_source_class(language);
             }
             return;
         };
@@ -934,9 +970,30 @@ impl Editor {
                     );
                 } else {
                     let language = match path.extension().and_then(|s| s.to_str()) {
-                        Some("js") => ScriptLanguage::JavaScript,
-                        Some("ts") => ScriptLanguage::TypeScript,
-                        _ => ScriptLanguage::ActionScript3,
+                        Some(ext)
+                            if ext.eq_ignore_ascii_case("js")
+                                || ext.eq_ignore_ascii_case("mjs")
+                                || ext.eq_ignore_ascii_case("cjs")
+                                || ext.eq_ignore_ascii_case("jsx") =>
+                        {
+                            ScriptLanguage::JavaScript
+                        }
+                        Some(ext)
+                            if ext.eq_ignore_ascii_case("ts")
+                                || ext.eq_ignore_ascii_case("mts")
+                                || ext.eq_ignore_ascii_case("cts")
+                                || ext.eq_ignore_ascii_case("tsx") =>
+                        {
+                            ScriptLanguage::TypeScript
+                        }
+                        _ => {
+                            let proj = self.project.effective_script_language();
+                            if proj.is_actionscript() {
+                                proj
+                            } else {
+                                ScriptLanguage::ActionScript3
+                            }
+                        }
                     };
                     let unit = SourceUnit {
                         id: new_id("source"),
@@ -955,40 +1012,195 @@ impl Editor {
             Err(error) => self.message(format!("Could not read source: {error}")),
         }
     }
-}
 
-pub(crate) fn source_language_name(language: ScriptLanguage) -> &'static str {
-    match language {
-        ScriptLanguage::ActionScript1 => "ActionScript 1.0",
-        ScriptLanguage::ActionScript2 => "ActionScript 2.0",
-        ScriptLanguage::ActionScript3 => "ActionScript 3.0",
-        ScriptLanguage::JavaScript => "JavaScript",
-        ScriptLanguage::TypeScript => "TypeScript",
-    }
-}
-
-/// `NF2/Select` of script languages. Returns `true` when the language changed.
-pub(crate) fn language_select(
-    ui: &mut egui::Ui,
-    id: &str,
-    language: &mut ScriptLanguage,
-    options: &[ScriptLanguage],
-    width: f32,
-) -> bool {
-    let mut changed = false;
-    nf::Select::new(id, source_language_name(*language))
-        .width(width)
-        .show(ui, |ui| {
-            for option in options {
-                let item =
-                    nf::MenuItem::new(source_language_name(*option)).checked(option == language);
-                if ui.add(item).clicked() && option != language {
-                    *language = *option;
-                    changed = true;
-                }
-            }
+    /// Commit a new project-level script language (`R-102`) in a single `"Script language"` Undo step.
+    pub fn set_project_script_language(&mut self, language: ScriptLanguage) {
+        if self.project.script_language == Some(language) {
+            return;
+        }
+        self.transact_named("Script language", |editor| {
+            editor.project.script_language = Some(language);
+            editor.project.upgrade_format_for_features();
         });
-    changed
+    }
+
+    /// Commit the compatible-script compilation toggle (`R-102`) in a single `"Compatible script policy"` Undo step.
+    pub fn set_also_compile_compatible_scripts(&mut self, enabled: bool) {
+        if self.project.also_compile_compatible_scripts == enabled {
+            return;
+        }
+        self.transact_named("Compatible script policy", |editor| {
+            editor.project.also_compile_compatible_scripts = enabled;
+            editor.project.upgrade_format_for_features();
+        });
+    }
+
+    /// Whether a `SourceUnit` at `path` can be retagged to `target_lang` via `Mark as <language>`.
+    /// Files whose language is fixed by extension (`.js`/`.ts`, or `.as` outside ActionScript)
+    /// omit the button (`R-102` item 7).
+    pub(crate) fn can_retag_source_unit_to(path: &str, target_lang: ScriptLanguage) -> bool {
+        let Some(ext) = std::path::Path::new(path)
+            .extension()
+            .and_then(|s| s.to_str())
+        else {
+            return true;
+        };
+        if ext.eq_ignore_ascii_case("js")
+            || ext.eq_ignore_ascii_case("mjs")
+            || ext.eq_ignore_ascii_case("cjs")
+            || ext.eq_ignore_ascii_case("jsx")
+            || ext.eq_ignore_ascii_case("ts")
+            || ext.eq_ignore_ascii_case("mts")
+            || ext.eq_ignore_ascii_case("cts")
+            || ext.eq_ignore_ascii_case("tsx")
+        {
+            return false;
+        }
+        if ext.eq_ignore_ascii_case("as") {
+            return target_lang.is_actionscript();
+        }
+        true
+    }
+
+    /// Retag the open script (`Frame`, `Object`, or eligible `SourceUnit`) to the project's
+    /// script language in one Undo step without modifying its source text (`R-102` item 7).
+    pub fn mark_current_script_as_project_language(&mut self) -> bool {
+        let proj_lang = self.project.effective_script_language();
+        match self.script_target {
+            ScriptTarget::Source => {
+                let selected_id = self
+                    .selected_source
+                    .clone()
+                    .or_else(|| self.project.sources.first().map(|s| s.id.clone()));
+                let Some(selected_id) = selected_id else {
+                    return false;
+                };
+                let Some(unit) = self.project.sources.iter().find(|s| s.id == selected_id) else {
+                    return false;
+                };
+                if unit.language == proj_lang
+                    || !Self::can_retag_source_unit_to(&unit.path, proj_lang)
+                {
+                    return false;
+                }
+                self.selected_source = Some(selected_id.clone());
+                self.finish_edits();
+                self.transact_named("Mark script language", |editor| {
+                    editor.project.script_language.get_or_insert(proj_lang);
+                    if let Some(u) = editor
+                        .project
+                        .sources
+                        .iter_mut()
+                        .find(|s| s.id == selected_id)
+                    {
+                        u.language = proj_lang;
+                    }
+                    editor.project.upgrade_format_for_features();
+                });
+                self.code_feedback = None;
+                self.check_project_sources(false);
+                true
+            }
+            ScriptTarget::Frame => {
+                let frame = self.frame;
+                let Some(existing) = self
+                    .symbol()
+                    .timeline
+                    .scripts
+                    .iter()
+                    .find(|fs| fs.frame == frame && !fs.script.source.is_empty())
+                    .map(|fs| fs.script.clone())
+                else {
+                    return false;
+                };
+                if existing.language == proj_lang {
+                    return false;
+                }
+                self.finish_edits();
+                self.transact_named("Mark script language", |editor| {
+                    editor.project.script_language.get_or_insert(proj_lang);
+                    if let Some(fs) = editor
+                        .symbol_mut()
+                        .timeline
+                        .scripts
+                        .iter_mut()
+                        .find(|fs| fs.frame == frame)
+                    {
+                        fs.script.language = proj_lang;
+                    }
+                    editor.project.upgrade_format_for_features();
+                });
+                self.code_feedback = None;
+                let updated = Script {
+                    language: proj_lang,
+                    source: existing.source,
+                };
+                self.check_action_source(&updated, false);
+                true
+            }
+            ScriptTarget::Object => {
+                if !self.selected_editable() {
+                    return false;
+                }
+                let event = self.script_event;
+                let Some(object_id) = self.selected_element().map(|e| e.id.clone()) else {
+                    return false;
+                };
+                let Some(existing) = self
+                    .selected_element()
+                    .and_then(|e| {
+                        e.scripts
+                            .iter()
+                            .find(|os| os.event == event && !os.script.source.is_empty())
+                    })
+                    .map(|os| os.script.clone())
+                else {
+                    return false;
+                };
+                if existing.language == proj_lang {
+                    return false;
+                }
+                self.finish_edits();
+                self.select_single_id(object_id);
+                self.transact_named("Mark script language", |editor| {
+                    editor.project.script_language.get_or_insert(proj_lang);
+                    if let Some(el) = editor.selected_element_mut()
+                        && let Some(os) = el.scripts.iter_mut().find(|os| os.event == event)
+                    {
+                        os.script.language = proj_lang;
+                    }
+                    editor.project.upgrade_format_for_features();
+                });
+                self.code_feedback = None;
+                let updated = Script {
+                    language: proj_lang,
+                    source: existing.source,
+                };
+                self.check_action_source(&updated, false);
+                true
+            }
+        }
+    }
+
+    /// Vertically-centred `NF2/Badge` in the Actions / Project files toolbar (`R-102` item 6).
+    pub(crate) fn script_language_badge(
+        ui: &mut egui::Ui,
+        language: ScriptLanguage,
+        skipped: bool,
+    ) -> egui::Response {
+        let badge_type = if skipped {
+            nf::BadgeType::Warning
+        } else {
+            nf::BadgeType::Neutral
+        };
+        let resp = ui
+            .horizontal(|ui| {
+                ui.set_min_height(neoflash_ui::metrics::control());
+                ui.add(nf::Badge::new(language.display_label(), badge_type))
+            })
+            .inner;
+        crate::ui_icons::hover_tooltip(resp, "Set in Document settings", Some("⌘J"), None)
+    }
 }
 
 const MARKER_GUTTER: f32 = space::S1 + 16.0 + space::S1;
@@ -2382,7 +2594,7 @@ function onEnterFrame() {
         );
         assert!(editor.history.can_undo());
 
-        // Project with AS2 scripts or explicit preference honors that language when inserting new scripts
+        // Project with AS2 scripts or explicit project script_language honors that language when inserting new scripts
         let mut as2_proj = Project::blank();
         as2_proj.symbols[0].timeline.scripts.push(FrameScript {
             frame: 0,
@@ -2396,7 +2608,7 @@ function onEnterFrame() {
             as2_editor.default_script_language_for_project(),
             ScriptLanguage::ActionScript2
         );
-        as2_editor.set_preferred_script_language(Some(ScriptLanguage::ActionScript1));
+        as2_editor.set_project_script_language(ScriptLanguage::ActionScript1);
         assert_eq!(
             as2_editor.default_script_language_for_project(),
             ScriptLanguage::ActionScript1
@@ -2868,7 +3080,6 @@ struct DebuggerAuthoringState {
     debugger_watches: Vec<WatchExpression>,
     paused_scopes: Vec<DebuggerScope>,
     folded_lines_by_tab: std::collections::BTreeMap<String, std::collections::BTreeSet<usize>>,
-    preferred_script_language: Option<ScriptLanguage>,
     actions_debugger_open: bool,
     watch_draft: String,
     var_path_draft: String,
@@ -4281,7 +4492,7 @@ impl Editor {
                     .timeline
                     .scripts
                     .iter()
-                    .find(|s| s.frame == frame)
+                    .find(|s| s.frame == frame && !s.script.source.trim().is_empty())
                     .map_or(default_lang, |s| s.script.language);
                 let snippet = format_script_assist_snippet(&template, language);
                 self.transact_named("Script assist", |editor| {
@@ -4290,6 +4501,7 @@ impl Editor {
                     }
                     let scripts = &mut editor.symbol_mut().timeline.scripts;
                     if let Some(existing) = scripts.iter_mut().find(|s| s.frame == frame) {
+                        existing.script.language = language;
                         append_script_assist_to_source(&mut existing.script.source, &snippet);
                     } else {
                         scripts.push(neoflash_core::FrameScript {
@@ -4311,13 +4523,18 @@ impl Editor {
                 let default_lang = self.default_script_language_for_project();
                 let language = self
                     .selected_element()
-                    .and_then(|e| e.scripts.iter().find(|s| s.event == event))
+                    .and_then(|e| {
+                        e.scripts
+                            .iter()
+                            .find(|s| s.event == event && !s.script.source.trim().is_empty())
+                    })
                     .map_or(default_lang, |s| s.script.language);
                 let snippet = format_script_assist_snippet(&template, language);
                 self.transact_named("Script assist", |editor| {
                     editor.ensure_selected_key();
                     if let Some(el) = editor.selected_element_mut() {
                         if let Some(existing) = el.scripts.iter_mut().find(|s| s.event == event) {
+                            existing.script.language = language;
                             append_script_assist_to_source(&mut existing.script.source, &snippet);
                         } else {
                             el.scripts.push(neoflash_core::ObjectScript {
@@ -4335,115 +4552,8 @@ impl Editor {
         }
     }
 
-    pub fn preferred_script_language(&self) -> Option<ScriptLanguage> {
-        DEBUGGER_AUTHORING_STATES.lock().ok().and_then(|map| {
-            map.get(&self.clipboard.session)
-                .and_then(|st| st.preferred_script_language)
-        })
-    }
-
-    pub fn set_preferred_script_language(&mut self, language: Option<ScriptLanguage>) {
-        if let Ok(mut map) = DEBUGGER_AUTHORING_STATES.lock() {
-            map.entry(self.clipboard.session.clone())
-                .or_default()
-                .preferred_script_language = language;
-        }
-    }
-
-    /// Choose a deliberate script language for new frame or instance scripts in the current project:
-    /// (a) the user's explicitly chosen language in the `Actions` panel if set,
-    /// (b) existing `frame_scripts` / `Instance.script` / symbol scripts in the project,
-    /// (c) `project.sources` extensions/languages (`.as` / `document_class`),
-    /// and otherwise `ScriptLanguage::ActionScript3`.
+    /// Project-level script language (`R-102`) for newly created frame, object, or event scripts.
     pub fn default_script_language_for_project(&self) -> ScriptLanguage {
-        if let Some(preferred) = self.preferred_script_language() {
-            return preferred;
-        }
-        if self.script_target == ScriptTarget::Object
-            && let Some(el) = self.selected_element()
-        {
-            if let Some(os) = el.scripts.iter().find(|s| s.event == self.script_event) {
-                return os.script.language;
-            }
-            if let Some(os) = el.scripts.first() {
-                return os.script.language;
-            }
-        }
-        if let Some(fs) = self
-            .symbol()
-            .timeline
-            .scripts
-            .iter()
-            .find(|s| s.frame == self.frame)
-        {
-            return fs.script.language;
-        }
-        if let Some(fs) = self.symbol().timeline.scripts.first() {
-            return fs.script.language;
-        }
-        for layer in &self.symbol().timeline.layers {
-            for key in &layer.keyframes {
-                for el in &key.elements {
-                    if let Some(os) = el.scripts.first() {
-                        return os.script.language;
-                    }
-                }
-            }
-        }
-        for sym in &self.project.symbols {
-            if let Some(fs) = sym.timeline.scripts.first() {
-                return fs.script.language;
-            }
-            for layer in &sym.timeline.layers {
-                for key in &layer.keyframes {
-                    for el in &key.elements {
-                        if let Some(os) = el.scripts.first() {
-                            return os.script.language;
-                        }
-                    }
-                }
-            }
-        }
-        if let Some(selected_id) = self.selected_source.as_ref()
-            && let Some(unit) = self.project.sources.iter().find(|s| &s.id == selected_id)
-        {
-            return unit.language;
-        }
-        if let Some(unit) = self.project.sources.first() {
-            return unit.language;
-        }
-        if self
-            .project
-            .document_class
-            .as_deref()
-            .is_some_and(|c| !c.trim().is_empty())
-            || self.project.symbols.iter().any(|s| {
-                s.class_name
-                    .as_deref()
-                    .is_some_and(|c| !c.trim().is_empty())
-            })
-        {
-            return ScriptLanguage::ActionScript3;
-        }
-        if self.project.symbols.iter().any(|s| {
-            s.linkage_id
-                .as_deref()
-                .is_some_and(|c| !c.trim().is_empty())
-        }) {
-            return ScriptLanguage::ActionScript2;
-        }
-        for res in &self.project.resources {
-            let lower = res.path.to_ascii_lowercase();
-            if lower.ends_with(".ts") {
-                return ScriptLanguage::TypeScript;
-            }
-            if lower.ends_with(".js") {
-                return ScriptLanguage::JavaScript;
-            }
-            if lower.ends_with(".as") {
-                return ScriptLanguage::ActionScript2;
-            }
-        }
-        ScriptLanguage::ActionScript3
+        self.project.effective_script_language()
     }
 }

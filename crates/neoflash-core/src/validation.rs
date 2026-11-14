@@ -136,7 +136,7 @@ fn validate_with_options(
     if project.uses_format_6() && project.format_version < 6 {
         add(
             "format_version".into(),
-            "scenes, shape/motion tweens, motion guides and frame sounds require document version 6"
+            "scenes, shape/motion tweens, motion guides, frame sounds, and project script language policy require document version 6"
                 .into(),
         );
     }

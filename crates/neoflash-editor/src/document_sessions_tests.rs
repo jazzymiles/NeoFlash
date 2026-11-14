@@ -1599,7 +1599,7 @@ fn t291_document_sessions_isolate_output_actions_test_movie_and_breakpoints() {
     editor.message("doc0 trace output");
     editor.open_test_movie_preview();
     assert!(editor.test_movie_preview_open);
-    let tab0_lang_id = editor.actions_empty_language_id();
+    let tab0_editor_id = editor.actions_editor_id();
     assert!(editor.toggle_breakpoint("Scene 1 / frame 1", 3));
     assert_eq!(editor.debugger.breakpoints.len(), 1);
     assert_eq!(editor.debugger.breakpoints[0].source, "Scene 1 / frame 1");
@@ -1615,7 +1615,7 @@ fn t291_document_sessions_isolate_output_actions_test_movie_and_breakpoints() {
         !editor.test_movie_preview_open,
         "Test Movie preview does not leak to Tab 1"
     );
-    assert_ne!(editor.actions_empty_language_id(), tab0_lang_id);
+    assert_ne!(editor.actions_editor_id(), tab0_editor_id);
     assert!(
         editor.debugger.breakpoints.is_empty(),
         "Tab 0 breakpoints do not leak into Tab 1 runtime state"
@@ -1630,7 +1630,7 @@ fn t291_document_sessions_isolate_output_actions_test_movie_and_breakpoints() {
     assert!(editor.switch_session_tab(&ctx, 0));
     assert_eq!(editor.output, vec!["doc0 trace output".to_owned()]);
     assert!(editor.test_movie_preview_open);
-    assert_eq!(editor.actions_empty_language_id(), tab0_lang_id);
+    assert_eq!(editor.actions_editor_id(), tab0_editor_id);
     assert_eq!(editor.debugger.breakpoints.len(), 1);
     assert_eq!(editor.debugger.breakpoints[0].source, "Scene 1 / frame 1");
     assert_eq!(editor.debugger.breakpoints[0].line, 3);

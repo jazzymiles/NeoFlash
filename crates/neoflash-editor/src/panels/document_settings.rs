@@ -5,7 +5,6 @@
 //! `OK` / `Enter` commits stage size, optional content scaling / anchoring, units, background and
 //! frame rate in a single Undo step (`"Document settings"`). `Make default` persists default stage
 //! settings in `WorkspacePrefs::document_defaults`.
-use super::menu::NOT_AVAILABLE;
 use super::planned::{FooterClick, caption, footer_clicked, form_label};
 use crate::app::Editor;
 use crate::stage_view::RulerUnits;
@@ -29,6 +28,8 @@ pub(crate) struct DocumentSettingsDraft {
     pub(crate) units: RulerUnits,
     pub(crate) background: Color32,
     pub(crate) fps: f64,
+    pub(crate) script_language: ScriptLanguage,
+    pub(crate) also_compile_compatible_scripts: bool,
     /// Translation from `Match contents` so union `min` lands at `(0, 0)` on `OK`.
     pub(crate) match_shift: Option<(f64, f64)>,
 }
@@ -64,29 +65,6 @@ fn units_label(units: RulerUnits) -> &'static str {
     vs::UNITS[idx]
 }
 
-fn primary_script_label(project: &Project) -> &'static str {
-    let lang = project
-        .sources
-        .first()
-        .map(|s| s.language)
-        .or_else(|| {
-            project
-                .symbols
-                .iter()
-                .flat_map(|s| &s.timeline.scripts)
-                .next()
-                .map(|s| s.script.language)
-        })
-        .unwrap_or(ScriptLanguage::ActionScript3);
-    match lang {
-        ScriptLanguage::ActionScript3 => "ActionScript 3.0",
-        ScriptLanguage::ActionScript2 => "ActionScript 2.0",
-        ScriptLanguage::ActionScript1 => "ActionScript 1.0",
-        ScriptLanguage::TypeScript => "TypeScript",
-        ScriptLanguage::JavaScript => "JavaScript",
-    }
-}
-
 impl Editor {
     /// Open the `Document settings` modal dialog (`Document ▸ Document settings…`, `⌘J`).
     pub(crate) fn open_document_settings(&mut self) {
@@ -104,6 +82,8 @@ impl Editor {
             units: self.stage_view.prefs.units,
             background: Color32::from_rgba_unmultiplied(r, g, b, a),
             fps: self.project.fps.clamp(1, 120) as f64,
+            script_language: self.project.effective_script_language(),
+            also_compile_compatible_scripts: self.project.also_compile_compatible_scripts,
             match_shift: None,
         });
     }
@@ -157,9 +137,13 @@ impl Editor {
         let old_w = self.project.width.max(1) as f64;
         let old_h = self.project.height.max(1) as f64;
         let size_changed = new_w != self.project.width || new_h != self.project.height;
+        let script_changed = self.project.script_language != Some(draft.script_language)
+            || self.project.also_compile_compatible_scripts
+                != draft.also_compile_compatible_scripts;
         let doc_changed = size_changed
             || new_fps != self.project.fps
             || new_bg != self.project.background
+            || script_changed
             || draft
                 .match_shift
                 .is_some_and(|(dx, dy)| dx.abs() > 1e-6 || dy.abs() > 1e-6);
@@ -246,6 +230,8 @@ impl Editor {
             s.project.height = new_h;
             s.project.fps = new_fps;
             s.project.background = new_bg;
+            s.project.script_language = Some(draft.script_language);
+            s.project.also_compile_compatible_scripts = draft.also_compile_compatible_scripts;
             s.accumulator = 0.0;
             s.last_tick = std::time::Instant::now();
         });
@@ -257,7 +243,6 @@ impl Editor {
         };
         let p = neoflash_ui::palette(ctx);
         let total_frames = self.total_root_frames();
-        let script_label = primary_script_label(&self.project);
         let mut close_cancel = false;
         let mut close_ok = false;
         let mut match_contents = false;
@@ -413,20 +398,72 @@ impl Editor {
 
                         ui.horizontal(|ui| {
                             form_label(ui, "Script", L);
-                            let script_resp = ui
-                                .add_enabled_ui_semantic(false, |ui| {
-                                    c::Select::new("doc-settings-script", script_label)
-                                        .width(220.0)
-                                        .show(ui, |_| {});
-                                })
-                                .response;
-                            crate::ui_icons::hover_tooltip(
-                                script_resp,
-                                "",
-                                None,
-                                Some(NOT_AVAILABLE),
-                            );
+                            c::Select::new(
+                                "doc-settings-script",
+                                draft.script_language.display_label(),
+                            )
+                            .width(220.0)
+                            .show(ui, |ui| {
+                                for lang in ScriptLanguage::PROJECT_ORDER {
+                                    if ui
+                                        .add(
+                                            c::MenuItem::new(lang.display_label())
+                                                .checked(draft.script_language == lang),
+                                        )
+                                        .clicked()
+                                    {
+                                        draft.script_language = lang;
+                                        ui.close();
+                                    }
+                                }
+                            });
                         });
+
+                        ui.horizontal(|ui| {
+                            form_label(ui, "", L);
+                            if let Some(compat) = draft.script_language.compatible_language() {
+                                let label = format!("Also compile {}", compat.display_label());
+                                ui.add(c::Checkbox::new(
+                                    &mut draft.also_compile_compatible_scripts,
+                                    &label,
+                                ));
+                            } else {
+                                let mut unchecked = false;
+                                let resp = ui.add_enabled_semantic(
+                                    false,
+                                    c::Checkbox::new(
+                                        &mut unchecked,
+                                        "Also compile compatible languages",
+                                    ),
+                                );
+                                crate::ui_icons::hover_tooltip(
+                                    resp,
+                                    "",
+                                    None,
+                                    Some("ActionScript 3.0 has no compatible language"),
+                                );
+                            }
+                        });
+
+                        if let Some((is_warning, msg)) = self
+                            .project
+                            .foreign_script_counts_for(
+                                draft.script_language,
+                                draft.also_compile_compatible_scripts,
+                            )
+                            .count_message()
+                        {
+                            ui.horizontal(|ui| {
+                                form_label(ui, "", L);
+                                let w = ui.available_width();
+                                let im = if is_warning {
+                                    c::InlineMessage::warning(&msg)
+                                } else {
+                                    c::InlineMessage::info(&msg)
+                                };
+                                ui.add(im.width(w));
+                            });
+                        }
 
                         match footer_clicked(
                             ui,
@@ -467,6 +504,8 @@ impl Editor {
                 fps: (draft.fps.round() as u32).clamp(1, 120),
                 background: draft.background.to_srgba_unmultiplied(),
                 units: draft.units,
+                script_language: draft.script_language,
+                also_compile_compatible_scripts: draft.also_compile_compatible_scripts,
             };
             defaults.sanitize();
             self.workspace.document_defaults = Some(defaults);

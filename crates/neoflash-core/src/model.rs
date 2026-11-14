@@ -117,6 +117,14 @@ pub struct Project {
     /// is `root`. Scene symbols are not library items and are never instantiated.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scenes: Vec<Id>,
+    /// Authoritative project script language (`R-102`, document version 6). `None` in
+    /// pre-`R-102` documents, where the editor resolves `infer_script_language()`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script_language: Option<ScriptLanguage>,
+    /// Whether scripts written in `script_language`'s VM-compatible language (`AS1 ↔ AS2`,
+    /// `JS ↔ TS`) are also compiled with a warning instead of skipped (`R-102`, default `true`).
+    #[serde(default = "bool_true", skip_serializing_if = "is_true")]
+    pub also_compile_compatible_scripts: bool,
 }
 
 /// A logical project file. Compilation resolves paths within this snapshot and
@@ -491,9 +499,11 @@ impl Project {
 }
 impl Project {
     /// Document features introduced with format 6 (scenes, tween kinds, motion and ruler guides,
-    /// frame sounds).
+    /// frame sounds, and explicit project script language / foreign-script policy).
     pub fn uses_format_6(&self) -> bool {
         !self.scenes.is_empty()
+            || self.script_language.is_some()
+            || !self.also_compile_compatible_scripts
             || self.symbols.iter().any(|s| !s.timeline.guides.is_empty())
             || self
                 .symbols
@@ -3132,7 +3142,7 @@ pub enum InstancePlayback {
     SingleFrame(u32),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptLanguage {
     JavaScript,
@@ -3140,6 +3150,136 @@ pub enum ScriptLanguage {
     ActionScript1,
     ActionScript2,
     ActionScript3,
+}
+
+impl ScriptLanguage {
+    /// Canonical `R-102` dropdown and tie-break order.
+    pub const PROJECT_ORDER: [Self; 5] = [
+        Self::ActionScript3,
+        Self::ActionScript2,
+        Self::ActionScript1,
+        Self::TypeScript,
+        Self::JavaScript,
+    ];
+
+    /// Plain `R-102` display label without any suffix.
+    pub const fn display_label(self) -> &'static str {
+        match self {
+            Self::ActionScript3 => "ActionScript 3.0",
+            Self::ActionScript2 => "ActionScript 2.0",
+            Self::ActionScript1 => "ActionScript 1.0",
+            Self::TypeScript => "TypeScript",
+            Self::JavaScript => "JavaScript",
+        }
+    }
+
+    /// VM-compatible companion language (`AS2 ↔ AS1`, `TS ↔ JS`, `AS3 -> None`) per `R-102`.
+    pub const fn compatible_language(self) -> Option<Self> {
+        match self {
+            Self::ActionScript2 => Some(Self::ActionScript1),
+            Self::ActionScript1 => Some(Self::ActionScript2),
+            Self::TypeScript => Some(Self::JavaScript),
+            Self::JavaScript => Some(Self::TypeScript),
+            Self::ActionScript3 => None,
+        }
+    }
+
+    pub const fn is_actionscript(self) -> bool {
+        matches!(
+            self,
+            Self::ActionScript1 | Self::ActionScript2 | Self::ActionScript3
+        )
+    }
+
+    pub const fn short_slug(self) -> &'static str {
+        match self {
+            Self::ActionScript3 => "as3",
+            Self::ActionScript2 => "as2",
+            Self::ActionScript1 => "as1",
+            Self::TypeScript => "ts",
+            Self::JavaScript => "js",
+        }
+    }
+}
+
+/// Compile/publish disposition of an individual script under a project's `R-102` policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ScriptDisposition {
+    CompiledPrimary,
+    CompiledCompatibleWithWarning,
+    SkippedForeign,
+}
+
+impl ScriptDisposition {
+    pub const fn is_compiled(self) -> bool {
+        matches!(
+            self,
+            Self::CompiledPrimary | Self::CompiledCompatibleWithWarning
+        )
+    }
+}
+
+/// Aggregate count of scripts in a document whose language differs from the project language.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ForeignScriptCounts {
+    pub compiled_with_warning: usize,
+    pub skipped: usize,
+    pub compatible_language: Option<ScriptLanguage>,
+}
+
+impl ForeignScriptCounts {
+    pub const fn total(&self) -> usize {
+        self.compiled_with_warning + self.skipped
+    }
+
+    /// Exact `R-102` item 3 `InlineMessage` text and whether its severity is `Warning` (`true`)
+    /// rather than `Info` (`false`). Returns `None` when no scripts are in other languages.
+    pub fn count_message(&self) -> Option<(bool, String)> {
+        let c = self.compiled_with_warning;
+        let s = self.skipped;
+        if c == 0 && s == 0 {
+            return None;
+        }
+        if c > 0 && s > 0 {
+            let total = c + s;
+            let head = if total == 1 {
+                "1 script is in another language and stays in the document".to_owned()
+            } else {
+                format!("{total} scripts are in other languages and stay in the document")
+            };
+            let compiled_part = if c == 1 {
+                "1 compiles with a warning".to_owned()
+            } else {
+                format!("{c} compile with a warning")
+            };
+            let skipped_part = if s == 1 {
+                "1 is skipped when publishing".to_owned()
+            } else {
+                format!("{s} are skipped when publishing")
+            };
+            return Some((true, format!("{head}: {compiled_part}, {skipped_part}.")));
+        }
+        if s > 0 {
+            let msg = if s == 1 {
+                "1 script is in another language and stays in the document. It is skipped when publishing."
+                    .to_owned()
+            } else {
+                format!(
+                    "{s} scripts are in other languages and stay in the document. They are skipped when publishing."
+                )
+            };
+            return Some((true, msg));
+        }
+        let compat_name = self
+            .compatible_language
+            .map_or("compatible languages", ScriptLanguage::display_label);
+        let msg = if c == 1 {
+            format!("1 script is in {compat_name} and compiles with a warning.")
+        } else {
+            format!("{c} scripts are in {compat_name} and compile with a warning.")
+        };
+        Some((false, msg))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -3192,6 +3332,181 @@ pub struct SharedLibraryLinkage {
 }
 
 impl Project {
+    /// Deterministic migration rule for pre-`R-102` documents where `script_language` is `None`.
+    pub fn infer_script_language(&self) -> ScriptLanguage {
+        fn count_lang(counts: &mut [usize; 5], lang: ScriptLanguage) {
+            if let Some(idx) = ScriptLanguage::PROJECT_ORDER
+                .iter()
+                .position(|&candidate| candidate == lang)
+            {
+                counts[idx] += 1;
+            }
+        }
+        let mut counts = [0usize; 5];
+        for unit in &self.sources {
+            if !unit.source.trim().is_empty() {
+                count_lang(&mut counts, unit.language);
+            }
+        }
+        for symbol in &self.symbols {
+            for fs in &symbol.timeline.scripts {
+                if !fs.script.source.trim().is_empty() {
+                    count_lang(&mut counts, fs.script.language);
+                }
+            }
+            for layer in &symbol.timeline.layers {
+                for key in &layer.keyframes {
+                    for el in &key.elements {
+                        for os in &el.scripts {
+                            if !os.script.source.trim().is_empty() {
+                                count_lang(&mut counts, os.script.language);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let max_count = counts.iter().copied().max().unwrap_or(0);
+        if max_count > 0
+            && let Some(idx) = counts.iter().position(|&count| count == max_count)
+        {
+            return ScriptLanguage::PROJECT_ORDER[idx];
+        }
+        if self
+            .document_class
+            .as_deref()
+            .is_some_and(|s| !s.trim().is_empty())
+            || self.symbols.iter().any(|sym| {
+                sym.class_name
+                    .as_deref()
+                    .is_some_and(|s| !s.trim().is_empty())
+            })
+        {
+            return ScriptLanguage::ActionScript3;
+        }
+        if self.symbols.iter().any(|sym| {
+            sym.linkage_id
+                .as_deref()
+                .is_some_and(|s| !s.trim().is_empty())
+        }) {
+            return ScriptLanguage::ActionScript2;
+        }
+        if !self.sources.is_empty() {
+            for unit in &self.sources {
+                count_lang(&mut counts, unit.language);
+            }
+            let max_empty = counts.iter().copied().max().unwrap_or(0);
+            if max_empty > 0
+                && let Some(idx) = counts.iter().position(|&count| count == max_empty)
+            {
+                return ScriptLanguage::PROJECT_ORDER[idx];
+            }
+        }
+        for res in &self.resources {
+            if let Some((_, ext)) = res.path.rsplit_once('.') {
+                if ext.eq_ignore_ascii_case("ts")
+                    || ext.eq_ignore_ascii_case("mts")
+                    || ext.eq_ignore_ascii_case("cts")
+                    || ext.eq_ignore_ascii_case("tsx")
+                {
+                    return ScriptLanguage::TypeScript;
+                }
+                if ext.eq_ignore_ascii_case("js")
+                    || ext.eq_ignore_ascii_case("mjs")
+                    || ext.eq_ignore_ascii_case("cjs")
+                    || ext.eq_ignore_ascii_case("jsx")
+                {
+                    return ScriptLanguage::JavaScript;
+                }
+                if ext.eq_ignore_ascii_case("as") {
+                    return ScriptLanguage::ActionScript2;
+                }
+            }
+        }
+        ScriptLanguage::ActionScript3
+    }
+
+    /// Effective project script language (`script_language` when set, else `infer_script_language()`).
+    pub fn effective_script_language(&self) -> ScriptLanguage {
+        self.script_language
+            .unwrap_or_else(|| self.infer_script_language())
+    }
+
+    /// Compile/publish disposition of `script_lang` under `proj_lang` and `also_compile_compat`.
+    pub fn script_disposition_for(
+        &self,
+        proj_lang: ScriptLanguage,
+        also_compile_compat: bool,
+        script_lang: ScriptLanguage,
+    ) -> ScriptDisposition {
+        if script_lang == proj_lang {
+            ScriptDisposition::CompiledPrimary
+        } else if also_compile_compat && proj_lang.compatible_language() == Some(script_lang) {
+            ScriptDisposition::CompiledCompatibleWithWarning
+        } else {
+            ScriptDisposition::SkippedForeign
+        }
+    }
+
+    /// Count every `SourceUnit` and every non-empty `FrameScript` / `ObjectScript` whose language
+    /// differs from `proj_lang`, partitioned by `also_compile_compat`.
+    pub fn foreign_script_counts_for(
+        &self,
+        proj_lang: ScriptLanguage,
+        also_compile_compat: bool,
+    ) -> ForeignScriptCounts {
+        let mut compiled_with_warning = 0usize;
+        let mut skipped = 0usize;
+        let mut record = |lang: ScriptLanguage| match self.script_disposition_for(
+            proj_lang,
+            also_compile_compat,
+            lang,
+        ) {
+            ScriptDisposition::CompiledPrimary => {}
+            ScriptDisposition::CompiledCompatibleWithWarning => compiled_with_warning += 1,
+            ScriptDisposition::SkippedForeign => skipped += 1,
+        };
+        for unit in &self.sources {
+            record(unit.language);
+        }
+        for symbol in &self.symbols {
+            for fs in &symbol.timeline.scripts {
+                if !fs.script.source.trim().is_empty() {
+                    record(fs.script.language);
+                }
+            }
+            for layer in &symbol.timeline.layers {
+                for key in &layer.keyframes {
+                    for el in &key.elements {
+                        for os in &el.scripts {
+                            if !os.script.source.trim().is_empty() {
+                                record(os.script.language);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ForeignScriptCounts {
+            compiled_with_warning,
+            skipped,
+            compatible_language: proj_lang.compatible_language(),
+        }
+    }
+
+    /// Borrow `self` when `script_language` is already set, or materialize a copy with
+    /// `script_language = Some(self.infer_script_language())` and `format_version >= 6`.
+    pub fn with_resolved_script_language(&self) -> std::borrow::Cow<'_, Self> {
+        if self.script_language.is_some() {
+            std::borrow::Cow::Borrowed(self)
+        } else {
+            let mut resolved = self.clone();
+            resolved.script_language = Some(self.infer_script_language());
+            resolved.upgrade_format_for_features();
+            std::borrow::Cow::Owned(resolved)
+        }
+    }
+
     pub fn has_program(&self) -> bool {
         !self.sources.is_empty()
             || self.document_class.is_some()

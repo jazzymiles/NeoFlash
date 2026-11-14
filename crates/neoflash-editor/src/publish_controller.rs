@@ -111,6 +111,8 @@ impl PublishController {
         runtime: &Path,
         ctx: &egui::Context,
     ) -> &EstimateState {
+        let resolved = project.with_resolved_script_language();
+        let project = resolved.as_ref();
         self.demand = Some(Demand {
             runtime: runtime.to_owned(),
             preferences: prefs.clone(),

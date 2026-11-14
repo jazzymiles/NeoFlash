@@ -68,6 +68,8 @@ fn project(symbols: Vec<Symbol>) -> Project {
         resources: vec![],
         document_class: None,
         scenes: vec![],
+        script_language: None,
+        also_compile_compatible_scripts: true,
         format_version: 1,
         name: "Test".into(),
         width: 640,
@@ -976,4 +978,265 @@ fn format_7_pivot_and_primitive_options_roundtrip_validate_and_evaluate() {
             .iter()
             .any(|i| i.message.contains("apply only to ellipse elements"))
     );
+}
+
+#[test]
+fn t315_migration_rule_and_foreign_script_count_messages() {
+    // 1. Canonical R-102 dropdown order, labels (no "· strict" suffix), and compatibility pairs.
+    assert_eq!(
+        ScriptLanguage::PROJECT_ORDER.map(ScriptLanguage::display_label),
+        [
+            "ActionScript 3.0",
+            "ActionScript 2.0",
+            "ActionScript 1.0",
+            "TypeScript",
+            "JavaScript",
+        ]
+    );
+    assert_eq!(ScriptLanguage::ActionScript3.compatible_language(), None);
+    assert_eq!(
+        ScriptLanguage::ActionScript2.compatible_language(),
+        Some(ScriptLanguage::ActionScript1)
+    );
+    assert_eq!(
+        ScriptLanguage::ActionScript1.compatible_language(),
+        Some(ScriptLanguage::ActionScript2)
+    );
+    assert_eq!(
+        ScriptLanguage::TypeScript.compatible_language(),
+        Some(ScriptLanguage::JavaScript)
+    );
+    assert_eq!(
+        ScriptLanguage::JavaScript.compatible_language(),
+        Some(ScriptLanguage::TypeScript)
+    );
+
+    // 2. Deterministic migration rule for pre-R-102 documents (`script_language: None`).
+    let blank = Project::blank();
+    assert_eq!(blank.script_language, None);
+    assert!(blank.also_compile_compatible_scripts);
+    assert_eq!(blank.infer_script_language(), ScriptLanguage::ActionScript3);
+    assert_eq!(
+        blank.effective_script_language(),
+        ScriptLanguage::ActionScript3
+    );
+
+    // Majority script language wins across sources, frame scripts, and object scripts (ignoring whitespace-only).
+    let mut majority = Project::blank();
+    majority.sources.push(SourceUnit {
+        id: "s1".into(),
+        path: "app.js".into(),
+        language: ScriptLanguage::JavaScript,
+        source: "console.log(1);".into(),
+    });
+    majority.symbols[0].timeline.scripts.push(FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::JavaScript,
+            source: "this.stop();".into(),
+        },
+    });
+    majority.symbols[0].timeline.scripts.push(FrameScript {
+        frame: 1,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: "   \n  ".into(),
+        },
+    });
+    let mut el = shape("btn", 0.);
+    el.scripts.push(ObjectScript {
+        event: ObjectEvent::Click,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "stop();".into(),
+        },
+    });
+    majority.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(el);
+    assert_eq!(majority.infer_script_language(), ScriptLanguage::JavaScript);
+
+    // Tie-breaking follows canonical order: AS3 > AS2 > AS1 > TS > JS.
+    let mut tie_ts_js = Project::blank();
+    tie_ts_js.symbols[0].timeline.scripts.push(FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::JavaScript,
+            source: "let a = 1;".into(),
+        },
+    });
+    tie_ts_js.symbols[0].timeline.scripts.push(FrameScript {
+        frame: 1,
+        script: Script {
+            language: ScriptLanguage::TypeScript,
+            source: "const b: number = 2;".into(),
+        },
+    });
+    assert_eq!(
+        tie_ts_js.infer_script_language(),
+        ScriptLanguage::TypeScript
+    );
+
+    // Scriptless fallbacks: document_class / class_name -> AS3, linkage_id -> AS2, resource ext -> TS/JS/AS2.
+    let mut doc_cls = Project::blank();
+    doc_cls.document_class = Some("app.Main".into());
+    assert_eq!(
+        doc_cls.infer_script_language(),
+        ScriptLanguage::ActionScript3
+    );
+
+    let mut linkage_only = Project::blank();
+    linkage_only.symbols[0].linkage_id = Some("hero_mc".into());
+    assert_eq!(
+        linkage_only.infer_script_language(),
+        ScriptLanguage::ActionScript2
+    );
+
+    let mut ts_res = Project::blank();
+    ts_res.resources.push(
+        ResourceUnit::from_bytes("r1", "scripts/helper.ts", "text/plain", b"export {};").unwrap(),
+    );
+    assert_eq!(ts_res.infer_script_language(), ScriptLanguage::TypeScript);
+
+    let mut js_res = Project::blank();
+    js_res
+        .resources
+        .push(ResourceUnit::from_bytes("r1", "scripts/helper.js", "text/plain", b"1;").unwrap());
+    assert_eq!(js_res.infer_script_language(), ScriptLanguage::JavaScript);
+
+    let mut as_res = Project::blank();
+    as_res.resources.push(
+        ResourceUnit::from_bytes("r1", "includes/init.as", "text/plain", b"stop();").unwrap(),
+    );
+    assert_eq!(
+        as_res.infer_script_language(),
+        ScriptLanguage::ActionScript2
+    );
+
+    // 3. Exact R-102 item 3 count messages (both > 0, only skipped, only compiled, singular & plural).
+    let mut mixed = Project::blank();
+    // 2 JS scripts (compatible with TS) + 3 AS2/AS3 scripts (skipped in TS).
+    for (idx, lang) in [
+        ScriptLanguage::JavaScript,
+        ScriptLanguage::JavaScript,
+        ScriptLanguage::ActionScript3,
+        ScriptLanguage::ActionScript2,
+        ScriptLanguage::ActionScript1,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        mixed.symbols[0].timeline.scripts.push(FrameScript {
+            frame: idx as u32,
+            script: Script {
+                language: lang,
+                source: "trace(1);".into(),
+            },
+        });
+    }
+    let both = mixed.foreign_script_counts_for(ScriptLanguage::TypeScript, true);
+    assert_eq!(both.compiled_with_warning, 2);
+    assert_eq!(both.skipped, 3);
+    assert_eq!(
+        both.count_message(),
+        Some((
+            true,
+            "5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when publishing.".into()
+        ))
+    );
+
+    let skipped_all = mixed.foreign_script_counts_for(ScriptLanguage::TypeScript, false);
+    assert_eq!(skipped_all.compiled_with_warning, 0);
+    assert_eq!(skipped_all.skipped, 5);
+    assert_eq!(
+        skipped_all.count_message(),
+        Some((
+            true,
+            "5 scripts are in other languages and stay in the document. They are skipped when publishing.".into()
+        ))
+    );
+
+    // AS3 ignores `also_compile_compatible_scripts == true` because AS3 has no compatible language.
+    let as3_counts = mixed.foreign_script_counts_for(ScriptLanguage::ActionScript3, true);
+    assert_eq!(as3_counts.compiled_with_warning, 0);
+    assert_eq!(as3_counts.skipped, 4);
+
+    // Singular messages + Info severity when only compatible scripts exist.
+    assert_eq!(
+        ForeignScriptCounts {
+            compiled_with_warning: 0,
+            skipped: 0,
+            compatible_language: Some(ScriptLanguage::JavaScript),
+        }
+        .count_message(),
+        None
+    );
+    assert_eq!(
+        ForeignScriptCounts {
+            compiled_with_warning: 0,
+            skipped: 1,
+            compatible_language: None,
+        }
+        .count_message(),
+        Some((
+            true,
+            "1 script is in another language and stays in the document. It is skipped when publishing.".into()
+        ))
+    );
+    assert_eq!(
+        ForeignScriptCounts {
+            compiled_with_warning: 1,
+            skipped: 1,
+            compatible_language: Some(ScriptLanguage::JavaScript),
+        }
+        .count_message(),
+        Some((
+            true,
+            "2 scripts are in other languages and stay in the document: 1 compiles with a warning, 1 is skipped when publishing.".into()
+        ))
+    );
+    assert_eq!(
+        ForeignScriptCounts {
+            compiled_with_warning: 2,
+            skipped: 0,
+            compatible_language: Some(ScriptLanguage::JavaScript),
+        }
+        .count_message(),
+        Some((
+            false,
+            "2 scripts are in JavaScript and compile with a warning.".into()
+        ))
+    );
+    assert_eq!(
+        ForeignScriptCounts {
+            compiled_with_warning: 1,
+            skipped: 0,
+            compatible_language: Some(ScriptLanguage::ActionScript1),
+        }
+        .count_message(),
+        Some((
+            false,
+            "1 script is in ActionScript 1.0 and compiles with a warning.".into()
+        ))
+    );
+
+    // 4. Serde skip_serializing_if defaults & format-6 validation rule.
+    let blank_json = blank.to_json().unwrap();
+    assert!(!blank_json.contains("\"script_language\""));
+    assert!(!blank_json.contains("\"also_compile_compatible_scripts\""));
+
+    let mut locked = Project::blank();
+    locked.script_language = Some(ScriptLanguage::TypeScript);
+    assert!(
+        validate(&locked)
+            .iter()
+            .any(|i| i.path == "format_version" && i.message.contains("version 6"))
+    );
+    locked.format_version = 6;
+    locked.also_compile_compatible_scripts = false;
+    locked.validate().unwrap();
+    let encoded = locked.to_json().unwrap();
+    assert!(encoded.contains("\"script_language\""));
+    assert!(encoded.contains("\"also_compile_compatible_scripts\""));
+    assert_eq!(Project::from_json(&encoded).unwrap(), locked);
 }

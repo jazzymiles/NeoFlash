@@ -66,6 +66,8 @@ fn make_project(symbols: Vec<Symbol>) -> Project {
         resources: vec![],
         document_class: None,
         scenes: vec![],
+        script_language: None,
+        also_compile_compatible_scripts: true,
         format_version: 6,
         name: "LifecycleTest".into(),
         width: 400,

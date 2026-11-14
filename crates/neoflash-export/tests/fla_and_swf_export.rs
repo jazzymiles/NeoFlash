@@ -545,6 +545,8 @@ fn build_rich_authoring_project(script_lang: ScriptLanguage) -> Project {
         } else {
             None
         },
+        script_language: None,
+        also_compile_compatible_scripts: true,
     }
 }
 

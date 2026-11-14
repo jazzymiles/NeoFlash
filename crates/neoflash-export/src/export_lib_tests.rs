@@ -1810,3 +1810,135 @@ fn default_canvas_export_stays_byte_identical_and_dom_mode_supports_full_compact
 
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn t315_compile_and_html5_export_enforce_foreign_script_policy() {
+    let dir = temp();
+    let rt = dir.join("rt");
+    runtime(&rt);
+
+    let mut project = Project::blank();
+    project.format_version = 6;
+    project.script_language = Some(ScriptLanguage::TypeScript);
+    project.also_compile_compatible_scripts = true;
+
+    // 1. Primary TypeScript source compiles cleanly.
+    project.sources.push(neoflash_core::SourceUnit {
+        id: "src-ts".into(),
+        path: "main.ts".into(),
+        language: ScriptLanguage::TypeScript,
+        source: "const stageTick: number = 42;\n".into(),
+    });
+    // 2. Compatible JavaScript frame script compiles with 1 warning when also_compile_compatible_scripts == true.
+    project.symbols[0]
+        .timeline
+        .scripts
+        .push(neoflash_core::FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::JavaScript,
+                source: "console.log('compat-js');".into(),
+            },
+        });
+    // 3. Skipped foreign ActionScript 3.0 source & ActionScript 2.0 object script have INVALID syntax,
+    //    yet MUST NOT block compile_project, check_project, or HTML5 publish!
+    project.sources.push(neoflash_core::SourceUnit {
+        id: "src-as3-broken".into(),
+        path: "BrokenForeign.as".into(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package { public class BrokenForeign { if ((( } }".into(),
+    });
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(neoflash_core::Element {
+            id: "el-btn".into(),
+            name: "foreignBtn".into(),
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 24.0,
+                fill: [80, 120, 200, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            scripts: vec![neoflash_core::ObjectScript {
+                event: neoflash_core::ObjectEvent::Click,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "var broken = );".into(),
+                },
+            }],
+            ..neoflash_core::Element::default()
+        });
+
+    project.validate().unwrap();
+    neoflash_script::compile_project(&project)
+        .expect("skipped foreign AS3 source must not fail compile_project");
+    neoflash_script::check_project(&project)
+        .expect("skipped foreign AS3/AS2 scripts must not fail check_project");
+
+    let warnings = export_warnings(&project);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("Compiled as compatible language") && w.contains("JavaScript")),
+        "expected compatible JS warning in export_warnings: {warnings:?}"
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("Skipped when publishing") && w.contains("BrokenForeign.as")),
+        "expected skipped AS3 source warning in export_warnings: {warnings:?}"
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("Skipped when publishing") && w.contains("ActionScript 2.0")),
+        "expected skipped AS2 object script warning in export_warnings: {warnings:?}"
+    );
+
+    let out_compat = dir.join("ts-compat");
+    export_project(&project, &out_compat, &rt)
+        .expect("HTML5 publish succeeds while skipping foreign scripts");
+    let bundle_compat = fs::read_to_string(out_compat.join("bundle.js")).unwrap();
+    assert!(bundle_compat.contains("compat-js"));
+    assert!(!bundle_compat.contains("public class BrokenForeign"));
+    assert!(!bundle_compat.contains("var broken ="));
+
+    // Turning off `also_compile_compatible_scripts` skips the JavaScript frame script too (even if broken!).
+    project.also_compile_compatible_scripts = false;
+    project.symbols[0].timeline.scripts[0].script.source = "let brokenJs = ;".into();
+    neoflash_script::check_project(&project)
+        .expect("skipped JS script must not fail check_project when compatible toggle is off");
+    let out_strict = dir.join("ts-strict");
+    export_project(&project, &out_strict, &rt)
+        .expect("HTML5 publish succeeds when JS compatible toggle is off");
+    let bundle_strict = fs::read_to_string(out_strict.join("bundle.js")).unwrap();
+    assert!(!bundle_strict.contains("brokenJs"));
+
+    // AS2 <-> AS1 compatible compilation also works with 1 warning.
+    let mut as2_proj = Project::blank();
+    as2_proj.format_version = 6;
+    as2_proj.script_language = Some(ScriptLanguage::ActionScript2);
+    as2_proj.also_compile_compatible_scripts = true;
+    as2_proj.symbols[0]
+        .timeline
+        .scripts
+        .push(neoflash_core::FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript1,
+                source: "stop();".into(),
+            },
+        });
+    let as2_warnings = export_warnings(&as2_proj);
+    assert!(
+        as2_warnings.iter().any(
+            |w| w.contains("Compiled as compatible language") && w.contains("ActionScript 1.0")
+        ),
+        "expected compatible AS1 warning: {as2_warnings:?}"
+    );
+    let out_as2 = dir.join("as2-compat");
+    export_project(&as2_proj, &out_as2, &rt).expect("AS2 project with AS1 script exports cleanly");
+
+    fs::remove_dir_all(dir).unwrap();
+}

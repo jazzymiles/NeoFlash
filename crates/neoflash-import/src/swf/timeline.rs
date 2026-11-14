@@ -367,6 +367,8 @@ pub(crate) fn build_project_from_swf(
         resources: builder.resources,
         document_class: None,
         scenes: scenes_ids,
+        script_language: None,
+        also_compile_compatible_scripts: true,
     };
 
     // Wire `ExportAssets`, `SymbolClass`, and decompiled AVM2 AS3 classes + `addFrameScript` timeline scripts!
@@ -378,6 +380,13 @@ pub(crate) fn build_project_from_swf(
         builder.abc_classes,
         location,
         builder.report,
+    );
+    project.script_language = Some(
+        if inspection.as3_flag || !project.sources.is_empty() || project.document_class.is_some() {
+            ScriptLanguage::ActionScript3
+        } else {
+            script_language_for_swf(container.swf_version)
+        },
     );
 
     // Embed provenance summary + original SWF bytes when within the 64 MiB resource / 128 MiB JSON budget.

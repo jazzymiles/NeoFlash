@@ -1218,7 +1218,80 @@ impl Editor {
                         changes.note(frames_response);
                     });
                     inspector_section(ui, "Publish", |ui| {
+                        const SCRIPT_OPTIONS: [(ScriptLanguage, &str); 5] = [
+                            (ScriptLanguage::ActionScript3, "ActionScript 3.0"),
+                            (ScriptLanguage::ActionScript2, "ActionScript 2.0"),
+                            (ScriptLanguage::ActionScript1, "ActionScript 1.0"),
+                            (ScriptLanguage::TypeScript, "TypeScript"),
+                            (ScriptLanguage::JavaScript, "JavaScript"),
+                        ];
                         ui.add(Badge::new("HTML5 · Rust / WebAssembly", BadgeType::Accent));
+                        let mut current_lang = self.project.effective_script_language();
+                        if select_row(
+                            ui,
+                            "Script",
+                            "doc-publish-script",
+                            &mut current_lang,
+                            &SCRIPT_OPTIONS,
+                        )
+                        .changed()
+                        {
+                            self.set_project_script_language(current_lang);
+                            document.script_language = self.project.script_language;
+                            document.format_version = self.project.format_version;
+                        }
+                        let effective_lang = self.project.effective_script_language();
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = space::S2;
+                            ui.allocate_exact_size(
+                                egui::vec2(
+                                    crate::theme::LABEL_WIDTH,
+                                    neoflash_ui::metrics::TOGGLE_ROW,
+                                ),
+                                egui::Sense::hover(),
+                            );
+                            if let Some(compat) = effective_lang.compatible_language() {
+                                let mut also = self.project.also_compile_compatible_scripts;
+                                let label = format!("Also compile {}", compat.display_label());
+                                if ui.add(nf::Checkbox::new(&mut also, &label)).changed() {
+                                    self.set_also_compile_compatible_scripts(also);
+                                    document.also_compile_compatible_scripts =
+                                        self.project.also_compile_compatible_scripts;
+                                    document.format_version = self.project.format_version;
+                                }
+                            } else {
+                                let mut unchecked = false;
+                                let resp = ui.add_enabled_semantic(
+                                    false,
+                                    nf::Checkbox::new(
+                                        &mut unchecked,
+                                        "Also compile compatible languages",
+                                    ),
+                                );
+                                crate::ui_icons::hover_tooltip(
+                                    resp,
+                                    "",
+                                    None,
+                                    Some("ActionScript 3.0 has no compatible language"),
+                                );
+                            }
+                        });
+                        if let Some((is_warning, msg)) = self
+                            .project
+                            .foreign_script_counts_for(
+                                effective_lang,
+                                self.project.also_compile_compatible_scripts,
+                            )
+                            .count_message()
+                        {
+                            let w = ui.available_width();
+                            let im = if is_warning {
+                                nf::InlineMessage::warning(&msg)
+                            } else {
+                                nf::InlineMessage::info(&msg)
+                            };
+                            ui.add(im.width(w));
+                        }
                         // §4: "Publish settings…"; publishing itself is File ▸ Publish and the top-bar Publish button.
                         if ui.add(nf::Button::ghost("Publish settings…")).clicked() {
                             self.open_publish_settings();

@@ -248,13 +248,15 @@ impl Editor {
 
     pub(crate) fn new_document_session(&mut self, ctx: &egui::Context) -> usize {
         let mut project = Project::blank();
-        if let Some(mut defaults) = self.workspace.document_defaults {
-            defaults.sanitize();
-            project.width = defaults.width;
-            project.height = defaults.height;
-            project.fps = defaults.fps;
-            project.background = defaults.background;
-        }
+        let mut defaults = self.workspace.document_defaults.unwrap_or_default();
+        defaults.sanitize();
+        project.width = defaults.width;
+        project.height = defaults.height;
+        project.fps = defaults.fps;
+        project.background = defaults.background;
+        project.script_language = Some(defaults.script_language);
+        project.also_compile_compatible_scripts = defaults.also_compile_compatible_scripts;
+        project.upgrade_format_for_features();
         let previous_count = self.session_count();
         let index = self.open_new_session_tab(ctx, project, None);
         if self.session_count() > previous_count

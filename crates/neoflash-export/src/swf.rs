@@ -88,6 +88,8 @@ fn outline_text_element_to_paths(element: &Element) -> Vec<Element> {
         resources: Vec::new(),
         document_class: None,
         scenes: Vec::new(),
+        script_language: None,
+        also_compile_compatible_scripts: true,
     };
     let _ = crate::fonts::convert_project_text_to_outlines(&mut temp_proj);
     temp_proj
@@ -958,6 +960,26 @@ pub fn preflight_swf_publish(
     }
 
     // Track script languages for mixed-VM detection & SymbolClass/linkage uniqueness
+    for (loc, msg, skipped) in crate::foreign_script_policy_entries(project) {
+        report.push(
+            if skipped {
+                "swf_skipped_foreign_script"
+            } else {
+                "swf_compatible_script_compiled"
+            },
+            FlaCompatibilityCategory::Scripts,
+            if skipped {
+                FlaCompatibilityStatus::Omitted
+            } else {
+                FlaCompatibilityStatus::Approximated
+            },
+            loc,
+            msg,
+        );
+    }
+    let project_cow = crate::strip_skipped_foreign_scripts(project);
+    let project = project_cow.as_ref();
+
     let mut has_avm1_scripts = false;
     let mut has_avm2_scripts = false;
     let mut parsed_external_as3_classes: BTreeMap<String, AbcClassSpec> = BTreeMap::new();
@@ -8688,6 +8710,9 @@ pub fn publish_swf_bytes(
             blocking_count: report.blocking_count(),
         });
     }
+
+    let project_cow = crate::strip_skipped_foreign_scripts(project);
+    let project = project_cow.as_ref();
 
     let scene_ids: Vec<&str> = if project.scenes.is_empty() {
         vec![project.root.as_str()]

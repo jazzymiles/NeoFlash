@@ -638,6 +638,8 @@ impl ClipboardPayload {
                 resources: self.resources.clone(),
                 document_class: None,
                 scenes: vec![],
+                script_language: None,
+                also_compile_compatible_scripts: true,
                 format_version: self.document_version(),
                 name: "Clipboard validation".into(),
                 width: 1,

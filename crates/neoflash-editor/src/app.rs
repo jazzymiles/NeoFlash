@@ -1976,6 +1976,7 @@ impl Editor {
         use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
 
         self.finish_edits();
+        let resolved_project = self.project.with_resolved_script_language().into_owned();
         if settings.profile == crate::workspace::PublishProfilePreset::WebBannerNative {
             if let Err(err) = std::fs::create_dir_all(output) {
                 let _ = self.message_event(
@@ -1997,7 +1998,7 @@ impl Editor {
                 ..neoflash_export::BannerOptions::default()
             };
             return match neoflash_export::export_native_banner_html(
-                &self.project,
+                &resolved_project,
                 &out_html,
                 &banner_opts,
             ) {
@@ -2031,8 +2032,8 @@ impl Editor {
                 }
             };
         }
-        let warnings = neoflash_export::export_warnings(&self.project);
-        let options = match settings.export_options(&self.project) {
+        let warnings = neoflash_export::export_warnings(&resolved_project);
+        let options = match settings.export_options(&resolved_project) {
             Ok(options) => options,
             Err(error) => {
                 let _ = self.message_event(
@@ -2046,7 +2047,7 @@ impl Editor {
             }
         };
         match neoflash_export::export_project_with_config(
-            &self.project,
+            &resolved_project,
             output,
             runtime_dir,
             &options,
@@ -2059,8 +2060,7 @@ impl Editor {
                     format!("HTML5 exported: {}", index.display()),
                     Some(OutputLocation::for_file(index)),
                 );
-                let project_snapshot = self.project.clone();
-                self.log_export_report(&project_snapshot);
+                self.log_export_report(&resolved_project);
                 self.emit_export_warnings(warnings);
                 true
             }
@@ -2086,7 +2086,8 @@ impl Editor {
         use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
 
         self.finish_edits();
-        let options = match settings.export_options(&self.project) {
+        let resolved_project = self.project.with_resolved_script_language().into_owned();
+        let options = match settings.export_options(&resolved_project) {
             Ok(options) => options,
             Err(error) => {
                 let _ = self.message_event(
@@ -2119,7 +2120,7 @@ impl Editor {
             return false;
         };
         match neoflash_export::export_desktop_app(
-            &self.project,
+            &resolved_project,
             &target_dir,
             runtime_dir,
             &options,
@@ -2442,6 +2443,7 @@ impl Editor {
                 .join("neoflash-preview")
                 .join(std::process::id().to_string());
             self.finish_edits();
+            let resolved_project = self.project.with_resolved_script_language().into_owned();
             let preview_config = self.workspace.publish.preview_html_config();
             let preview_options = self
                 .workspace
@@ -2453,7 +2455,7 @@ impl Editor {
                 .filter(|opts| !matches!(opts.size, neoflash_export::SizeLevel::Shared(_)))
                 .unwrap_or_default();
             match neoflash_export::export_project_with_config(
-                &self.project,
+                &resolved_project,
                 &output,
                 &Self::runtime_dir(),
                 &preview_options,
@@ -2466,9 +2468,8 @@ impl Editor {
                         format!("HTML5 exported: {}", index.display()),
                         Some(OutputLocation::for_file(index.clone())),
                     );
-                    let project_snapshot = self.project.clone();
-                    self.log_export_report(&project_snapshot);
-                    let warnings = neoflash_export::export_warnings(&self.project);
+                    self.log_export_report(&resolved_project);
+                    let warnings = neoflash_export::export_warnings(&resolved_project);
                     self.emit_export_warnings(warnings);
                     self.show_panel(PanelId::Output);
                     if let Err(e) = crate::platform_open::open_file(&index) {
@@ -2774,7 +2775,8 @@ impl Editor {
             outline_text: true,
             ..neoflash_export::SwfPublishOptions::default()
         };
-        match neoflash_export::publish_swf_to_path(&self.project, &swf_path, &opts) {
+        let resolved_project = self.project.with_resolved_script_language();
+        match neoflash_export::publish_swf_to_path(&resolved_project, &swf_path, &opts) {
             Ok(report) => {
                 let _ = self.message_event(
                     crate::output_pipeline::OutputSeverity::Info,
@@ -2836,8 +2838,13 @@ impl Editor {
             file
         };
         let opts = neoflash_export::FlaExportOptions::default();
-        match neoflash_export::export_fla_with_profile(&self.project, profile, &opts, &target_path)
-        {
+        let resolved_project = self.project.with_resolved_script_language();
+        match neoflash_export::export_fla_with_profile(
+            &resolved_project,
+            profile,
+            &opts,
+            &target_path,
+        ) {
             Ok(report) => {
                 let _ = self.message_event(
                     crate::output_pipeline::OutputSeverity::Info,
@@ -2983,6 +2990,7 @@ impl Editor {
     /// Single-scene copy of `self.project` rooted at the currently edited scene (`Control ▸ Test scene`).
     pub(crate) fn test_scene_project(&self) -> Project {
         let mut cloned = self.project.clone();
+        cloned.script_language = Some(self.project.effective_script_language());
         let scene_id = self.current_scene().to_owned();
         cloned
             .symbols
@@ -3000,6 +3008,7 @@ impl Editor {
                 root_sym.class_name = None;
             }
         }
+        cloned.upgrade_format_for_features();
         cloned
     }
 

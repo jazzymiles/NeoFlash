@@ -2721,6 +2721,8 @@ fn document_settings_and_library_symbol_commands_commit_atomically_and_preserve_
         units: RulerUnits::Pixels,
         background: egui::Color32::from_rgb(16, 20, 28),
         fps: 60.0,
+        script_language: ScriptLanguage::ActionScript3,
+        also_compile_compatible_scripts: true,
         match_shift: None,
     });
     d.editor.project.validate().unwrap();
@@ -4894,7 +4896,7 @@ fn compiler_errors_panel_collects_all_diagnostics_and_jumps_to_source() {
             scripts: vec![ObjectScript {
                 event: ObjectEvent::Click,
                 script: Script {
-                    language: ScriptLanguage::ActionScript2,
+                    language: ScriptLanguage::ActionScript3,
                     source: "if ( {".into(),
                 },
             }],

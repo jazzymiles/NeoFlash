@@ -1639,7 +1639,11 @@ pub(crate) fn recover_geometry_with_bounds(
     geometry
 }
 
-/// Default document properties saved from Document settings ▸ Make default (`DL-02`).
+const fn default_document_script_language() -> neoflash_core::ScriptLanguage {
+    neoflash_core::ScriptLanguage::ActionScript3
+}
+
+/// Default document properties saved from Document settings ▸ Make default (`DL-02`, `R-102`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DocumentDefaults {
@@ -1648,6 +1652,10 @@ pub struct DocumentDefaults {
     pub fps: u32,
     pub background: neoflash_core::Color,
     pub units: crate::stage_view::RulerUnits,
+    #[serde(default = "default_document_script_language")]
+    pub script_language: neoflash_core::ScriptLanguage,
+    #[serde(default = "default_true")]
+    pub also_compile_compatible_scripts: bool,
 }
 
 impl Default for DocumentDefaults {
@@ -1659,6 +1667,8 @@ impl Default for DocumentDefaults {
             fps: blank.fps,
             background: blank.background,
             units: crate::stage_view::RulerUnits::Pixels,
+            script_language: default_document_script_language(),
+            also_compile_compatible_scripts: true,
         }
     }
 }
@@ -4539,6 +4549,8 @@ mod tests {
             fps: 30,
             background: [20, 24, 32, 255],
             units: crate::stage_view::RulerUnits::Pixels,
+            script_language: neoflash_core::ScriptLanguage::TypeScript,
+            also_compile_compatible_scripts: false,
         });
         let mut storage = Storage::default();
         prefs.save(&mut storage);

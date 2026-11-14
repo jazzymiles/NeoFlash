@@ -126,7 +126,8 @@ fn missing_text_nodes_and_skew_are_not_silently_discarded() {
     );
     let skewed = import_project(&temp.0).unwrap();
     skewed.validate().unwrap();
-    assert_eq!(skewed.format_version, 5);
+    assert_eq!(skewed.format_version, 6);
+    assert!(skewed.script_language.is_some());
     let items = evaluate(&skewed, &skewed.root, 0);
     assert!((items[0].transform[2] - 0.5).abs() < 1e-6);
 

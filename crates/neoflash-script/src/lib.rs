@@ -334,12 +334,41 @@ impl PartialEq for CompiledModuleGraph {
 }
 impl Eq for CompiledModuleGraph {}
 
+fn script_is_compiled_in_project(project: &Project, language: ScriptLanguage) -> bool {
+    project.script_language.is_none_or(|proj_lang| {
+        project
+            .script_disposition_for(proj_lang, project.also_compile_compatible_scripts, language)
+            .is_compiled()
+    })
+}
+
+fn skipped_as_source_defines_class(skipped_as_units: &[&SourceUnit], qname: &str) -> bool {
+    let short = qname.rsplit('.').next().unwrap_or(qname).trim();
+    !short.is_empty()
+        && skipped_as_units.iter().any(|unit| {
+            unit.source.contains(&format!("class {short}"))
+                || unit
+                    .path
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .and_then(|file| file.strip_suffix(".as"))
+                    .is_some_and(|stem| stem == short)
+        })
+}
+
 /// Compile all project source units (AS2/AS3 classes and JS/TS/JSX/TSX modules) into a `ProjectProgram`.
 pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnostic>> {
     let mut web_units: Vec<&SourceUnit> = Vec::new();
     let mut as_units: Vec<SourceUnit> = Vec::new();
+    let mut skipped_as_units: Vec<&SourceUnit> = Vec::new();
 
     for unit in &project.sources {
+        if !script_is_compiled_in_project(project, unit.language) {
+            if unit.language.is_actionscript() {
+                skipped_as_units.push(unit);
+            }
+            continue;
+        }
         match unit.language {
             ScriptLanguage::JavaScript | ScriptLanguage::TypeScript => web_units.push(unit),
             _ => as_units.push(unit.clone()),
@@ -357,6 +386,27 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
 
     let mut as_project = project.clone();
     as_project.sources = as_units;
+    if project.script_language.is_some() {
+        for sym in &mut as_project.symbols {
+            sym.timeline
+                .scripts
+                .retain(|fs| script_is_compiled_in_project(project, fs.script.language));
+        }
+        if !skipped_as_units.is_empty() {
+            if let Some(doc_cls) = &as_project.document_class
+                && skipped_as_source_defines_class(&skipped_as_units, doc_cls)
+            {
+                as_project.document_class = None;
+            }
+            for sym in &mut as_project.symbols {
+                if let Some(cls) = &sym.class_name
+                    && skipped_as_source_defines_class(&skipped_as_units, cls)
+                {
+                    sym.class_name = None;
+                }
+            }
+        }
+    }
 
     // If document_class or a symbol's class_name is satisfied by an exported JS/TS class,
     // don't let the ActionScript linker reject it as an unknown AS class.
@@ -448,7 +498,9 @@ pub fn check_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnostic
 
     for symbol in &project.symbols {
         for frame in &symbol.timeline.scripts {
-            if frame.script.source.trim().is_empty() {
+            if frame.script.source.trim().is_empty()
+                || !script_is_compiled_in_project(project, frame.script.language)
+            {
                 continue;
             }
             let location = format!("{} / frame {}", symbol.name, frame.frame + 1);
@@ -460,7 +512,9 @@ pub fn check_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnostic
             for key in &layer.keyframes {
                 for element in &key.elements {
                     for handler in &element.scripts {
-                        if handler.script.source.trim().is_empty() {
+                        if handler.script.source.trim().is_empty()
+                            || !script_is_compiled_in_project(project, handler.script.language)
+                        {
                             continue;
                         }
                         let location = format!(
@@ -480,7 +534,30 @@ pub fn check_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnostic
         }
     }
 
-    for warning in warnings::check_project_warnings(project) {
+    let warning_target = if project.script_language.is_some() {
+        let mut filtered = project.clone();
+        filtered
+            .sources
+            .retain(|u| script_is_compiled_in_project(project, u.language));
+        for sym in &mut filtered.symbols {
+            sym.timeline
+                .scripts
+                .retain(|fs| script_is_compiled_in_project(project, fs.script.language));
+            for layer in &mut sym.timeline.layers {
+                for key in &mut layer.keyframes {
+                    for el in &mut key.elements {
+                        el.scripts.retain(|os| {
+                            script_is_compiled_in_project(project, os.script.language)
+                        });
+                    }
+                }
+            }
+        }
+        std::borrow::Cow::Owned(filtered)
+    } else {
+        std::borrow::Cow::Borrowed(project)
+    };
+    for warning in warnings::check_project_warnings(&warning_target) {
         if warning.code == "unsupported-feature" || warning.severity == DiagnosticSeverity::Error {
             let mut diag = Diagnostic::new(
                 warning.language,

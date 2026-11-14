@@ -96,6 +96,8 @@ mod output_pipeline_tests;
 #[cfg(test)]
 mod panel_tests;
 #[cfg(test)]
+mod script_language_policy_tests;
+#[cfg(test)]
 mod selection_tests;
 #[cfg(test)]
 mod stage_view_tests;

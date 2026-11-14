@@ -129,9 +129,15 @@ impl Editor {
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| self.actions_body(ui));
     }
 
-    /// NF2 Actions toolbar: target and language selects, object event, Check, code tools (format,
-    /// hints, comments), sidebar toggle, Script assist and help.
-    fn actions_toolbar(&mut self, ui: &mut egui::Ui, script: &mut Script, context: &str) {
+    /// NF2 Actions toolbar: target select and language badge (`R-102`), object event, Check,
+    /// code tools (format, hints, comments), sidebar toggle, Script assist and help.
+    fn actions_toolbar(
+        &mut self,
+        ui: &mut egui::Ui,
+        script: &mut Script,
+        has_stored_script: bool,
+        context: &str,
+    ) {
         let source = self.script_target == ScriptTarget::Source;
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(2., space::S1);
@@ -155,14 +161,15 @@ impl Editor {
                 });
             nf::tooltip(target_response, context.trim_end_matches('.'), None);
             if !source {
+                let proj_lang = self.project.effective_script_language();
+                let skipped = has_stored_script
+                    && self.project.script_disposition_for(
+                        proj_lang,
+                        self.project.also_compile_compatible_scripts,
+                        script.language,
+                    ) == ScriptDisposition::SkippedForeign;
                 ui.add_space(space::S1);
-                crate::sources::language_select(
-                    ui,
-                    "language",
-                    &mut script.language,
-                    &crate::sources::ACTION_LANGUAGES,
-                    160.,
-                );
+                Self::script_language_badge(ui, script.language, skipped);
             }
             if self.script_target == ScriptTarget::Object {
                 ui.add_space(space::S1);
@@ -323,8 +330,94 @@ impl Editor {
         });
     }
 
-    pub(crate) fn actions_empty_language_id(&self) -> egui::Id {
-        egui::Id::new(("neoflash-actions-empty-language", &self.clipboard.session))
+    /// Render the `R-102` item 7 foreign-language notice row between the toolbar separator and
+    /// `Main` when viewing a stored frame/object script or project source file in another language.
+    /// Returns `true` when `Mark as <project language>` was clicked and mutated the script tag.
+    fn foreign_script_notice_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        has_stored_script: bool,
+        frame_or_obj_lang: ScriptLanguage,
+    ) -> bool {
+        let proj_lang = self.project.effective_script_language();
+        let active_foreign = match self.script_target {
+            ScriptTarget::Source => {
+                let unit = self
+                    .project
+                    .sources
+                    .iter()
+                    .find(|s| Some(&s.id) == self.selected_source.as_ref())
+                    .or_else(|| self.project.sources.first());
+                unit.filter(|u| u.language != proj_lang).map(|u| {
+                    (
+                        u.language,
+                        Self::can_retag_source_unit_to(&u.path, proj_lang),
+                    )
+                })
+            }
+            ScriptTarget::Frame | ScriptTarget::Object => (has_stored_script
+                && frame_or_obj_lang != proj_lang)
+                .then_some((frame_or_obj_lang, true)),
+        };
+        let Some((foreign_lang, can_retag)) = active_foreign else {
+            return false;
+        };
+        let disposition = self.project.script_disposition_for(
+            proj_lang,
+            self.project.also_compile_compatible_scripts,
+            foreign_lang,
+        );
+        let (is_warning, notice_text) = match disposition {
+            ScriptDisposition::SkippedForeign => (
+                true,
+                format!(
+                    "This script is {}. The project uses {}, so the script is skipped when publishing.",
+                    foreign_lang.display_label(),
+                    proj_lang.display_label()
+                ),
+            ),
+            ScriptDisposition::CompiledCompatibleWithWarning
+            | ScriptDisposition::CompiledPrimary => (
+                false,
+                format!(
+                    "This script is {}. The project uses {}; the script compiles with a warning.",
+                    foreign_lang.display_label(),
+                    proj_lang.display_label()
+                ),
+            ),
+        };
+        let mut mark_clicked = false;
+        egui::Frame::new()
+            .inner_margin(egui::Margin::symmetric(space::S3 as i8, 6))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = space::S3;
+                    if can_retag {
+                        let mark_label = format!("Mark as {}", proj_lang.display_label());
+                        if ui.add(nf::Button::ghost(&mark_label)).clicked() {
+                            mark_clicked = true;
+                        }
+                    }
+                    let msg_w = ui.available_width();
+                    let im = if is_warning {
+                        nf::InlineMessage::warning(&notice_text)
+                    } else {
+                        nf::InlineMessage::info(&notice_text)
+                    };
+                    ui.add(im.width(msg_w));
+                });
+            });
+        let notice_line_y = ui.cursor().top();
+        ui.painter().hline(
+            ui.max_rect().x_range(),
+            notice_line_y,
+            egui::Stroke::new(1.0_f32, neoflash_ui::palette(ui.ctx()).border_subtle),
+        );
+        if mark_clicked {
+            self.mark_current_script_as_project_language();
+        }
+        mark_clicked
     }
 
     fn actions_body(&mut self, ui: &mut egui::Ui) {
@@ -333,10 +426,18 @@ impl Editor {
                 script.frame == self.frame && !script.script.source.trim().is_empty()
             });
         let object_id = self.selected_element().map(|element| element.id.clone());
+        if self.script_target == ScriptTarget::Source
+            && !self
+                .project
+                .sources
+                .iter()
+                .any(|s| Some(&s.id) == self.selected_source.as_ref())
+        {
+            self.selected_source = self.project.sources.first().map(|s| s.id.clone());
+        }
         let target_before = self.script_target;
         let event_before = self.script_event;
         let location_before = self.current_script_location();
-        let empty_lang_id = self.actions_empty_language_id();
         let stored = match self.script_target {
             ScriptTarget::Source => None,
             ScriptTarget::Frame => self
@@ -351,16 +452,12 @@ impl Editor {
                 .and_then(|e| e.scripts.iter().find(|s| s.event == self.script_event))
                 .map(|s| s.script.clone()),
         };
-        let pending_lang = ui
-            .data(|d| d.get_temp::<ScriptLanguage>(empty_lang_id))
-            .or_else(|| stored.as_ref().map(|s| s.language))
-            .or_else(|| self.preferred_script_language())
-            .unwrap_or_else(|| self.default_script_language_for_project());
+        let proj_lang = self.project.effective_script_language();
         let has_stored_script = stored.as_ref().is_some_and(|s| !s.source.is_empty());
         let original = match &stored {
             Some(s) if !s.source.is_empty() => s.clone(),
             _ => Script {
-                language: pending_lang,
+                language: proj_lang,
                 source: String::new(),
             },
         };
@@ -394,15 +491,15 @@ impl Editor {
             ),
             _ => format!("{} : Frame {}", self.symbol().name, self.frame + 1),
         };
+        let saved_y_spacing = ui.spacing().item_spacing.y;
+        ui.spacing_mut().item_spacing.y = 0.0;
         // Figma Actions (docked): 44 pt toolbar = 32 pt controls + 6 pt top/bottom, 8 pt sides,
-        // then a 1 pt separator above the editor.
+        // then a 1 pt separator above the editor (and optional 45 pt foreign-language notice row).
         egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(space::S2 as i8, 6))
-            .show(ui, |ui| self.actions_toolbar(ui, &mut script, &context));
-        if !has_stored_script && script.language != pending_lang {
-            ui.data_mut(|d| d.insert_temp(empty_lang_id, script.language));
-            self.set_preferred_script_language(Some(script.language));
-        }
+            .show(ui, |ui| {
+                self.actions_toolbar(ui, &mut script, has_stored_script, &context)
+            });
         let line_y = ui.cursor().top();
         ui.painter().hline(
             ui.max_rect().x_range(),
@@ -410,9 +507,16 @@ impl Editor {
             egui::Stroke::new(1.0_f32, neoflash_ui::palette(ui.ctx()).border_subtle),
         );
         if target_before != self.script_target || event_before != self.script_event {
+            ui.spacing_mut().item_spacing.y = saved_y_spacing;
             ui.ctx().request_repaint();
             return;
         }
+        if self.foreign_script_notice_row(ui, has_stored_script, script.language) {
+            ui.spacing_mut().item_spacing.y = saved_y_spacing;
+            ui.ctx().request_repaint();
+            return;
+        }
+        ui.spacing_mut().item_spacing.y = saved_y_spacing;
         // Sidebar (toolbox + Script navigator) left of the script area, as in the NF2 Actions panel.
         let rest = ui.available_rect_before_wrap();
         ui.advance_cursor_after_rect(rest);
@@ -496,10 +600,6 @@ impl Editor {
                 stored.is_some()
             };
         if should_commit {
-            ui.data_mut(|d| d.insert_temp(empty_lang_id, script.language));
-            if script.language != original.language {
-                self.set_preferred_script_language(Some(script.language));
-            }
             if self.playing {
                 self.set_playing(false);
             }

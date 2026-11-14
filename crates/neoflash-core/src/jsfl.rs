@@ -7954,6 +7954,8 @@ mod tests {
             resources: Vec::new(),
             document_class: None,
             scenes: Vec::new(),
+            script_language: None,
+            also_compile_compatible_scripts: true,
         }
     }
 

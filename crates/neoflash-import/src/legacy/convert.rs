@@ -676,6 +676,8 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         } else {
             vec![]
         },
+        script_language: Some(context.language),
+        also_compile_compatible_scripts: true,
     };
     // Size the converted document first: the original shares both the resource
     // budget and the project's encoded JSON limit with the converted content.

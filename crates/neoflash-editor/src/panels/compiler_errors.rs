@@ -63,6 +63,8 @@ fn project_diagnostics_fingerprint(project: &Project) -> u64 {
     project.root.hash(&mut hash);
     project.document_class.hash(&mut hash);
     project.scenes.hash(&mut hash);
+    project.script_language.hash(&mut hash);
+    project.also_compile_compatible_scripts.hash(&mut hash);
     for unit in &project.sources {
         unit.id.hash(&mut hash);
         unit.path.hash(&mut hash);
@@ -138,6 +140,32 @@ fn script_diagnostics(
     diagnostics
 }
 
+fn foreign_policy_warning(
+    disposition: neoflash_core::ScriptDisposition,
+    script_lang: neoflash_core::ScriptLanguage,
+    proj_lang: neoflash_core::ScriptLanguage,
+) -> Option<(&'static str, String)> {
+    match disposition {
+        neoflash_core::ScriptDisposition::CompiledPrimary => None,
+        neoflash_core::ScriptDisposition::CompiledCompatibleWithWarning => Some((
+            "compatible-script-language",
+            format!(
+                "Compiled as compatible language: script is {}, project uses {}.",
+                script_lang.display_label(),
+                proj_lang.display_label()
+            ),
+        )),
+        neoflash_core::ScriptDisposition::SkippedForeign => Some((
+            "skipped-foreign-script",
+            format!(
+                "Skipped when publishing: script is {}, project uses {}.",
+                script_lang.display_label(),
+                proj_lang.display_label()
+            ),
+        )),
+    }
+}
+
 /// Collect structured, located script diagnostics (compile errors and warnings) across all
 /// project sources, sidecar `.as` files, frame scripts, and element handlers without mutating
 /// document state.
@@ -145,9 +173,49 @@ pub(crate) fn collect_located_script_diagnostics(
     project: &Project,
 ) -> Vec<LocatedScriptDiagnostic> {
     let mut items = Vec::new();
+    let policy_lang = project.script_language;
+    let also_compat = project.also_compile_compatible_scripts;
+
+    if let Some(proj_lang) = policy_lang {
+        for unit in &project.sources {
+            let disp = project.script_disposition_for(proj_lang, also_compat, unit.language);
+            if let Some((code, msg)) = foreign_policy_warning(disp, unit.language, proj_lang) {
+                items.push(LocatedScriptDiagnostic {
+                    severity: neoflash_script::DiagnosticSeverity::Warning,
+                    code: Some(code.to_owned()),
+                    message: msg.clone(),
+                    formatted_message: msg,
+                    language: unit.language,
+                    symbol_id: None,
+                    symbol: None,
+                    layer: None,
+                    frame: None,
+                    element_id: None,
+                    element_name: None,
+                    event: None,
+                    path: Some(unit.path.clone()),
+                    line: 1,
+                    column: 1,
+                    end_line: 1,
+                    end_column: 1,
+                    location_label: format!("{} · Line 1", unit.path),
+                    script: Some(ScriptLocation::Source(unit.id.clone())),
+                    quick_fixes: Vec::new(),
+                });
+            }
+        }
+    }
+
     let program = neoflash_script::compile_project(project);
     let mut source_diagnostics = program.as_ref().err().cloned().unwrap_or_default();
     for unit in &project.sources {
+        if let Some(proj_lang) = policy_lang
+            && !project
+                .script_disposition_for(proj_lang, also_compat, unit.language)
+                .is_compiled()
+        {
+            continue;
+        }
         let script = neoflash_core::Script {
             language: unit.language,
             source: unit.source.clone(),
@@ -231,11 +299,56 @@ pub(crate) fn collect_located_script_diagnostics(
                 })
                 .or_else(|| symbol.timeline.layers.last())
                 .map(|layer| layer.name.as_str());
+            let frame_path = format!("{} / frame {}", symbol.name, fs.frame + 1);
+            if let Some(proj_lang) = policy_lang {
+                let disp =
+                    project.script_disposition_for(proj_lang, also_compat, fs.script.language);
+                if let Some((code, msg)) =
+                    foreign_policy_warning(disp, fs.script.language, proj_lang)
+                {
+                    let location_label = match actions_layer {
+                        Some(layer_name) => format!(
+                            "{} · layer {:?} · frame {} · Line 1",
+                            symbol.name,
+                            layer_name,
+                            fs.frame + 1,
+                        ),
+                        None => format!("{} · frame {} · Line 1", symbol.name, fs.frame + 1),
+                    };
+                    items.push(LocatedScriptDiagnostic {
+                        severity: neoflash_script::DiagnosticSeverity::Warning,
+                        code: Some(code.to_owned()),
+                        message: msg.clone(),
+                        formatted_message: msg,
+                        language: fs.script.language,
+                        symbol_id: Some(symbol.id.clone()),
+                        symbol: Some(symbol.name.clone()),
+                        layer: actions_layer.map(str::to_owned),
+                        frame: Some(fs.frame),
+                        element_id: None,
+                        element_name: None,
+                        event: None,
+                        path: Some(frame_path.clone()),
+                        line: 1,
+                        column: 1,
+                        end_line: 1,
+                        end_column: 1,
+                        location_label,
+                        script: Some(ScriptLocation::Frame {
+                            symbol: symbol.id.clone(),
+                            frame: fs.frame,
+                        }),
+                        quick_fixes: Vec::new(),
+                    });
+                }
+                if !disp.is_compiled() {
+                    continue;
+                }
+            }
             let result = match active_program {
                 Some(prog) => neoflash_script::compile_with_program(&fs.script, prog),
                 None => neoflash_script::compile(&fs.script),
             };
-            let frame_path = format!("{} / frame {}", symbol.name, fs.frame + 1);
             for err in script_diagnostics(&fs.script, result) {
                 let quick_fixes =
                     crate::code_tools::suggest_quick_fixes_for_diagnostic(&err, &fs.script.source);
@@ -289,10 +402,6 @@ pub(crate) fn collect_located_script_diagnostics(
                         if os.script.source.trim().is_empty() {
                             continue;
                         }
-                        let result = match active_program {
-                            Some(prog) => neoflash_script::compile_with_program(&os.script, prog),
-                            None => neoflash_script::compile(&os.script),
-                        };
                         let target = if el.name.is_empty() {
                             "object"
                         } else {
@@ -306,6 +415,57 @@ pub(crate) fn collect_located_script_diagnostics(
                             target,
                             os.event
                         );
+                        if let Some(proj_lang) = policy_lang {
+                            let disp = project.script_disposition_for(
+                                proj_lang,
+                                also_compat,
+                                os.script.language,
+                            );
+                            if let Some((code, msg)) =
+                                foreign_policy_warning(disp, os.script.language, proj_lang)
+                            {
+                                items.push(LocatedScriptDiagnostic {
+                                    severity: neoflash_script::DiagnosticSeverity::Warning,
+                                    code: Some(code.to_owned()),
+                                    message: msg.clone(),
+                                    formatted_message: msg,
+                                    language: os.script.language,
+                                    symbol_id: Some(symbol.id.clone()),
+                                    symbol: Some(symbol.name.clone()),
+                                    layer: Some(layer.name.clone()),
+                                    frame: Some(key.frame),
+                                    element_id: Some(el.id.clone()),
+                                    element_name: (!el.name.is_empty()).then(|| el.name.clone()),
+                                    event: Some(os.event),
+                                    path: Some(obj_path.clone()),
+                                    line: 1,
+                                    column: 1,
+                                    end_line: 1,
+                                    end_column: 1,
+                                    location_label: format!(
+                                        "{} · layer {:?} · frame {} · {:?} ({target}) · Line 1",
+                                        symbol.name,
+                                        layer.name,
+                                        key.frame + 1,
+                                        os.event,
+                                    ),
+                                    script: Some(ScriptLocation::Object {
+                                        symbol: symbol.id.clone(),
+                                        frame: key.frame,
+                                        element: el.id.clone(),
+                                        event: os.event,
+                                    }),
+                                    quick_fixes: Vec::new(),
+                                });
+                            }
+                            if !disp.is_compiled() {
+                                continue;
+                            }
+                        }
+                        let result = match active_program {
+                            Some(prog) => neoflash_script::compile_with_program(&os.script, prog),
+                            None => neoflash_script::compile(&os.script),
+                        };
                         for err in script_diagnostics(&os.script, result) {
                             let quick_fixes = crate::code_tools::suggest_quick_fixes_for_diagnostic(
                                 &err,
@@ -356,7 +516,8 @@ pub(crate) fn collect_located_script_diagnostics(
 }
 
 pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDiagnosticItem> {
-    let mut items: Vec<CompilerDiagnosticItem> = collect_located_script_diagnostics(project)
+    let resolved = project.with_resolved_script_language();
+    let mut items: Vec<CompilerDiagnosticItem> = collect_located_script_diagnostics(&resolved)
         .into_iter()
         .map(|diag| CompilerDiagnosticItem {
             is_error: diag.severity == neoflash_script::DiagnosticSeverity::Error,
@@ -369,11 +530,11 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
         })
         .collect();
 
-    for warning in neoflash_export::export_warnings(project) {
+    for warning in neoflash_export::export_warnings_without_foreign_scripts(&resolved) {
         items.push(CompilerDiagnosticItem {
             is_error: false,
             message: warning,
-            location_label: format!("{} · HTML5 publish", project.name),
+            location_label: format!("{} · HTML5 publish", resolved.name),
             script: None,
             line: 1,
             column: 1,

@@ -798,7 +798,7 @@ fn emit_version<W1: Write, W2: Write>(
 
 fn help_text(topic: Option<&str>) -> String {
     match topic {
-        Some("new") => "Usage: neoflash-editor --headless new --output <file.nflash> [--name STR] [--width N] [--height N] [--fps F] [--bg #RRGGBB[AA]] [--language as1|as2|as3|js|ts] [--demo]".into(),
+        Some("new") => "Usage: neoflash-editor --headless new --output <file.nflash> [--name STR] [--width N] [--height N] [--fps F] [--bg #RRGGBB[AA]] [--script as3|as2|as1|ts|js] [--language as1|as2|as3|js|ts] [--demo]".into(),
         Some("inspect") => "Usage: neoflash-editor --headless inspect --project <file.nflash> [--symbol ID|NAME] [--frame N] [--no-elements] [--no-scripts] [--no-resources]".into(),
         Some("validate") => "Usage: neoflash-editor --headless validate --project <file.nflash> [--strict]".into(),
         Some("compile") => "Usage: neoflash-editor --headless compile --project <file.nflash> [--strict]".into(),
@@ -873,7 +873,7 @@ fn subcommands_schema() -> Value {
         {
             "name": "new",
             "summary": "Create, validate, and atomically write a new .nflash document",
-            "flags": ["--output <file.nflash>", "--name <str>", "--width <u32>", "--height <u32>", "--fps <u32>", "--bg <#RRGGBB[AA]>", "--language <as1|as2|as3|js|ts>", "--demo"]
+            "flags": ["--output <file.nflash>", "--name <str>", "--width <u32>", "--height <u32>", "--fps <u32>", "--bg <#RRGGBB[AA]>", "--script <as3|as2|as1|ts|js>", "--language <as1|as2|as3|js|ts>", "--demo"]
         },
         {
             "name": "inspect",
@@ -1051,6 +1051,7 @@ fn run_cmd_new<W1: Write>(
     let mut height: Option<u32> = None;
     let mut fps: Option<u32> = None;
     let mut bg: Option<Color> = None;
+    let mut script: Option<ScriptLanguage> = None;
     let mut language: Option<ScriptLanguage> = None;
     let mut demo = false;
 
@@ -1087,6 +1088,10 @@ fn run_cmd_new<W1: Write>(
                 let raw = take_flag_value(args, &mut i, "--bg")?;
                 bg = Some(parse_color(&raw)?);
             }
+            "--script" => {
+                let raw = take_flag_value(args, &mut i, "--script")?;
+                script = Some(parse_language(&raw)?);
+            }
             "--language" | "--lang" => {
                 let raw = take_flag_value(args, &mut i, "--language")?;
                 language = Some(parse_language(&raw)?);
@@ -1106,6 +1111,19 @@ fn run_cmd_new<W1: Write>(
         .ok_or_else(|| CliError::usage("missing_flag", "'new' requires --output <file.nflash>"))?;
     let out_path = Path::new(&out_str);
     let mut project = build_new_project(name, width, height, fps, bg, language, demo)?;
+    let resolved_script = if demo {
+        script
+            .or(language)
+            .unwrap_or_else(|| project.infer_script_language())
+    } else {
+        script.or(language).unwrap_or(ScriptLanguage::ActionScript3)
+    };
+    project.script_language = Some(resolved_script);
+    project.also_compile_compatible_scripts = true;
+    project.upgrade_format_for_features();
+    project
+        .validate()
+        .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
     save_project_atomic(&mut project, out_path)?;
 
     match format {
@@ -1121,6 +1139,8 @@ fn run_cmd_new<W1: Write>(
                 "background": color_hex(project.background),
                 "background_rgba": project.background,
                 "root_symbol": project.root,
+                "script_language": project.script_language.map(ScriptLanguage::short_slug),
+                "also_compile_compatible_scripts": project.also_compile_compatible_scripts,
                 "language": language.map(|l| format!("{l:?}").to_ascii_lowercase()),
                 "demo": demo,
                 "format_version": project.format_version,
@@ -1372,6 +1392,9 @@ pub(crate) fn build_inspect_value(
             "background_rgba": project.background,
             "root_symbol": project.root,
             "document_class": project.document_class,
+            "script_language": project.script_language.map(ScriptLanguage::short_slug),
+            "effective_script_language": project.effective_script_language().short_slug(),
+            "also_compile_compatible_scripts": project.also_compile_compatible_scripts,
         },
         "scenes": scenes_json,
         "symbols": symbols_json,

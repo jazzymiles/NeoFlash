@@ -280,13 +280,13 @@ impl Editor {
             let output =
                 private_directory().map_err(|e| DebuggerStartupStatus::Failed(e.to_string()))?;
             self.debugger.export_directory = Some(output.clone());
+            let resolved_project = self.project.with_resolved_script_language();
             let index =
-                neoflash_export::export_project(&self.project, &output, &Self::runtime_dir())
+                neoflash_export::export_project(&resolved_project, &output, &Self::runtime_dir())
                     .map_err(|e| {
-                        script_compile_error =
-                            matches!(e, neoflash_export::ExportError::Scripts(_));
-                        DebuggerStartupStatus::Failed(e.to_string())
-                    })?;
+                    script_compile_error = matches!(e, neoflash_export::ExportError::Scripts(_));
+                    DebuggerStartupStatus::Failed(e.to_string())
+                })?;
             let (sources, scripts) =
                 read_export_sources(&index).map_err(DebuggerStartupStatus::Failed)?;
             self.debugger.scripts = scripts;

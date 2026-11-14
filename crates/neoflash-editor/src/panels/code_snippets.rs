@@ -1241,7 +1241,7 @@ impl Editor {
             .timeline
             .scripts
             .iter()
-            .find(|fs| fs.frame == self.frame)
+            .find(|fs| fs.frame == self.frame && !fs.script.source.trim().is_empty())
         {
             return fs.script.language;
         }

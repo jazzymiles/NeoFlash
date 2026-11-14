@@ -353,8 +353,10 @@ struct ProgramBundle<'a> {
     source_locations: Vec<neoflash_script::RuntimeSourceLocation>,
 }
 
-/// Reports current publish limitations before the user exports their work.
-pub fn export_warnings(project: &Project) -> Vec<String> {
+/// Reports current publish limitations before the user exports their work, excluding located
+/// foreign-script policy warnings when a caller (`Compiler errors`) already emits script-located
+/// rows for them.
+pub fn export_warnings_without_foreign_scripts(project: &Project) -> Vec<String> {
     let embedded = embedded_font_families(project);
     let mut fonts = BTreeSet::new();
     let mut warnings = Vec::new();
@@ -438,6 +440,162 @@ pub fn export_warnings(project: &Project) -> Vec<String> {
     warnings
 }
 
+/// Reports current publish limitations before the user exports their work.
+pub fn export_warnings(project: &Project) -> Vec<String> {
+    let mut warnings = export_warnings_without_foreign_scripts(project);
+    for (loc, msg, _) in foreign_script_policy_entries(project) {
+        warnings.push(format!("{loc}: {msg}"));
+    }
+    warnings
+}
+
+pub(crate) fn foreign_script_policy_entries(project: &Project) -> Vec<(String, String, bool)> {
+    let Some(proj_lang) = project.script_language else {
+        return Vec::new();
+    };
+    let also_compat = project.also_compile_compatible_scripts;
+    let mut entries = Vec::new();
+    let mut record = |loc: String, lang: neoflash_core::ScriptLanguage| match project
+        .script_disposition_for(proj_lang, also_compat, lang)
+    {
+        neoflash_core::ScriptDisposition::CompiledPrimary => {}
+        neoflash_core::ScriptDisposition::CompiledCompatibleWithWarning => {
+            entries.push((
+                loc,
+                format!(
+                    "Compiled as compatible language: script is {}, project uses {}.",
+                    lang.display_label(),
+                    proj_lang.display_label()
+                ),
+                false,
+            ));
+        }
+        neoflash_core::ScriptDisposition::SkippedForeign => {
+            entries.push((
+                loc,
+                format!(
+                    "Skipped when publishing: script is {}, project uses {}.",
+                    lang.display_label(),
+                    proj_lang.display_label()
+                ),
+                true,
+            ));
+        }
+    };
+    for unit in &project.sources {
+        record(unit.path.clone(), unit.language);
+    }
+    for symbol in &project.symbols {
+        for frame in &symbol.timeline.scripts {
+            if !frame.script.source.trim().is_empty() {
+                record(
+                    format!("{} / frame {}", symbol.name, frame.frame + 1),
+                    frame.script.language,
+                );
+            }
+        }
+        for layer in &symbol.timeline.layers {
+            for key in &layer.keyframes {
+                for element in &key.elements {
+                    for handler in &element.scripts {
+                        if !handler.script.source.trim().is_empty() {
+                            let elem_label = if element.name.trim().is_empty() {
+                                element.id.as_str()
+                            } else {
+                                element.name.as_str()
+                            };
+                            record(
+                                format!(
+                                    "{} / {} / frame {} / {} / {:?}",
+                                    symbol.name,
+                                    layer.name,
+                                    key.frame + 1,
+                                    elem_label,
+                                    handler.event
+                                ),
+                                handler.script.language,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    entries
+}
+
+pub(crate) fn strip_skipped_foreign_scripts(project: &Project) -> std::borrow::Cow<'_, Project> {
+    let Some(proj_lang) = project.script_language else {
+        return std::borrow::Cow::Borrowed(project);
+    };
+    let also_compat = project.also_compile_compatible_scripts;
+    let is_skipped = |lang: neoflash_core::ScriptLanguage| {
+        !project
+            .script_disposition_for(proj_lang, also_compat, lang)
+            .is_compiled()
+    };
+    let has_skipped = project.sources.iter().any(|u| is_skipped(u.language))
+        || project.symbols.iter().any(|s| {
+            s.timeline
+                .scripts
+                .iter()
+                .any(|fs| is_skipped(fs.script.language))
+                || s.timeline.layers.iter().any(|l| {
+                    l.keyframes.iter().any(|k| {
+                        k.elements
+                            .iter()
+                            .any(|e| e.scripts.iter().any(|os| is_skipped(os.script.language)))
+                    })
+                })
+        });
+    if !has_skipped {
+        return std::borrow::Cow::Borrowed(project);
+    }
+    let skipped_as_stems: BTreeSet<String> = project
+        .sources
+        .iter()
+        .filter(|u| is_skipped(u.language) && u.language.is_actionscript())
+        .filter_map(|u| {
+            u.path
+                .rsplit(['/', '\\'])
+                .next()
+                .and_then(|f| f.strip_suffix(".as"))
+                .map(str::to_owned)
+        })
+        .collect();
+    let mut copy = project.clone();
+    copy.sources.retain(|u| !is_skipped(u.language));
+    if !skipped_as_stems.is_empty() {
+        if let Some(doc_cls) = &copy.document_class {
+            let short = doc_cls.rsplit('.').next().unwrap_or(doc_cls).trim();
+            if skipped_as_stems.contains(short) {
+                copy.document_class = None;
+            }
+        }
+        for sym in &mut copy.symbols {
+            if let Some(cls) = &sym.class_name {
+                let short = cls.rsplit('.').next().unwrap_or(cls).trim();
+                if skipped_as_stems.contains(short) {
+                    sym.class_name = None;
+                }
+            }
+        }
+    }
+    for sym in &mut copy.symbols {
+        sym.timeline
+            .scripts
+            .retain(|fs| !is_skipped(fs.script.language));
+        for layer in &mut sym.timeline.layers {
+            for key in &mut layer.keyframes {
+                for el in &mut key.elements {
+                    el.scripts.retain(|os| !is_skipped(os.script.language));
+                }
+            }
+        }
+    }
+    std::borrow::Cow::Owned(copy)
+}
+
 pub(crate) fn compile_scripts(
     project: &Project,
     program: &neoflash_script::ProjectProgram,
@@ -447,6 +605,17 @@ pub(crate) fn compile_scripts(
     let mut seen = std::collections::BTreeMap::<String, usize>::new();
     let mut add = |script: &Script, location: String| {
         if script.source.trim().is_empty() {
+            return;
+        }
+        if let Some(proj_lang) = project.script_language
+            && !project
+                .script_disposition_for(
+                    proj_lang,
+                    project.also_compile_compatible_scripts,
+                    script.language,
+                )
+                .is_compiled()
+        {
             return;
         }
         let key = serde_json::to_string(script).expect("Script contains only serializable strings");
@@ -533,20 +702,24 @@ pub(crate) fn compile_scripts(
     }
 }
 
-/// Authoring-only data that never reaches the published bundle: ruler guides. Returns a stripped
-/// copy only when there is something to strip, so ordinary exports do not clone the project.
+/// Authoring-only data that never reaches the published bundle: ruler guides and foreign scripts
+/// skipped by `R-102` policy. Returns a stripped copy only when there is something to strip.
 pub(crate) fn publishable(project: &Project) -> Option<Project> {
     let has_guides = project
         .symbols
         .iter()
         .any(|symbol| !symbol.timeline.guides.is_empty());
-    has_guides.then(|| {
-        let mut copy = project.clone();
+    let stripped = strip_skipped_foreign_scripts(project);
+    if !has_guides && matches!(stripped, std::borrow::Cow::Borrowed(_)) {
+        return None;
+    }
+    let mut copy = stripped.into_owned();
+    if has_guides {
         for symbol in &mut copy.symbols {
             symbol.timeline.guides.clear();
         }
-        copy
-    })
+    }
+    Some(copy)
 }
 
 /// Export an entirely local package that also works when index.html is opened directly.

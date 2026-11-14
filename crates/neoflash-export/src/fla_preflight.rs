@@ -719,6 +719,26 @@ pub fn preflight_fla_export_with_options(
     }
 
     // 2. Collect script languages across the project & check bundled paths / limits
+    for (loc, msg, skipped) in crate::foreign_script_policy_entries(project) {
+        report.push(
+            if skipped {
+                "skipped_foreign_script"
+            } else {
+                "compatible_script_compiled"
+            },
+            FlaFeatureCategory::Scripts,
+            if skipped {
+                FlaFeatureDisposition::Omitted
+            } else {
+                FlaFeatureDisposition::Converted
+            },
+            loc,
+            msg,
+        );
+    }
+    let project_cow = crate::strip_skipped_foreign_scripts(project);
+    let project = project_cow.as_ref();
+
     let mut has_avm1 = false;
     let mut has_avm2 = false;
     let mut has_web_scripts = false;
@@ -2068,7 +2088,7 @@ pub fn prepare_project_for_fla_profile(
     options: &FlaExportOptions,
 ) -> (Project, FlaCompatibilityReport) {
     let report = preflight_fla_export_with_options(project, profile, options);
-    let mut derived = project.clone();
+    let mut derived = crate::strip_skipped_foreign_scripts(project).into_owned();
 
     // 1. Clamp stage dimensions if needed
     let max_dim = if matches!(profile, FlaTargetProfile::LegacyFlash8) {
@@ -2647,6 +2667,14 @@ fn write_zipped_xfl_bytes(
 
 fn detect_project_script_language(project: &Project, profile: FlaTargetProfile) -> ScriptLanguage {
     let allow_as3 = profile.supports_as3();
+    if let Some(proj_lang) = project.script_language {
+        match proj_lang {
+            ScriptLanguage::ActionScript3 if allow_as3 => return ScriptLanguage::ActionScript3,
+            ScriptLanguage::ActionScript2 => return ScriptLanguage::ActionScript2,
+            ScriptLanguage::ActionScript1 => return ScriptLanguage::ActionScript1,
+            _ => {}
+        }
+    }
     let mut found_avm1: Option<ScriptLanguage> = None;
 
     if allow_as3

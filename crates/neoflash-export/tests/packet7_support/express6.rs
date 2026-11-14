@@ -1547,6 +1547,8 @@ pub fn build_midnight_express_6() -> Project {
         resources,
         document_class: None,
         scenes: vec!["scene-1".into(), "scene-2".into(), "scene-3".into()],
+        script_language: None,
+        also_compile_compatible_scripts: true,
     };
     project.upgrade_format_for_features();
     project
