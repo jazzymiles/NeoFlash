@@ -6,8 +6,8 @@
 //! key on the selected (expanded) lane edits its value and frame (◆ interior keys); clicking a lane
 //! moves the playhead; the Ease column edits per-property ease overrides. Each change is one Undo
 //! step (one per drag).
-use super::planned::caption;
 use crate::app::Editor;
+use crate::panels::planned::caption;
 use crate::theme::ScrollTheme as _;
 use crate::workspace::PanelId;
 use eframe::egui::{self, Ui};
@@ -184,8 +184,6 @@ impl Editor {
                 action: None,
             }
             .show(ui);
-            ui.add_space(space::S2);
-            self.motion_sketch_and_wiggler_bar(ui, self.layer_editable(), None);
             return;
         };
         let ctx = ui.ctx().clone();
@@ -195,7 +193,8 @@ impl Editor {
         let nf = neoflash_ui::palette(ui.ctx());
         ui.set_min_width(LEFT + 240.);
         ui.spacing_mut().item_spacing.y = 0.0;
-        let width = ui.available_width();
+        let width = ui.available_width().max(LEFT + 240.);
+        self.motion_sketch_and_wiggler_bar(ui, editable, width, None);
         let top = ui.cursor().min.y;
         let (header, _) = ui.allocate_exact_size(
             egui::vec2(width, neoflash_ui::metrics::row()),
@@ -810,16 +809,13 @@ impl Editor {
                     Some(response.id),
                 );
             }
-            ui.label(
-                rich(
-                    "Click a curve to edit · ⌥-drag a keyframe to copy · ⇧ snaps to frames",
-                    TextStyle::Small,
-                )
-                .color(nf.text_secondary),
-            );
+            let curve_hint = if cfg!(target_os = "macos") {
+                "Click a curve to edit · Option-drag a keyframe to copy · Shift snaps to frames"
+            } else {
+                "Click a curve to edit · Alt-drag a keyframe to copy · Shift snaps to frames"
+            };
+            ui.label(rich(curve_hint, TextStyle::Small).color(nf.text_secondary));
         });
-        ui.add_space(space::S2);
-        self.motion_sketch_and_wiggler_bar(ui, editable, None);
         ctx.data_mut(|d| d.insert_temp(state_id(), state));
         if let Some(frame) = seek {
             self.seek_frame(frame);
@@ -830,73 +826,92 @@ impl Editor {
         &mut self,
         ui: &mut Ui,
         editable: bool,
+        width: f32,
         range_override: Option<(u32, u32)>,
     ) {
-        ui.horizontal(|ui| {
-            caption(ui, "Wiggler");
-            let mut freq = self.timeline_motion.wiggler.frequency_hz.max(0.5);
-            if ui
-                .add_enabled(
-                    editable,
-                    c::Field::new(&mut freq, "Wiggler frequency")
-                        .prefix("Freq")
-                        .unit("Hz")
-                        .decimals(1)
-                        .range(0.5..=60.0)
-                        .width(100.0),
-                )
-                .changed()
-            {
-                self.timeline_motion.wiggler.frequency_hz = freq.clamp(0.5, 60.0);
-            }
-            let mut mag = self.timeline_motion.wiggler.magnitude;
-            if ui
-                .add_enabled(
-                    editable,
-                    c::Field::new(&mut mag, "Wiggler magnitude")
-                        .prefix("Mag")
-                        .unit("px")
-                        .decimals(1)
-                        .range(0.0..=500.0)
-                        .width(100.0),
-                )
-                .changed()
-            {
-                self.timeline_motion.wiggler.magnitude = mag.clamp(0.0, 500.0);
-            }
-            if ui
-                .add_enabled(editable, c::Button::new("Apply Wiggler"))
-                .clicked()
-            {
-                let cfg = self.timeline_motion.wiggler.clone();
-                let _ = self.apply_motion_wiggler(cfg, range_override);
-            }
-            caption(ui, "Motion Sketch");
-            let mut smooth = self.timeline_motion.sketch_smoothing;
-            if ui
-                .add_enabled(
-                    editable,
-                    c::Field::new(&mut smooth, "Motion Sketch smoothness")
-                        .prefix("Smooth")
-                        .decimals(1)
-                        .range(0.0..=100.0)
-                        .width(100.0),
-                )
-                .changed()
-            {
-                self.timeline_motion.sketch_smoothing = smooth.clamp(0.0, 100.0);
-            }
-            let sketch_label = if self.is_motion_sketch_armed() {
-                "Stop Capture"
-            } else {
-                "Capture Sketch"
-            };
-            if ui
-                .add_enabled(editable, c::Button::new(sketch_label))
-                .clicked()
-            {
-                self.set_motion_sketch_armed(!self.is_motion_sketch_armed());
-            }
-        });
+        let p = neoflash_ui::palette(ui.ctx());
+        let (bar, _) = ui.allocate_exact_size(
+            egui::vec2(width, neoflash_ui::metrics::timeline_controls()),
+            egui::Sense::hover(),
+        );
+        ui.painter().hline(
+            bar.x_range(),
+            bar.bottom() - 0.5,
+            egui::Stroke::new(1.0_f32, p.border_subtle),
+        );
+        let inner = bar.shrink2(egui::vec2(space::S2, 0.0));
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(inner)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                ui.label(rich("Wiggler", TextStyle::Small).color(p.text_secondary));
+                let mut freq = self.timeline_motion.wiggler.frequency_hz.max(0.5);
+                if ui
+                    .add_enabled(
+                        editable,
+                        c::Field::new(&mut freq, "Wiggler frequency")
+                            .prefix("Freq")
+                            .unit("Hz")
+                            .decimals(1)
+                            .range(0.5..=60.0)
+                            .width(100.0),
+                    )
+                    .changed()
+                {
+                    self.timeline_motion.wiggler.frequency_hz = freq.clamp(0.5, 60.0);
+                }
+                let mut mag = self.timeline_motion.wiggler.magnitude;
+                if ui
+                    .add_enabled(
+                        editable,
+                        c::Field::new(&mut mag, "Wiggler magnitude")
+                            .prefix("Mag")
+                            .unit("px")
+                            .decimals(1)
+                            .range(0.0..=500.0)
+                            .width(100.0),
+                    )
+                    .changed()
+                {
+                    self.timeline_motion.wiggler.magnitude = mag.clamp(0.0, 500.0);
+                }
+                if ui
+                    .add_enabled(editable, c::Button::new("Apply wiggler"))
+                    .clicked()
+                {
+                    let cfg = self.timeline_motion.wiggler.clone();
+                    let _ = self.apply_motion_wiggler(cfg, range_override);
+                }
+                c::divider(ui, true);
+                ui.label(rich("Motion sketch", TextStyle::Small).color(p.text_secondary));
+                let mut smooth = self.timeline_motion.sketch_smoothing;
+                if ui
+                    .add_enabled(
+                        editable,
+                        c::Field::new(&mut smooth, "Motion sketch smoothness")
+                            .prefix("Smooth")
+                            .decimals(1)
+                            .range(0.0..=100.0)
+                            .width(100.0),
+                    )
+                    .changed()
+                {
+                    self.timeline_motion.sketch_smoothing = smooth.clamp(0.0, 100.0);
+                }
+                let sketch_label = if self.is_motion_sketch_armed() {
+                    "Stop capture"
+                } else {
+                    "Capture sketch"
+                };
+                if ui
+                    .add_enabled(editable, c::Button::new(sketch_label))
+                    .clicked()
+                {
+                    self.set_motion_sketch_armed(!self.is_motion_sketch_armed());
+                }
+            },
+        );
     }
 }

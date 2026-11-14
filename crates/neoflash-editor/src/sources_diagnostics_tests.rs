@@ -345,7 +345,7 @@ fn diagnostic_choice_keyboard_mouse_and_undo_for_all_actions_targets() {
             );
             let _ = render(&mut editor, &ctx, vec![egui::Event::PointerMoved(at)]);
             let output = render(&mut editor, &ctx, vec![]);
-            let action_at = named_rect(&output, "Quick fix ⌘.").center();
+            let action_at = named_rect(&output, "Quick fix").center();
             press(&mut editor, &ctx, action_at);
             assert_eq!(
                 source(&editor, target),
@@ -384,11 +384,7 @@ fn diagnostic_choice_keyboard_mouse_and_undo_for_all_actions_targets() {
             let _ = render(&mut editor, &ctx, vec![egui::Event::PointerMoved(at)]);
             let _ = render(&mut editor, &ctx, vec![]);
             let output = render(&mut editor, &ctx, vec![]);
-            press(
-                &mut editor,
-                &ctx,
-                named_rect(&output, "2 fixes ⌘.").center(),
-            );
+            press(&mut editor, &ctx, named_rect(&output, "2 fixes").center());
             assert!(ui_state(&editor, &ctx).menu.is_some());
             assert!(ctx.memory(|m| m.has_focus(editor.actions_editor_id())));
             let _ = render(

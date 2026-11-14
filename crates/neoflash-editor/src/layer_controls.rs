@@ -1523,7 +1523,11 @@ impl Editor {
         let solo_resp = menu_toggle(ui, &mut solo, "Solo", "");
         if nf::tooltip(
             solo_resp,
-            "Solo — show only soloed layers (⌥-click: only this one)",
+            if cfg!(target_os = "macos") {
+                "Solo — show only soloed layers (Option-click: only this one)"
+            } else {
+                "Solo — show only soloed layers (Alt-click: only this one)"
+            },
             None,
         )
         .changed()

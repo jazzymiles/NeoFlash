@@ -3524,30 +3524,28 @@ impl Editor {
             for c in 0..3 {
                 let p0 = to_screen(handles[r * 4 + c].2);
                 let p1 = to_screen(handles[r * 4 + c + 1].2);
-                painter.line_segment([p0, p1], grid_stroke);
+                crate::theme::stage_gizmo::line_segment(painter, [p0, p1], grid_stroke);
             }
         }
         for c in 0..4 {
             for r in 0..3 {
                 let p0 = to_screen(handles[r * 4 + c].2);
                 let p1 = to_screen(handles[(r + 1) * 4 + c].2);
-                painter.line_segment([p0, p1], grid_stroke);
+                crate::theme::stage_gizmo::line_segment(painter, [p0, p1], grid_stroke);
             }
         }
         for (r, c, pos) in handles {
             let sp = to_screen(pos);
             let is_interior = (1..3).contains(&r) && (1..3).contains(&c);
             if is_interior {
-                painter.circle_filled(sp, 4.0, nf.bg_raised);
-                painter.circle_stroke(sp, 4.0, Stroke::new(1.5_f32, nf.accent_default));
+                crate::theme::stage_gizmo::handle_circle(painter, sp, 4.0, nf.accent_default);
             } else {
                 let handle_rect = Rect::from_center_size(sp, Vec2::splat(7.0));
-                painter.rect_filled(handle_rect, 1.0, nf.bg_raised);
-                painter.rect_stroke(
+                crate::theme::stage_gizmo::handle_rect(
+                    painter,
                     handle_rect,
                     1.0,
-                    Stroke::new(1.5_f32, nf.accent_default),
-                    StrokeKind::Inside,
+                    nf.accent_default,
                 );
             }
         }
@@ -3571,19 +3569,17 @@ impl Editor {
         let edge_stroke = Stroke::new(1.5_f32, nf.accent_default);
         let diag_stroke = Stroke::new(1.0_f32, nf.guide);
         for i in 0..4 {
-            painter.line_segment([pts[i], pts[(i + 1) % 4]], edge_stroke);
+            crate::theme::stage_gizmo::line_segment(
+                painter,
+                [pts[i], pts[(i + 1) % 4]],
+                edge_stroke,
+            );
         }
-        painter.line_segment([pts[0], pts[2]], diag_stroke);
-        painter.line_segment([pts[1], pts[3]], diag_stroke);
+        crate::theme::stage_gizmo::line_segment(painter, [pts[0], pts[2]], diag_stroke);
+        crate::theme::stage_gizmo::line_segment(painter, [pts[1], pts[3]], diag_stroke);
         for sp in pts {
             let handle_rect = Rect::from_center_size(sp, Vec2::splat(7.0));
-            painter.rect_filled(handle_rect, 1.0, nf.bg_raised);
-            painter.rect_stroke(
-                handle_rect,
-                1.0,
-                Stroke::new(1.5_f32, nf.accent_default),
-                StrokeKind::Inside,
-            );
+            crate::theme::stage_gizmo::handle_rect(painter, handle_rect, 1.0, nf.accent_default);
         }
     }
 
@@ -3632,14 +3628,13 @@ impl Editor {
         for (id, pos, _kind) in &pins {
             let sp = to_screen(*pos);
             let is_sel = selected_pin == Some(id.as_str());
-            let radius = if is_sel { 7.0 } else { 5.5 };
-            painter.circle_filled(sp, radius, nf.bg_raised);
-            painter.circle_stroke(
+            let radius = if is_sel { 6.5 } else { 5.0 };
+            crate::theme::stage_gizmo::handle_circle(
+                painter,
                 sp,
                 radius,
-                Stroke::new(if is_sel { 2.0_f32 } else { 1.5_f32 }, nf.accent_default),
+                crate::theme::stage_gizmo::VANISHING_AND_PIN,
             );
-            painter.circle_filled(sp, 2.5, nf.accent_default);
         }
     }
 
@@ -3667,16 +3662,20 @@ impl Editor {
                 let mid = hs + dir * 0.25;
                 let left = mid + perp * wing;
                 let right = mid - perp * wing;
-                painter.line_segment([hs, left], stroke);
-                painter.line_segment([left, ts], stroke);
-                painter.line_segment([ts, right], stroke);
-                painter.line_segment([right, hs], stroke);
+                crate::theme::stage_gizmo::line_segment(painter, [hs, left], stroke);
+                crate::theme::stage_gizmo::line_segment(painter, [left, ts], stroke);
+                crate::theme::stage_gizmo::line_segment(painter, [ts, right], stroke);
+                crate::theme::stage_gizmo::line_segment(painter, [right, hs], stroke);
             } else {
-                painter.line_segment([hs, ts], stroke);
+                crate::theme::stage_gizmo::line_segment(painter, [hs, ts], stroke);
             }
-            painter.circle_filled(hs, 5.0, nf.bg_raised);
-            painter.circle_stroke(hs, 5.0, stroke);
-            painter.circle_filled(ts, if is_sel { 5.5 } else { 4.0 }, nf.accent_default);
+            crate::theme::stage_gizmo::handle_circle(painter, hs, 5.0, nf.accent_default);
+            crate::theme::stage_gizmo::handle_circle(
+                painter,
+                ts,
+                if is_sel { 5.5 } else { 4.5 },
+                crate::theme::stage_gizmo::VANISHING_AND_PIN,
+            );
         }
 
         if let Some(drag) = &self.vector.live_deform_drag
@@ -3687,10 +3686,11 @@ impl Editor {
         {
             let hs = to_screen(start_stage);
             let ts = to_screen(current_stage);
-            let preview_stroke = Stroke::new(1.5_f32, nf.guide);
-            painter.line_segment([hs, ts], preview_stroke);
-            painter.circle_stroke(hs, 4.5, preview_stroke);
-            painter.circle_filled(ts, 4.0, nf.guide);
+            let guide_col = crate::theme::stage_gizmo::VANISHING_AND_PIN;
+            let preview_stroke = Stroke::new(1.5_f32, guide_col);
+            crate::theme::stage_gizmo::line_segment(painter, [hs, ts], preview_stroke);
+            crate::theme::stage_gizmo::handle_circle(painter, hs, 4.5, guide_col);
+            crate::theme::stage_gizmo::handle_circle(painter, ts, 4.0, guide_col);
         }
 
         if self.tool == Tool::Bind
@@ -3718,22 +3718,18 @@ impl Editor {
                     let sp = mapping.edit_to_screen(origin, zoom, affine(mat, local_pt));
                     let is_bound = bound_indices.contains(&v_idx);
                     if is_bound {
-                        painter.rect_filled(
+                        crate::theme::stage_gizmo::handle_rect(
+                            painter,
                             Rect::from_center_size(sp, Vec2::splat(7.0)),
                             1.0,
-                            nf.accent_default,
+                            crate::theme::stage_gizmo::VANISHING_AND_PIN,
                         );
                     } else {
-                        painter.rect_filled(
+                        crate::theme::stage_gizmo::handle_rect(
+                            painter,
                             Rect::from_center_size(sp, Vec2::splat(6.0)),
                             1.0,
-                            nf.bg_raised,
-                        );
-                        painter.rect_stroke(
-                            Rect::from_center_size(sp, Vec2::splat(6.0)),
-                            1.0,
-                            Stroke::new(1.2_f32, nf.accent_default),
-                            StrokeKind::Inside,
+                            nf.accent_default,
                         );
                     }
                     v_idx += 1;

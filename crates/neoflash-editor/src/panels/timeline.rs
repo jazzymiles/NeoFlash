@@ -2034,9 +2034,9 @@ impl Editor {
         }
     }
 
-    /// Paint the compact Mode label plus the 2 inline AE-style 16×16 mask icons (`R-049`:
-    /// 1. Mask Channel: Alpha / Color-Luminance / Geometry; 2. Mask Invert) right after `Mode`
-    ///    on a `LayerRole::Mask` row.
+    /// Paint the 2 inline 16×16 (`12×12` on compact rows) NF2 mask icons (`R-049`: Mask Channel
+    /// Geometry / Alpha / Luminance, and Mask Invert) inside the `Mode` cell on a `LayerRole::Mask`
+    /// row.
     #[allow(clippy::too_many_arguments)]
     fn paint_mask_row_mode_and_icons(
         &mut self,
@@ -2055,8 +2055,9 @@ impl Editor {
             Pos2::new(mode_rect.right(), mode_rect.bottom().min(row_rect.bottom())),
         );
         let half_s1 = space::S1 * 0.5;
-        let icon_w = space::S4;
-        let icon_h = space::S4.min(row_rect.height());
+        let icon_side = tl::layer_row_icon(row_rect.height());
+        let icon_w = icon_side;
+        let icon_h = icon_side.min(row_rect.height());
         let icon_y = cell_rect.center().y - icon_h * 0.5;
         let invert_icon_rect = Rect::from_min_size(
             Pos2::new(cell_rect.right() - icon_w, icon_y),
@@ -2066,29 +2067,18 @@ impl Editor {
             Pos2::new(invert_icon_rect.left() - half_s1 - icon_w, icon_y),
             Vec2::new(icon_w, icon_h),
         );
-        let mode_btn_rect = Rect::from_min_max(
-            cell_rect.min,
-            Pos2::new(
-                (channel_icon_rect.left() - half_s1).max(cell_rect.left()),
-                cell_rect.bottom(),
-            ),
-        );
 
-        let mode_resp = ui.interact(mode_btn_rect, row_id.with("mask-mode-cell"), Sense::click());
-        mode_resp.widget_info(|| {
-            egui::WidgetInfo::labeled(
-                egui::WidgetType::Button,
-                true,
-                format!("Mask mode: {}", mask_mode.label()),
-            )
-        });
         let channel_resp = ui.interact(
             channel_icon_rect,
             row_id.with("mask-channel-icon"),
             Sense::click(),
         );
         channel_resp.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Mask channel")
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                true,
+                format!("Mask channel: {}", mask_mode.label()),
+            )
         });
         let invert_resp = ui.interact(
             invert_icon_rect,
@@ -2099,39 +2089,7 @@ impl Editor {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Invert mask")
         });
 
-        let short_label = match mask_mode {
-            MaskMode::Geometry => "Geo",
-            MaskMode::Alpha => "Alpha",
-            MaskMode::Luminance => "Luma",
-        };
         let mode_active = !mask_mode.is_geometry();
-        let mode_fg = if mode_active {
-            p.accent_default
-        } else if mode_resp.hovered() || row_selected {
-            p.text_primary
-        } else {
-            p.text_secondary
-        };
-        if mode_active || mode_resp.hovered() {
-            ui.painter().rect_filled(
-                mode_btn_rect,
-                neoflash_ui::tokens::radius::SM,
-                if mode_active {
-                    p.accent_subtle
-                } else {
-                    p.bg_hover
-                },
-            );
-        }
-        ui.painter().text(
-            Pos2::new(mode_btn_rect.left() + space::S1, mode_btn_rect.center().y),
-            Align2::LEFT_CENTER,
-            short_label,
-            typography::font(TextStyle::Small),
-            mode_fg,
-        );
-
-        // Icon 1 (16×16): AE-style Mask Channel icon (Alpha vs Color/Luminance vs Geometry).
         let channel_fg = if mode_active {
             p.accent_default
         } else if channel_resp.hovered() || row_selected {
@@ -2150,39 +2108,20 @@ impl Editor {
                 },
             );
         }
-        let c_center = channel_icon_rect.center();
-        let c_radius = space::S1 + half_s1;
-        ui.painter()
-            .circle_stroke(c_center, c_radius, Stroke::new(1.0_f32, channel_fg));
-        match mask_mode {
-            MaskMode::Alpha => {
-                ui.painter().text(
-                    c_center,
-                    Align2::CENTER_CENTER,
-                    "α",
-                    typography::font(TextStyle::Small),
-                    channel_fg,
-                );
-            }
-            MaskMode::Luminance => {
-                // AE-style half-filled luminance disc + vertical contrast split.
-                ui.painter().vline(
-                    c_center.x,
-                    (c_center.y - c_radius)..=(c_center.y + c_radius),
-                    Stroke::new(1.0_f32, channel_fg),
-                );
-                let left_half = Rect::from_min_max(
-                    Pos2::new(c_center.x - c_radius * 0.7, c_center.y - c_radius * 0.7),
-                    Pos2::new(c_center.x, c_center.y + c_radius * 0.7),
-                );
-                ui.painter().rect_filled(left_half, 0.0, channel_fg);
-            }
-            MaskMode::Geometry => {
-                ui.painter().circle_filled(c_center, half_s1, channel_fg);
-            }
-        }
+        let channel_icon = match mask_mode {
+            MaskMode::Geometry => neoflash_ui::icons::i16::MASK_GEOMETRY,
+            MaskMode::Alpha => neoflash_ui::icons::i16::MASK_ALPHA,
+            MaskMode::Luminance => neoflash_ui::icons::i16::MASK_LUMA,
+        };
+        neoflash_ui::icons::paint_sized(
+            ui.painter(),
+            ui.ctx(),
+            channel_icon_rect,
+            channel_icon,
+            icon_side,
+            channel_fg,
+        );
 
-        // Icon 2 (16×16): AE-style Mask Invert icon.
         let invert_fg = if mask_invert {
             p.accent_default
         } else if invert_resp.hovered() || row_selected {
@@ -2201,23 +2140,14 @@ impl Editor {
                 },
             );
         }
-        let inv_box = invert_icon_rect.shrink(half_s1 + 1.0);
-        let inv_center = inv_box.center();
-        if mask_invert {
-            ui.painter()
-                .rect_filled(inv_box, neoflash_ui::tokens::radius::SM, invert_fg);
-            ui.painter()
-                .circle_filled(inv_center, half_s1 + 0.5, p.bg_panel);
-        } else {
-            ui.painter().rect_stroke(
-                inv_box,
-                neoflash_ui::tokens::radius::SM,
-                Stroke::new(1.0_f32, invert_fg),
-                egui::StrokeKind::Inside,
-            );
-            ui.painter()
-                .circle_filled(inv_center, half_s1 + 0.5, invert_fg);
-        }
+        neoflash_ui::icons::paint_sized(
+            ui.painter(),
+            ui.ctx(),
+            invert_icon_rect,
+            neoflash_ui::icons::i16::MASK_INVERT,
+            icon_side,
+            invert_fg,
+        );
 
         if channel_resp.clicked() {
             let next_mode = match mask_mode {
@@ -2231,7 +2161,7 @@ impl Editor {
             self.set_layer_mask_invert(idx, !mask_invert);
         }
 
-        let open_popup = mode_resp.clicked() || channel_resp.secondary_clicked();
+        let open_popup = channel_resp.secondary_clicked();
         let mode_popup_id = row_id.with("mask-mode-popup");
         egui::Popup::new(
             mode_popup_id,
@@ -2254,14 +2184,9 @@ impl Editor {
         });
 
         let _ = nf::tooltip(
-            mode_resp,
-            &format!("Mask mode: {}", mask_mode.label()),
-            None,
-        );
-        let _ = nf::tooltip(
             channel_resp,
             &format!(
-                "Mask channel: {} — click to cycle Geometry / Alpha / Luminance (right-click for menu)",
+                "Mask mode: {} — click to cycle Geometry / Alpha / Luminance (right-click for menu)",
                 mask_mode.label()
             ),
             None,

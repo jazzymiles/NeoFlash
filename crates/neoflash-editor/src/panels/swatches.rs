@@ -929,6 +929,31 @@ impl Editor {
         count
     }
 
+    /// Format a colour's usage roles as `"5 × text"` or `"2 × fill · 1 × stroke"` (`R-094`).
+    fn color_usage_text(entry: &ProjectColorEntry) -> String {
+        let mut parts = Vec::new();
+        if entry.fill_count > 0 {
+            parts.push(format!("{} × fill", entry.fill_count));
+        }
+        if entry.stroke_count > 0 {
+            parts.push(format!("{} × stroke", entry.stroke_count));
+        }
+        if entry.gradient_count > 0 {
+            parts.push(format!("{} × gradient", entry.gradient_count));
+        }
+        if entry.text_count > 0 {
+            parts.push(format!("{} × text", entry.text_count));
+        }
+        if parts.is_empty() {
+            if entry.in_custom_swatches {
+                parts.push("1 × swatch".to_owned());
+            } else {
+                parts.push(format!("{} ×", entry.total_uses()));
+            }
+        }
+        parts.join(" · ")
+    }
+
     /// Figma-style interactive list of all colours in the project (or current selection) with live
     /// RGBA popover replacement, usage counts/roles, stage selection, and JSFL Change Colour (`T-197`).
     pub(crate) fn project_colors_section_ui(&mut self, ui: &mut Ui, selection_only: bool) {
@@ -978,76 +1003,112 @@ impl Editor {
             None
         };
 
+        let p = neoflash_ui::palette(&ctx);
         let mut select_color_requested: Option<Color> = None;
 
-        for (row_idx, entry) in entries.iter().enumerate() {
-            let row_id = format!("{scope_tag}-row-{row_idx}");
-            let label = format!("Colour {}", row_idx + 1);
-            let mut edited = entry.color;
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = neoflash_ui::tokens::space::S3;
+            for (row_idx, entry) in entries.iter().enumerate() {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = neoflash_ui::tokens::space::S1;
+                    let row_id = format!("{scope_tag}-row-{row_idx}");
+                    let label = format!("Colour {}", row_idx + 1);
+                    let mut edited = entry.color;
 
-            // Keep the active drag's current target colour displayed even if the user drags across
-            // another existing colour in the project.
-            if let Some((active_row, _origin, current_target, _base_proj)) =
-                ctx.data(|d| d.get_temp::<(usize, Color, Color, Project)>(live_state_id))
-                && active_row == row_idx
-            {
-                edited = current_target;
-            }
-
-            let resp = crate::paint_controls::color_row(ui, &row_id, "#", &label, &mut edited);
-            if resp.changed() && edited != entry.color {
-                let existing_drag =
-                    ctx.data(|d| d.get_temp::<(usize, Color, Color, Project)>(live_state_id));
-                let (origin_color, base_proj) = match existing_drag {
-                    Some((active_row, orig, _, base)) if active_row == row_idx => (orig, base),
-                    _ => {
-                        let base = self.project.clone();
-                        self.begin_property_edit(scope, resp.id);
-                        (entry.color, base)
+                    // Keep the active drag's current target colour displayed even if the user drags across
+                    // another existing colour in the project.
+                    if let Some((active_row, _origin, current_target, _base_proj)) =
+                        ctx.data(|d| d.get_temp::<(usize, Color, Color, Project)>(live_state_id))
+                        && active_row == row_idx
+                    {
+                        edited = current_target;
                     }
-                };
-                let mut candidate = base_proj.clone();
-                let mut opts = ChangeColorOptions::new(origin_color, edited);
-                if selection_only {
-                    opts.target_elements = placements_snapshot.clone();
-                    opts.include_custom_swatches = false;
-                }
-                if change_project_color(&mut candidate, &opts).is_ok() {
-                    self.project = candidate;
-                    ctx.data_mut(|d| {
-                        d.insert_temp(live_state_id, (row_idx, origin_color, edited, base_proj));
-                    });
-                    if !selection_only {
-                        for sw in &mut self.workspace.custom_swatches {
-                            if *sw == origin_color {
-                                *sw = edited;
+
+                    let resp =
+                        crate::paint_controls::color_row(ui, &row_id, "#", &label, &mut edited);
+                    if resp.changed() && edited != entry.color {
+                        let existing_drag = ctx
+                            .data(|d| d.get_temp::<(usize, Color, Color, Project)>(live_state_id));
+                        let (origin_color, base_proj) = match existing_drag {
+                            Some((active_row, orig, _, base)) if active_row == row_idx => {
+                                (orig, base)
+                            }
+                            _ => {
+                                let base = self.project.clone();
+                                self.begin_property_edit(scope, resp.id);
+                                (entry.color, base)
+                            }
+                        };
+                        let mut candidate = base_proj.clone();
+                        let mut opts = ChangeColorOptions::new(origin_color, edited);
+                        if selection_only {
+                            opts.target_elements = placements_snapshot.clone();
+                            opts.include_custom_swatches = false;
+                        }
+                        if change_project_color(&mut candidate, &opts).is_ok() {
+                            self.project = candidate;
+                            ctx.data_mut(|d| {
+                                d.insert_temp(
+                                    live_state_id,
+                                    (row_idx, origin_color, edited, base_proj),
+                                );
+                            });
+                            if !selection_only {
+                                for sw in &mut self.workspace.custom_swatches {
+                                    if *sw == origin_color {
+                                        *sw = edited;
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            }
 
-            let roles = entry.roles_summary();
-            let summary = if roles.is_empty() {
-                format!("{} ×", entry.total_uses())
-            } else {
-                format!("{} × · {}", entry.total_uses(), roles)
-            };
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = neoflash_ui::tokens::space::S2;
-                ui.add(c::Badge::new(&summary, c::BadgeType::Neutral));
-                if !selection_only
-                    && ui
-                        .add(c::IconButton::new(
-                            neoflash_ui::icons::i16::SELECT_ALL,
-                            "Select elements with this colour on the current frame",
-                        ))
-                        .clicked()
-                {
-                    select_color_requested = Some(entry.color);
-                }
-            });
-        }
+                    let summary = Self::color_usage_text(entry);
+                    if selection_only {
+                        ui.add(
+                            egui::Label::new(
+                                neoflash_ui::typography::rich(
+                                    &summary,
+                                    neoflash_ui::TextStyle::Small,
+                                )
+                                .color(p.text_tertiary),
+                            )
+                            .wrap(),
+                        );
+                    } else {
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(ui.available_width(), 20.0),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.spacing_mut().item_spacing.x = neoflash_ui::tokens::space::S2;
+                                ui.add(
+                                    egui::Label::new(
+                                        neoflash_ui::typography::rich(
+                                            &summary,
+                                            neoflash_ui::TextStyle::Small,
+                                        )
+                                        .color(p.text_tertiary),
+                                    )
+                                    .wrap(),
+                                );
+                                if ui
+                                    .add(
+                                        c::IconButton::new(
+                                            neoflash_ui::icons::i16::SELECT_ALL,
+                                            "Select elements with this colour on the current frame",
+                                        )
+                                        .side(20.0),
+                                    )
+                                    .clicked()
+                                {
+                                    select_color_requested = Some(entry.color);
+                                }
+                            },
+                        );
+                    }
+                });
+            }
+        });
 
         if let Some(target_color) = select_color_requested {
             self.select_elements_with_color_on_frame(target_color);
@@ -1227,5 +1288,181 @@ mod tests {
             &editor.project.symbol(&root_id).unwrap().timeline.layers[0].keyframes[0].elements;
         assert!(matches!(els[0].kind, ElementKind::Rectangle { fill, .. } if fill == c_coral));
         assert!(matches!(els[1].kind, ElementKind::Ellipse { fill, .. } if fill == c_coral));
+    }
+
+    #[test]
+    fn r094_selection_and_project_colors_render_small_tertiary_usage_text_at_60pt_pitch() {
+        let coral_only = ProjectColorEntry {
+            color: [230, 57, 70, 255],
+            hex: "#E63946".to_owned(),
+            fill_count: 2,
+            stroke_count: 1,
+            gradient_count: 0,
+            text_count: 0,
+            in_custom_swatches: false,
+        };
+        assert_eq!(
+            Editor::color_usage_text(&coral_only),
+            "2 × fill · 1 × stroke"
+        );
+        let text_only = ProjectColorEntry {
+            color: [42, 157, 143, 255],
+            hex: "#2A9D8F".to_owned(),
+            fill_count: 0,
+            stroke_count: 0,
+            gradient_count: 0,
+            text_count: 5,
+            in_custom_swatches: false,
+        };
+        assert_eq!(Editor::color_usage_text(&text_only), "5 × text");
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        editor
+            .project
+            .symbols
+            .retain(|s| s.id == editor.project.root);
+        editor.project.set_custom_swatches(&[]);
+        let c_coral = [230, 57, 70, 255];
+        let c_teal = [42, 157, 143, 255];
+        let root_id = editor.project.root.clone();
+        editor
+            .project
+            .symbol_mut(&root_id)
+            .unwrap()
+            .timeline
+            .layers
+            .truncate(1);
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0]
+            .keyframes
+            .truncate(1);
+        let layer_id = editor.project.symbol(&root_id).unwrap().timeline.layers[0]
+            .id
+            .clone();
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0].elements = vec![
+            Element {
+                id: "el-a".to_owned(),
+                name: String::new(),
+                transform: Transform::default(),
+                kind: ElementKind::Rectangle {
+                    width: 100.0,
+                    height: 80.0,
+                    fill: c_coral,
+                    stroke: c_teal,
+                    stroke_width: 2.0,
+                },
+                ..Default::default()
+            },
+            Element {
+                id: "el-b".to_owned(),
+                name: String::new(),
+                transform: Transform::default(),
+                kind: ElementKind::Ellipse {
+                    width: 60.0,
+                    height: 60.0,
+                    fill: c_coral,
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                },
+                ..Default::default()
+            },
+        ];
+        editor.selection = Selection {
+            symbol: root_id,
+            targets: vec![
+                SelectionTarget {
+                    layer: layer_id.clone(),
+                    element: "el-a".to_owned(),
+                },
+                SelectionTarget {
+                    layer: layer_id,
+                    element: "el-b".to_owned(),
+                },
+            ],
+        };
+
+        let run_section = |ed: &mut Editor, selection_only: bool| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(300.0, 500.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::SidePanel::right("props")
+                        .exact_width(268.0)
+                        .show(ctx, |ui| {
+                            ed.project_colors_section_ui(ui, selection_only);
+                        });
+                },
+            )
+        };
+
+        let p = neoflash_ui::palette(&ctx);
+        for selection_only in [true, false] {
+            let out = run_section(&mut editor, selection_only);
+            let mut usage_coral_y = None;
+            let mut usage_teal_y = None;
+            let mut row1_y = None;
+            let mut row2_y = None;
+            for s in &out.shapes {
+                if let egui::Shape::Text(t) = &s.shape {
+                    let txt = t.galley.text();
+                    if txt == "2 × fill" {
+                        usage_coral_y = Some(t.pos.y);
+                        let format_color =
+                            t.galley.job.sections.first().map(|sec| sec.format.color);
+                        assert_eq!(
+                            format_color,
+                            Some(p.text_tertiary),
+                            "usage text must use text/tertiary (selection_only={selection_only})"
+                        );
+                    } else if txt == "1 × stroke" {
+                        usage_teal_y = Some(t.pos.y);
+                    } else if txt.eq_ignore_ascii_case("#E63946") {
+                        row1_y.get_or_insert(t.pos.y);
+                    } else if txt.eq_ignore_ascii_case("#2A9D8F") {
+                        row2_y.get_or_insert(t.pos.y);
+                    }
+                }
+            }
+            assert!(
+                usage_coral_y.is_some() && usage_teal_y.is_some(),
+                "expected '2 × fill' and '1 × stroke' usage labels (selection_only={selection_only})"
+            );
+            let y1 = row1_y.expect("first color row rendered");
+            let y2 = row2_y.expect("second color row rendered");
+            let pitch = y2 - y1;
+            if selection_only {
+                assert!(
+                    (46.0..=64.0).contains(&pitch),
+                    "R-094 Selection colours pitch should be ~60 pt (got {pitch})"
+                );
+            } else {
+                assert!(
+                    (50.0..=70.0).contains(&pitch),
+                    "R-094 Project colours compact pitch should stay well under 88 pt (got {pitch})"
+                );
+            }
+            // No Badge pill background should sit behind the usage text.
+            let uy = usage_coral_y.unwrap();
+            let has_badge_pill = out.shapes.iter().any(|s| {
+                matches!(
+                    &s.shape,
+                    egui::Shape::Rect(r)
+                        if r.fill == p.bg_hover
+                            && r.rect.height() >= 18.0
+                            && r.rect.height() <= 24.0
+                            && r.rect.top() <= uy + 2.0
+                            && r.rect.bottom() >= uy + 10.0
+                )
+            });
+            assert!(
+                !has_badge_pill,
+                "usage text must not be wrapped in a Badge pill (selection_only={selection_only})"
+            );
+        }
     }
 }

@@ -4,6 +4,7 @@ use super::planned::caption;
 use crate::{
     app::Editor,
     publish_controller::EstimateState,
+    theme::ScrollTheme as _,
     workspace::{PublishPrefs, PublishProfilePreset, PublishTarget},
 };
 use eframe::egui::{self, Ui};
@@ -333,11 +334,21 @@ impl Editor {
         let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let p = neoflash_ui::palette(ctx);
         let mut estimate = self.request_publish_estimate(ctx, &draft.settings).clone();
+        let dialog_max_h = (ctx.content_rect().height() - 80.0).max(260.0);
+        let body_max_h = (dialog_max_h
+            - neoflash_ui::metrics::dialog_header()
+            - space::S5 * 2.0
+            - space::S2 * 2.0
+            - neoflash_ui::metrics::control().max(28.0)
+            - 4.0)
+            .max(160.0);
         let modal = egui::Modal::new(egui::Id::new("publish-settings"))
             .frame(c::Surface::Dialog.frame(ctx)).backdrop_color(p.overlay)
             .show(ctx, |ui| {
                 // R-032 retains the 900pt dialog: 260pt targets, 24pt gap, 566pt settings.
                 ui.set_width(898.0);
+                ui.set_max_height(dialog_max_h);
+                ui.spacing_mut().item_spacing.y = 0.0;
                 let top = ui.cursor().min;
                 close |= c::DialogHeader { title: "Publish settings" }.show(ui);
                 ui.painter().hline(top.x..=top.x + 898.0,
@@ -345,13 +356,12 @@ impl Editor {
                     egui::Stroke::new(1.0_f32, p.border_subtle));
                 egui::Frame::new().inner_margin(egui::Margin::same(space::S5 as i8)).show(ui, |ui| {
                     ui.set_width(850.0);
-                    egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 240.0).max(200.0)).show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.x = space::S5;
-                        ui.horizontal_top(|ui| {
-                            ui.allocate_ui_with_layout(egui::vec2(260.0, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
-                                ui.set_width(260.0);
-                                ui.spacing_mut().item_spacing.y = 2.0;
-                                ui.spacing_mut().item_spacing.x = space::S2;
+                    ui.spacing_mut().item_spacing = egui::vec2(space::S5, 0.0);
+                    ui.horizontal_top(|ui| {
+                        ui.vertical(|ui| {
+                            ui.set_width(260.0);
+                            ui.spacing_mut().item_spacing.y = 2.0;
+                            ui.spacing_mut().item_spacing.x = space::S2;
                                 let profile_label = draft.active_profile_label();
                                 c::Select::new(
                                     ui.id().with("publish-settings-profile"),
@@ -446,57 +456,91 @@ impl Editor {
                                     ),
                                     (PublishTarget::SvgAnimation, i16::CODE, "SVG animation"),
                                 ] {
-                                    ui.horizontal(|ui| {
-                                        ui.set_min_height(32.0);
-                                        let enabled_ref = match target {
-                                            PublishTarget::Html5 => &mut draft.settings.html5_enabled,
-                                            PublishTarget::DesktopApp => {
-                                                &mut draft.settings.desktop_app_enabled
-                                            }
-                                            PublishTarget::VideoMp4 => {
-                                                &mut draft.settings.video_enabled
-                                            }
-                                            PublishTarget::ImageSequence => {
-                                                &mut draft.settings.image_sequence_enabled
-                                            }
-                                            PublishTarget::SvgAnimation => {
-                                                &mut draft.settings.svg_enabled
-                                            }
-                                        };
-                                        if ui.add(c::Checkbox::new(enabled_ref, "")).clicked() {
-                                            draft.selected_target = target;
-                                            draft.settings.default_target = target;
-                                        }
-                                        let active = draft.selected_target == target;
-                                        icons::show(
-                                            ui,
-                                            icon,
-                                            if active { p.accent_default } else { p.text_secondary },
-                                        );
-                                        let lbl = ui.add(
-                                            egui::Label::new(
-                                                rich(
-                                                    label,
+                                    let active = draft.selected_target == target;
+                                    let row_bg = if active {
+                                        p.bg_selected
+                                    } else {
+                                        egui::Color32::TRANSPARENT
+                                    };
+                                    let row_frame = egui::Frame::new()
+                                        .fill(row_bg)
+                                        .corner_radius(egui::CornerRadius::same(
+                                            neoflash_ui::tokens::radius::MD as u8,
+                                        ))
+                                        .inner_margin(egui::Margin::symmetric(space::S2 as i8, 0))
+                                        .show(ui, |ui| {
+                                            ui.set_min_size(egui::vec2(260.0 - space::S2 * 2.0, 32.0));
+                                            ui.horizontal(|ui| {
+                                                ui.set_min_height(32.0);
+                                                let enabled_ref = match target {
+                                                    PublishTarget::Html5 => {
+                                                        &mut draft.settings.html5_enabled
+                                                    }
+                                                    PublishTarget::DesktopApp => {
+                                                        &mut draft.settings.desktop_app_enabled
+                                                    }
+                                                    PublishTarget::VideoMp4 => {
+                                                        &mut draft.settings.video_enabled
+                                                    }
+                                                    PublishTarget::ImageSequence => {
+                                                        &mut draft.settings.image_sequence_enabled
+                                                    }
+                                                    PublishTarget::SvgAnimation => {
+                                                        &mut draft.settings.svg_enabled
+                                                    }
+                                                };
+                                                let _cb = ui.add(c::Checkbox::new(enabled_ref, ""));
+                                                let icon_resp = icons::show(
+                                                    ui,
+                                                    icon,
                                                     if active {
-                                                        TextStyle::BodyStrong
+                                                        p.accent_default
                                                     } else {
-                                                        TextStyle::Body
+                                                        p.text_secondary
                                                     },
                                                 )
-                                                .color(p.text_primary),
-                                            )
-                                            .sense(egui::Sense::click()),
-                                        );
-                                        if lbl.clicked() {
-                                            draft.selected_target = target;
-                                        }
-                                    });
+                                                .interact(egui::Sense::click());
+                                                let lbl = ui.add(
+                                                    egui::Label::new(
+                                                        rich(
+                                                            label,
+                                                            if active {
+                                                                TextStyle::BodyStrong
+                                                            } else {
+                                                                TextStyle::Body
+                                                            },
+                                                        )
+                                                        .color(p.text_primary),
+                                                    )
+                                                    .sense(egui::Sense::click()),
+                                                );
+                                                let tail = ui.allocate_response(
+                                                    egui::vec2(ui.available_width().max(0.0), 32.0),
+                                                    egui::Sense::click(),
+                                                );
+                                                if icon_resp.clicked() || lbl.clicked() || tail.clicked() {
+                                                    draft.selected_target = target;
+                                                }
+                                            });
+                                        });
+                                    let _ = row_frame;
                                 }
                             });
                             ui.vertical(|ui| {
                                 ui.set_width(566.0);
-                                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S3);
-                                match draft.selected_target {
+                                ui.set_max_height(body_max_h);
+                                egui::ScrollArea::vertical()
+                                    .id_salt("publish-settings-right-scroll")
+                                    .max_height(body_max_h)
+                                    .scroll_bar_visibility(
+                                        egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
+                                    )
+                                    .auto_shrink([false, true])
+                                    .themed()
+                                    .show(ui, |ui| {
+                                        ui.set_width(554.0);
+                                        ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S3);
+                                        match draft.selected_target {
                                     PublishTarget::VideoMp4 => {
                                         draw_video_target_settings(ui, &self.project, &mut draft);
                                     }
@@ -525,7 +569,13 @@ impl Editor {
                                                 .as_deref()
                                                 .map(|s| PathBuf::from(s).join(entry_name).display().to_string())
                                                 .unwrap_or_default();
-                                            ui.add_enabled(false, c::TextField::new(&mut file, "File").prefix("File").width(380.0));
+                                            ui.add_enabled(
+                                                false,
+                                                c::TextField::new(&mut file, "File")
+                                                    .prefix("File")
+                                                    .hint("Choose a file")
+                                                    .width(380.0),
+                                            );
                                             if ui.add(c::Button::new("…")).clicked()
                                                 && let Some(folder) = rfd::FileDialog::new().set_title("Choose HTML5 output folder").pick_folder()
                                             {
@@ -650,17 +700,19 @@ impl Editor {
                                                 estimate = self.request_publish_estimate(ctx, &draft.settings).clone();
                                             }
                                         }
-                                        ui.horizontal_wrapped(|ui| {
+                                        ui.horizontal(|ui| {
                                             ui.add(c::Checkbox::new(&mut draft.settings.loop_timeline, "Loop"));
                                             ui.add(c::Checkbox::new(&mut draft.settings.autoplay, "Autoplay"));
                                             ui.add(c::Checkbox::new(&mut draft.settings.preloader, "Preloader"));
                                             ui.add(c::Checkbox::new(&mut draft.settings.allow_fullscreen, "Fullscreen"));
                                             ui.add(c::Checkbox::new(&mut draft.settings.source_maps, "Source maps"));
+                                        });
+                                        ui.horizontal(|ui| {
                                             c::Select::new(
                                                 ui.id().with("publish-settings-scale"),
                                                 draft.settings.scale_mode.publish_select_label(),
                                             )
-                                            .width(196.0)
+                                            .width(200.0)
                                             .show(ui, |ui| {
                                                 for mode in HtmlScaleMode::ALL {
                                                     let lbl = mode.publish_select_label();
@@ -681,7 +733,7 @@ impl Editor {
                                                 ui.id().with("publish-settings-stage-align"),
                                                 draft.settings.stage_align.publish_select_label(),
                                             )
-                                            .width(176.0)
+                                            .width(180.0)
                                             .show(ui, |ui| {
                                                 for align in HtmlStageAlign::ALL {
                                                     let lbl = align.publish_select_label();
@@ -740,7 +792,7 @@ impl Editor {
                                                 }
                                             });
                                         });
-                                        ui.horizontal_wrapped(|ui| {
+                                        ui.horizontal(|ui| {
                                             ui.add(c::Checkbox::new(
                                                 &mut draft.settings.sprite_sheets,
                                                 "Sprite sheets for bitmaps",
@@ -761,32 +813,32 @@ impl Editor {
                                                 };
                                                 draft.error = None;
                                             }
-                                            let seq_policy_lbl = format!(
-                                                "Sequences: {}",
-                                                draft.settings.sequence_policy.label()
-                                            );
-                                            c::Select::new(
-                                                ui.id().with("publish-settings-sequence-policy"),
-                                                &seq_policy_lbl,
-                                            )
-                                            .width(220.0)
-                                            .show(ui, |ui| {
-                                                for policy in SequencePublishPolicy::ALL {
-                                                    let item_lbl =
-                                                        format!("Sequences: {}", policy.label());
-                                                    if ui
-                                                        .add(
-                                                            c::MenuItem::new(&item_lbl)
-                                                                .checked(draft.settings.sequence_policy == policy),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        draft.settings.sequence_policy = policy;
-                                                        draft.error = None;
-                                                        ui.close();
-                                                    }
+                                        });
+                                        let seq_policy_lbl = format!(
+                                            "Sequences: {}",
+                                            draft.settings.sequence_policy.label()
+                                        );
+                                        c::Select::new(
+                                            ui.id().with("publish-settings-sequence-policy"),
+                                            &seq_policy_lbl,
+                                        )
+                                        .width(280.0)
+                                        .show(ui, |ui| {
+                                            for policy in SequencePublishPolicy::ALL {
+                                                let item_lbl =
+                                                    format!("Sequences: {}", policy.label());
+                                                if ui
+                                                    .add(
+                                                        c::MenuItem::new(&item_lbl)
+                                                            .checked(draft.settings.sequence_policy == policy),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    draft.settings.sequence_policy = policy;
+                                                    draft.error = None;
+                                                    ui.close();
                                                 }
-                                            });
+                                            }
                                         });
                                         group(ui, "Scripts");
                                         ui.horizontal(|ui| {
@@ -803,71 +855,76 @@ impl Editor {
                                                 "Minify",
                                             ));
                                         });
-                                        group(ui, "Network Startup Simulator");
-                                        ui.horizontal(|ui| {
-                                            let net_label = format!(
-                                                "Network: {}",
-                                                draft.network_preset.short_label()
-                                            );
-                                            c::Select::new(
-                                                ui.id().with("publish-network-preset"),
-                                                &net_label,
-                                            )
-                                            .width(260.0)
+                                        c::SectionHeader::new("Network startup simulator")
+                                            .id_salt("publish-network-startup-simulator")
+                                            .default_open(false)
                                             .show(ui, |ui| {
-                                                for preset in NetworkPreset::ALL_PRESETS {
-                                                    if ui
-                                                        .add(
-                                                            c::MenuItem::new(preset.label())
-                                                                .checked(
-                                                                    draft.network_preset == preset,
-                                                                ),
+                                                ui.spacing_mut().item_spacing.y = space::S2;
+                                                ui.horizontal(|ui| {
+                                                    let net_label = format!(
+                                                        "Network: {}",
+                                                        draft.network_preset.short_label()
+                                                    );
+                                                    c::Select::new(
+                                                        ui.id().with("publish-network-preset"),
+                                                        &net_label,
+                                                    )
+                                                    .width(260.0)
+                                                    .show(ui, |ui| {
+                                                        for preset in NetworkPreset::ALL_PRESETS {
+                                                            if ui
+                                                                .add(
+                                                                    c::MenuItem::new(preset.label())
+                                                                        .checked(
+                                                                            draft.network_preset == preset,
+                                                                        ),
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                draft.network_preset = preset;
+                                                                let _ =
+                                                                    draft.simulate_network(&self.project);
+                                                                ui.close();
+                                                            }
+                                                        }
+                                                    });
+                                                });
+                                                if draft.network_estimate.is_none() {
+                                                    let _ = draft.simulate_network(&self.project);
+                                                }
+                                                if let Some(ref sim) = draft.network_estimate {
+                                                    let bootstrap_str = format!(
+                                                        "{:.0} ms ({})",
+                                                        sim.initial_html_js_wasm_ms,
+                                                        bytes_label(sim.initial_html_js_wasm_bytes)
+                                                    );
+                                                    let total_str = format!("{:.0} ms", sim.total_download_ms);
+                                                    let preload_str = if sim.buffer_underrun_frames.is_empty() {
+                                                        "0 stalls (ready)".to_string()
+                                                    } else {
+                                                        format!(
+                                                            "{} stalls · {:.0} ms ({} f)",
+                                                            sim.buffer_underrun_frames.len(),
+                                                            sim.recommended_preload_ms,
+                                                            sim.recommended_preload_frames
                                                         )
-                                                        .clicked()
-                                                    {
-                                                        draft.network_preset = preset;
-                                                        let _ =
-                                                            draft.simulate_network(&self.project);
-                                                        ui.close();
-                                                    }
+                                                    };
+                                                    c::weight_totals(
+                                                        ui,
+                                                        &[
+                                                            ("Bootstrap", &bootstrap_str),
+                                                            ("Total download", &total_str),
+                                                            ("Preload / Stalls", &preload_str),
+                                                        ],
+                                                    );
                                                 }
                                             });
-                                        });
-                                        if draft.network_estimate.is_none() {
-                                            let _ = draft.simulate_network(&self.project);
-                                        }
-                                        if let Some(ref sim) = draft.network_estimate {
-                                            let bootstrap_str = format!(
-                                                "{:.0} ms ({})",
-                                                sim.initial_html_js_wasm_ms,
-                                                bytes_label(sim.initial_html_js_wasm_bytes)
-                                            );
-                                            let total_str = format!("{:.0} ms", sim.total_download_ms);
-                                            let preload_str = if sim.buffer_underrun_frames.is_empty() {
-                                                "0 stalls (ready)".to_string()
-                                            } else {
-                                                format!(
-                                                    "{} stalls · {:.0} ms ({} f)",
-                                                    sim.buffer_underrun_frames.len(),
-                                                    sim.recommended_preload_ms,
-                                                    sim.recommended_preload_frames
-                                                )
-                                            };
-                                            c::weight_totals(
-                                                ui,
-                                                &[
-                                                    ("Bootstrap", &bootstrap_str),
-                                                    ("Total download", &total_str),
-                                                    ("Preload / Stalls", &preload_str),
-                                                ],
-                                            );
-                                        }
                                         if let Some(error) = &draft.error { ui.add(c::InlineMessage::error(error)); }
                                     }
                                 }
+                                    });
                             });
                         });
-                    });
                     // Same NF2 footer composition, with action validity driven by the draft URL.
                     ui.add_space(space::S2);
                     let r = ui.available_rect_before_wrap();
@@ -1187,7 +1244,7 @@ fn draw_video_target_settings(
             .as_deref()
             .filter(|s| !s.trim().is_empty())
             .map(|s| PathBuf::from(s).join("movie.mp4").display().to_string())
-            .unwrap_or_else(|| "movie.mp4".into());
+            .unwrap_or_else(|| "Choose a file".into());
         let mut video_file = draft.settings.video_file.clone().unwrap_or_default();
         if ui
             .add(
@@ -1419,7 +1476,7 @@ fn draw_video_target_settings(
 
 fn draw_desktop_app_target_settings(
     ui: &mut Ui,
-    project: &neoflash_core::Project,
+    _project: &neoflash_core::Project,
     draft: &mut PublishSettingsDraft,
 ) {
     let p = neoflash_ui::palette(ui.ctx());
@@ -1432,12 +1489,12 @@ fn draw_desktop_app_target_settings(
             .clone()
             .or_else(|| draft.settings.output_folder.clone())
             .unwrap_or_default();
-        let hint = format!("{}.app", project.name);
+        let hint = "Choose a folder";
         if ui
             .add(
                 c::TextField::new(&mut folder, "Desktop app folder")
                     .prefix("Folder")
-                    .hint(&hint)
+                    .hint(hint)
                     .width(420.0),
             )
             .changed()
@@ -1638,7 +1695,7 @@ fn draw_svg_target_settings(
             .add(
                 c::TextField::new(&mut file, "SVG file")
                     .prefix("File")
-                    .hint("animation.svg")
+                    .hint("Choose a file")
                     .width(420.0),
             )
             .changed()

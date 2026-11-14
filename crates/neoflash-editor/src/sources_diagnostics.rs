@@ -360,7 +360,7 @@ impl DiagnosticUi {
                                     let row = ui.add(
                                         nf::MenuItem::new(&fix.title)
                                             .highlighted(selected)
-                                            .shortcut(if selected { "↩" } else { "" }),
+                                            .shortcut(if selected { "↵" } else { "" }),
                                     );
                                     if selected && menu.scroll {
                                         row.scroll_to_me(None);
@@ -382,7 +382,7 @@ impl DiagnosticUi {
                             .add(
                                 nf::MenuItem::new("Show in Compiler errors")
                                     .highlighted(selected)
-                                    .shortcut(if selected { "↩" } else { "" }),
+                                    .shortcut(if selected { "↵" } else { "" }),
                             )
                             .clicked()
                         {
@@ -394,9 +394,9 @@ impl DiagnosticUi {
                 {
                     let fixes = safe_fixes(source, std::iter::once(diagnostic));
                     let label = if fixes.len() == 1 {
-                        "Quick fix ⌘.".into()
+                        "Quick fix".into()
                     } else {
-                        format!("{} fixes ⌘.", fixes.len())
+                        format!("{} fixes", fixes.len())
                     };
                     let message = diagnostic.code.as_ref().map_or_else(
                         || diagnostic.message.clone(),
@@ -411,6 +411,14 @@ impl DiagnosticUi {
                     let result = peek.show(ui);
                     // The shared compact component truncates long text; retain its full explanation on hover.
                     nf::tooltip(result.response.clone(), message.trim_end_matches('.'), None);
+                    if let Some(action_resp) = result.action.clone() {
+                        let action_tip = if fixes.len() == 1 {
+                            "Quick fix"
+                        } else {
+                            "Show quick fixes"
+                        };
+                        nf::tooltip(action_resp, action_tip, Some("⌘."));
+                    }
                     if result.action_clicked() {
                         requested = Some(index);
                     }

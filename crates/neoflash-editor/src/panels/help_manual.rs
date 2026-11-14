@@ -425,7 +425,10 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
     ],
     &[
         "Pen (P) changes its pointer state for starting, continuing, closing, adding, deleting and converting anchors.",
-        "Alt/Option converts corner and smooth points, while dragging creates or adjusts symmetric and independent tangent handles.",
+        #[cfg(target_os = "macos")]
+        "Option converts corner and smooth points, while dragging creates or adjusts symmetric and independent tangent handles.",
+        #[cfg(not(target_os = "macos"))]
+        "Alt converts corner and smooth points, while dragging creates or adjusts symmetric and independent tangent handles.",
         "Line (N), Rectangle (R), Oval (O), PolyStar and Pencil (Y) share snapping and Object Drawing behavior but retain their own live modifiers.",
         "Pencil modes Straighten, Smooth and Ink choose how aggressively the captured stroke is simplified.",
     ],
@@ -465,8 +468,14 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Frame and object scripts may use ActionScript 2, ActionScript 3, JavaScript or TypeScript, with Actions, Code Snippets, Live ActionScript stage preview, compiler diagnostics and debugger panels.",
         "Import accepts legacy FLA, XFL, SWF, layered Figma (.fig / .figma.json), PSD/PSB, AI, SVG, PDF, WAV/MP3/OGG/FLAC, MP4/WebM/AVI, WebP/GIF/BMP/TIFF and numbered image sequences with located diagnostics.",
         "Publish and export targets include HTML5 plus WebAssembly (with 9-anchor Stage.align, Fullscreen and per-bitmap WebP/JPEG/PNG settings), zero-WASM Web Banner Native, 5-format Texture Atlases, AI/SVG/PNG/JPEG/WebP/GIF/BMP frame sequences, SWF, Lottie, audio/video and Adobe After Effects (.aep / .aepx / .jsx) with AE JavaScript Expressions.",
-        "Core shortcuts include C for Razor, F5/F6/F7 for Timeline frames, F8 for Convert to Symbol, Command-B for Break Apart, F9 for Actions, Option-Shift-Command-A for After Effects export and Shift-F12 for Publish.",
-        "Packaged builds bundle ffmpeg and ffprobe in Contents/Resources/media/bin/ on macOS or media/bin/ on Windows/Linux, with optional NEOFLASH_FFMPEG override; exact Rust/media licences are inside and the corresponding source is verified by the supplied SHA256SUMS.txt. Keep .nflash backups and attach a minimal repro, Output diagnostics and the About NeoFlash commit to bug reports.",
+        #[cfg(target_os = "macos")]
+        "Core shortcuts include C for Razor, F5/F6/F7 for Timeline frames, F8 for Convert to Symbol, Command+B for Break Apart, F9 for Actions, Option+Shift+Command+A for After Effects export and Shift+F12 for Publish.",
+        #[cfg(not(target_os = "macos"))]
+        "Core shortcuts include C for Razor, F5/F6/F7 for Timeline frames, F8 for Convert to Symbol, Ctrl+B for Break Apart, F9 for Actions, Ctrl+Alt+Shift+A for After Effects export and Shift+F12 for Publish.",
+        #[cfg(target_os = "macos")]
+        "Packaged macOS builds bundle ffmpeg and ffprobe in Contents/Resources/media/bin/, with optional NEOFLASH_FFMPEG override; exact Rust/media licences are inside and the corresponding source is verified by the supplied SHA256SUMS.txt. Keep .nflash backups and attach a minimal repro, Output diagnostics and the About NeoFlash commit to bug reports.",
+        #[cfg(not(target_os = "macos"))]
+        "Packaged builds bundle ffmpeg and ffprobe in media/bin/, with optional NEOFLASH_FFMPEG override; exact Rust/media licences are inside and the corresponding source is verified by the supplied SHA256SUMS.txt. Keep .nflash backups and attach a minimal repro, Output diagnostics and the About NeoFlash commit to bug reports.",
         "Beta 1 known issues and limits: VoiceOver cannot read the editor interface yet; there is no build for Intel (x86_64) Macs; updates are installed manually; the Windows preview is unsigned, so SmartScreen may warn before the first launch, and it has no connected debugger; the Linux preview is a portable archive tested on Ubuntu 24.04 x64 with X11 and Wayland, not an AppImage or deb package; Windows and Linux have had less testing than macOS; import of legacy Flash files is partial; graphics-tablet support is experimental.",
     ],
     &[
@@ -1305,6 +1314,18 @@ pub(crate) fn paragraph(ui: &mut Ui, text: &str) {
     ui.add(egui::Label::new(rich(text, TextStyle::DialogBody).color(p.text_primary)).wrap());
 }
 
+fn render_kbd_group(ui: &mut Ui, expr: &str) {
+    if expr.contains(" / ") {
+        let formatted: Vec<String> = expr
+            .split(" / ")
+            .map(|part| neoflash_ui::components::platform_shortcut(part.trim()).into_owned())
+            .collect();
+        kbd(ui, &formatted.join(" / "), false);
+    } else {
+        kbd(ui, expr, false);
+    }
+}
+
 pub(crate) fn sub_bullet(ui: &mut Ui, lead: &str, shortcut: Option<&str>, body: &str) {
     let p = neoflash_ui::palette(ui.ctx());
     ui.horizontal_wrapped(|ui| {
@@ -1312,7 +1333,7 @@ pub(crate) fn sub_bullet(ui: &mut Ui, lead: &str, shortcut: Option<&str>, body: 
         ui.label(rich("•", TextStyle::BodyStrong).color(p.accent_default));
         ui.label(rich(lead, TextStyle::BodyStrong).color(p.text_primary));
         if let Some(sc) = shortcut {
-            kbd(ui, sc, false);
+            render_kbd_group(ui, sc);
         }
         ui.label(rich("—", TextStyle::Body).color(p.text_tertiary));
         ui.label(rich(body, TextStyle::Body).color(p.text_secondary));
@@ -1349,7 +1370,7 @@ pub(crate) fn mode_card(
                 );
                 ui.add(Badge::new(badge_text, badge_kind));
                 if !pointer_or_hotkey.is_empty() {
-                    kbd(ui, pointer_or_hotkey, false);
+                    render_kbd_group(ui, pointer_or_hotkey);
                 }
             });
             ui.add_space(space::S1);
@@ -1517,7 +1538,7 @@ fn chapter_workspace_and_stage(ui: &mut Ui, _state: &mut HelpManualState) {
         "H / Space",
         &[
             "Hold Spacebar while any drawing or selection tool is active to temporarily pan the Stage canvas; releasing Spacebar immediately restores your active tool.",
-            "Double-click the Hand Tool icon in the Tools panel (or press ⌘2 / View ▸ Magnification ▸ Fit in Window) to center and fit the Stage into the viewport.",
+            "Double-click the Hand Tool icon in the Tools panel (or choose View ▸ Magnification ▸ Fit in Window) to center and fit the Stage into the viewport.",
         ],
     );
     mode_card(
@@ -1526,11 +1547,19 @@ fn chapter_workspace_and_stage(ui: &mut Ui, _state: &mut HelpManualState) {
         "Zoom Tool (Z) — Enlarge (+) vs Reduce (-) & Marquee Zoom",
         "Magnification",
         BadgeType::Accent,
-        "Z / ⌥-Click",
+        if cfg!(target_os = "macos") {
+            "Z / Option-click"
+        } else {
+            "Z / Alt-click"
+        },
         &[
             "Enlarge Mode (+): Single-clicking zooms in 2× centered on the click point; dragging a marquee rectangle magnifies that exact region to fill the viewport.",
-            "Reduce Mode (-): Hold Option (⌥) while clicking—or switch the modifier in Tool Options—to zoom out.",
-            "Double-clicking the Zoom Tool icon in the Tools rail resets magnification to 100% (⌘1). Press ⌘3 (Show All) to frame every object on both the Stage and Pasteboard.",
+            if cfg!(target_os = "macos") {
+                "Reduce Mode (-): Hold Option while clicking—or switch the modifier in Tool Options—to zoom out."
+            } else {
+                "Reduce Mode (-): Hold Alt while clicking—or switch the modifier in Tool Options—to zoom out."
+            },
+            "Double-clicking the Zoom Tool icon in the Tools rail resets magnification to 100%, and View ▸ Magnification ▸ Show All frames every object on both the Stage and Pasteboard.",
         ],
     );
     mode_card(
@@ -1674,7 +1703,7 @@ fn chapter_drawing_modes_and_objects(ui: &mut Ui, _state: &mut HelpManualState) 
         &[
             "Each stroke or shape drawn while Object Drawing (J) is active is wrapped in an independent Drawing Object container with an accent bounding box.",
             "Overlapping Drawing Objects on the same layer never split or punch holes in one another.",
-            "Double-clicking a Drawing Object enters its isolated editing context; Modify ▸ Break Apart (⌘B) unpacks it back into raw Merge Drawing geometry.",
+            "Double-clicking a Drawing Object enters its isolated editing context; Modify ▸ Break Apart unpacks it back into raw Merge Drawing geometry.",
         ],
     );
     mode_card(
@@ -1692,13 +1721,13 @@ fn chapter_drawing_modes_and_objects(ui: &mut Ui, _state: &mut HelpManualState) 
     mode_card(
         ui,
         Some(i16::LAYERS),
-        "Mode 4: Boolean Combine Objects & Break Apart (⌘B) Across Types",
+        "Mode 4: Boolean Combine Objects & Break Apart Across Types",
         "Modify Menu",
         BadgeType::Neutral,
         "⌘B / ⌘G",
         &[
             "Modify ▸ Combine Objects: Union (merges into one Drawing Object), Intersect (keeps overlapping region with top object's style), Punch (top object cuts through all underlying objects and disappears), Crop (clips underlying objects to top object's silhouette).",
-            "Modify ▸ Break Apart (⌘B) is context-sensitive: (1) On a Group or Drawing Object → unwraps to Merge shapes; (2) On a Symbol Instance → detaches from Library into current-frame elements; (3) On a Bitmap → converts to a vector shape painted with a Bitmap Fill; (4) On Text → 1st ⌘B splits string into individual character text boxes, 2nd ⌘B converts glyphs into editable Bézier outlines.",
+            "Modify ▸ Break Apart is context-sensitive: (1) On a Group or Drawing Object → unwraps to Merge shapes; (2) On a Symbol Instance → detaches from Library into current-frame elements; (3) On a Bitmap → converts to a vector shape painted with a Bitmap Fill; (4) On Text → 1st Break Apart splits string into individual character text boxes, 2nd Break Apart converts glyphs into editable Bézier outlines.",
         ],
     );
 }
@@ -1719,7 +1748,11 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
             illustration_canvas(
                 ui,
                 148.0,
-                "Illustration 3.1: Left — Selection Tool (V) reshaping a curve segment by direct edge drag vs ⌥-dragging to split a new corner vertex. Right — Subselection Tool (A) exposing hollow/filled anchor squares and Bézier tangent handles.",
+                if cfg!(target_os = "macos") {
+                    "Illustration 3.1: Left — Selection Tool (V) reshaping a curve segment by direct edge drag vs Option-dragging to split a new corner vertex. Right — Subselection Tool (A) exposing hollow/filled anchor squares and Bézier tangent handles."
+                } else {
+                    "Illustration 3.1: Left — Selection Tool (V) reshaping a curve segment by direct edge drag vs Alt-dragging to split a new corner vertex. Right — Subselection Tool (A) exposing hollow/filled anchor squares and Bézier tangent handles."
+                },
                 |painter, ctx, rect| {
                     let p = neoflash_ui::palette(ctx);
                     let mid_x = rect.center().x;
@@ -1755,7 +1788,11 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
                         left_col,
                         egui::pos2(l_center.x, rect.top() + 16.0),
                         egui::Align2::CENTER_CENTER,
-                        "Selection (V): Drag edge = Smooth Curve | ⌥+Drag = New Corner",
+                        if cfg!(target_os = "macos") {
+                            "Selection (V): Drag edge = Smooth Curve | Option+Drag = New Corner"
+                        } else {
+                            "Selection (V): Drag edge = Smooth Curve | Alt+Drag = New Corner"
+                        },
                         TextStyle::Small,
                         p.text_primary,
                     );
@@ -1778,7 +1815,11 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
                         right_col,
                         egui::pos2(r_center.x, rect.top() + 16.0),
                         egui::Align2::CENTER_CENTER,
-                        "Subselection (A): □ Unselected · ■ Selected · ⌥+Drag Handle = Corner",
+                        if cfg!(target_os = "macos") {
+                            "Subselection (A): □ Unselected · ■ Selected · Option+Drag = Corner"
+                        } else {
+                            "Subselection (A): □ Unselected · ■ Selected · Alt+Drag = Corner"
+                        },
                         TextStyle::Small,
                         p.text_primary,
                     );
@@ -1789,7 +1830,7 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
             illustration_canvas(
                 ui,
                 148.0,
-                "Illustration 3.2: Free Transform Tool (Q) sub-modes: (1) Scale 8 square handles, (2) Rotate & Skew round corners + edge bars, (3) Distort / ⇧-Perspective Taper, (4) Envelope 8-anchor / 16-handle bicubic Coons mesh.",
+                "Illustration 3.2: Free Transform Tool (Q) sub-modes: (1) Scale 8 square handles, (2) Rotate & Skew round corners + edge bars, (3) Distort / Shift-Perspective Taper, (4) Envelope 8-anchor / 16-handle bicubic Coons mesh.",
                 |painter, ctx, rect| {
                     let p = neoflash_ui::palette(ctx);
                     let cols = 4;
@@ -1804,7 +1845,11 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
                         let label = match i {
                             0 => {
                                 paint_transform_box(painter, ctx, b, TransformMode::Scale);
-                                "1. Scale (⇧ Prop, ⌥ Corner)"
+                                if cfg!(target_os = "macos") {
+                                    "1. Scale (Shift Prop, Opt Corner)"
+                                } else {
+                                    "1. Scale (Shift Prop, Alt Corner)"
+                                }
                             }
                             1 => {
                                 paint_transform_box(painter, ctx, b, TransformMode::RotateSkew);
@@ -1825,7 +1870,11 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
                                 for pt in &quad[..4] {
                                     paint_anchor(painter, ctx, *pt, AnchorState::Selected);
                                 }
-                                "3. Distort & ⇧⌘ Taper"
+                                if cfg!(target_os = "macos") {
+                                    "3. Distort & Shift+Cmd Taper"
+                                } else {
+                                    "3. Distort & Ctrl+Shift Taper"
+                                }
                             }
                             _ => {
                                 paint_transform_box(painter, ctx, b, TransformMode::Scale);
@@ -1866,7 +1915,11 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
             illustration_canvas(
                 ui,
                 148.0,
-                "Illustration 3.3: Lasso Tool (L) modes: Freehand loop, Polygon straight-edge clicks, Hybrid (hold ⌥ during Freehand drag), and Magic Wand contiguous colour threshold.",
+                if cfg!(target_os = "macos") {
+                    "Illustration 3.3: Lasso Tool (L) modes: Freehand loop, Polygon straight-edge clicks, Hybrid (hold Option during Freehand drag), and Magic Wand contiguous colour threshold."
+                } else {
+                    "Illustration 3.3: Lasso Tool (L) modes: Freehand loop, Polygon straight-edge clicks, Hybrid (hold Alt during Freehand drag), and Magic Wand contiguous colour threshold."
+                },
                 |painter, ctx, rect| {
                     let p = neoflash_ui::palette(ctx);
                     let mid_x = rect.center().x;
@@ -1898,7 +1951,11 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
                         left_col,
                         egui::pos2(c1.x, rect.top() + 16.0),
                         egui::Align2::CENTER_CENTER,
-                        "Lasso Freehand + Hold ⌥ for Straight Polygon Edges",
+                        if cfg!(target_os = "macos") {
+                            "Lasso Freehand + Hold Option for Straight Polygon Edges"
+                        } else {
+                            "Lasso Freehand + Hold Alt for Straight Polygon Edges"
+                        },
                         TextStyle::Small,
                         p.text_primary,
                     );
@@ -1925,16 +1982,32 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
     mode_card(
         ui,
         Some(i16::SELECT),
-        "Selection Tool (V) — 6 Contextual Pointer States & Temporary ⌘ Override",
+        if cfg!(target_os = "macos") {
+            "Selection Tool (V) — 6 Contextual Pointer States & Temporary Command Override"
+        } else {
+            "Selection Tool (V) — 6 Contextual Pointer States & Temporary Ctrl Override"
+        },
         "Primary Tool",
         BadgeType::Accent,
-        "V / Hold ⌘",
+        if cfg!(target_os = "macos") {
+            "V / Hold Command"
+        } else {
+            "V / Hold Ctrl"
+        },
         &[
             "1) Empty Stage Marquee: Dragging on empty Stage draws a selection marquee (`NF2/Marquee`). Single click on a fill selects the fill; double-clicking a fill selects both the fill and its enclosing stroke; double-clicking a stroke selects all connected stroke segments.",
-            "2) Move / Duplicate Cursor (Arrow + Black Box): Dragging inside a selected item moves it (`⇧` constrains to 45° axes; `⌥`-drag duplicates the selection).",
+            if cfg!(target_os = "macos") {
+                "2) Move / Duplicate Cursor (Arrow + Black Box): Dragging inside a selected item moves it (Shift constrains to 45° axes; Option-drag duplicates the selection)."
+            } else {
+                "2) Move / Duplicate Cursor (Arrow + Black Box): Dragging inside a selected item moves it (Shift constrains to 45° axes; Alt-drag duplicates the selection)."
+            },
             "3) Curve Reshape Cursor (Arrow + Arc): Hovering over an unselected smooth edge and dragging bends the curve without moving its endpoint corners.",
             "4) Corner / Endpoint Cursor (Arrow + Right Angle): Hovering over a corner vertex or open line end moves that vertex.",
-            "5) Split New Corner (⌥-Drag on Curve): Holding Option (⌥) while dragging an unselected curve segment splits the segment and pulls out a sharp corner vertex.",
+            if cfg!(target_os = "macos") {
+                "5) Split New Corner (Option-drag on Curve): Holding Option while dragging an unselected curve segment splits the segment and pulls out a sharp corner vertex."
+            } else {
+                "5) Split New Corner (Alt-drag on Curve): Holding Alt while dragging an unselected curve segment splits the segment and pulls out a sharp corner vertex."
+            },
             "6) Smooth & Straighten Modifiers: Clicking Smooth or Straighten in Tool Options progressively refines selected strokes (repeated Straighten triggers geometric shape recognition for detached ovals, rectangles, and triangles).",
         ],
     );
@@ -1947,7 +2020,11 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
         "A",
         &[
             "Clicking a path outline reveals hollow square Anchor Points (`□`). Clicking an anchor fills it (`■`) and exposes its Bézier tangent handles (`●`).",
-            "Dragging a tangent handle rotates both handles symmetrically around a smooth point; holding Option (⌥) breaks symmetry so each handle moves independently (corner point).",
+            if cfg!(target_os = "macos") {
+                "Dragging a tangent handle rotates both handles symmetrically around a smooth point; holding Option breaks symmetry so each handle moves independently (corner point)."
+            } else {
+                "Dragging a tangent handle rotates both handles symmetrically around a smooth point; holding Alt breaks symmetry so each handle moves independently (corner point)."
+            },
             "Deleting Nodes: Pressing Delete/Backspace in Subselection removes the selected anchor AND its adjoining curve segments (opening the path), whereas clicking the anchor with the Delete Anchor Point Tool (-) heals the path into a single continuous curve.",
         ],
     );
@@ -1960,9 +2037,21 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
         "Q",
         &[
             "Transformation Point (○): Drag the white centre circle to relocate the pivot for rotation and scaling; double-click the circle to snap it back to the object's geometric centre.",
-            "Sub-Mode 1 — Rotate and Skew: Corner handles only rotate (`⇧` = 45° steps, `⌥` = pivot around opposite corner); edge handles only skew.",
-            "Sub-Mode 2 — Scale: Corner and edge handles only scale (`⇧` = proportional aspect ratio, `⌥` = scale from opposite corner vs centre).",
-            "Sub-Mode 3 — Distort (Vector shapes): Drag any corner or edge freely (`⌘`-drag in default mode); hold `⇧⌘` while dragging a corner to apply a symmetric perspective Taper (moving the dragged corner and the adjacent corner on the same axis equally in opposite directions).",
+            if cfg!(target_os = "macos") {
+                "Sub-Mode 1 — Rotate and Skew: Corner handles only rotate (Shift = 45° steps, Option = pivot around opposite corner); edge handles only skew."
+            } else {
+                "Sub-Mode 1 — Rotate and Skew: Corner handles only rotate (Shift = 45° steps, Alt = pivot around opposite corner); edge handles only skew."
+            },
+            if cfg!(target_os = "macos") {
+                "Sub-Mode 2 — Scale: Corner and edge handles only scale (Shift = proportional aspect ratio, Option = scale from opposite corner vs centre)."
+            } else {
+                "Sub-Mode 2 — Scale: Corner and edge handles only scale (Shift = proportional aspect ratio, Alt = scale from opposite corner vs centre)."
+            },
+            if cfg!(target_os = "macos") {
+                "Sub-Mode 3 — Distort (Vector shapes): Drag any corner or edge freely (Command-drag in default mode); hold Shift+Command while dragging a corner to apply a symmetric perspective Taper (moving the dragged corner and the adjacent corner on the same axis equally in opposite directions)."
+            } else {
+                "Sub-Mode 3 — Distort (Vector shapes): Drag any corner or edge freely (Ctrl-drag in default mode); hold Ctrl+Shift while dragging a corner to apply a symmetric perspective Taper (moving the dragged corner and the adjacent corner on the same axis equally in opposite directions)."
+            },
             "Sub-Mode 4 — Envelope (Vector shapes): Wraps the selection in an 8-point, 16-tangent-handle bicubic Coons patch for fluid non-linear warping.",
         ],
     );
@@ -1995,7 +2084,14 @@ fn chapter_vector_and_pen_states(ui: &mut Ui, _state: &mut HelpManualState) {
                 ("6. Pen ○", "Close path"),
                 ("7. Pen ⛓", "Join 2 paths"),
                 ("8. Pen ∧", "Retract handle"),
-                ("9. ⇧C / ⌥", "Convert point"),
+                (
+                    if cfg!(target_os = "macos") {
+                        "9. Shift+C / Option"
+                    } else {
+                        "9. Shift+C / Alt"
+                    },
+                    "Convert point",
+                ),
             ];
             let cols = 3;
             let rows = 3;
@@ -2045,14 +2141,22 @@ fn chapter_vector_and_pen_states(ui: &mut Ui, _state: &mut HelpManualState) {
     mode_card(
         ui,
         Some(i16::PEN),
-        "Pen Tool Family (P, =, -, ⇧C) — Two-Step Smooth Node Deletion & Open Paths",
+        "Pen Tool Family — Two-Step Smooth Node Deletion & Open Paths",
         "9 Cursor States",
         BadgeType::Accent,
         "P / = / - / ⇧C",
         &[
             "Two-Step Smooth Point Deletion (Pen −): Clicking an existing smooth curve point with the Pen or Delete Anchor Point Tool (-) first converts it into a corner point (retracting its handles); clicking it a second time deletes the vertex while keeping the path closed/continuous.",
-            "Finishing an Open Path: Double-click the last point, press Escape, or Command-click (⌘) away from the path to leave a stroke open without closing its fill.",
-            "Modifier Keys While Drawing: Hold Shift (⇧) to constrain new anchors or tangent handles to 45° increments; hold Option (⌥) to split paired tangent handles into an acute V-corner; hold Command (⌘) to temporarily switch to Subselection.",
+            if cfg!(target_os = "macos") {
+                "Finishing an Open Path: Double-click the last point, press Escape, or Command-click away from the path to leave a stroke open without closing its fill."
+            } else {
+                "Finishing an Open Path: Double-click the last point, press Escape, or Ctrl-click away from the path to leave a stroke open without closing its fill."
+            },
+            if cfg!(target_os = "macos") {
+                "Modifier Keys While Drawing: Hold Shift to constrain new anchors or tangent handles to 45° increments; hold Option to split paired tangent handles into an acute V-corner; hold Command to temporarily switch to Subselection."
+            } else {
+                "Modifier Keys While Drawing: Hold Shift to constrain new anchors or tangent handles to 45° increments; hold Alt to split paired tangent handles into an acute V-corner; hold Ctrl to temporarily switch to Subselection."
+            },
         ],
     );
     mode_card(
@@ -2077,7 +2181,11 @@ fn chapter_vector_and_pen_states(ui: &mut Ui, _state: &mut HelpManualState) {
         "N / R / O",
         &[
             "Up / Down Arrow Keys While Dragging Rectangle: Adjusts the rounded corner radius live before releasing the mouse button.",
-            "Option (⌥) + Single Click on Stage: Opens the numeric Rectangle / Oval Settings dialog to enter exact pixel Width, Height, Corner Radius, and Draw from Center.",
+            if cfg!(target_os = "macos") {
+                "Option + Single Click on Stage: Opens the numeric Rectangle / Oval Settings dialog to enter exact pixel Width, Height, Corner Radius, and Draw from Center."
+            } else {
+                "Alt + Single Click on Stage: Opens the numeric Rectangle / Oval Settings dialog to enter exact pixel Width, Height, Corner Radius, and Draw from Center."
+            },
             "PolyStar Tool (under Rectangle flyout): Click Options… in Properties to choose Polygon or Star, Number of Sides (3–32), and Star Point Size (0.00–1.00; values closer to 0 produce sharper needle points).",
         ],
     );
@@ -2138,7 +2246,11 @@ fn chapter_brush_eraser_and_deco(ui: &mut Ui, _state: &mut HelpManualState) {
                 r1.shrink(4.0),
                 egui::pos2(r1.center().x, r1.bottom() - 16.0),
                 egui::Align2::CENTER_CENTER,
-                "[ / ] or ⌥⌘+Drag = Resize",
+                if cfg!(target_os = "macos") {
+                    "[ / ] or Option+Cmd+Drag = Resize"
+                } else {
+                    "[ / ] or Ctrl+Alt+Drag = Resize"
+                },
                 TextStyle::MonoSmall,
                 p.text_secondary,
             );
@@ -2243,7 +2355,7 @@ fn chapter_brush_eraser_and_deco(ui: &mut Ui, _state: &mut HelpManualState) {
 fn chapter_symbols_9slice_and_library(ui: &mut Ui, _state: &mut HelpManualState) {
     paragraph(
         ui,
-        "Symbols (F8 to Convert to Symbol, ⌘F8 for New Symbol) are reusable master assets stored in the Library (⌘L). Placing a symbol on the Stage creates a lightweight Instance that can have its own transform, Colour Effect, Blend Mode, Filters, and Playback mode.",
+        "Symbols (Convert to Symbol or New Symbol) are reusable master assets stored in the Library. Placing a symbol on the Stage creates a lightweight Instance that can have its own transform, Colour Effect, Blend Mode, Filters, and Playback mode.",
     );
 
     section_overline(
@@ -2380,7 +2492,7 @@ fn chapter_symbols_9slice_and_library(ui: &mut Ui, _state: &mut HelpManualState)
         "F8 / ⌘F8",
         &[
             "1) Movie Clip: Runs on its own independent clock at runtime (continues playing even if the main Timeline is stopped on frame 1). Supports Instance Name targeting in AS2/AS3/JS/TS, Display Filters, Blend Modes, 3D Transforms, and Cache as Bitmap.",
-            "2) Button: Interactive 4-frame state machine (Up, Over, Down, Hit). Enable Control ▸ Enable Simple Buttons (⌥⌘B) to test button states directly on the authoring Stage.",
+            "2) Button: Interactive 4-frame state machine (Up, Over, Down, Hit). Enable Control ▸ Enable Simple Buttons to test button states directly on the authoring Stage.",
             "3) Graphic: Deterministically locked to the parent Timeline's playhead so multi-frame animations scrub live on the Stage. Offers 3 Looping modes in Properties: Loop, Play Once, and Single Frame (with interactive Frame Picker).",
         ],
     );
@@ -2393,7 +2505,11 @@ fn chapter_symbols_9slice_and_library(ui: &mut Ui, _state: &mut HelpManualState)
         "Properties",
         &[
             "5 Colour Effect Styles: None, Brightness (-100% black to +100% white), Tint (RGB tint colour + 0–100% strength), Advanced (independent RGBA multiplier % and constant -255..+255 offset channels), and Alpha (0–100% opacity).",
-            "Swap Symbol & Option-Drag Replacement: Click Swap… in Properties (or hold Option ⌥ while dragging a symbol from the Library onto an instance on Stage) to replace the symbol while preserving all transforms, filters, and keyframes.",
+            if cfg!(target_os = "macos") {
+                "Swap Symbol & Option-drag Replacement: Click Swap… in Properties (or hold Option while dragging a symbol from the Library onto an instance on Stage) to replace the symbol while preserving all transforms, filters, and keyframes."
+            } else {
+                "Swap Symbol & Alt-drag Replacement: Click Swap… in Properties (or hold Alt while dragging a symbol from the Library onto an instance on Stage) to replace the symbol while preserving all transforms, filters, and keyframes."
+            },
             "Edit in Place (Double-Click Instance on Stage): Edits the symbol inside its exact affine-transformed Stage position while dimming the surrounding parent scene context.",
         ],
     );
@@ -2542,9 +2658,13 @@ fn chapter_timeline_layers_and_masks(ui: &mut Ui, _state: &mut HelpManualState) 
         BadgeType::Accent,
         "F5 / F6 / F7",
         &[
-            "Insert Frame (F5) & Remove Frames (⇧F5): Extends or shortens the duration of a span without adding keyframes.",
-            "Insert Keyframe (F6), Insert Blank Keyframe (F7) & Clear Keyframe (⇧F6): F6 duplicates the current pose into a new keyframe (or records a ◆ property keyframe inside a Motion Tween); F7 inserts an empty keyframe; ⇧F6 reverts a keyframe to a held frame.",
-            "Span-Based Selection (Preferences ▸ Timeline): Clicking inside a span selects the entire keyframe-to-end sequence; Command-clicking (⌘) selects a single individual frame. Hold Option (⌥) while dragging a keyframe to duplicate it.",
+            "Insert Frame (F5) & Remove Frames: Extends or shortens the duration of a span without adding keyframes.",
+            "Insert Keyframe (F6), Insert Blank Keyframe (F7) & Clear Keyframe: F6 duplicates the current pose into a new keyframe (or records a ◆ property keyframe inside a Motion Tween); F7 inserts an empty keyframe; Clear Keyframe reverts a keyframe to a held frame.",
+            if cfg!(target_os = "macos") {
+                "Span-Based Selection (Preferences ▸ Timeline): Clicking inside a span selects the entire keyframe-to-end sequence; Command-clicking selects a single individual frame. Hold Option while dragging a keyframe to duplicate it."
+            } else {
+                "Span-Based Selection (Preferences ▸ Timeline): Clicking inside a span selects the entire keyframe-to-end sequence; Ctrl-clicking selects a single individual frame. Hold Alt while dragging a keyframe to duplicate it."
+            },
         ],
     );
     mode_card(
@@ -2557,7 +2677,11 @@ fn chapter_timeline_layers_and_masks(ui: &mut Ui, _state: &mut HelpManualState) 
         &[
             "Guide & Guided Layers: Guide layers are excluded from published output; linking a Normal layer beneath a Guide layer creates a Motion Guide for Classic Tweens.",
             "Mask & Masked Layers: Shapes/symbols on a Mask layer cut a visibility window for indented Masked layers beneath it (supports Geometry, Alpha, and Luminance masking plus Invert Mask).",
-            "Quick Column Modifiers: Option-clicking (⌥) in the Eye (Visibility), Lock, or Outline column toggles all other layers except the clicked row; Solo isolates selected layers.",
+            if cfg!(target_os = "macos") {
+                "Quick Column Modifiers: Option-clicking in the Eye (Visibility), Lock, or Outline column toggles all other layers except the clicked row; Solo isolates selected layers."
+            } else {
+                "Quick Column Modifiers: Alt-clicking in the Eye (Visibility), Lock, or Outline column toggles all other layers except the clicked row; Solo isolates selected layers."
+            },
         ],
     );
     mode_card(
@@ -2705,7 +2829,7 @@ fn chapter_tweens_motion_and_ik(ui: &mut Ui, _state: &mut HelpManualState) {
                 r2.shrink(4.0),
                 egui::pos2(r2.center().x, r2.top() + 16.0),
                 egui::Align2::CENTER_CENTER,
-                "Shape Hints (⇧⌘H): Start · End · Unplaced",
+                "Shape Hints: Start · End · Unplaced",
                 TextStyle::Small,
                 p.text_primary,
             );
@@ -2765,10 +2889,10 @@ fn chapter_tweens_motion_and_ik(ui: &mut Ui, _state: &mut HelpManualState) {
         "Classic Tween (Motion Guide + Orient to Path) & Shape Tween (Shape Hints a–z)",
         "Classic & Morph",
         BadgeType::Accent,
-        "⇧⌘H Add Hint",
+        "⇧⌘H",
         &[
             "Classic Tween: Interpolates between explicit keyframes (● → ●). Link the layer under a Guide layer and enable Orient to Path to steer the instance along the guide stroke tangent.",
-            "Shape Tween & Shape Hints (Modify ▸ Shape ▸ Add Shape Hint, ⇧⌘H): Morphs raw vector shapes using arc-length resampling and paint blending. Place up to 26 lettered Shape Hints (a–z) counter-clockwise from the top-left corner (Yellow = start keyframe, Green = end keyframe, Red = unsnapped).",
+            "Shape Tween & Shape Hints (Modify ▸ Shape ▸ Add Shape Hint): Morphs raw vector shapes using arc-length resampling and paint blending. Place up to 26 lettered Shape Hints (a–z) counter-clockwise from the top-left corner (Yellow = start keyframe, Green = end keyframe, Red = unsnapped).",
         ],
     );
     mode_card(
@@ -2780,8 +2904,12 @@ fn chapter_tweens_motion_and_ik(ui: &mut Ui, _state: &mut HelpManualState) {
         "X / Z",
         &[
             "Symbol Armatures vs IK Shapes: Dragging with Bone (X) from one symbol instance to another chains them into a parent-child skeleton on a Pose Layer; dragging inside a selected vector shape creates a deformable IK Shape container.",
-            "Posing Modifiers: Drag any bone with Selection (V) to solve inverse kinematics across the chain; hold Shift (⇧) while dragging a bone to rotate only that bone and its children without moving parent bones.",
-            "Bind Tool (Z): Click a bone to highlight its bound contour points in yellow (squares = bound to 1 bone, triangles = bound to multiple bones); ⇧-click adds points, ⌥-click unbinds points.",
+            "Posing Modifiers: Drag any bone with Selection (V) to solve inverse kinematics across the chain; hold Shift while dragging a bone to rotate only that bone and its children without moving parent bones.",
+            if cfg!(target_os = "macos") {
+                "Bind Tool (Z): Click a bone to highlight its bound contour points in yellow (squares = bound to 1 bone, triangles = bound to multiple bones); Shift-click adds points, Option-click unbinds points."
+            } else {
+                "Bind Tool (Z): Click a bone to highlight its bound contour points in yellow (squares = bound to 1 bone, triangles = bound to multiple bones); Shift-click adds points, Alt-click unbinds points."
+            },
         ],
     );
 }
@@ -2852,7 +2980,7 @@ fn chapter_filters_text_and_audio(ui: &mut Ui, _state: &mut HelpManualState) {
         &[
             "Point vs Area Text & Inline Editing: Click on Stage with Text (T) for auto-expanding Point Text (round top-right handle ○); drag for fixed-width word-wrapping Area Text (square handle □; double-click handle to revert to auto-width); double-click any TextBox with Selection (V) or Free Transform (Q) to edit text inline.",
             "Flash CS5 Character, Paragraph & Container Flow: Configure Highlight colour, Strikethrough, Underline, Superscript/Subscript, Leading (pt or %), Orientation (Horizontal, Vertical LTR/RTL), Advanced Character (Case, Digit Case/Width, Ligatures, Baseline Shift, Locale), 5-mode Paragraph alignment (including Justify All) with Space Before/After, and Container & Flow (1–50 Columns with Gutter px, 4-sided L/R/T/B Padding with Lock, Top/Center/Bottom/Justify Vertical Alignment, Border/Background slash-swatches, and 1st Line Offset).",
-            "Font Embedding & 2-Step Break Apart (⌘B × 2): Select Unicode ranges or custom glyphs in Font Embedding… to embed outlines; press ⌘B once to split words into individual letter boxes and a second time to convert glyphs into editable vector paths.",
+            "Font Embedding & 2-Step Break Apart: Select Unicode ranges or custom glyphs in Font Embedding… to embed outlines; run Modify ▸ Break Apart once to split words into individual letter boxes and a second time to convert glyphs into editable vector paths.",
         ],
     );
     mode_card(
@@ -2901,14 +3029,14 @@ fn chapter_scripting_import_and_publish(
     mode_card(
         ui,
         Some(i16::CODE),
-        "Actions (F9), Code Snippets, Compiler Errors (⌥F2), Output (F2) & Debugger",
+        "Actions (F9), Code Snippets, Compiler Errors, Output (F2) & Debugger",
         "4 Languages",
         BadgeType::Accent,
         "F9 / F2 / ⌥F2",
         &[
             "Frame & Object Scripts: Attach scripts to keyframes (indicated by the 'a' marker in the Timeline) or directly to MovieClip/Button instances (`on(release)`, `onClipEvent`, or AS3/JS/TS event listeners).",
             "Code Snippets Panel: Browse ready-made templates for Timeline Navigation, Actions, Events, Animation, and Audio—automatically adapted to your document's active script language.",
-            "Interactive Debugger & Bandwidth Profiler: Set line breakpoints, inspect the Call Stack, Locals, and Watch expressions, step Into/Over/Out, and inspect per-frame byte budgets in Test Movie (⌘Return).",
+            "Interactive Debugger & Bandwidth Profiler: Set line breakpoints, inspect the Call Stack, Locals, and Watch expressions, step Into/Over/Out, and inspect per-frame byte budgets in Test Movie.",
         ],
     );
 
@@ -2947,9 +3075,9 @@ fn chapter_scripting_import_and_publish(
         BadgeType::Accent,
         "⌘R / ⇧F12 / ⌥⇧⌘A",
         &[
-            "Comprehensive Import (⌘R / ⌘O): Opens Figma `.fig` (Kiwi) & `.figma.json` layered compositions, binary `.fla` (Flash 3–CS4), `.xfl`/`.fla` (CS5–Animate), `.swf` (FWS/CWS/ZWS), layered `.psd`/`.psb`, `.ai`/`.svg`/`.pdf` vectors, rasters (`.png`/`.jpg`/`.webp`/`.gif`/`.bmp`/`.tiff`), audio (`.wav`/`.mp3`/`.ogg`/`.flac`), video (`.mp4`/`.webm`/`.avi`), and numbered sequences.",
-            "HTML5 + WASM, Zero-WASM Native Banner & Stage Parity (⇧F12): Publishes full HTML5 + WASM bundles (`Stage.scaleMode`, 9-anchor `Stage.align`, `Allow fullscreen`, `loadPublish` child bundles, SHA-256 deduplicated `Assets folder`, per-bitmap `WebP`/`JPEG`/`PNG` Library compression, and packed `sprite_sheet.png`) or zero-WASM `Web Banner · Native` bundles (`<50 KB` gzipped). Reference projects live in `examples/as2/` and `examples/as3/`.",
-            "After Effects (.aep/.jsx), 5-Format Atlases & Frame Sequences: Export Adobe After Effects `.aep`/`.aepx` + ExtendScript `.jsx` + `<stem>_Footage/` preserving Bézier `ShapeLayer`s, pre-comps, Track Mattes, native AE Effects, editable `TextLayer`s, and compiled AE JS Expressions (`⌥⇧⌘A`); 5-format Texture Atlases (`Starling XML`, `JSON-Hash`, `JSON-Array`, `CreateJS`, `PixiJS`); `.ai`/`.svg`/`.png`/`.jpg`/`.webp`/`.gif`/`.bmp` frame sequences (`Authored`, `Live Scripted`, `Animation + Script Overlay`); Lottie JSON; SWF; and MP4/WebM/GIF video (`⌥⇧⌘V`).",
+            "Comprehensive Import: Opens Figma `.fig` (Kiwi) & `.figma.json` layered compositions, binary `.fla` (Flash 3–CS4), `.xfl`/`.fla` (CS5–Animate), `.swf` (FWS/CWS/ZWS), layered `.psd`/`.psb`, `.ai`/`.svg`/`.pdf` vectors, rasters (`.png`/`.jpg`/`.webp`/`.gif`/`.bmp`/`.tiff`), audio (`.wav`/`.mp3`/`.ogg`/`.flac`), video (`.mp4`/`.webm`/`.avi`), and numbered sequences.",
+            "HTML5 + WASM, Zero-WASM Native Banner & Stage Parity: Publishes full HTML5 + WASM bundles (`Stage.scaleMode`, 9-anchor `Stage.align`, `Allow fullscreen`, `loadPublish` child bundles, SHA-256 deduplicated `Assets folder`, per-bitmap `WebP`/`JPEG`/`PNG` Library compression, and packed `sprite_sheet.png`) or zero-WASM `Web Banner · Native` bundles (`<50 KB` gzipped). Reference projects live in `examples/as2/` and `examples/as3/`.",
+            "After Effects (.aep/.jsx), 5-Format Atlases & Frame Sequences: Export Adobe After Effects `.aep`/`.aepx` + ExtendScript `.jsx` + `<stem>_Footage/` preserving Bézier `ShapeLayer`s, pre-comps, Track Mattes, native AE Effects, editable `TextLayer`s, and compiled AE JS Expressions; 5-format Texture Atlases (`Starling XML`, `JSON-Hash`, `JSON-Array`, `CreateJS`, `PixiJS`); `.ai`/`.svg`/`.png`/`.jpg`/`.webp`/`.gif`/`.bmp` frame sequences (`Authored`, `Live Scripted`, `Animation + Script Overlay`); Lottie JSON; SWF; and MP4/WebM/GIF video.",
         ],
     );
 
@@ -2965,8 +3093,16 @@ fn chapter_scripting_import_and_publish(
         BadgeType::Accent,
         "About NeoFlash / F2",
         &[
-            "Release Identity & Manual Update: NeoFlash 0.1.0-beta.1 targets macOS 15+ (Apple Silicon) and includes Windows x64 and Ubuntu 24.04-compatible Linux x64 Technical Previews. To update macOS, quit NeoFlash and replace NeoFlash.app in /Applications; preferences, custom workspaces, recent files, and crash-recovery snapshots under ~/Library/Application Support/NeoFlash are preserved.",
-            "Bundled Media & Licences: Packaged builds include ffmpeg and ffprobe in Contents/Resources/media/bin/ on macOS or media/bin/ in portable archives. Exact application, Rust and media licence evidence is already included; verify the application and corresponding-source archives with the supplied SHA256SUMS.txt. Set NEOFLASH_FFMPEG / NEOFLASH_FFPROBE only for a custom override.",
+            #[cfg(target_os = "macos")]
+            "Release Identity & Manual Update: NeoFlash 0.1.0-beta.1 targets macOS 15+ (Apple Silicon). To install or update macOS, quit NeoFlash and replace NeoFlash.app in /Applications; preferences, custom workspaces, recent files, and crash-recovery snapshots under ~/Library/Application Support/NeoFlash are preserved.",
+            #[cfg(target_os = "windows")]
+            "Release Identity & Manual Update: NeoFlash 0.1.0-beta.1 provides a Windows x64 Technical Preview. To install or update Windows, extract the portable ZIP into a clean or existing NeoFlash folder and launch neoflash.exe (if Windows SmartScreen warns before the first launch, choose More info -> Run anyway); preferences, custom workspaces, recent files, and crash-recovery snapshots in your user NeoFlash data directory (%APPDATA%\\NeoFlash) are preserved.",
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            "Release Identity & Manual Update: NeoFlash 0.1.0-beta.1 provides an Ubuntu 24.04-compatible Linux x64 Technical Preview. To install or update Linux, extract the portable tar.gz archive and run the neoflash executable; preferences, custom workspaces, recent files, and crash-recovery snapshots under ~/.local/share/NeoFlash are preserved.",
+            #[cfg(target_os = "macos")]
+            "Bundled Media & Licences: Packaged macOS builds include ffmpeg and ffprobe in Contents/Resources/media/bin/. Exact application, Rust and media licence evidence is already included; verify the application and corresponding-source archives with the supplied SHA256SUMS.txt. Set NEOFLASH_FFMPEG / NEOFLASH_FFPROBE only for a custom override.",
+            #[cfg(not(target_os = "macos"))]
+            "Bundled Media & Licences: Packaged builds include ffmpeg and ffprobe in media/bin/. Exact application, Rust and media licence evidence is already included; verify the portable archive and corresponding-source archive with the supplied SHA256SUMS.txt. Set NEOFLASH_FFMPEG / NEOFLASH_FFPROBE only for a custom override.",
             "Project Backups & Bug Reporting: Keep versioned .nflash JSON projects in Git or regular file backups. When reporting a bug, attach a minimal .nflash reproduction project, diagnostics copied from the Output panel (F2), and the version/commit identifier from NeoFlash ▸ About NeoFlash.",
             "Beta 1 known issues and limits: VoiceOver cannot read the editor interface yet; there is no build for Intel (x86_64) Macs; updates are installed manually; the Windows preview is unsigned, so SmartScreen may warn before the first launch, and it has no connected debugger; the Linux preview is a portable archive tested on Ubuntu 24.04 x64 with X11 and Wayland, not an AppImage or deb package; Windows and Linux have had less testing than macOS; import of legacy Flash files is partial; graphics-tablet support is experimental.",
         ],
@@ -3018,7 +3154,7 @@ fn chapter_scripting_import_and_publish(
     sub_bullet(
         ui,
         "Test Movie / Publish / Actions / Library / Properties",
-        Some("⌘Return / ⇧F12 / F9 / ⌘L / ⌘F3"),
+        Some("⌘↵ / ⇧F12 / F9 / ⌘L / ⌘F3"),
         "Preview runtime, publish bundle, and toggle core authoring panels.",
     );
 }
@@ -3488,8 +3624,6 @@ mod tests {
                     "Windows x64",
                     "Linux x64",
                     "Ubuntu 24.04",
-                    "~/Library/Application Support/NeoFlash",
-                    "Contents/Resources/media/bin/",
                     "media/bin/",
                     "SHA256SUMS.txt",
                     "NEOFLASH_FFMPEG",
@@ -3506,6 +3640,24 @@ mod tests {
                         disk_html.contains(needle),
                         "browser help HTML ({theme:?}, {mode:?}) missing synchronized Beta 1 section token: {needle}"
                     );
+                }
+                if cfg!(target_os = "macos") {
+                    for needle in [
+                        "~/Library/Application Support/NeoFlash",
+                        "Contents/Resources/media/bin/",
+                        "NeoFlash.app",
+                    ] {
+                        assert!(
+                            disk_html.contains(needle),
+                            "macOS browser help HTML missing {needle}"
+                        );
+                    }
+                } else if cfg!(target_os = "windows") {
+                    assert!(disk_html.contains("%APPDATA%\\NeoFlash"));
+                    assert!(!disk_html.contains("/Applications"));
+                } else {
+                    assert!(disk_html.contains("~/.local/share/NeoFlash"));
+                    assert!(!disk_html.contains("/Applications"));
                 }
             }
         }
@@ -3764,5 +3916,44 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn r096_help_prose_and_kbd_groups_avoid_literal_glyphs_and_use_platform_labels() {
+        const GLYPHS: &[char] = &['⌘', '⌥', '⇧', '⌃', '↵', '⌤', '⌫', '⌦', '⇥'];
+        for (chapter_idx, topics) in HELP_BROWSER_TOPICS.iter().enumerate() {
+            for topic in *topics {
+                assert!(
+                    !topic.chars().any(|ch| GLYPHS.contains(&ch)),
+                    "HELP_BROWSER_TOPICS[{chapter_idx}] must not bake literal shortcut glyphs into prose: {topic}"
+                );
+            }
+        }
+        let html = help_browser_html(neoflash_ui::Theme::Dark);
+        assert!(
+            !html.chars().any(|ch| GLYPHS.contains(&ch)),
+            "generated browser Help HTML must not bake literal shortcut glyphs into HTML prose"
+        );
+
+        let ctx = egui::Context::default();
+        let out = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                render_kbd_group(ui, "⌘↵ / ⇧F12 / ⌥F2");
+            });
+        });
+        let chip_text: Vec<String> = out
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+        let expected = if cfg!(target_os = "macos") {
+            "⌘↵ / ⇧F12 / ⌥F2"
+        } else {
+            "Ctrl+Enter / Shift+F12 / Alt+F2"
+        };
+        assert_eq!(chip_text, vec![expected.to_owned()]);
     }
 }

@@ -4,17 +4,18 @@
 //! `Split at playhead`, and cue-point authoring/retiming).
 
 use super::import_video::probe_video_bytes_duration_ms;
-use super::planned::caption;
 use crate::app::Editor;
 use crate::paint_controls::two_column_row;
 use eframe::egui;
 use neoflash_core::{
-    FrameSound, Id, Keyframe, Layer, LayerProperties, LayerRole, ResourceUnit, SoundEffect,
-    SoundSync, TimelineVideoSpan, VideoSyncMode, new_id, timeline_video::VideoCuePoint,
+    FrameSound, Id, Keyframe, Layer, LayerProperties, ResourceUnit, SoundEffect, SoundSync,
+    TimelineVideoSpan, VideoSyncMode, new_id, timeline_video::VideoCuePoint,
     timeline_video::VideoCuePointKind,
 };
-use neoflash_ui::components::{self as c, MenuItem, timeline as tl};
-use neoflash_ui::tokens::space;
+use neoflash_ui::components::{self as c, MenuItem};
+use neoflash_ui::icons::i16;
+use neoflash_ui::tokens::{TextStyle, space};
+use neoflash_ui::typography::rich;
 
 fn sync_label(sync: VideoSyncMode) -> &'static str {
     match sync {
@@ -26,7 +27,6 @@ fn sync_label(sync: VideoSyncMode) -> &'static str {
 
 enum VideoInspectorAction {
     UpdateSpan(Option<TimelineVideoSpan>),
-    LinkPartner(Option<Id>),
     ExtractAudio,
     SplitAtPlayhead,
 }
@@ -225,30 +225,20 @@ impl Editor {
             .unwrap_or_else(|| span.start_offset_ms.saturating_add(4_000))
             .max(span.start_offset_ms.saturating_add(200));
 
-        let active_layer_id = self.symbol().timeline.layers[self.layer].id.clone();
-        let linked_partner = self.symbol().timeline.layers[self.layer]
-            .properties
-            .linked_layer
-            .clone();
-        let partner_candidates: Vec<(Id, String)> = self
-            .symbol()
-            .timeline
-            .layers
-            .iter()
-            .filter(|l| {
-                l.id != active_layer_id && l.properties.role != LayerRole::Folder && !l.locked
-            })
-            .map(|l| (l.id.clone(), l.name.clone()))
-            .collect();
-
         let mut action: Option<VideoInspectorAction> = None;
         let mut next_span = span.clone();
         let w = ui.available_width();
+        let p = neoflash_ui::palette(ui.ctx());
 
-        let mut trim_dragging = false;
+        let sel_id = ui.id().with(("video-cue-sel", key_frame));
+        let edit_id = ui.id().with(("video-cue-edit", key_frame));
+        let mut selected_cue: Option<usize> = ui.ctx().data(|d| d.get_temp(sel_id));
+        let mut editing_cue: Option<usize> = ui.ctx().data(|d| d.get_temp(edit_id));
+
         c::SectionHeader::new("Video")
             .id_salt("properties-video")
             .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = space::S2;
                 ui.add_enabled_ui(editable, |ui| {
                     c::Select::new("frame-video-resource", &res_name)
                         .width(w)
@@ -272,9 +262,10 @@ impl Editor {
                         });
 
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S2;
                         let sync_lbl = format!("Sync: {}", sync_label(next_span.sync));
                         c::Select::new("frame-video-sync", &sync_lbl)
-                            .width(132.0)
+                            .width(150.0)
                             .show(ui, |ui| {
                                 for mode in [
                                     VideoSyncMode::Stream,
@@ -297,102 +288,7 @@ impl Editor {
                         ui.add(c::Checkbox::new(&mut next_span.muted, "Mute"));
                     });
 
-                    // Interactive NF2 video trim strip + handles.
-                    let cur_in_ms = next_span
-                        .start_offset_ms
-                        .min(strip_max_ms.saturating_sub(50));
-                    let cur_out_ms = next_span.end_offset_ms.unwrap_or(strip_max_ms).clamp(
-                        cur_in_ms.saturating_add(50),
-                        strip_max_ms.max(cur_in_ms + 50),
-                    );
-                    let (strip_rect, strip_resp) =
-                        ui.allocate_exact_size(egui::vec2(w, 27.0), egui::Sense::click_and_drag());
-                    tl::paint_span(
-                        ui.painter(),
-                        ui.ctx(),
-                        strip_rect,
-                        tl::SpanType::Video,
-                        false,
-                    );
-                    let in_frac = (cur_in_ms as f32 / strip_max_ms.max(1) as f32).clamp(0.0, 1.0);
-                    let out_frac =
-                        (cur_out_ms as f32 / strip_max_ms.max(1) as f32).clamp(in_frac, 1.0);
-                    let x_in = egui::lerp(strip_rect.left()..=strip_rect.right(), in_frac);
-                    let x_out = egui::lerp(strip_rect.left()..=strip_rect.right(), out_frac)
-                        .max(x_in + 4.0);
-                    let active_rect = egui::Rect::from_min_max(
-                        egui::pos2(x_in, strip_rect.top()),
-                        egui::pos2(x_out.min(strip_rect.right()), strip_rect.bottom()),
-                    );
-                    tl::paint_span(
-                        ui.painter(),
-                        ui.ctx(),
-                        active_rect,
-                        tl::SpanType::Video,
-                        true,
-                    );
-                    let pal = neoflash_ui::palette(ui.ctx());
-                    for hx in [x_in, x_out.min(strip_rect.right())] {
-                        let hrect = egui::Rect::from_center_size(
-                            egui::pos2(
-                                hx.clamp(strip_rect.left() + 2.0, strip_rect.right() - 2.0),
-                                strip_rect.center().y,
-                            ),
-                            egui::vec2(4.0, strip_rect.height() - 4.0),
-                        );
-                        ui.painter().rect_filled(hrect, 1.5, pal.accent_default);
-                    }
-                    let drag_id = ui.id().with(("props-video-trim", key_frame));
-                    if strip_resp.hovered() || strip_resp.dragged() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                    }
-                    let trim_draft_id = ui.id().with(("props-video-trim-draft", key_frame));
-                    if let Some(draft_span) = ui
-                        .ctx()
-                        .data(|d| d.get_temp::<TimelineVideoSpan>(trim_draft_id))
-                        && strip_resp.dragged()
-                    {
-                        next_span = draft_span;
-                    }
-                    if (strip_resp.drag_started() || strip_resp.clicked())
-                        && let Some(pos) = strip_resp.interact_pointer_pos()
-                    {
-                        let pick_in = (pos.x - x_in).abs() <= (pos.x - x_out).abs();
-                        ui.ctx().data_mut(|d| d.insert_temp(drag_id, pick_in));
-                    }
-                    if (strip_resp.dragged() || strip_resp.clicked())
-                        && let Some(pos) = strip_resp.interact_pointer_pos()
-                    {
-                        let pick_in = ui
-                            .ctx()
-                            .data(|d| d.get_temp::<bool>(drag_id))
-                            .unwrap_or(true);
-                        let frac = ((pos.x - strip_rect.left()) / strip_rect.width().max(1.0))
-                            .clamp(0.0, 1.0);
-                        let target_ms = (f64::from(frac) * f64::from(strip_max_ms)).round() as u32;
-                        if pick_in {
-                            next_span.start_offset_ms =
-                                target_ms.min(cur_out_ms.saturating_sub(50));
-                        } else {
-                            next_span.end_offset_ms =
-                                Some(target_ms.max(cur_in_ms.saturating_add(50)));
-                        }
-                        if strip_resp.dragged() {
-                            trim_dragging = true;
-                            ui.ctx()
-                                .data_mut(|d| d.insert_temp(trim_draft_id, next_span.clone()));
-                        }
-                    }
-                    if strip_resp.drag_stopped() {
-                        if let Some(finished_draft) = ui
-                            .ctx()
-                            .data_mut(|d| d.remove_temp::<TimelineVideoSpan>(trim_draft_id))
-                        {
-                            next_span = finished_draft;
-                        }
-                        ui.ctx().data_mut(|d| d.remove::<bool>(drag_id));
-                    }
-
+                    ui.label(rich("Trim", TextStyle::Overline).color(p.text_tertiary));
                     let mut in_ms_f = f64::from(next_span.start_offset_ms);
                     let mut out_ms_f = f64::from(next_span.end_offset_ms.unwrap_or(strip_max_ms));
                     let (in_resp, out_resp) = two_column_row(
@@ -441,17 +337,8 @@ impl Editor {
                         ui.spacing_mut().item_spacing.x = space::S2;
                         if ui
                             .add_enabled(
-                                next_span.end_offset_ms.is_some(),
-                                c::Button::ghost("Clear out"),
-                            )
-                            .clicked()
-                        {
-                            next_span.end_offset_ms = None;
-                        }
-                        if ui
-                            .add_enabled(
                                 self.frame > key_frame,
-                                c::Button::ghost("Split at playhead"),
+                                c::Button::new("Split at playhead"),
                             )
                             .clicked()
                         {
@@ -460,67 +347,97 @@ impl Editor {
                         if ui
                             .add_enabled(
                                 next_span.deployment.is_embedded(),
-                                c::Button::ghost("Extract audio"),
+                                c::Button::new("Extract audio"),
                             )
                             .clicked()
                         {
                             action = Some(VideoInspectorAction::ExtractAudio);
                         }
                     });
+                    if ui
+                        .add_enabled(
+                            next_span.start_offset_ms > 0 || next_span.end_offset_ms.is_some(),
+                            c::Button::ghost("Reset trim"),
+                        )
+                        .clicked()
+                    {
+                        next_span.start_offset_ms = 0;
+                        next_span.end_offset_ms = None;
+                    }
 
-                    // Linked audio/video track selector.
-                    let partner_lbl = match linked_partner.as_deref().and_then(|pid| {
-                        partner_candidates
-                            .iter()
-                            .find(|(id, _)| id == pid)
-                            .map(|(_, name)| name.as_str())
-                    }) {
-                        Some(name) => format!("Linked track: {name}"),
-                        None => "Linked track: None".to_owned(),
-                    };
-                    c::Select::new("frame-video-linked-track", &partner_lbl)
-                        .width(w)
-                        .show(ui, |ui| {
-                            if ui
-                                .add(MenuItem::new("None").checked(linked_partner.is_none()))
-                                .clicked()
-                            {
-                                action = Some(VideoInspectorAction::LinkPartner(None));
-                                ui.close();
-                            }
-                            for (pid, pname) in &partner_candidates {
-                                if ui
-                                    .add(
-                                        MenuItem::new(pname).checked(
-                                            linked_partner.as_deref() == Some(pid.as_str()),
-                                        ),
-                                    )
-                                    .clicked()
-                                {
-                                    action =
-                                        Some(VideoInspectorAction::LinkPartner(Some(pid.clone())));
-                                    ui.close();
-                                }
-                            }
+                    ui.label(rich("Cue points", TextStyle::Overline).color(p.text_tertiary));
+                    let columns = [0.0, 0.56];
+                    ui.scope(|ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        ui.add(c::TableRow {
+                            cells: &["Name", "Time"],
+                            kind: c::TableRowKind::Header,
+                            columns: &columns,
                         });
-
-                    // Authored cue points + retiming.
-                    ui.horizontal(|ui| {
-                        caption(
-                            ui,
-                            &format!(
-                                "{} · Key F{} · {} cue{}",
-                                next_span.deployment.label(),
-                                key_frame + 1,
-                                next_span.cue_points.len(),
-                                if next_span.cue_points.len() == 1 {
-                                    ""
-                                } else {
-                                    "s"
+                        for (idx, cue) in next_span.cue_points.iter_mut().enumerate() {
+                            let is_sel = selected_cue == Some(idx);
+                            let is_edit = editing_cue == Some(idx);
+                            if is_edit {
+                                let mut t_ms = f64::from(cue.time_ms);
+                                ui.push_id(("video-cue-edit-row", idx), |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = space::S1;
+                                        let name_w = (w * columns[1] - space::S1).max(60.0);
+                                        let time_w = (w - name_w - space::S1).max(60.0);
+                                        let name_resp = ui.add(
+                                            c::TextField::new(&mut cue.name, "Cue name")
+                                                .width(name_w),
+                                        );
+                                        let time_resp = ui.add(
+                                            c::Field::new(&mut t_ms, "Cue time")
+                                                .unit("ms")
+                                                .range(0.0..=600_000.0)
+                                                .decimals(0)
+                                                .width(time_w),
+                                        );
+                                        if time_resp.changed() {
+                                            cue.time_ms = t_ms.round().max(0.0) as u32;
+                                        }
+                                        if ui.input(|i| {
+                                            i.key_pressed(egui::Key::Enter)
+                                                || i.key_pressed(egui::Key::Escape)
+                                        }) || (name_resp.lost_focus() && !time_resp.has_focus())
+                                            || (time_resp.lost_focus() && !name_resp.has_focus())
+                                        {
+                                            editing_cue = None;
+                                        }
+                                    });
+                                });
+                            } else {
+                                let time_lbl = format!("{} ms", cue.time_ms);
+                                let resp = ui.add(c::TableRow {
+                                    cells: &[&cue.name, &time_lbl],
+                                    kind: if is_sel {
+                                        c::TableRowKind::Selected
+                                    } else {
+                                        c::TableRowKind::Row
+                                    },
+                                    columns: &columns,
+                                });
+                                if resp.double_clicked() {
+                                    selected_cue = Some(idx);
+                                    editing_cue = Some(idx);
+                                } else if resp.clicked() {
+                                    if is_sel {
+                                        editing_cue = Some(idx);
+                                    } else {
+                                        selected_cue = Some(idx);
+                                    }
                                 }
-                            ),
-                        );
-                        if ui.add(c::Button::ghost("+ Cue")).clicked() {
+                            }
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S1;
+                        if ui
+                            .add(c::IconButton::new(i16::PLUS, "Add cue point"))
+                            .clicked()
+                        {
                             let elapsed_ms = neoflash_core::frame_delta_ms(
                                 self.frame.saturating_sub(key_frame),
                                 f64::from(self.project.fps.max(1)),
@@ -533,50 +450,50 @@ impl Editor {
                                 kind: VideoCuePointKind::Event,
                                 parameters: Vec::new(),
                             });
+                            selected_cue = Some(next_span.cue_points.len() - 1);
+                            editing_cue = selected_cue;
+                        }
+                        let can_remove =
+                            selected_cue.is_some_and(|i| i < next_span.cue_points.len());
+                        if ui
+                            .add_enabled(
+                                can_remove,
+                                c::IconButton::new(i16::TRASH, "Remove cue point"),
+                            )
+                            .clicked()
+                            && let Some(idx) = selected_cue
+                            && idx < next_span.cue_points.len()
+                        {
+                            next_span.cue_points.remove(idx);
+                            editing_cue = None;
+                            selected_cue = if next_span.cue_points.is_empty() {
+                                None
+                            } else {
+                                Some(idx.min(next_span.cue_points.len() - 1))
+                            };
                         }
                     });
-                    let mut remove_cue_idx = None;
-                    for (idx, cue) in next_span.cue_points.iter_mut().enumerate() {
-                        ui.push_id(("video-cue", idx), |ui| {
-                            let mut t_ms = f64::from(cue.time_ms);
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
-                                ui.add(c::TextField::new(&mut cue.name, "Cue").width(108.0));
-                                let r = ui.add(
-                                    c::Field::new(&mut t_ms, "Cue time")
-                                        .unit("ms")
-                                        .range(0.0..=600_000.0)
-                                        .decimals(0)
-                                        .width(96.0),
-                                );
-                                if r.changed() {
-                                    cue.time_ms = t_ms.round().max(0.0) as u32;
-                                }
-                                if ui.add(c::Button::ghost("×")).clicked() {
-                                    remove_cue_idx = Some(idx);
-                                }
-                            });
-                        });
-                    }
-                    if let Some(idx) = remove_cue_idx {
-                        next_span.cue_points.remove(idx);
-                    }
                 });
             });
 
-        if action.is_none() && !trim_dragging && next_span != span {
+        if let Some(sel) = selected_cue.filter(|&i| i < next_span.cue_points.len()) {
+            ui.ctx().data_mut(|d| d.insert_temp(sel_id, sel));
+        } else {
+            ui.ctx().data_mut(|d| d.remove::<usize>(sel_id));
+        }
+        if let Some(edit) = editing_cue.filter(|&i| i < next_span.cue_points.len()) {
+            ui.ctx().data_mut(|d| d.insert_temp(edit_id, edit));
+        } else {
+            ui.ctx().data_mut(|d| d.remove::<usize>(edit_id));
+        }
+
+        if action.is_none() && next_span != span {
             action = Some(VideoInspectorAction::UpdateSpan(Some(next_span)));
         }
 
         match action {
             Some(VideoInspectorAction::UpdateSpan(updated)) => {
                 let _ = self.set_keyframe_video_span(updated);
-            }
-            Some(VideoInspectorAction::LinkPartner(Some(partner_id))) => {
-                let _ = self.link_layers(&active_layer_id, &partner_id);
-            }
-            Some(VideoInspectorAction::LinkPartner(None)) => {
-                let _ = self.unlink_layer(&active_layer_id);
             }
             Some(VideoInspectorAction::ExtractAudio) => {
                 if let Err(err) = self.extract_active_video_audio_track() {
@@ -713,5 +630,259 @@ printf '%s\n%s\n' "$input" "$output" > "${0%/*}/capture.txt"
         assert_eq!(input.file_name().unwrap(), "input_video.bin");
         assert!(output.is_absolute());
         assert_eq!(output.file_name().unwrap(), "extracted.wav");
+    }
+}
+
+#[cfg(test)]
+mod frame_video_ui_tests {
+    use crate::app::Editor;
+    use eframe::egui;
+    use neoflash_core::timeline_video::{VideoCuePoint, VideoCuePointKind, VideoSyncMode};
+    use neoflash_core::{Project, ResourceUnit, TimelineVideoSpan, build_minimal_mjpeg_avi};
+
+    fn collected_text(output: &egui::FullOutput) -> Vec<String> {
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            if let egui::Shape::Text(text) = &clipped.shape {
+                texts.push(text.galley.text().to_owned());
+            }
+        }
+        texts
+    }
+
+    fn accesskit_bounds(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
+        output
+            .platform_output
+            .accesskit_update
+            .as_ref()?
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                (node.label() == Some(label))
+                    .then(|| node.bounds())
+                    .flatten()
+                    .map(|b| {
+                        egui::Rect::from_min_max(
+                            egui::pos2(b.x0 as f32, b.y0 as f32),
+                            egui::pos2(b.x1 as f32, b.y1 as f32),
+                        )
+                    })
+            })
+    }
+
+    fn click_point(
+        ctx: &egui::Context,
+        pos: egui::Pos2,
+        draw: &mut dyn FnMut(&mut egui::Ui),
+    ) -> egui::FullOutput {
+        let mut run = |events| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(320.0, 720.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::SidePanel::right("props")
+                        .exact_width(280.0)
+                        .show(ctx, |ui| {
+                            draw(ui);
+                        });
+                },
+            )
+        };
+        let _ = run(vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+        run(vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ])
+    }
+
+    #[test]
+    fn frame_video_section_matches_r093_layout_controls_and_cue_table() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut proj = Project::blank();
+        proj.fps = 10;
+        let avi = build_minimal_mjpeg_avi(4, 4, 10, &vec![vec![0xFF, 0xD8, 0xFF, 0xD9]; 6], None);
+        let res = ResourceUnit::from_bytes("vid-1", "videos/clip.avi", "video/avi", &avi).unwrap();
+        proj.resources.push(res);
+
+        let mut editor = Editor::from_project(&ctx, proj);
+        editor.layer = 0;
+        editor.frame = 0;
+        assert!(editor.set_keyframe_video_span(Some(TimelineVideoSpan {
+            resource: "vid-1".to_owned(),
+            sync: VideoSyncMode::Stream,
+            start_offset_ms: 100,
+            end_offset_ms: Some(500),
+            loop_video: false,
+            muted: false,
+            cue_points: vec![VideoCuePoint {
+                name: "intro".to_owned(),
+                time_ms: 150,
+                kind: VideoCuePointKind::Event,
+                parameters: vec![],
+            }],
+            ..Default::default()
+        })));
+
+        let run_panel = |ed: &mut Editor| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(320.0, 720.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::SidePanel::right("props")
+                        .exact_width(280.0)
+                        .show(ctx, |ui| {
+                            ed.frame_video_section(ui);
+                        });
+                },
+            )
+        };
+
+        let out = run_panel(&mut editor);
+        let texts = collected_text(&out);
+
+        for expected in [
+            "VIDEO",
+            "Sync: Stream",
+            "Loop",
+            "Mute",
+            "TRIM",
+            "In",
+            "Out",
+            "Split at playhead",
+            "Extract audio",
+            "Reset trim",
+            "CUE POINTS",
+            "NAME",
+            "TIME",
+            "intro",
+            "150 ms",
+        ] {
+            assert!(
+                texts.iter().any(|t| t == expected),
+                "expected R-093 label {expected:?} in Properties ▸ Video; got {texts:?}"
+            );
+        }
+        for obsolete in ["+ Cue", "×", "Clear out", "Linked track"] {
+            assert!(
+                !texts.iter().any(|t| t == obsolete),
+                "obsolete pre-R-093 label {obsolete:?} must not appear: {texts:?}"
+            );
+        }
+
+        let add_btn = accesskit_bounds(&out, "Add cue point")
+            .expect("Add cue point icon button must expose accessible label");
+        let remove_btn = accesskit_bounds(&out, "Remove cue point")
+            .expect("Remove cue point icon button must expose accessible label");
+        assert!(
+            add_btn.left() < remove_btn.left()
+                && (add_btn.center().y - remove_btn.center().y).abs() <= 2.0,
+            "Add and Remove cue point icon buttons should share one row"
+        );
+
+        let _ = click_point(&ctx, add_btn.center(), &mut |ui| {
+            editor.frame_video_section(ui);
+        });
+        let after_add = run_panel(&mut editor);
+        assert_eq!(
+            editor.frame_video().unwrap().1.cue_points.len(),
+            2,
+            "clicking Add cue point must insert a cue point row"
+        );
+
+        // Select the new second cue row and click Remove cue point.
+        assert!(
+            collected_text(&after_add)
+                .iter()
+                .any(|t| t.starts_with("cue_")),
+            "newly added cue_ row present in table; got {:?}",
+            collected_text(&after_add)
+        );
+        // Confirm inline edit with Enter so the row returns to TableRow display, then select & remove it.
+        let after_enter = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(320.0, 720.0),
+                )),
+                events: vec![egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            },
+            |ctx| {
+                egui::SidePanel::right("props")
+                    .exact_width(280.0)
+                    .show(ctx, |ui| {
+                        editor.frame_video_section(ui);
+                    });
+            },
+        );
+        let remove_pos = accesskit_bounds(&after_enter, "Remove cue point")
+            .expect("Remove cue point button present")
+            .center();
+        let mut row2_pos = None;
+        fn find_cue_pos(shape: &egui::Shape, out_pos: &mut Option<egui::Pos2>) {
+            if out_pos.is_some() {
+                return;
+            }
+            match shape {
+                egui::Shape::Text(t) if t.galley.text().starts_with("cue_") => {
+                    *out_pos = Some(egui::pos2(t.pos.x + 8.0, t.pos.y + 4.0));
+                }
+                egui::Shape::Vec(shapes) => {
+                    for s in shapes {
+                        find_cue_pos(s, out_pos);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for s in &after_enter.shapes {
+            find_cue_pos(&s.shape, &mut row2_pos);
+        }
+        let row2_pos = row2_pos.expect("confirmed cue_ row rendered as TableRow");
+        let _ = click_point(&ctx, row2_pos, &mut |ui| {
+            editor.frame_video_section(ui);
+        });
+        let _ = click_point(&ctx, remove_pos, &mut |ui| {
+            editor.frame_video_section(ui);
+        });
+        let remaining = &editor.frame_video().unwrap().1.cue_points;
+        assert_eq!(
+            remaining.len(),
+            1,
+            "clicking Remove cue point must delete the selected cue point"
+        );
+        assert_eq!(remaining[0].name, "intro");
+        editor.project.validate().expect("project remains valid");
     }
 }

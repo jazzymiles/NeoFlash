@@ -2240,7 +2240,7 @@ pub(crate) fn chapter_as_migration_guide(
         "Top 5 Migration Pitfalls When Porting Legacy AS2 FLA Projects to AS3 or JS/TS",
         "Checklist",
         BadgeType::Warning,
-        "Compiler ⌥F2",
+        "⌥F2",
         &[
             "1) Percentage vs Unit Ranges: AS2 `_alpha = 50` and `_xscale = 200` become `alpha = 0.5` and `scaleX = 2.0` in AS3 and JS/TS. Setting `alpha = 50` in AS3/JS clamps to `1.0` (fully opaque)!",
             "2) Depth Numbers vs Contiguous Display List Indices: AS2 allows sparse depths (`swapDepths(9999)`), whereas AS3/JS `addChildAt(child, index)` requires `0 <= index <= numChildren` (out-of-bounds indices throw `RangeError`).",
@@ -2268,11 +2268,11 @@ pub(crate) fn chapter_as_migration_guide(
             &summary_title,
             "Live API Index",
             BadgeType::Accent,
-            "⌃Space Hints",
+            "⌃Space",
             &[
                 "All 25 Classic AS1/AS2 Variable Suffixes for Automatic Code Hints: `_mc` (MovieClip), `_txt` (TextField), `_btn` (Button), `_array` (Array), `_str` (String), `_sound` (Sound), `_xml` (XML), `_xmlnode` (XMLNode), `_xmlsocket` (XMLSocket), `_so` (SharedObject), `_nc` (NetConnection), `_ns` (NetStream), `_video` (Video), `_fmt` (TextFormat), `_lv` (LoadVars), `_lc` (LocalConnection), `_color` (Color), `_date` (Date), `_err` (Error), `_cam` (Camera), `_mic` (Microphone), `_mcl` (MovieClipLoader), `_pj` (PrintJob), `_cm` (ContextMenu), `_cmi` (ContextMenuItem).",
                 "Comment Type Directives: Place `// MovieClip hero;` or `/* flash.display.Sprite enemy; */` in frame scripts to activate full member completion on untyped variables.",
-                "Actions Toolbox & Code Hints (F9): The Actions panel left toolbox and `⌃Space` completion engine query the audited AS2/AS3 declaration catalog, the curated JS/TS/Web API catalog, and your project's `.as` / `.js` / `.ts` source files in real time.",
+                "Actions Toolbox & Code Hints (F9): The Actions panel left toolbox and code-hint completion engine query the audited AS2/AS3 declaration catalog, the curated JS/TS/Web API catalog, and your project's `.as` / `.js` / `.ts` source files in real time.",
             ],
         );
     }
@@ -2281,7 +2281,7 @@ pub(crate) fn chapter_as_migration_guide(
         ui,
         "Switch Document Script Language",
         Some("⌘J"),
-        "Open Document ▸ Document Settings… (⌘J) or the Actions panel header selector to choose ActionScript 3.0, ActionScript 2.0, JavaScript, or TypeScript.",
+        "Open Document ▸ Document Settings… or the Actions panel header selector to choose ActionScript 3.0, ActionScript 2.0, JavaScript, or TypeScript.",
     );
 
     super::help_manual::inline_cross_links(
@@ -2619,7 +2619,7 @@ pub(crate) fn chapter_typescript_checker(
 ) {
     paragraph(
         ui,
-        "NeoFlash includes a fast, zero-dependency Rust TypeScript front-end and bounded static type checker (`crates/neoflash-script/src/ts_check.rs`). You get immediate compile-time diagnostics in the Compiler Errors panel (`⌥F2`) and source-mapped JavaScript output without installing Node.js or `tsc`.",
+        "NeoFlash includes a fast, zero-dependency Rust TypeScript front-end and bounded static type checker (`crates/neoflash-script/src/ts_check.rs`). You get immediate compile-time diagnostics in the Compiler Errors panel and source-mapped JavaScript output without installing Node.js or `tsc`.",
     );
 
     let tabs = [
@@ -2660,7 +2660,7 @@ pub(crate) fn chapter_typescript_checker(
                     (
                         "4. SourceMap + Run",
                         "1-based line/col spans",
-                        "Compiler Errors (⌥F2)",
+                        "Compiler Errors",
                         p.accent_default,
                     ),
                 ];
@@ -2838,12 +2838,12 @@ pub(crate) fn chapter_typescript_checker(
     mode_card(
         ui,
         Some(i16::WARNING),
-        "Source Maps, Compiler Errors (⌥F2) & Bounded Checker Honesty",
+        "Source Maps, Compiler Errors & Bounded Checker Honesty",
         "Diagnostics",
         BadgeType::Accent,
-        "⌥F2 Errors",
+        "⌥F2",
         &[
-            "Exact Source Spans & Source Maps: Every TypeScript syntax or type error reports its 1-based line and column in the Compiler Errors panel (`⌥F2`). Double-clicking a diagnostic jumps the Actions editor directly to that line.",
+            "Exact Source Spans & Source Maps: Every TypeScript syntax or type error reports its 1-based line and column in the Compiler Errors panel. Double-clicking a diagnostic jumps the Actions editor directly to that line.",
             "Bounded Checker Honesty: `ts_check` is purpose-built for authoring scripts, interfaces, classes, unions, and utility types inside NeoFlash. It intentionally does not claim to be a full external `tsc` compiler and does not read `tsconfig.json` or `node_modules/@types`.",
         ],
     );
@@ -2905,7 +2905,7 @@ pub(crate) fn chapter_browser_web_apis(
 ) {
     paragraph(
         ui,
-        "When published to HTML5 (`File ▸ Publish`, `⇧F12`), NeoFlash bundles run inside a standard web browser alongside the WebAssembly runtime (`neoflash_web_bg.wasm`), canvas host (`player.js`), and Web Audio scheduler (`audio.js`). JavaScript and TypeScript scripts can interact with browser Web APIs subject to standard browser security, CORS, CSP, and autoplay policies.",
+        "When published to HTML5 (`File ▸ Publish`), NeoFlash bundles run inside a standard web browser alongside the WebAssembly runtime (`neoflash_web_bg.wasm`), canvas host (`player.js`), and Web Audio scheduler (`audio.js`). JavaScript and TypeScript scripts can interact with browser Web APIs subject to standard browser security, CORS, CSP, and autoplay policies.",
     );
 
     let tabs = [
@@ -3727,7 +3727,7 @@ fn write_chapter_svg_illustration(index: usize, out: &mut String) {
                  <text x=\"354\" y=\"40\" fill=\"var(--success-default)\" font-size=\"11\" font-weight=\"600\">3. Strip &amp; Lower</text>\
                  <text x=\"354\" y=\"60\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">Erase types + lower enum</text>\
                  <rect x=\"508\" y=\"18\" width=\"154\" height=\"68\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--accent-default)\"/>\
-                 <text x=\"518\" y=\"40\" fill=\"var(--accent-default)\" font-size=\"11\" font-weight=\"600\">4. SourceMap (⌥F2)</text>\
+                 <text x=\"518\" y=\"40\" fill=\"var(--accent-default)\" font-size=\"11\" font-weight=\"600\">4. SourceMap</text>\
                  <text x=\"518\" y=\"60\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">1-based line &amp; col</text>\
                  <rect x=\"16\" y=\"94\" width=\"646\" height=\"28\" rx=\"4\" fill=\"var(--accent-subtle)\"/>\
                  <text x=\"340\" y=\"112\" text-anchor=\"middle\" fill=\"var(--text-primary)\" font-size=\"10.5\" font-family=\"monospace\">Utilities: Array&lt;T&gt; · Promise&lt;T&gt; · Record&lt;K,V&gt; · Partial&lt;T&gt; · Pick&lt;T,K&gt; · Omit&lt;T,K&gt;</text>",
@@ -3762,13 +3762,26 @@ fn write_chapter_svg_illustration(index: usize, out: &mut String) {
 fn write_as_chapter_reference_html(index: usize, out: &mut String) {
     match index {
         9 => {
+            #[cfg(target_os = "macos")]
+            const INSTALL_ROW: &str = "<tr><td><code>Install &amp; Manual Update</code></td><td>Replace <code>NeoFlash.app</code> in <code>/Applications</code></td><td>Preferences, custom workspaces, recent files, and crash-recovery snapshots in <code>~/Library/Application Support/NeoFlash</code> are preserved across manual updates.</td></tr>";
+            #[cfg(target_os = "windows")]
+            const INSTALL_ROW: &str = "<tr><td><code>Install &amp; Manual Update</code></td><td>Extract the Windows x64 portable ZIP and launch <code>neoflash.exe</code></td><td>Preferences, custom workspaces, recent files, and crash-recovery snapshots in <code>%APPDATA%\\NeoFlash</code> are preserved across manual updates.</td></tr>";
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            const INSTALL_ROW: &str = "<tr><td><code>Install &amp; Manual Update</code></td><td>Extract the Linux x64 portable tar.gz archive and run <code>neoflash</code></td><td>Preferences, custom workspaces, recent files, and crash-recovery snapshots in <code>~/.local/share/NeoFlash</code> are preserved across manual updates.</td></tr>";
+            #[cfg(target_os = "macos")]
+            const MEDIA_ROW: &str = "<tr><td><code>Bundled Media &amp; Licences</code></td><td><code>Contents/Resources/media/bin/</code></td><td><code>ffmpeg</code>/<code>ffprobe</code>, exact application/Rust/media licence evidence and checksum manifests are included; corresponding source is supplied beside the platform archive. Set <code>NEOFLASH_FFMPEG</code> / <code>NEOFLASH_FFPROBE</code> only for custom overrides.</td></tr>";
+            #[cfg(not(target_os = "macos"))]
+            const MEDIA_ROW: &str = "<tr><td><code>Bundled Media &amp; Licences</code></td><td><code>media/bin/</code></td><td><code>ffmpeg</code>/<code>ffprobe</code>, exact application/Rust/media licence evidence and checksum manifests are included; corresponding source is supplied beside the platform archive. Set <code>NEOFLASH_FFMPEG</code> / <code>NEOFLASH_FFPROBE</code> only for custom overrides.</td></tr>";
+
             out.push_str(
                 "<h3>NeoFlash 0.1.0-beta.1 — Release Identity, Install, Manual Update, Media &amp; Known Issues</h3>\
                  <table class=\"ref-table\"><thead><tr><th>Area</th><th>0.1.0-beta.1 Specification</th><th>Details &amp; Operational Guidance</th></tr></thead><tbody>\
-                 <tr><td><code>Release Identity</code></td><td><code>NeoFlash 0.1.0-beta.1</code> · macOS 15+ Apple Silicon · Windows/Linux x64 Technical Preview</td><td>Windows is an unsigned portable ZIP; Linux is an Ubuntu 24.04-compatible portable tar.gz.</td></tr>\
-                 <tr><td><code>Install &amp; Manual Update</code></td><td>Replace <code>NeoFlash.app</code> in <code>/Applications</code></td><td>Preferences, custom workspaces, recent files, and crash-recovery snapshots in <code>~/Library/Application Support/NeoFlash</code> are preserved across manual updates.</td></tr>\
-                 <tr><td><code>Bundled Media &amp; Licences</code></td><td><code>Contents/Resources/media/bin/</code> or <code>media/bin/</code></td><td><code>ffmpeg</code>/<code>ffprobe</code>, exact application/Rust/media licence evidence and checksum manifests are included; corresponding source is supplied beside the platform archive. Set <code>NEOFLASH_FFMPEG</code> / <code>NEOFLASH_FFPROBE</code> only for custom overrides.</td></tr>\
-                 <tr><td><code>Backups &amp; Bug Reports</code></td><td>Versioned <code>.nflash</code> JSON + <code>About NeoFlash</code></td><td>Keep <code>.nflash</code> projects in Git or regular file backups. Attach a minimal <code>.nflash</code> repro, <code>Output</code> panel diagnostics, and the build commit from <code>NeoFlash &gt; About NeoFlash</code> when reporting bugs.</td></tr>\
+                 <tr><td><code>Release Identity</code></td><td><code>NeoFlash 0.1.0-beta.1</code> · macOS 15+ Apple Silicon · Windows/Linux x64 Technical Preview</td><td>Windows is an unsigned portable ZIP; Linux is an Ubuntu 24.04-compatible portable tar.gz.</td></tr>",
+            );
+            out.push_str(INSTALL_ROW);
+            out.push_str(MEDIA_ROW);
+            out.push_str(
+                "<tr><td><code>Backups &amp; Bug Reports</code></td><td>Versioned <code>.nflash</code> JSON + <code>About NeoFlash</code></td><td>Keep <code>.nflash</code> projects in Git or regular file backups. Attach a minimal <code>.nflash</code> repro, <code>Output</code> panel diagnostics, and the build commit from <code>NeoFlash &gt; About NeoFlash</code> when reporting bugs.</td></tr>\
                  <tr><td><code>Known Issues &amp; Limits</code></td><td>VoiceOver, Intel Macs, updates, Windows / Linux previews, graphics tablets</td><td>VoiceOver cannot read the editor interface yet. There is no build for Intel (x86_64) Macs. Updates are installed manually. The Windows preview is unsigned, so SmartScreen may warn before the first launch, and it has no connected debugger. The Linux preview is a portable archive tested on Ubuntu 24.04 x64 with X11 and Wayland, not an AppImage or deb package. Windows and Linux have had less testing than macOS. Import of legacy Flash files is partial. Graphics-tablet support is experimental.</td></tr>\
                  </tbody></table>",
             );
@@ -4083,11 +4096,21 @@ pub(crate) fn render_browser_help_html_for_route(
         );
     }
 
+    #[cfg(target_os = "macos")]
+    const HEADER_SUMMARY: &str = "Illustrated NF2 Authoring Manual (Chapters 1–10) &amp; Scripting Reference: AS1/AS2, AS3, JavaScript, TypeScript &amp; Web APIs (Chapters 11–19) · Manual macOS update preserves ~/Library/Application Support/NeoFlash · Bundled ffmpeg/ffprobe and licence evidence are included.";
+    #[cfg(target_os = "windows")]
+    const HEADER_SUMMARY: &str = "Illustrated NF2 Authoring Manual (Chapters 1–10) &amp; Scripting Reference: AS1/AS2, AS3, JavaScript, TypeScript &amp; Web APIs (Chapters 11–19) · Manual Windows update preserves %APPDATA%\\NeoFlash · Bundled ffmpeg/ffprobe and licence evidence are included.";
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    const HEADER_SUMMARY: &str = "Illustrated NF2 Authoring Manual (Chapters 1–10) &amp; Scripting Reference: AS1/AS2, AS3, JavaScript, TypeScript &amp; Web APIs (Chapters 11–19) · Manual Linux update preserves ~/.local/share/NeoFlash · Bundled ffmpeg/ffprobe and licence evidence are included.";
+
     html.push_str(
         "<header class=\"top-header\" id=\"top\"><div>\
          <h1>NeoFlash Help &amp; Reference (0.1.0-beta.1 · macOS + Windows/Linux x64 previews)</h1>\
-         <p>Illustrated NF2 Authoring Manual (Chapters 1–10) &amp; Scripting Reference: AS1/AS2, AS3, JavaScript, TypeScript &amp; Web APIs (Chapters 11–19) · Manual macOS update preserves ~/Library/Application Support/NeoFlash · Bundled ffmpeg/ffprobe and licence evidence are included.</p>\
-         </div><div style=\"display:flex;align-items:center;gap:8px;flex-wrap:wrap\">",
+         <p>",
+    );
+    html.push_str(HEADER_SUMMARY);
+    html.push_str(
+        "</p></div><div style=\"display:flex;align-items:center;gap:8px;flex-wrap:wrap\">",
     );
     if let Some(page) = clamped_page {
         let _ = write!(

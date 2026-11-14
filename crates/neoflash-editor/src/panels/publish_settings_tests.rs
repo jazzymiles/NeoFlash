@@ -711,6 +711,108 @@ fn publish_button_in_publish_settings_persists_all_edited_settings_without_reset
 }
 
 #[test]
+fn publish_settings_r089_layout_height_cap_collapsed_simulator_and_hints() {
+    let mut d = Driver::new(ThemeMode::Dark);
+    d.open();
+
+    // Render at 1024x720 (`R-089` #4: dialog never taller than window - 80 pt = 640 pt).
+    let mut out = egui::FullOutput::default();
+    for _ in 0..2 {
+        out = d.ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1024.0, 720.0))),
+                ..Default::default()
+            },
+            |ctx| {
+                d.editor.publish_settings_dialog(ctx);
+            },
+        );
+    }
+
+    fn collect_rects(shape: &egui::Shape, out_rects: &mut Vec<(egui::Color32, Rect)>) {
+        match shape {
+            egui::Shape::Rect(r) => out_rects.push((r.fill, r.rect)),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect_rects(s, out_rects)),
+            _ => {}
+        }
+    }
+    let mut all_rects = Vec::new();
+    for s in &out.shapes {
+        collect_rects(&s.shape, &mut all_rects);
+    }
+    let mut max_dialog_y = f32::NEG_INFINITY;
+    let mut min_dialog_y = f32::INFINITY;
+    let bg_raised = neoflash_ui::palette(&d.ctx).bg_raised;
+    for (fill, rect) in &all_rects {
+        if *fill == bg_raised && rect.width() > 800.0 && rect.height() > 200.0 {
+            min_dialog_y = min_dialog_y.min(rect.top());
+            max_dialog_y = max_dialog_y.max(rect.bottom());
+        }
+    }
+    let dialog_h = max_dialog_y - min_dialog_y;
+    assert!(
+        (580.0..=641.0).contains(&dialog_h),
+        "at 1024x720 Publish settings must fit within window - 80 pt (<= 640 pt), got {dialog_h}"
+    );
+
+    let texts = painted_text(&out);
+    // R-089 #3: Network startup simulator starts collapsed by default.
+    assert!(
+        texts.iter().any(|t| t == "NETWORK STARTUP SIMULATOR"),
+        "expected Network startup simulator section header: {texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t == "Bootstrap"),
+        "collapsed Network startup simulator must hide readings until expanded: {texts:?}"
+    );
+    // R-089 #6: empty HTML5 output field shows "Choose a file".
+    assert!(
+        texts.iter().any(|t| t == "Choose a file"),
+        "empty output field must show 'Choose a file' hint: {texts:?}"
+    );
+
+    // R-089 #5: active target row has bg/selected fill.
+    let bg_selected = neoflash_ui::palette(&d.ctx).bg_selected;
+    assert!(
+        all_rects
+            .iter()
+            .any(|(fill, rect)| *fill == bg_selected && (rect.width() - 260.0).abs() <= 20.0),
+        "expected bg/selected fill on active target row"
+    );
+
+    // R-089 #1/#2: Loop..Source maps checkboxes sit above Scale/Align, and Sequences sits below
+    // Sprite sheets / Embed fonts checkboxes at >= 280 pt.
+    fn find_text_in_shape(shape: &egui::Shape, needle: &str) -> Option<Rect> {
+        match shape {
+            egui::Shape::Text(t) if t.galley.text().contains(needle) => {
+                Some(Rect::from_min_size(t.pos, t.galley.size()))
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().find_map(|s| find_text_in_shape(s, needle)),
+            _ => None,
+        }
+    }
+    let find_text_rect = |needle: &str| -> Option<Rect> {
+        out.shapes
+            .iter()
+            .find_map(|s| find_text_in_shape(&s.shape, needle))
+    };
+    let loop_r = find_text_rect("Loop").expect("Loop checkbox");
+    let maps_r = find_text_rect("Source maps").expect("Source maps checkbox");
+    let scale_r = find_text_rect("Scale:").expect("Scale select");
+    let align_r = find_text_rect("Align:").expect("Align select");
+    assert!((loop_r.center().y - maps_r.center().y).abs() <= 6.0);
+    assert!(maps_r.bottom() <= scale_r.top() + 4.0);
+    assert!((scale_r.center().y - align_r.center().y).abs() <= 6.0);
+
+    let sprite_r = find_text_rect("Sprite sheets").expect("Sprite sheets checkbox");
+    let seq_r = find_text_rect("Sequences:").expect("Sequences select");
+    assert!(
+        sprite_r.bottom() <= seq_r.top() + 4.0,
+        "Sequences select must be on its own row under asset checkboxes"
+    );
+}
+
+#[test]
 fn publish_profiles_and_all_five_targets_desktop_image_sequence_svg_and_html5() {
     use crate::workspace::{PublishProfilePreset, PublishTarget};
     use neoflash_export::SizeLevel;

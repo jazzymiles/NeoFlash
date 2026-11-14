@@ -311,7 +311,7 @@ impl Editor {
                     }
                 }
                 if valid_targets.is_empty() {
-                    self.message("Shape tweens need shapes on both keyframes. Break symbols and text apart (⌘B), or use a classic tween.");
+                    self.message("Shape tweens need shapes on both keyframes. Break symbols and text apart via Modify ▸ Break Apart, or use a classic tween.");
                     return;
                 }
                 if any_non_shape {

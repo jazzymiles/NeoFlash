@@ -230,6 +230,59 @@ impl StageOverlay {
         }
     }
 }
+
+/// Fixed canvas-independent palette for Stage 3D, bone, puppet and deform gizmos (`R-091`).
+/// Colours encode axis identity or pins across every theme.
+pub(crate) mod stage_gizmo {
+    use eframe::egui::{Color32, Painter, Pos2, Rect, Stroke, StrokeKind};
+
+    pub(crate) const AXIS_X: Color32 = Color32::from_rgb(0xE6, 0x44, 0x44);
+    pub(crate) const AXIS_Y: Color32 = Color32::from_rgb(0x38, 0xC4, 0x62);
+    pub(crate) const AXIS_Z: Color32 = Color32::from_rgb(0x42, 0x8A, 0xF5);
+    pub(crate) const VANISHING_AND_PIN: Color32 = Color32::from_rgb(0xF5, 0xB2, 0x34);
+    pub(crate) const UNDERLAY_ALPHA: u8 = 179; // 70% opacity
+
+    pub(crate) fn underlay_stroke(stroke: Stroke) -> Stroke {
+        Stroke::new(
+            stroke.width + 2.0,
+            Color32::from_black_alpha(UNDERLAY_ALPHA),
+        )
+    }
+
+    pub(crate) fn line_segment(painter: &Painter, points: [Pos2; 2], stroke: Stroke) {
+        painter.line_segment(points, underlay_stroke(stroke));
+        painter.line_segment(points, stroke);
+    }
+
+    pub(crate) fn circle_stroke(painter: &Painter, center: Pos2, radius: f32, stroke: Stroke) {
+        painter.circle_stroke(center, radius, underlay_stroke(stroke));
+        painter.circle_stroke(center, radius, stroke);
+    }
+
+    /// Circular gizmo handle/pin: solid fill with a 1 pt white ring inside a 1 pt black ring.
+    pub(crate) fn handle_circle(painter: &Painter, center: Pos2, radius: f32, fill: Color32) {
+        painter.circle_filled(center, radius, fill);
+        painter.circle_stroke(center, radius + 0.5, Stroke::new(1.0_f32, Color32::WHITE));
+        painter.circle_stroke(center, radius + 1.5, Stroke::new(1.0_f32, Color32::BLACK));
+    }
+
+    /// Rectangular gizmo handle: solid fill with a 1 pt white ring inside a 1 pt black ring.
+    pub(crate) fn handle_rect(painter: &Painter, rect: Rect, rounding: f32, fill: Color32) {
+        painter.rect_filled(rect, rounding, fill);
+        painter.rect_stroke(
+            rect.expand(1.0),
+            rounding + 1.0,
+            Stroke::new(1.0_f32, Color32::WHITE),
+            StrokeKind::Inside,
+        );
+        painter.rect_stroke(
+            rect.expand(2.0),
+            rounding + 2.0,
+            Stroke::new(1.0_f32, Color32::BLACK),
+            StrokeKind::Inside,
+        );
+    }
+}
 static LIGHT: LazyLock<UiPalette> = LazyLock::new(|| palette(ThemeMode::Light));
 static DARK: LazyLock<UiPalette> = LazyLock::new(|| palette(ThemeMode::Dark));
 static MID_NEUTRAL_GRAY: LazyLock<UiPalette> = LazyLock::new(|| palette(ThemeMode::MidNeutralGray));
@@ -600,5 +653,39 @@ mod tests {
             Some(ThemeMode::DarkGraphite)
         );
         assert_eq!(ThemeMode::from_slug("unknown"), None);
+    }
+
+    #[test]
+    fn stage_gizmo_palette_and_high_contrast_underlays_match_r091() {
+        assert_eq!(stage_gizmo::AXIS_X, Color32::from_rgb(0xE6, 0x44, 0x44));
+        assert_eq!(stage_gizmo::AXIS_Y, Color32::from_rgb(0x38, 0xC4, 0x62));
+        assert_eq!(stage_gizmo::AXIS_Z, Color32::from_rgb(0x42, 0x8A, 0xF5));
+        assert_eq!(
+            stage_gizmo::VANISHING_AND_PIN,
+            Color32::from_rgb(0xF5, 0xB2, 0x34)
+        );
+        let underlay = stage_gizmo::underlay_stroke(Stroke::new(2.0_f32, stage_gizmo::AXIS_X));
+        assert_eq!(underlay.width, 4.0);
+        assert_eq!(underlay.color, Color32::from_black_alpha(179));
+
+        let ctx = egui::Context::default();
+        let output = ctx.run(Default::default(), |ctx| {
+            let p = ctx.layer_painter(egui::LayerId::background());
+            stage_gizmo::line_segment(
+                &p,
+                [egui::pos2(10.0, 10.0), egui::pos2(50.0, 10.0)],
+                Stroke::new(2.0_f32, stage_gizmo::AXIS_X),
+            );
+            stage_gizmo::handle_circle(
+                &p,
+                egui::pos2(50.0, 10.0),
+                4.5,
+                stage_gizmo::VANISHING_AND_PIN,
+            );
+        });
+        assert!(
+            output.shapes.len() >= 5,
+            "expected line underlay + colour stroke + pin fill + white ring + black ring"
+        );
     }
 }

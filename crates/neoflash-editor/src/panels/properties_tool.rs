@@ -11,7 +11,7 @@ use crate::stage::ik::{
     solve_armature_ccd,
 };
 use crate::stage_mapping::StageMapping;
-use eframe::egui::{self, Color32, Pos2, Rect, Stroke};
+use eframe::egui::{self, Pos2, Rect, Stroke};
 use neoflash_core::*;
 use neoflash_ui::components as nf;
 use neoflash_ui::tokens::{TextStyle, space};
@@ -979,7 +979,7 @@ impl Editor {
         scene: &[DrawItem],
     ) -> bool {
         let accent = neoflash_ui::palette(ui.ctx()).accent_default;
-        let guide_col = Color32::from_rgb(245, 178, 52);
+        let guide_col = crate::theme::stage_gizmo::VANISHING_AND_PIN;
 
         // Paint existing IK armatures and joints on the current keyframe.
         let mut effector_screen: Option<(Id, Pos2)> = None;
@@ -999,9 +999,13 @@ impl Editor {
                         self.zoom,
                         Pos2::new(tail[0] as f32, tail[1] as f32),
                     );
-                    painter.line_segment([h_scr, t_scr], Stroke::new(2.5_f32, accent));
-                    painter.circle_filled(h_scr, 5.0, accent);
-                    painter.circle_filled(t_scr, 4.5, guide_col);
+                    crate::theme::stage_gizmo::line_segment(
+                        painter,
+                        [h_scr, t_scr],
+                        Stroke::new(2.5_f32, accent),
+                    );
+                    crate::theme::stage_gizmo::handle_circle(painter, h_scr, 5.0, accent);
+                    crate::theme::stage_gizmo::handle_circle(painter, t_scr, 4.5, guide_col);
                     if bone_id == &arm.effector_bone_id {
                         effector_screen = Some((arm.id.clone(), t_scr));
                     }
@@ -1052,7 +1056,11 @@ impl Editor {
         };
 
         if let Some((from_id, start_scr)) = connect_from {
-            painter.line_segment([start_scr, pos], Stroke::new(2.0_f32, guide_col));
+            crate::theme::stage_gizmo::line_segment(
+                painter,
+                [start_scr, pos],
+                Stroke::new(2.0_f32, guide_col),
+            );
             if released || !down {
                 {
                     let mut sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
@@ -1118,11 +1126,12 @@ impl Editor {
             let stage_pt = crate::stage::affine(matrix, Pos2::new(pt[0] as f32, pt[1] as f32));
             let scr = mapping.edit_to_screen(origin, self.zoom, stage_pt);
             let is_sel = selected_verts.contains(&idx);
-            painter.circle_filled(
+            crate::theme::stage_gizmo::handle_circle(
+                painter,
                 scr,
                 if is_sel { 5.0 } else { 3.5 },
                 if is_sel {
-                    Color32::from_rgb(245, 178, 52)
+                    crate::theme::stage_gizmo::VANISHING_AND_PIN
                 } else {
                     accent
                 },
@@ -1177,7 +1186,7 @@ impl Editor {
             return false;
         };
         let matrix = transform_matrix(el.transform);
-        let pin_col = Color32::from_rgb(245, 178, 52);
+        let pin_col = crate::theme::stage_gizmo::VANISHING_AND_PIN;
         let rig = self
             .symbol()
             .timeline
@@ -1192,8 +1201,7 @@ impl Editor {
                 let stage_pt =
                     crate::stage::affine(matrix, Pos2::new(pin.pos[0] as f32, pin.pos[1] as f32));
                 let scr = mapping.edit_to_screen(origin, self.zoom, stage_pt);
-                painter.circle_filled(scr, 5.5, pin_col);
-                painter.circle_stroke(scr, 7.5, Stroke::new(1.5_f32, Color32::BLACK));
+                crate::theme::stage_gizmo::handle_circle(painter, scr, 5.5, pin_col);
             }
         }
 
@@ -1339,8 +1347,10 @@ impl Editor {
                     "Unlock and show the active layer before placing or dragging warp pins."
                 } else if element_id.is_none() {
                     "Select a vector shape or symbol instance on Stage, then click inside it to place warp pins."
-                } else {
+                } else if cfg!(target_os = "macos") {
                     "Click inside the selected element on Stage to add pins, drag pins to deform, or Option-click a pin to remove."
+                } else {
+                    "Click inside the selected element on Stage to add pins, drag pins to deform, or Alt-click a pin to remove."
                 };
                 ui.label(rich(msg, TextStyle::Small).color(p.text_secondary));
                 if let Some(_eid) = element_id {

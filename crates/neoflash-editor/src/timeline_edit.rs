@@ -782,6 +782,7 @@ impl Editor {
         })
     }
 
+    #[allow(dead_code)]
     pub fn unlink_layer(&mut self, layer_id: &str) -> bool {
         self.unlink_layers_by_ids(&[layer_id.to_owned()])
     }

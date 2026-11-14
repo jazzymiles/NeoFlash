@@ -121,16 +121,16 @@ const SPRAY_BRUSH: ToolSpec = spec(
     Icon::SprayBrush,
     "Spray Brush",
     "⇧B",
-    "Spray Brush (⇧B)",
+    "Spray Brush",
 );
 const BONE: ToolSpec = spec(Tool::Bone, Icon::Bone, "Bone", "X", "Bone (X)");
-const BIND: ToolSpec = spec(Tool::Bind, Icon::Bind, "Bind", "⇧X", "Bind (⇧X)");
+const BIND: ToolSpec = spec(Tool::Bind, Icon::Bind, "Bind", "⇧X", "Bind");
 const ASSET_WARP: ToolSpec = spec(
     Tool::AssetWarp,
     Icon::Puppet,
     "Asset Warp",
     "⇧W",
-    "Asset Warp (⇧W)",
+    "Asset Warp",
 );
 const TRANSLATE_3D: ToolSpec = spec(
     Tool::Translate3D,
@@ -1776,18 +1776,23 @@ impl Editor {
     fn tool_accessible_label(&self, spec: ToolSpec, key: &str) -> String {
         let cmd = crate::commands::CommandId::for_tool(spec.tool);
         if !crate::commands::has_override(&self.workspace.shortcuts, cmd) {
+            if matches!(spec.tool, Tool::SprayBrush | Tool::Bind | Tool::AssetWarp)
+                && !key.is_empty()
+            {
+                return format!("{} ({})", spec.name, nf::platform_shortcut(key));
+            }
             return spec.label.to_owned();
         }
         if spec.tool == Tool::Hand {
             if key.is_empty() {
                 "Hand (hold Space)".to_owned()
             } else {
-                format!("Hand ({key} / hold Space)")
+                format!("Hand ({} / hold Space)", nf::platform_shortcut(key))
             }
         } else if key.is_empty() {
             spec.name.to_owned()
         } else {
-            format!("{} ({key})", spec.name)
+            format!("{} ({})", spec.name, nf::platform_shortcut(key))
         }
     }
 

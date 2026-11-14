@@ -1926,16 +1926,21 @@ fn mask_luminance_and_invert_modes_and_compact_row_height_roundtrip_with_single_
         )
     };
     let out = render_tl(&mut editor, vec![]);
-    let mode_rect = find_rect(&out, "Mask mode: Geometry");
-    let chan_rect = find_rect(&out, "Mask channel");
+    let chan_rect = find_rect(&out, "Mask channel: Geometry");
     let inv_rect = find_rect(&out, "Invert mask");
     assert!(
         chan_rect.height() <= 16.0 && inv_rect.height() <= 16.0,
         "Compact 16 pt row must clamp inline mask icon height: chan={chan_rect:?}, inv={inv_rect:?}"
     );
     assert!(
-        inv_rect.right() - mode_rect.left() <= 64.0 + 1e-3,
-        "Mode button + 2 inline mask icons must fit strictly within the 64 pt Mode cell: mode={mode_rect:?}, inv={inv_rect:?}"
+        inv_rect.right() - chan_rect.left() <= 64.0 + 1e-3,
+        "2 inline mask icons must fit strictly within the 64 pt Mode cell: chan={chan_rect:?}, inv={inv_rect:?}"
+    );
+    assert!(
+        !out.shapes
+            .iter()
+            .any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "Geo")),
+        "R-049 drops the three-letter Geo/Alpha/Luma text label"
     );
 
     let click_pos =

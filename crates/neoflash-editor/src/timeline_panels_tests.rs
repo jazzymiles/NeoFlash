@@ -1464,3 +1464,95 @@ fn large_project_ui_frame_execution_budget() {
     );
     editor.project.validate().unwrap();
 }
+
+#[test]
+fn motion_editor_places_wiggler_and_sketch_bar_at_top_only_in_motion_context() {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, neoflash_ui::Theme::Dark);
+    ctx.enable_accesskit();
+
+    let render_motion = |editor: &mut Editor| -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 480.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    editor.motion_editor_panel_ui(ui);
+                });
+            },
+        )
+    };
+    let find_bounds = |out: &egui::FullOutput, needle: &str| -> Option<egui::Rect> {
+        out.platform_output.accesskit_update.as_ref().and_then(|u| {
+            u.nodes.iter().find_map(|(_, n)| {
+                (n.label() == Some(needle)).then(|| {
+                    let b = n.bounds().unwrap();
+                    egui::Rect::from_min_max(
+                        egui::pos2(b.x0 as f32, b.y0 as f32),
+                        egui::pos2(b.x1 as f32, b.y1 as f32),
+                    )
+                })
+            })
+        })
+    };
+
+    // Outside a motion tween: empty state only, no Wiggler / Motion sketch tools.
+    let mut no_motion = Editor::from_project(&ctx, Project::blank());
+    no_motion.show_panel(PanelId::MotionEditor);
+    let _ = render_motion(&mut no_motion);
+    let out_empty = render_motion(&mut no_motion);
+    assert!(
+        out_empty.shapes.iter().any(|s| matches!(
+            &s.shape,
+            egui::Shape::Text(t) if t.galley.text() == "No motion tween"
+        )),
+        "expected empty state title outside a motion tween"
+    );
+    assert!(
+        find_bounds(&out_empty, "Apply wiggler").is_none()
+            && find_bounds(&out_empty, "Capture sketch").is_none()
+            && !out_empty.shapes.iter().any(|s| matches!(
+                &s.shape,
+                egui::Shape::Text(t) if t.galley.text() == "Wiggler" || t.galley.text() == "Motion sketch"
+            )),
+        "R-090 empty state must not show Wiggler or Motion sketch bar"
+    );
+
+    // Inside a motion tween: single toolbar row at top above Property header.
+    let mut active = motion_editor();
+    active.frame = 3;
+    active.show_panel(PanelId::MotionEditor);
+    let _ = render_motion(&mut active);
+    let out = render_motion(&mut active);
+    let apply = find_bounds(&out, "Apply wiggler").expect("Apply wiggler button");
+    let capture = find_bounds(&out, "Capture sketch").expect("Capture sketch button");
+    let freq = find_bounds(&out, "Wiggler frequency").expect("Freq field");
+    let mag = find_bounds(&out, "Wiggler magnitude").expect("Mag field");
+    let smooth = find_bounds(&out, "Motion sketch smoothness").expect("Smooth field");
+    assert!(freq.right() < mag.left());
+    assert!(mag.right() < apply.left());
+    assert!(apply.right() < smooth.left());
+    assert!(smooth.right() < capture.left());
+    assert!(
+        (apply.center().y - capture.center().y).abs() <= 2.0,
+        "Wiggler and Motion sketch belong to one toolbar row"
+    );
+    let property_y = out
+        .shapes
+        .iter()
+        .find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text() == "PROPERTY" => Some(t.pos.y),
+            _ => None,
+        })
+        .expect("Property header");
+    assert!(
+        apply.bottom() <= property_y + 1.0,
+        "toolbar row must sit above the Property table header: apply={apply:?}, property_y={property_y}"
+    );
+}

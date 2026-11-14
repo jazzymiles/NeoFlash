@@ -4,7 +4,7 @@ use crate::app::{Editor, ScriptTarget};
 use crate::selection::SelectionTarget;
 use crate::stage::ik::{Gizmo3dHandle, Stage3dAuthoringState};
 use crate::stage_mapping::StageMapping;
-use eframe::egui::{self, Color32, Pos2, Stroke, Vec2};
+use eframe::egui::{self, Pos2, Stroke, Vec2};
 use neoflash_core::*;
 use neoflash_ui::components as nf;
 use neoflash_ui::tokens::{TextStyle, space};
@@ -345,12 +345,13 @@ impl Editor {
         else {
             return false;
         };
-        let x_col = Color32::from_rgb(230, 68, 68);
-        let y_col = Color32::from_rgb(56, 196, 98);
-        let z_col = Color32::from_rgb(66, 138, 245);
-        let vp_col = Color32::from_rgb(245, 178, 52);
+        let x_col = crate::theme::stage_gizmo::AXIS_X;
+        let y_col = crate::theme::stage_gizmo::AXIS_Y;
+        let z_col = crate::theme::stage_gizmo::AXIS_Z;
+        let vp_col = crate::theme::stage_gizmo::VANISHING_AND_PIN;
 
-        painter.circle_stroke(
+        crate::theme::stage_gizmo::circle_stroke(
+            painter,
             geom.center,
             geom.ring_radius,
             Stroke::new(
@@ -362,33 +363,48 @@ impl Editor {
                 },
             ),
         );
-        painter.line_segment([geom.center, geom.x_tip], Stroke::new(2.0_f32, x_col));
-        painter.circle_filled(geom.x_tip, 4.5, x_col);
-        painter.line_segment([geom.center, geom.y_tip], Stroke::new(2.0_f32, y_col));
-        painter.circle_filled(geom.y_tip, 4.5, y_col);
-        painter.line_segment([geom.center, geom.z_tip], Stroke::new(2.0_f32, z_col));
-        painter.circle_filled(geom.z_tip, 4.5, z_col);
+        crate::theme::stage_gizmo::line_segment(
+            painter,
+            [geom.center, geom.x_tip],
+            Stroke::new(2.0_f32, x_col),
+        );
+        crate::theme::stage_gizmo::handle_circle(painter, geom.x_tip, 4.5, x_col);
+        crate::theme::stage_gizmo::line_segment(
+            painter,
+            [geom.center, geom.y_tip],
+            Stroke::new(2.0_f32, y_col),
+        );
+        crate::theme::stage_gizmo::handle_circle(painter, geom.y_tip, 4.5, y_col);
+        crate::theme::stage_gizmo::line_segment(
+            painter,
+            [geom.center, geom.z_tip],
+            Stroke::new(2.0_f32, z_col),
+        );
+        crate::theme::stage_gizmo::handle_circle(painter, geom.z_tip, 4.5, z_col);
 
         // Vanishing point crosshair and perspective angle handle.
-        painter.line_segment(
+        crate::theme::stage_gizmo::line_segment(
+            painter,
             [
                 geom.vanishing_point - Vec2::new(6.0, 0.0),
                 geom.vanishing_point + Vec2::new(6.0, 0.0),
             ],
             Stroke::new(1.5_f32, vp_col),
         );
-        painter.line_segment(
+        crate::theme::stage_gizmo::line_segment(
+            painter,
             [
                 geom.vanishing_point - Vec2::new(0.0, 6.0),
                 geom.vanishing_point + Vec2::new(0.0, 6.0),
             ],
             Stroke::new(1.5_f32, vp_col),
         );
-        painter.line_segment(
+        crate::theme::stage_gizmo::line_segment(
+            painter,
             [geom.vanishing_point, geom.perspective_handle],
             Stroke::new(1.0_f32, vp_col),
         );
-        painter.circle_filled(geom.perspective_handle, 4.0, vp_col);
+        crate::theme::stage_gizmo::handle_circle(painter, geom.perspective_handle, 4.0, vp_col);
 
         let (pressed, down, released, pointer_pos) = ui.input(|i| {
             (
