@@ -4,9 +4,12 @@
 #![allow(dead_code)]
 
 use crate::app::Editor;
+use crate::paint_controls::{show_color32_field_popup, two_column_row};
 use eframe::egui;
 use neoflash_core::*;
-use neoflash_ui::components as nf;
+use neoflash_ui::{
+    TextStyle, components as nf, icons::i16, palette, tokens::space, typography::rich,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppearanceModifierKind {
@@ -26,8 +29,8 @@ impl AppearanceModifierKind {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::OffsetContour => "Offset Paths",
-            Self::LiveCorners => "Round Corners",
+            Self::OffsetContour => "Offset path",
+            Self::LiveCorners => "Round corners",
             Self::Repeater => "Repeater",
             Self::Mirror => "Mirror",
         }
@@ -72,9 +75,9 @@ impl AppearanceProceduralKind {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::ZigZag => "Zig Zag",
-            Self::OffsetPath => "Offset Path (Effect)",
-            Self::PuckerBloat => "Pucker & Bloat",
+            Self::ZigZag => "Zig zag",
+            Self::OffsetPath => "Offset path",
+            Self::PuckerBloat => "Pucker and bloat",
             Self::Roughen => "Roughen",
             Self::Twist => "Twist",
         }
@@ -567,6 +570,38 @@ impl Editor {
         })
     }
 
+    /// Set both color and opacity (`0.0..=1.0`) of an `Appearance` paint entry in 1 Undo step (`T-301`).
+    pub fn appearance_set_entry_paint(&mut self, index: usize, color: Color, opacity: f64) -> bool {
+        if !opacity.is_finite() {
+            return false;
+        }
+        let clamped = opacity.clamp(0.0, 1.0);
+        self.mutate_selected_appearance("Set appearance paint", |_el, app| {
+            let Some(entry) = app.entries.get_mut(index) else {
+                return false;
+            };
+            match entry {
+                AppearancePaintEntry::Fill {
+                    color: c,
+                    opacity: op,
+                    ..
+                }
+                | AppearancePaintEntry::Stroke {
+                    color: c,
+                    opacity: op,
+                    ..
+                } => {
+                    if *c == color && (*op - clamped).abs() <= 1e-6 {
+                        return false;
+                    }
+                    *c = color;
+                    *op = clamped;
+                    true
+                }
+            }
+        })
+    }
+
     /// Update stroke width and offset distance on a stroke entry at `index` in 1 Undo step (`T-233`).
     pub fn appearance_set_stroke_entry_width(
         &mut self,
@@ -740,6 +775,25 @@ impl Editor {
                 return false;
             }
             fx.procedural_effects.remove(index);
+            true
+        })
+    }
+
+    /// Reorder a procedural vector effect from `from_index` to `to_index` in 1 Undo step (`T-301`).
+    pub fn appearance_move_procedural_effect(
+        &mut self,
+        from_index: usize,
+        to_index: usize,
+    ) -> bool {
+        self.mutate_selected_vector_effects("Reorder vector effect", |fx| {
+            if from_index >= fx.procedural_effects.len()
+                || to_index >= fx.procedural_effects.len()
+                || from_index == to_index
+            {
+                return false;
+            }
+            let item = fx.procedural_effects.remove(from_index);
+            fx.procedural_effects.insert(to_index, item);
             true
         })
     }
@@ -969,7 +1023,7 @@ impl Editor {
         self.appearance_expand_selected()
     }
 
-    /// Render the `Appearance` inspector panel (`T-233` / `T-264`).
+    /// Render the `Appearance` inspector panel (`T-233` / `T-264` / `T-301`).
     pub fn appearance_panel_ui(&mut self, ui: &mut egui::Ui) {
         let Some(appearance) = self.selected_element_appearance() else {
             ui.label("Select a vector shape on Stage to edit multi-paint fills, strokes, modifiers, and Graphic Styles.");
@@ -977,7 +1031,17 @@ impl Editor {
         };
         let vector_effects = self.selected_element_vector_effects().unwrap_or_default();
 
-        // 1. Graphic Styles section
+        self.appearance_graphic_style_section(ui, &appearance);
+        self.appearance_paint_stack_section(ui, &appearance);
+        self.appearance_modifiers_section(ui, &appearance);
+        self.appearance_effects_section(ui, &vector_effects);
+    }
+
+    fn appearance_graphic_style_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        appearance: &ElementAppearance,
+    ) {
         let styles = self.project.vector_styles();
         let active_style_name = appearance
             .style_id
@@ -985,32 +1049,34 @@ impl Editor {
             .and_then(|id| styles.iter().find(|s| s.id == id))
             .map(|s| s.name.clone())
             .unwrap_or_else(|| "None".to_string());
-        nf::SectionHeader::new("Graphic Styles")
+        let style_label = format!("Style: {active_style_name}");
+
+        nf::SectionHeader::new("Graphic style")
             .id_salt("appearance_graphic_style_sec")
             .show(ui, |ui| {
                 let mut chosen_action: Option<Option<String>> = None;
-                nf::Select::new("appearance_graphic_style_select", &active_style_name).show(
-                    ui,
-                    |ui| {
+                nf::Select::new("appearance_graphic_style_select", &style_label)
+                    .width(ui.available_width())
+                    .show(ui, |ui| {
                         if ui
-                            .selectable_label(appearance.style_id.is_none(), "None")
+                            .add(nf::MenuItem::new("None").checked(appearance.style_id.is_none()))
                             .clicked()
                         {
                             chosen_action = Some(None);
                         }
                         for s in &styles {
                             if ui
-                                .selectable_label(
-                                    appearance.style_id.as_deref() == Some(s.id.as_str()),
-                                    &s.name,
+                                .add(
+                                    nf::MenuItem::new(&s.name).checked(
+                                        appearance.style_id.as_deref() == Some(s.id.as_str()),
+                                    ),
                                 )
                                 .clicked()
                             {
                                 chosen_action = Some(Some(s.id.clone()));
                             }
                         }
-                    },
-                );
+                    });
                 if let Some(choice) = chosen_action {
                     match choice {
                         None => {
@@ -1021,34 +1087,52 @@ impl Editor {
                         }
                     }
                 }
+                let has_style = appearance.style_id.is_some();
                 ui.horizontal(|ui| {
-                    if ui.add(nf::Button::new("Save Style")).clicked() {
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    if ui.add(nf::Button::new("Save style…")).clicked() {
                         let next_name = format!("Style {}", styles.len() + 1);
                         let _ = self.appearance_save_graphic_style(&next_name);
                     }
-                    if let Some(style_id) = appearance.style_id.as_deref() {
-                        if ui.add(nf::Button::ghost("Unlink")).clicked() {
-                            let _ = self.appearance_unlink_graphic_style();
-                        }
-                        if ui.add(nf::Button::ghost("Delete")).clicked() {
-                            let id_owned = style_id.to_string();
-                            let _ = self.appearance_delete_graphic_style(&id_owned);
-                        }
+                    if ui
+                        .add_enabled(has_style, nf::Button::ghost("Unlink"))
+                        .clicked()
+                    {
+                        let _ = self.appearance_unlink_graphic_style();
+                    }
+                    if ui
+                        .add_enabled(has_style, nf::Button::ghost("Delete"))
+                        .clicked()
+                        && let Some(style_id) = appearance.style_id.as_deref()
+                    {
+                        let id_owned = style_id.to_string();
+                        let _ = self.appearance_delete_graphic_style(&id_owned);
                     }
                 });
             });
+    }
 
-        nf::divider(ui, false);
-
-        // 2. Multi-Paint Fills & Strokes Stack
+    fn appearance_paint_stack_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        appearance: &ElementAppearance,
+    ) {
         nf::SectionHeader::new("Appearance")
             .id_salt("appearance_fills_strokes_sec")
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    if ui.add(nf::Button::new("+ Fill")).clicked() {
+                let entries_len = appearance.entries.len();
+                for (idx, entry) in appearance.entries.iter().enumerate() {
+                    appearance_item_box(ui, ("appearance_entry", idx), |ui| {
+                        self.appearance_paint_entry_item(ui, idx, entries_len, entry);
+                    });
+                }
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                    if ui.add(nf::Button::new("Add fill")).clicked() {
                         let _ = self.appearance_add_fill(self.fill, [0.0, 0.0], 1.0);
                     }
-                    if ui.add(nf::Button::new("+ Stroke")).clicked() {
+                    if ui.add(nf::Button::new("Add stroke")).clicked() {
                         let _ = self.appearance_add_stroke(
                             self.stroke,
                             self.stroke_width.max(1.0),
@@ -1056,437 +1140,591 @@ impl Editor {
                             1.0,
                         );
                     }
-                    if ui.add(nf::Button::ghost("Expand Appearance")).clicked() {
+                    if ui.add(nf::Button::ghost("Expand appearance")).clicked() {
                         let _ = self.expand_selected_shape_appearance();
                     }
                 });
-
-                let entries_len = appearance.entries.len();
-                for (idx, entry) in appearance.entries.iter().enumerate() {
-                    ui.push_id(("appearance_entry", idx), |ui| match entry {
-                        AppearancePaintEntry::Fill {
-                            offset, opacity, ..
-                        } => {
-                            let mut visible = *opacity > 0.0;
-                            let mut edit_opacity_pct = (*opacity * 100.0).round();
-                            let mut off_x = offset[0];
-                            let mut off_y = offset[1];
-                            ui.horizontal(|ui| {
-                                if ui.add(nf::Checkbox::new(&mut visible, "Fill")).changed() {
-                                    let _ = self.appearance_toggle_entry_visibility(idx);
-                                }
-                                if idx > 0 && ui.add(nf::Button::ghost("↑")).clicked() {
-                                    let _ = self.appearance_move_entry(idx, idx - 1);
-                                }
-                                if idx + 1 < entries_len && ui.add(nf::Button::ghost("↓")).clicked()
-                                {
-                                    let _ = self.appearance_move_entry(idx, idx + 1);
-                                }
-                                if ui.add(nf::Button::ghost("Remove")).clicked() {
-                                    let _ = self.appearance_remove_entry(idx);
-                                }
-                            });
-                            if ui
-                                .add(
-                                    nf::Field::new(&mut edit_opacity_pct, "Opacity")
-                                        .unit("%")
-                                        .range(0.0..=100.0),
-                                )
-                                .changed()
-                            {
-                                let _ = self
-                                    .appearance_set_entry_opacity(idx, edit_opacity_pct / 100.0);
-                            }
-                            let ox_changed = ui
-                                .add(
-                                    nf::Field::new(&mut off_x, "dX")
-                                        .unit("px")
-                                        .range(-1000.0..=1000.0),
-                                )
-                                .changed();
-                            let oy_changed = ui
-                                .add(
-                                    nf::Field::new(&mut off_y, "dY")
-                                        .unit("px")
-                                        .range(-1000.0..=1000.0),
-                                )
-                                .changed();
-                            if ox_changed || oy_changed {
-                                let _ = self.appearance_set_fill_entry_offset(idx, [off_x, off_y]);
-                            }
-                        }
-                        AppearancePaintEntry::Stroke {
-                            width,
-                            offset_distance,
-                            opacity,
-                            ..
-                        } => {
-                            let mut visible = *opacity > 0.0;
-                            let mut edit_w = *width;
-                            let mut edit_off = *offset_distance;
-                            let mut edit_opacity_pct = (*opacity * 100.0).round();
-                            ui.horizontal(|ui| {
-                                if ui.add(nf::Checkbox::new(&mut visible, "Stroke")).changed() {
-                                    let _ = self.appearance_toggle_entry_visibility(idx);
-                                }
-                                if idx > 0 && ui.add(nf::Button::ghost("↑")).clicked() {
-                                    let _ = self.appearance_move_entry(idx, idx - 1);
-                                }
-                                if idx + 1 < entries_len && ui.add(nf::Button::ghost("↓")).clicked()
-                                {
-                                    let _ = self.appearance_move_entry(idx, idx + 1);
-                                }
-                                if ui.add(nf::Button::ghost("Remove")).clicked() {
-                                    let _ = self.appearance_remove_entry(idx);
-                                }
-                            });
-                            let w_changed = ui
-                                .add(
-                                    nf::Field::new(&mut edit_w, "W")
-                                        .unit("px")
-                                        .range(0.1..=200.0),
-                                )
-                                .changed();
-                            let off_changed = ui
-                                .add(
-                                    nf::Field::new(&mut edit_off, "Offset")
-                                        .unit("px")
-                                        .range(-500.0..=500.0),
-                                )
-                                .changed();
-                            if w_changed || off_changed {
-                                let _ =
-                                    self.appearance_set_stroke_entry_width(idx, edit_w, edit_off);
-                            }
-                            if ui
-                                .add(
-                                    nf::Field::new(&mut edit_opacity_pct, "Opacity")
-                                        .unit("%")
-                                        .range(0.0..=100.0),
-                                )
-                                .changed()
-                            {
-                                let _ = self
-                                    .appearance_set_entry_opacity(idx, edit_opacity_pct / 100.0);
-                            }
-                        }
-                    });
-                }
             });
+    }
 
-        nf::divider(ui, false);
+    fn appearance_paint_entry_item(
+        &mut self,
+        ui: &mut egui::Ui,
+        idx: usize,
+        entries_len: usize,
+        entry: &AppearancePaintEntry,
+    ) {
+        let (title, color_label, color, opacity) = match entry {
+            AppearancePaintEntry::Fill { color, opacity, .. } => {
+                ("Fill", "Fill color", *color, *opacity)
+            }
+            AppearancePaintEntry::Stroke { color, opacity, .. } => {
+                ("Stroke", "Stroke color", *color, *opacity)
+            }
+        };
 
-        // 3. Path Modifiers (`Offset Paths`, `Round Corners`, `Repeater`, `Mirror`)
+        let mut visible = opacity > 0.0;
+        let mut header_action = None;
+        appearance_header_row(ui, |ui| {
+            if ui.add(nf::Checkbox::new(&mut visible, title)).changed() {
+                let _ = self.appearance_toggle_entry_visibility(idx);
+            }
+            header_action = item_header_actions(ui, idx, entries_len);
+        });
+        if let Some(action) = header_action {
+            match action {
+                ItemAction::MoveUp => {
+                    let _ = self.appearance_move_entry(idx, idx - 1);
+                }
+                ItemAction::MoveDown => {
+                    let _ = self.appearance_move_entry(idx, idx + 1);
+                }
+                ItemAction::Remove => {
+                    let _ = self.appearance_remove_entry(idx);
+                }
+            }
+            return;
+        }
+
+        // Color32 premultiplies RGB at alpha 0; preserve the stored RGB when hidden by disabling the field.
+        let display_a = if visible {
+            (color[3] as f64 * opacity).round().clamp(0.0, 255.0) as u8
+        } else {
+            color[3]
+        };
+        let mut edit_c32 =
+            egui::Color32::from_rgba_unmultiplied(color[0], color[1], color[2], display_a);
+        let color_resp = ui.add_enabled_ui(visible, |ui| {
+            let cf = nf::ColorField::new(&mut edit_c32, color_label)
+                .width(ui.available_width())
+                .show(ui);
+            let popup_changed = show_color32_field_popup(
+                ui,
+                &cf.response,
+                cf.swatch_clicked,
+                color_label,
+                &mut edit_c32,
+            );
+            cf.response.changed() || popup_changed
+        });
+        if color_resp.inner {
+            let [nr, ng, nb, na] = edit_c32.to_srgba_unmultiplied();
+            let rgb_changed = [nr, ng, nb] != [color[0], color[1], color[2]];
+            let alpha_changed = na != display_a;
+            if rgb_changed && !alpha_changed {
+                let _ = self.appearance_set_entry_color(idx, [nr, ng, nb, color[3]]);
+            } else if alpha_changed && !rgb_changed && color[3] == 255 {
+                let _ = self.appearance_set_entry_opacity(idx, na as f64 / 255.0);
+            } else if rgb_changed || alpha_changed {
+                let _ = self.appearance_set_entry_paint(idx, [nr, ng, nb, 255], na as f64 / 255.0);
+            }
+        }
+
+        match entry {
+            AppearancePaintEntry::Fill { offset, .. } => {
+                let mut off_x = offset[0];
+                let mut off_y = offset[1];
+                if appearance_two_fields(
+                    ui,
+                    (&mut off_x, NumericSpec::px("dX", "dX", -1000.0..=1000.0)),
+                    (&mut off_y, NumericSpec::px("dY", "dY", -1000.0..=1000.0)),
+                ) {
+                    let _ = self.appearance_set_fill_entry_offset(idx, [off_x, off_y]);
+                }
+            }
+            AppearancePaintEntry::Stroke {
+                width,
+                offset_distance,
+                ..
+            } => {
+                let mut edit_w = *width;
+                let mut edit_off = *offset_distance;
+                if appearance_two_fields(
+                    ui,
+                    (
+                        &mut edit_w,
+                        NumericSpec {
+                            label: "W",
+                            prefix: "W",
+                            unit: "px",
+                            range: 0.1..=200.0,
+                            step: 0.5,
+                        },
+                    ),
+                    (
+                        &mut edit_off,
+                        NumericSpec::px("Offset", "Offset", -500.0..=500.0),
+                    ),
+                ) {
+                    let _ = self.appearance_set_stroke_entry_width(idx, edit_w, edit_off);
+                }
+            }
+        }
+    }
+
+    fn appearance_modifiers_section(&mut self, ui: &mut egui::Ui, appearance: &ElementAppearance) {
         nf::SectionHeader::new("Path modifiers")
             .id_salt("appearance_path_modifiers_sec")
             .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    for kind in AppearanceModifierKind::ALL {
-                        if ui.add(nf::Button::new(kind.label())).clicked() {
-                            let _ = self.appearance_add_modifier(kind.default_modifier());
-                        }
-                    }
-                });
-                let mod_len = appearance.modifiers.len();
-                for (midx, modifier) in appearance.modifiers.iter().enumerate() {
-                    ui.push_id(("appearance_modifier", midx), |ui| match modifier {
-                        VectorModifier::OffsetContour { delta } => {
-                            let mut edit_delta = *delta;
-                            if ui
-                                .add(
-                                    nf::Field::new(&mut edit_delta, "Offset")
-                                        .unit("px")
-                                        .range(-500.0..=500.0),
-                                )
-                                .changed()
-                            {
-                                let _ = self.appearance_set_modifier(
-                                    midx,
-                                    VectorModifier::OffsetContour { delta: edit_delta },
-                                );
-                            }
-                            ui.horizontal(|ui| {
-                                if midx > 0 && ui.add(nf::Button::ghost("↑")).clicked() {
-                                    let _ = self.appearance_move_modifier(midx, midx - 1);
-                                }
-                                if midx + 1 < mod_len && ui.add(nf::Button::ghost("↓")).clicked()
-                                {
-                                    let _ = self.appearance_move_modifier(midx, midx + 1);
-                                }
-                                if ui.add(nf::Button::ghost("Remove")).clicked() {
-                                    let _ = self.appearance_remove_modifier(midx);
-                                }
-                            });
-                        }
-                        VectorModifier::LiveCorners { radius } => {
-                            let mut edit_radius = *radius;
-                            if ui
-                                .add(
-                                    nf::Field::new(&mut edit_radius, "Radius")
-                                        .unit("px")
-                                        .range(0.0..=500.0),
-                                )
-                                .changed()
-                            {
-                                let _ = self.appearance_set_modifier(
-                                    midx,
-                                    VectorModifier::LiveCorners {
-                                        radius: edit_radius,
-                                    },
-                                );
-                            }
-                            if ui.add(nf::Button::ghost("Remove")).clicked() {
-                                let _ = self.appearance_remove_modifier(midx);
-                            }
-                        }
-                        VectorModifier::Repeater {
-                            copies,
-                            offset_x,
-                            offset_y,
-                            scale_step,
-                            rotation_step,
-                        } => {
-                            let mut c = *copies as f64;
-                            let mut ox = *offset_x;
-                            let mut oy = *offset_y;
-                            let mut sc = *scale_step;
-                            let mut rot = *rotation_step;
-                            let c_ch = ui
-                                .add(nf::Field::new(&mut c, "Copies").range(1.0..=64.0))
-                                .changed();
-                            let ox_ch = ui
-                                .add(
-                                    nf::Field::new(&mut ox, "dX")
-                                        .unit("px")
-                                        .range(-1000.0..=1000.0),
-                                )
-                                .changed();
-                            let oy_ch = ui
-                                .add(
-                                    nf::Field::new(&mut oy, "dY")
-                                        .unit("px")
-                                        .range(-1000.0..=1000.0),
-                                )
-                                .changed();
-                            let sc_ch = ui
-                                .add(nf::Field::new(&mut sc, "Scale").range(0.1..=5.0))
-                                .changed();
-                            let rot_ch = ui
-                                .add(
-                                    nf::Field::new(&mut rot, "Rot")
-                                        .unit("°")
-                                        .range(-360.0..=360.0),
-                                )
-                                .changed();
-                            if c_ch || ox_ch || oy_ch || sc_ch || rot_ch {
-                                let _ = self.appearance_set_modifier(
-                                    midx,
-                                    VectorModifier::Repeater {
-                                        copies: c.round().clamp(1.0, 64.0) as u32,
-                                        offset_x: ox,
-                                        offset_y: oy,
-                                        scale_step: sc,
-                                        rotation_step: rot,
-                                    },
-                                );
-                            }
-                            if ui.add(nf::Button::ghost("Remove")).clicked() {
-                                let _ = self.appearance_remove_modifier(midx);
-                            }
-                        }
-                        VectorModifier::Mirror { axis_x, axis_y } => {
-                            let mut ax = axis_x.unwrap_or(0.0);
-                            let mut ay = axis_y.unwrap_or(0.0);
-                            let mut use_x = axis_x.is_some();
-                            let mut use_y = axis_y.is_some();
-                            ui.horizontal(|ui| {
-                                let ux_ch =
-                                    ui.add(nf::Checkbox::new(&mut use_x, "Mirror X")).changed();
-                                let uy_ch =
-                                    ui.add(nf::Checkbox::new(&mut use_y, "Mirror Y")).changed();
-                                if ux_ch || uy_ch {
-                                    let _ = self.appearance_set_modifier(
-                                        midx,
-                                        VectorModifier::Mirror {
-                                            axis_x: use_x.then_some(ax),
-                                            axis_y: use_y.then_some(ay),
-                                        },
-                                    );
-                                }
-                                if ui.add(nf::Button::ghost("Remove")).clicked() {
-                                    let _ = self.appearance_remove_modifier(midx);
-                                }
-                            });
-                            let ax_ch = ui
-                                .add(
-                                    nf::Field::new(&mut ax, "X")
-                                        .unit("px")
-                                        .range(-2000.0..=2000.0),
-                                )
-                                .changed();
-                            let ay_ch = ui
-                                .add(
-                                    nf::Field::new(&mut ay, "Y")
-                                        .unit("px")
-                                        .range(-2000.0..=2000.0),
-                                )
-                                .changed();
-                            if ax_ch || ay_ch {
-                                let _ = self.appearance_set_modifier(
-                                    midx,
-                                    VectorModifier::Mirror {
-                                        axis_x: use_x.then_some(ax),
-                                        axis_y: use_y.then_some(ay),
-                                    },
-                                );
+                let mut add_kind: Option<AppearanceModifierKind> = None;
+                nf::Select::new("appearance_add_modifier_select", "Add modifier")
+                    .width(ui.available_width())
+                    .show(ui, |ui| {
+                        for kind in AppearanceModifierKind::ALL {
+                            if ui.add(nf::MenuItem::new(kind.label())).clicked() {
+                                add_kind = Some(kind);
                             }
                         }
                     });
+                if let Some(kind) = add_kind {
+                    let _ = self.appearance_add_modifier(kind.default_modifier());
+                }
+
+                let mod_len = appearance.modifiers.len();
+                for (midx, modifier) in appearance.modifiers.iter().enumerate() {
+                    appearance_item_box(ui, ("appearance_modifier", midx), |ui| {
+                        self.appearance_modifier_item(ui, midx, mod_len, modifier);
+                    });
                 }
             });
+    }
 
-        nf::divider(ui, false);
+    fn appearance_modifier_item(
+        &mut self,
+        ui: &mut egui::Ui,
+        midx: usize,
+        mod_len: usize,
+        modifier: &VectorModifier,
+    ) {
+        if let Some(action) = item_title_header(ui, modifier_kind_label(modifier), midx, mod_len) {
+            match action {
+                ItemAction::MoveUp => {
+                    let _ = self.appearance_move_modifier(midx, midx - 1);
+                }
+                ItemAction::MoveDown => {
+                    let _ = self.appearance_move_modifier(midx, midx + 1);
+                }
+                ItemAction::Remove => {
+                    let _ = self.appearance_remove_modifier(midx);
+                }
+            }
+            return;
+        }
 
-        // 4. Procedural Vector Effects (`Zig Zag`, `Offset Path`, `Pucker & Bloat`, `Roughen`, `Twist`)
+        match modifier {
+            VectorModifier::OffsetContour { delta } => {
+                let mut edit_delta = *delta;
+                if appearance_field(
+                    ui,
+                    &mut edit_delta,
+                    NumericSpec::px("Offset", "Offset", -500.0..=500.0),
+                    ui.available_width(),
+                ) {
+                    let _ = self.appearance_set_modifier(
+                        midx,
+                        VectorModifier::OffsetContour { delta: edit_delta },
+                    );
+                }
+            }
+            VectorModifier::LiveCorners { radius } => {
+                let mut edit_radius = *radius;
+                if appearance_field(
+                    ui,
+                    &mut edit_radius,
+                    NumericSpec::px("Radius", "Radius", 0.0..=500.0),
+                    ui.available_width(),
+                ) {
+                    let _ = self.appearance_set_modifier(
+                        midx,
+                        VectorModifier::LiveCorners {
+                            radius: edit_radius,
+                        },
+                    );
+                }
+            }
+            VectorModifier::Repeater {
+                copies,
+                offset_x,
+                offset_y,
+                scale_step,
+                rotation_step,
+            } => {
+                let mut c = *copies as f64;
+                let mut scale_pct = *scale_step * 100.0;
+                let mut ox = *offset_x;
+                let mut oy = *offset_y;
+                let mut rot = *rotation_step;
+                let row1_ch = appearance_two_fields(
+                    ui,
+                    (&mut c, NumericSpec::int("Copies", "Copies", 1.0..=64.0)),
+                    (
+                        &mut scale_pct,
+                        NumericSpec {
+                            label: "Scale",
+                            prefix: "Scale",
+                            unit: "%",
+                            range: 10.0..=500.0,
+                            step: 1.0,
+                        },
+                    ),
+                );
+                let row2_ch = appearance_two_fields(
+                    ui,
+                    (&mut ox, NumericSpec::px("dX", "dX", -1000.0..=1000.0)),
+                    (&mut oy, NumericSpec::px("dY", "dY", -1000.0..=1000.0)),
+                );
+                let rot_ch = appearance_field(
+                    ui,
+                    &mut rot,
+                    NumericSpec {
+                        label: "Rotation",
+                        prefix: "Rotation",
+                        unit: "°",
+                        range: -360.0..=360.0,
+                        step: 1.0,
+                    },
+                    ui.available_width(),
+                );
+                if row1_ch || row2_ch || rot_ch {
+                    let _ = self.appearance_set_modifier(
+                        midx,
+                        VectorModifier::Repeater {
+                            copies: c.round().clamp(1.0, 64.0) as u32,
+                            offset_x: ox,
+                            offset_y: oy,
+                            scale_step: (scale_pct / 100.0).clamp(0.1, 5.0),
+                            rotation_step: rot,
+                        },
+                    );
+                }
+            }
+            VectorModifier::Mirror { axis_x, axis_y } => {
+                let mut ax = axis_x.unwrap_or(0.0);
+                let mut ay = axis_y.unwrap_or(0.0);
+                let mut use_x = axis_x.is_some();
+                let mut use_y = axis_y.is_some();
+                let mut toggle_ch = false;
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::S4;
+                    toggle_ch |= ui.add(nf::Checkbox::new(&mut use_x, "Mirror X")).changed();
+                    toggle_ch |= ui.add(nf::Checkbox::new(&mut use_y, "Mirror Y")).changed();
+                });
+                let axis_ch = appearance_two_fields(
+                    ui,
+                    (&mut ax, NumericSpec::px("X", "X", -2000.0..=2000.0)),
+                    (&mut ay, NumericSpec::px("Y", "Y", -2000.0..=2000.0)),
+                );
+                if toggle_ch || axis_ch {
+                    let _ = self.appearance_set_modifier(
+                        midx,
+                        VectorModifier::Mirror {
+                            axis_x: use_x.then_some(ax),
+                            axis_y: use_y.then_some(ay),
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    fn appearance_effects_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        vector_effects: &ElementVectorEffects,
+    ) {
         nf::SectionHeader::new("Vector effects")
             .id_salt("appearance_vector_effects_sec")
             .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    for kind in AppearanceProceduralKind::ALL {
-                        if ui.add(nf::Button::new(kind.label())).clicked() {
-                            let _ = self.appearance_add_procedural_effect(kind.default_effect());
-                        }
-                    }
-                });
-                for (pidx, effect) in vector_effects.procedural_effects.iter().enumerate() {
-                    ui.push_id(("appearance_proc_effect", pidx), |ui| match effect {
-                        ProceduralVectorEffect::ZigZag {
-                            size,
-                            ridges_per_segment,
-                            smooth,
-                        } => {
-                            let mut sz = *size;
-                            let mut ridges = *ridges_per_segment as f64;
-                            let mut sm = *smooth;
-                            let s_ch = ui
-                                .add(
-                                    nf::Field::new(&mut sz, "ZigZag")
-                                        .unit("px")
-                                        .range(0.0..=200.0),
-                                )
-                                .changed();
-                            let r_ch = ui
-                                .add(nf::Field::new(&mut ridges, "Ridges").range(1.0..=32.0))
-                                .changed();
-                            let mut sm_ch = false;
-                            ui.horizontal(|ui| {
-                                sm_ch = ui.add(nf::Checkbox::new(&mut sm, "Smooth")).changed();
-                                if ui.add(nf::Button::ghost("Remove")).clicked() {
-                                    let _ = self.appearance_remove_procedural_effect(pidx);
-                                }
-                            });
-                            if s_ch || r_ch || sm_ch {
-                                let _ = self.appearance_set_procedural_effect(
-                                    pidx,
-                                    ProceduralVectorEffect::ZigZag {
-                                        size: sz,
-                                        ridges_per_segment: ridges.round().clamp(1.0, 32.0) as u32,
-                                        smooth: sm,
-                                    },
-                                );
-                            }
-                        }
-                        ProceduralVectorEffect::OffsetPath { offset } => {
-                            let mut off = *offset;
-                            if ui
-                                .add(
-                                    nf::Field::new(&mut off, "Offset Path")
-                                        .unit("px")
-                                        .range(-500.0..=500.0),
-                                )
-                                .changed()
-                            {
-                                let _ = self.appearance_set_procedural_effect(
-                                    pidx,
-                                    ProceduralVectorEffect::OffsetPath { offset: off },
-                                );
-                            }
-                            if ui.add(nf::Button::ghost("Remove")).clicked() {
-                                let _ = self.appearance_remove_procedural_effect(pidx);
-                            }
-                        }
-                        ProceduralVectorEffect::PuckerBloat { amount } => {
-                            let mut amt = *amount;
-                            if ui
-                                .add(
-                                    nf::Field::new(&mut amt, "Pucker/Bloat")
-                                        .unit("%")
-                                        .range(-200.0..=200.0),
-                                )
-                                .changed()
-                            {
-                                let _ = self.appearance_set_procedural_effect(
-                                    pidx,
-                                    ProceduralVectorEffect::PuckerBloat { amount: amt },
-                                );
-                            }
-                            if ui.add(nf::Button::ghost("Remove")).clicked() {
-                                let _ = self.appearance_remove_procedural_effect(pidx);
-                            }
-                        }
-                        ProceduralVectorEffect::Roughen { size, detail, seed } => {
-                            let mut sz = *size;
-                            let mut det = *detail as f64;
-                            let mut sd = *seed as f64;
-                            let s_ch = ui
-                                .add(
-                                    nf::Field::new(&mut sz, "Roughen")
-                                        .unit("px")
-                                        .range(0.0..=200.0),
-                                )
-                                .changed();
-                            let d_ch = ui
-                                .add(nf::Field::new(&mut det, "Detail").range(1.0..=32.0))
-                                .changed();
-                            let sd_ch = ui
-                                .add(nf::Field::new(&mut sd, "Seed").range(0.0..=9999.0))
-                                .changed();
-                            if s_ch || d_ch || sd_ch {
-                                let _ = self.appearance_set_procedural_effect(
-                                    pidx,
-                                    ProceduralVectorEffect::Roughen {
-                                        size: sz,
-                                        detail: det.round().clamp(1.0, 32.0) as u32,
-                                        seed: sd.round().max(0.0) as u32,
-                                    },
-                                );
-                            }
-                            if ui.add(nf::Button::ghost("Remove")).clicked() {
-                                let _ = self.appearance_remove_procedural_effect(pidx);
-                            }
-                        }
-                        ProceduralVectorEffect::Twist { angle_deg } => {
-                            let mut ang = *angle_deg;
-                            if ui
-                                .add(
-                                    nf::Field::new(&mut ang, "Twist")
-                                        .unit("°")
-                                        .range(-720.0..=720.0),
-                                )
-                                .changed()
-                            {
-                                let _ = self.appearance_set_procedural_effect(
-                                    pidx,
-                                    ProceduralVectorEffect::Twist { angle_deg: ang },
-                                );
-                            }
-                            if ui.add(nf::Button::ghost("Remove")).clicked() {
-                                let _ = self.appearance_remove_procedural_effect(pidx);
+                let mut add_kind: Option<AppearanceProceduralKind> = None;
+                nf::Select::new("appearance_add_effect_select", "Add effect")
+                    .width(ui.available_width())
+                    .show(ui, |ui| {
+                        for kind in AppearanceProceduralKind::ALL {
+                            if ui.add(nf::MenuItem::new(kind.label())).clicked() {
+                                add_kind = Some(kind);
                             }
                         }
                     });
+                if let Some(kind) = add_kind {
+                    let _ = self.appearance_add_procedural_effect(kind.default_effect());
+                }
+
+                let fx_len = vector_effects.procedural_effects.len();
+                for (pidx, effect) in vector_effects.procedural_effects.iter().enumerate() {
+                    appearance_item_box(ui, ("appearance_proc_effect", pidx), |ui| {
+                        self.appearance_effect_item(ui, pidx, fx_len, effect);
+                    });
                 }
             });
+    }
+
+    fn appearance_effect_item(
+        &mut self,
+        ui: &mut egui::Ui,
+        pidx: usize,
+        fx_len: usize,
+        effect: &ProceduralVectorEffect,
+    ) {
+        if let Some(action) = item_title_header(ui, procedural_kind_label(effect), pidx, fx_len) {
+            match action {
+                ItemAction::MoveUp => {
+                    let _ = self.appearance_move_procedural_effect(pidx, pidx - 1);
+                }
+                ItemAction::MoveDown => {
+                    let _ = self.appearance_move_procedural_effect(pidx, pidx + 1);
+                }
+                ItemAction::Remove => {
+                    let _ = self.appearance_remove_procedural_effect(pidx);
+                }
+            }
+            return;
+        }
+
+        match effect {
+            ProceduralVectorEffect::ZigZag {
+                size,
+                ridges_per_segment,
+                smooth,
+            } => {
+                let mut sz = *size;
+                let mut ridges = *ridges_per_segment as f64;
+                let mut sm = *smooth;
+                let row1_ch = appearance_two_fields(
+                    ui,
+                    (&mut sz, NumericSpec::px("Size", "Size", 0.0..=200.0)),
+                    (
+                        &mut ridges,
+                        NumericSpec::int("Ridges", "Ridges", 1.0..=32.0),
+                    ),
+                );
+                let sm_ch = ui.add(nf::Checkbox::new(&mut sm, "Smooth")).changed();
+                if row1_ch || sm_ch {
+                    let _ = self.appearance_set_procedural_effect(
+                        pidx,
+                        ProceduralVectorEffect::ZigZag {
+                            size: sz,
+                            ridges_per_segment: ridges.round().clamp(1.0, 32.0) as u32,
+                            smooth: sm,
+                        },
+                    );
+                }
+            }
+            ProceduralVectorEffect::OffsetPath { offset } => {
+                let mut off = *offset;
+                if appearance_field(
+                    ui,
+                    &mut off,
+                    NumericSpec::px("Offset", "Offset", -500.0..=500.0),
+                    ui.available_width(),
+                ) {
+                    let _ = self.appearance_set_procedural_effect(
+                        pidx,
+                        ProceduralVectorEffect::OffsetPath { offset: off },
+                    );
+                }
+            }
+            ProceduralVectorEffect::PuckerBloat { amount } => {
+                let mut amt = *amount;
+                if appearance_field(
+                    ui,
+                    &mut amt,
+                    NumericSpec {
+                        label: "Amount",
+                        prefix: "Amount",
+                        unit: "%",
+                        range: -200.0..=200.0,
+                        step: 1.0,
+                    },
+                    ui.available_width(),
+                ) {
+                    let _ = self.appearance_set_procedural_effect(
+                        pidx,
+                        ProceduralVectorEffect::PuckerBloat { amount: amt },
+                    );
+                }
+            }
+            ProceduralVectorEffect::Roughen { size, detail, seed } => {
+                let mut sz = *size;
+                let mut det = *detail as f64;
+                let mut sd = *seed as f64;
+                let row1_ch = appearance_two_fields(
+                    ui,
+                    (&mut sz, NumericSpec::px("Size", "Size", 0.0..=200.0)),
+                    (&mut det, NumericSpec::int("Detail", "Detail", 1.0..=32.0)),
+                );
+                let sd_ch = appearance_field(
+                    ui,
+                    &mut sd,
+                    NumericSpec::int("Seed", "Seed", 0.0..=9999.0),
+                    ui.available_width(),
+                );
+                if row1_ch || sd_ch {
+                    let _ = self.appearance_set_procedural_effect(
+                        pidx,
+                        ProceduralVectorEffect::Roughen {
+                            size: sz,
+                            detail: det.round().clamp(1.0, 32.0) as u32,
+                            seed: sd.round().max(0.0) as u32,
+                        },
+                    );
+                }
+            }
+            ProceduralVectorEffect::Twist { angle_deg } => {
+                let mut ang = *angle_deg;
+                if appearance_field(
+                    ui,
+                    &mut ang,
+                    NumericSpec {
+                        label: "Angle",
+                        prefix: "Angle",
+                        unit: "°",
+                        range: -720.0..=720.0,
+                        step: 1.0,
+                    },
+                    ui.available_width(),
+                ) {
+                    let _ = self.appearance_set_procedural_effect(
+                        pidx,
+                        ProceduralVectorEffect::Twist { angle_deg: ang },
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ItemAction {
+    MoveUp,
+    MoveDown,
+    Remove,
+}
+
+struct NumericSpec<'a> {
+    label: &'a str,
+    prefix: &'a str,
+    unit: &'a str,
+    range: std::ops::RangeInclusive<f64>,
+    step: f64,
+}
+
+impl<'a> NumericSpec<'a> {
+    fn px(label: &'a str, prefix: &'a str, range: std::ops::RangeInclusive<f64>) -> Self {
+        Self {
+            label,
+            prefix,
+            unit: "px",
+            range,
+            step: 1.0,
+        }
+    }
+
+    fn int(label: &'a str, prefix: &'a str, range: std::ops::RangeInclusive<f64>) -> Self {
+        Self {
+            label,
+            prefix,
+            unit: "",
+            range,
+            step: 1.0,
+        }
+    }
+}
+
+fn appearance_item_box(ui: &mut egui::Ui, id: (&str, usize), body: impl FnOnce(&mut egui::Ui)) {
+    ui.push_id(id, |ui| {
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = space::S2;
+            body(ui);
+        });
+    });
+}
+
+fn appearance_header_row(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui)) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), neoflash_ui::metrics::control()),
+        egui::Layout::left_to_right(egui::Align::Center),
+        body,
+    );
+}
+
+fn item_header_actions(ui: &mut egui::Ui, idx: usize, len: usize) -> Option<ItemAction> {
+    let mut action = None;
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        if ui.add(nf::IconButton::new(i16::TRASH, "Remove")).clicked() {
+            action = Some(ItemAction::Remove);
+        }
+        if ui
+            .add_enabled(
+                idx + 1 < len,
+                nf::IconButton::new(i16::CHEVDOWN, "Move down"),
+            )
+            .clicked()
+        {
+            action = Some(ItemAction::MoveDown);
+        }
+        if ui
+            .add_enabled(idx > 0, nf::IconButton::new(i16::CHEVUP, "Move up"))
+            .clicked()
+        {
+            action = Some(ItemAction::MoveUp);
+        }
+    });
+    action
+}
+
+fn item_title_header(ui: &mut egui::Ui, title: &str, idx: usize, len: usize) -> Option<ItemAction> {
+    let text_primary = palette(ui.ctx()).text_primary;
+    let mut action = None;
+    appearance_header_row(ui, |ui| {
+        ui.spacing_mut().item_spacing.x = space::S2;
+        ui.label(rich(title, TextStyle::BodyStrong).color(text_primary));
+        action = item_header_actions(ui, idx, len);
+    });
+    action
+}
+
+fn appearance_field(ui: &mut egui::Ui, value: &mut f64, spec: NumericSpec<'_>, width: f32) -> bool {
+    ui.add(
+        nf::Field::new(value, spec.label)
+            .prefix(spec.prefix)
+            .unit(spec.unit)
+            .range(spec.range)
+            .step(spec.step)
+            .width(width),
+    )
+    .changed()
+}
+
+fn appearance_two_fields(
+    ui: &mut egui::Ui,
+    (left_val, left_spec): (&mut f64, NumericSpec<'_>),
+    (right_val, right_spec): (&mut f64, NumericSpec<'_>),
+) -> bool {
+    let (left_changed, right_changed) = two_column_row(
+        ui,
+        |ui, width| appearance_field(ui, left_val, left_spec, width),
+        |ui, width| appearance_field(ui, right_val, right_spec, width),
+    );
+    left_changed || right_changed
+}
+
+fn modifier_kind_label(modifier: &VectorModifier) -> &'static str {
+    match modifier {
+        VectorModifier::OffsetContour { .. } => AppearanceModifierKind::OffsetContour.label(),
+        VectorModifier::LiveCorners { .. } => AppearanceModifierKind::LiveCorners.label(),
+        VectorModifier::Repeater { .. } => AppearanceModifierKind::Repeater.label(),
+        VectorModifier::Mirror { .. } => AppearanceModifierKind::Mirror.label(),
+    }
+}
+
+fn procedural_kind_label(effect: &ProceduralVectorEffect) -> &'static str {
+    match effect {
+        ProceduralVectorEffect::ZigZag { .. } => AppearanceProceduralKind::ZigZag.label(),
+        ProceduralVectorEffect::OffsetPath { .. } => AppearanceProceduralKind::OffsetPath.label(),
+        ProceduralVectorEffect::PuckerBloat { .. } => AppearanceProceduralKind::PuckerBloat.label(),
+        ProceduralVectorEffect::Roughen { .. } => AppearanceProceduralKind::Roughen.label(),
+        ProceduralVectorEffect::Twist { .. } => AppearanceProceduralKind::Twist.label(),
     }
 }
 
@@ -1687,6 +1925,87 @@ mod appearance_tests {
         }
     }
 
+    fn collect_accesskit_bounds(output: &egui::FullOutput, label: &str) -> Vec<(egui::Rect, bool)> {
+        let Some(update) = output.platform_output.accesskit_update.as_ref() else {
+            return Vec::new();
+        };
+        let mut nodes: Vec<(egui::Rect, bool)> = update
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.label() == Some(label))
+            .filter_map(|(_, node)| {
+                let bounds = node.bounds()?;
+                Some((
+                    egui::Rect::from_min_max(
+                        egui::Pos2::new(bounds.x0 as f32, bounds.y0 as f32),
+                        egui::Pos2::new(bounds.x1 as f32, bounds.y1 as f32),
+                    ),
+                    !node.is_disabled(),
+                ))
+            })
+            .collect();
+        nodes.sort_by(|a, b| {
+            a.0.top()
+                .total_cmp(&b.0.top())
+                .then_with(|| a.0.left().total_cmp(&b.0.left()))
+        });
+        nodes
+    }
+
+    fn run_appearance_panel(
+        editor: &mut Editor,
+        ctx: &egui::Context,
+        time: f64,
+        events: Vec<egui::Event>,
+    ) -> (egui::FullOutput, Vec<String>, egui::Rect) {
+        let mut panel_rect = egui::Rect::NOTHING;
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(286.0, 2600.0),
+                )),
+                time: Some(time),
+                events,
+                ..egui::RawInput::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        panel_rect = ui.available_rect_before_wrap();
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.spacing_mut().item_spacing.y = neoflash_ui::tokens::space::S3;
+                            editor.appearance_panel_ui(ui);
+                        });
+                    });
+            },
+        );
+        let top_shapes: Vec<egui::epaint::Shape> =
+            output.shapes.iter().map(|cs| cs.shape.clone()).collect();
+        let mut texts = Vec::new();
+        collect_shape_texts(&top_shapes, &mut texts);
+        (output, texts, panel_rect)
+    }
+
+    fn click_point_events(pos: egui::Pos2) -> Vec<egui::Event> {
+        vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]
+    }
+
     #[test]
     fn appearance_live_properties_panel_renders_controls_and_command_id_expands() {
         let mut editor = editor_with_selected_rect();
@@ -1695,7 +2014,7 @@ mod appearance_tests {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
-                egui::vec2(520.0, 1200.0),
+                egui::vec2(520.0, 1400.0),
             )),
             ..egui::RawInput::default()
         };
@@ -1708,20 +2027,34 @@ mod appearance_tests {
             output.shapes.into_iter().map(|cs| cs.shape).collect();
         let mut texts = Vec::new();
         collect_shape_texts(&top_shapes, &mut texts);
-        assert!(
-            texts
-                .iter()
-                .any(|t| t.eq_ignore_ascii_case("Graphic Styles")),
-            "expected 'Graphic Styles' in live Properties panel, got: {texts:?}"
-        );
-        assert!(
-            texts.iter().any(|t| t.eq_ignore_ascii_case("Appearance")),
-            "expected 'Appearance' in live Properties panel, got: {texts:?}"
-        );
-        assert!(
-            texts.iter().any(|t| t.contains("Expand Appearance")),
-            "expected 'Expand Appearance' button in live Properties panel, got: {texts:?}"
-        );
+        for expected in [
+            "Graphic style",
+            "Style: None",
+            "Save style…",
+            "Unlink",
+            "Delete",
+            "Appearance",
+            "Fill",
+            "Stroke",
+            "Add fill",
+            "Add stroke",
+            "Expand appearance",
+            "Path modifiers",
+            "Add modifier",
+            "Vector effects",
+            "Add effect",
+        ] {
+            assert!(
+                texts.iter().any(|t| t.eq_ignore_ascii_case(expected)),
+                "expected '{expected}' in live Properties panel, got: {texts:?}"
+            );
+        }
+        for forbidden in ["+ Fill", "+ Stroke", "↑", "↓", "Save Style"] {
+            assert!(
+                !texts.iter().any(|t| t == forbidden),
+                "unexpected legacy control '{forbidden}' in Properties panel: {texts:?}"
+            );
+        }
 
         // Execute CommandId::ExpandShapeAppearance via command router after adding a modifier
         assert!(editor.appearance_add_modifier(VectorModifier::OffsetContour { delta: 5.0 }));
@@ -1733,6 +2066,373 @@ mod appearance_tests {
             .project
             .validate()
             .expect("valid after expand command");
+    }
+
+    #[test]
+    fn appearance_ui_selects_buttons_icon_actions_and_paint_edits_work() {
+        let mut editor = editor_with_selected_rect();
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+
+        // Warm up & inspect initial composition on 286 px NF2 inspector body width.
+        run_appearance_panel(&mut editor, &ctx, 0.1, vec![]);
+        let (out, texts, panel_rect) = run_appearance_panel(&mut editor, &ctx, 0.2, vec![]);
+
+        for label in [
+            "Style: None",
+            "Save style…",
+            "Unlink",
+            "Delete",
+            "Fill",
+            "Stroke",
+            "Add fill",
+            "Add stroke",
+            "Expand appearance",
+            "Add modifier",
+            "Add effect",
+        ] {
+            let bounds = collect_accesskit_bounds(&out, label);
+            assert!(
+                !bounds.is_empty(),
+                "expected AccessKit node '{label}' in {texts:?}"
+            );
+            for (rect, _) in &bounds {
+                assert!(
+                    rect.right() <= panel_rect.right() + 1.0,
+                    "control '{label}' overflowed right edge: {rect:?} vs {panel_rect:?}"
+                );
+            }
+        }
+        assert!(
+            !collect_accesskit_bounds(&out, "Unlink")[0].1
+                && !collect_accesskit_bounds(&out, "Delete")[0].1,
+            "Unlink and Delete should start disabled when no style is linked"
+        );
+
+        // Two initial paint entries -> first Move up is disabled, last Move down is disabled.
+        let move_ups = collect_accesskit_bounds(&out, "Move up");
+        let move_downs = collect_accesskit_bounds(&out, "Move down");
+        assert_eq!(move_ups.len(), 2);
+        assert_eq!(move_downs.len(), 2);
+        assert!(!move_ups[0].1 && move_ups[1].1);
+        assert!(move_downs[0].1 && !move_downs[1].1);
+
+        let mut time = 0.2;
+        let click_appearance =
+            |editor: &mut Editor, ctx: &egui::Context, time: &mut f64, pos: egui::Pos2| {
+                *time += 0.1;
+                let _ = run_appearance_panel(editor, ctx, *time, click_point_events(pos));
+                *time += 0.05;
+                run_appearance_panel(editor, ctx, *time, vec![])
+            };
+
+        // Clicking Move up on second paint entry swaps Stroke before Fill in 1 Undo step.
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, move_ups[1].0.center());
+        let app = editor.selected_element_appearance().unwrap();
+        assert!(matches!(
+            app.entries[0],
+            AppearancePaintEntry::Stroke { .. }
+        ));
+
+        // Toggle visibility on entry 0 via Checkbox leaves RGB intact cleanly.
+        let stroke_cb = collect_accesskit_bounds(&out, "Stroke")[0].0.center();
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, stroke_cb);
+        let app = editor.selected_element_appearance().unwrap();
+        assert!(matches!(
+            app.entries[0],
+            AppearancePaintEntry::Stroke {
+                opacity: 0.0,
+                color: [20, 30, 40, 255],
+                ..
+            }
+        ));
+        assert!(
+            !collect_accesskit_bounds(&out, "Stroke color")[0].1,
+            "hidden paint ColorField should be disabled to preserve RGB"
+        );
+        // Restore visibility before continuing
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, stroke_cb);
+
+        // Add fill and Add stroke buttons append entries cleanly.
+        let add_fill_pt = collect_accesskit_bounds(&out, "Add fill")[0].0.center();
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, add_fill_pt);
+        assert_eq!(
+            editor.selected_element_appearance().unwrap().entries.len(),
+            3
+        );
+        // Remove newly added entry using Trash icon button (last Remove)
+        let removes = collect_accesskit_bounds(&out, "Remove");
+        let (out, _, _) = click_appearance(
+            &mut editor,
+            &ctx,
+            &mut time,
+            removes.last().unwrap().0.center(),
+        );
+        assert_eq!(
+            editor.selected_element_appearance().unwrap().entries.len(),
+            2
+        );
+
+        // Open Add modifier Select and choose Repeater -> verifies Scale % + Rotation UI fields.
+        let add_mod_pt = collect_accesskit_bounds(&out, "Add modifier")[0].0.center();
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, add_mod_pt);
+        let repeater_pt = collect_accesskit_bounds(&out, "Repeater")
+            .into_iter()
+            .last()
+            .expect("Repeater menu item")
+            .0
+            .center();
+        let (out, mod_texts, _) = click_appearance(&mut editor, &ctx, &mut time, repeater_pt);
+        assert_eq!(
+            editor
+                .selected_element_appearance()
+                .unwrap()
+                .modifiers
+                .len(),
+            1
+        );
+        assert!(
+            mod_texts.iter().any(|t| t == "Copies")
+                && mod_texts.iter().any(|t| t == "Scale")
+                && mod_texts.iter().any(|t| t == "Rotation")
+                && mod_texts.iter().any(|t| t == "100 %"),
+            "expected Repeater NF2 fields, got: {mod_texts:?}"
+        );
+        assert!(
+            !mod_texts.iter().any(|t| t == "Rot"),
+            "legacy 'Rot' prefix should be replaced with 'Rotation': {mod_texts:?}"
+        );
+
+        // Add Mirror modifier, then reorder it above Repeater via Move up IconButton.
+        let add_mod_pt = collect_accesskit_bounds(&out, "Add modifier")[0].0.center();
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, add_mod_pt);
+        let mirror_pt = collect_accesskit_bounds(&out, "Mirror")
+            .into_iter()
+            .last()
+            .expect("Mirror menu item")
+            .0
+            .center();
+        let (out, mod2_texts, _) = click_appearance(&mut editor, &ctx, &mut time, mirror_pt);
+        assert_eq!(
+            editor
+                .selected_element_appearance()
+                .unwrap()
+                .modifiers
+                .len(),
+            2
+        );
+        assert!(
+            mod2_texts.iter().any(|t| t == "Mirror X")
+                && mod2_texts.iter().any(|t| t == "Mirror Y"),
+            "expected Mirror checkboxes: {mod2_texts:?}"
+        );
+        // Move up icon for Mirror (4th Move up: 2 paint entries + 2 modifiers -> index 3)
+        let mod_move_up = collect_accesskit_bounds(&out, "Move up")[3].0.center();
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, mod_move_up);
+        assert!(matches!(
+            editor.selected_element_appearance().unwrap().modifiers[0],
+            VectorModifier::Mirror { .. }
+        ));
+
+        // Open Add effect Select and choose Zig zag & Twist -> test move & remove.
+        let add_fx_pt = collect_accesskit_bounds(&out, "Add effect")[0].0.center();
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, add_fx_pt);
+        let zigzag_pt = collect_accesskit_bounds(&out, "Zig zag")[0].0.center();
+        let (out, fx_texts, _) = click_appearance(&mut editor, &ctx, &mut time, zigzag_pt);
+        assert!(
+            fx_texts.iter().any(|t| t == "Size")
+                && fx_texts.iter().any(|t| t == "Ridges")
+                && fx_texts.iter().any(|t| t == "Smooth"),
+            "expected Zig zag NF2 fields, got: {fx_texts:?}"
+        );
+
+        let add_fx_pt = collect_accesskit_bounds(&out, "Add effect")[0].0.center();
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, add_fx_pt);
+        let twist_pt = collect_accesskit_bounds(&out, "Twist")[0].0.center();
+        let (out, fx2_texts, _) = click_appearance(&mut editor, &ctx, &mut time, twist_pt);
+        assert!(fx2_texts.iter().any(|t| t == "Angle"));
+        assert_eq!(
+            editor
+                .selected_element_vector_effects()
+                .unwrap()
+                .procedural_effects
+                .len(),
+            2
+        );
+
+        // Move Twist up via IconButton -> Twist at index 0, Undo -> ZigZag back at index 0.
+        let fx_move_up = collect_accesskit_bounds(&out, "Move up")
+            .last()
+            .unwrap()
+            .0
+            .center();
+        let (_, _, _) = click_appearance(&mut editor, &ctx, &mut time, fx_move_up);
+        assert!(matches!(
+            editor
+                .selected_element_vector_effects()
+                .unwrap()
+                .procedural_effects[0],
+            ProceduralVectorEffect::Twist { .. }
+        ));
+        editor.undo();
+        assert!(matches!(
+            editor
+                .selected_element_vector_effects()
+                .unwrap()
+                .procedural_effects[0],
+            ProceduralVectorEffect::ZigZag { .. }
+        ));
+        time += 0.05;
+        let (out, _, _) = run_appearance_panel(&mut editor, &ctx, time, vec![]);
+
+        // Graphic style Save style… -> Unlink -> Delete round-trip via UI buttons.
+        let save_pt = collect_accesskit_bounds(&out, "Save style…")[0].0.center();
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, save_pt);
+        assert_eq!(editor.project.vector_styles().len(), 1);
+        assert!(collect_accesskit_bounds(&out, "Style: Style 1").len() == 1);
+        assert!(
+            collect_accesskit_bounds(&out, "Unlink")[0].1
+                && collect_accesskit_bounds(&out, "Delete")[0].1
+        );
+
+        let unlink_pt = collect_accesskit_bounds(&out, "Unlink")[0].0.center();
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, unlink_pt);
+        assert!(
+            editor
+                .selected_element_appearance()
+                .unwrap()
+                .style_id
+                .is_none()
+        );
+        assert!(collect_accesskit_bounds(&out, "Style: None").len() == 1);
+
+        // Re-link via Style: None Select dropdown then Delete style.
+        let style_sel_pt = collect_accesskit_bounds(&out, "Style: None")[0].0.center();
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, style_sel_pt);
+        let style1_pt = collect_accesskit_bounds(&out, "Style 1")[0].0.center();
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, style1_pt);
+        assert!(
+            editor
+                .selected_element_appearance()
+                .unwrap()
+                .style_id
+                .is_some()
+        );
+
+        let del_pt = collect_accesskit_bounds(&out, "Delete")[0].0.center();
+        let (out, _, _) = click_appearance(&mut editor, &ctx, &mut time, del_pt);
+        assert!(editor.project.vector_styles().is_empty());
+
+        // Expand appearance button expands live geometry cleanly.
+        let expand_pt = collect_accesskit_bounds(&out, "Expand appearance")[0]
+            .0
+            .center();
+        let _ = click_appearance(&mut editor, &ctx, &mut time, expand_pt);
+        let key = &editor.project.symbols[0].timeline.layers[0].keyframes[0];
+        assert!(key.appearance("rect-1").is_none());
+        assert!(key.elements.len() >= 2);
+        editor.project.validate().expect("valid after UI workflow");
+    }
+
+    #[test]
+    fn appearance_ui_paint_color_field_and_repeater_scale_edit() {
+        let mut editor = editor_with_selected_rect();
+        assert!(editor.appearance_add_modifier(VectorModifier::Repeater {
+            copies: 3,
+            offset_x: 24.0,
+            offset_y: 0.0,
+            scale_step: 0.9,
+            rotation_step: 15.0,
+        }));
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+
+        run_appearance_panel(&mut editor, &ctx, 0.1, vec![]);
+        let (out, texts, _) = run_appearance_panel(&mut editor, &ctx, 0.2, vec![]);
+        assert!(
+            texts.iter().any(|t| t == "90 %") && texts.iter().any(|t| t == "15 °"),
+            "expected Repeater scale % and rotation ° formatted values: {texts:?}"
+        );
+
+        // Edit Fill color hex in ColorField and confirm 1-Undo round-trip.
+        let fill_color_rect = collect_accesskit_bounds(&out, "Fill color")[0].0;
+        let hex_pt = egui::pos2(
+            fill_color_rect.center().x - 10.0,
+            fill_color_rect.center().y,
+        );
+        run_appearance_panel(&mut editor, &ctx, 0.3, click_point_events(hex_pt));
+        let _ = run_appearance_panel(
+            &mut editor,
+            &ctx,
+            0.4,
+            vec![
+                egui::Event::Key {
+                    key: egui::Key::A,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::COMMAND,
+                },
+                egui::Event::Text("6C93FF".to_string()),
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let app = editor.selected_element_appearance().unwrap();
+        assert!(matches!(
+            app.entries[0],
+            AppearancePaintEntry::Fill {
+                color: [0x6C, 0x93, 0xFF, 255],
+                opacity: 1.0,
+                ..
+            }
+        ));
+        editor.undo();
+        let app_after_undo = editor.selected_element_appearance().unwrap();
+        assert!(matches!(
+            app_after_undo.entries[0],
+            AppearancePaintEntry::Fill {
+                color: [200, 60, 40, 255],
+                ..
+            }
+        ));
+
+        // Reorder procedural effects API check + paint combined setter check.
+        assert!(editor.appearance_set_entry_paint(0, [10, 20, 30, 255], 0.5));
+        assert!(
+            editor.appearance_add_procedural_effect(ProceduralVectorEffect::Twist {
+                angle_deg: 30.0
+            })
+        );
+        assert!(
+            editor.appearance_add_procedural_effect(ProceduralVectorEffect::OffsetPath {
+                offset: 4.0
+            })
+        );
+        assert!(editor.appearance_move_procedural_effect(1, 0));
+        assert!(matches!(
+            editor
+                .selected_element_vector_effects()
+                .unwrap()
+                .procedural_effects[0],
+            ProceduralVectorEffect::OffsetPath { offset: 4.0 }
+        ));
+        editor.undo();
+        assert!(matches!(
+            editor
+                .selected_element_vector_effects()
+                .unwrap()
+                .procedural_effects[0],
+            ProceduralVectorEffect::Twist { angle_deg: 30.0 }
+        ));
+        editor.project.validate().expect("valid project");
     }
 
     #[test]
