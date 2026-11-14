@@ -2899,6 +2899,769 @@ impl Editor {
             .iter()
             .any(|chord| chord.matches_key_event(*modifiers, *key, *physical_key))
     }
+
+    /// Authoritative menu presentation state for `cmd` (label, effective shortcut, enabled and
+    /// checked flags), shared between the NF2 command registry and native OS menu bar adapters.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn command_menu_state(
+        &self,
+        ctx: Option<&egui::Context>,
+        cmd: CommandId,
+    ) -> CommandMenuState {
+        use crate::authoring_modify::Arrange;
+        use crate::authoring_tools::FreeTransformMode;
+        use crate::stage::StageAbComparisonMode;
+        use neoflash_core::TweenKind;
+
+        let shortcut = effective_shortcuts(&self.workspace.shortcuts, cmd)
+            .into_iter()
+            .next();
+        let shortcut_label = shortcut.map(|sc| sc.format()).unwrap_or_default();
+        let label = match cmd {
+            CommandId::EditUndo => self.undo_menu_label(),
+            CommandId::EditRedo => self.redo_menu_label(),
+            CommandId::ControlPlay => {
+                if self.playing {
+                    "Stop".to_owned()
+                } else {
+                    "Play".to_owned()
+                }
+            }
+            other => other
+                .menu_path()
+                .rsplit(" ▸ ")
+                .next()
+                .unwrap_or(other.title())
+                .to_owned(),
+        };
+
+        let has_doc = self.has_document();
+        let text_target = ctx.is_some_and(|c| self.clipboard_target(c).is_text())
+            || self
+                .clipboard
+                .menu_target
+                .as_ref()
+                .is_some_and(|target| target.is_text());
+
+        let panel_for_window_cmd = |id: CommandId| -> Option<PanelId> {
+            match id {
+                CommandId::WindowTimeline => Some(PanelId::Timeline),
+                CommandId::WindowTools => Some(PanelId::Tools),
+                CommandId::WindowProperties => Some(PanelId::Properties),
+                CommandId::WindowLibrary => Some(PanelId::Library),
+                CommandId::WindowActions => Some(PanelId::Actions),
+                CommandId::WindowAlign => Some(PanelId::Align),
+                CommandId::WindowColor => Some(PanelId::Color),
+                CommandId::WindowSwatches => Some(PanelId::Swatches),
+                CommandId::WindowFilters => Some(PanelId::Filters),
+                CommandId::WindowTransform => Some(PanelId::Transform),
+                CommandId::WindowInfo => Some(PanelId::Info),
+                CommandId::WindowEase => Some(PanelId::Ease),
+                CommandId::WindowHistory => Some(PanelId::History),
+                CommandId::WindowScene => Some(PanelId::Scene),
+                CommandId::WindowCompilerErrors => Some(PanelId::CompilerErrors),
+                CommandId::WindowOutput => Some(PanelId::Output),
+                CommandId::WindowCodeSnippets => Some(PanelId::CodeSnippets),
+                CommandId::WindowMovieExplorer => Some(PanelId::MovieExplorer),
+                CommandId::WindowAccessibility => Some(PanelId::Accessibility),
+                CommandId::WindowMotionEditor => Some(PanelId::MotionEditor),
+                CommandId::WindowDebugger => Some(PanelId::Debugger),
+                CommandId::WindowProject => Some(PanelId::Project),
+                CommandId::WindowBrushes => Some(PanelId::Brushes),
+                _ => None,
+            }
+        };
+
+        let tool_for_cmd = |id: CommandId| -> Option<Tool> {
+            match id {
+                CommandId::ToolSelect => Some(Tool::Select),
+                CommandId::ToolSubselect => Some(Tool::Subselect),
+                CommandId::ToolTransform => Some(Tool::Transform),
+                CommandId::ToolGradient => Some(Tool::Gradient),
+                CommandId::ToolLasso => Some(Tool::Lasso),
+                CommandId::ToolPen => Some(Tool::Pen),
+                CommandId::ToolLine => Some(Tool::Line),
+                CommandId::ToolText => Some(Tool::Text),
+                CommandId::ToolRectangle => Some(Tool::Rectangle),
+                CommandId::ToolOval => Some(Tool::Ellipse),
+                CommandId::ToolPolyStar => Some(Tool::PolyStar),
+                CommandId::ToolPencil => Some(Tool::Pencil),
+                CommandId::ToolBrush => Some(Tool::Brush),
+                CommandId::ToolBucket => Some(Tool::Bucket),
+                CommandId::ToolInk => Some(Tool::Ink),
+                CommandId::ToolEyedropper => Some(Tool::Eyedropper),
+                CommandId::ToolEraser => Some(Tool::Eraser),
+                CommandId::ToolRazor => Some(Tool::Razor),
+                CommandId::ToolDeco => Some(Tool::Deco),
+                CommandId::ToolSprayBrush => Some(Tool::SprayBrush),
+                CommandId::ToolBone => Some(Tool::Bone),
+                CommandId::ToolBind => Some(Tool::Bind),
+                CommandId::ToolAssetWarp => Some(Tool::AssetWarp),
+                CommandId::ToolTranslate3D => Some(Tool::Translate3D),
+                CommandId::ToolRotate3D => Some(Tool::Rotate3D),
+                CommandId::ToolHand => Some(Tool::Hand),
+                CommandId::ToolZoom => Some(Tool::Zoom),
+                _ => None,
+            }
+        };
+
+        let enabled = match cmd {
+            CommandId::FileNew
+            | CommandId::FileOpen
+            | CommandId::FileImportLegacyFlash
+            | CommandId::EditPreferences
+            | CommandId::EditKeyboardShortcuts
+            | CommandId::WindowTimeline
+            | CommandId::WindowTools
+            | CommandId::WindowProperties
+            | CommandId::WindowLibrary
+            | CommandId::WindowActions
+            | CommandId::WindowAlign
+            | CommandId::WindowColor
+            | CommandId::WindowSwatches
+            | CommandId::WindowFilters
+            | CommandId::WindowTransform
+            | CommandId::WindowInfo
+            | CommandId::WindowEase
+            | CommandId::WindowHistory
+            | CommandId::WindowScene
+            | CommandId::WindowCompilerErrors
+            | CommandId::WindowOutput
+            | CommandId::WindowCodeSnippets
+            | CommandId::WindowMovieExplorer
+            | CommandId::WindowAccessibility
+            | CommandId::WindowMotionEditor
+            | CommandId::WindowDebugger
+            | CommandId::WindowProject
+            | CommandId::WindowBrushes
+            | CommandId::WindowHidePanels
+            | CommandId::WindowInspectorPriority
+            | CommandId::WindowLibraryPriority => true,
+            _ if !has_doc => false,
+            CommandId::FileClose
+            | CommandId::FileSave
+            | CommandId::FileSaveAs
+            | CommandId::FileImportGraphics
+            | CommandId::FileExportVideo
+            | CommandId::FileExportAudio
+            | CommandId::FileExportLottie
+            | CommandId::FileExportAfterEffects
+            | CommandId::FileExportTextureAtlas
+            | CommandId::FileExportSwf
+            | CommandId::FilePublishSettings
+            | CommandId::FilePublish
+            | CommandId::EditSelectAll
+            | CommandId::EditFindAndReplace
+            | CommandId::ViewZoomIn
+            | CommandId::ViewZoomOut
+            | CommandId::ViewZoom100
+            | CommandId::ViewFitInWindow
+            | CommandId::ViewRulers
+            | CommandId::ViewGridShow
+            | CommandId::ViewGridSnap
+            | CommandId::ViewGridEdit
+            | CommandId::ViewGuidesShow
+            | CommandId::ViewGuidesLock
+            | CommandId::ViewGuidesSnap
+            | CommandId::ViewShowShapeHints
+            | CommandId::CaptureStageA
+            | CommandId::CaptureStageB
+            | CommandId::ToggleStageAbSplit
+            | CommandId::InsertNewSymbol
+            | CommandId::InsertLayer
+            | CommandId::InsertLayerFolder
+            | CommandId::InsertScene
+            | CommandId::AddTimelineMarker
+            | CommandId::ModifyDocument
+            | CommandId::ModifyTimelineLayerProperties
+            | CommandId::ToggleMotionSketch
+            | CommandId::ControlPlay
+            | CommandId::ControlRewind
+            | CommandId::ControlGoToEnd
+            | CommandId::ControlStepForward
+            | CommandId::ControlStepBack
+            | CommandId::ControlTestMovie
+            | CommandId::ControlTestScene
+            | CommandId::ControlLoopPlayback
+            | CommandId::ControlPlayAllScenes
+            | CommandId::ControlEnableSimpleButtons
+            | CommandId::ControlMuteSounds
+            | CommandId::SetWorkAreaIn
+            | CommandId::SetWorkAreaOut
+            | CommandId::ToolSelect
+            | CommandId::ToolSubselect
+            | CommandId::ToolTransform
+            | CommandId::ToolGradient
+            | CommandId::ToolLasso
+            | CommandId::ToolPen
+            | CommandId::ToolLine
+            | CommandId::ToolText
+            | CommandId::ToolRectangle
+            | CommandId::ToolOval
+            | CommandId::ToolPolyStar
+            | CommandId::ToolPencil
+            | CommandId::ToolBrush
+            | CommandId::ToolBucket
+            | CommandId::ToolInk
+            | CommandId::ToolEyedropper
+            | CommandId::ToolEraser
+            | CommandId::ToolRazor
+            | CommandId::ToolDeco
+            | CommandId::ToolSprayBrush
+            | CommandId::ToolBone
+            | CommandId::ToolBind
+            | CommandId::ToolAssetWarp
+            | CommandId::ToolTranslate3D
+            | CommandId::ToolRotate3D
+            | CommandId::ToolHand
+            | CommandId::ToolZoom
+            | CommandId::ToolObjectDrawing => true,
+            CommandId::FileRevert => self.can_revert(),
+            CommandId::EditUndo => self.history.can_undo() || self.vector.draft.is_some(),
+            CommandId::EditRedo => self.history.can_redo(),
+            CommandId::EditCut | CommandId::EditCopy => text_target || !self.selection.is_empty(),
+            CommandId::EditPaste => text_target || self.layer_editable(),
+            CommandId::EditPasteInPlace => !text_target && self.layer_editable(),
+            CommandId::EditClear | CommandId::EditDuplicate | CommandId::EditDeselect => {
+                !self.selection.is_empty()
+            }
+            CommandId::EditTimelineCutFrames => self.frame_command_enabled(FrameCommand::Cut),
+            CommandId::EditTimelineCopyFrames => self.frame_command_enabled(FrameCommand::Copy),
+            CommandId::EditTimelinePasteFrames => self.frame_command_enabled(FrameCommand::Paste),
+            CommandId::EditTimelineClearFrames => self.frame_command_enabled(FrameCommand::Clear),
+            CommandId::EditTimelineRemoveFrames => self.frame_command_enabled(FrameCommand::Remove),
+            CommandId::EditTimelineSelectAllFrames => {
+                self.frame_command_enabled(FrameCommand::SelectAll)
+            }
+            CommandId::EditTimelineReverseFrames => self.can_reverse_frames(),
+            CommandId::EditTimelineSyncSymbols => self.can_sync_symbols(),
+            CommandId::EditTimelineCopyMotion => self.can_copy_motion(),
+            CommandId::EditTimelinePasteMotion => self.can_paste_motion(),
+            CommandId::EditSymbols => {
+                self.selected_instance_symbol().is_some() || !self.editing_scene()
+            }
+            CommandId::InsertMotionGuide => self.can_add_motion_guide_to(self.layer),
+            CommandId::InsertFrame | CommandId::InsertKeyframe | CommandId::InsertBlankKeyframe => {
+                self.layer_editable()
+            }
+            CommandId::InsertClassicTween => {
+                self.can_create_tween() && self.current_tween() != Some(TweenKind::Classic)
+            }
+            CommandId::InsertShapeTween => {
+                self.can_create_tween() && self.current_tween() != Some(TweenKind::Shape)
+            }
+            CommandId::InsertMotionTween => {
+                self.can_create_tween() && self.current_tween() != Some(TweenKind::Motion)
+            }
+            CommandId::ModifyConvertToSymbol => self.can_convert_selection(),
+            CommandId::ModifyBreakApart => self.can_break_apart_selection(),
+            CommandId::ModifyTraceBitmap => self.can_trace_bitmap(),
+            CommandId::ModifyDistributeToLayers => self.can_distribute_to_layers(),
+            CommandId::ModifyTimelineClearKeyframe
+            | CommandId::ModifyTimelineConvertToKeyframes
+            | CommandId::ModifyTimelineConvertToBlankKeyframes
+            | CommandId::ApplyMotionWiggler => self.layer_editable(),
+            CommandId::ModifyTimelineSplitClip => self.layer_editable() && self.frame > 0,
+            CommandId::ModifyTimelineLinkTracks => self.can_link_av_layers(),
+            CommandId::ModifyTimelineUnlinkTracks => self.can_unlink_av_layers(),
+            CommandId::ExpandShapeAppearance => !self.editable_targets().is_empty(),
+            CommandId::ModifyFreeTransform
+            | CommandId::ModifyScale
+            | CommandId::ModifyRotateAndSkew
+            | CommandId::ModifyScaleAndRotate
+            | CommandId::ModifyRotate90Cw
+            | CommandId::ModifyRotate90Ccw
+            | CommandId::ModifyFlipVertical
+            | CommandId::ModifyFlipHorizontal
+            | CommandId::ModifyRemoveTransform => !self.selection.is_empty(),
+            CommandId::ModifyDistort | CommandId::ModifyEnvelope => {
+                self.can_distort_or_envelope_selection()
+            }
+            CommandId::ModifyDeleteEnvelope => self.can_delete_envelope_selection(),
+            CommandId::ModifyArrangeFront => self.can_arrange_selection(Some(Arrange::Front)),
+            CommandId::ModifyArrangeForward => self.can_arrange_selection(Some(Arrange::Forward)),
+            CommandId::ModifyArrangeBackward => self.can_arrange_selection(Some(Arrange::Backward)),
+            CommandId::ModifyArrangeBack => self.can_arrange_selection(Some(Arrange::Back)),
+            CommandId::ModifyGroup => self.can_group_selection(),
+            CommandId::ModifyUngroup => self.can_ungroup_selection(),
+            CommandId::ModifyAddShapeHint => self.can_add_shape_hint(),
+            CommandId::ModifyRemoveAllShapeHints => self.can_remove_shape_hints(),
+            CommandId::ClearWorkArea => self.active_timeline_work_area().is_some(),
+            CommandId::NextTimelineMarker | CommandId::PreviousTimelineMarker => {
+                !self.active_timeline_markers().is_empty()
+            }
+        };
+
+        let checked = if let Some(panel) = panel_for_window_cmd(cmd) {
+            if panel == PanelId::Brushes {
+                self.workspace.panels.brushes
+            } else {
+                !self.panels_hidden && self.workspace.is_panel_active(panel)
+            }
+        } else if let Some(tool) = tool_for_cmd(cmd) {
+            has_doc && self.tool == tool
+        } else {
+            match cmd {
+                CommandId::ViewZoom100 => has_doc && (self.zoom - 1.0).abs() < 0.005,
+                CommandId::ViewRulers => has_doc && self.stage_view.prefs.rulers,
+                CommandId::ViewGridShow => has_doc && self.stage_view.prefs.grid_show,
+                CommandId::ViewGridSnap => has_doc && self.stage_view.prefs.grid_snap,
+                CommandId::ViewGuidesShow => has_doc && self.stage_view.prefs.guides_show,
+                CommandId::ViewGuidesLock => has_doc && self.stage_view.prefs.guides_lock,
+                CommandId::ViewGuidesSnap => has_doc && self.stage_view.prefs.guides_snap,
+                CommandId::ViewShowShapeHints => has_doc && self.timeline_shape_hints.show,
+                CommandId::ToggleStageAbSplit => {
+                    has_doc && self.stage_ab_mode() == StageAbComparisonMode::SplitVertical
+                }
+                CommandId::ModifyFreeTransform => {
+                    has_doc
+                        && self.tool == Tool::Transform
+                        && self.active_free_transform_mode() == FreeTransformMode::FreeTransform
+                }
+                CommandId::ModifyDistort => {
+                    has_doc
+                        && self.tool == Tool::Transform
+                        && self.active_free_transform_mode() == FreeTransformMode::Distort
+                }
+                CommandId::ModifyEnvelope => {
+                    has_doc
+                        && self.tool == Tool::Transform
+                        && self.active_free_transform_mode() == FreeTransformMode::Envelope
+                }
+                CommandId::ModifyScale => {
+                    has_doc
+                        && self.tool == Tool::Transform
+                        && self.active_free_transform_mode() == FreeTransformMode::Scale
+                }
+                CommandId::ModifyRotateAndSkew => {
+                    has_doc
+                        && self.tool == Tool::Transform
+                        && self.active_free_transform_mode() == FreeTransformMode::RotateAndSkew
+                }
+                CommandId::ToggleMotionSketch => has_doc && self.is_motion_sketch_armed(),
+                CommandId::ControlLoopPlayback => has_doc && self.workspace.timeline.loop_playback,
+                CommandId::ControlPlayAllScenes => has_doc && self.timeline_edit.play_all_scenes,
+                CommandId::ControlEnableSimpleButtons => has_doc && self.enable_simple_buttons,
+                CommandId::ControlMuteSounds => has_doc && self.timeline_audio.muted,
+                CommandId::WindowHidePanels => self.panels_hidden,
+                CommandId::WindowInspectorPriority => {
+                    self.workspace.dock.has_priority(PanelId::Properties)
+                }
+                CommandId::WindowLibraryPriority => {
+                    self.workspace.dock.has_priority(PanelId::Library)
+                }
+                CommandId::ToolObjectDrawing => has_doc && self.workspace.drawing.object_drawing,
+                _ => false,
+            }
+        };
+
+        CommandMenuState {
+            id: cmd,
+            label,
+            shortcut,
+            shortcut_label,
+            enabled,
+            checked,
+        }
+    }
+
+    /// Execute `cmd` from a menu click, sharing the exact availability rules and side effects of
+    /// the NF2 menu bar without requiring keyboard focus to leave an active widget first.
+    pub fn execute_menu_command(&mut self, ctx: &egui::Context, cmd: CommandId) -> bool {
+        use crate::app::Pending;
+        use crate::authoring_modify::Arrange;
+        use crate::authoring_tools::FreeTransformMode;
+        use crate::clipboard::ClipboardCommand;
+        use neoflash_core::TweenKind;
+
+        let state = self.command_menu_state(Some(ctx), cmd);
+        if !state.enabled {
+            return false;
+        }
+        match cmd {
+            CommandId::FileNew => self.request(Pending::New, ctx),
+            CommandId::FileOpen => self.request(Pending::Open, ctx),
+            CommandId::FileClose => self.request(Pending::CloseDocument, ctx),
+            CommandId::FileSave => {
+                let _ = self.save(false);
+            }
+            CommandId::FileSaveAs => {
+                let _ = self.save(true);
+            }
+            CommandId::FileRevert => self.request_revert(),
+            CommandId::FileImportGraphics => self.import_graphics_dialog(),
+            CommandId::FileImportLegacyFlash => self.request(Pending::Import, ctx),
+            CommandId::FileExportVideo => self.open_export_video(None),
+            CommandId::FileExportAudio => self.open_export_audio(ctx, None),
+            CommandId::FileExportLottie => self.export_lottie_dialog(None),
+            CommandId::FileExportAfterEffects => {
+                let _ = self.export_aep_dialog(None, None);
+            }
+            CommandId::FileExportTextureAtlas => {
+                let _ = self.export_texture_atlas_dialog(None);
+            }
+            CommandId::FileExportSwf => {
+                let _ = self.export_swf_dialog(None);
+            }
+            CommandId::FilePublishSettings => self.open_publish_settings(),
+            CommandId::FilePublish => self.export(false),
+            CommandId::EditUndo => self.undo(),
+            CommandId::EditRedo => self.redo(),
+            CommandId::EditCut => self.request_clipboard(ctx, ClipboardCommand::Cut),
+            CommandId::EditCopy => self.request_clipboard(ctx, ClipboardCommand::Copy),
+            CommandId::EditPaste => self.request_clipboard(ctx, ClipboardCommand::Paste),
+            CommandId::EditPasteInPlace => {
+                self.request_clipboard(ctx, ClipboardCommand::PasteInPlace);
+            }
+            CommandId::EditClear => self.delete_selected(),
+            CommandId::EditDuplicate => self.duplicate(),
+            CommandId::EditSelectAll => {
+                if self.clipboard_target(ctx).is_text() {
+                    ctx.input_mut(|input| {
+                        input.events.push(Event::Key {
+                            key: Key::A,
+                            physical_key: Some(Key::A),
+                            pressed: true,
+                            repeat: false,
+                            modifiers: Modifiers::COMMAND,
+                        });
+                    });
+                    ctx.request_repaint();
+                } else {
+                    self.select_all();
+                }
+            }
+            CommandId::EditDeselect => {
+                self.finish_edits();
+                self.clear_selection();
+            }
+            CommandId::EditFindAndReplace => self.open_find_replace(),
+            CommandId::EditTimelineCutFrames => self.run_frame_command(ctx, FrameCommand::Cut),
+            CommandId::EditTimelineCopyFrames => self.run_frame_command(ctx, FrameCommand::Copy),
+            CommandId::EditTimelinePasteFrames => self.run_frame_command(ctx, FrameCommand::Paste),
+            CommandId::EditTimelineClearFrames => self.run_frame_command(ctx, FrameCommand::Clear),
+            CommandId::EditTimelineRemoveFrames => {
+                self.run_frame_command(ctx, FrameCommand::Remove);
+            }
+            CommandId::EditTimelineSelectAllFrames => {
+                self.run_frame_command(ctx, FrameCommand::SelectAll);
+            }
+            CommandId::EditTimelineReverseFrames => self.reverse_frames(),
+            CommandId::EditTimelineSyncSymbols => self.sync_symbols(),
+            CommandId::EditTimelineCopyMotion => self.copy_motion(),
+            CommandId::EditTimelinePasteMotion => self.paste_motion(),
+            CommandId::EditSymbols => self.toggle_edit_symbols(),
+            CommandId::EditPreferences => {
+                self.open_preferences(crate::panels::preferences::PAGE_GENERAL);
+            }
+            CommandId::EditKeyboardShortcuts => {
+                self.open_preferences(crate::panels::preferences::PAGE_SHORTCUTS);
+            }
+            CommandId::ViewZoomIn => self.zoom_in(),
+            CommandId::ViewZoomOut => self.zoom_out(),
+            CommandId::ViewZoom100 => self.zoom_actual(),
+            CommandId::ViewFitInWindow => self.fit_stage(),
+            CommandId::ViewRulers => self.toggle_rulers(),
+            CommandId::ViewGridShow => self.toggle_grid(),
+            CommandId::ViewGridSnap => self.toggle_grid_snap(),
+            CommandId::ViewGridEdit => self.open_view_settings(),
+            CommandId::ViewGuidesShow => self.toggle_guides(),
+            CommandId::ViewGuidesLock => self.toggle_guide_lock(),
+            CommandId::ViewGuidesSnap => self.toggle_guide_snap(),
+            CommandId::ViewShowShapeHints => self.toggle_shape_hints(),
+            CommandId::CaptureStageA => {
+                let label = format!("A (F{})", self.frame + 1);
+                let _ = self.capture_stage_snapshot_a(label);
+            }
+            CommandId::CaptureStageB => {
+                let label = format!("B (F{})", self.frame + 1);
+                let _ = self.capture_stage_snapshot_b(label);
+            }
+            CommandId::ToggleStageAbSplit => {
+                let _ = self.toggle_stage_ab_split();
+            }
+            CommandId::InsertNewSymbol => self.begin_new_symbol(),
+            CommandId::InsertLayer => self.insert_timeline_layer(),
+            CommandId::InsertLayerFolder => self.insert_layer_folder(self.layer),
+            CommandId::InsertMotionGuide => self.add_motion_guide(),
+            CommandId::InsertFrame => {
+                self.finish_edits();
+                self.insert_frame();
+            }
+            CommandId::InsertKeyframe => {
+                self.finish_edits();
+                self.make_key(false);
+            }
+            CommandId::InsertBlankKeyframe => {
+                self.finish_edits();
+                self.make_key(true);
+            }
+            CommandId::InsertClassicTween => self.create_tween(TweenKind::Classic),
+            CommandId::InsertShapeTween => self.create_tween(TweenKind::Shape),
+            CommandId::InsertMotionTween => self.create_tween(TweenKind::Motion),
+            CommandId::InsertScene => self.new_scene(),
+            CommandId::AddTimelineMarker => {
+                let f = self.frame;
+                let count = self.active_timeline_markers().len() + 1;
+                let _ = self.upsert_timeline_marker(neoflash_core::TimelineMarker {
+                    id: format!("marker-{f}-{count}"),
+                    frame: f,
+                    duration_frames: 1,
+                    name: format!("Marker {count}"),
+                    comment: String::new(),
+                    color_tag: Some("#4296FA".into()),
+                    cue_point_parameters: std::collections::BTreeMap::new(),
+                });
+            }
+            CommandId::ModifyDocument => self.open_document_settings(),
+            CommandId::ModifyConvertToSymbol => self.convert_to_symbol(),
+            CommandId::ModifyBreakApart => self.break_apart_selection(),
+            CommandId::ModifyTraceBitmap => self.open_trace_bitmap(ctx),
+            CommandId::ModifyDistributeToLayers => {
+                let _ = self.distribute_to_layers();
+            }
+            CommandId::ModifyTimelineLayerProperties => self.open_layer_properties(ctx, self.layer),
+            CommandId::ModifyTimelineClearKeyframe => self.clear_keyframe(),
+            CommandId::ModifyTimelineConvertToKeyframes => self.convert_to_keyframes(false),
+            CommandId::ModifyTimelineConvertToBlankKeyframes => self.convert_to_keyframes(true),
+            CommandId::ModifyTimelineSplitClip => {
+                let _ = self.split_clip_at_playhead();
+            }
+            CommandId::ModifyTimelineLinkTracks => {
+                let _ = self.link_selected_or_adjacent_av_layers();
+            }
+            CommandId::ModifyTimelineUnlinkTracks => {
+                let _ = self.unlink_active_layers();
+            }
+            CommandId::ApplyMotionWiggler => {
+                let cfg = self.timeline_motion.wiggler.clone();
+                let _ = self.apply_motion_wiggler(cfg, None);
+            }
+            CommandId::ToggleMotionSketch => {
+                self.set_motion_sketch_armed(!self.is_motion_sketch_armed());
+            }
+            CommandId::ExpandShapeAppearance => {
+                let _ = self.expand_selected_shape_appearance();
+            }
+            CommandId::ModifyFreeTransform => {
+                self.set_free_transform_mode(FreeTransformMode::FreeTransform);
+            }
+            CommandId::ModifyDistort => self.set_free_transform_mode(FreeTransformMode::Distort),
+            CommandId::ModifyEnvelope => self.set_free_transform_mode(FreeTransformMode::Envelope),
+            CommandId::ModifyScale => self.set_free_transform_mode(FreeTransformMode::Scale),
+            CommandId::ModifyRotateAndSkew => {
+                self.set_free_transform_mode(FreeTransformMode::RotateAndSkew);
+            }
+            CommandId::ModifyScaleAndRotate => self.open_scale_and_rotate_dialog(),
+            CommandId::ModifyRotate90Cw => self.rotate_90_cw_selection(ctx),
+            CommandId::ModifyRotate90Ccw => self.rotate_90_ccw_selection(ctx),
+            CommandId::ModifyFlipVertical => self.flip_vertical_selection(ctx),
+            CommandId::ModifyFlipHorizontal => self.flip_horizontal_selection(ctx),
+            CommandId::ModifyRemoveTransform => self.reset_selection_transform(ctx),
+            CommandId::ModifyDeleteEnvelope => {
+                let _ = self.delete_envelope_selection();
+            }
+            CommandId::ModifyArrangeFront => self.arrange_selection(Arrange::Front),
+            CommandId::ModifyArrangeForward => self.arrange_selection(Arrange::Forward),
+            CommandId::ModifyArrangeBackward => self.arrange_selection(Arrange::Backward),
+            CommandId::ModifyArrangeBack => self.arrange_selection(Arrange::Back),
+            CommandId::ModifyGroup => self.group_selection(),
+            CommandId::ModifyUngroup => self.ungroup_selection(),
+            CommandId::ModifyAddShapeHint => {
+                let _ = self.add_shape_hint();
+            }
+            CommandId::ModifyRemoveAllShapeHints => {
+                let _ = self.remove_all_shape_hints();
+            }
+            CommandId::ControlPlay => self.set_playing(!self.playing),
+            CommandId::ControlRewind => self.seek_frame(0),
+            CommandId::ControlGoToEnd => {
+                let last = self.symbol().timeline.frame_count.saturating_sub(1);
+                self.seek_frame(last);
+            }
+            CommandId::ControlStepForward => {
+                let last = self.symbol().timeline.frame_count.saturating_sub(1);
+                self.seek_frame((self.frame + 1).min(last));
+            }
+            CommandId::ControlStepBack => self.seek_frame(self.frame.saturating_sub(1)),
+            CommandId::ControlTestMovie => self.export(true),
+            CommandId::ControlTestScene => self.test_scene(),
+            CommandId::ControlLoopPlayback => {
+                self.workspace.timeline.loop_playback = !self.workspace.timeline.loop_playback;
+            }
+            CommandId::ControlPlayAllScenes => {
+                self.timeline_edit.play_all_scenes = !self.timeline_edit.play_all_scenes;
+            }
+            CommandId::ControlEnableSimpleButtons => {
+                self.set_enable_simple_buttons(!self.enable_simple_buttons);
+            }
+            CommandId::ControlMuteSounds => self.toggle_mute_sounds(),
+            CommandId::SetWorkAreaIn => {
+                let _ = self.set_work_area_in_at_playhead();
+            }
+            CommandId::SetWorkAreaOut => {
+                let _ = self.set_work_area_out_at_playhead();
+            }
+            CommandId::ClearWorkArea => {
+                let _ = self.clear_timeline_work_area();
+            }
+            CommandId::NextTimelineMarker => {
+                let _ = self.navigate_timeline_marker(true);
+            }
+            CommandId::PreviousTimelineMarker => {
+                let _ = self.navigate_timeline_marker(false);
+            }
+            CommandId::WindowBrushes => {
+                self.set_panel_visible(PanelId::Brushes, !self.workspace.panels.brushes);
+            }
+            CommandId::WindowTimeline
+            | CommandId::WindowTools
+            | CommandId::WindowProperties
+            | CommandId::WindowLibrary
+            | CommandId::WindowActions
+            | CommandId::WindowAlign
+            | CommandId::WindowColor
+            | CommandId::WindowSwatches
+            | CommandId::WindowFilters
+            | CommandId::WindowTransform
+            | CommandId::WindowInfo
+            | CommandId::WindowEase
+            | CommandId::WindowHistory
+            | CommandId::WindowScene
+            | CommandId::WindowCompilerErrors
+            | CommandId::WindowOutput
+            | CommandId::WindowCodeSnippets
+            | CommandId::WindowMovieExplorer
+            | CommandId::WindowAccessibility
+            | CommandId::WindowMotionEditor
+            | CommandId::WindowDebugger
+            | CommandId::WindowProject => {
+                let panel = match cmd {
+                    CommandId::WindowTimeline => PanelId::Timeline,
+                    CommandId::WindowTools => PanelId::Tools,
+                    CommandId::WindowProperties => PanelId::Properties,
+                    CommandId::WindowLibrary => PanelId::Library,
+                    CommandId::WindowActions => PanelId::Actions,
+                    CommandId::WindowAlign => PanelId::Align,
+                    CommandId::WindowColor => PanelId::Color,
+                    CommandId::WindowSwatches => PanelId::Swatches,
+                    CommandId::WindowFilters => PanelId::Filters,
+                    CommandId::WindowTransform => PanelId::Transform,
+                    CommandId::WindowInfo => PanelId::Info,
+                    CommandId::WindowEase => PanelId::Ease,
+                    CommandId::WindowHistory => PanelId::History,
+                    CommandId::WindowScene => PanelId::Scene,
+                    CommandId::WindowCompilerErrors => PanelId::CompilerErrors,
+                    CommandId::WindowOutput => PanelId::Output,
+                    CommandId::WindowCodeSnippets => PanelId::CodeSnippets,
+                    CommandId::WindowMovieExplorer => PanelId::MovieExplorer,
+                    CommandId::WindowAccessibility => PanelId::Accessibility,
+                    CommandId::WindowMotionEditor => PanelId::MotionEditor,
+                    CommandId::WindowDebugger => PanelId::Debugger,
+                    CommandId::WindowProject => PanelId::Project,
+                    _ => unreachable!(),
+                };
+                let visible = !self.panels_hidden && self.workspace.is_panel_active(panel);
+                self.set_panel_visible(panel, !visible);
+            }
+            CommandId::WindowHidePanels => self.set_panels_hidden(!self.panels_hidden),
+            CommandId::WindowInspectorPriority => self.give_dock_priority(PanelId::Properties),
+            CommandId::WindowLibraryPriority => self.give_dock_priority(PanelId::Library),
+            CommandId::ToolSelect
+            | CommandId::ToolSubselect
+            | CommandId::ToolTransform
+            | CommandId::ToolGradient
+            | CommandId::ToolLasso
+            | CommandId::ToolPen
+            | CommandId::ToolLine
+            | CommandId::ToolText
+            | CommandId::ToolRectangle
+            | CommandId::ToolOval
+            | CommandId::ToolPolyStar
+            | CommandId::ToolPencil
+            | CommandId::ToolBrush
+            | CommandId::ToolBucket
+            | CommandId::ToolInk
+            | CommandId::ToolEyedropper
+            | CommandId::ToolEraser
+            | CommandId::ToolRazor
+            | CommandId::ToolDeco
+            | CommandId::ToolSprayBrush
+            | CommandId::ToolBone
+            | CommandId::ToolBind
+            | CommandId::ToolAssetWarp
+            | CommandId::ToolTranslate3D
+            | CommandId::ToolRotate3D
+            | CommandId::ToolHand
+            | CommandId::ToolZoom => {
+                let tool = match cmd {
+                    CommandId::ToolSelect => Tool::Select,
+                    CommandId::ToolSubselect => Tool::Subselect,
+                    CommandId::ToolTransform => Tool::Transform,
+                    CommandId::ToolGradient => Tool::Gradient,
+                    CommandId::ToolLasso => Tool::Lasso,
+                    CommandId::ToolPen => Tool::Pen,
+                    CommandId::ToolLine => Tool::Line,
+                    CommandId::ToolText => Tool::Text,
+                    CommandId::ToolRectangle => Tool::Rectangle,
+                    CommandId::ToolOval => Tool::Ellipse,
+                    CommandId::ToolPolyStar => Tool::PolyStar,
+                    CommandId::ToolPencil => Tool::Pencil,
+                    CommandId::ToolBrush => Tool::Brush,
+                    CommandId::ToolBucket => Tool::Bucket,
+                    CommandId::ToolInk => Tool::Ink,
+                    CommandId::ToolEyedropper => Tool::Eyedropper,
+                    CommandId::ToolEraser => Tool::Eraser,
+                    CommandId::ToolRazor => Tool::Razor,
+                    CommandId::ToolDeco => Tool::Deco,
+                    CommandId::ToolSprayBrush => Tool::SprayBrush,
+                    CommandId::ToolBone => Tool::Bone,
+                    CommandId::ToolBind => Tool::Bind,
+                    CommandId::ToolAssetWarp => Tool::AssetWarp,
+                    CommandId::ToolTranslate3D => Tool::Translate3D,
+                    CommandId::ToolRotate3D => Tool::Rotate3D,
+                    CommandId::ToolHand => Tool::Hand,
+                    CommandId::ToolZoom => Tool::Zoom,
+                    _ => unreachable!(),
+                };
+                self.finish_edits();
+                if matches!(
+                    tool,
+                    Tool::Pen
+                        | Tool::Line
+                        | Tool::Rectangle
+                        | Tool::Ellipse
+                        | Tool::PolyStar
+                        | Tool::Pencil
+                        | Tool::Brush
+                        | Tool::Eraser
+                        | Tool::Razor
+                        | Tool::Deco
+                        | Tool::SprayBrush
+                ) {
+                    self.clear_selection();
+                }
+                self.set_tool(tool);
+            }
+            CommandId::ToolObjectDrawing => {
+                self.workspace.drawing.object_drawing = !self.workspace.drawing.object_drawing;
+            }
+        }
+        true
+    }
+}
+
+/// Authoritative menu presentation state of a [`CommandId`] derived from live [`Editor`] state
+/// and the active [`ShortcutPrefs`].
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandMenuState {
+    pub id: CommandId,
+    pub label: String,
+    pub shortcut: Option<Shortcut>,
+    pub shortcut_label: String,
+    pub enabled: bool,
+    pub checked: bool,
 }
 
 #[cfg(test)]

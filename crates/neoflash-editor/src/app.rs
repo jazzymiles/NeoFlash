@@ -259,8 +259,8 @@ impl Editor {
         s.workspace =
             WorkspacePrefs::load_for_viewport(storage, cc.egui_ctx.viewport_rect().size().into());
         let env_open = std::env::var_os("NEOFLASH_OPEN");
-        let arg_open = std::env::args_os().nth(1);
-        if env_open.is_some() || arg_open.is_some() || !is_screenshot {
+        let arg_open = crate::macos_menu::startup_file_args();
+        if env_open.is_some() || !arg_open.is_empty() || !is_screenshot {
             s.sessions.clear();
         }
         // `NEOFLASH_OPEN=path.nflash` opens a document at launch (screenshots of real documents).
@@ -271,6 +271,9 @@ impl Editor {
             s.message(error);
         }
         crate::native_windows::install();
+        if let Err(error) = crate::macos_menu::install(&cc.egui_ctx) {
+            s.message(error);
+        }
         s.tablet_input = crate::tablet_input::TabletInput::install();
         if let Some(template) = crate::shell::screenshot_workspace() {
             s.workspace.apply_template(template);
@@ -286,13 +289,15 @@ impl Editor {
         // Screenshot aid (editor-view-settings-open.png): open the View settings popover.
         s.stage_view.settings_open =
             std::env::var_os("NEOFLASH_SCREENSHOT_VIEW_SETTINGS").is_some();
-        if let Some(path) = arg_open {
+        if !arg_open.is_empty() {
             if !is_screenshot
                 && s.workspace.general.on_launch == crate::workspace::OnLaunch::LastDocument
             {
                 let _ = s.restore_session_tabs_on_launch(&cc.egui_ctx);
             }
-            s.open_path(PathBuf::from(path), &cc.egui_ctx);
+            for path in arg_open {
+                s.open_path(path, &cc.egui_ctx);
+            }
         } else if env_open.is_none() && !is_screenshot {
             s.apply_on_launch(&cc.egui_ctx);
         }
@@ -4183,6 +4188,7 @@ impl eframe::App for Editor {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.request_quit(ctx);
         }
+        crate::macos_menu::drain_events(self, ctx);
         let now_secs = ctx.input(|i| i.time);
         if let Some(wait) = self.tick_autosave(now_secs, crate::recovery::unix_now_secs()) {
             ctx.request_repaint_after(wait);
@@ -4249,21 +4255,8 @@ impl eframe::App for Editor {
         self.notification_host(ctx, self.has_document().then_some(self.stage_view.canvas));
         self.reconcile_stage_cursor_after_overlays(ctx);
         crate::native_windows::configure_panels();
-        let name = self
-            .path
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| self.project.name.clone());
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-            "{}{} — NeoFlash",
-            if self.has_document() {
-                name
-            } else {
-                "No document open".into()
-            },
-            if self.dirty() { " •" } else { "" }
-        )));
+        let win_state = crate::macos_menu::sync(self, ctx);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(win_state.title));
         crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
         crate::shell::capture(ctx, ctx.cumulative_pass_nr());
     }

@@ -361,7 +361,8 @@ impl Editor {
     /// destination. Save conflicts and recovery continue to use only `session_for_path`.
     pub(crate) fn session_for_open_path(&self, path: &Path) -> Option<usize> {
         self.session_for_path(path).or_else(|| {
-            let same = |other: &Path| same_path(path, other);
+            let target = canonical_open_identity(path);
+            let same = |other: &Path| canonical_open_identity(other) == target;
             if self.has_document() && self.import_source.as_deref().is_some_and(same) {
                 return Some(self.active_session);
             }
@@ -563,4 +564,17 @@ impl Editor {
 pub(crate) fn same_path(a: &Path, b: &Path) -> bool {
     crate::recovery::canonical_or_normalized_path(a)
         == crate::recovery::canonical_or_normalized_path(b)
+}
+
+fn canonical_open_identity(path: &Path) -> PathBuf {
+    let canon = crate::recovery::canonical_or_normalized_path(path);
+    if canon
+        .file_name()
+        .and_then(|s| s.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("DOMDocument.xml"))
+        && let Some(parent) = canon.parent()
+    {
+        return parent.to_path_buf();
+    }
+    canon
 }

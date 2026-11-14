@@ -28,6 +28,7 @@ mod fonts;
 mod graphic_import;
 mod headless;
 mod layer_controls;
+mod macos_menu;
 mod native_quit;
 mod native_screens;
 mod native_windows;
@@ -88,6 +89,8 @@ mod clipboard_tests;
 mod detached_tests;
 #[cfg(test)]
 mod document_sessions_tests;
+#[cfg(test)]
+mod macos_menu_tests;
 #[cfg(test)]
 mod output_pipeline_tests;
 #[cfg(test)]
