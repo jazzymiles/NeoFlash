@@ -211,7 +211,7 @@ F NF2 / Editor — Unsaved changes dialog 1920×1080
   F Status bar 1920×24 [H gap 12]
     T "Ready"
     T "Stage 960 × 600 · 24 fps · 120 frames"
-    F Spacer 1253×4
+    F Spacer 1250×4
     F Hint 61×20 [H gap 6]
       I NF2/Kbd 27×20 "F5"
       T "frame"
@@ -221,7 +221,7 @@ F NF2 / Editor — Unsaved changes dialog 1920×1080
     F Hint 106×20 [H gap 6]
       I NF2/Kbd 27×20 "F7"
       T "blank keyframe"
-    F Hint 91×20 [H gap 6]
+    F Hint 94×20 [H gap 6]
       I NF2/Kbd 36×20 "⌘ ↵"
       T "Test Movie"
   I NF2/Tooltip 90×30 "Selection" "V"

@@ -1780,22 +1780,22 @@ SVG text is outlined.
 | `exports/interface/light/svg/` | 14 |
 | `exports/interface/mid-neutral-gray/png/` | 14 |
 | `exports/interface/mid-neutral-gray/svg/` | 14 |
-| `exports/panels/dark-graphite/boards/png/` | 26 |
-| `exports/panels/dark-graphite/boards/svg/` | 26 |
-| `exports/panels/dark-graphite/png/` | 124 |
-| `exports/panels/dark-graphite/svg/` | 124 |
-| `exports/panels/dark/boards/png/` | 26 |
-| `exports/panels/dark/boards/svg/` | 26 |
-| `exports/panels/dark/png/` | 124 |
-| `exports/panels/dark/svg/` | 124 |
-| `exports/panels/light/boards/png/` | 26 |
-| `exports/panels/light/boards/svg/` | 26 |
-| `exports/panels/light/png/` | 124 |
-| `exports/panels/light/svg/` | 124 |
-| `exports/panels/mid-neutral-gray/boards/png/` | 26 |
-| `exports/panels/mid-neutral-gray/boards/svg/` | 26 |
-| `exports/panels/mid-neutral-gray/png/` | 124 |
-| `exports/panels/mid-neutral-gray/svg/` | 124 |
+| `exports/panels/dark-graphite/boards/png/` | 27 |
+| `exports/panels/dark-graphite/boards/svg/` | 27 |
+| `exports/panels/dark-graphite/png/` | 130 |
+| `exports/panels/dark-graphite/svg/` | 130 |
+| `exports/panels/dark/boards/png/` | 27 |
+| `exports/panels/dark/boards/svg/` | 27 |
+| `exports/panels/dark/png/` | 130 |
+| `exports/panels/dark/svg/` | 130 |
+| `exports/panels/light/boards/png/` | 27 |
+| `exports/panels/light/boards/svg/` | 27 |
+| `exports/panels/light/png/` | 130 |
+| `exports/panels/light/svg/` | 130 |
+| `exports/panels/mid-neutral-gray/boards/png/` | 27 |
+| `exports/panels/mid-neutral-gray/boards/svg/` | 27 |
+| `exports/panels/mid-neutral-gray/png/` | 130 |
+| `exports/panels/mid-neutral-gray/svg/` | 130 |
 
 
 ---
@@ -2264,6 +2264,12 @@ Use the full outlines for exact structure (auto layout direction and gap, sizes,
 
 ```
 §Publish & misc — dialogs · §Panel / Color — Bitmap fill · [Floating Panel Header "Color" "Swatches" "Panel"] · [Color Well] · [Icon Button] · [Select "Bitmap fill"] · §Bitmaps · [Button "Import…"] · "Lock fill" · "texture.png · 512×512 · tiles across selection" · §Stroke · "Stroke" · [Field "Width" "1.0 px"] · [Select "Solid"] · [Button "Add to swatches"] · §Dialog / Publish settings · [Dialog Header "Publish settings"] · §Main · §Targets · [Select "Profile: Default"] · §Profile actions · [Button "Duplicate"] · [Button "Import JSON"] · [Button "Export JSON"] · §Target · [Checkbox " "] · "HTML5 · Rust / WebAssembly" · §Target · "Desktop app" · §Target · "Video (MP4)" · §Target · "Image sequence / sprite sheet" · §Target · "SVG animation" · §Settings · "Output" · [Field "File" "publish/ideas.html"] · [Button "…"] · [Checkbox "Include HTML wrapper"] · [Select "Template: Responsive"] · "Runtime" · §Size level · §NF2/Segmented Control — size levels · [Segment "Full"] · [Segment "Balanced"] · [Segment "Compact"] · [Segment "Shared runtime"] · §Trade-off · "Includes the full runtime. Opens directly from disk." · §Weight · §Weight bar · §Legend · §Legend item · "WebAssembly" · "1.62 MB" · §Legend item · "Runtime scripts" · "410 KB" · §Legend item · "Project scripts" · "38 KB" · §Legend item · "Content" · "120 KB" · §Legend item · "Resources" · "196 KB" · §Legend item · "Fonts" · "84 KB" · §Legend item · "Page" · "6 KB" · §Totals · §On disk · "On disk" · "2.47 MB" · §Transfer (gzip) · "Transfer (gzip)" · "864 KB" · §Files · "Files" · "7" · [Checkbox "Loop"] · [Checkbox "Autoplay"] · [Checkbox "Preloader"] · [Checkbox "Fullscreen"] · [Checkbox "Source maps"] · [Select "Scale: Fit, keep ratio"] · [Select "Align: Center"] · "Assets" · "JPEG quality" · [Slider] · "80" · [Select "Audio: Original"] · [Checkbox "Sprite sheets for bitmaps"] · [Checkbox "Embed fonts (subset)"] · [Select "Sequences: Keep individual frames"] · "Scripts" · [Switch "Strict mode"] · [Switch "Include trace()"] · [Switch "Minify"] · [Section Header "Network startup simulator"] · §Footer · "Full · 2.47 MB · 864 KB gzip · 7 files" · [Button "Cancel"] · [Button "OK"] · [Button "Publish"] · §Dialog / Font embedding · [Dialog Header "Font embedding"] · §Main · §Fonts · [Tree Item "Inter Regular"] · [Tree Item "Inter Semi Bold"] · [Tree Item "Roboto Mono"] · §Options · [Field "Name" "Inter Regular"] · [Select "Family: Inter"] · [Select "Style: Regular"] · "Character ranges" · §Ranges · [Checkbox "Uppercase [A–Z] (27)"] · [Checkbox "Lowercase [a–z] (27)"] · [Checkbox "Numerals [0–9] (11)"] · [Checkbox "Punctuation (52)"] · [Checkbox "Basic Latin (95)"] · [Checkbox "Cyrillic (256)"] · [Checkbox "Latin Extended A (128)"] · [Checkbox "Greek (117)"] · [Field "Also include" "→ ← ★ © ®"] · [Checkbox "Export for ActionScript"] · [Field "Class" "InterRegular"] · §Footer · [Badge "378 glyphs · ~ 46 kB"] · §Window / Test Movie · §Title bar · "Ideas in motion — Test Movie" · [Badge "24 / 24 fps · 38 MB"] · §Stage area · "Ideas in motion." · §Transport · "Frame 30 / 120 · 00:01.21" · [Select "Speed 1×"] · §Output drawer · "trace: NeoFlash: the stage is ready" · "trace: animator started (60 frames)" · "Font "Inter Semi Bold" not embedded — fallback"
+```
+
+### panels-script-language
+
+```
+§Script language — Document settings, Properties and Actions · §Document settings · §Dialog / Document settings — scripts in other languages · [Dialog Header "Document settings"] · "Stage size" · [Field "W" "960"] · [Field "H" "600"] · [Icon Button] · "" · [Button "Match contents"] · [Button "Match printer"] · "Scale" · [Checkbox "Scale content with stage"] · [Registration Picker] · "Units" · [Select "Pixels"] · "Background" · [Color Field "131824" "100 %"] · "Frame rate" · [Stepper Field "fps" "24.00"] · "120 frames · 5.00 s" · "Script" · [Select "TypeScript"] · [Checkbox "Also compile JavaScript"] · §Inline message / warning · "5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when publishing." · [Button "Make default"] · [Button "Cancel"] · [Button "OK"] · §Dialog / Document settings — no compatible language · [Select "ActionScript 3.0"] · [Checkbox "Also compile compatible languages"] · §Panel / Properties — Document — Publish · [Panel Header "Properties"] · [Section Header "Stage"] · [Section Header "Playback"] · [Section Header "Publish"] · [Badge "HTML5 · Rust / WebAssembly"] · §Inline message / warning · [Button "Publish settings…"] · §Actions · §Panel / Actions — script in another language, skipped · [Floating Panel Header "Actions" "Panel" "Panel"] · §Toolbar · [Badge "ActionScript 3.0"] · §Gap · [Button "Script assist"] · §Language notice · §Inline message / warning · "This script is ActionScript 3.0. The project uses TypeScript, so the script is skipped when publishing." · [Button "Mark as TypeScript"] · §Main · §Sidebar · [Search "Search toolbox"] · §Toolbox · [Tree Item "Top level"] · [Tree Item "Language elements"] · [Tree Item "fl.controls"] · [Tree Item "fl.events"] · [Tree Item "fl.motion"] · [Tree Item "Animator"] · [Tree Item "Motion"] · §Script navigator · "Script navigator" · [Tree Item "Current selection"] · [Tree Item "orbit : Frame 1"] · [Tree Item "Scene 1"] · [Tree Item "labels : Frame 1"] · [Tree Item "Symbol definitions"] · §Editor · §Gutter · "1" · "2" · "3" · "4" · "5" · "6" · "7" · "8" · "9" · "10" · "11" · "12" · "13" · "14" · "15" · "16" · "17" · "18" · "19" · "20" · §Code · §Line 1 · "import fl.motion.Animator;" · §Line 2 · "var orbitXML:XML = <Motion duration="20">" · §Line 3 · "    <source>" · §Line 4 · "        <Source frameRate="24" x="76.5" y="40.5">" · §Line 5 · "            <dimensions>" · §Line 6 · "                <geom:Rectangle width="160" height="160"/>" · §Line 7 · "            </dimensions>" · §Line 8 · "        </Source>" · §Line 9 · "    </source>" · §Line 10 · "    <Keyframe index="0" tweenSnap="true">" · §Line 11 · "        <SimpleEase ease="0"/>" · §Line 12 · "    </Keyframe>" · §Line 13 · "    <Keyframe index="19" x="364.95"/>" · §Line 14 · "</Motion>;" · §Line 15 · " " · §Line 16 · "// play the orbit once the stage is ready" · §Line 17 · "var animator:Animator = new Animator(orbitXML, orbit_mc);" · §Line 18 · "animator.play();" · §Line 19 · "animator." · §Line 20 · "trace("NeoFlash: the stage is ready");" · §Code hint · [Menu Item "play()" "void"] · [Menu Item "pause()" "void"] · [Menu Item "rewind()" "void"] · [Menu Item "stop()" "void"] · [Menu Item "time" "int"] · §Error peek · "1120: Access of undefined property orbit_mc." · "Quick fix ⌘." · §Overview ruler · §Script bar · [Script Tab "orbit : Frame 1"] · [Script Tab "labels : Frame 1"] · "Line 19, Col 10  ·  20 lines  ·  " · §Problems · §Panel / Actions — script in a compatible language (toolbar and notice) · §Toolbar · [Badge "JavaScript"] · §Gap · §Language notice · §Inline message / info · "This script is JavaScript. The project uses TypeScript; the script compiles with a warning." · §Panel / Actions — script in the project language (toolbar) · §Toolbar · [Badge "TypeScript"] · §Gap
 ```
 
 ### panels-scripting-panels

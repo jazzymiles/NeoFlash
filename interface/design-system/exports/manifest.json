@@ -4174,5 +4174,57 @@
   "h": 661,
   "pngMaxDimension": 4320,
   "split": true
+ },
+ {
+  "id": "356:53978",
+  "name": "Script language — Document settings, Properties and Actions",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "script-language",
+  "png": "exports/panels/dark/boards/png/script-language.png",
+  "svg": "exports/panels/dark/boards/svg/script-language.svg",
+  "w": 1880,
+  "h": 966,
+  "pngMaxDimension": 3760,
+  "split": true
+ },
+ {
+  "id": "357:54769",
+  "name": "Script language — Document settings, Properties and Actions",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "script-language",
+  "png": "exports/panels/mid-neutral-gray/boards/png/script-language.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/script-language.svg",
+  "w": 1880,
+  "h": 966,
+  "pngMaxDimension": 3760,
+  "split": true
+ },
+ {
+  "id": "357:55076",
+  "name": "Script language — Document settings, Properties and Actions",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "script-language",
+  "png": "exports/panels/dark-graphite/boards/png/script-language.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/script-language.svg",
+  "w": 1880,
+  "h": 966,
+  "pngMaxDimension": 3760,
+  "split": true
+ },
+ {
+  "id": "357:54462",
+  "name": "Script language — Document settings, Properties and Actions",
+  "group": "panels",
+  "theme": "light",
+  "slug": "script-language",
+  "png": "exports/panels/light/boards/png/script-language.png",
+  "svg": "exports/panels/light/boards/svg/script-language.svg",
+  "w": 1880,
+  "h": 966,
+  "pngMaxDimension": 3760,
+  "split": true
  }
 ]

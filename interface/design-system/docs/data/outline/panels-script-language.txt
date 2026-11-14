@@ -1,0 +1,286 @@
+F Script language — Document settings, Properties and Actions 1880×966 [H gap 40]
+  F Document settings 520×966 [V gap 32]
+    F Dialog / Document settings — scripts in other languages 520×486 [V gap 0]
+      I NF2/Dialog Header 518×60 "Document settings"
+      F Body 518×424 [V gap 12]
+        F Row 470×32 [H gap 8]
+          T "Stage size"
+          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 120×32 "W" "960"
+          I NF2/Field {Show prefix=true, Prefix=H, Label=600, State=Default} 120×32 "H" "600"
+          I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+        F Row 470×32 [H gap 8]
+          T ""
+          I NF2/Button {Icon=false, Label=Match contents, Type=Ghost, State=Default} 107×32 "Match contents"
+          I NF2/Button {Icon=false, Label=Match printer, Type=Ghost, State=Default} 95×32 "Match printer"
+        F Row 470×28 [H gap 8]
+          T "Scale"
+          I NF2/Checkbox {Label=Scale content with stage, Checked=True} 155×18 "Scale content with stage"
+          I NF2/Registration Picker {Point=Top left} 28×28
+        F Row 470×32 [H gap 8]
+          T "Units"
+          I NF2/Select {Label=Pixels, State=Default} 160×32 "Pixels"
+        F Row 470×32 [H gap 8]
+          T "Background"
+          I NF2/Color Field {Alpha=100 %, Hex=131824} 200×32 "131824" "100 %"
+        F Row 470×32 [H gap 8]
+          T "Frame rate"
+          I NF2/Stepper Field {Prefix=fps, Label=24.00, State=Default} 140×32 "fps" "24.00"
+          T "120 frames · 5.00 s"
+        F Row 470×32 [H gap 8]
+          T "Script"
+          I NF2/Select {Label=TypeScript, State=Default} 220×32 "TypeScript"
+        F Row 470×18 [H gap 8]
+          T ""
+          I NF2/Checkbox {Label=Also compile JavaScript, Checked=True} 150×18 "Also compile JavaScript"
+        F Row 470×26 [H gap 8]
+          T ""
+          F Inline message / warning 342×26 [H gap 8]
+            I NF2 Icon/16/warning 16×16
+            T "5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when publishing."
+        F Row 470×32 [H gap 8]
+          I NF2/Button {Icon=false, Label=Make default, Type=Ghost, State=Default} 93×32 "Make default"
+          F Spacer 250×2
+          I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+          I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 40×32 "OK"
+    F Dialog / Document settings — no compatible language 520×448 [V gap 0]
+      I NF2/Dialog Header 518×60 "Document settings"
+      F Body 518×386 [V gap 12]
+        F Row 470×32 [H gap 8]
+          T "Stage size"
+          I NF2/Field {Show prefix=true, Prefix=W, Label=960, State=Default} 120×32 "W" "960"
+          I NF2/Field {Show prefix=true, Prefix=H, Label=600, State=Default} 120×32 "H" "600"
+          I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
+        F Row 470×32 [H gap 8]
+          T ""
+          I NF2/Button {Icon=false, Label=Match contents, Type=Ghost, State=Default} 107×32 "Match contents"
+          I NF2/Button {Icon=false, Label=Match printer, Type=Ghost, State=Default} 95×32 "Match printer"
+        F Row 470×28 [H gap 8]
+          T "Scale"
+          I NF2/Checkbox {Label=Scale content with stage, Checked=True} 155×18 "Scale content with stage"
+          I NF2/Registration Picker {Point=Top left} 28×28
+        F Row 470×32 [H gap 8]
+          T "Units"
+          I NF2/Select {Label=Pixels, State=Default} 160×32 "Pixels"
+        F Row 470×32 [H gap 8]
+          T "Background"
+          I NF2/Color Field {Alpha=100 %, Hex=131824} 200×32 "131824" "100 %"
+        F Row 470×32 [H gap 8]
+          T "Frame rate"
+          I NF2/Stepper Field {Prefix=fps, Label=24.00, State=Default} 140×32 "fps" "24.00"
+          T "120 frames · 5.00 s"
+        F Row 470×32 [H gap 8]
+          T "Script"
+          I NF2/Select {Label=ActionScript 3.0, State=Default} 220×32 "ActionScript 3.0"
+        F Row 470×18 [H gap 8]
+          T ""
+          I NF2/Checkbox {Label=Also compile compatible languages, Checked=False} 210×18 "Also compile compatible languages"
+        F Row 470×32 [H gap 8]
+          I NF2/Button {Icon=false, Label=Make default, Type=Ghost, State=Default} 93×32 "Make default"
+          F Spacer 250×2
+          I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+          I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 40×32 "OK"
+  F Panel / Properties — Document — Publish 320×381 [V gap 0]
+    I NF2/Panel Header 318×40 "Properties"
+    F Body 318×339 [V gap 12]
+      I NF2/Section Header {Label=Stage, State=Collapsed} 286×32 "Stage"
+      I NF2/Section Header {Label=Playback, State=Collapsed} 286×32 "Playback"
+      I NF2/Section Header {Label=Publish, State=Expanded} 286×32 "Publish"
+      I NF2/Badge {Label=HTML5 · Rust / WebAssembly, Type=Accent} 170×22 "HTML5 · Rust / WebAssembly"
+      F Row 286×32 [H gap 8]
+        T "Script"
+        I NF2/Select {Label=TypeScript, State=Default} 202×32 "TypeScript"
+      F Row 286×18 [H gap 8]
+        T ""
+        I NF2/Checkbox {Label=Also compile JavaScript, Checked=True} 150×18 "Also compile JavaScript"
+      F Inline message / warning 286×39 [H gap 8]
+        I NF2 Icon/16/warning 16×16
+        T "5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when publishing."
+      I NF2/Button {Icon=false, Label=Publish settings…, Type=Ghost, State=Default} 117×32 "Publish settings…"
+  F Actions 960×693 [V gap 32]
+    F Panel / Actions — script in another language, skipped 960×420 [V gap 0]
+      I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 958×36 "Actions" "Panel" "Panel"
+      F Toolbar 958×44 [H gap 2]
+        I NF2/Badge {Label=ActionScript 3.0, Type=Warning} 106×22 "ActionScript 3.0"
+        F Gap 4×4
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Frame 222×4
+        I NF2/Button {Icon=true, Label=Script assist, Type=Ghost, State=Default} 113×32 "Script assist"
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      F Language notice 958×45 [H gap 12]
+        F Inline message / warning 796×16 [H gap 8]
+          I NF2 Icon/16/warning 16×16
+          T "This script is ActionScript 3.0. The project uses TypeScript, so the script is skipped when publishing."
+        I NF2/Button {Icon=false, Label=Mark as TypeScript, Type=Ghost, State=Default} 126×32 "Mark as TypeScript"
+      F Main 958×261 [H gap 0]
+        F Sidebar 248×261 [V gap 0]
+          I NF2/Search {Label=Search toolbox, State=Empty} 231×32 "Search toolbox"
+          F Toolbox 231×210 [V gap 0]
+            I NF2/Tree Item {Label=Top level, Type=Folder Closed, Selected=False} 231×28 "Top level"
+            I NF2/Tree Item {Label=Language elements, Type=Folder Closed, Selected=False} 231×28 "Language elements"
+            I NF2/Tree Item {Label=fl.controls, Type=Folder Closed, Selected=False} 231×28 "fl.controls"
+            I NF2/Tree Item {Label=fl.events, Type=Folder Closed, Selected=False} 231×28 "fl.events"
+            I NF2/Tree Item {Label=fl.motion, Type=Folder Open, Selected=False} 231×28 "fl.motion"
+            F Indent 231×28 [H gap 0]
+              I NF2/Tree Item {Label=Animator, Type=Symbol, Selected=False} 215×28 "Animator"
+            F Indent 231×28 [H gap 0]
+              I NF2/Tree Item {Label=Motion, Type=Symbol, Selected=False} 215×28 "Motion"
+          F Script navigator 231×163 [V gap 0]
+            T "Script navigator"
+            I NF2/Tree Item {Label=Current selection, Type=Folder Open, Selected=False} 231×28 "Current selection"
+            F Indent 231×28 [H gap 0]
+              I NF2/Tree Item {Label=orbit : Frame 1, Type=Symbol, Selected=True} 215×28 "orbit : Frame 1"
+            I NF2/Tree Item {Label=Scene 1, Type=Folder Open, Selected=False} 231×28 "Scene 1"
+            F Indent 231×28 [H gap 0]
+              I NF2/Tree Item {Label=labels : Frame 1, Type=Symbol, Selected=False} 215×28 "labels : Frame 1"
+            I NF2/Tree Item {Label=Symbol definitions, Type=Folder Closed, Selected=False} 231×28 "Symbol definitions"
+        F Editor 710×261 [H gap 0]
+          F Gutter 72×261 [V gap 0]
+            T "1"
+            T "2"
+            T "3"
+            T "4"
+            T "5"
+            T "6"
+            T "7"
+            T "8"
+            T "9"
+            T "10"
+            T "11"
+            T "12"
+            T "13"
+            T "14"
+            T "15"
+            T "16"
+            T "17"
+            T "18"
+            T "19"
+            T "20"
+            I NF2 Icon/16/warning 13×13
+            I NF2 Icon/16/error 13×13
+            I NF2 Icon/16/breakpoint 13×13
+            I NF2 Icon/16/chevdown 13×13
+            I NF2 Icon/16/chevdown 13×13
+            I NF2 Icon/16/chevdown 13×13
+            I NF2 Icon/16/chevdown 13×13
+            I NF2 Icon/16/chevdown 13×13
+          F Code 626×261 [V gap 0]
+            F Line 1 626×20 [H gap 0]
+              T "import fl.motion.Animator;"
+            F Line 2 626×20 [H gap 0]
+              T "var orbitXML:XML = <Motion duration="20">"
+            F Line 3 626×20 [H gap 0]
+              T "    <source>"
+            F Line 4 626×20 [H gap 0]
+              T "        <Source frameRate="24" x="76.5" y="40.5">"
+            F Line 5 626×20 [H gap 0]
+              T "            <dimensions>"
+            F Line 6 626×20 [H gap 0]
+              T "                <geom:Rectangle width="160" height="160"/>"
+            F Line 7 626×20 [H gap 0]
+              T "            </dimensions>"
+            F Line 8 626×20 [H gap 0]
+              T "        </Source>"
+            F Line 9 626×20 [H gap 0]
+              T "    </source>"
+            F Line 10 626×20 [H gap 0]
+              T "    <Keyframe index="0" tweenSnap="true">"
+            F Line 11 626×20 [H gap 0]
+              T "        <SimpleEase ease="0"/>"
+            F Line 12 626×20 [H gap 0]
+              T "    </Keyframe>"
+            F Line 13 626×20 [H gap 0]
+              T "    <Keyframe index="19" x="364.95"/>"
+            F Line 14 626×20 [H gap 0]
+              T "</Motion>;"
+            F Line 15 626×20 [H gap 0]
+              T " "
+            F Line 16 626×20 [H gap 0]
+              T "// play the orbit once the stage is ready"
+            F Line 17 626×20 [H gap 0]
+              T "var animator:Animator = new Animator(orbitXML, orbit_mc);"
+            F Line 18 626×20 [H gap 0]
+              T "animator.play();"
+            F Line 19 626×20 [H gap 0]
+              T "animator."
+            F Line 20 626×20 [H gap 0]
+              T "trace("NeoFlash: the stage is ready");"
+            F Code hint 230×150 [V gap 0]
+              I NF2/Menu Item {Submenu=false, Shortcut=void, Label=play(), State=Hover} 220×28 "play()" "void"
+              I NF2/Menu Item {Submenu=false, Shortcut=void, Label=pause(), State=Default} 220×28 "pause()" "void"
+              I NF2/Menu Item {Submenu=false, Shortcut=void, Label=rewind(), State=Default} 220×28 "rewind()" "void"
+              I NF2/Menu Item {Submenu=false, Shortcut=void, Label=stop(), State=Default} 220×28 "stop()" "void"
+              I NF2/Menu Item {Submenu=false, Shortcut=int, Label=time, State=Default} 220×28 "time" "int"
+            F Error peek 327×30 [H gap 8]
+              I NF2 Icon/16/error 16×16
+              T "1120: Access of undefined property orbit_mc."
+              T "Quick fix ⌘."
+          F Overview ruler 12×261
+      F Script bar 958×32 [H gap 0]
+        I NF2/Script Tab {Pinned=true, Label=orbit : Frame 1, State=Active} 130×30 "orbit : Frame 1"
+        I NF2/Script Tab {Pinned=false, Label=labels : Frame 1, State=Inactive} 114×30 "labels : Frame 1"
+        F Frame 463×4
+        T "Line 19, Col 10  ·  20 lines  ·  "
+        F Problems 52×13 [H gap 4]
+          I NF2 Icon/16/error 13×13
+          T "1"
+          I NF2 Icon/16/warning 13×13
+          T "1"
+    F Panel / Actions — script in a compatible language (toolbar and notice) 960×127 [V gap 0]
+      I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 958×36 "Actions" "Panel" "Panel"
+      F Toolbar 958×44 [H gap 2]
+        I NF2/Badge {Label=JavaScript, Type=Neutral} 79×22 "JavaScript"
+        F Gap 4×4
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Frame 249×4
+        I NF2/Button {Icon=true, Label=Script assist, Type=Ghost, State=Default} 113×32 "Script assist"
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      F Language notice 958×45 [H gap 12]
+        F Inline message / info 796×16 [H gap 8]
+          I NF2 Icon/16/info 16×16
+          T "This script is JavaScript. The project uses TypeScript; the script compiles with a warning."
+        I NF2/Button {Icon=false, Label=Mark as TypeScript, Type=Ghost, State=Default} 126×32 "Mark as TypeScript"
+    F Panel / Actions — script in the project language (toolbar) 960×82 [V gap 0]
+      I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 958×36 "Actions" "Panel" "Panel"
+      F Toolbar 958×44 [H gap 2]
+        I NF2/Badge {Label=TypeScript, Type=Neutral} 80×22 "TypeScript"
+        F Gap 4×4
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Frame 248×4
+        I NF2/Button {Icon=true, Label=Script assist, Type=Ghost, State=Default} 113×32 "Script assist"
+        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32

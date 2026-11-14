@@ -36,7 +36,7 @@ still open.
 - **Resolved, waiting for the editor to adopt the new API or assets:** R-016 (`set_tooltip_shortcuts`), R-047
   (`CompactTypeHeader`), R-049 (mask icons), R-067b (tool masters), R-081 (`paint_gradient_overflow_preview`).
 - **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
-- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-097, R-099;
+- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-097, R-099, R-102;
   earlier R-022, R-038, R-043.
 - Everything else is resolved.
 
@@ -1701,3 +1701,72 @@ wires them with the components named in each answer.
   7. Not changed: the borders of Mid Neutral Gray (its surfaces lie on both sides of any border grey), and field
      boundaries in general, which stay as recorded under "Control boundaries".
 
+### R-102 · Unified project script language lock and foreign-script policy in Document Properties, Document settings and Actions
+- **Status:** answered (board `Script language — Document settings, Properties and Actions` is drawn in Figma in four themes, outline `panels-script-language.txt`, exported as `boards/png/script-language.png`)
+- **Requested by / for:** project owner & implementation track (`gemini`), 14 November 2026 · unified scripting architecture (`T-314`)
+- **Where:** `crates/neoflash-editor/src/panels/properties.rs` (`Properties — Document` when nothing is selected on Stage, `Publish` section around L1220), `crates/neoflash-editor/src/panels/document_settings.rs` (`Dialog / Document settings`, `Script` row at L414–429), and `crates/neoflash-editor/src/panels/actions.rs` (`Actions` toolbar language selector at L347–398); outlines `panels-inspector-document` / `document-dialogs` / `panels-scripting-panels.txt`.
+- **Why:**
+  1. Currently `Project` has no authoritative project-level `script_language`: `Document settings` (`⌘J`) shows `Script` disabled as `"Not available yet"`, `Properties — Document` shows no script language at all, and `Actions` allows switching `ScriptLanguage` per individual frame/object (`Frame 1 = AS2`, `Frame 2 = TypeScript`, `Frame 3 = AS3`).
+  2. Mixing incompatible VMs (`AVM1` AS1/AS2 `_x`/`_alpha: 0..100`/`on(release)` vs `AVM2` AS3 `x`/`alpha: 0..1` vs `JS/TS`) in one project breaks runtime state, autocomplete/snippets, and `.fla`/`.swf` export (which require one unambiguous document script target).
+  3. The owner decided to lock one authoritative script language at the project level, while preserving existing scripts written in other languages (never deleting user code) under an explicit project policy: either **skip** foreign-language scripts on compile/publish (with warnings), or **compile with warnings** where VM-compatible (`JS ↔ TS` on the ES runtime, `AS1 ↔ AS2` on AVM1; cross-VM scripts remain skipped with a warning).
+- **Proposed UI / state:**
+  1. *Properties — Document (`panels/properties.rs`):* in `Publish` (or a compact `Script` group right above `Publish`), add `Select` `Script` (`ActionScript 3.0`, `ActionScript 2.0`, `ActionScript 1.0`, `TypeScript`, `JavaScript`) plus the foreign-script policy control (`Checkbox` `"Skip scripts in other languages"` or `Select` `"Other languages: Skip / Compile compatible with warnings"`), with a `Small` / `Warning` count line when mismatched scripts exist in the document.
+  2. *Dialog / Document settings (`⌘J`, `panels/document_settings.rs`):* enable the existing `Script` `Select` (220 pt), include the same foreign-script policy control, and show a `Warning` `InlineMessage` when changing `Script` in a project that already contains scripts in another language (stating that existing scripts are kept and skipped or compiled with warnings, never deleted). Include `script_language` in `Make default`.
+  3. *Panel / Actions (`panels/actions.rs`):* lock new frame/source scripts to the project's `Script` language (replacing free per-frame language switching in the toolbar with a read-only language `Badge` or shortcut to `Document settings…`, and disabling the `Object` script target with a clear tooltip when the project language is `ActionScript 3.0`, `JavaScript` or `TypeScript`). When inspecting a legacy/imported script whose tag differs from the project language, show an `InlineMessage` above the editor naming the script's language, current policy (`Skipped` or `Compiled with warning`), and an explicit action to retag/adopt it if desired.
+- **Answer:**
+  1. *One language per project, in the classic place.* `Script` is a document setting, as in Flash. Options, in this
+     order: `ActionScript 3.0`, `ActionScript 2.0`, `ActionScript 1.0`, `TypeScript`, `JavaScript` — plain names; the
+     "· strict" suffix of the old dialog board is not used. The same value is edited in two places: `Document settings`
+     (`⌘J`) and `Properties — Document ▸ Publish`. The new board supersedes the `Script` row of
+     `Dialog / Document settings` on `Document — dialogs`.
+  2. *The policy is one checkbox, not a second Select.* Under `Script`, with an empty label cell so that the box aligns
+     with the Select: a `Checkbox` whose label names the language it affects — `Also compile ActionScript 1.0`
+     (project ActionScript 2.0), `Also compile ActionScript 2.0` (ActionScript 1.0), `Also compile JavaScript`
+     (TypeScript), `Also compile TypeScript` (JavaScript). Off: every script in another language is skipped when
+     compiling and publishing. On: scripts in the named language are compiled, each with a warning; scripts in any
+     other language are still skipped. Default: on. With `ActionScript 3.0` no such language exists: the checkbox
+     stays visible, disabled and unchecked, reads `Also compile compatible languages` and carries the tooltip
+     "ActionScript 3.0 has no compatible language" (R-088: nothing is hidden). The stored choice survives a change of
+     language.
+  3. *Count message.* While the document holds scripts in other languages (frame scripts, object scripts and source
+     files are counted together), an `InlineMessage` follows the checkbox in both places, with the same text:
+     "5 scripts are in other languages and stay in the document: 2 compile with a warning, 3 are skipped when
+     publishing." Only skipped: "3 scripts are in other languages and stay in the document. They are skipped when
+     publishing." Only compiled: "2 scripts are in JavaScript and compile with a warning." Singular: "1 script is …".
+     Type `Warning` when at least one script is skipped, otherwise `Info`. No scripts in other languages — no message.
+     In the dialog the message is computed for the values being edited, so the consequence is visible before OK;
+     there is no separate confirmation.
+  4. *Dialog / Document settings.* Enable the existing `Script` `Select` (220 pt) and drop "Not available yet". Rows
+     after `Frame rate`: `Script` · checkbox row (empty 120 pt label cell) · message row (empty label cell, the
+     `InlineMessage` fills the rest). OK applies language and policy together with the other settings in the dialog's
+     one Undo step. `Make default` stores both.
+  5. *Properties — Document ▸ Publish.* Order: target `Badge` · `select_row` "Script" · checkbox row (empty label
+     cell) · `InlineMessage` at full width · Ghost `Publish settings…`. Each change is one Undo step, without a
+     confirmation.
+  6. *Actions toolbar.* The language `Select` (160 pt, after the target `Select`) is replaced by a `Badge` in the same
+     place, vertically centred, with the same 4 pt before the divider. It shows the language of the script in the
+     editor: `Neutral` when the script is compiled, `Warning` when it is skipped. Tooltip "Set in Document settings"
+     with the shortcut `⌘J`. A new frame, object or event script is always created in the project language; the
+     per-script choice and the remembered preferred language are removed. The Project files toolbar follows the same
+     rule: the per-file language `Select` becomes this `Badge`, and `New class` offers only the project's ActionScript
+     version (disabled with the reason "The project script language is <language>" for the other three languages).
+  7. *Notice on a script in another language.* One row between the toolbar separator and the panel body, across the
+     whole panel width: padding 6 × 12 pt, a 1 pt `border/subtle` line under it, an `InlineMessage` that fills the row
+     and a Ghost `Button` at the right. Skipped — `Warning`: "This script is ActionScript 3.0. The project uses
+     TypeScript, so the script is skipped when publishing." Compiled — `Info`: "This script is JavaScript. The project
+     uses TypeScript; the script compiles with a warning." Button `Mark as <project language>`: it changes only the
+     language tag of the script, never its text, in one Undo step; `Check script` then reports what does not compile.
+     The word "Convert" is not used, because nothing is translated. The script stays fully editable; highlighting,
+     code hints and `Check script` follow the script's own language. The notice cannot be dismissed and disappears
+     when the languages match. A source file whose language comes from its extension gets the notice without the
+     button.
+  8. *Not taken from the proposal.* The `Selected object` target is not disabled for ActionScript 3.0, TypeScript or
+     JavaScript: object scripts in those languages are an existing NeoFlash feature (owner decision of 9 November
+     2026 — the instance `Actions…` route stays and non-classic handlers are labelled and exported honestly) and
+     existing documents contain them. A separate policy `Select`, a confirmation dialog on language change and a
+     shortcut button to Document settings in the Actions toolbar are not added either.
+  9. *What the engine owes the interface.* Every skipped or compatibly compiled script produces one warning with its
+     location in `Compiler errors` and in the publish report; opening it shows the script in Actions with the notice
+     of item 7. A document saved before this setting must open with a visible result — its language chosen by the
+     implementation track's migration rule, and the count message of item 3 whenever that rule leaves scripts in
+     other languages. No script is ever deleted or rewritten by a change of language or policy.

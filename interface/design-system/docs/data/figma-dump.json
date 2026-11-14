@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-14T16:08:37.340Z",
+ "generated": "2026-11-14T22:15:53.779Z",
  "file": "Interface test",
  "pages": [
   {
@@ -1331,6 +1331,30 @@
      "name": "AI answer — waiting, streaming, proposals and failure — Dark Graphite",
      "w": 2160,
      "h": 661
+    },
+    {
+     "id": "356:53978",
+     "name": "Script language — Document settings, Properties and Actions",
+     "w": 1880,
+     "h": 966
+    },
+    {
+     "id": "357:54462",
+     "name": "Script language — Document settings, Properties and Actions — Light",
+     "w": 1880,
+     "h": 966
+    },
+    {
+     "id": "357:54769",
+     "name": "Script language — Document settings, Properties and Actions — Mid Neutral Gray",
+     "w": 1880,
+     "h": 966
+    },
+    {
+     "id": "357:55076",
+     "name": "Script language — Document settings, Properties and Actions — Dark Graphite",
+     "w": 1880,
+     "h": 966
     }
    ]
   },
