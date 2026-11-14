@@ -32,12 +32,12 @@ still open.
 
 ### Status index (14 November 2026)
 
-- **Open, owed by the design track:** R-049 (mask icons), R-057 (accessibility matrix), R-065 (Pen cursor metadata),
-  R-067b (narrow Tools header, Puppet and 16 px tool masters).
+- **Open, owed by the design track:** R-049 (mask icons), R-057 (accessibility matrix), R-067b (narrow Tools header,
+  Puppet and 16 px tool masters).
 - **Resolved, waiting for the editor to adopt the new API:** R-016 (`set_tooltip_shortcuts`), R-047
   (`CompactTypeHeader`), R-081 (`paint_gradient_overflow_preview`).
 - **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
-- **Answered, waiting for implementation:** R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091;
+- **Answered, waiting for implementation:** R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-096;
   earlier R-022, R-038, R-043.
 - Everything else is resolved.
 
@@ -1037,7 +1037,7 @@ still open.
   both Menus boards and all v2.2 editor top bars, then exported the outlines/reference data and re-pinned the lock.
 
 ### R-065 · Pen-family cursor hotspot metadata
-- **Status:** open (runtime correction in T-136; locked source synchronization pending)
+- **Status:** resolved
 - **Requested by / for:** project owner · T-136 native Pen report
 - **Where:** locked Pen-family cursor metadata under `interface/`; runtime mapping in
   `crates/neoflash-editor/src/stage_cursor.rs`.
@@ -1050,7 +1050,7 @@ still open.
   runtime hotspot regression.
 - **Proposal (optional):** metadata-only synchronization for the whole Pen family, with one 1× Stage click sample
   showing the anchor centred on the visible nib; retain every existing SVG path and cursor size.
-- **Triage (14 November 2026):** runtime is correct (`[11, 3]`); the locked cursor metadata still says `[6, 21]`. Design-track correction with the next Figma export.
+- **Answer (14 November 2026):** the five Pen cursor components, their cards on the Icons page and `figma-dump.json` now give the hotspot as x 11, y 3 (the visible nib); `neoflash_ui::cursors::PEN*` are generated with that value. Glyph geometry is unchanged. The editor's `PEN_NIB_HOTSPOT` override is now redundant and may be removed.
 
 ### R-066 · Owner-authorized v2.2 panel, floating-tools and Help repair batch
 - **Status:** resolved — owner decision 2026-11-09; implemented and synchronized as NF2 v2.25
@@ -1486,4 +1486,70 @@ wires them with the components named in each answer.
   playhead red names the playhead; it is not an error colour. To stay visible on any artwork every coloured stroke is
   drawn over a black underlay 2 pt wider at 70 % opacity, and every handle or pin is the colour fill with a 1 pt white
   ring inside a 1 pt black ring. Keep the four values in one editor constant block next to `theme::StageOverlay`.
+
+### R-092 · Debugger panel: live states
+- **Status:** resolved — ratified as built
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `crates/neoflash-editor/src/panels/debugger.rs`; outline `panels-scripting-panels.txt` (`Panel / Debugger`).
+- **Answer:** the live panel keeps the designed composition (toolbar, status badge, Call stack, Variables, Watch,
+  Breakpoints) and the states of R-033: Neutral badge while connecting or disconnected, Accent while running, Warning
+  while paused; `InlineMessage` with `Retry` or `Restart` for errors; the Watch column explains that it is not
+  available yet. No further board is needed. The Debugger entry leaves Window ▸ Panels ▸ Planned panels.
+
+### R-093 · Video montage: frame video section, preview rows and the Video edit workspace
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `panels/properties_video.rs`, `timeline_preview.rs`, Video edit workspace template; Figma board
+  `Properties and Motion editor — additions after v2.25` (`Panel / Properties — Frame video`, four themes).
+- **Answer:**
+  1. *Properties ▸ Video on a frame* follows the board: `SectionHeader` Video; resource `Select`; one row with the
+     `Sync` select (150 pt) and the `Loop` and `Mute` checkboxes; overline `Trim` with `In` and `Out` in two equal
+     columns; one row with the Secondary buttons `Split at playhead` and `Extract audio`; Ghost `Reset trim` (replaces
+     "Clear out"); overline `Cue points` with a `TableRow` list (Name, Time) and two icon buttons under it,
+     `Add cue point` (plus) and `Remove cue point` (trash). The text buttons "+ Cue" and "×" are not used; a cue is
+     renamed and retimed by editing its row.
+  2. *Preview rows.* The 44 pt layer row with thumbnails is accepted as the row height of Timeline ▸ Preview and is
+     not a fourth density preset: it applies only while Preview is on.
+  3. *Video edit workspace.* The template (Properties · Scene and Library · Project tab groups, Preview rows) and the
+     Razor tool are accepted as built for Beta 1. Their main-window reference screen is still to be drawn.
+
+### R-094 · Properties for a multi-selection: Selection colours
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `panels/properties.rs`, `panels/swatches.rs`; Figma board
+  `Properties and Motion editor — additions after v2.25` (`Panel / Properties — Selection colours`).
+- **Answer:** each colour is the standard colour row followed, 4 pt below, by its usage as `NF2/Small` text in
+  `text/tertiary` ("5 × text", "2 × fill · 1 × stroke"). The usage is not a `Badge`: badges are for status. Rows are
+  12 pt apart, so a colour takes 60 pt instead of 88 pt. Project colours in Swatches use the same usage text.
+
+### R-095 · Properties ▸ Appearance
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `panels/appearance.rs`.
+- **Answer:** the multi-paint stack, path modifiers (Offset paths, Round corners, Repeater, Mirror), vector effects
+  (Zig zag, Pucker and bloat, Roughen, Twist) and Graphic styles are accepted as built for Beta 1. The section stays
+  provisional: its reference board is drawn after Beta 1, and it must not be copied as a pattern until then.
+
+### R-096 · Shortcut labels and wording on Windows and Linux
+- **Status:** answered (not yet checked on Windows or Linux hardware)
+- **Requested by / for:** design track · Beta 1 interface review
+- **Where:** `commands.rs` (`Shortcut::format`, `key_caps`), `windows_platform.rs` (`format_shortcut_for_platform`),
+  every menu item, tooltip, `Kbd` chip, button shortcut and status-bar hint.
+- **Need:** the Windows and Linux previews show macOS glyphs (⌘ ⌥ ⇧ ⌃ ↵) in every shortcut label; the existing
+  converter is not called, and about a dozen places pass literal glyph strings past the command table.
+- **Answer:**
+  1. *One source.* Every displayed shortcut comes from the command table through one formatter; no UI code passes a
+     literal such as "⌘W", "⌘↵" or "↵". This includes `document_chrome.rs`, the dialog buttons in `app.rs`, the
+     Color panel menu, `symbols_popover.rs`, `sources_diagnostics.rs`, `debugger.rs` and the unavailable menu rows.
+     The literals inside `neoflash-ui` (`headers.rs`, `surface.rs`, `timeline.rs`) are replaced by the design track.
+  2. *macOS.* Glyphs without separators, as now: `⇧⌘S`.
+  3. *Windows and Linux.* Words joined by plus signs in menus, tooltips and buttons: `Ctrl+Shift+S`, `Ctrl+Alt+Enter`,
+     `Alt+F3`, `Backspace`, `Tab`, `Enter`. In `Kbd` chips each key is its own chip and no plus sign is drawn. Linux
+     uses the same labels as Windows.
+  4. *Wording.* The settings window is `Preferences` on every platform. About reads `NeoFlash <version>` followed by
+     `macOS Beta`, `Windows Technical Preview` or `Linux Technical Preview`. Help names the modifier of the running
+     platform ("Alt-click" instead of "Option (⌥)-click") and gives install steps for the running platform only.
+  5. *Windows.* The main window keeps the native title bar; floating panels stay borderless, as on macOS.
+  6. *Scale.* The smallest NF2 text is 10 px (Small, Caption, Overline, Mono Small). Its legibility at 1× on Windows
+     and Linux displays has not been checked on hardware; the interface scale in Preferences (80–150 %) is the user control.
 

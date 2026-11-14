@@ -3870,5 +3870,57 @@
   "h": 496,
   "pngMaxDimension": 5120,
   "split": true
+ },
+ {
+  "id": "320:51160",
+  "name": "Properties and Motion editor — additions after v2.25",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "properties-motion-additions",
+  "png": "exports/panels/dark/boards/png/properties-motion-additions.png",
+  "svg": "exports/panels/dark/boards/svg/properties-motion-additions.svg",
+  "w": 1480,
+  "h": 502,
+  "pngMaxDimension": 2960,
+  "split": true
+ },
+ {
+  "id": "320:51399",
+  "name": "Properties and Motion editor — additions after v2.25",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "properties-motion-additions",
+  "png": "exports/panels/mid-neutral-gray/boards/png/properties-motion-additions.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/properties-motion-additions.svg",
+  "w": 1480,
+  "h": 502,
+  "pngMaxDimension": 2960,
+  "split": true
+ },
+ {
+  "id": "320:51461",
+  "name": "Properties and Motion editor — additions after v2.25",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "properties-motion-additions",
+  "png": "exports/panels/dark-graphite/boards/png/properties-motion-additions.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/properties-motion-additions.svg",
+  "w": 1480,
+  "h": 502,
+  "pngMaxDimension": 2960,
+  "split": true
+ },
+ {
+  "id": "320:51337",
+  "name": "Properties and Motion editor — additions after v2.25",
+  "group": "panels",
+  "theme": "light",
+  "slug": "properties-motion-additions",
+  "png": "exports/panels/light/boards/png/properties-motion-additions.png",
+  "svg": "exports/panels/light/boards/svg/properties-motion-additions.svg",
+  "w": 1480,
+  "h": 502,
+  "pngMaxDimension": 2960,
+  "split": true
  }
 ]

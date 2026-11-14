@@ -140,35 +140,35 @@ F Cursors (24 px, all states of tools & transforms) 1880×586 [V gap 12]
       F Text 218×43 [V gap 2]
         T "pen"
         T "NF2 Cursor/pen"
-        T "Hotspot  x 6, y 21"
+        T "Hotspot  x 11, y 3"
     F Card / NF2 Cursor/pen-add 300×70 [H gap 12]
       F Icon 44×44 [H gap 0]
         I NF2 Cursor/pen-add 24×24
       F Text 218×43 [V gap 2]
         T "pen-add"
         T "NF2 Cursor/pen-add"
-        T "Hotspot  x 6, y 21"
+        T "Hotspot  x 11, y 3"
     F Card / NF2 Cursor/pen-close 300×70 [H gap 12]
       F Icon 44×44 [H gap 0]
         I NF2 Cursor/pen-close 24×24
       F Text 218×43 [V gap 2]
         T "pen-close"
         T "NF2 Cursor/pen-close"
-        T "Hotspot  x 6, y 21"
+        T "Hotspot  x 11, y 3"
     F Card / NF2 Cursor/pen-convert 300×70 [H gap 12]
       F Icon 44×44 [H gap 0]
         I NF2 Cursor/pen-convert 24×24
       F Text 218×43 [V gap 2]
         T "pen-convert"
         T "NF2 Cursor/pen-convert"
-        T "Hotspot  x 6, y 21"
+        T "Hotspot  x 11, y 3"
     F Card / NF2 Cursor/pen-remove 300×70 [H gap 12]
       F Icon 44×44 [H gap 0]
         I NF2 Cursor/pen-remove 24×24
       F Text 218×43 [V gap 2]
         T "pen-remove"
         T "NF2 Cursor/pen-remove"
-        T "Hotspot  x 6, y 21"
+        T "Hotspot  x 11, y 3"
     F Card / NF2 Cursor/pencil 300×70 [H gap 12]
       F Icon 44×44 [H gap 0]
         I NF2 Cursor/pencil 24×24

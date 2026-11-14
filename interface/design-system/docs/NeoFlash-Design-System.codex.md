@@ -392,10 +392,10 @@ The hotspot is stored in each component's description (`Hotspot at x N, y N`) an
 
 | Name | Hotspot (x, y) | Name | Hotspot (x, y) |
 |---|---|---|---|
-| arrow | 4, 2 | pen-add | 6, 21 |
-| arrow-move | 4, 2 | pen-close | 6, 21 |
-| arrow-reshape-corner | 4, 2 | pen-convert | 6, 21 |
-| arrow-reshape-curve | 4, 2 | pen-remove | 6, 21 |
+| arrow | 4, 2 | pen-add | 11, 3 |
+| arrow-move | 4, 2 | pen-close | 11, 3 |
+| arrow-reshape-corner | 4, 2 | pen-convert | 11, 3 |
+| arrow-reshape-curve | 4, 2 | pen-remove | 11, 3 |
 | brush | 3, 21 | pencil | 3, 21 |
 | brush-size | 12, 12 | resize-d1 | 12, 12 |
 | bucket | 19, 20 | resize-d2 | 12, 12 |
@@ -411,7 +411,7 @@ The hotspot is stored in each component's description (`Hotspot at x N, y N`) an
 | lasso | 10, 20 | wait | 12, 12 |
 | move | 12, 12 | zoom-in | 10, 10 |
 | not-allowed | 12, 12 | zoom-out | 10, 10 |
-| pen | 6, 21 |  |  |
+| pen | 11, 3 |  |  |
 
 
 ![Cursors](illustrations/icons-page-cursors-section.png)
@@ -482,6 +482,7 @@ frame view ⋯ · zoom − slider +.
 | Editor — Editing symbol in place | [PNG](../exports/interface/dark/png/editor-editing-symbol-in-place.png) · [SVG](../exports/interface/dark/svg/editor-editing-symbol-in-place.svg) | [PNG](../exports/interface/light/png/editor-editing-symbol-in-place.png) · [SVG](../exports/interface/light/svg/editor-editing-symbol-in-place.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-editing-symbol-in-place.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-editing-symbol-in-place.svg) | [PNG](../exports/interface/dark-graphite/png/editor-editing-symbol-in-place.png) · [SVG](../exports/interface/dark-graphite/svg/editor-editing-symbol-in-place.svg) | `47:34191` / `59:53105` / `259:218440` / `259:43976` |
 | Editor — Video on timeline | [PNG](../exports/interface/dark/png/editor-video-on-timeline.png) · [SVG](../exports/interface/dark/svg/editor-video-on-timeline.svg) | [PNG](../exports/interface/light/png/editor-video-on-timeline.png) · [SVG](../exports/interface/light/svg/editor-video-on-timeline.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-video-on-timeline.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-video-on-timeline.svg) | [PNG](../exports/interface/dark-graphite/png/editor-video-on-timeline.png) · [SVG](../exports/interface/dark-graphite/svg/editor-video-on-timeline.svg) | `59:46641` / `59:53374` / `259:218713` / `259:44249` |
 | Editor — Motion tween path | [PNG](../exports/interface/dark/png/editor-motion-tween-path.png) · [SVG](../exports/interface/dark/svg/editor-motion-tween-path.svg) | [PNG](../exports/interface/light/png/editor-motion-tween-path.png) · [SVG](../exports/interface/light/svg/editor-motion-tween-path.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-motion-tween-path.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-motion-tween-path.svg) | [PNG](../exports/interface/dark-graphite/png/editor-motion-tween-path.png) · [SVG](../exports/interface/dark-graphite/svg/editor-motion-tween-path.svg) | `67:51373` / `67:55347` / `259:219005` / `259:44541` |
+| Editor — Main — 1024 × 720 | [PNG](../exports/interface/dark/png/editor-main-1024x720.png) · [SVG](../exports/interface/dark/svg/editor-main-1024x720.svg) | [PNG](../exports/interface/light/png/editor-main-1024x720.png) · [SVG](../exports/interface/light/svg/editor-main-1024x720.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-main-1024x720.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-main-1024x720.svg) | [PNG](../exports/interface/dark-graphite/png/editor-main-1024x720.png) · [SVG](../exports/interface/dark-graphite/svg/editor-main-1024x720.svg) | `318:41928` / `319:87044` / `319:132299` / `319:41800` |
 
 
 ---
