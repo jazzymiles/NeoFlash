@@ -36,7 +36,7 @@ still open.
 - **Resolved, waiting for the editor to adopt the new API or assets:** R-016 (`set_tooltip_shortcuts`), R-047
   (`CompactTypeHeader`), R-049 (mask icons), R-067b (tool masters), R-081 (`paint_gradient_overflow_preview`).
 - **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
-- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-097, R-099;
+- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-097, R-099, R-100;
   earlier R-022, R-038, R-043.
 - Everything else is resolved.
 
@@ -1649,4 +1649,25 @@ wires them with the components named in each answer.
   6. *Rules.* Nothing is applied automatically, and there is no "apply all". Every applied proposal is one history
      step named after its kind and can be undone from the card or with Edit ▸ Undo. Closing the dialog during a
      request cancels it. The answer is not kept after the dialog closes.
+
+### R-100 · Properties: section names and the place of object opacity
+- **Status:** answered
+- **Requested by / for:** design track · Beta 1 interface review (`panels/properties.rs`, `pos_title` and
+  `appearance_title`)
+- **Where:** Properties of a selected object; Figma `Panel / Properties — Text` and its narrow fallback (four themes).
+- **Need:** the first section is "Position and size" for instances and text but "Position and transform" for shapes,
+  bitmaps and video, while the Figma text panel said the opposite; for point text the object's Opacity sits inside
+  Character.
+- **Answer:**
+  1. *One name.* The first section of every selected object is **Position and size**, whatever the object is. It
+     keeps its rows and their order: `W` / `H`, `X` / `Y`, `Scale X` / `Scale Y`, `Rotation` (with `Skew` for an
+     instance). "Position and transform" is not used anywhere. The Figma text panels are corrected.
+  2. *Second section, named after what the object is made of.* `Fill and stroke` for drawn shapes and primitives,
+     `Character` for text, `Colour effect` for symbol instances, `Display` for bitmaps and video. Unchanged.
+  3. *Object opacity is not a character attribute.* For text (point text and text box) the `Opacity` row leaves
+     Character and becomes the first row of the text's `Display` section, above `Visible`. Bitmaps and video keep it
+     as the first row of `Display`; drawn shapes, which have no Display section, keep it as the first row of
+     `Fill and stroke`; an instance has no Opacity row — its transparency is `Colour effect ▸ Style: Alpha`.
+  4. The colour of the text itself keeps its own opacity inside the `ColorField` of Character; that is the paint's
+     opacity, not the object's.
 

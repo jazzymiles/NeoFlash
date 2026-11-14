@@ -7,7 +7,7 @@ F Panel / Properties — Text 320×1628 [V gap 0]
     F Pair 294×32 [H gap 8]
       I NF2/Select {Label=LTR, State=Default} 143×32 "LTR"
       I NF2/Select {Label=Editable, State=Default} 143×32 "Editable"
-    I NF2/Section Header {Label=Position and transform, State=Expanded} 294×32 "Position and transform"
+    I NF2/Section Header {Label=Position and size, State=Expanded} 294×32 "Position and size"
     F Pair 294×32 [H gap 8]
       I NF2/Field {Show prefix=true, Prefix=W, Label=303.10, State=Default} 143×32 "W" "303.10"
       I NF2/Field {Show prefix=true, Prefix=H, Label=151.20, State=Default} 143×32 "H" "151.20"
