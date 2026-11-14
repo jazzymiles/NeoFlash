@@ -782,7 +782,14 @@ fn batch_pipeline_builds_validates_exports_and_rolls_back_atomically() {
         run_args(&["--headless", "batch", "--stdin"], &alias_ops.to_string());
     assert_eq!(code, 0, "stderr={stderr}");
     let alias_res: Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(alias_res["results"][2]["result"]["trace_lines"][0], "alias_ok");
+    assert_eq!(
+        alias_res["results"][1]["result"]["language"],
+        "actionscript2"
+    );
+    assert_eq!(
+        alias_res["results"][2]["result"]["trace_lines"][0],
+        "alias_ok"
+    );
 }
 
 #[test]

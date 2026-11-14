@@ -983,25 +983,28 @@ fn execute_batch_op(
             source,
             remove_empty,
         } => {
-            let lang = language
-                .as_deref()
-                .map(parse_language)
-                .transpose()?
+            let explicit_lang = language.as_deref().map(parse_language).transpose()?;
+            let project_default_lang = project
+                .symbol(&project.root)
+                .and_then(|s| s.timeline.scripts.first())
+                .map(|fs| fs.script.language)
                 .unwrap_or(ScriptLanguage::ActionScript3);
 
             if let Some(src_path) = path {
                 project.enable_program();
                 if let Some(existing) = project.sources.iter_mut().find(|u| u.path == src_path) {
-                    existing.language = lang;
+                    let resolved = explicit_lang.unwrap_or(existing.language);
+                    existing.language = resolved;
                     existing.source = source;
                     let uid = existing.id.clone();
                     return Ok(json!({ "target": "source", "source_id": uid, "path": src_path }));
                 }
+                let resolved = explicit_lang.unwrap_or(project_default_lang);
                 let uid = id.unwrap_or_else(|| new_id("src"));
                 project.sources.push(SourceUnit {
                     id: uid.clone(),
                     path: src_path.clone(),
-                    language: lang,
+                    language: resolved,
                     source,
                 });
                 return Ok(json!({ "target": "source", "source_id": uid, "path": src_path }));
@@ -1012,6 +1015,12 @@ fn execute_batch_op(
                 None => project.root.clone(),
             };
             let sym = resolve_symbol_mut(project, &sym_id)?;
+            let sym_default_lang = sym
+                .timeline
+                .scripts
+                .first()
+                .map(|s| s.script.language)
+                .unwrap_or(project_default_lang);
 
             if let Some(el_sel) = element {
                 let obj_event = event
@@ -1039,15 +1048,22 @@ fn execute_batch_op(
                         } else if let Some(os) =
                             el.scripts.iter_mut().find(|s| s.event == obj_event)
                         {
+                            let resolved = explicit_lang.unwrap_or(os.script.language);
                             os.script = Script {
-                                language: lang,
+                                language: resolved,
                                 source: source.clone(),
                             };
                         } else {
+                            let resolved = explicit_lang.unwrap_or_else(|| {
+                                el.scripts
+                                    .first()
+                                    .map(|s| s.script.language)
+                                    .unwrap_or(sym_default_lang)
+                            });
                             el.scripts.push(ObjectScript {
                                 event: obj_event,
                                 script: Script {
-                                    language: lang,
+                                    language: resolved,
                                     source: source.clone(),
                                 },
                             });
@@ -1074,20 +1090,26 @@ fn execute_batch_op(
             if frame >= sym.timeline.frame_count {
                 sym.timeline.frame_count = frame + 1;
             }
+            let resolved_lang =
+                if let Some(existing) = sym.timeline.scripts.iter().find(|s| s.frame == frame) {
+                    explicit_lang.unwrap_or(existing.script.language)
+                } else {
+                    explicit_lang.unwrap_or(sym_default_lang)
+                };
             if remove_empty && source.trim().is_empty() {
                 sym.timeline.scripts.retain(|s| s.frame != frame);
             } else if let Some(existing) =
                 sym.timeline.scripts.iter_mut().find(|s| s.frame == frame)
             {
                 existing.script = Script {
-                    language: lang,
+                    language: resolved_lang,
                     source,
                 };
             } else {
                 sym.timeline.scripts.push(FrameScript {
                     frame,
                     script: Script {
-                        language: lang,
+                        language: resolved_lang,
                         source,
                     },
                 });
@@ -1097,7 +1119,7 @@ fn execute_batch_op(
                 "target": "frame",
                 "symbol_id": sym_id,
                 "frame": frame,
-                "language": format!("{lang:?}").to_ascii_lowercase(),
+                "language": format!("{resolved_lang:?}").to_ascii_lowercase(),
             }))
         }
         BatchOp::RemoveElement {
