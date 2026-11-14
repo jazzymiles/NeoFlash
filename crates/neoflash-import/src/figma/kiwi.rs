@@ -125,11 +125,7 @@ pub(super) struct KiwiObj<'a>(Vec<(&'a str, KiwiVal<'a>)>);
 impl<'a> KiwiObj<'a> {
     #[inline]
     pub(super) fn get(&self, key: &str) -> Option<&KiwiVal<'a>> {
-        self.0
-            .iter()
-            .rev()
-            .find(|(k, _)| *k == key)
-            .map(|(_, v)| v)
+        self.0.iter().rev().find(|(k, _)| *k == key).map(|(_, v)| v)
     }
 }
 
@@ -1238,7 +1234,10 @@ fn parse_kiwi_paint_list(arr: &[KiwiVal<'_>], w: f64, h: f64) -> Vec<FigmaPaint>
     out
 }
 
-fn parse_kiwi_number_px<'a>(val: Option<&'a KiwiVal<'a>>, font_size: f64) -> Option<(f64, &'a str)> {
+fn parse_kiwi_number_px<'a>(
+    val: Option<&'a KiwiVal<'a>>,
+    font_size: f64,
+) -> Option<(f64, &'a str)> {
     let v = val?;
     if let Some(num) = v.as_f64() {
         return num.is_finite().then_some((num, "PIXELS"));
@@ -1248,7 +1247,10 @@ fn parse_kiwi_number_px<'a>(val: Option<&'a KiwiVal<'a>>, font_size: f64) -> Opt
     if !raw.is_finite() {
         return None;
     }
-    let units = obj.get("units").and_then(KiwiVal::as_str).unwrap_or("PIXELS");
+    let units = obj
+        .get("units")
+        .and_then(KiwiVal::as_str)
+        .unwrap_or("PIXELS");
     match units {
         "PERCENT" => Some((font_size * raw / 100.0, "PERCENT")),
         "RAW" => Some((font_size * raw, "RAW")),
@@ -1451,9 +1453,8 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
     let mut chunks = Vec::new();
     let mut any_zstd = false;
     while pos + 4 <= bytes.len() && chunks.len() < 2 {
-        let len =
-            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
-                as usize;
+        let len = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
+            as usize;
         pos += 4;
         if len > MAX_FIGMA_DECODE_BYTES {
             return Err("Figma Kiwi chunk length exceeds 256 MiB limit".into());
@@ -1539,7 +1540,11 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
         if obj.get("phase").and_then(KiwiVal::as_str) == Some("REMOVED") {
             continue;
         }
-        let Some(guid) = obj.get("guid").and_then(KiwiVal::as_obj).and_then(guid_string) else {
+        let Some(guid) = obj
+            .get("guid")
+            .and_then(KiwiVal::as_obj)
+            .and_then(guid_string)
+        else {
             continue;
         };
         let node_type = obj
@@ -1571,7 +1576,10 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
 
         let (parent_id, position) =
             if let Some(pi) = obj.get("parentIndex").and_then(KiwiVal::as_obj) {
-                let pid = pi.get("guid").and_then(KiwiVal::as_obj).and_then(guid_string);
+                let pid = pi
+                    .get("guid")
+                    .and_then(KiwiVal::as_obj)
+                    .and_then(guid_string);
                 let pos_str = pi
                     .get("position")
                     .and_then(KiwiVal::as_str)
@@ -1582,8 +1590,14 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
                 (None, String::new())
             };
 
-        let visible = obj.get("visible").and_then(KiwiVal::as_bool).unwrap_or(true);
-        let locked = obj.get("locked").and_then(KiwiVal::as_bool).unwrap_or(false);
+        let visible = obj
+            .get("visible")
+            .and_then(KiwiVal::as_bool)
+            .unwrap_or(true);
+        let locked = obj
+            .get("locked")
+            .and_then(KiwiVal::as_bool)
+            .unwrap_or(false);
         let internal_only = obj
             .get("internalOnly")
             .and_then(KiwiVal::as_bool)
@@ -1609,8 +1623,14 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
 
         let (width, height) = if let Some(sz) = obj.get("size").and_then(KiwiVal::as_obj) {
             (
-                sz.get("x").and_then(KiwiVal::as_f64).unwrap_or(100.0).max(0.0),
-                sz.get("y").and_then(KiwiVal::as_f64).unwrap_or(100.0).max(0.0),
+                sz.get("x")
+                    .and_then(KiwiVal::as_f64)
+                    .unwrap_or(100.0)
+                    .max(0.0),
+                sz.get("y")
+                    .and_then(KiwiVal::as_f64)
+                    .unwrap_or(100.0)
+                    .max(0.0),
             )
         } else {
             (100.0, 100.0)
@@ -1689,8 +1709,10 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
             [uniform_r; 4]
         };
 
-        let arc_data = obj.get("arcData").and_then(KiwiVal::as_obj).map(|ao| {
-            FigmaArcData {
+        let arc_data = obj
+            .get("arcData")
+            .and_then(KiwiVal::as_obj)
+            .map(|ao| FigmaArcData {
                 start_angle_rad: ao
                     .get("startingAngle")
                     .and_then(KiwiVal::as_f64)
@@ -1703,8 +1725,7 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
                     .get("innerRadius")
                     .and_then(KiwiVal::as_f64)
                     .unwrap_or(0.0),
-            }
-        });
+            });
 
         let point_count = obj
             .get("count")
@@ -1828,12 +1849,15 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
             && let Some(vnb) = vd.get("vectorNetworkBlob")
             && let Some(blob) = resolve_kiwi_blob(vnb, &blobs, blob_base)
         {
-            let norm_size = vd.get("normalizedSize").and_then(KiwiVal::as_obj).map(|ns| {
-                (
-                    ns.get("x").and_then(KiwiVal::as_f64).unwrap_or(width),
-                    ns.get("y").and_then(KiwiVal::as_f64).unwrap_or(height),
-                )
-            });
+            let norm_size = vd
+                .get("normalizedSize")
+                .and_then(KiwiVal::as_obj)
+                .map(|ns| {
+                    (
+                        ns.get("x").and_then(KiwiVal::as_f64).unwrap_or(width),
+                        ns.get("y").and_then(KiwiVal::as_f64).unwrap_or(height),
+                    )
+                });
             let (vn_fills, vn_strokes) =
                 decode_figma_vector_network_blob(blob, width, height, norm_size);
             if fill_paths.is_empty() {
@@ -1917,8 +1941,8 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
             let letter_spacing = parse_kiwi_number_px(obj.get("letterSpacing"), font_size)
                 .map(|(v, _)| v)
                 .unwrap_or(0.0);
-            let line_height = parse_kiwi_number_px(obj.get("lineHeight"), font_size)
-                .and_then(|(v, units)| {
+            let line_height =
+                parse_kiwi_number_px(obj.get("lineHeight"), font_size).and_then(|(v, units)| {
                     if v <= 0.0 || (units == "PERCENT" && (v - font_size).abs() <= 0.05) {
                         None
                     } else {
@@ -2043,7 +2067,11 @@ fn decode_fig_kiwi_stream(bytes: &[u8], default_name: &str) -> Result<FigmaDoc, 
             obj.get("overriddenSymbolID")
                 .and_then(KiwiVal::as_obj)
                 .and_then(guid_string)
-                .or_else(|| sd.get("symbolID").and_then(KiwiVal::as_obj).and_then(guid_string))
+                .or_else(|| {
+                    sd.get("symbolID")
+                        .and_then(KiwiVal::as_obj)
+                        .and_then(guid_string)
+                })
         } else {
             obj.get("overriddenSymbolID")
                 .and_then(KiwiVal::as_obj)

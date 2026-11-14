@@ -1139,7 +1139,9 @@ impl DebugProtocol {
             "error" | "assert" => (
                 DebugOutputKind::Error,
                 match &loc {
-                    Some(loc) => format!("Runtime error ({} · line {}): {text}", loc.source, loc.line),
+                    Some(loc) => {
+                        format!("Runtime error ({} · line {}): {text}", loc.source, loc.line)
+                    }
                     None => format!("Runtime error: {text}"),
                 },
             ),

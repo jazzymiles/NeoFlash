@@ -199,7 +199,10 @@ pub struct PublishProfile {
     #[serde(default)]
     pub network_profile: NetworkSimulationProfile,
     /// HTML5 stage rendering mode (`Canvas` default; `Dom` for websites and applications, `T-307`).
-    #[serde(default, skip_serializing_if = "neoflash_core::HtmlRenderMode::is_default")]
+    #[serde(
+        default,
+        skip_serializing_if = "neoflash_core::HtmlRenderMode::is_default"
+    )]
     pub render_mode: neoflash_core::HtmlRenderMode,
 }
 
@@ -467,13 +470,12 @@ pub fn export_project_with_profile(
     } else {
         project.html_render_mode()
     };
-    let dom_cfg = (effective_mode == neoflash_core::HtmlRenderMode::Dom).then(|| {
-        crate::HtmlPublishConfig {
+    let dom_cfg =
+        (effective_mode == neoflash_core::HtmlRenderMode::Dom).then(|| crate::HtmlPublishConfig {
             render_mode: neoflash_core::HtmlRenderMode::Dom,
             breakpoints: project.publish_settings().breakpoints,
             ..crate::HtmlPublishConfig::default()
-        }
-    });
+        });
     let prepared = crate::prepare_with_config(
         project,
         runtime_dir,

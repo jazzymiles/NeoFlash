@@ -33,8 +33,8 @@ pub use html::*;
 pub use image_export::*;
 pub use legacy_fla::*;
 pub use lottie::*;
-pub use profiles::*;
 pub use neoflash_core::{HtmlRenderMode, PublishBreakpoint, PublishSettings};
+pub use profiles::*;
 pub use publish::{
     HtmlAcceleration, HtmlExportOptions, HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign,
     HtmlTemplate, PlayerChromeConfig, PublishOptions, SequencePublishPolicy, SizeEstimate,
@@ -801,7 +801,13 @@ pub fn export_html_with_options(
     if cfg.breakpoints.is_empty() && effective_mode == HtmlRenderMode::Dom {
         cfg.breakpoints = project.publish_settings().breakpoints;
     }
-    export_project_with_config(project, output_dir, runtime_dir, &html_options.options, &cfg)
+    export_project_with_config(
+        project,
+        output_dir,
+        runtime_dir,
+        &html_options.options,
+        &cfg,
+    )
 }
 
 /// Export an HTML5 package with explicit [`PublishOptions`] and [`HtmlPublishConfig`]
@@ -2432,9 +2438,7 @@ fn html_document_with_config(
         let dom_scale = config
             .map(|c| c.scale_mode.as_flash_scale_mode())
             .unwrap_or("showAll");
-        let dom_align = config
-            .map(|c| c.stage_align.as_flash_code())
-            .unwrap_or("");
+        let dom_align = config.map(|c| c.stage_align.as_flash_code()).unwrap_or("");
         format!(
             "<canvas id=\"stage\"{canvas_accel_attr} aria-hidden=\"true\"></canvas><neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\" width=\"{width}\" height=\"{height}\" scale-mode=\"{dom_scale}\" align=\"{dom_align}\"></neoflash-stage><div id=\"semantic-layer\"></div>"
         )

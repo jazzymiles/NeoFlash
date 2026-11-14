@@ -4230,11 +4230,10 @@ impl Project {
 
     /// Document-level HTML5 publish settings (`render_mode`, `breakpoints`, `T-307`).
     pub fn publish_settings(&self) -> PublishSettings {
-        let Some(unit) = self
-            .resources
-            .iter()
-            .find(|r| r.path.eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH))
-        else {
+        let Some(unit) = self.resources.iter().find(|r| {
+            r.path
+                .eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH)
+        }) else {
             return PublishSettings::default();
         };
         let Ok(bytes) = unit.decoded_bytes() else {
@@ -4250,15 +4249,20 @@ impl Project {
         let prev_saved_ver = self
             .resources
             .iter()
-            .find(|r| r.path.eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH))
+            .find(|r| {
+                r.path
+                    .eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH)
+            })
             .and_then(|r| r.decoded_bytes().ok())
             .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
             .and_then(|v| v.get("prev_format_version")?.as_u64())
             .map(|v| v as u32);
 
         if settings.is_default() {
-            self.resources
-                .retain(|r| !r.path.eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH));
+            self.resources.retain(|r| {
+                !r.path
+                    .eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH)
+            });
             if let Some(prev) = prev_saved_ver
                 && self.resources.is_empty()
                 && self.format_version == 3
@@ -4270,7 +4274,8 @@ impl Project {
         let Ok(mut val) = serde_json::to_value(settings) else {
             return;
         };
-        if let Some(prev) = prev_saved_ver.or_else(|| (self.format_version < 3).then_some(self.format_version))
+        if let Some(prev) =
+            prev_saved_ver.or_else(|| (self.format_version < 3).then_some(self.format_version))
             && let Some(obj) = val.as_object_mut()
         {
             obj.insert("prev_format_version".into(), serde_json::Value::from(prev));
@@ -4281,7 +4286,10 @@ impl Project {
         let existing_id = self
             .resources
             .iter()
-            .find(|r| r.path.eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH))
+            .find(|r| {
+                r.path
+                    .eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH)
+            })
             .map(|r| r.id.clone())
             .unwrap_or_else(|| new_id("resource"));
         let Ok(unit) = crate::ResourceUnit::from_bytes(
@@ -4292,11 +4300,10 @@ impl Project {
         ) else {
             return;
         };
-        if let Some(slot) = self
-            .resources
-            .iter_mut()
-            .find(|r| r.path.eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH))
-        {
+        if let Some(slot) = self.resources.iter_mut().find(|r| {
+            r.path
+                .eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH)
+        }) {
             *slot = unit;
         } else {
             self.resources.push(unit);

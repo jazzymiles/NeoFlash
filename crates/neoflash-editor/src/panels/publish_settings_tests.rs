@@ -1094,11 +1094,7 @@ fn web_app_dom_profile_persists_across_nflash_save_reopen_and_drives_publish_and
     use neoflash_core::HtmlRenderMode;
 
     fn collect_tree(root: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
-        fn walk(
-            base: &Path,
-            cur: &Path,
-            out: &mut std::collections::BTreeMap<String, Vec<u8>>,
-        ) {
+        fn walk(base: &Path, cur: &Path, out: &mut std::collections::BTreeMap<String, Vec<u8>>) {
             for entry in std::fs::read_dir(cur).unwrap() {
                 let entry = entry.unwrap();
                 let path = entry.path();
@@ -1146,12 +1142,7 @@ fn web_app_dom_profile_persists_across_nflash_save_reopen_and_drives_publish_and
     d.click("Profile: Default");
     d.click("Profile: Web App · DOM");
     assert_eq!(
-        d.editor
-            .publish_settings
-            .as_ref()
-            .unwrap()
-            .settings
-            .profile,
+        d.editor.publish_settings.as_ref().unwrap().settings.profile,
         PublishProfilePreset::WebAppDom
     );
     assert_eq!(
@@ -1188,7 +1179,10 @@ fn web_app_dom_profile_persists_across_nflash_save_reopen_and_drives_publish_and
 
     let fresh_ctx = egui::Context::default();
     let mut reopened = Editor::from_project(&fresh_ctx, Project::blank());
-    assert_eq!(reopened.workspace.publish.render_mode, HtmlRenderMode::Canvas);
+    assert_eq!(
+        reopened.workspace.publish.render_mode,
+        HtmlRenderMode::Canvas
+    );
     assert!(reopened.open_path_in_session(&fresh_ctx, nflash_path.clone()));
     assert_eq!(reopened.project.html_render_mode(), HtmlRenderMode::Dom);
     assert_eq!(reopened.workspace.publish.render_mode, HtmlRenderMode::Dom);
@@ -1236,7 +1230,9 @@ fn web_app_dom_profile_persists_across_nflash_save_reopen_and_drives_publish_and
     .unwrap();
     let preview_html = std::fs::read_to_string(test_movie_dir.join("index.html")).unwrap();
     assert!(preview_html.contains("data-render-mode=\"dom\""));
-    assert!(preview_html.contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\""));
+    assert!(
+        preview_html.contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\"")
+    );
 
     // 5. Switching back to Profile: Default restores byte-identical Canvas output.
     d.open();

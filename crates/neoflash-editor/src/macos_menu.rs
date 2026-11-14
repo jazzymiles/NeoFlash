@@ -865,47 +865,53 @@ impl NativeMenuSpec {
             cmd_item(editor, ctx, CommandId::EditTimelineSyncSymbols),
         ];
 
+        let mut items = vec![
+            cmd_item(editor, ctx, CommandId::EditUndo),
+            cmd_item(editor, ctx, CommandId::EditRedo),
+            NativeMenuItemSpec::Separator,
+            cmd_item(editor, ctx, CommandId::EditCut),
+            cmd_item(editor, ctx, CommandId::EditCopy),
+            cmd_item(editor, ctx, CommandId::EditPaste),
+            cmd_item(editor, ctx, CommandId::EditPasteInPlace),
+            cmd_item(editor, ctx, CommandId::EditDuplicate),
+            cmd_item(editor, ctx, CommandId::EditClear),
+            NativeMenuItemSpec::Separator,
+            cmd_item(editor, ctx, CommandId::EditSelectAll),
+            cmd_item(editor, ctx, CommandId::EditDeselect),
+            NativeMenuItemSpec::Separator,
+            cmd_item(editor, ctx, CommandId::EditFindAndReplace),
+            NativeMenuItemSpec::Submenu {
+                label: "Timeline".to_owned(),
+                enabled: has_doc,
+                role: None,
+                items: timeline_items,
+            },
+            NativeMenuItemSpec::Separator,
+            cmd_item(editor, ctx, CommandId::EditSymbols),
+            custom_item(
+                "Edit selected",
+                None,
+                has_instance,
+                false,
+                NativeMenuAction::EditSelectedSymbol,
+            ),
+            custom_item(
+                "Edit in place",
+                None,
+                has_instance,
+                false,
+                NativeMenuAction::EditSymbolInPlace,
+            ),
+        ];
+        if editor.has_ready_ai_connection() {
+            items.push(NativeMenuItemSpec::Separator);
+            items.push(cmd_item(editor, ctx, CommandId::EditSendToAi));
+        }
+
         NativeTopMenuSpec {
             title: "Edit".to_owned(),
             enabled: true,
-            items: vec![
-                cmd_item(editor, ctx, CommandId::EditUndo),
-                cmd_item(editor, ctx, CommandId::EditRedo),
-                NativeMenuItemSpec::Separator,
-                cmd_item(editor, ctx, CommandId::EditCut),
-                cmd_item(editor, ctx, CommandId::EditCopy),
-                cmd_item(editor, ctx, CommandId::EditPaste),
-                cmd_item(editor, ctx, CommandId::EditPasteInPlace),
-                cmd_item(editor, ctx, CommandId::EditDuplicate),
-                cmd_item(editor, ctx, CommandId::EditClear),
-                NativeMenuItemSpec::Separator,
-                cmd_item(editor, ctx, CommandId::EditSelectAll),
-                cmd_item(editor, ctx, CommandId::EditDeselect),
-                NativeMenuItemSpec::Separator,
-                cmd_item(editor, ctx, CommandId::EditFindAndReplace),
-                NativeMenuItemSpec::Submenu {
-                    label: "Timeline".to_owned(),
-                    enabled: has_doc,
-                    role: None,
-                    items: timeline_items,
-                },
-                NativeMenuItemSpec::Separator,
-                cmd_item(editor, ctx, CommandId::EditSymbols),
-                custom_item(
-                    "Edit selected",
-                    None,
-                    has_instance,
-                    false,
-                    NativeMenuAction::EditSelectedSymbol,
-                ),
-                custom_item(
-                    "Edit in place",
-                    None,
-                    has_instance,
-                    false,
-                    NativeMenuAction::EditSymbolInPlace,
-                ),
-            ],
+            items,
         }
     }
 

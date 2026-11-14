@@ -317,11 +317,7 @@ pub struct OutputEvent {
 }
 
 impl OutputEvent {
-    pub fn new(
-        severity: OutputSeverity,
-        source: OutputSource,
-        message: impl Into<String>,
-    ) -> Self {
+    pub fn new(severity: OutputSeverity, source: OutputSource, message: impl Into<String>) -> Self {
         Self {
             id: 0,
             severity,
@@ -487,10 +483,7 @@ impl OutputFilter {
         self
     }
 
-    pub fn with_severities(
-        mut self,
-        severities: impl IntoIterator<Item = OutputSeverity>,
-    ) -> Self {
+    pub fn with_severities(mut self, severities: impl IntoIterator<Item = OutputSeverity>) -> Self {
         for sev in severities {
             if !self.severities.contains(&sev) {
                 self.severities.push(sev);
@@ -1230,7 +1223,10 @@ pub(crate) fn jump_to_span(
     };
     let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
     let range = if end > start {
-        egui::text::CCursorRange::two(egui::text::CCursor::new(end), egui::text::CCursor::new(start))
+        egui::text::CCursorRange::two(
+            egui::text::CCursor::new(end),
+            egui::text::CCursor::new(start),
+        )
     } else {
         egui::text::CCursorRange::one(egui::text::CCursor::new(start))
     };
@@ -1340,7 +1336,9 @@ impl Editor {
                             .layers
                             .iter()
                             .position(|l| l.name.eq_ignore_ascii_case("actions"))
-                            .or_else(|| (self.layer < sym.timeline.layers.len()).then_some(self.layer))
+                            .or_else(|| {
+                                (self.layer < sym.timeline.layers.len()).then_some(self.layer)
+                            })
                     });
                     OutputLocation::for_frame(symbol, sym_name, layer_idx, frame)
                 }

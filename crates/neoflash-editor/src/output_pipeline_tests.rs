@@ -20,7 +20,6 @@
 
 use crate::ai_connections::AiConnectionError;
 use crate::app::{Editor, ScriptTarget};
-use crate::panels::timeline::output::OUTPUT_VIRTUALIZATION_THRESHOLD;
 use crate::debugger_protocol::{
     AuthoredBreakpoint, AuthoredLocation, DebugCommand, DebugFrame, DebugLocal, DebugOutputKind,
     DebugOutputRecord, DebugProtocol, DebugSnapshot, DebugSource, DebugState,
@@ -30,6 +29,7 @@ use crate::output_pipeline::{
     MAX_OUTPUT_EVENTS, OutputEvent, OutputFilter, OutputLocation, OutputPipeline, OutputSeverity,
     OutputSource,
 };
+use crate::panels::timeline::output::OUTPUT_VIRTUALIZATION_THRESHOLD;
 use crate::updater::{UpdateState, UpdaterConfig};
 use crate::workspace::{PanelId, UpdateChannel};
 use eframe::egui::{self, Event, PointerButton, Pos2, Rect, Vec2};
@@ -366,7 +366,12 @@ fn t310_severity_and_search_work_together_and_copy_copies_only_visible_lines() {
             OutputSource::Compiler,
             "Line 4:10: Undefined identifier 'heroClip'",
         )
-        .with_location(OutputLocation::for_frame("sym-1", Some("Hero".into()), Some(0), 0)),
+        .with_location(OutputLocation::for_frame(
+            "sym-1",
+            Some("Hero".into()),
+            Some(0),
+            0,
+        )),
     );
     editor.push_output_event(OutputEvent::error(
         OutputSource::Debugger,
@@ -436,8 +441,7 @@ fn t310_severity_and_search_work_together_and_copy_copies_only_visible_lines() {
         })
         .expect("Copy output must emit CopyText command");
     assert_eq!(
-        copied,
-        "Line 4:10: Undefined identifier 'heroClip'",
+        copied, "Line 4:10: Undefined identifier 'heroClip'",
         "Copy output must copy ONLY the currently visible (filtered) lines"
     );
 
@@ -455,10 +459,7 @@ fn t310_severity_and_search_work_together_and_copy_copies_only_visible_lines() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(
-        warn_copied,
-        "DOMDocument.xml: Font 'Avenir' approximated"
-    );
+    assert_eq!(warn_copied, "DOMDocument.xml: Font 'Avenir' approximated");
 }
 
 #[test]
@@ -514,7 +515,12 @@ fn t310_zero_duplicate_messages_across_compiler_runtime_debugger_import_and_expo
         .unwrap()
         .timeline
         .frame_count = 3;
-    editor.project.symbol_mut(&root_id).unwrap().timeline.scripts = vec![FrameScript {
+    editor
+        .project
+        .symbol_mut(&root_id)
+        .unwrap()
+        .timeline
+        .scripts = vec![FrameScript {
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,
@@ -657,11 +663,7 @@ fn t310_zero_duplicate_messages_across_compiler_runtime_debugger_import_and_expo
     let runtime_dir = temp.0.join("runtime");
     std::fs::create_dir_all(&runtime_dir).unwrap();
     std::fs::write(runtime_dir.join("neoflash_web.js"), "var NeoFlashWasm;").unwrap();
-    std::fs::write(
-        runtime_dir.join("neoflash_web_bg.wasm"),
-        b"\0asm\x01\0\0\0",
-    )
-    .unwrap();
+    std::fs::write(runtime_dir.join("neoflash_web_bg.wasm"), b"\0asm\x01\0\0\0").unwrap();
     let publish_out = temp.0.join("html5-out");
     let prefs = editor.workspace.publish.clone();
     assert!(editor.publish_html5_with_settings(&publish_out, &runtime_dir, &prefs));
@@ -1058,7 +1060,10 @@ fn t310_clear_and_ring_eviction_never_break_active_debugger_session() {
     let clear_pos = find_accesskit_button_center(&out_before_clear, "Clear output")
         .expect("Clear output button enabled");
     let _ = run_output_frame(&mut editor, &ctx, click_events(clear_pos));
-    assert!(editor.output.is_empty(), "Clear output empties Output buffer");
+    assert!(
+        editor.output.is_empty(),
+        "Clear output empties Output buffer"
+    );
 
     // Debugger session, breakpoints, locals, and command channel MUST remain 100% intact,
     // and polling again MUST NOT re-emit cleared `seq == 1` history!

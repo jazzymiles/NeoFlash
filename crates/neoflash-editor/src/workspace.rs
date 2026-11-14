@@ -2549,7 +2549,10 @@ pub struct PublishPrefs {
     #[serde(default)]
     pub fla_export_options: neoflash_export::FlaExportOptions,
     /// HTML5 stage rendering mode (`Canvas` default, `Dom` for interactive websites and apps, `T-307`).
-    #[serde(default, skip_serializing_if = "neoflash_core::HtmlRenderMode::is_default")]
+    #[serde(
+        default,
+        skip_serializing_if = "neoflash_core::HtmlRenderMode::is_default"
+    )]
     pub render_mode: neoflash_core::HtmlRenderMode,
 }
 impl Default for PublishPrefs {

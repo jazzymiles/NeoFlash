@@ -602,8 +602,9 @@ impl Editor {
                 .position(|l| l.name.eq_ignore_ascii_case("actions"))
                 .or_else(|| (self.layer < sym.timeline.layers.len()).then_some(self.layer))
         });
-        let mut loc =
-            crate::output_pipeline::OutputLocation::for_frame(symbol, sym_name, layer_idx, self.frame);
+        let mut loc = crate::output_pipeline::OutputLocation::for_frame(
+            symbol, sym_name, layer_idx, self.frame,
+        );
         loc.document_id = Some(self.clipboard.session.clone());
         loc
     }

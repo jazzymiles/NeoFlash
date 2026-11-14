@@ -394,7 +394,10 @@ pub struct HtmlPublishConfig {
     #[serde(default)]
     pub chrome: PlayerChromeConfig,
     /// Stage rendering mode (`Canvas` default; `Dom` for websites and applications, `T-307`).
-    #[serde(default, skip_serializing_if = "neoflash_core::HtmlRenderMode::is_default")]
+    #[serde(
+        default,
+        skip_serializing_if = "neoflash_core::HtmlRenderMode::is_default"
+    )]
     pub render_mode: neoflash_core::HtmlRenderMode,
     /// Optional responsive breakpoints evaluated by the DOM/Canvas layout controller (`T-307`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -435,7 +438,10 @@ impl Default for HtmlPublishConfig {
 pub struct HtmlExportOptions {
     pub options: PublishOptions,
     pub config: HtmlPublishConfig,
-    #[serde(default, skip_serializing_if = "neoflash_core::HtmlRenderMode::is_default")]
+    #[serde(
+        default,
+        skip_serializing_if = "neoflash_core::HtmlRenderMode::is_default"
+    )]
     pub render_mode: neoflash_core::HtmlRenderMode,
 }
 

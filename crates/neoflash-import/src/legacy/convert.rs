@@ -1724,12 +1724,8 @@ impl Context<'_> {
                 } else {
                     AccessibleRole::Image
                 };
-                element.accessibility = convert_accessibility(
-                    s,
-                    i.accessibility.as_ref(),
-                    &element.name,
-                    acc_role,
-                )?;
+                element.accessibility =
+                    convert_accessibility(s, i.accessibility.as_ref(), &element.name, acc_role)?;
             }
             Some(TimelinePayload::Text(t)) => {
                 element = convert_timeline_text(s, t, id, "", self.contents_revision, self.report)?;
@@ -1953,7 +1949,10 @@ impl Context<'_> {
                 ));
             }
         }
-        if o.base.as_ref().is_some_and(|b| b.cache_as_bitmap.unwrap_or(0) != 0) {
+        if o.base
+            .as_ref()
+            .is_some_and(|b| b.cache_as_bitmap.unwrap_or(0) != 0)
+        {
             element.cache_as_bitmap = true;
         }
         self.provenance.push(
@@ -2659,9 +2658,7 @@ fn deduplicate_project_for_budget(
     }
 
     if !group_remap.is_empty() {
-        project
-            .symbols
-            .retain(|s| !group_remap.contains_key(&s.id));
+        project.symbols.retain(|s| !group_remap.contains_key(&s.id));
         for symbol in &mut project.symbols {
             for element in symbol
                 .timeline
@@ -3479,9 +3476,8 @@ pub(super) fn convert_timeline_text(
         let mode = aa_bytes[1];
         let float_offset = if rev == 1 { 8 } else { 2 };
         if mode == 2 && aa_bytes.len() >= float_offset + 8 {
-            let raw_thickness = f32::from_le_bytes(
-                aa_bytes[float_offset..float_offset + 4].try_into().unwrap(),
-            );
+            let raw_thickness =
+                f32::from_le_bytes(aa_bytes[float_offset..float_offset + 4].try_into().unwrap());
             let raw_sharpness = f32::from_le_bytes(
                 aa_bytes[float_offset + 4..float_offset + 8]
                     .try_into()

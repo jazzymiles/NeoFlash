@@ -58,8 +58,7 @@ fn json_color_to_rgba(c: &Value, extra_opacity: f64) -> Color {
         .clamp(0.0, 1.0)
         * 255.0)
         .round() as u8;
-    let a = ((c.get("a").and_then(Value::as_f64).unwrap_or(1.0) * extra_opacity)
-        .clamp(0.0, 1.0)
+    let a = ((c.get("a").and_then(Value::as_f64).unwrap_or(1.0) * extra_opacity).clamp(0.0, 1.0)
         * 255.0)
         .round() as u8;
     [r, g, b, a]
@@ -269,9 +268,23 @@ fn parse_json_vector_network(vn: &Value) -> DecodedVectorNetwork {
 
     let emit = |cmds: &mut Vec<PathCommand>, seg: JSeg, fwd: bool| {
         let (v0, tx0, ty0, v1, tx1, ty1) = if fwd {
-            (verts[seg.s], seg.dx1, seg.dy1, verts[seg.e], seg.dx2, seg.dy2)
+            (
+                verts[seg.s],
+                seg.dx1,
+                seg.dy1,
+                verts[seg.e],
+                seg.dx2,
+                seg.dy2,
+            )
         } else {
-            (verts[seg.e], seg.dx2, seg.dy2, verts[seg.s], seg.dx1, seg.dy1)
+            (
+                verts[seg.e],
+                seg.dx2,
+                seg.dy2,
+                verts[seg.s],
+                seg.dx1,
+                seg.dy1,
+            )
         };
         if tx0.abs() <= 1e-7 && ty0.abs() <= 1e-7 && tx1.abs() <= 1e-7 && ty1.abs() <= 1e-7 {
             cmds.push(PathCommand::LineTo { x: v1[0], y: v1[1] });
@@ -299,7 +312,9 @@ fn parse_json_vector_network(vn: &Value) -> DecodedVectorNetwork {
             };
             let mut rcmds = Vec::new();
             for lp in loops {
-                let Some(id_arr) = lp.as_array() else { continue };
+                let Some(id_arr) = lp.as_array() else {
+                    continue;
+                };
                 let lsegs: Vec<JSeg> = id_arr
                     .iter()
                     .filter_map(|iv| iv.as_u64().and_then(|u| segs.get(u as usize).copied()))
@@ -393,7 +408,10 @@ fn parse_json_text_style_override(st: &Value, base_fs: f64) -> FigmaTextStyleOve
         out.font_family = Some(fam.to_owned());
     }
     if st.get("fontWeight").is_some() || st.get("fontStyle").is_some() {
-        let fw = st.get("fontWeight").and_then(Value::as_f64).unwrap_or(400.0);
+        let fw = st
+            .get("fontWeight")
+            .and_then(Value::as_f64)
+            .unwrap_or(400.0);
         let fst = st
             .get("fontStyle")
             .and_then(Value::as_str)
@@ -565,20 +583,20 @@ fn parse_json_node(
         [uniform_r; 4]
     };
 
-    let arc_data = v.get("arcData").and_then(Value::as_object).map(|ao| FigmaArcData {
-        start_angle_rad: ao
-            .get("startingAngle")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0),
-        end_angle_rad: ao
-            .get("endingAngle")
-            .and_then(Value::as_f64)
-            .unwrap_or(std::f64::consts::TAU),
-        inner_radius_ratio: ao
-            .get("innerRadius")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0),
-    });
+    let arc_data = v
+        .get("arcData")
+        .and_then(Value::as_object)
+        .map(|ao| FigmaArcData {
+            start_angle_rad: ao
+                .get("startingAngle")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+            end_angle_rad: ao
+                .get("endingAngle")
+                .and_then(Value::as_f64)
+                .unwrap_or(std::f64::consts::TAU),
+            inner_radius_ratio: ao.get("innerRadius").and_then(Value::as_f64).unwrap_or(0.0),
+        });
 
     let point_count = v
         .get("count")
@@ -689,7 +707,11 @@ fn parse_json_node(
                 continue;
             }
             let etype = e.get("type").and_then(Value::as_str).unwrap_or("");
-            let radius = e.get("radius").and_then(Value::as_f64).unwrap_or(0.0).max(0.0);
+            let radius = e
+                .get("radius")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0)
+                .max(0.0);
             match etype {
                 "DROP_SHADOW" | "INNER_SHADOW" => {
                     let color = e
@@ -928,11 +950,7 @@ pub(super) fn parse_figma_json_doc(
     if let Some(imgs_obj) = root_val.get("images").and_then(Value::as_object) {
         for (k, v) in imgs_obj {
             if let Some(s) = v.as_str() {
-                let payload = s
-                    .split_once(";base64,")
-                    .map(|(_, b)| b)
-                    .unwrap_or(s)
-                    .trim();
+                let payload = s.split_once(";base64,").map(|(_, b)| b).unwrap_or(s).trim();
                 if let Ok(decoded) = BASE64.decode(payload)
                     && !decoded.is_empty()
                 {

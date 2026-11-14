@@ -1592,11 +1592,7 @@ fn export_project_emits_stage_a11y_overlay_with_extended_aria_attributes() {
 fn default_canvas_export_stays_byte_identical_and_dom_mode_supports_full_compact_shared_and_diagnostics()
  {
     fn collect_tree(root: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
-        fn walk(
-            base: &Path,
-            cur: &Path,
-            out: &mut std::collections::BTreeMap<String, Vec<u8>>,
-        ) {
+        fn walk(base: &Path, cur: &Path, out: &mut std::collections::BTreeMap<String, Vec<u8>>) {
             for entry in fs::read_dir(cur).unwrap() {
                 let entry = entry.unwrap();
                 let path = entry.path();
@@ -1632,8 +1628,7 @@ fn default_canvas_export_stays_byte_identical_and_dom_mode_supports_full_compact
     // 1. Byte-identical Canvas default invariant across API entry points and T-292 example.
     let example_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../examples/as3/06-dynamic-input-html-text.nflash");
-    let example_project =
-        Project::from_json(&fs::read_to_string(&example_path).unwrap()).unwrap();
+    let example_project = Project::from_json(&fs::read_to_string(&example_path).unwrap()).unwrap();
     assert_eq!(
         example_project.html_render_mode(),
         neoflash_core::HtmlRenderMode::Canvas
@@ -1672,7 +1667,10 @@ fn default_canvas_export_stays_byte_identical_and_dom_mode_supports_full_compact
         let orig_json = base_project.to_json().unwrap();
         let mut toggled = base_project.clone();
         toggled.set_html_render_mode(neoflash_core::HtmlRenderMode::Dom);
-        assert_eq!(toggled.html_render_mode(), neoflash_core::HtmlRenderMode::Dom);
+        assert_eq!(
+            toggled.html_render_mode(),
+            neoflash_core::HtmlRenderMode::Dom
+        );
         toggled.set_html_render_mode(neoflash_core::HtmlRenderMode::Canvas);
         assert_eq!(
             toggled.html_render_mode(),
@@ -1686,7 +1684,11 @@ fn default_canvas_export_stays_byte_identical_and_dom_mode_supports_full_compact
         export_project(&toggled, &out_roundtrip, &mock_rt).unwrap();
 
         let baseline = collect_tree(&out_default);
-        assert_eq!(collect_tree(&out_options), baseline, "{tag}: options mismatch");
+        assert_eq!(
+            collect_tree(&out_options),
+            baseline,
+            "{tag}: options mismatch"
+        );
         assert_eq!(
             collect_tree(&out_html_opts),
             baseline,
@@ -1789,9 +1791,7 @@ fn default_canvas_export_stays_byte_identical_and_dom_mode_supports_full_compact
             "{mode_name}: index.html missing data-render-mode=\"dom\""
         );
         assert!(
-            html.contains(
-                "<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\""
-            ),
+            html.contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\""),
             "{mode_name}: index.html missing <neoflash-stage id=\"stage-dom-root\">"
         );
         assert!(

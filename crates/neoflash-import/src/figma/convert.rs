@@ -362,11 +362,8 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         self.building_components.insert(comp_id.to_owned());
 
         let sym_id = new_id("figsym");
-        let (layers, expanded_nodes, graph_depth) = self.build_symbol_layers_with_optional_bg(
-            comp_node,
-            MAX_EXPANDED_SCENE_NODES / 2,
-            1,
-        );
+        let (layers, expanded_nodes, graph_depth) =
+            self.build_symbol_layers_with_optional_bg(comp_node, MAX_EXPANDED_SCENE_NODES / 2, 1);
         self.building_components.remove(comp_id);
 
         self.project.symbols.push(Symbol {
@@ -671,7 +668,11 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             };
             self.authored_elements += 1;
             self.report.statistics.elements += 1;
-            return (vec![el], comp_info.expanded_nodes, 1 + comp_info.graph_depth);
+            return (
+                vec![el],
+                comp_info.expanded_nodes,
+                1 + comp_info.graph_depth,
+            );
         }
 
         // 1b. Master `COMPONENT` / `SYMBOL` placed directly on a design-system sheet frame
@@ -700,7 +701,11 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             };
             self.authored_elements += 1;
             self.report.statistics.elements += 1;
-            return (vec![el], comp_info.expanded_nodes, 1 + comp_info.graph_depth);
+            return (
+                vec![el],
+                comp_info.expanded_nodes,
+                1 + comp_info.graph_depth,
+            );
         }
 
         // 2. Non-empty container (`FRAME`, `GROUP`, `SECTION`, `COMPONENT_SET`, detached `INSTANCE`)
@@ -1026,8 +1031,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                             });
                             self.authored_elements += 1;
                             self.report.statistics.elements += 1;
-                            if cur_stroke_w > 0.0
-                                && self.authored_elements < MAX_AUTHORED_ELEMENTS
+                            if cur_stroke_w > 0.0 && self.authored_elements < MAX_AUTHORED_ELEMENTS
                             {
                                 out.push(Element {
                                     id: new_id("el"),
@@ -1230,7 +1234,9 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                         self.report.warning(
                             "figma-gradient-approximated",
                             location.to_owned(),
-                            format!("Figma {approx} fill gradient approximated as Radial gradient."),
+                            format!(
+                                "Figma {approx} fill gradient approximated as Radial gradient."
+                            ),
                         );
                     }
                     let grad = build_figma_gradient_paint(*kind, stops, *start, *end);
@@ -1317,8 +1323,13 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         {
             let clip_id = new_id("layer");
             let max_r = 0.5 * cw.min(ch);
-            let [tl, tr, br, bl] =
-                cr.map(|v| if v.is_finite() { v.clamp(0.0, max_r) } else { 0.0 });
+            let [tl, tr, br, bl] = cr.map(|v| {
+                if v.is_finite() {
+                    v.clamp(0.0, max_r)
+                } else {
+                    0.0
+                }
+            });
             let nf_r = [tl, tr, bl, br];
             let mut clip_tf = Transform::default();
             if nf_r.iter().any(|&v| v > 0.0) {
@@ -1679,9 +1690,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         update_stage_metrics: bool,
         expanded_budget: usize,
     ) -> (Vec<Layer>, usize) {
-        if update_stage_metrics
-            && let Some(bg) = page.background_color
-        {
+        if update_stage_metrics && let Some(bg) = page.background_color {
             self.project.background = bg;
         }
 
@@ -1829,8 +1838,7 @@ pub(super) fn build_project_from_figma_doc(
 
     // Separate user-visible `CANVAS` pages from Figma's hidden `Internal Only Canvas`!
     let user_pages: Vec<&FigmaNode> = {
-        let non_internal: Vec<&FigmaNode> =
-            doc.pages.iter().filter(|p| !p.internal_only).collect();
+        let non_internal: Vec<&FigmaNode> = doc.pages.iter().filter(|p| !p.internal_only).collect();
         if !non_internal.is_empty() {
             non_internal
         } else {
@@ -2116,7 +2124,9 @@ fn prepare_referenced_images(
             ctx.report.warning(
                 "figma-corrupt-image-blob",
                 key.clone(),
-                format!("Figma image fill '{key}' could not be decoded; converted to placeholder shape."),
+                format!(
+                    "Figma image fill '{key}' could not be decoded; converted to placeholder shape."
+                ),
             );
             continue;
         };
@@ -2271,8 +2281,7 @@ fn prepare_referenced_images(
             },
             idx
         );
-        let Ok(unit) =
-            ResourceUnit::from_bytes(res_id.clone(), rel_path, media_type, &final_bytes)
+        let Ok(unit) = ResourceUnit::from_bytes(res_id.clone(), rel_path, media_type, &final_bytes)
         else {
             ctx.report.warning(
                 "figma-image-skipped",
@@ -2331,7 +2340,12 @@ fn decode_and_reencode_image(
     }
 
     let rgba = img.to_rgba8();
-    let has_alpha = rgba.as_raw().as_chunks::<4>().0.iter().any(|px| px[3] < 255);
+    let has_alpha = rgba
+        .as_raw()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .any(|px| px[3] < 255);
     if !has_alpha {
         let rgb = DynamicImage::ImageRgba8(rgba).into_rgb8();
         let mut out = Vec::new();
@@ -2525,11 +2539,7 @@ fn guid_matches_target(node_id: &str, target_guid: &str) -> bool {
     false
 }
 
-fn apply_override_at_path(
-    node: &mut FigmaNode,
-    path: &[String],
-    ov: &FigmaSymbolOverride,
-) -> bool {
+fn apply_override_at_path(node: &mut FigmaNode, path: &[String], ov: &FigmaSymbolOverride) -> bool {
     if path.is_empty() {
         return false;
     }

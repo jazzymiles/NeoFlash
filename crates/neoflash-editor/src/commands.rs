@@ -3186,6 +3186,7 @@ impl Editor {
             CommandId::ModifyUngroup => self.can_ungroup_selection(),
             CommandId::ModifyAddShapeHint => self.can_add_shape_hint(),
             CommandId::ModifyRemoveAllShapeHints => self.can_remove_shape_hints(),
+            CommandId::EditSendToAi => self.has_ready_ai_connection(),
             CommandId::ClearWorkArea => self.active_timeline_work_area().is_some(),
             CommandId::NextTimelineMarker | CommandId::PreviousTimelineMarker => {
                 !self.active_timeline_markers().is_empty()
@@ -3336,6 +3337,9 @@ impl Editor {
                 self.clear_selection();
             }
             CommandId::EditFindAndReplace => self.open_find_replace(),
+            CommandId::EditSendToAi => {
+                let _ = self.open_send_to_ai();
+            }
             CommandId::EditTimelineCutFrames => self.run_frame_command(ctx, FrameCommand::Cut),
             CommandId::EditTimelineCopyFrames => self.run_frame_command(ctx, FrameCommand::Copy),
             CommandId::EditTimelinePasteFrames => self.run_frame_command(ctx, FrameCommand::Paste),

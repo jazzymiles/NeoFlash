@@ -405,9 +405,9 @@ pub fn is_figma_bytes(bytes: &[u8]) -> bool {
 mod convert;
 mod json_doc;
 mod kiwi;
-pub(crate) mod zstd;
 #[cfg(test)]
 mod tests;
+pub(crate) mod zstd;
 
 use convert::build_project_from_figma_doc;
 use json_doc::parse_figma_json_doc;

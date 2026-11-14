@@ -2379,14 +2379,7 @@ fn render_element(
             multiline,
         } => (
             vec![render_textbox_element(
-                element,
-                text,
-                *width,
-                *height,
-                *word_wrap,
-                *multiline,
-                format,
-                ct,
+                element, text, *width, *height, *word_wrap, *multiline, format, ct,
             )],
             false,
         ),
@@ -3513,7 +3506,14 @@ fn render_paint_element(
         append_raw_matrix(
             xml,
             &format!("{indent}  "),
-            [m[0] * 20.0, m[1] * 20.0, m[2] * 20.0, m[3] * 20.0, m[4], m[5]],
+            [
+                m[0] * 20.0,
+                m[1] * 20.0,
+                m[2] * 20.0,
+                m[3] * 20.0,
+                m[4],
+                m[5],
+            ],
             true,
         );
         writeln!(xml, "{indent}</BitmapFill>").unwrap();

@@ -3,9 +3,9 @@
 
 use crate::ai_connections::{
     AiConnectionError, AiConnectionStatus, AiPromptRequest, AiProviderKind, AiProviderProfile,
-    AiStreamEvent, AiUntrustedProposal, CancellationToken, MAX_AI_RESPONSE_BYTES,
-    MAX_ASSET_BYTES, MemorySecretStore, SecretStore, format_provider_request,
-    run_streaming_request, test_provider_connection, with_test_loopback_http_override,
+    AiStreamEvent, AiUntrustedProposal, CancellationToken, MAX_AI_RESPONSE_BYTES, MAX_ASSET_BYTES,
+    MemorySecretStore, SecretStore, format_provider_request, run_streaming_request,
+    test_provider_connection, with_test_loopback_http_override,
 };
 use crate::app::Editor;
 use crate::commands::CommandId;
@@ -13,7 +13,9 @@ use crate::panels::ai_dialogs::{
     AiAnswerPhase, AiConnectionModal, AiConnectionModalTarget, ProposalCardState,
 };
 use crate::panels::function_search::results_for_context;
-use crate::panels::preferences::{PAGE_AI, PAGE_PUBLISH, PAGE_SHORTCUTS, PAGE_UPDATES, PREFERENCE_PAGES};
+use crate::panels::preferences::{
+    PAGE_AI, PAGE_PUBLISH, PAGE_SHORTCUTS, PAGE_UPDATES, PREFERENCE_PAGES,
+};
 use eframe::egui::{self, Event, Pos2, Rect, Vec2};
 use neoflash_core::{
     Easing, Element, ElementKind, FrameScript, Project, ResourceUnit, Script, ScriptLanguage,
@@ -311,12 +313,9 @@ fn ax_labels(output: &egui::FullOutput) -> Vec<String> {
             u.nodes
                 .iter()
                 .flat_map(|(_, n)| {
-                    [
-                        n.label().map(str::to_owned),
-                        n.value().map(str::to_owned),
-                    ]
-                    .into_iter()
-                    .flatten()
+                    [n.label().map(str::to_owned), n.value().map(str::to_owned)]
+                        .into_iter()
+                        .flatten()
                 })
                 .collect()
         })
@@ -492,10 +491,7 @@ fn t305_all_four_providers_streaming_nonstreaming_and_test_connection() {
     let anthropic_reqs = anthropic_server.requests();
     assert_eq!(anthropic_reqs.len(), 3);
     assert_eq!(anthropic_reqs[0].request_line, "GET /v1/models HTTP/1.1");
-    assert_eq!(
-        anthropic_reqs[1].request_line,
-        "POST /v1/messages HTTP/1.1"
-    );
+    assert_eq!(anthropic_reqs[1].request_line, "POST /v1/messages HTTP/1.1");
     assert_eq!(
         anthropic_reqs[1].header("x-api-key"),
         Some("sk-ant-api03-fixture-key-1234567890")
@@ -507,10 +503,7 @@ fn t305_all_four_providers_streaming_nonstreaming_and_test_connection() {
 
     // 3. Google Gemini: Test connection + Streaming SSE + Non-streaming JSON (key ONLY in header!)
     let gemini_server = LoopbackFixtureServer::start(vec![
-        MockReply::Raw(http_json_reply(
-            200,
-            r#"{"name":"models/gemini-2.5-pro"}"#,
-        )),
+        MockReply::Raw(http_json_reply(200, r#"{"name":"models/gemini-2.5-pro"}"#)),
         MockReply::Raw(http_sse_reply(concat!(
             "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Gemini \"}]}}]}\n\n",
             "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"SSE ok\"}]}}]}\n\n"
@@ -575,7 +568,9 @@ fn t305_all_four_providers_streaming_nonstreaming_and_test_connection() {
     for req in &gemini_reqs {
         assert!(
             !req.request_line.contains("key=")
-                && !req.request_line.contains("AIzaSyGeminiFixtureKey123456789012345"),
+                && !req
+                    .request_line
+                    .contains("AIzaSyGeminiFixtureKey123456789012345"),
             "Gemini API key must never appear in URL query: {}",
             req.request_line
         );
@@ -739,9 +734,8 @@ fn t305_transport_security_redirects_downgrade_query_keys_and_edge_cases() {
 
     // 4. HTTP 401 fails immediately without retrying and redacts echoed secrets.
     let auth_body = format!(r#"{{"error":"Invalid key {leaked_key}"}}"#);
-    let auth_server = LoopbackFixtureServer::start(vec![MockReply::Raw(http_json_reply(
-        401, &auth_body,
-    ))]);
+    let auth_server =
+        LoopbackFixtureServer::start(vec![MockReply::Raw(http_json_reply(401, &auth_body))]);
     with_test_loopback_http_override(&auth_server.origin, || {
         let mut prof = AiProviderProfile::new(
             "cloud",
@@ -764,7 +758,10 @@ fn t305_transport_security_redirects_downgrade_query_keys_and_edge_cases() {
             err,
             AiConnectionError::HttpStatus { status: 401, .. }
         ));
-        assert!(!msg.contains(leaked_key), "echoed key must be redacted: {msg}");
+        assert!(
+            !msg.contains(leaked_key),
+            "echoed key must be redacted: {msg}"
+        );
         assert!(msg.contains("[REDACTED_SECRET]"));
     });
     assert_eq!(auth_server.requests().len(), 1, "401 must not retry");
@@ -853,9 +850,8 @@ fn t305_transport_security_redirects_downgrade_query_keys_and_edge_cases() {
     // cumulative SSE stream (> MAX_AI_RESPONSE_BYTES).
     let oversized_line = format!("data: {}\n\n", "x".repeat(MAX_AI_HTTP_LINE_BYTES + 64));
     let chunk_payload = "a".repeat(256 * 1024);
-    let chunk_event = format!(
-        "data: {{\"choices\":[{{\"delta\":{{\"content\":\"{chunk_payload}\"}}}}]}}\n\n"
-    );
+    let chunk_event =
+        format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"{chunk_payload}\"}}}}]}}\n\n");
     let repeat_count = (MAX_AI_RESPONSE_BYTES / chunk_payload.len()) + 2;
     let oversized_stream = chunk_event.repeat(repeat_count);
 
@@ -872,7 +868,11 @@ fn t305_transport_security_redirects_downgrade_query_keys_and_edge_cases() {
         "m1",
     );
     bad_prof.max_retries = 0;
-    for label in ["malformed_json", "oversized_line", "oversized_total_response"] {
+    for label in [
+        "malformed_json",
+        "oversized_line",
+        "oversized_total_response",
+    ] {
         let err = run_streaming_request(
             &bad_prof,
             &sample_prompt_request("local-bad", true),
@@ -903,10 +903,7 @@ fn t305_preferences_ai_crud_default_selection_and_ready_command_gating() {
     // Hidden before any connection is Ready (`R-097` item 4).
     assert!(!editor.has_ready_ai_connection());
     assert!(!editor.open_send_to_ai());
-    assert!(
-        !results_for_context("Send to AI", true, false)
-            .contains(&CommandId::EditSendToAi)
-    );
+    assert!(!results_for_context("Send to AI", true, false).contains(&CommandId::EditSendToAi));
 
     // Render Preferences ▸ AI empty state.
     editor.open_preferences(PAGE_AI);
@@ -966,9 +963,15 @@ fn t305_preferences_ai_crud_default_selection_and_ready_command_gating() {
     editor.ai_connection_modal = None;
     editor.save_ai_connection_modal(modal);
     assert_eq!(
-        editor
-            .ai_manager
-            .profile_status(editor.preferences.as_ref().unwrap().ai.profile(&first_id).unwrap()),
+        editor.ai_manager.profile_status(
+            editor
+                .preferences
+                .as_ref()
+                .unwrap()
+                .ai
+                .profile(&first_id)
+                .unwrap()
+        ),
         AiConnectionStatus::Ready
     );
 
@@ -1026,10 +1029,7 @@ fn t305_preferences_ai_crud_default_selection_and_ready_command_gating() {
     editor.save_preferences(&ctx, &draft_to_save);
 
     assert!(editor.has_ready_ai_connection());
-    assert!(
-        results_for_context("Send to AI", true, true)
-            .contains(&CommandId::EditSendToAi)
-    );
+    assert!(results_for_context("Send to AI", true, true).contains(&CommandId::EditSendToAi));
     assert!(editor.open_send_to_ai());
     assert_eq!(
         editor.ai_session.send_dialog.as_ref().unwrap().profile_id,
@@ -1041,7 +1041,12 @@ fn t305_preferences_ai_crud_default_selection_and_ready_command_gating() {
     // Removing a profile in Preferences draft then cancelling keeps workspace + secret intact;
     // saving deletes the removed profile's secret from SecretStore.
     editor.open_preferences(PAGE_AI);
-    editor.preferences.as_mut().unwrap().ai.remove_profile(&first_id);
+    editor
+        .preferences
+        .as_mut()
+        .unwrap()
+        .ai
+        .remove_profile(&first_id);
     editor
         .preferences
         .as_mut()
@@ -1053,7 +1058,12 @@ fn t305_preferences_ai_crud_default_selection_and_ready_command_gating() {
     assert!(editor.ai_manager.has_secret(&first_id));
 
     editor.open_preferences(PAGE_AI);
-    editor.preferences.as_mut().unwrap().ai.remove_profile(&first_id);
+    editor
+        .preferences
+        .as_mut()
+        .unwrap()
+        .ai
+        .remove_profile(&first_id);
     editor
         .preferences
         .as_mut()
@@ -1091,9 +1101,8 @@ fn t305_zero_secrets_leak_across_prefs_project_recovery_output_and_debug() {
     let fail_body = format!(
         r#"{{"error":"Rejected credentials {openai_secret} / {anthropic_secret} / {gemini_secret}"}}"#
     );
-    let server = LoopbackFixtureServer::start(vec![MockReply::Raw(http_json_reply(
-        401, &fail_body,
-    ))]);
+    let server =
+        LoopbackFixtureServer::start(vec![MockReply::Raw(http_json_reply(401, &fail_body))]);
 
     for (id, kind, secret) in [
         ("p-oa", AiProviderKind::OpenAi, openai_secret),
@@ -1172,7 +1181,10 @@ fn t305_zero_secrets_leak_across_prefs_project_recovery_output_and_debug() {
             std::fs::read_to_string(&saved_nflash).unwrap(),
         ),
         ("Editor output", format!("{:?}", editor.output)),
-        ("AiConnectionManager Debug", format!("{:?}", editor.ai_manager)),
+        (
+            "AiConnectionManager Debug",
+            format!("{:?}", editor.ai_manager),
+        ),
         (
             "AiConnectionModal Debug",
             format!("{modal_with_typed_secret:?}"),
@@ -1196,7 +1208,10 @@ fn t305_zero_secrets_leak_across_prefs_project_recovery_output_and_debug() {
             recovery_count += 1;
         }
     }
-    assert!(recovery_count >= 1, "expected crash recovery files to be written");
+    assert!(
+        recovery_count >= 1,
+        "expected crash recovery files to be written"
+    );
 
     for (surface_name, text) in &surfaces {
         for secret in all_secrets {
@@ -1218,22 +1233,24 @@ fn t305_send_to_ai_consent_pack_omissions_and_checkbox_filtering() {
     project.symbols[0].name = "HeroClip".into();
     project.symbols[0].timeline.frame_count = 5;
     // Ensure keyframe at frame index 2 (1-based frame 3).
-    project.symbols[0].timeline.layers[0].keyframes[0].elements.push(Element {
-        id: "el-ship".into(),
-        name: "ship_sprite".into(),
-        transform: Transform {
-            x: 120.0,
-            y: 240.0,
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "el-ship".into(),
+            name: "ship_sprite".into(),
+            transform: Transform {
+                x: 120.0,
+                y: 240.0,
+                ..Default::default()
+            },
+            kind: ElementKind::Bitmap {
+                resource_id: "res-png".into(),
+                width: 32,
+                height: 32,
+                smoothing: false,
+            },
             ..Default::default()
-        },
-        kind: ElementKind::Bitmap {
-            resource_id: "res-png".into(),
-            width: 32,
-            height: 32,
-            smoothing: false,
-        },
-        ..Default::default()
-    });
+        });
     project.symbols[0].timeline.layers[0].keyframes[0].video =
         Some(TimelineVideoSpan::embedded("res-vid"));
     project.symbols[0].timeline.scripts.push(FrameScript {
@@ -1243,9 +1260,9 @@ fn t305_send_to_ai_consent_pack_omissions_and_checkbox_filtering() {
             source: "const tok = \"Bearer inline_secret_token_987654\";\nstop();\n".into(),
         },
     });
-    project.resources.push(
-        ResourceUnit::from_bytes("res-png", "ship.png", "image/png", &[1, 2, 3, 4]).unwrap(),
-    );
+    project
+        .resources
+        .push(ResourceUnit::from_bytes("res-png", "ship.png", "image/png", &[1, 2, 3, 4]).unwrap());
     project.resources.push(
         ResourceUnit::from_bytes("res-vid", "cutscene.mp4", "video/mp4", &[5, 6, 7, 8]).unwrap(),
     );
@@ -1305,7 +1322,10 @@ fn t305_send_to_ai_consent_pack_omissions_and_checkbox_filtering() {
         omitted.contains("cutscene.mp4 (video is not an allowed type)"),
         "{omitted}"
     );
-    assert!(omitted.contains("atlas.png (larger than 64 KB)"), "{omitted}");
+    assert!(
+        omitted.contains("atlas.png (larger than 64 KB)"),
+        "{omitted}"
+    );
 
     // Press Escape to cancel Send to AI -> zero network calls!
     let _ = run_ui_frame(
@@ -1321,7 +1341,11 @@ fn t305_send_to_ai_consent_pack_omissions_and_checkbox_filtering() {
         }],
     );
     assert!(editor.ai_session.send_dialog.is_none());
-    assert_eq!(server.requests().len(), 0, "Cancel must never transmit data");
+    assert_eq!(
+        server.requests().len(),
+        0,
+        "Cancel must never transmit data"
+    );
 
     // Reopen, untick `script_excerpt` and `asset_list`, send, and verify stripped HTTP payload.
     assert!(editor.open_send_to_ai());
@@ -1513,16 +1537,22 @@ fn t305_ai_answer_streaming_stop_proposal_validation_apply_and_single_step_undo(
     );
 
     // Check timing validation rules: missing layer, out-of-bounds range, and locked layer.
-    assert!(editor
-        .validate_ai_timing_proposal("Ghost Layer", 1, 12)
-        .is_err());
-    assert!(editor
-        .validate_ai_timing_proposal("Layer 1", 1, 99)
-        .is_err());
+    assert!(
+        editor
+            .validate_ai_timing_proposal("Ghost Layer", 1, 12)
+            .is_err()
+    );
+    assert!(
+        editor
+            .validate_ai_timing_proposal("Layer 1", 1, 99)
+            .is_err()
+    );
     editor.symbol_mut().timeline.layers[0].locked = true;
-    assert!(editor
-        .validate_ai_timing_proposal("Layer 1", 1, 12)
-        .is_err());
+    assert!(
+        editor
+            .validate_ai_timing_proposal("Layer 1", 1, 12)
+            .is_err()
+    );
     editor.symbol_mut().timeline.layers[0].locked = false;
 
     // Dismissing a card leaves the document untouched.
@@ -1546,11 +1576,11 @@ fn t305_ai_answer_streaming_stop_proposal_validation_apply_and_single_step_undo(
         undo_before_code + 1,
         "Insert into Actions must create exactly ONE Undo step"
     );
-    assert_eq!(
-        editor.history.undo_label(),
-        Some("Insert AI code proposal")
-    );
-    editor.project.validate().expect("valid project after code proposal");
+    assert_eq!(editor.history.undo_label(), Some("Insert AI code proposal"));
+    editor
+        .project
+        .validate()
+        .expect("valid project after code proposal");
     assert_eq!(
         editor.symbol().timeline.scripts[0].script.source,
         "// header\nstop();\n// footer\n"
@@ -1650,7 +1680,13 @@ fn t305_document_sessions_isolate_ai_dialogs_proposals_and_cancel_on_tab_close()
         std::thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(
-        editor.ai_session.answer_dialog.as_ref().unwrap().cards.len(),
+        editor
+            .ai_session
+            .answer_dialog
+            .as_ref()
+            .unwrap()
+            .cards
+            .len(),
         1
     );
 
@@ -1665,7 +1701,13 @@ fn t305_document_sessions_isolate_ai_dialogs_proposals_and_cancel_on_tab_close()
     assert!(editor.switch_session_tab(&ctx, 0));
     assert_eq!(editor.project.name, "Doc Alpha");
     assert_eq!(
-        editor.ai_session.answer_dialog.as_ref().unwrap().cards.len(),
+        editor
+            .ai_session
+            .answer_dialog
+            .as_ref()
+            .unwrap()
+            .cards
+            .len(),
         1
     );
     assert!(editor.apply_ai_code_proposal(&ctx, ScriptLanguage::ActionScript3, "stop();\n"));

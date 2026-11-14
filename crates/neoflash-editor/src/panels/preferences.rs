@@ -420,11 +420,7 @@ impl Editor {
                         }
                     });
             });
-        if !close_cancel
-            && !close_save
-            && !was_recording
-            && self.ai_connection_modal.is_none()
-        {
+        if !close_cancel && !close_save && !was_recording && self.ai_connection_modal.is_none() {
             match kb.resolve(ctx, &modal, true) {
                 super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
                 super::dialog_helpers::DialogKeyboardOutcome::Confirm => close_save = true,
@@ -2293,8 +2289,8 @@ fn prefs_ai(
     ai_manager: &mut crate::ai_connections::AiConnectionManager,
     ai_connection_modal: &mut Option<super::ai_dialogs::AiConnectionModal>,
 ) {
-    use crate::ai_connections::AiConnectionStatus;
     use super::ai_dialogs::{AiConnectionModal, AiConnectionModalTarget};
+    use crate::ai_connections::AiConnectionStatus;
 
     let nf = neoflash_ui::palette(ui.ctx());
     draft.has_ready_ai = ai_manager.has_ready_connection(&draft.ai);
@@ -2348,10 +2344,8 @@ fn prefs_ai(
                         }
                     };
                     let row_h = neoflash_ui::metrics::control() + space::S1;
-                    let (rect, resp) = ui.allocate_exact_size(
-                        egui::vec2(table_w, row_h),
-                        egui::Sense::click(),
-                    );
+                    let (rect, resp) =
+                        ui.allocate_exact_size(egui::vec2(table_w, row_h), egui::Sense::click());
                     if is_selected {
                         ui.painter().rect_filled(rect, 0.0, nf.bg_selected);
                     } else if resp.hovered() {
@@ -2372,8 +2366,7 @@ fn prefs_ai(
                         |ui| {
                             ui.spacing_mut().item_spacing.x = space::S2;
                             ui.label(
-                                rich(&profile.display_name, TextStyle::Body)
-                                    .color(nf.text_primary),
+                                rich(&profile.display_name, TextStyle::Body).color(nf.text_primary),
                             );
                             let sub = format!(
                                 "{} · {}",
@@ -2427,9 +2420,7 @@ fn prefs_ai(
                     AiConnectionModalTarget::Preferences,
                 ));
             }
-            if ui
-                .add_enabled(has_sel, c::Button::ghost("Edit…"))
-                .clicked()
+            if ui.add_enabled(has_sel, c::Button::ghost("Edit…")).clicked()
                 && let Some(prof) = &selected_profile
             {
                 let has_key = ai_manager.has_secret(&prof.id);
@@ -2439,9 +2430,7 @@ fn prefs_ai(
                     AiConnectionModalTarget::Preferences,
                 ));
             }
-            if ui
-                .add_enabled(has_sel, c::Button::ghost("Test"))
-                .clicked()
+            if ui.add_enabled(has_sel, c::Button::ghost("Test")).clicked()
                 && let Some(prof) = &selected_profile
             {
                 let _ = ai_manager.test_profile(prof);

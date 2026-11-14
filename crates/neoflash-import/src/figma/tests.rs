@@ -696,7 +696,8 @@ fn zstd_rfc8878_decompressor_covers_all_block_literal_sequence_checksum_and_boun
     let mut rich_payload = Vec::with_capacity(300_000);
     for i in 0..5_000u32 {
         rich_payload.extend_from_slice(
-            format!("NeoFlash-Figma-v106-NodeChange-{i:04}-commandsBlob-vectorNetwork\n").as_bytes(),
+            format!("NeoFlash-Figma-v106-NodeChange-{i:04}-commandsBlob-vectorNetwork\n")
+                .as_bytes(),
         );
     }
     let compressed = encode_zstd_for_test(&rich_payload);
@@ -754,7 +755,10 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_cstr(&mut schema, "Matrix");
     schema.push(1);
     write_var_uint(&mut schema, 6);
-    for (i, n) in ["m00", "m01", "m02", "m10", "m11", "m12"].iter().enumerate() {
+    for (i, n) in ["m00", "m01", "m02", "m10", "m11", "m12"]
+        .iter()
+        .enumerate()
+    {
         write_cstr(&mut schema, n);
         write_var_int(&mut schema, -5);
         schema.push(0);
@@ -932,7 +936,10 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     write_cstr(&mut schema, "Matrix");
     schema.push(1);
     write_var_uint(&mut schema, 6);
-    for (i, n) in ["m00", "m01", "m02", "m10", "m11", "m12"].iter().enumerate() {
+    for (i, n) in ["m00", "m01", "m02", "m10", "m11", "m12"]
+        .iter()
+        .enumerate()
+    {
         write_cstr(&mut schema, n);
         write_var_int(&mut schema, -5);
         schema.push(0);
@@ -1535,11 +1542,8 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
             .unwrap();
         zw.write_all(&wide_png).unwrap();
         // Unreferenced corrupt/unused entry must NOT be eagerly loaded!
-        zw.start_file(
-            "images/deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-            zopts,
-        )
-        .unwrap();
+        zw.start_file("images/deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", zopts)
+            .unwrap();
         zw.write_all(b"not-referenced-so-never-decoded").unwrap();
         zw.finish().unwrap();
     }
@@ -1562,7 +1566,10 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
         let s = project.symbol(sid).unwrap();
         assert_ne!(s.name, "Internal Only Canvas");
     }
-    assert_eq!(project.symbol(&project.scenes[0]).unwrap().name, "Home Screen");
+    assert_eq!(
+        project.symbol(&project.scenes[0]).unwrap().name,
+        "Home Screen"
+    );
     assert_eq!(
         project.symbol(&project.scenes[1]).unwrap().name,
         "Settings Screen"
@@ -1599,7 +1606,10 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
                 })
             })
     });
-    assert!(has_override_text, "symbolOverrides text variant must be materialized");
+    assert!(
+        has_override_text,
+        "symbolOverrides text variant must be materialized"
+    );
 
     // 4. Asymmetric corner radii [tl=4, tr=12, br=20, bl=28] -> NeoFlash [tl=4, tr=12, bl=28, br=20]
     //    AND rounded bitmap fill preserved via `AuthoredBitmapFill`!
@@ -1672,7 +1682,9 @@ fn zstd_fig_kiwi_v106_handles_internal_canvas_overrides_blobs_corners_images_and
     let reloaded = Project::from_json(&serialized).expect(".nflash JSON deserialization");
     reloaded.validate().expect("reloaded .nflash validates");
     let (flattened, ranges) = neoflash_core::flatten_scenes_with_ranges(&reloaded);
-    flattened.validate().expect("flattened multi-scene project validates");
+    flattened
+        .validate()
+        .expect("flattened multi-scene project validates");
     assert_eq!(ranges.len(), 2);
 }
 
@@ -1707,9 +1719,8 @@ fn real_world_figma_corpus_imports_and_validates() {
             u32::from_le_bytes(canvas_bytes[c1_off..c1_off + 4].try_into().unwrap()) as usize;
         let c1_compressed = &canvas_bytes[c1_off + 4..c1_off + 4 + c1_len];
         assert!(super::zstd::is_zstd_magic(c1_compressed));
-        let rust_decompressed =
-            super::zstd::decompress_zstd(c1_compressed, MAX_FIGMA_DECODE_BYTES)
-                .expect("pure-Rust Zstd decode on Interface test.fig chunk 1");
+        let rust_decompressed = super::zstd::decompress_zstd(c1_compressed, MAX_FIGMA_DECODE_BYTES)
+            .expect("pure-Rust Zstd decode on Interface test.fig chunk 1");
         assert!(rust_decompressed.len() > 1_000_000);
 
         if let Ok(mut child) = std::process::Command::new("/opt/homebrew/bin/zstd")
@@ -1753,7 +1764,11 @@ fn real_world_figma_corpus_imports_and_validates() {
                 .map(|e| e.path())
                 .filter(|p| {
                     p.is_file() && {
-                        let low = p.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+                        let low = p
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_ascii_lowercase();
                         low.ends_with(".fig") || low.ends_with(".figma.json")
                     }
                 })
@@ -1769,8 +1784,13 @@ fn real_world_figma_corpus_imports_and_validates() {
     let mut total_elements = 0usize;
     for path in &files {
         let (project, report) = import_figma_path(path, &FigmaImportOptions::default())
-            .unwrap_or_else(|e| panic!("corpus file #{imported_count} failed import_figma_path: {e}"));
-        assert!(report.can_import, "corpus file #{imported_count} can_import was false");
+            .unwrap_or_else(|e| {
+                panic!("corpus file #{imported_count} failed import_figma_path: {e}")
+            });
+        assert!(
+            report.can_import,
+            "corpus file #{imported_count} can_import was false"
+        );
         project
             .validate()
             .unwrap_or_else(|e| panic!("corpus file #{imported_count} failed validate(): {e}"));

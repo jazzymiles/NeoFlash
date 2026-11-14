@@ -340,7 +340,8 @@ impl Editor {
             );
         }
         if self.project.html_render_mode() != draft.settings.render_mode {
-            self.project.set_html_render_mode(draft.settings.render_mode);
+            self.project
+                .set_html_render_mode(draft.settings.render_mode);
         }
         self.workspace.publish = draft.settings.clone();
     }
@@ -1051,7 +1052,8 @@ impl Editor {
                 );
             }
             if self.project.html_render_mode() != draft.settings.render_mode {
-                self.project.set_html_render_mode(draft.settings.render_mode);
+                self.project
+                    .set_html_render_mode(draft.settings.render_mode);
             }
             if !draft.settings.has_any_enabled_target() {
                 draft.settings.enable_target(draft.selected_target);

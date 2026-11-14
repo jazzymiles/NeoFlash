@@ -765,9 +765,8 @@ impl Parser<'_> {
                 {
                     Some((res_id, fill_matrix, !clipped, smoothing))
                 } else {
-                    warn_approximated.get_or_insert(
-                        "Unresolved BitmapFill is approximated as neutral gray.",
-                    );
+                    warn_approximated
+                        .get_or_insert("Unresolved BitmapFill is approximated as neutral gray.");
                     None
                 };
                 Ok(ParsedPaint {

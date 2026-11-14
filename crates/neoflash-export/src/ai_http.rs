@@ -487,9 +487,7 @@ fn read_bounded_bytes(
         if cancel.load(Ordering::Acquire) {
             return Err(AiHttpError::Cancelled);
         }
-        let n = reader
-            .read(&mut buf)
-            .map_err(|e| map_io_error(e, cancel))?;
+        let n = reader.read(&mut buf).map_err(|e| map_io_error(e, cancel))?;
         if n == 0 {
             break;
         }
@@ -582,7 +580,11 @@ pub fn send_ai_get(
     }
     validate_headers(headers)?;
     let url = build_ai_request_url(endpoint, path_and_query)?;
-    let agent = build_agent(timeout.max(Duration::from_millis(25)), true, endpoint.is_loopback);
+    let agent = build_agent(
+        timeout.max(Duration::from_millis(25)),
+        true,
+        endpoint.is_loopback,
+    );
 
     let mut req = agent.get(url.as_str());
     for (k, v) in headers {
@@ -610,7 +612,11 @@ pub fn send_ai_post_json(
     }
     validate_headers(headers)?;
     let url = build_ai_request_url(endpoint, path_and_query)?;
-    let agent = build_agent(timeout.max(Duration::from_millis(25)), true, endpoint.is_loopback);
+    let agent = build_agent(
+        timeout.max(Duration::from_millis(25)),
+        true,
+        endpoint.is_loopback,
+    );
 
     let mut req = agent.post(url.as_str());
     for (k, v) in headers {
@@ -754,24 +760,30 @@ mod tests {
 
     #[test]
     fn cloud_endpoints_require_https_and_reject_plain_http_even_on_loopback_without_override() {
-        assert!(validate_ai_base_url(
-            "https://api.openai.com",
-            AiEndpointSecurity::HttpsRequired,
-            None
-        )
-        .is_ok());
-        assert!(validate_ai_base_url(
-            "https://api.anthropic.com",
-            AiEndpointSecurity::HttpsRequired,
-            None
-        )
-        .is_ok());
-        assert!(validate_ai_base_url(
-            "https://generativelanguage.googleapis.com",
-            AiEndpointSecurity::HttpsRequired,
-            None
-        )
-        .is_ok());
+        assert!(
+            validate_ai_base_url(
+                "https://api.openai.com",
+                AiEndpointSecurity::HttpsRequired,
+                None
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_ai_base_url(
+                "https://api.anthropic.com",
+                AiEndpointSecurity::HttpsRequired,
+                None
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_ai_base_url(
+                "https://generativelanguage.googleapis.com",
+                AiEndpointSecurity::HttpsRequired,
+                None
+            )
+            .is_ok()
+        );
 
         for disallowed in [
             "http://api.openai.com",
@@ -790,18 +802,22 @@ mod tests {
         }
 
         // LocalOpenAiCompatible allows loopback http:// and https://, rejects non-loopback http://
-        assert!(validate_ai_base_url(
-            "http://127.0.0.1:11434",
-            AiEndpointSecurity::HttpsOrLoopbackHttp,
-            None
-        )
-        .is_ok());
-        assert!(validate_ai_base_url(
-            "http://[::1]:11434/v1",
-            AiEndpointSecurity::HttpsOrLoopbackHttp,
-            None
-        )
-        .is_ok());
+        assert!(
+            validate_ai_base_url(
+                "http://127.0.0.1:11434",
+                AiEndpointSecurity::HttpsOrLoopbackHttp,
+                None
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_ai_base_url(
+                "http://[::1]:11434/v1",
+                AiEndpointSecurity::HttpsOrLoopbackHttp,
+                None
+            )
+            .is_ok()
+        );
         assert!(matches!(
             validate_ai_base_url(
                 "http://192.0.2.10:11434",
@@ -824,11 +840,13 @@ mod tests {
             None,
         )
         .unwrap();
-        assert!(build_ai_request_url(
-            &ep,
-            "/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"
-        )
-        .is_ok());
+        assert!(
+            build_ai_request_url(
+                &ep,
+                "/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"
+            )
+            .is_ok()
+        );
         assert!(matches!(
             build_ai_request_url(
                 &ep,
@@ -850,12 +868,9 @@ mod tests {
             sock.flush().unwrap();
         });
         let origin = format!("http://{addr}");
-        let fixture_ep = validate_ai_base_url(
-            &origin,
-            AiEndpointSecurity::HttpsRequired,
-            Some(&origin),
-        )
-        .unwrap();
+        let fixture_ep =
+            validate_ai_base_url(&origin, AiEndpointSecurity::HttpsRequired, Some(&origin))
+                .unwrap();
         let cancel = AtomicBool::new(false);
         let err = send_ai_get(
             &fixture_ep,

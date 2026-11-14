@@ -2986,8 +2986,13 @@ fn t306_binary_fla_mixed_utf16_runs_and_bitmap_fill_full_roundtrip() {
     seed.format_version = 5;
     seed.name = "T306 Roundtrip".into();
     seed.resources.push(
-        ResourceUnit::from_bytes("tile-png", "library/tile.png", "image/png", &make_tiny_png_bytes())
-            .expect("valid png resource"),
+        ResourceUnit::from_bytes(
+            "tile-png",
+            "library/tile.png",
+            "image/png",
+            &make_tiny_png_bytes(),
+        )
+        .expect("valid png resource"),
     );
 
     let mut base_fmt = TextFormat {
@@ -3128,9 +3133,7 @@ fn t306_binary_fla_mixed_utf16_runs_and_bitmap_fill_full_roundtrip() {
             .iter()
             .find(|e| e.id == bf.element_id)
             .expect("element matching bitmap_fill.element_id");
-        if check_non_gray_fallback
-            && let ElementKind::PaintedPath { fill, .. } = &shape_el.kind
-        {
+        if check_non_gray_fallback && let ElementKind::PaintedPath { fill, .. } = &shape_el.kind {
             assert_eq!(*fill, [220, 40, 90, 255]);
         }
 
@@ -3147,21 +3150,30 @@ fn t306_binary_fla_mixed_utf16_runs_and_bitmap_fill_full_roundtrip() {
         assert_eq!(state.format.align_mode(), Some("justify"));
         assert_eq!(state.format_runs.len(), 3, "all 3 UTF-16 runs preserved");
 
-        assert_eq!((state.format_runs[0].start, state.format_runs[0].end), (0, 10));
+        assert_eq!(
+            (state.format_runs[0].start, state.format_runs[0].end),
+            (0, 10)
+        );
         assert_eq!(state.format_runs[0].format.font, "Arial");
         assert_eq!(state.format_runs[0].format.size, 18.0);
         assert!(state.format_runs[0].format.bold);
         assert!(!state.format_runs[0].format.italic);
         assert_eq!(state.format_runs[0].format.color, 0x0066cc);
 
-        assert_eq!((state.format_runs[1].start, state.format_runs[1].end), (10, 13));
+        assert_eq!(
+            (state.format_runs[1].start, state.format_runs[1].end),
+            (10, 13)
+        );
         assert_eq!(state.format_runs[1].format.font, "Courier New");
         assert_eq!(state.format_runs[1].format.size, 24.0);
         assert!(!state.format_runs[1].format.bold);
         assert!(state.format_runs[1].format.italic);
         assert_eq!(state.format_runs[1].format.color, 0xee2211);
 
-        assert_eq!((state.format_runs[2].start, state.format_runs[2].end), (13, 17));
+        assert_eq!(
+            (state.format_runs[2].start, state.format_runs[2].end),
+            (13, 17)
+        );
         assert_eq!(state.format_runs[2].format.font, "Georgia");
         assert_eq!(state.format_runs[2].format.size, 14.0);
         assert!(!state.format_runs[2].format.bold);
@@ -3174,9 +3186,8 @@ fn t306_binary_fla_mixed_utf16_runs_and_bitmap_fill_full_roundtrip() {
     std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
 
     // 1. Serialize real Flash 8 binary CFB `.fla` and import through legacy binary importer.
-    let (bin_fla_bytes, _) =
-        export_legacy_binary_fla_bytes(&seed, FlaTargetProfile::LegacyFlash8)
-            .expect("serialize Flash 8 binary FLA");
+    let (bin_fla_bytes, _) = export_legacy_binary_fla_bytes(&seed, FlaTargetProfile::LegacyFlash8)
+        .expect("serialize Flash 8 binary FLA");
     assert_eq!(
         &bin_fla_bytes[..8],
         b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",
@@ -3186,8 +3197,7 @@ fn t306_binary_fla_mixed_utf16_runs_and_bitmap_fill_full_roundtrip() {
     std::fs::write(&bin_fla_path, &bin_fla_bytes).expect("write binary FLA");
 
     let bin_report = neoflash_import::inspect(&bin_fla_path).expect("inspect binary FLA");
-    let imported =
-        neoflash_import::import_project(&bin_fla_path).expect("import binary FLA");
+    let imported = neoflash_import::import_project(&bin_fla_path).expect("import binary FLA");
     assert!(
         !bin_report
             .diagnostics

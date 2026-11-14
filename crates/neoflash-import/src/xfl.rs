@@ -3928,8 +3928,7 @@ impl Parser<'_> {
                         .number(node, "height", 20., file)
                         .clamp(0.0, 1_000_000.0);
                     let multiline = !password
-                        && (has_newlines
-                            || matches!(line_type, "multiline" | "multiline no wrap"));
+                        && (has_newlines || matches!(line_type, "multiline" | "multiline no wrap"));
                     let word_wrap = !password
                         && (line_type == "multiline"
                             || (tag == "DOMStaticText"

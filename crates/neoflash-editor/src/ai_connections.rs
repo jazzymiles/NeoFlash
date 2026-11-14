@@ -1097,10 +1097,7 @@ impl AiContextPack {
         if let Some(script) = &self.script_excerpt
             && script.truncated
         {
-            items.push(format!(
-                "script tail beyond {} KB",
-                MAX_SCRIPT_BYTES / 1024
-            ));
+            items.push(format!("script tail beyond {} KB", MAX_SCRIPT_BYTES / 1024));
         }
         for asset in self.selected_assets.iter().filter(|a| !a.included) {
             let short_name = asset
@@ -1800,7 +1797,8 @@ pub(crate) fn with_test_loopback_http_override<R>(origin: &str, f: impl FnOnce()
             });
         }
     }
-    let prev = TEST_LOOPBACK_HTTP_OVERRIDE.with(|slot| slot.borrow_mut().replace(origin.to_owned()));
+    let prev =
+        TEST_LOOPBACK_HTTP_OVERRIDE.with(|slot| slot.borrow_mut().replace(origin.to_owned()));
     let _guard = Guard(prev);
     f()
 }
@@ -2224,9 +2222,9 @@ pub fn test_provider_connection(
 
     let endpoint = validate_profile_endpoint(profile)?;
     let suffix = match profile.kind {
-        AiProviderKind::OpenAi | AiProviderKind::LocalOpenAiCompatible | AiProviderKind::Anthropic => {
-            "/v1/models".to_owned()
-        }
+        AiProviderKind::OpenAi
+        | AiProviderKind::LocalOpenAiCompatible
+        | AiProviderKind::Anthropic => "/v1/models".to_owned(),
         AiProviderKind::Gemini => {
             let model = profile.default_model.trim();
             if model.is_empty() {

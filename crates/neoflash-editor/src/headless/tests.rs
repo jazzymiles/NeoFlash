@@ -1315,7 +1315,9 @@ fn import_and_export_targets_roundtrip() {
         assert_eq!(dom_res["render_mode"], "dom");
         let dom_cli_html = fs::read_to_string(dom_cli_out.join("index.html")).unwrap();
         assert!(dom_cli_html.contains("data-render-mode=\"dom\""));
-        assert!(dom_cli_html.contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\""));
+        assert!(
+            dom_cli_html.contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\"")
+        );
 
         let dom_batch_out = tmp.path.join("html5_dom_batch");
         let batch_payload = json!([
@@ -1340,10 +1342,14 @@ fn import_and_export_targets_roundtrip() {
         let batch_res: Value = serde_json::from_str(&stdout).unwrap();
         assert_eq!(batch_res["results"][0]["result"]["render_mode"], "dom");
         let dom_batch_html = fs::read_to_string(dom_batch_out.join("index.html")).unwrap();
-        assert!(dom_batch_html.contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\""));
+        assert!(
+            dom_batch_html
+                .contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\"")
+        );
 
         // Explicit --render-mode canvas overrides a persisted Dom project setting
-        let mut dom_persisted = Project::from_json(&fs::read_to_string(&svg_proj).unwrap()).unwrap();
+        let mut dom_persisted =
+            Project::from_json(&fs::read_to_string(&svg_proj).unwrap()).unwrap();
         dom_persisted.set_html_render_mode(neoflash_core::HtmlRenderMode::Dom);
         let dom_proj_path = tmp.path.join("dom_persisted.nflash");
         fs::write(&dom_proj_path, dom_persisted.to_json().unwrap()).unwrap();
@@ -1366,7 +1372,8 @@ fn import_and_export_targets_roundtrip() {
         assert_eq!(code, 0, "stderr: {stderr}");
         let override_res: Value = serde_json::from_str(&stdout).unwrap();
         assert_eq!(override_res["render_mode"], "canvas");
-        let canvas_override_html = fs::read_to_string(canvas_override_out.join("index.html")).unwrap();
+        let canvas_override_html =
+            fs::read_to_string(canvas_override_out.join("index.html")).unwrap();
         assert!(!canvas_override_html.contains("data-render-mode=\"dom\""));
         assert!(!canvas_override_html.contains("<neoflash-stage"));
 

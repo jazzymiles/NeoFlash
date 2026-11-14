@@ -18,6 +18,7 @@ use crate::ai_connections::{
     test_provider_connection, validate_profile_endpoint,
 };
 use crate::app::{Editor, ScriptTarget};
+use crate::theme::ScrollTheme as _;
 use eframe::egui::{self, Stroke, Ui};
 use neoflash_core::{
     Easing, ElementKind, FrameScript, Keyframe, LayerRole, ObjectScript, Script, ScriptLanguage,
@@ -25,7 +26,6 @@ use neoflash_core::{
 };
 use neoflash_ui::components as c;
 use neoflash_ui::icons::{self, i16};
-use crate::theme::ScrollTheme as _;
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::rich;
 use std::sync::Arc;
@@ -386,7 +386,9 @@ impl AiAnswerDialog {
                 }
             }
             AiStreamEvent::RateLimited { retry_after_ms, .. } => {
-                let wait_secs = retry_after_ms.map(|ms| ms.div_ceil(1000).max(1)).unwrap_or(1);
+                let wait_secs = retry_after_ms
+                    .map(|ms| ms.div_ceil(1000).max(1))
+                    .unwrap_or(1);
                 self.phase = AiAnswerPhase::Waiting {
                     retry_notice: Some(format!(
                         "The provider limits requests. Trying again in {wait_secs} s."
@@ -763,12 +765,7 @@ impl Editor {
         if send_dialog.request_text.trim().is_empty() {
             return false;
         }
-        let Some(profile) = self
-            .workspace
-            .ai
-            .profile(&send_dialog.profile_id)
-            .cloned()
-        else {
+        let Some(profile) = self.workspace.ai.profile(&send_dialog.profile_id).cloned() else {
             return false;
         };
         if let Some(old_worker) = self.ai_session.worker.take() {
@@ -969,8 +966,8 @@ impl Editor {
         }
 
         if let Some(after_char) = new_caret_chars {
-            let mut state = egui::text_edit::TextEditState::load(ctx, editor_id)
-                .unwrap_or_default();
+            let mut state =
+                egui::text_edit::TextEditState::load(ctx, editor_id).unwrap_or_default();
             state
                 .cursor
                 .set_char_range(Some(egui::text::CCursorRange::one(
@@ -1008,12 +1005,8 @@ impl Editor {
                     timeline.layers[idx].keyframes[pos].keyed_properties = None;
                     timeline.layers[idx].keyframes[pos].motion_keys = None;
                 } else {
-                    let sampled = sample_layer_in_at_fps(
-                        timeline,
-                        &timeline.layers[idx],
-                        frame_idx,
-                        fps,
-                    );
+                    let sampled =
+                        sample_layer_in_at_fps(timeline, &timeline.layers[idx], frame_idx, fps);
                     let inherited_tween_kind = timeline.layers[idx]
                         .key_at(frame_idx)
                         .map_or(neoflash_core::TweenKind::Classic, |k| k.tween_kind);
@@ -1760,7 +1753,11 @@ impl Editor {
                     });
             });
 
-        if !close_dialog && !stop_clicked && !reopen_new_request && !edit_connection && !retry_clicked
+        if !close_dialog
+            && !stop_clicked
+            && !reopen_new_request
+            && !edit_connection
+            && !retry_clicked
             && kb.resolve(ctx, &modal, false) == DialogKeyboardOutcome::Cancel
         {
             close_dialog = true;
@@ -1845,7 +1842,10 @@ fn context_checkbox_row(
 ) {
     let p = neoflash_ui::palette(ui.ctx());
     let row_h = neoflash_ui::metrics::control();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), row_h), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), row_h),
+        egui::Sense::hover(),
+    );
     if bottom_border {
         ui.painter().hline(
             rect.x_range(),
@@ -1900,10 +1900,8 @@ fn readonly_answer_box(
                         && !s.trim().is_empty()
                     {
                         ui.add(
-                            egui::Label::new(
-                                rich(s, TextStyle::BodyStrong).color(p.text_primary),
-                            )
-                            .wrap(),
+                            egui::Label::new(rich(s, TextStyle::BodyStrong).color(p.text_primary))
+                                .wrap(),
                         );
                     }
                     if !body.trim().is_empty() {
@@ -2085,10 +2083,8 @@ fn render_proposal_card(
 
                     if !notes.trim().is_empty() {
                         ui.add(
-                            egui::Label::new(
-                                rich(notes, TextStyle::Small).color(p.text_secondary),
-                            )
-                            .wrap(),
+                            egui::Label::new(rich(notes, TextStyle::Small).color(p.text_secondary))
+                                .wrap(),
                         );
                     }
 

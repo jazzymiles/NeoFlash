@@ -672,7 +672,9 @@ impl Editor {
         let screenshot_mode = std::env::var_os("NEOFLASH_SCREENSHOT").is_some();
         let (update_check_done, _) = self.updater.poll(ctx, !cfg!(test) && !screenshot_mode);
         for item in self.updater.drain_output_events() {
-            let loc = item.path.map(crate::output_pipeline::OutputLocation::for_file);
+            let loc = item
+                .path
+                .map(crate::output_pipeline::OutputLocation::for_file);
             self.push_output_coalesced(
                 crate::output_pipeline::OutputEvent::new(
                     item.severity,

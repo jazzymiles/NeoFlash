@@ -15,7 +15,8 @@ pub(crate) fn is_zstd_magic(bytes: &[u8]) -> bool {
     if bytes.len() < 4 {
         return false;
     }
-    bytes[..4] == ZSTD_MAGIC || (matches!(bytes[0], 0x50..=0x5F) && bytes[1..4] == [0x2A, 0x4D, 0x18])
+    bytes[..4] == ZSTD_MAGIC
+        || (matches!(bytes[0], 0x50..=0x5F) && bytes[1..4] == [0x2A, 0x4D, 0x18])
 }
 
 /// Decompress one or more concatenated RFC 8878 Zstandard frames (and skippable frames),
@@ -127,7 +128,9 @@ fn decode_standard_frame(
             _ => 0,
         };
         if dict_id != 0 {
-            return Err("Zstandard frames requiring external dictionaries are not supported".into());
+            return Err(
+                "Zstandard frames requiring external dictionaries are not supported".into(),
+            );
         }
     }
 
@@ -366,7 +369,11 @@ impl<'a> FwdBitReader<'a> {
         for i in 0..avail {
             raw |= (self.buf[byte_idx + i] as u64) << (i * 8);
         }
-        let mask = if n >= 32 { u32::MAX as u64 } else { (1u64 << n) - 1 };
+        let mask = if n >= 32 {
+            u32::MAX as u64
+        } else {
+            (1u64 << n) - 1
+        };
         Ok(((raw >> bit_off) & mask) as u32)
     }
 
@@ -921,8 +928,8 @@ fn decode_literals_section(
 }
 
 const LL_DEFAULT_PROBS: [i16; 36] = [
-    4, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2, 1, 1, 1, 1,
-    1, -1, -1, -1, -1,
+    4, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1,
+    -1, -1, -1, -1,
 ];
 
 const OF_DEFAULT_PROBS: [i16; 29] = [
@@ -930,13 +937,13 @@ const OF_DEFAULT_PROBS: [i16; 29] = [
 ];
 
 const ML_DEFAULT_PROBS: [i16; 53] = [
-    1, 4, 3, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1, -1, -1,
+    1, 4, 3, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1, -1, -1,
 ];
 
 const LL_EXTRA_BITS: [u8; 36] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 3, 3, 4, 6, 7, 8, 9, 10,
-    11, 12, 13, 14, 15, 16,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 3, 3, 4, 6, 7, 8, 9, 10, 11,
+    12, 13, 14, 15, 16,
 ];
 
 const LL_BASELINES: [u32; 36] = [
@@ -945,8 +952,8 @@ const LL_BASELINES: [u32; 36] = [
 ];
 
 const ML_EXTRA_BITS: [u8; 53] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 1, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    1, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
 ];
 
 const ML_BASELINES: [u32; 53] = [
@@ -1157,10 +1164,13 @@ fn decode_compressed_block(
                     actual
                 }
                 3 => {
-                    let actual = state.rep[0]
-                        .checked_sub(1)
-                        .filter(|&v| v >= 1)
-                        .ok_or_else(|| "Invalid Zstandard repeat offset (rep[0] - 1 == 0)".to_owned())?;
+                    let actual =
+                        state.rep[0]
+                            .checked_sub(1)
+                            .filter(|&v| v >= 1)
+                            .ok_or_else(|| {
+                                "Invalid Zstandard repeat offset (rep[0] - 1 == 0)".to_owned()
+                            })?;
                     state.rep[2] = state.rep[1];
                     state.rep[1] = state.rep[0];
                     state.rep[0] = actual;
@@ -1263,10 +1273,8 @@ pub(crate) fn xxh64(data: &[u8], seed: u64) -> u64 {
             let c = &data[pos..pos + 32];
             let l1 = u64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]);
             let l2 = u64::from_le_bytes([c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15]]);
-            let l3 =
-                u64::from_le_bytes([c[16], c[17], c[18], c[19], c[20], c[21], c[22], c[23]]);
-            let l4 =
-                u64::from_le_bytes([c[24], c[25], c[26], c[27], c[28], c[29], c[30], c[31]]);
+            let l3 = u64::from_le_bytes([c[16], c[17], c[18], c[19], c[20], c[21], c[22], c[23]]);
+            let l4 = u64::from_le_bytes([c[24], c[25], c[26], c[27], c[28], c[29], c[30], c[31]]);
             v1 = round(v1, l1);
             v2 = round(v2, l2);
             v3 = round(v3, l3);
