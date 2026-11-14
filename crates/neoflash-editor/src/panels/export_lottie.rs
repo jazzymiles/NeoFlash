@@ -150,18 +150,23 @@ impl LottieAsyncWorker {
         let progress_worker = progress.clone();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let res = neoflash_export::export_lottie_json_with_progress(&project, &options, |p| {
-                if cancel_worker.load(Ordering::Relaxed) {
-                    return false;
-                }
-                let frac = if p.total_steps > 0 {
-                    (p.completed_steps as f32 / p.total_steps as f32).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                progress_worker.store(frac.to_bits(), Ordering::Relaxed);
-                true
-            });
+            let res = neoflash_export::export_lottie_json_with_cancel(
+                &project,
+                &options,
+                &cancel_worker,
+                |p| {
+                    if cancel_worker.load(Ordering::Relaxed) {
+                        return false;
+                    }
+                    let frac = if p.total_steps > 0 {
+                        (p.completed_steps as f32 / p.total_steps as f32).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                    progress_worker.store(frac.to_bits(), Ordering::Relaxed);
+                    true
+                },
+            );
             if cancel_worker.load(Ordering::Relaxed) {
                 let _ = tx.send(None);
                 return;
@@ -205,10 +210,11 @@ impl LottieAsyncWorker {
         let progress_worker = progress.clone();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let res = neoflash_export::export_project_lottie_with_progress(
+            let res = neoflash_export::export_project_lottie_with_cancel(
                 &project,
                 &path,
                 &options,
+                &cancel_worker,
                 |p| {
                     if cancel_worker.load(Ordering::Relaxed) {
                         return false;
@@ -1163,7 +1169,9 @@ impl Editor {
                                     }
 
                                     let mut fmt_img_idx = match draft.options.image_format {
-                                        LottieImageFormat::Original => 0usize,
+                                        LottieImageFormat::Original | LottieImageFormat::Webp => {
+                                            0usize
+                                        }
                                         LottieImageFormat::Png => 1usize,
                                         LottieImageFormat::Jpeg => 2usize,
                                     };
@@ -1316,5 +1324,189 @@ impl Editor {
         } else {
             self.export_lottie = Some(draft);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use neoflash_core::{
+        Element, ElementKind, FrameScript, FrameSound, Keyframe, Layer, LayerProperties,
+        ResourceUnit, Script, ScriptLanguage, Transform,
+    };
+
+    fn heavy_project_for_cancel() -> Project {
+        let mut project = Project::blank();
+        project.symbols[0].timeline.frame_count = 360;
+        project.symbols[0].timeline.layers.clear();
+        for layer_idx in 0..24 {
+            let mut keyframes = Vec::new();
+            for kf_idx in 0..18 {
+                let frame = kf_idx * 20;
+                keyframes.push(Keyframe {
+                    frame,
+                    tween: Some(neoflash_core::Easing::CubicBezier {
+                        x1: 0.25,
+                        y1: 1.4,
+                        x2: 0.75,
+                        y2: -0.3,
+                    }),
+                    elements: vec![Element {
+                        id: format!("el-{layer_idx}"),
+                        name: format!("Box {layer_idx}"),
+                        transform: Transform {
+                            x: f64::from(frame) * 2.0,
+                            y: f64::from(layer_idx) * 8.0,
+                            rotation: f64::from(frame) * 3.0,
+                            skew: 12.0,
+                            ..Transform::default()
+                        },
+                        kind: ElementKind::Rectangle {
+                            width: 40.0,
+                            height: 24.0,
+                            fill: [220, 80, 40, 255],
+                            stroke: [20, 20, 20, 255],
+                            stroke_width: 2.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                });
+            }
+            project.symbols[0].timeline.layers.push(Layer {
+                id: format!("layer-{layer_idx}"),
+                name: format!("Layer {layer_idx}"),
+                visible: true,
+                locked: false,
+                keyframes,
+                properties: LayerProperties::default(),
+            });
+        }
+        project
+    }
+
+    #[test]
+    fn worker_cancel_aborts_export_without_leaving_partial_or_corrupted_files() {
+        let project = heavy_project_for_cancel();
+        let dir = std::env::temp_dir().join(format!(
+            "neoflash-lottie-worker-cancel-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Pre-existing file must survive a cancelled overwrite intact.
+        let existing_target = dir.join("existing.lottie");
+        let sentinel = b"PRE_EXISTING_DOTLOTTIE_SENTINEL";
+        std::fs::write(&existing_target, sentinel).unwrap();
+
+        let mut worker = LottieAsyncWorker::default();
+        let opts = LottieOptions {
+            format: LottieFormat::DotLottie,
+            html_preview: true,
+            pretty: true,
+            ..LottieOptions::default()
+        };
+        let immediate = worker.spawn_export(project.clone(), existing_target.clone(), opts.clone());
+        if immediate.is_none() {
+            worker.cancel();
+            std::thread::sleep(Duration::from_millis(80));
+            assert_eq!(std::fs::read(&existing_target).unwrap(), sentinel);
+        }
+
+        // Fresh directory cancelled export must leave zero partial outputs or `.tmp` leftovers.
+        let fresh_dir = dir.join("fresh");
+        std::fs::create_dir_all(&fresh_dir).unwrap();
+        let fresh_target = fresh_dir.join("cancelled.lottie");
+        let immediate_fresh = worker.spawn_export(project.clone(), fresh_target, opts);
+        if immediate_fresh.is_none() {
+            worker.cancel();
+            std::thread::sleep(Duration::from_millis(80));
+            let entries: Vec<_> = std::fs::read_dir(&fresh_dir)
+                .unwrap()
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            assert!(
+                entries.is_empty(),
+                "cancelled worker export left files in fresh directory: {entries:?}"
+            );
+        }
+
+        // Estimate cancellation is also clean and non-panicking.
+        let _ = worker.spawn_estimate(project, LottieOptions::default());
+        worker.cancel();
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn editor_lottie_export_surfaces_structured_notes_and_jumps_to_location() {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        project.resources.push(
+            ResourceUnit::from_bytes("sfx-1", "audio/boom.wav", "audio/wav", &[0, 1, 2, 3])
+                .unwrap(),
+        );
+        project.symbols[0].timeline.frame_count = 10;
+        project.symbols[0].timeline.scripts.push(FrameScript {
+            frame: 4,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "stop();".into(),
+            },
+        });
+        project.symbols[0].timeline.layers[0]
+            .keyframes
+            .push(Keyframe {
+                frame: 4,
+                sound: Some(FrameSound::new("sfx-1")),
+                ..Keyframe::default()
+            });
+        project.format_version = 6;
+        project.validate().unwrap();
+
+        let mut editor = Editor::from_project(&ctx, project);
+        let dir = std::env::temp_dir().join(format!(
+            "neoflash-editor-lottie-notes-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("notes.lottie");
+
+        let report = editor
+            .export_lottie_with_options_to_path(
+                &out,
+                &LottieOptions {
+                    format: LottieFormat::DotLottie,
+                    ..LottieOptions::default()
+                },
+            )
+            .unwrap();
+        assert!(out.is_file());
+        assert!(
+            report.notes.iter().any(|n| {
+                n.code.as_deref() == Some("LOTTIE_FRAME_SCRIPT") && n.frame == Some(4)
+            })
+        );
+        assert!(
+            report.notes.iter().any(|n| {
+                n.code.as_deref() == Some("LOTTIE_TIMELINE_SOUND") && n.frame == Some(4)
+            })
+        );
+
+        let script_note = report
+            .notes
+            .iter()
+            .find(|n| n.code.as_deref() == Some("LOTTIE_FRAME_SCRIPT"))
+            .unwrap()
+            .clone();
+        editor.jump_to_lottie_note(&script_note);
+        assert_eq!(editor.frame, 4);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

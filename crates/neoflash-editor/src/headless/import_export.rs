@@ -9,9 +9,9 @@ use neoflash_export::{
     AtlasFormat, AtlasOptions, AudioExportOptions, AudioExportPolicy, AudioFormat, BannerOptions,
     FlaCompatibilityReport, FlaExportOptions, FlaTargetProfile, FontExportPolicy,
     HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign, ImageExportFormat, ImageExportOptions,
-    ImageExportRange, LottieOptions, PublishProfile, SizeLevel, SvgOptions, SwfPublishOptions,
-    SwfPublishProfile, VideoFormat, VideoOptions, export_project_with_profile,
-    load_profiles_from_project,
+    ImageExportRange, LottieFormat, LottieImageFormat, LottieImageMode, LottieOptions,
+    LottieTextMode, PublishProfile, SizeLevel, SvgOptions, SwfPublishOptions, SwfPublishProfile,
+    VideoFormat, VideoOptions, export_project_with_profile, load_profiles_from_project,
 };
 use neoflash_import::{
     Diagnostic as ImportDiagnostic, FigmaImportOptions, ImportError, ImportFormat, ImportReport,
@@ -51,7 +51,7 @@ impl ExportTarget {
             "xfl" => Ok(Self::Xfl),
             "swf" => Ok(Self::Swf),
             "svg" => Ok(Self::Svg),
-            "lottie" => Ok(Self::Lottie),
+            "lottie" | "dotlottie" => Ok(Self::Lottie),
             "atlas" | "spritesheet" | "sprite-sheet" => Ok(Self::Atlas),
             "sequence" | "image" | "images" => Ok(Self::Sequence),
             "video" => Ok(Self::Video),
@@ -151,6 +151,10 @@ pub(crate) struct ExportSpec {
     pub(crate) audio_format: Option<String>,
     #[serde(default)]
     pub(crate) banner_max_gzip: Option<usize>,
+    #[serde(default)]
+    pub(crate) image_format: Option<String>,
+    #[serde(default)]
+    pub(crate) html_preview: bool,
 }
 
 /// Locate the compiled `target/web-runtime` directory for HTML5 and Desktop exports.
@@ -667,6 +671,10 @@ fn run_cmd_export<W1: Write>(
                     )
                 })?);
             }
+            "--image-format" => {
+                spec.image_format = Some(take_flag_value(args, &mut i, "--image-format")?);
+            }
+            "--html-preview" => spec.html_preview = true,
             other => {
                 return Err(CliError::usage(
                     "unknown_flag",
@@ -1100,24 +1108,82 @@ pub(crate) fn export_project_with_spec(
             }))
         }
         ExportTarget::Lottie => {
+            let format = if spec.target.trim().eq_ignore_ascii_case("dotlottie")
+                || ext_lower(&spec.out).as_deref() == Some("lottie")
+            {
+                LottieFormat::DotLottie
+            } else {
+                LottieFormat::Json
+            };
+            let image_format = match spec.image_format.as_deref() {
+                Some(raw) => match raw.trim().to_ascii_lowercase().as_str() {
+                    "original" => LottieImageFormat::Original,
+                    "png" => LottieImageFormat::Png,
+                    "jpg" | "jpeg" => LottieImageFormat::Jpeg,
+                    "webp" => LottieImageFormat::Webp,
+                    other => {
+                        return Err(CliError::usage(
+                            "invalid_argument",
+                            format!(
+                                "Unsupported --image-format '{other}'. Expected original, png, jpeg, or webp"
+                            ),
+                        ));
+                    }
+                },
+                None => LottieImageFormat::Original,
+            };
+            let frame_range = if let Some(start_0) = spec.frame {
+                let end_0 = spec.end_frame.unwrap_or(start_0).max(start_0);
+                Some((start_0.saturating_add(1), end_0.saturating_add(1)))
+            } else {
+                spec.end_frame.map(|end_0| (1, end_0.saturating_add(1)))
+            };
             let report = neoflash_export::export_project_lottie(
                 project,
                 &spec.out,
                 &LottieOptions {
+                    format,
                     symbol: symbol_id,
                     width: spec.width,
                     height: spec.height,
                     pretty: spec.pretty,
+                    include_background: !spec.transparent,
+                    image_mode: if spec.assets_folder {
+                        LottieImageMode::Folder
+                    } else {
+                        LottieImageMode::Embed
+                    },
+                    image_format,
+                    text_mode: if spec.outline_text || spec.text_as_outlines {
+                        LottieTextMode::Shapes
+                    } else {
+                        LottieTextMode::TextLayers
+                    },
+                    frame_range,
+                    html_preview: spec.html_preview,
                     ..LottieOptions::default()
                 },
             )
             .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
             Ok(json!({
                 "target": target.as_str(),
+                "format": match format {
+                    LottieFormat::Json => "json",
+                    LottieFormat::DotLottie => "dotlottie",
+                },
                 "output_path": spec.out.display().to_string(),
+                "html_preview_path": report.html_preview_path.map(|p| p.display().to_string()),
                 "bytes": report.bytes,
+                "width": report.width,
+                "height": report.height,
+                "fps": report.fps,
                 "layer_count": report.layer_count,
                 "frame_count": report.frame_count,
+                "asset_count": report.asset_count,
+                "exported_count": report.exported_count,
+                "approximated_count": report.approximated_count,
+                "not_exported_count": report.not_exported_count,
+                "notes": report.notes,
                 "warnings": report.warnings,
             }))
         }

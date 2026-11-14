@@ -1183,7 +1183,7 @@ fn import_and_export_targets_roundtrip() {
     assert!(exp_swf.is_file());
 
     let exp_lottie = tmp.path.join("out.lottie.json");
-    let (code, _, stderr) = run_args(
+    let (code, stdout, stderr) = run_args(
         &[
             "--headless",
             "export",
@@ -1191,6 +1191,7 @@ fn import_and_export_targets_roundtrip() {
             svg_proj.to_str().unwrap(),
             "--target",
             "lottie",
+            "--html-preview",
             "--out",
             exp_lottie.to_str().unwrap(),
         ],
@@ -1198,6 +1199,34 @@ fn import_and_export_targets_roundtrip() {
     );
     assert_eq!(code, 0, "stderr: {stderr}");
     assert!(exp_lottie.is_file());
+    let lottie_res: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(lottie_res["format"], "json");
+    assert!(lottie_res["notes"].is_array());
+    assert!(tmp.path.join("out.lottie.preview.html").is_file());
+
+    let exp_dotlottie = tmp.path.join("out_pkg.lottie");
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "export",
+            "--project",
+            svg_proj.to_str().unwrap(),
+            "--target",
+            "dotlottie",
+            "--image-format",
+            "webp",
+            "--html-preview",
+            "--out",
+            exp_dotlottie.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert!(exp_dotlottie.is_file());
+    let dotlottie_res: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(dotlottie_res["format"], "dotlottie");
+    assert!(tmp.path.join("out_pkg.preview.html").is_file());
+    neoflash_export::validate_dotlottie_bytes(&fs::read(&exp_dotlottie).unwrap()).unwrap();
 
     // 5. Export HTML5 (auto-resolving target/web-runtime when built)
     if import_export::resolve_web_runtime(None).is_ok() {

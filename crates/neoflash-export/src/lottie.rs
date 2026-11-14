@@ -13,18 +13,22 @@ use crate::ExportError;
 use base64::Engine as _;
 use image::{ExtendedColorType, ImageEncoder as _};
 use neoflash_core::{
-    BlendMode, Color, ColorTransform, Easing, Element, ElementKind, FillRule, GradientKind,
-    GradientPaint, InstancePlayback, Keyframe, Layer, LayerRole, MotionPathSource, PathCommand,
-    Project, Symbol, Timeline, Transform, TweenKind, TweenProperty, flatten_scenes_with_ranges,
+    AppearancePaintEntry, BitmapCompression, BlendMode, ClassicRotateDirection, Color,
+    ColorTransform, Easing, Element, ElementKind, FillRule, GradientKind, GradientPaint,
+    GradientSpread, InstancePlayback, Keyframe, Layer, LayerRole, MaskMode, MotionPathSource,
+    PathCommand, PatternBrushKind, Project, Symbol, SymbolKind, TextAlign, TextFieldType, Timeline,
+    Transform, TweenKind, TweenProperty, camera_layer_matrix, flatten_scenes_with_ranges,
     layer_effective_blend_mode, layer_effectively_synced, layer_effectively_visible, motion_span,
-    placement_start, sample_layer_in_at_fps,
+    placement_start, sample_layer_in_at_fps, sample_timeline_camera,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
+    fs::{self, OpenOptions},
+    io::{Cursor, Read as _, Write as _},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 /// Bodymovin schema version targeted by the exporter.
@@ -109,7 +113,7 @@ impl LottieImageMode {
     }
 }
 
-/// Bitmap image format (`R-043`: `Image format: Original | PNG | JPEG`).
+/// Bitmap image format (`R-043`: `Image format: Original | PNG | JPEG`, plus programmatic/CLI `WebP`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LottieImageFormat {
@@ -117,6 +121,7 @@ pub enum LottieImageFormat {
     Original,
     Png,
     Jpeg,
+    Webp,
 }
 
 impl LottieImageFormat {
@@ -125,6 +130,7 @@ impl LottieImageFormat {
             Self::Original => "Original",
             Self::Png => "PNG",
             Self::Jpeg => "JPEG",
+            Self::Webp => "WebP",
         }
     }
 }
@@ -172,6 +178,8 @@ impl LottieNoteKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LottieNote {
     pub kind: LottieNoteKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     pub location: String,
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -287,17 +295,83 @@ struct ExternalImageFile {
     bytes: Vec<u8>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DetectedRaster {
+    Png,
+    Jpeg,
+    Webp,
+    Gif,
+    Other,
+}
+
+fn detect_raster_magic(bytes: &[u8]) -> DetectedRaster {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        DetectedRaster::Png
+    } else if bytes.starts_with(b"\xFF\xD8\xFF") {
+        DetectedRaster::Jpeg
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        DetectedRaster::Webp
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        DetectedRaster::Gif
+    } else {
+        DetectedRaster::Other
+    }
+}
+
+fn encode_png_rgba(img: &neoflash_core::DecodedImage) -> Result<Vec<u8>, ExportError> {
+    let mut buf = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut buf)
+        .write_image(&img.rgba, img.width, img.height, ExtendedColorType::Rgba8)
+        .map_err(|e| ExportError::Options(format!("Failed to encode PNG bitmap: {e}")))?;
+    Ok(buf)
+}
+
+fn encode_webp_rgba(img: &neoflash_core::DecodedImage) -> Result<Vec<u8>, ExportError> {
+    let mut buf = Vec::new();
+    image::codecs::webp::WebPEncoder::new_lossless(&mut buf)
+        .encode(&img.rgba, img.width, img.height, ExtendedColorType::Rgba8)
+        .map_err(|e| ExportError::Options(format!("Failed to encode WebP bitmap: {e}")))?;
+    Ok(buf)
+}
+
+fn encode_jpeg_composited(
+    img: &neoflash_core::DecodedImage,
+    bg: Color,
+    quality: u8,
+) -> Result<(Vec<u8>, bool), ExportError> {
+    let has_alpha = img.rgba.as_chunks::<4>().0.iter().any(|px| px[3] < 255);
+    let mut rgb = Vec::with_capacity((img.width as usize) * (img.height as usize) * 3);
+    for px in img.rgba.as_chunks::<4>().0 {
+        let a = px[3] as u16;
+        let inv = 255 - a;
+        rgb.push(((px[0] as u16 * a + bg[0] as u16 * inv + 127) / 255) as u8);
+        rgb.push(((px[1] as u16 * a + bg[1] as u16 * inv + 127) / 255) as u8);
+        rgb.push(((px[2] as u16 * a + bg[2] as u16 * inv + 127) / 255) as u8);
+    }
+    let mut buf = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality.clamp(1, 100))
+        .write_image(&rgb, img.width, img.height, ExtendedColorType::Rgb8)
+        .map_err(|e| ExportError::Options(format!("Failed to encode JPEG bitmap: {e}")))?;
+    Ok((buf, has_alpha))
+}
+
 struct LottieBuilder<'a> {
     project: &'a Project,
     options: &'a LottieOptions,
+    cancel: Option<&'a AtomicBool>,
     source_fps: f64,
     fps: f64,
     comp_w: u32,
     comp_h: u32,
+    package_external_images: bool,
     assets: Vec<Value>,
     external_images: Vec<ExternalImageFile>,
-    exported_precomps: BTreeSet<String>,
-    exported_images: BTreeSet<String>,
+    precomp_id_by_symbol: BTreeMap<String, Option<String>>,
+    image_id_by_resource: BTreeMap<String, Option<String>>,
+    matte_precomps: BTreeMap<String, Option<String>>,
+    used_asset_ids: BTreeSet<String>,
+    fonts: BTreeMap<String, Value>,
+    emitted_text_layer: bool,
     exported_count: usize,
     notes: Vec<LottieNote>,
     warnings: Vec<String>,
@@ -305,9 +379,38 @@ struct LottieBuilder<'a> {
 }
 
 impl<'a> LottieBuilder<'a> {
-    fn add_note(
+    fn check_cancelled(&self) -> Result<(), ExportError> {
+        if self.cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+            return Err(ExportError::Options("Export cancelled.".into()));
+        }
+        Ok(())
+    }
+
+    fn alloc_unique_asset_id(&mut self, prefix: &str, raw: &str) -> String {
+        let slug = sanitize_id(raw);
+        let base = if slug.is_empty() {
+            format!("{prefix}asset")
+        } else {
+            format!("{prefix}{slug}")
+        };
+        if self.used_asset_ids.insert(base.clone()) {
+            return base;
+        }
+        let mut suffix = 2u32;
+        loop {
+            let candidate = format!("{base}_{suffix}");
+            if self.used_asset_ids.insert(candidate.clone()) {
+                return candidate;
+            }
+            suffix += 1;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn add_note_coded(
         &mut self,
         kind: LottieNoteKind,
+        code: Option<&str>,
         location: impl Into<String>,
         message: impl Into<String>,
         symbol_id: Option<String>,
@@ -325,6 +428,7 @@ impl<'a> LottieBuilder<'a> {
             self.warnings.push(combined);
             self.notes.push(LottieNote {
                 kind,
+                code: code.map(str::to_owned),
                 location,
                 message,
                 symbol_id,
@@ -334,16 +438,42 @@ impl<'a> LottieBuilder<'a> {
         }
     }
 
-    fn warn(&mut self, msg: impl Into<String>) {
-        let msg = msg.into();
-        let (loc, body) = match msg.split_once(": ") {
-            Some((l, b)) => (l.to_owned(), b.to_owned()),
-            None => ("Document".to_owned(), msg),
+    fn register_font(&mut self, family: &str, bold: bool, italic: bool) -> String {
+        let clean_family = if family.trim().is_empty() {
+            "sans-serif"
+        } else {
+            family.trim()
         };
-        self.add_note(LottieNoteKind::NotExported, loc, body, None, None, None);
+        let style = match (bold, italic) {
+            (true, true) => "Bold Italic",
+            (true, false) => "Bold",
+            (false, true) => "Italic",
+            (false, false) => "Regular",
+        };
+        let f_name = if bold || italic {
+            format!("{clean_family}-{}", style.replace(' ', ""))
+        } else {
+            clean_family.to_owned()
+        };
+        self.fonts.entry(f_name.clone()).or_insert_with(|| {
+            json!({
+                "fName": f_name,
+                "fFamily": clean_family,
+                "fStyle": style,
+                "ascent": 75.0
+            })
+        });
+        f_name
     }
 
-    fn map_blend_mode(&mut self, mode: BlendMode, context: &str) -> u32 {
+    fn map_blend_mode(
+        &mut self,
+        mode: BlendMode,
+        context: &str,
+        symbol_id: Option<&str>,
+        layer_id: Option<&str>,
+        frame: Option<u32>,
+    ) -> u32 {
         let bm = match mode {
             BlendMode::Normal | BlendMode::Layer => 0,
             BlendMode::Multiply => 1,
@@ -355,32 +485,34 @@ impl<'a> LottieBuilder<'a> {
             BlendMode::Difference => 10,
             BlendMode::Add => 12,
             BlendMode::Subtract | BlendMode::Invert | BlendMode::Alpha | BlendMode::Erase => {
-                self.add_note(
+                self.add_note_coded(
                     LottieNoteKind::NotExported,
+                    Some("LOTTIE_BLEND_MODE_UNSUPPORTED"),
                     context,
                     format!(
                         "Blend mode '{}' is not supported by Lottie v{LOTTIE_VERSION}; exported as 'normal'.",
                         mode.as_str()
                     ),
-                    None,
-                    None,
-                    None,
+                    symbol_id.map(str::to_owned),
+                    layer_id.map(str::to_owned),
+                    frame,
                 );
                 0
             }
         };
         if bm != 0 && self.options.player != LottieTargetPlayer::LottieWeb {
-            self.add_note(
+            self.add_note_coded(
                 LottieNoteKind::Approximated,
+                Some("LOTTIE_BLEND_MODE_PLAYER"),
                 context,
                 format!(
                     "Blend mode '{}' may render as 'normal' on {} player.",
                     mode.as_str(),
                     self.options.player.label()
                 ),
-                None,
-                None,
-                None,
+                symbol_id.map(str::to_owned),
+                layer_id.map(str::to_owned),
+                frame,
             );
         }
         bm
@@ -391,127 +523,203 @@ impl<'a> LottieBuilder<'a> {
         resource_id: &str,
         fallback_w: u32,
         fallback_h: u32,
-    ) -> String {
-        let asset_id = format!("img_{}", sanitize_id(resource_id));
-        if !self.exported_images.insert(resource_id.to_owned()) {
-            return asset_id;
+        symbol_id: Option<&str>,
+        layer_id: Option<&str>,
+        frame: Option<u32>,
+    ) -> Result<Option<String>, ExportError> {
+        self.check_cancelled()?;
+        if let Some(cached) = self.image_id_by_resource.get(resource_id) {
+            return Ok(cached.clone());
         }
-        if let Some(unit) = self.project.resources.iter().find(|r| r.id == resource_id) {
-            let decoded = unit.decode_image().ok();
-            let (w, h) = decoded
-                .as_ref()
-                .map(|img| (img.width, img.height))
-                .unwrap_or((fallback_w.max(1), fallback_h.max(1)));
-            let raw_bytes = unit.decoded_bytes().ok();
-            let is_png = raw_bytes
-                .as_deref()
-                .is_some_and(|b| b.starts_with(b"\x89PNG\r\n\x1a\n"));
-            let is_jpeg = raw_bytes
-                .as_deref()
-                .is_some_and(|b| b.starts_with(b"\xFF\xD8\xFF"));
 
-            let (ext, mime_type, encoded_bytes) = match self.options.image_format {
-                LottieImageFormat::Original => {
-                    let (ext, mime) = if is_jpeg
-                        || unit.media_type.contains("jpeg")
-                        || unit.media_type.contains("jpg")
-                    {
-                        ("jpg", "image/jpeg")
-                    } else if raw_bytes
-                        .as_deref()
-                        .is_some_and(|b| b.starts_with(b"GIF87a") || b.starts_with(b"GIF89a"))
-                        || unit.media_type.contains("gif")
-                    {
-                        ("gif", "image/gif")
-                    } else {
-                        ("png", "image/png")
-                    };
-                    (ext, mime, raw_bytes.unwrap_or_default())
-                }
-                LottieImageFormat::Png => {
-                    let bytes = if is_png {
-                        raw_bytes.unwrap_or_default()
-                    } else if let Some(img) = &decoded {
-                        let mut buf = Vec::new();
-                        if image::codecs::png::PngEncoder::new(&mut buf)
-                            .write_image(&img.rgba, img.width, img.height, ExtendedColorType::Rgba8)
-                            .is_ok()
-                        {
-                            buf
-                        } else {
-                            raw_bytes.unwrap_or_default()
+        let Some(unit) = self.project.resources.iter().find(|r| r.id == resource_id) else {
+            self.add_note_coded(
+                LottieNoteKind::Missing,
+                Some("LOTTIE_MISSING_BITMAP_RESOURCE"),
+                format!("Resource '{resource_id}'"),
+                format!("Bitmap resource '{resource_id}' is missing from project resources."),
+                symbol_id.map(str::to_owned),
+                layer_id.map(str::to_owned),
+                frame,
+            );
+            self.image_id_by_resource
+                .insert(resource_id.to_owned(), None);
+            return Ok(None);
+        };
+
+        let raw_bytes = unit.decoded_bytes().ok().filter(|b| !b.is_empty());
+        let decoded = unit.decode_image().ok();
+        self.check_cancelled()?;
+
+        let Some(img) = decoded else {
+            self.add_note_coded(
+                LottieNoteKind::Missing,
+                Some("LOTTIE_INVALID_BITMAP_RESOURCE"),
+                format!("Resource '{}'", unit.id),
+                format!(
+                    "Bitmap resource '{}' ('{}') could not be decoded as a valid raster image.",
+                    unit.id, unit.path
+                ),
+                symbol_id.map(str::to_owned),
+                layer_id.map(str::to_owned),
+                frame,
+            );
+            self.image_id_by_resource
+                .insert(resource_id.to_owned(), None);
+            return Ok(None);
+        };
+
+        let w = if img.width > 0 {
+            img.width
+        } else {
+            fallback_w.max(1)
+        };
+        let h = if img.height > 0 {
+            img.height
+        } else {
+            fallback_h.max(1)
+        };
+        let detected = raw_bytes
+            .as_deref()
+            .map_or(DetectedRaster::Other, detect_raster_magic);
+        let default_jpeg_quality = unit
+            .bitmap_export
+            .as_ref()
+            .map(|s| s.jpeg_quality.clamp(1, 100))
+            .unwrap_or(92);
+
+        let (ext, mime_type, encoded_bytes) = match self.options.image_format {
+            LottieImageFormat::Original => {
+                if let Some(settings) = unit.bitmap_export.as_ref() {
+                    match settings.compression {
+                        BitmapCompression::PhotoJpeg => {
+                            let (bytes, has_alpha) = encode_jpeg_composited(
+                                &img,
+                                self.project.background,
+                                settings.jpeg_quality,
+                            )?;
+                            if has_alpha {
+                                self.add_note_coded(
+                                    LottieNoteKind::Approximated,
+                                    Some("LOTTIE_JPEG_ALPHA_COMPOSITED"),
+                                    format!("Resource '{}'", unit.id),
+                                    format!(
+                                        "Bitmap '{}' has transparency, which JPEG does not support; composited over stage background.",
+                                        unit.path
+                                    ),
+                                    symbol_id.map(str::to_owned),
+                                    layer_id.map(str::to_owned),
+                                    frame,
+                                );
+                            }
+                            ("jpg", "image/jpeg", bytes)
                         }
-                    } else {
-                        raw_bytes.unwrap_or_default()
-                    };
-                    ("png", "image/png", bytes)
-                }
-                LottieImageFormat::Jpeg => {
-                    let bytes = if is_jpeg {
-                        raw_bytes.unwrap_or_default()
-                    } else if let Some(img) = &decoded {
-                        let has_alpha = img.rgba.as_chunks::<4>().0.iter().any(|px| px[3] < 255);
-                        if has_alpha {
-                            self.add_note(
+                        BitmapCompression::LosslessPng => {
+                            let bytes = if detected == DetectedRaster::Png {
+                                raw_bytes.unwrap()
+                            } else {
+                                encode_png_rgba(&img)?
+                            };
+                            ("png", "image/png", bytes)
+                        }
+                        BitmapCompression::Webp => {
+                            let bytes = if detected == DetectedRaster::Webp {
+                                raw_bytes.unwrap()
+                            } else {
+                                encode_webp_rgba(&img)?
+                            };
+                            ("webp", "image/webp", bytes)
+                        }
+                    }
+                } else {
+                    match detected {
+                        DetectedRaster::Png => ("png", "image/png", raw_bytes.unwrap()),
+                        DetectedRaster::Jpeg => ("jpg", "image/jpeg", raw_bytes.unwrap()),
+                        DetectedRaster::Webp => ("webp", "image/webp", raw_bytes.unwrap()),
+                        DetectedRaster::Gif => ("gif", "image/gif", raw_bytes.unwrap()),
+                        DetectedRaster::Other => {
+                            let png = encode_png_rgba(&img)?;
+                            self.add_note_coded(
                                 LottieNoteKind::Approximated,
+                                Some("LOTTIE_BITMAP_TRANSCODED"),
                                 format!("Resource '{}'", unit.id),
                                 format!(
-                                    "Bitmap '{}' has transparency, which JPEG does not support; composited over stage background.",
-                                    unit.path
+                                    "Bitmap '{}' ('{}') was transcoded to lossless PNG for Lottie compatibility.",
+                                    unit.path, unit.media_type
                                 ),
-                                None,
-                                None,
-                                None,
+                                symbol_id.map(str::to_owned),
+                                layer_id.map(str::to_owned),
+                                frame,
                             );
+                            ("png", "image/png", png)
                         }
-                        let bg = self.project.background;
-                        let mut rgb =
-                            Vec::with_capacity((img.width as usize) * (img.height as usize) * 3);
-                        for px in img.rgba.as_chunks::<4>().0 {
-                            let a = px[3] as u16;
-                            let inv = 255 - a;
-                            rgb.push(((px[0] as u16 * a + bg[0] as u16 * inv + 127) / 255) as u8);
-                            rgb.push(((px[1] as u16 * a + bg[1] as u16 * inv + 127) / 255) as u8);
-                            rgb.push(((px[2] as u16 * a + bg[2] as u16 * inv + 127) / 255) as u8);
-                        }
-                        let mut buf = Vec::new();
-                        if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 92)
-                            .write_image(&rgb, img.width, img.height, ExtendedColorType::Rgb8)
-                            .is_ok()
-                        {
-                            buf
-                        } else {
-                            raw_bytes.unwrap_or_default()
-                        }
-                    } else {
-                        raw_bytes.unwrap_or_default()
-                    };
-                    ("jpg", "image/jpeg", bytes)
+                    }
                 }
-            };
-
-            if self.options.image_mode == LottieImageMode::Folder && !encoded_bytes.is_empty() {
-                let filename = format!("{asset_id}.{ext}");
-                self.external_images.push(ExternalImageFile {
-                    relative_path: format!("images/{filename}"),
-                    bytes: encoded_bytes,
-                });
-                self.assets.push(json!({
-                    "id": asset_id,
-                    "w": w,
-                    "h": h,
-                    "u": "images/",
-                    "p": filename,
-                    "e": 0
-                }));
-                self.exported_count += 1;
-                return asset_id;
             }
-            let b64 = if !encoded_bytes.is_empty() {
-                base64::engine::general_purpose::STANDARD.encode(&encoded_bytes)
-            } else {
-                unit.data_base64.to_string()
-            };
+            LottieImageFormat::Png => {
+                let bytes = if detected == DetectedRaster::Png {
+                    raw_bytes.unwrap()
+                } else {
+                    encode_png_rgba(&img)?
+                };
+                ("png", "image/png", bytes)
+            }
+            LottieImageFormat::Jpeg => {
+                let bytes = if detected == DetectedRaster::Jpeg {
+                    raw_bytes.unwrap()
+                } else {
+                    let (jpg, has_alpha) = encode_jpeg_composited(
+                        &img,
+                        self.project.background,
+                        default_jpeg_quality,
+                    )?;
+                    if has_alpha {
+                        self.add_note_coded(
+                            LottieNoteKind::Approximated,
+                            Some("LOTTIE_JPEG_ALPHA_COMPOSITED"),
+                            format!("Resource '{}'", unit.id),
+                            format!(
+                                "Bitmap '{}' has transparency, which JPEG does not support; composited over stage background.",
+                                unit.path
+                            ),
+                            symbol_id.map(str::to_owned),
+                            layer_id.map(str::to_owned),
+                            frame,
+                        );
+                    }
+                    jpg
+                };
+                ("jpg", "image/jpeg", bytes)
+            }
+            LottieImageFormat::Webp => {
+                let bytes = if detected == DetectedRaster::Webp {
+                    raw_bytes.unwrap()
+                } else {
+                    encode_webp_rgba(&img)?
+                };
+                ("webp", "image/webp", bytes)
+            }
+        };
+
+        self.check_cancelled()?;
+
+        let asset_id = self.alloc_unique_asset_id("img_", resource_id);
+        if self.package_external_images {
+            let filename = format!("{asset_id}.{ext}");
+            self.external_images.push(ExternalImageFile {
+                relative_path: format!("images/{filename}"),
+                bytes: encoded_bytes,
+            });
+            self.assets.push(json!({
+                "id": asset_id,
+                "w": w,
+                "h": h,
+                "u": "images/",
+                "p": filename,
+                "e": 0
+            }));
+        } else {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&encoded_bytes);
             let data_uri = format!("data:{mime_type};base64,{b64}");
             self.assets.push(json!({
                 "id": asset_id,
@@ -521,41 +729,92 @@ impl<'a> LottieBuilder<'a> {
                 "p": data_uri,
                 "e": 1
             }));
-            self.exported_count += 1;
-        } else {
-            self.add_note(
-                LottieNoteKind::Missing,
-                format!("Resource '{resource_id}'"),
-                format!("Bitmap resource '{resource_id}' is missing from project resources."),
-                None,
-                None,
-                None,
-            );
         }
-        asset_id
+        self.exported_count += 1;
+        self.image_id_by_resource
+            .insert(resource_id.to_owned(), Some(asset_id.clone()));
+        Ok(Some(asset_id))
     }
 
     fn ensure_symbol_precomp(
         &mut self,
         symbol_id: &str,
+        caller_symbol_id: &str,
+        caller_layer_id: Option<&str>,
+        caller_frame: Option<u32>,
         stack: &mut Vec<String>,
-    ) -> Option<String> {
-        let asset_id = format!("comp_{}", sanitize_id(symbol_id));
-        if self.exported_precomps.contains(symbol_id) {
-            return Some(asset_id);
-        }
+    ) -> Result<Option<String>, ExportError> {
+        self.check_cancelled()?;
         if stack.iter().any(|s| s == symbol_id) {
-            return None;
+            self.add_note_coded(
+                LottieNoteKind::NotExported,
+                Some("LOTTIE_SYMBOL_CYCLE"),
+                format!("Symbol '{symbol_id}'"),
+                format!("Recursive symbol reference to '{symbol_id}' was skipped."),
+                Some(caller_symbol_id.to_owned()),
+                caller_layer_id.map(str::to_owned),
+                caller_frame,
+            );
+            return Ok(None);
         }
-        let symbol = self.project.symbol(symbol_id)?;
-        self.exported_precomps.insert(symbol_id.to_owned());
+        if let Some(cached) = self.precomp_id_by_symbol.get(symbol_id) {
+            return Ok(cached.clone());
+        }
+        let Some(symbol) = self.project.symbol(symbol_id) else {
+            self.add_note_coded(
+                LottieNoteKind::Missing,
+                Some("LOTTIE_MISSING_SYMBOL"),
+                format!("Symbol '{symbol_id}'"),
+                format!("Referenced symbol '{symbol_id}' is missing from project library."),
+                Some(caller_symbol_id.to_owned()),
+                caller_layer_id.map(str::to_owned),
+                caller_frame,
+            );
+            self.precomp_id_by_symbol.insert(symbol_id.to_owned(), None);
+            return Ok(None);
+        };
+
+        let asset_id = self.alloc_unique_asset_id("comp_", symbol_id);
+        self.precomp_id_by_symbol
+            .insert(symbol_id.to_owned(), Some(asset_id.clone()));
         stack.push(symbol_id.to_owned());
 
         let precomp_w = self.comp_w.max(1) * 2;
         let precomp_h = self.comp_h.max(1) * 2;
         let origin = [self.comp_w as f64, self.comp_h as f64];
-        let layers =
-            self.build_timeline_layers(&symbol.name, &symbol.timeline, origin, false, stack);
+
+        let layers = if symbol.kind == SymbolKind::Button {
+            self.add_note_coded(
+                LottieNoteKind::Approximated,
+                Some("LOTTIE_BUTTON_INTERACTIVE"),
+                format!("Button symbol '{}'", symbol.name),
+                format!(
+                    "Button symbol '{}' interactive Over/Down/Hit states are not supported by Lottie players; exported static Up state.",
+                    symbol.name
+                ),
+                Some(symbol.id.clone()),
+                caller_layer_id.map(str::to_owned),
+                caller_frame,
+            );
+            let up_timeline = build_button_up_timeline(&symbol.timeline, self.source_fps);
+            self.build_timeline_layers(
+                &symbol.id,
+                &symbol.name,
+                &up_timeline,
+                origin,
+                false,
+                stack,
+            )?
+        } else {
+            self.build_timeline_layers(
+                &symbol.id,
+                &symbol.name,
+                &symbol.timeline,
+                origin,
+                false,
+                stack,
+            )?
+        };
         stack.pop();
 
         self.assets.push(json!({
@@ -566,29 +825,105 @@ impl<'a> LottieBuilder<'a> {
             "h": precomp_h,
             "layers": layers
         }));
-        Some(asset_id)
+        Ok(Some(asset_id))
+    }
+
+    fn ensure_mask_matte_precomp(
+        &mut self,
+        symbol_id: &str,
+        timeline: &Timeline,
+        mask_layer: &Layer,
+        origin_offset: [f64; 2],
+        stack: &mut Vec<String>,
+    ) -> Result<Option<String>, ExportError> {
+        self.check_cancelled()?;
+        let cache_key = format!("{symbol_id}::{}", mask_layer.id);
+        if let Some(cached) = self.matte_precomps.get(&cache_key) {
+            return Ok(cached.clone());
+        }
+
+        let mut matte_layer = mask_layer.clone();
+        matte_layer.properties.role = LayerRole::Normal;
+        matte_layer.properties.mask = None;
+        matte_layer.visible = true;
+        let mut matte_layers_vec = Vec::new();
+        for l in &timeline.layers {
+            if l.properties.role == LayerRole::Guide {
+                matte_layers_vec.push(l.clone());
+            }
+        }
+        matte_layers_vec.push(matte_layer);
+        let matte_timeline = Timeline {
+            frame_count: timeline.frame_count.max(1),
+            layers: matte_layers_vec,
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        };
+
+        let asset_id =
+            self.alloc_unique_asset_id("comp_matte_", &format!("{symbol_id}_{}", mask_layer.id));
+        self.matte_precomps
+            .insert(cache_key.clone(), Some(asset_id.clone()));
+
+        let layers = self.build_timeline_layers(
+            symbol_id,
+            &format!("Matte · {}", mask_layer.name),
+            &matte_timeline,
+            origin_offset,
+            false,
+            stack,
+        )?;
+        if layers.is_empty() {
+            self.matte_precomps.insert(cache_key, None);
+            return Ok(None);
+        }
+
+        self.assets.push(json!({
+            "id": asset_id,
+            "nm": format!("Matte · {}", mask_layer.name),
+            "fr": round4(self.fps),
+            "w": self.comp_w.max(1),
+            "h": self.comp_h.max(1),
+            "layers": layers
+        }));
+        Ok(Some(asset_id))
     }
 
     fn build_timeline_layers(
         &mut self,
+        symbol_id: &str,
         symbol_name: &str,
         timeline: &Timeline,
         origin_offset: [f64; 2],
         include_bg: bool,
         stack: &mut Vec<String>,
-    ) -> Vec<Value> {
+    ) -> Result<Vec<Value>, ExportError> {
+        self.check_cancelled()?;
         if !timeline.scripts.is_empty() {
-            self.warn(format!(
-                "Timeline '{symbol_name}': {} frame script(s) are not executed by Lottie players; timeline animation was exported.",
-                timeline.scripts.len()
-            ));
+            let first_script_frame = timeline.scripts.first().map(|s| s.frame);
+            self.add_note_coded(
+                LottieNoteKind::NotExported,
+                Some("LOTTIE_FRAME_SCRIPT"),
+                format!("Timeline '{symbol_name}'"),
+                format!(
+                    "{} frame script(s) are not executed by Lottie players; timeline animation was exported.",
+                    timeline.scripts.len()
+                ),
+                Some(symbol_id.to_owned()),
+                None,
+                first_script_frame,
+            );
         }
 
         let total_frames = timeline.frame_count.max(1);
+        let timeline_has_camera = timeline
+            .layers
+            .iter()
+            .any(|l| l.keyframes.iter().any(|k| k.camera.is_some()));
         let mut lottie_layers = Vec::new();
         let mut next_ind: u32 = 1;
 
-        // Collect mask layers by ID so masked layers can attach `masksProperties`.
+        // Collect mask layers by ID so masked layers can attach `masksProperties` or track mattes.
         let mut mask_layers: BTreeMap<&str, &Layer> = BTreeMap::new();
         for layer in &timeline.layers {
             if layer.properties.role == LayerRole::Mask {
@@ -599,13 +934,33 @@ impl<'a> LottieBuilder<'a> {
         // In NeoFlash, `timeline.layers[0]` is the bottom layer and `layers.last()` is the top
         // layer. In Lottie, `layers[0]` is rendered on top, so iterate in reverse order.
         for layer in timeline.layers.iter().rev() {
+            self.check_cancelled()?;
             for kf in &layer.keyframes {
                 if kf.sound.is_some() {
-                    self.warn(format!(
-                        "Layer '{}' (frame {}): timeline sound is not supported in Lottie v{LOTTIE_VERSION} export.",
-                        layer.name,
-                        kf.frame + 1
-                    ));
+                    self.add_note_coded(
+                        LottieNoteKind::NotExported,
+                        Some("LOTTIE_TIMELINE_SOUND"),
+                        format!("Layer '{}' (frame {})", layer.name, kf.frame + 1),
+                        format!(
+                            "timeline sound is not supported in Lottie v{LOTTIE_VERSION} export."
+                        ),
+                        Some(symbol_id.to_owned()),
+                        Some(layer.id.clone()),
+                        Some(kf.frame),
+                    );
+                }
+                if kf.video.is_some() {
+                    self.add_note_coded(
+                        LottieNoteKind::NotExported,
+                        Some("LOTTIE_TIMELINE_VIDEO"),
+                        format!("Layer '{}' (frame {})", layer.name, kf.frame + 1),
+                        format!(
+                            "timeline video span is not supported in Lottie v{LOTTIE_VERSION} export."
+                        ),
+                        Some(symbol_id.to_owned()),
+                        Some(layer.id.clone()),
+                        Some(kf.frame),
+                    );
                 }
             }
             if matches!(
@@ -616,6 +971,115 @@ impl<'a> LottieBuilder<'a> {
             }
             if !self.options.include_hidden_layers && !layer_effectively_visible(timeline, layer) {
                 continue;
+            }
+
+            if !layer.properties.filters.is_empty() {
+                self.add_note_coded(
+                    LottieNoteKind::NotExported,
+                    Some("LOTTIE_DISPLAY_FILTER"),
+                    format!("Layer '{}'", layer.name),
+                    format!(
+                        "Layer display filter(s) are not supported in core Lottie v{LOTTIE_VERSION}."
+                    ),
+                    Some(symbol_id.to_owned()),
+                    Some(layer.id.clone()),
+                    Some(0),
+                );
+            }
+            if layer.properties.scale9_grid.is_some() {
+                self.add_note_coded(
+                    LottieNoteKind::Approximated,
+                    Some("LOTTIE_SCALE9_GRID"),
+                    format!("Layer '{}'", layer.name),
+                    "9-slice scaling guides are flattened into standard 2D transforms in Lottie export.",
+                    Some(symbol_id.to_owned()),
+                    Some(layer.id.clone()),
+                    Some(0),
+                );
+            }
+            for kf in &layer.keyframes {
+                if !kf.filters.is_empty() {
+                    self.add_note_coded(
+                        LottieNoteKind::NotExported,
+                        Some("LOTTIE_DISPLAY_FILTER"),
+                        format!("Layer '{}' (frame {})", layer.name, kf.frame + 1),
+                        format!(
+                            "Keyframe display filter(s) are not supported in core Lottie v{LOTTIE_VERSION}."
+                        ),
+                        Some(symbol_id.to_owned()),
+                        Some(layer.id.clone()),
+                        Some(kf.frame),
+                    );
+                }
+                if !kf.bitmap_fills.is_empty() {
+                    self.add_note_coded(
+                        LottieNoteKind::NotExported,
+                        Some("LOTTIE_BITMAP_FILL"),
+                        format!("Layer '{}' (frame {})", layer.name, kf.frame + 1),
+                        "Tiled/affine bitmap shape fills are not supported by core Lottie shapes; fallback solid/gradient paint exported.",
+                        Some(symbol_id.to_owned()),
+                        Some(layer.id.clone()),
+                        Some(kf.frame),
+                    );
+                }
+                if kf.perspective_grid.is_some() {
+                    self.add_note_coded(
+                        LottieNoteKind::NotExported,
+                        Some("LOTTIE_PERSPECTIVE_3D"),
+                        format!("Layer '{}' (frame {})", layer.name, kf.frame + 1),
+                        "3D perspective grid planes are not supported in 2D Lottie export.",
+                        Some(symbol_id.to_owned()),
+                        Some(layer.id.clone()),
+                        Some(kf.frame),
+                    );
+                }
+                if !kf.instance_overrides.is_empty() {
+                    self.add_note_coded(
+                        LottieNoteKind::Approximated,
+                        Some("LOTTIE_INSTANCE_OVERRIDE"),
+                        format!("Layer '{}' (frame {})", layer.name, kf.frame + 1),
+                        "Per-instance child property overrides share the base symbol precomp in Lottie export.",
+                        Some(symbol_id.to_owned()),
+                        Some(layer.id.clone()),
+                        Some(kf.frame),
+                    );
+                }
+                for vfx in &kf.vector_effects {
+                    if vfx.freeform_gradient.is_some() || vfx.gradient_mesh.is_some() {
+                        self.add_note_coded(
+                            LottieNoteKind::NotExported,
+                            Some("LOTTIE_VECTOR_MESH_GRADIENT"),
+                            format!(
+                                "Layer '{}' element '{}' (frame {})",
+                                layer.name,
+                                vfx.element_id,
+                                kf.frame + 1
+                            ),
+                            "Freeform/mesh gradients cannot be represented as Lottie linear/radial gradients; base vector paint exported.",
+                            Some(symbol_id.to_owned()),
+                            Some(layer.id.clone()),
+                            Some(kf.frame),
+                        );
+                    } else if !vfx.procedural_effects.is_empty()
+                        || vfx.envelope_warp.is_some()
+                        || vfx.vector_blend.is_some()
+                    {
+                        self.add_note_coded(
+                            LottieNoteKind::Approximated,
+                            Some("LOTTIE_VECTOR_EFFECT_BAKED"),
+                            format!(
+                                "Layer '{}' element '{}' (frame {})",
+                                layer.name,
+                                vfx.element_id,
+                                kf.frame + 1
+                            ),
+                            "Procedural vector effects / envelope warps were baked into evaluated Bézier contours.",
+                            Some(symbol_id.to_owned()),
+                            Some(layer.id.clone()),
+                            Some(kf.frame),
+                        );
+                    }
+                }
             }
 
             let layer_end = layer
@@ -630,6 +1094,9 @@ impl<'a> LottieBuilder<'a> {
             let layer_bm = self.map_blend_mode(
                 layer_effective_blend_mode(timeline, layer),
                 &format!("Layer '{}'", layer.name),
+                Some(symbol_id),
+                Some(&layer.id),
+                Some(0),
             );
             let synced = layer_effectively_synced(timeline, layer);
             let mask_layer = layer
@@ -640,8 +1107,11 @@ impl<'a> LottieBuilder<'a> {
 
             let spans = collect_layer_spans(layer, layer_end);
             for span in spans.into_iter().rev() {
+                self.check_cancelled()?;
                 let emitted = self.emit_span_layers(
+                    symbol_id,
                     timeline,
+                    timeline_has_camera,
                     layer,
                     &span,
                     total_frames,
@@ -651,7 +1121,7 @@ impl<'a> LottieBuilder<'a> {
                     origin_offset,
                     stack,
                     &mut next_ind,
-                );
+                )?;
                 lottie_layers.extend(emitted);
             }
         }
@@ -693,13 +1163,15 @@ impl<'a> LottieBuilder<'a> {
             }));
         }
 
-        lottie_layers
+        Ok(lottie_layers)
     }
 
     #[allow(clippy::too_many_arguments)]
     fn emit_span_layers(
         &mut self,
+        symbol_id: &str,
         timeline: &Timeline,
+        timeline_has_camera: bool,
         layer: &Layer,
         span: &LayerSpan,
         total_frames: u32,
@@ -709,15 +1181,52 @@ impl<'a> LottieBuilder<'a> {
         origin_offset: [f64; 2],
         stack: &mut Vec<String>,
         next_ind: &mut u32,
-    ) -> Vec<Value> {
-        let first_elements =
-            sample_layer_in_at_fps(timeline, layer, span.start_frame, self.source_fps);
+    ) -> Result<Vec<Value>, ExportError> {
+        self.check_cancelled()?;
+        let stage_center = [self.comp_w as f64 * 0.5, self.comp_h as f64 * 0.5];
+        let sample_filtered_frame = |f: u32| -> Vec<Element> {
+            let controllers = layer
+                .key_at(f)
+                .map(|k| k.controller_elements.as_slice())
+                .unwrap_or(&[]);
+            let cam_opt = if timeline_has_camera && !layer.properties.attach_to_camera {
+                sample_timeline_camera(timeline, f)
+            } else {
+                None
+            };
+            let mut out_els = Vec::new();
+            for mut el in sample_layer_in_at_fps(timeline, layer, f, self.source_fps) {
+                if !controllers.is_empty() && controllers.iter().any(|cid| cid == &el.id) {
+                    continue;
+                }
+                if let Some(cam) = &cam_opt {
+                    let cam_m = camera_layer_matrix(cam, layer.properties.z_depth, stage_center);
+                    let world_m = neoflash_core::affine_multiply(
+                        cam_m,
+                        neoflash_core::transform_matrix(el.transform),
+                    );
+                    if let Some(cam_t) = Transform::from_matrix(world_m) {
+                        el.transform.x = cam_t.x;
+                        el.transform.y = cam_t.y;
+                        el.transform.scale_x = cam_t.scale_x;
+                        el.transform.scale_y = cam_t.scale_y;
+                        el.transform.rotation = cam_t.rotation;
+                        el.transform.skew = cam_t.skew;
+                    }
+                    el.transform.color_transform =
+                        cam.color_transform.then(el.transform.color_transform);
+                }
+                out_els.push(el);
+            }
+            out_els
+        };
+
+        let first_elements = sample_filtered_frame(span.start_frame);
         if first_elements.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
-        // Check if this contiguous non-empty span tracks a stable set of element IDs or is a
-        // shape tween so we can emit clean per-track or morphed Lottie layers.
+        // Check if this contiguous non-empty span is a shape tween so we can emit morphed Lottie layers.
         let has_shape_tween = layer.keyframes.iter().any(|k| {
             k.frame >= span.start_frame
                 && k.frame < span.end_frame
@@ -727,27 +1236,34 @@ impl<'a> LottieBuilder<'a> {
 
         if has_shape_tween {
             return self.emit_sampled_shape_span(
+                symbol_id,
                 timeline,
+                timeline_has_camera,
                 layer,
                 span,
                 layer_bm,
                 mask_layer,
                 origin_offset,
+                stack,
                 next_ind,
             );
         }
 
         // Group elements by their ID across the span, rendered top-to-bottom (reverse of
         // `elements` slice order, since `elements.last()` is on top in NeoFlash).
-        // Sample `sample_layer_in` at most once per needed frame (either dense for guided/curved
-        // spans, or at keyframe/span boundaries for standard spans) instead of re-sampling per
-        // element, avoiding O(N_elements^2 * N_frames) overhead on multi-shape layers (T-060).
-        let dense = layer.properties.motion_guide.is_some()
+        let dense = timeline_has_camera
+            || layer.properties.motion_guide.is_some()
             || layer.keyframes.iter().any(|k| {
                 !k.property_expressions.is_empty()
+                    || !k.ik_armatures.is_empty()
+                    || !k.asset_warps.is_empty()
                     || k.motion_path.is_some()
                     || k.orient_to_path
                     || k.roving
+                    || (k.frame > span.start_frame
+                        && k.frame + 1 < span.end_frame
+                        && (k.keyed_properties.is_some() || k.motion_keys.is_some()))
+                    || has_asymmetric_pair_ease(&k.property_eases)
                     || matches!(k.tween, Some(Easing::Bounce | Easing::Elastic))
                     || k.property_eases
                         .iter()
@@ -757,9 +1273,10 @@ impl<'a> LottieBuilder<'a> {
                             || track.orient_to_path == Some(true)
                             || matches!(track.easing, Some(Easing::Bounce | Easing::Elastic))
                             || track.property_eases.as_ref().is_some_and(|eases| {
-                                eases.iter().any(|(_, ease)| {
-                                    matches!(ease, Easing::Bounce | Easing::Elastic)
-                                })
+                                has_asymmetric_pair_ease(eases)
+                                    || eases.iter().any(|(_, ease)| {
+                                        matches!(ease, Easing::Bounce | Easing::Elastic)
+                                    })
                             })
                     })
                     || k.motion_keys
@@ -783,8 +1300,9 @@ impl<'a> LottieBuilder<'a> {
 
         let mut tracks: Vec<String> = Vec::new();
         let mut track_samples: BTreeMap<String, Vec<(u32, Element)>> = BTreeMap::new();
-        for f in sample_frames {
-            for el in sample_layer_in_at_fps(timeline, layer, f, self.source_fps) {
+        for f in &sample_frames {
+            self.check_cancelled()?;
+            for el in sample_filtered_frame(*f) {
                 if !track_samples.contains_key(&el.id) {
                     tracks.push(el.id.clone());
                     track_samples.insert(el.id.clone(), Vec::new());
@@ -792,51 +1310,213 @@ impl<'a> LottieBuilder<'a> {
                 if el.visible
                     && let Some(vec) = track_samples.get_mut(&el.id)
                 {
-                    vec.push((f, el));
+                    vec.push((*f, el));
                 }
             }
         }
 
+        // Pre-detect consistent intra-layer `element_parents` links (`child_id -> parent_id`)
+        // across this span when no camera warp is active, so children can emit native Lottie
+        // `"parent": parent_ind` links.
+        let mut stable_parent_of: BTreeMap<String, String> = BTreeMap::new();
+        if !timeline_has_camera {
+            for child_id in &tracks {
+                let mut candidate: Option<String> = None;
+                let mut consistent = true;
+                for &f in &sample_frames {
+                    let pid = layer
+                        .key_at(f)
+                        .and_then(|k| k.parent_of(child_id))
+                        .map(str::to_owned);
+                    match (&candidate, pid) {
+                        (None, Some(p)) if f == sample_frames[0] => candidate = Some(p),
+                        (Some(expected), Some(p)) if expected == &p => {}
+                        (None, None) => {}
+                        _ => {
+                            consistent = false;
+                            break;
+                        }
+                    }
+                }
+                if consistent
+                    && let Some(pid) = candidate
+                    && track_samples.contains_key(&pid)
+                {
+                    stable_parent_of.insert(child_id.clone(), pid);
+                }
+            }
+        }
+
+        let mut parent_world_tracks = BTreeMap::new();
+        for pid in stable_parent_of.values() {
+            if parent_world_tracks.contains_key(pid) {
+                continue;
+            }
+            if let Some(psamples) = track_samples.get(pid)
+                && !psamples.is_empty()
+            {
+                let anchor = if matches!(psamples[0].1.kind, ElementKind::Instance { .. }) {
+                    [self.comp_w as f64, self.comp_h as f64]
+                } else {
+                    [0.0, 0.0]
+                };
+                let mut map = BTreeMap::new();
+                let mut invertible = true;
+                for (f, pel) in psamples {
+                    let m = neoflash_core::transform_matrix(pel.transform);
+                    if invert_affine(m).is_none() {
+                        invertible = false;
+                        break;
+                    }
+                    map.insert(*f, m);
+                }
+                if invertible {
+                    parent_world_tracks.insert(pid.clone(), (map, anchor));
+                }
+            }
+        }
+
+        let mut emitted_ind_by_element: BTreeMap<String, u32> = BTreeMap::new();
+        let mut pending_parent_patch: Vec<(usize, String)> = Vec::new();
         let mut out = Vec::new();
         for element_id in tracks.into_iter().rev() {
-            let Some(samples) = track_samples.remove(&element_id) else {
+            self.check_cancelled()?;
+            let Some(mut samples) = track_samples.remove(&element_id) else {
                 continue;
             };
-            if let Some(val) = self.emit_element_track(
+            let mut effective_origin = origin_offset;
+            let mut parent_target_id: Option<String> = None;
+            let world_samples_for_mask: Vec<(u32, Transform)> =
+                samples.iter().map(|(f, e)| (*f, e.transform)).collect();
+
+            if let Some(pid) = stable_parent_of.get(&element_id)
+                && let Some((pmap, panchor)) = parent_world_tracks.get(pid)
+                && samples.iter().all(|(f, _)| pmap.contains_key(f))
+            {
+                let mut converted_ok = true;
+                let mut local_samples = Vec::with_capacity(samples.len());
+                for (f, mut el) in samples.iter().cloned() {
+                    let pm = pmap[&f];
+                    let Some(inv_pm) = invert_affine(pm) else {
+                        converted_ok = false;
+                        break;
+                    };
+                    let local_m = neoflash_core::affine_multiply(
+                        inv_pm,
+                        neoflash_core::transform_matrix(el.transform),
+                    );
+                    let Some(lt) = Transform::from_matrix(local_m) else {
+                        converted_ok = false;
+                        break;
+                    };
+                    el.transform.x = lt.x;
+                    el.transform.y = lt.y;
+                    el.transform.scale_x = lt.scale_x;
+                    el.transform.scale_y = lt.scale_y;
+                    el.transform.rotation = lt.rotation;
+                    el.transform.skew = lt.skew;
+                    local_samples.push((f, el));
+                }
+                if converted_ok {
+                    samples = local_samples;
+                    effective_origin = *panchor;
+                    parent_target_id = Some(pid.clone());
+                }
+            }
+
+            let emitted_layers = self.emit_element_track(
+                symbol_id,
                 timeline,
                 layer,
                 samples,
+                &world_samples_for_mask,
+                dense,
                 total_frames,
                 layer_bm,
                 layer_synced,
                 mask_layer,
+                effective_origin,
                 origin_offset,
                 stack,
                 next_ind,
-            ) {
-                out.push(val);
+            )?;
+            if !emitted_layers.is_empty() {
+                let content_idx_in_out = out.len() + emitted_layers.len() - 1;
+                if let Some(ind_u64) = emitted_layers.last().and_then(|v| v["ind"].as_u64()) {
+                    emitted_ind_by_element.insert(element_id.clone(), ind_u64 as u32);
+                }
+                if let Some(pid) = parent_target_id {
+                    pending_parent_patch.push((content_idx_in_out, pid));
+                }
+                out.extend(emitted_layers);
             }
         }
-        out
+
+        for (layer_idx, pid) in pending_parent_patch {
+            if let Some(&p_ind) = emitted_ind_by_element.get(&pid)
+                && let Some(obj) = out.get_mut(layer_idx).and_then(Value::as_object_mut)
+            {
+                obj.insert("parent".into(), json!(p_ind));
+            }
+        }
+
+        Ok(out)
     }
 
     #[allow(clippy::too_many_arguments)]
     fn emit_sampled_shape_span(
         &mut self,
+        symbol_id: &str,
         timeline: &Timeline,
+        timeline_has_camera: bool,
         layer: &Layer,
         span: &LayerSpan,
         layer_bm: u32,
         mask_layer: Option<&Layer>,
         origin_offset: [f64; 2],
+        stack: &mut Vec<String>,
         next_ind: &mut u32,
-    ) -> Vec<Value> {
-        // Check if every frame in the span has a single morphing shape with identical contour
-        // count and vertex count per contour; if so, emit a single animated Lottie shape layer!
+    ) -> Result<Vec<Value>, ExportError> {
+        let stage_center = [self.comp_w as f64 * 0.5, self.comp_h as f64 * 0.5];
+        let apply_cam = |mut els: Vec<Element>, f: u32| -> Vec<Element> {
+            let controllers = layer
+                .key_at(f)
+                .map(|k| k.controller_elements.as_slice())
+                .unwrap_or(&[]);
+            els.retain(|e| e.visible && !controllers.iter().any(|cid| cid == &e.id));
+            if timeline_has_camera
+                && !layer.properties.attach_to_camera
+                && let Some(cam) = sample_timeline_camera(timeline, f)
+            {
+                let cam_m = camera_layer_matrix(&cam, layer.properties.z_depth, stage_center);
+                for el in &mut els {
+                    let world_m = neoflash_core::affine_multiply(
+                        cam_m,
+                        neoflash_core::transform_matrix(el.transform),
+                    );
+                    if let Some(cam_t) = Transform::from_matrix(world_m) {
+                        el.transform.x = cam_t.x;
+                        el.transform.y = cam_t.y;
+                        el.transform.scale_x = cam_t.scale_x;
+                        el.transform.scale_y = cam_t.scale_y;
+                        el.transform.rotation = cam_t.rotation;
+                        el.transform.skew = cam_t.skew;
+                    }
+                    el.transform.color_transform =
+                        cam.color_transform.then(el.transform.color_transform);
+                }
+            }
+            els
+        };
+
         let mut frame_shapes: Vec<(u32, Element)> = Vec::new();
         let mut single_track = true;
         for f in span.start_frame..span.end_frame {
-            let mut els = sample_shape_tween_frame(timeline, layer, f, self.source_fps);
+            self.check_cancelled()?;
+            let mut els = apply_cam(
+                sample_shape_tween_frame(timeline, layer, f, self.source_fps),
+                f,
+            );
             if els.len() == 1 && els[0].to_path_commands().is_some() {
                 frame_shapes.push((f, els.pop().unwrap()));
             } else {
@@ -847,7 +1527,8 @@ impl<'a> LottieBuilder<'a> {
 
         if single_track
             && !frame_shapes.is_empty()
-            && let Some(layer_val) = self.try_build_morphed_shape_layer(
+            && let Some(layers) = self.try_build_morphed_shape_layer(
+                symbol_id,
                 timeline,
                 layer,
                 span,
@@ -855,26 +1536,45 @@ impl<'a> LottieBuilder<'a> {
                 layer_bm,
                 mask_layer,
                 origin_offset,
+                stack,
                 next_ind,
-            )
+            )?
         {
-            return vec![layer_val];
+            return Ok(layers);
         }
 
         // Fallback: emit 1-frame slices for arbitrary multi-shape topology changes.
         let mut out = Vec::new();
         for f in (span.start_frame..span.end_frame).rev() {
-            let els = sample_layer_in_at_fps(timeline, layer, f, self.source_fps);
+            self.check_cancelled()?;
+            let els = apply_cam(
+                sample_layer_in_at_fps(timeline, layer, f, self.source_fps),
+                f,
+            );
             for el in els.into_iter().rev() {
-                if let Some(shape_group) = self.element_to_shape_group(&el, [0.0, 0.0], true) {
+                if let Some(shape_group) = self.element_to_shape_group(
+                    &el,
+                    [0.0, 0.0],
+                    true,
+                    None,
+                    Some(symbol_id),
+                    Some(&layer.id),
+                    Some(f),
+                ) {
                     let ind = *next_ind;
                     *next_ind += 1;
                     let bm = if el.blend_mode.is_normal() {
                         layer_bm
                     } else {
-                        self.map_blend_mode(el.blend_mode, &format!("Element '{}'", el.id))
+                        self.map_blend_mode(
+                            el.blend_mode,
+                            &format!("Element '{}'", el.id),
+                            Some(symbol_id),
+                            Some(&layer.id),
+                            Some(f),
+                        )
                     };
-                    let mut obj = json!({
+                    let obj = json!({
                         "ddd": 0,
                         "ind": ind,
                         "ty": 4,
@@ -888,17 +1588,30 @@ impl<'a> LottieBuilder<'a> {
                         "st": 0,
                         "bm": bm
                     });
-                    self.attach_masks(&mut obj, timeline, mask_layer, f, f + 1, el.transform);
-                    out.push(obj);
+                    let world_mask_samples = [(f, el.transform)];
+                    let wrapped = self.attach_mask_or_matte(
+                        symbol_id,
+                        timeline,
+                        mask_layer,
+                        obj,
+                        f,
+                        f + 1,
+                        &world_mask_samples,
+                        origin_offset,
+                        stack,
+                        next_ind,
+                    )?;
+                    out.extend(wrapped);
                 }
             }
         }
-        out
+        Ok(out)
     }
 
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     fn try_build_morphed_shape_layer(
         &mut self,
+        symbol_id: &str,
         timeline: &Timeline,
         layer: &Layer,
         span: &LayerSpan,
@@ -906,26 +1619,28 @@ impl<'a> LottieBuilder<'a> {
         layer_bm: u32,
         mask_layer: Option<&Layer>,
         origin_offset: [f64; 2],
+        stack: &mut Vec<String>,
         next_ind: &mut u32,
-    ) -> Option<Value> {
-        // Transform every frame's path commands into layer space (with `origin_offset`) so
-        // morphing vertices, translations, and paint changes are all unified smoothly.
-        let mut contours_per_frame: Vec<(u32, Vec<LottieBezier>, [u8; 4], [u8; 4], f64, FillRule)> =
-            Vec::with_capacity(frame_shapes.len());
+    ) -> Result<Option<Vec<Value>>, ExportError> {
+        struct MorphFrameSample {
+            frame: u32,
+            contours: Vec<LottieBezier>,
+            fill: Color,
+            stroke: Color,
+            fill_grad: Option<GradientPaint>,
+            stroke_grad: Option<GradientPaint>,
+            stroke_width: f64,
+            fill_rule: FillRule,
+        }
+
+        let mut samples_per_frame: Vec<MorphFrameSample> = Vec::with_capacity(frame_shapes.len());
         for (f, el) in frame_shapes {
-            if matches!(
-                &el.kind,
-                ElementKind::PaintedPath {
-                    fill_gradient: Some(_),
-                    ..
-                } | ElementKind::PaintedPath {
-                    stroke_gradient: Some(_),
-                    ..
-                }
-            ) {
-                return None;
-            }
-            let (cmds, fill_rule) = el.to_path_commands()?;
+            self.check_cancelled()?;
+            let resolved_el = resolve_parametric_stroke_element(el);
+            let target_el = resolved_el.as_ref().unwrap_or(el);
+            let Some((cmds, fill_rule)) = target_el.to_path_commands() else {
+                return Ok(None);
+            };
             let m = neoflash_core::transform_matrix(Transform {
                 x: el.transform.x + origin_offset[0],
                 y: el.transform.y + origin_offset[1],
@@ -934,100 +1649,188 @@ impl<'a> LottieBuilder<'a> {
             let tx_cmds = transform_path_commands(&cmds, m);
             let contours = path_commands_to_lottie_beziers(&tx_cmds);
             if contours.is_empty() {
-                return None;
+                return Ok(None);
             }
-            let (raw_fill, raw_stroke, stroke_width) = extract_element_paint(el);
-            let fill = el.transform.color_transform.apply(raw_fill);
-            let stroke = el.transform.color_transform.apply(raw_stroke);
-            contours_per_frame.push((*f, contours, fill, stroke, stroke_width, fill_rule));
+            let (raw_fill, raw_stroke, stroke_width) = extract_element_paint(target_el);
+            let ct = el.transform.color_transform;
+            let fill = ct.apply(raw_fill);
+            let stroke = ct.apply(raw_stroke);
+            let (fill_grad, stroke_grad) = match &target_el.kind {
+                ElementKind::PaintedPath {
+                    fill_gradient,
+                    stroke_gradient,
+                    ..
+                } => (
+                    fill_gradient
+                        .as_ref()
+                        .map(|g| transform_gradient_paint(g, m, ct, true)),
+                    stroke_gradient
+                        .as_ref()
+                        .map(|g| transform_gradient_paint(g, m, ct, true)),
+                ),
+                _ => (None, None),
+            };
+            samples_per_frame.push(MorphFrameSample {
+                frame: *f,
+                contours,
+                fill,
+                stroke,
+                fill_grad,
+                stroke_grad,
+                stroke_width,
+                fill_rule,
+            });
         }
 
-        let contour_count = contours_per_frame[0].1.len();
-        let vertex_counts: Vec<usize> = contours_per_frame[0].1.iter().map(|c| c.v.len()).collect();
-        if contours_per_frame.iter().any(|(_, cs, _, _, _, _)| {
-            cs.len() != contour_count
-                || cs
+        let contour_count = samples_per_frame[0].contours.len();
+        let vertex_counts: Vec<usize> = samples_per_frame[0]
+            .contours
+            .iter()
+            .map(|c| c.v.len())
+            .collect();
+        if samples_per_frame.iter().any(|s| {
+            s.contours.len() != contour_count
+                || s.contours
                     .iter()
                     .zip(&vertex_counts)
                     .any(|(c, &expected)| c.v.len() != expected)
         }) {
-            return None;
+            return Ok(None);
         }
+
+        let any_fill_grad = samples_per_frame.iter().any(|s| s.fill_grad.is_some());
+        let any_stroke_grad = samples_per_frame.iter().any(|s| s.stroke_grad.is_some());
+        let normalized_fill_grads: Option<Vec<(u32, GradientPaint)>> = if any_fill_grad {
+            let Some(template) = samples_per_frame.iter().find_map(|s| s.fill_grad.as_ref()) else {
+                return Ok(None);
+            };
+            let kind = template.kind;
+            let stop_len = template.stops.len();
+            if stop_len == 0 {
+                return Ok(None);
+            }
+            let mut grads = Vec::with_capacity(samples_per_frame.len());
+            for s in &samples_per_frame {
+                if let Some(g) = &s.fill_grad {
+                    if g.kind != kind || g.stops.len() != stop_len {
+                        return Ok(None);
+                    }
+                    grads.push((s.frame, g.clone()));
+                } else {
+                    grads.push((s.frame, solid_as_matching_gradient(s.fill, template)));
+                }
+            }
+            Some(grads)
+        } else {
+            None
+        };
+
+        let normalized_stroke_grads: Option<Vec<(u32, GradientPaint)>> = if any_stroke_grad {
+            let Some(template) = samples_per_frame
+                .iter()
+                .find_map(|s| s.stroke_grad.as_ref())
+            else {
+                return Ok(None);
+            };
+            let kind = template.kind;
+            let stop_len = template.stops.len();
+            if stop_len == 0 {
+                return Ok(None);
+            }
+            let mut grads = Vec::with_capacity(samples_per_frame.len());
+            for s in &samples_per_frame {
+                if let Some(g) = &s.stroke_grad {
+                    if g.kind != kind || g.stops.len() != stop_len {
+                        return Ok(None);
+                    }
+                    grads.push((s.frame, g.clone()));
+                } else {
+                    grads.push((s.frame, solid_as_matching_gradient(s.stroke, template)));
+                }
+            }
+            Some(grads)
+        } else {
+            None
+        };
 
         let mut items: Vec<Value> = Vec::new();
         for c_idx in 0..contour_count {
             let mut kfs = Vec::new();
-            for (idx, (f, cs, _, _, _, _)) in contours_per_frame.iter().enumerate() {
-                let bez = cs[c_idx].to_json();
-                if idx + 1 < contours_per_frame.len() {
+            for (idx, s) in samples_per_frame.iter().enumerate() {
+                let bez = s.contours[c_idx].to_json();
+                if idx + 1 < samples_per_frame.len() {
                     kfs.push(json!({
-                        "t": *f,
+                        "t": s.frame,
                         "s": [bez],
                         "i": {"x": [1.0], "y": [1.0]},
                         "o": {"x": [0.0], "y": [0.0]}
                     }));
                 } else {
                     kfs.push(json!({
-                        "t": *f,
+                        "t": s.frame,
                         "s": [bez]
                     }));
                 }
             }
+            let dir = samples_per_frame[0].contours[c_idx].lottie_direction();
             items.push(json!({
                 "ty": "sh",
-                "d": 1,
+                "d": dir,
                 "nm": format!("Path {}", c_idx + 1),
                 "ks": {
                     "a": if kfs.len() > 1 { 1 } else { 0 },
-                    "k": if kfs.len() > 1 { Value::Array(kfs) } else { contours_per_frame[0].1[c_idx].to_json() }
+                    "k": if kfs.len() > 1 { Value::Array(kfs) } else { samples_per_frame[0].contours[c_idx].to_json() }
                 }
             }));
         }
 
-        let (_, _, fill0, stroke0, sw0, fill_rule0) = &contours_per_frame[0];
-        if contours_per_frame
-            .iter()
-            .any(|(_, _, fill, _, _, _)| fill[3] > 0)
-        {
-            let fill_rgb_varies = contours_per_frame
+        let fill_rule0 = samples_per_frame[0].fill_rule;
+        let fill0 = samples_per_frame[0].fill;
+        let stroke0 = samples_per_frame[0].stroke;
+        let sw0 = samples_per_frame[0].stroke_width;
+
+        if let Some(grads) = &normalized_fill_grads {
+            self.note_gradient_approximations(&grads[0].1, symbol_id, &layer.id, span.start_frame);
+            items.push(animated_gradient_fill_item(grads, fill_rule0));
+        } else if samples_per_frame.iter().any(|s| s.fill[3] > 0) {
+            let fill_rgb_varies = samples_per_frame
                 .iter()
-                .any(|(_, _, f, _, _, _)| f[0..3] != fill0[0..3]);
-            let fill_alpha_varies = contours_per_frame
-                .iter()
-                .any(|(_, _, f, _, _, _)| f[3] != fill0[3]);
-            let c_val = if fill_rgb_varies && contours_per_frame.len() > 1 {
-                let kfs: Vec<Value> = contours_per_frame
+                .any(|s| s.fill[0..3] != fill0[0..3]);
+            let fill_alpha_varies = samples_per_frame.iter().any(|s| s.fill[3] != fill0[3]);
+            let c_val = if fill_rgb_varies && samples_per_frame.len() > 1 {
+                let kfs: Vec<Value> = samples_per_frame
                     .iter()
                     .enumerate()
-                    .map(|(idx, (f, _, [r, g, b, _], _, _, _))| {
+                    .map(|(idx, s)| {
+                        let [r, g, b, _] = s.fill;
                         let c = [
-                            round4(f64::from(*r) / 255.0),
-                            round4(f64::from(*g) / 255.0),
-                            round4(f64::from(*b) / 255.0),
+                            round4(f64::from(r) / 255.0),
+                            round4(f64::from(g) / 255.0),
+                            round4(f64::from(b) / 255.0),
                             1.0,
                         ];
-                        if idx + 1 < contours_per_frame.len() {
-                            json!({"t": *f, "s": c, "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
+                        if idx + 1 < samples_per_frame.len() {
+                            json!({"t": s.frame, "s": c, "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
                         } else {
-                            json!({"t": *f, "s": c})
+                            json!({"t": s.frame, "s": c})
                         }
                     })
                     .collect();
                 json!({"a": 1, "k": kfs})
             } else {
-                let [r, g, b, _] = *fill0;
+                let [r, g, b, _] = fill0;
                 json!({"a": 0, "k": [round4(f64::from(r) / 255.0), round4(f64::from(g) / 255.0), round4(f64::from(b) / 255.0), 1.0]})
             };
-            let o_val = if fill_alpha_varies && contours_per_frame.len() > 1 {
-                let kfs: Vec<Value> = contours_per_frame
+            let o_val = if fill_alpha_varies && samples_per_frame.len() > 1 {
+                let kfs: Vec<Value> = samples_per_frame
                     .iter()
                     .enumerate()
-                    .map(|(idx, (f, _, [_, _, _, a], _, _, _))| {
-                        let o = round4(f64::from(*a) / 255.0 * 100.0);
-                        if idx + 1 < contours_per_frame.len() {
-                            json!({"t": *f, "s": [o], "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
+                    .map(|(idx, s)| {
+                        let o = round4(f64::from(s.fill[3]) / 255.0 * 100.0);
+                        if idx + 1 < samples_per_frame.len() {
+                            json!({"t": s.frame, "s": [o], "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
                         } else {
-                            json!({"t": *f, "s": [o]})
+                            json!({"t": s.frame, "s": [o]})
                         }
                     })
                     .collect();
@@ -1040,56 +1843,65 @@ impl<'a> LottieBuilder<'a> {
                 "nm": "Fill",
                 "c": c_val,
                 "o": o_val,
-                "r": if *fill_rule0 == FillRule::EvenOdd { 2 } else { 1 },
+                "r": if fill_rule0 == FillRule::EvenOdd { 2 } else { 1 },
                 "bm": 0
             }));
         }
-        if contours_per_frame
-            .iter()
-            .any(|(_, _, _, stroke, sw, _)| stroke[3] > 0 && *sw > 0.0)
+
+        if let Some(grads) = &normalized_stroke_grads
+            && samples_per_frame.iter().any(|s| s.stroke_width > 0.0)
         {
-            let stroke_rgb_varies = contours_per_frame
+            self.note_gradient_approximations(&grads[0].1, symbol_id, &layer.id, span.start_frame);
+            let widths: Vec<(u32, f64)> = samples_per_frame
                 .iter()
-                .any(|(_, _, _, s, _, _)| s[0..3] != stroke0[0..3]);
-            let stroke_alpha_varies = contours_per_frame
+                .map(|s| (s.frame, s.stroke_width))
+                .collect();
+            items.push(animated_gradient_stroke_item(grads, &widths));
+        } else if samples_per_frame
+            .iter()
+            .any(|s| s.stroke[3] > 0 && s.stroke_width > 0.0)
+        {
+            let stroke_rgb_varies = samples_per_frame
                 .iter()
-                .any(|(_, _, _, s, _, _)| s[3] != stroke0[3]);
-            let sw_varies = contours_per_frame
+                .any(|s| s.stroke[0..3] != stroke0[0..3]);
+            let stroke_alpha_varies = samples_per_frame.iter().any(|s| s.stroke[3] != stroke0[3]);
+            let sw_varies = samples_per_frame
                 .iter()
-                .any(|(_, _, _, _, sw, _)| (*sw - *sw0).abs() > 1e-4);
-            let c_val = if stroke_rgb_varies && contours_per_frame.len() > 1 {
-                let kfs: Vec<Value> = contours_per_frame
+                .any(|s| (s.stroke_width - sw0).abs() > 1e-4);
+            let c_val = if stroke_rgb_varies && samples_per_frame.len() > 1 {
+                let kfs: Vec<Value> = samples_per_frame
                     .iter()
                     .enumerate()
-                    .map(|(idx, (f, _, _, [r, g, b, _], _, _))| {
+                    .map(|(idx, s)| {
+                        let [r, g, b, _] = s.stroke;
                         let c = [
-                            round4(f64::from(*r) / 255.0),
-                            round4(f64::from(*g) / 255.0),
-                            round4(f64::from(*b) / 255.0),
+                            round4(f64::from(r) / 255.0),
+                            round4(f64::from(g) / 255.0),
+                            round4(f64::from(b) / 255.0),
                             1.0,
                         ];
-                        if idx + 1 < contours_per_frame.len() {
-                            json!({"t": *f, "s": c, "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
+                        if idx + 1 < samples_per_frame.len() {
+                            json!({"t": s.frame, "s": c, "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
                         } else {
-                            json!({"t": *f, "s": c})
+                            json!({"t": s.frame, "s": c})
                         }
                     })
                     .collect();
                 json!({"a": 1, "k": kfs})
             } else {
-                let [r, g, b, _] = *stroke0;
+                let [r, g, b, _] = stroke0;
                 json!({"a": 0, "k": [round4(f64::from(r) / 255.0), round4(f64::from(g) / 255.0), round4(f64::from(b) / 255.0), 1.0]})
             };
-            let o_val = if stroke_alpha_varies && contours_per_frame.len() > 1 {
-                let kfs: Vec<Value> = contours_per_frame
+            let o_val = if stroke_alpha_varies && samples_per_frame.len() > 1 {
+                let kfs: Vec<Value> = samples_per_frame
                     .iter()
                     .enumerate()
-                    .map(|(idx, (f, _, _, [_, _, _, a], _, _))| {
-                        let o = round4(f64::from(*a) / 255.0 * 100.0);
-                        if idx + 1 < contours_per_frame.len() {
-                            json!({"t": *f, "s": [o], "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
+                    .map(|(idx, s)| {
+                        let o = round4(f64::from(s.stroke[3]) / 255.0 * 100.0);
+                        if idx + 1 < samples_per_frame.len() {
+                            json!({"t": s.frame, "s": [o], "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
                         } else {
-                            json!({"t": *f, "s": [o]})
+                            json!({"t": s.frame, "s": [o]})
                         }
                     })
                     .collect();
@@ -1097,22 +1909,22 @@ impl<'a> LottieBuilder<'a> {
             } else {
                 json!({"a": 0, "k": round4(f64::from(stroke0[3]) / 255.0 * 100.0)})
             };
-            let w_val = if sw_varies && contours_per_frame.len() > 1 {
-                let kfs: Vec<Value> = contours_per_frame
+            let w_val = if sw_varies && samples_per_frame.len() > 1 {
+                let kfs: Vec<Value> = samples_per_frame
                     .iter()
                     .enumerate()
-                    .map(|(idx, (f, _, _, _, sw, _))| {
-                        let w = round4(*sw);
-                        if idx + 1 < contours_per_frame.len() {
-                            json!({"t": *f, "s": [w], "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
+                    .map(|(idx, s)| {
+                        let w = round4(s.stroke_width);
+                        if idx + 1 < samples_per_frame.len() {
+                            json!({"t": s.frame, "s": [w], "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
                         } else {
-                            json!({"t": *f, "s": [w]})
+                            json!({"t": s.frame, "s": [w]})
                         }
                     })
                     .collect();
                 json!({"a": 1, "k": kfs})
             } else {
-                json!({"a": 0, "k": round4(*sw0)})
+                json!({"a": 0, "k": round4(sw0)})
             };
             items.push(json!({
                 "ty": "st",
@@ -1122,6 +1934,7 @@ impl<'a> LottieBuilder<'a> {
                 "w": w_val,
                 "lc": 2,
                 "lj": 2,
+                "ml": 4,
                 "bm": 0
             }));
         }
@@ -1130,7 +1943,7 @@ impl<'a> LottieBuilder<'a> {
         let ind = *next_ind;
         *next_ind += 1;
         let first_el = &frame_shapes[0].1;
-        let mut obj = json!({
+        let obj = json!({
             "ddd": 0,
             "ind": ind,
             "ty": 4,
@@ -1149,51 +1962,105 @@ impl<'a> LottieBuilder<'a> {
             "st": 0,
             "bm": layer_bm
         });
-        self.attach_masks(
-            &mut obj,
+        let identity_mask_samples: Vec<(u32, Transform)> = frame_shapes
+            .iter()
+            .map(|(f, _)| {
+                (
+                    *f,
+                    Transform {
+                        x: -origin_offset[0],
+                        y: -origin_offset[1],
+                        ..Transform::default()
+                    },
+                )
+            })
+            .collect();
+        let wrapped = self.attach_mask_or_matte(
+            symbol_id,
             timeline,
             mask_layer,
+            obj,
             span.start_frame,
             span.end_frame,
-            Transform::default(),
-        );
-        Some(obj)
+            &identity_mask_samples,
+            origin_offset,
+            stack,
+            next_ind,
+        )?;
+        self.exported_count += 1;
+        Ok(Some(wrapped))
     }
 
     #[allow(clippy::too_many_arguments)]
     fn emit_element_track(
         &mut self,
+        symbol_id: &str,
         timeline: &Timeline,
         layer: &Layer,
         samples: Vec<(u32, Element)>,
+        world_samples_for_mask: &[(u32, Transform)],
+        force_dense_ks: bool,
         _total_frames: u32,
         layer_bm: u32,
         layer_synced: bool,
         mask_layer: Option<&Layer>,
         origin_offset: [f64; 2],
+        comp_origin_offset: [f64; 2],
         stack: &mut Vec<String>,
         next_ind: &mut u32,
-    ) -> Option<Value> {
+    ) -> Result<Vec<Value>, ExportError> {
+        self.check_cancelled()?;
         if samples.is_empty() {
-            return None;
+            return Ok(Vec::new());
         }
         let first_frame = samples.first().unwrap().0;
         let last_frame = samples.last().unwrap().0 + 1;
         let representative = &samples[0].1;
 
         if !representative.scripts.is_empty() {
-            self.warn(format!(
-                "Layer '{}' element '{}': object script(s) are not executed by Lottie players.",
-                layer.name,
-                layer_element_name(layer, representative)
-            ));
+            self.add_note_coded(
+                LottieNoteKind::NotExported,
+                Some("LOTTIE_OBJECT_SCRIPT"),
+                format!(
+                    "Layer '{}' element '{}'",
+                    layer.name,
+                    layer_element_name(layer, representative)
+                ),
+                "object script(s) are not executed by Lottie players.",
+                Some(symbol_id.to_owned()),
+                Some(layer.id.clone()),
+                Some(first_frame),
+            );
         }
-        if !representative.filters.is_empty() {
-            self.warn(format!(
-                "Layer '{}' element '{}': display filter(s) are not exported to Lottie v{LOTTIE_VERSION}.",
-                layer.name,
-                layer_element_name(layer, representative)
-            ));
+        if samples.iter().any(|(_, e)| !e.filters.is_empty()) {
+            self.add_note_coded(
+                LottieNoteKind::NotExported,
+                Some("LOTTIE_DISPLAY_FILTER"),
+                format!(
+                    "Layer '{}' element '{}'",
+                    layer.name,
+                    layer_element_name(layer, representative)
+                ),
+                format!("display filter(s) are not exported to Lottie v{LOTTIE_VERSION}."),
+                Some(symbol_id.to_owned()),
+                Some(layer.id.clone()),
+                Some(first_frame),
+            );
+        }
+        if representative.scale9_grid().is_some()
+            && samples
+                .iter()
+                .any(|(_, e)| (e.transform.scale_x - e.transform.scale_y).abs() > 1e-3)
+        {
+            self.add_note_coded(
+                LottieNoteKind::Approximated,
+                Some("LOTTIE_SCALE9_GRID"),
+                format!("Layer '{}' · {}", layer.name, representative.id),
+                "Element 9-slice grid is approximated with uniform/affine layer scaling in Lottie.",
+                Some(symbol_id.to_owned()),
+                Some(layer.id.clone()),
+                Some(first_frame),
+            );
         }
 
         let bm = if representative.blend_mode.is_normal() {
@@ -1202,6 +2069,9 @@ impl<'a> LottieBuilder<'a> {
             self.map_blend_mode(
                 representative.blend_mode,
                 &format!("Layer '{}' element '{}'", layer.name, representative.id),
+                Some(symbol_id),
+                Some(&layer.id),
+                Some(first_frame),
             )
         };
 
@@ -1213,10 +2083,37 @@ impl<'a> LottieBuilder<'a> {
 
         match &representative.kind {
             ElementKind::Instance {
-                symbol_id,
+                symbol_id: child_symbol_id,
                 playback,
             } => {
-                let ref_id = self.ensure_symbol_precomp(symbol_id, stack)?;
+                let Some(ref_id) = self.ensure_symbol_precomp(
+                    child_symbol_id,
+                    symbol_id,
+                    Some(&layer.id),
+                    Some(first_frame),
+                    stack,
+                )?
+                else {
+                    return Ok(Vec::new());
+                };
+                if samples
+                    .iter()
+                    .any(|(_, e)| has_non_alpha_color_transform(e.transform.color_transform))
+                {
+                    self.add_note_coded(
+                        LottieNoteKind::Approximated,
+                        Some("LOTTIE_COLOR_TRANSFORM_APPROX"),
+                        format!(
+                            "Layer '{}' · {}",
+                            layer.name,
+                            layer_element_name(layer, representative)
+                        ),
+                        "RGB tint/color-offset transform on symbol instance cannot be represented losslessly on a core Lottie precomp layer; alpha channel was preserved.",
+                        Some(symbol_id.to_owned()),
+                        Some(layer.id.clone()),
+                        Some(first_frame),
+                    );
+                }
                 let precomp_anchor = [self.comp_w as f64, self.comp_h as f64];
                 let ks = self.build_animated_ks(
                     timeline,
@@ -1224,29 +2121,28 @@ impl<'a> LottieBuilder<'a> {
                     &samples,
                     precomp_anchor,
                     origin_offset,
+                    force_dense_ks,
+                    orient_auto,
                 );
                 let ind = *next_ind;
                 *next_ind += 1;
-                let effective_playback = if self.options.movie_clip_mode
-                    == LottieMovieClipMode::FirstFrame
-                    && self
-                        .project
-                        .symbol(symbol_id)
-                        .is_some_and(|s| s.kind == neoflash_core::SymbolKind::MovieClip)
+                let target_sym = self.project.symbol(child_symbol_id);
+                let is_button = target_sym.is_some_and(|s| s.kind == SymbolKind::Button);
+                let effective_playback = if is_button {
+                    InstancePlayback::SingleFrame(0)
+                } else if self.options.movie_clip_mode == LottieMovieClipMode::FirstFrame
+                    && target_sym.is_some_and(|s| s.kind == SymbolKind::MovieClip)
                 {
-                    if self
-                        .project
-                        .symbol(symbol_id)
-                        .is_some_and(|s| s.timeline.frame_count > 1)
-                    {
-                        self.add_note(
+                    if target_sym.is_some_and(|s| s.timeline.frame_count > 1) {
+                        self.add_note_coded(
                             LottieNoteKind::Approximated,
+                            Some("LOTTIE_MOVIECLIP_FIRST_FRAME"),
                             format!("Layer '{}' · {}", layer.name, representative.name),
                             format!(
                                 "MovieClip '{}' exported as first frame only (Movie clips: First frame).",
-                                symbol_id
+                                child_symbol_id
                             ),
-                            Some(symbol_id.clone()),
+                            Some(child_symbol_id.clone()),
                             Some(layer.id.clone()),
                             Some(first_frame),
                         );
@@ -1275,24 +2171,29 @@ impl<'a> LottieBuilder<'a> {
                     timeline,
                     layer,
                     &representative.id,
-                    symbol_id,
+                    child_symbol_id,
                     effective_playback,
+                    is_button,
                     layer_synced,
                     first_frame,
                     last_frame,
                 ) {
                     obj.as_object_mut().unwrap().insert("tm".into(), tm);
                 }
-                self.attach_masks(
-                    &mut obj,
+                let wrapped = self.attach_mask_or_matte(
+                    symbol_id,
                     timeline,
                     mask_layer,
+                    obj,
                     first_frame,
                     last_frame,
-                    representative.transform,
-                );
+                    world_samples_for_mask,
+                    comp_origin_offset,
+                    stack,
+                    next_ind,
+                )?;
                 self.exported_count += 1;
-                Some(obj)
+                Ok(wrapped)
             }
             ElementKind::Bitmap {
                 resource_id,
@@ -1300,12 +2201,47 @@ impl<'a> LottieBuilder<'a> {
                 height,
                 ..
             } => {
-                let ref_id = self.ensure_image_asset(resource_id, *width, *height);
-                let ks =
-                    self.build_animated_ks(timeline, layer, &samples, [0.0, 0.0], origin_offset);
+                let Some(ref_id) = self.ensure_image_asset(
+                    resource_id,
+                    *width,
+                    *height,
+                    Some(symbol_id),
+                    Some(&layer.id),
+                    Some(first_frame),
+                )?
+                else {
+                    return Ok(Vec::new());
+                };
+                if samples
+                    .iter()
+                    .any(|(_, e)| has_non_alpha_color_transform(e.transform.color_transform))
+                {
+                    self.add_note_coded(
+                        LottieNoteKind::Approximated,
+                        Some("LOTTIE_COLOR_TRANSFORM_APPROX"),
+                        format!(
+                            "Layer '{}' · {}",
+                            layer.name,
+                            layer_element_name(layer, representative)
+                        ),
+                        "RGB tint/color-offset transform on bitmap instance cannot be represented losslessly on a core Lottie image layer; alpha channel was preserved.",
+                        Some(symbol_id.to_owned()),
+                        Some(layer.id.clone()),
+                        Some(first_frame),
+                    );
+                }
+                let ks = self.build_animated_ks(
+                    timeline,
+                    layer,
+                    &samples,
+                    [0.0, 0.0],
+                    origin_offset,
+                    force_dense_ks,
+                    orient_auto,
+                );
                 let ind = *next_ind;
                 *next_ind += 1;
-                let mut obj = json!({
+                let obj = json!({
                     "ddd": 0,
                     "ind": ind,
                     "ty": 2,
@@ -1319,15 +2255,20 @@ impl<'a> LottieBuilder<'a> {
                     "st": first_frame,
                     "bm": bm
                 });
-                self.attach_masks(
-                    &mut obj,
+                let wrapped = self.attach_mask_or_matte(
+                    symbol_id,
                     timeline,
                     mask_layer,
+                    obj,
                     first_frame,
                     last_frame,
-                    representative.transform,
-                );
-                Some(obj)
+                    world_samples_for_mask,
+                    comp_origin_offset,
+                    stack,
+                    next_ind,
+                )?;
+                self.exported_count += 1;
+                Ok(wrapped)
             }
             ElementKind::Text {
                 text,
@@ -1335,26 +2276,35 @@ impl<'a> LottieBuilder<'a> {
                 font_size,
                 color,
             } => {
-                let ks =
-                    self.build_animated_ks(timeline, layer, &samples, [0.0, 0.0], origin_offset);
+                self.emitted_text_layer = true;
+                let f_name = self.register_font(font_family, false, false);
+                let ks = self.build_animated_ks(
+                    timeline,
+                    layer,
+                    &samples,
+                    [0.0, 0.0],
+                    origin_offset,
+                    force_dense_ks,
+                    orient_auto,
+                );
                 let ind = *next_ind;
                 *next_ind += 1;
                 let [r, g, b, _] = representative.transform.color_transform.apply(*color);
-                let mut obj = json!({
+                let obj = json!({
                     "ddd": 0,
                     "ind": ind,
                     "ty": 5,
                     "nm": layer_element_name(layer, representative),
                     "sr": 1,
                     "ks": ks,
-                    "ao": 0,
+                    "ao": if orient_auto { 1 } else { 0 },
                     "t": {
                         "d": {
                             "k": [{
                                 "t": 0,
                                 "s": {
                                     "s": round4(*font_size),
-                                    "f": font_family,
+                                    "f": f_name,
                                     "t": text.replace('\n', "\r"),
                                     "j": 0,
                                     "tr": 0,
@@ -1373,15 +2323,20 @@ impl<'a> LottieBuilder<'a> {
                     "st": first_frame,
                     "bm": bm
                 });
-                self.attach_masks(
-                    &mut obj,
+                let wrapped = self.attach_mask_or_matte(
+                    symbol_id,
                     timeline,
                     mask_layer,
+                    obj,
                     first_frame,
                     last_frame,
-                    representative.transform,
-                );
-                Some(obj)
+                    world_samples_for_mask,
+                    comp_origin_offset,
+                    stack,
+                    next_ind,
+                )?;
+                self.exported_count += 1;
+                Ok(wrapped)
             }
             ElementKind::TextBox {
                 text,
@@ -1390,8 +2345,40 @@ impl<'a> LottieBuilder<'a> {
                 format,
                 ..
             } => {
-                let ks =
-                    self.build_animated_ks(timeline, layer, &samples, [0.0, 0.0], origin_offset);
+                self.emitted_text_layer = true;
+                if let Some(tf_state) =
+                    neoflash_core::TextFieldState::from_kind(&representative.kind)
+                {
+                    let kind_label = match tf_state.field_type {
+                        TextFieldType::Input => "Input",
+                        TextFieldType::Dynamic => "Dynamic",
+                    };
+                    self.add_note_coded(
+                        LottieNoteKind::Approximated,
+                        Some("LOTTIE_DYNAMIC_INPUT_TEXT"),
+                        format!(
+                            "Layer '{}' · {}",
+                            layer.name,
+                            layer_element_name(layer, representative)
+                        ),
+                        format!(
+                            "{kind_label} text field interactivity/runtime binding is not supported by Lottie players; static text content was exported."
+                        ),
+                        Some(symbol_id.to_owned()),
+                        Some(layer.id.clone()),
+                        Some(first_frame),
+                    );
+                }
+                let f_name = self.register_font(&format.font, format.bold, format.italic);
+                let ks = self.build_animated_ks(
+                    timeline,
+                    layer,
+                    &samples,
+                    [0.0, 0.0],
+                    origin_offset,
+                    force_dense_ks,
+                    orient_auto,
+                );
                 let ind = *next_ind;
                 *next_ind += 1;
                 let fmt_rgba = [
@@ -1401,29 +2388,39 @@ impl<'a> LottieBuilder<'a> {
                     255,
                 ];
                 let [r, g, b, _] = representative.transform.color_transform.apply(fmt_rgba);
-                let justify = match format.align {
-                    neoflash_core::TextAlign::Left => 0,
-                    neoflash_core::TextAlign::Right => 1,
-                    neoflash_core::TextAlign::Center => 2,
+                let justify = match format.effective_align_mode() {
+                    "right" | "end" => 1,
+                    "center" => 2,
+                    "justify" | "justify_all" => 3,
+                    _ => match format.align {
+                        TextAlign::Left => 0,
+                        TextAlign::Right => 1,
+                        TextAlign::Center => 2,
+                    },
                 };
-                let mut obj = json!({
+                let tracking = if format.size > 1e-3 {
+                    round4((format.letter_spacing / format.size) * 1000.0)
+                } else {
+                    0.0
+                };
+                let obj = json!({
                     "ddd": 0,
                     "ind": ind,
                     "ty": 5,
                     "nm": layer_element_name(layer, representative),
                     "sr": 1,
                     "ks": ks,
-                    "ao": 0,
+                    "ao": if orient_auto { 1 } else { 0 },
                     "t": {
                         "d": {
                             "k": [{
                                 "t": 0,
                                 "s": {
                                     "s": round4(format.size),
-                                    "f": format.font,
+                                    "f": f_name,
                                     "t": text.replace('\n', "\r"),
                                     "j": justify,
-                                    "tr": 0,
+                                    "tr": tracking,
                                     "lh": round4(format.size * 1.2 + format.leading),
                                     "ls": 0,
                                     "fc": [round4(f64::from(r) / 255.0), round4(f64::from(g) / 255.0), round4(f64::from(b) / 255.0)],
@@ -1441,34 +2438,64 @@ impl<'a> LottieBuilder<'a> {
                     "st": first_frame,
                     "bm": bm
                 });
-                self.attach_masks(
-                    &mut obj,
+                let wrapped = self.attach_mask_or_matte(
+                    symbol_id,
                     timeline,
                     mask_layer,
+                    obj,
                     first_frame,
                     last_frame,
-                    representative.transform,
-                );
-                Some(obj)
+                    world_samples_for_mask,
+                    comp_origin_offset,
+                    stack,
+                    next_ind,
+                )?;
+                self.exported_count += 1;
+                Ok(wrapped)
             }
             ElementKind::Video { .. } => {
-                self.warn(format!(
-                    "Layer '{}' element '{}': video elements are not supported by Lottie v{LOTTIE_VERSION}.",
-                    layer.name,
-                    layer_element_name(layer, representative)
-                ));
-                None
+                self.add_note_coded(
+                    LottieNoteKind::NotExported,
+                    Some("LOTTIE_VIDEO_ELEMENT"),
+                    format!(
+                        "Layer '{}' element '{}'",
+                        layer.name,
+                        layer_element_name(layer, representative)
+                    ),
+                    format!("video elements are not supported by Lottie v{LOTTIE_VERSION}."),
+                    Some(symbol_id.to_owned()),
+                    Some(layer.id.clone()),
+                    Some(first_frame),
+                );
+                Ok(Vec::new())
             }
             ElementKind::Rectangle { .. }
             | ElementKind::Ellipse { .. }
             | ElementKind::Path { .. }
             | ElementKind::PaintedPath { .. } => {
-                let shape_group = self.element_to_shape_group(representative, [0.0, 0.0], false)?;
-                let ks =
-                    self.build_animated_ks(timeline, layer, &samples, [0.0, 0.0], origin_offset);
+                let dash_override =
+                    resolve_native_dash_stroke(layer, first_frame, &representative.id);
+                let Some(shape_group) = self.build_shape_group_for_samples(
+                    layer,
+                    &samples,
+                    force_dense_ks,
+                    dash_override.as_ref(),
+                    symbol_id,
+                ) else {
+                    return Ok(Vec::new());
+                };
+                let ks = self.build_animated_ks(
+                    timeline,
+                    layer,
+                    &samples,
+                    [0.0, 0.0],
+                    origin_offset,
+                    force_dense_ks,
+                    orient_auto,
+                );
                 let ind = *next_ind;
                 *next_ind += 1;
-                let mut obj = json!({
+                let obj = json!({
                     "ddd": 0,
                     "ind": ind,
                     "ty": 4,
@@ -1482,16 +2509,20 @@ impl<'a> LottieBuilder<'a> {
                     "st": first_frame,
                     "bm": bm
                 });
-                self.attach_masks(
-                    &mut obj,
+                let wrapped = self.attach_mask_or_matte(
+                    symbol_id,
                     timeline,
                     mask_layer,
+                    obj,
                     first_frame,
                     last_frame,
-                    representative.transform,
-                );
+                    world_samples_for_mask,
+                    comp_origin_offset,
+                    stack,
+                    next_ind,
+                )?;
                 self.exported_count += 1;
-                Some(obj)
+                Ok(wrapped)
             }
         }
     }
@@ -1504,13 +2535,24 @@ impl<'a> LottieBuilder<'a> {
         element_id: &str,
         symbol_id: &str,
         playback: InstancePlayback,
+        is_button: bool,
         layer_synced: bool,
         first_frame: u32,
         last_frame: u32,
     ) -> Option<Value> {
         let child_sym = self.project.symbol(symbol_id)?;
-        let child_len = child_sym.timeline.frame_count.max(1);
+        let child_len = if is_button {
+            1
+        } else {
+            child_sym.timeline.frame_count.max(1)
+        };
         if child_len <= 1 {
+            if last_frame > first_frame + 1 {
+                return Some(json!({
+                    "a": 0,
+                    "k": 0.0
+                }));
+            }
             return None;
         }
         let span_start = placement_start(layer, first_frame, element_id);
@@ -1545,13 +2587,18 @@ impl<'a> LottieBuilder<'a> {
             }));
         }
 
-        // Check if default linear precomp playback (`st == first_frame` and no loop wrap or offset)
-        // already matches every frame in `[first_frame..last_frame)`.
         let _ = timeline;
         let matches_default =
             (first_frame..last_frame).all(|f| child_frame_at(f) == f.saturating_sub(first_frame));
         if matches_default {
             return None;
+        }
+
+        if last_frame <= first_frame + 1 {
+            return Some(json!({
+                "a": 0,
+                "k": round4(child_frame_at(first_frame) as f64 / self.fps)
+            }));
         }
 
         let mut kfs = Vec::with_capacity((last_frame - first_frame) as usize);
@@ -1570,6 +2617,7 @@ impl<'a> LottieBuilder<'a> {
         }))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_animated_ks(
         &self,
         timeline: &Timeline,
@@ -1577,19 +2625,33 @@ impl<'a> LottieBuilder<'a> {
         samples: &[(u32, Element)],
         anchor: [f64; 2],
         origin_offset: [f64; 2],
+        force_dense: bool,
+        orient_auto: bool,
     ) -> Value {
         let first_t = samples[0].1.transform;
         let element_id = samples[0].1.id.as_str();
-        let is_static = samples
-            .iter()
-            .all(|(_, e)| transforms_approx_eq(e.transform, first_t));
+        let first_f = samples[0].0;
+        let last_f = samples.last().unwrap().0;
+        let has_classic_spin = layer.keyframes.iter().any(|k| {
+            k.frame >= first_f
+                && k.frame < last_f
+                && k.tween.is_some()
+                && k.tween_kind == TweenKind::Classic
+                && (k.classic_rotate_turns > 0
+                    || !matches!(k.classic_rotate_dir, ClassicRotateDirection::Auto))
+        });
+
+        let is_static = !has_classic_spin
+            && !orient_auto
+            && samples
+                .iter()
+                .all(|(_, e)| transforms_approx_eq(e.transform, first_t));
         if is_static {
             return static_ks(first_t, anchor, origin_offset);
         }
 
-        // Check if this layer uses a motion guide, custom spatial motion path, orient_to_path,
-        // or bounce/elastic easing; if so, emit exact per-frame keyframes from `samples`.
-        let dense = layer.properties.motion_guide.is_some()
+        let dense = force_dense
+            || layer.properties.motion_guide.is_some()
             || layer.keyframes.iter().any(|k| {
                 !k.property_expressions.is_empty()
                     || !matches!(k.motion_path_for(element_id), MotionPathSource::None)
@@ -1620,8 +2682,19 @@ impl<'a> LottieBuilder<'a> {
             collect_transform_keyframes(timeline, layer, samples, element_id)
         };
 
+        let unwrapped_rotations = compute_unwrapped_rotations(layer, &key_frames, dense);
+        let auto_orient_offsets = if orient_auto {
+            compute_lottie_auto_orient_deg(&key_frames)
+        } else {
+            vec![0.0; key_frames.len()]
+        };
+
         let p_kfs = build_vec3_keyframes(&key_frames, |t, f| {
-            let ease = ease_for_prop(layer, f, element_id, TweenProperty::X).or(t.2);
+            let ease = if dense {
+                t.2
+            } else {
+                ease_for_prop(layer, f, element_id, TweenProperty::X).or(t.2)
+            };
             (
                 [
                     round4(t.1.x + origin_offset[0]),
@@ -1632,22 +2705,46 @@ impl<'a> LottieBuilder<'a> {
             )
         });
         let s_kfs = build_vec3_keyframes(&key_frames, |t, f| {
-            let ease = ease_for_prop(layer, f, element_id, TweenProperty::ScaleX).or(t.2);
+            let hold_scale = !dense
+                && motion_span(layer, f).is_none()
+                && layer.key_at(f).is_some_and(|k| {
+                    k.tween.is_some() && k.tween_kind == TweenKind::Classic && !k.tween_scale
+                });
+            let ease = if hold_scale {
+                None
+            } else if dense {
+                t.2
+            } else {
+                ease_for_prop(layer, f, element_id, TweenProperty::ScaleX).or(t.2)
+            };
+            let sk_cos = lottie_skew_cos(t.1.skew);
             (
                 [
                     round4(t.1.scale_x * 100.0),
-                    round4(t.1.scale_y * 100.0),
+                    round4(t.1.scale_y * sk_cos * 100.0),
                     100.0,
                 ],
                 ease,
             )
         });
-        let r_kfs = build_scalar_keyframes(&key_frames, |t, f| {
-            let ease = ease_for_prop(layer, f, element_id, TweenProperty::Rotation).or(t.2);
-            (round4(t.1.rotation), ease)
+        let r_kfs = build_indexed_scalar_keyframes(&key_frames, |idx, t, f| {
+            let (rot_deg, hold_rot) = unwrapped_rotations[idx];
+            let compensated = rot_deg - auto_orient_offsets[idx];
+            let ease = if hold_rot {
+                None
+            } else if dense {
+                t.2
+            } else {
+                ease_for_prop(layer, f, element_id, TweenProperty::Rotation).or(t.2)
+            };
+            (round4(compensated), ease)
         });
         let o_kfs = build_scalar_keyframes(&key_frames, |t, f| {
-            let ease = ease_for_prop(layer, f, element_id, TweenProperty::Alpha).or(t.2);
+            let ease = if dense {
+                t.2
+            } else {
+                ease_for_prop(layer, f, element_id, TweenProperty::Alpha).or(t.2)
+            };
             (round4(effective_opacity_percent(t.1)), ease)
         });
 
@@ -1662,8 +2759,12 @@ impl<'a> LottieBuilder<'a> {
         ks.insert("s".into(), s_kfs);
         if samples.iter().any(|(_, e)| e.transform.skew.abs() > 1e-4) {
             let sk_kfs = build_scalar_keyframes(&key_frames, |t, f| {
-                let ease = ease_for_prop(layer, f, element_id, TweenProperty::Skew).or(t.2);
-                (round4(-t.1.skew), ease)
+                let ease = if dense {
+                    t.2
+                } else {
+                    ease_for_prop(layer, f, element_id, TweenProperty::Skew).or(t.2)
+                };
+                (round4(lottie_skew_deg(t.1.skew)), ease)
             });
             ks.insert("sk".into(), sk_kfs);
             ks.insert("sa".into(), json!({"a": 0, "k": 0.0}));
@@ -1671,13 +2772,403 @@ impl<'a> LottieBuilder<'a> {
         Value::Object(ks)
     }
 
+    fn note_gradient_approximations(
+        &mut self,
+        grad: &GradientPaint,
+        symbol_id: &str,
+        layer_id: &str,
+        frame: u32,
+    ) {
+        if grad.spread != GradientSpread::Extend {
+            self.add_note_coded(
+                LottieNoteKind::Approximated,
+                Some("LOTTIE_GRADIENT_SPREAD"),
+                format!("Layer '{layer_id}' (frame {})", frame + 1),
+                format!(
+                    "Gradient spread mode '{:?}' is approximated as pad/extend in Lottie.",
+                    grad.spread
+                ),
+                Some(symbol_id.to_owned()),
+                Some(layer_id.to_owned()),
+                Some(frame),
+            );
+        }
+        if grad.linear_rgb {
+            self.add_note_coded(
+                LottieNoteKind::Approximated,
+                Some("LOTTIE_GRADIENT_LINEAR_RGB"),
+                format!("Layer '{layer_id}' (frame {})", frame + 1),
+                "Linear-RGB gradient interpolation is approximated in standard sRGB in Lottie.",
+                Some(symbol_id.to_owned()),
+                Some(layer_id.to_owned()),
+                Some(frame),
+            );
+        }
+    }
+
+    fn build_shape_group_for_samples(
+        &mut self,
+        layer: &Layer,
+        samples: &[(u32, Element)],
+        force_dense: bool,
+        dash_override: Option<&NativeDashStroke>,
+        symbol_id: &str,
+    ) -> Option<Value> {
+        let first_el = &samples[0].1;
+        let first_f = samples[0].0;
+        let shape_static = dash_override.is_some()
+            || samples.iter().all(|(_, e)| {
+                e.kind == first_el.kind
+                    && e.transform.primitive == first_el.transform.primitive
+                    && apply_rgb_only(e.transform.color_transform, [255, 255, 255, 255], false)
+                        == apply_rgb_only(
+                            first_el.transform.color_transform,
+                            [255, 255, 255, 255],
+                            false,
+                        )
+            });
+
+        if shape_static {
+            return self.element_to_shape_group(
+                first_el,
+                [0.0, 0.0],
+                false,
+                dash_override,
+                Some(symbol_id),
+                Some(&layer.id),
+                Some(first_f),
+            );
+        }
+
+        let key_samples: Vec<(u32, &Element, Option<Easing>)> = if force_dense {
+            samples
+                .iter()
+                .enumerate()
+                .map(|(idx, (f, el))| {
+                    let ease = (idx + 1 < samples.len()).then_some(Easing::Linear);
+                    (*f, el, ease)
+                })
+                .collect()
+        } else {
+            let sample_map: BTreeMap<u32, &Element> =
+                samples.iter().map(|(f, e)| (*f, e)).collect();
+            let mut key_times = BTreeSet::new();
+            key_times.insert(samples[0].0);
+            key_times.insert(samples.last().unwrap().0);
+            for kf in &layer.keyframes {
+                if kf.frame >= samples[0].0
+                    && kf.frame <= samples.last().unwrap().0
+                    && sample_map.contains_key(&kf.frame)
+                {
+                    key_times.insert(kf.frame);
+                }
+            }
+            key_times
+                .into_iter()
+                .map(|f| (f, sample_map[&f], layer_ease_at(layer, f, &first_el.id)))
+                .collect()
+        };
+
+        let mut per_key = Vec::with_capacity(key_samples.len());
+        for (f, el, ease) in &key_samples {
+            let resolved = resolve_parametric_stroke_element(el);
+            let target = resolved.as_ref().unwrap_or(el);
+            if matches!(
+                target.kind,
+                ElementKind::PaintedPath {
+                    fill_gradient: Some(_),
+                    ..
+                } | ElementKind::PaintedPath {
+                    stroke_gradient: Some(_),
+                    ..
+                }
+            ) {
+                return self.element_to_shape_group(
+                    first_el,
+                    [0.0, 0.0],
+                    false,
+                    None,
+                    Some(symbol_id),
+                    Some(&layer.id),
+                    Some(first_f),
+                );
+            }
+            let (cmds, fill_rule) = target.to_path_commands()?;
+            let contours = path_commands_to_lottie_beziers(&cmds);
+            if contours.is_empty() {
+                return None;
+            }
+            let (raw_fill, raw_stroke, sw) = extract_element_paint(target);
+            let ct = el.transform.color_transform;
+            let fill = apply_rgb_only(ct, raw_fill, false);
+            let stroke = apply_rgb_only(ct, raw_stroke, false);
+            per_key.push((*f, *ease, contours, fill, stroke, sw, fill_rule));
+        }
+
+        let c_count = per_key[0].2.len();
+        let v_counts: Vec<usize> = per_key[0].2.iter().map(|c| c.v.len()).collect();
+        let compatible = per_key.iter().all(|(_, _, cs, _, _, _, _)| {
+            cs.len() == c_count
+                && cs
+                    .iter()
+                    .zip(&v_counts)
+                    .all(|(c, &expected)| c.v.len() == expected)
+        });
+        if !compatible {
+            return self.element_to_shape_group(
+                first_el,
+                [0.0, 0.0],
+                false,
+                None,
+                Some(symbol_id),
+                Some(&layer.id),
+                Some(first_f),
+            );
+        }
+
+        let mut items: Vec<Value> = Vec::new();
+        for c_idx in 0..c_count {
+            let first_json = per_key[0].2[c_idx].to_json();
+            let dir = per_key[0].2[c_idx].lottie_direction();
+            let geom_varies = per_key
+                .iter()
+                .any(|(_, _, cs, _, _, _, _)| cs[c_idx].to_json() != first_json);
+            if geom_varies && per_key.len() > 1 {
+                let mut kfs = Vec::with_capacity(per_key.len());
+                for (idx, (f, ease, cs, _, _, _, _)) in per_key.iter().enumerate() {
+                    let bez = cs[c_idx].to_json();
+                    if idx + 1 < per_key.len() {
+                        if let Some(e) = ease {
+                            let (o, i) = easing_to_lottie_tangents(*e);
+                            kfs.push(json!({
+                                "t": *f,
+                                "s": [bez],
+                                "o": {"x": [o[0]], "y": [o[1]]},
+                                "i": {"x": [i[0]], "y": [i[1]]}
+                            }));
+                        } else {
+                            kfs.push(json!({"t": *f, "s": [bez], "h": 1}));
+                        }
+                    } else {
+                        kfs.push(json!({"t": *f, "s": [bez]}));
+                    }
+                }
+                items.push(json!({
+                    "ty": "sh",
+                    "d": dir,
+                    "nm": format!("Path {}", c_idx + 1),
+                    "ks": {"a": 1, "k": kfs}
+                }));
+            } else {
+                items.push(json!({
+                    "ty": "sh",
+                    "d": dir,
+                    "nm": format!("Path {}", c_idx + 1),
+                    "ks": {"a": 0, "k": first_json}
+                }));
+            }
+        }
+
+        let fill0 = per_key[0].3;
+        let stroke0 = per_key[0].4;
+        let sw0 = per_key[0].5;
+        let fill_rule0 = per_key[0].6;
+
+        if per_key.iter().any(|(_, _, _, f, _, _, _)| f[3] > 0) {
+            let rgb_varies = per_key
+                .iter()
+                .any(|(_, _, _, f, _, _, _)| f[0..3] != fill0[0..3]);
+            let a_varies = per_key.iter().any(|(_, _, _, f, _, _, _)| f[3] != fill0[3]);
+            let c_val = if rgb_varies && per_key.len() > 1 {
+                let kfs: Vec<Value> = per_key
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (f, ease, _, [r, g, b, _], _, _, _))| {
+                        let c = [
+                            round4(f64::from(*r) / 255.0),
+                            round4(f64::from(*g) / 255.0),
+                            round4(f64::from(*b) / 255.0),
+                            1.0,
+                        ];
+                        if idx + 1 < per_key.len() {
+                            if let Some(e) = ease {
+                                let (o, i) = easing_to_lottie_tangents(*e);
+                                json!({"t": *f, "s": c, "o": {"x": [o[0]], "y": [o[1]]}, "i": {"x": [i[0]], "y": [i[1]]}})
+                            } else {
+                                json!({"t": *f, "s": c, "h": 1})
+                            }
+                        } else {
+                            json!({"t": *f, "s": c})
+                        }
+                    })
+                    .collect();
+                json!({"a": 1, "k": kfs})
+            } else {
+                let [r, g, b, _] = fill0;
+                json!({"a": 0, "k": [round4(f64::from(r) / 255.0), round4(f64::from(g) / 255.0), round4(f64::from(b) / 255.0), 1.0]})
+            };
+            let o_val = if a_varies && per_key.len() > 1 {
+                let kfs: Vec<Value> = per_key
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (f, ease, _, [_, _, _, a], _, _, _))| {
+                        let o_pct = round4(f64::from(*a) / 255.0 * 100.0);
+                        if idx + 1 < per_key.len() {
+                            if let Some(e) = ease {
+                                let (o, i) = easing_to_lottie_tangents(*e);
+                                json!({"t": *f, "s": [o_pct], "o": {"x": [o[0]], "y": [o[1]]}, "i": {"x": [i[0]], "y": [i[1]]}})
+                            } else {
+                                json!({"t": *f, "s": [o_pct], "h": 1})
+                            }
+                        } else {
+                            json!({"t": *f, "s": [o_pct]})
+                        }
+                    })
+                    .collect();
+                json!({"a": 1, "k": kfs})
+            } else {
+                json!({"a": 0, "k": round4(f64::from(fill0[3]) / 255.0 * 100.0)})
+            };
+            items.push(json!({
+                "ty": "fl",
+                "nm": "Fill",
+                "c": c_val,
+                "o": o_val,
+                "r": if fill_rule0 == FillRule::EvenOdd { 2 } else { 1 },
+                "bm": 0
+            }));
+        }
+
+        if per_key
+            .iter()
+            .any(|(_, _, _, _, s, sw, _)| s[3] > 0 && *sw > 0.0)
+        {
+            let rgb_varies = per_key
+                .iter()
+                .any(|(_, _, _, _, s, _, _)| s[0..3] != stroke0[0..3]);
+            let a_varies = per_key
+                .iter()
+                .any(|(_, _, _, _, s, _, _)| s[3] != stroke0[3]);
+            let sw_varies = per_key
+                .iter()
+                .any(|(_, _, _, _, _, sw, _)| (*sw - sw0).abs() > 1e-4);
+            let c_val = if rgb_varies && per_key.len() > 1 {
+                let kfs: Vec<Value> = per_key
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (f, ease, _, _, [r, g, b, _], _, _))| {
+                        let c = [
+                            round4(f64::from(*r) / 255.0),
+                            round4(f64::from(*g) / 255.0),
+                            round4(f64::from(*b) / 255.0),
+                            1.0,
+                        ];
+                        if idx + 1 < per_key.len() {
+                            if let Some(e) = ease {
+                                let (o, i) = easing_to_lottie_tangents(*e);
+                                json!({"t": *f, "s": c, "o": {"x": [o[0]], "y": [o[1]]}, "i": {"x": [i[0]], "y": [i[1]]}})
+                            } else {
+                                json!({"t": *f, "s": c, "h": 1})
+                            }
+                        } else {
+                            json!({"t": *f, "s": c})
+                        }
+                    })
+                    .collect();
+                json!({"a": 1, "k": kfs})
+            } else {
+                let [r, g, b, _] = stroke0;
+                json!({"a": 0, "k": [round4(f64::from(r) / 255.0), round4(f64::from(g) / 255.0), round4(f64::from(b) / 255.0), 1.0]})
+            };
+            let o_val = if a_varies && per_key.len() > 1 {
+                let kfs: Vec<Value> = per_key
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (f, ease, _, _, [_, _, _, a], _, _))| {
+                        let o_pct = round4(f64::from(*a) / 255.0 * 100.0);
+                        if idx + 1 < per_key.len() {
+                            if let Some(e) = ease {
+                                let (o, i) = easing_to_lottie_tangents(*e);
+                                json!({"t": *f, "s": [o_pct], "o": {"x": [o[0]], "y": [o[1]]}, "i": {"x": [i[0]], "y": [i[1]]}})
+                            } else {
+                                json!({"t": *f, "s": [o_pct], "h": 1})
+                            }
+                        } else {
+                            json!({"t": *f, "s": [o_pct]})
+                        }
+                    })
+                    .collect();
+                json!({"a": 1, "k": kfs})
+            } else {
+                json!({"a": 0, "k": round4(f64::from(stroke0[3]) / 255.0 * 100.0)})
+            };
+            let w_val = if sw_varies && per_key.len() > 1 {
+                let kfs: Vec<Value> = per_key
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (f, ease, _, _, _, sw, _))| {
+                        let w = round4(*sw);
+                        if idx + 1 < per_key.len() {
+                            if let Some(e) = ease {
+                                let (o, i) = easing_to_lottie_tangents(*e);
+                                json!({"t": *f, "s": [w], "o": {"x": [o[0]], "y": [o[1]]}, "i": {"x": [i[0]], "y": [i[1]]}})
+                            } else {
+                                json!({"t": *f, "s": [w], "h": 1})
+                            }
+                        } else {
+                            json!({"t": *f, "s": [w]})
+                        }
+                    })
+                    .collect();
+                json!({"a": 1, "k": kfs})
+            } else {
+                json!({"a": 0, "k": round4(sw0)})
+            };
+            items.push(json!({
+                "ty": "st",
+                "nm": "Stroke",
+                "c": c_val,
+                "o": o_val,
+                "w": w_val,
+                "lc": 2,
+                "lj": 2,
+                "ml": 4,
+                "bm": 0
+            }));
+        }
+
+        items.push(identity_group_tr());
+        Some(json!({
+            "ty": "gr",
+            "nm": if first_el.name.is_empty() { "Vector Shape" } else { &first_el.name },
+            "it": items,
+            "bm": 0
+        }))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn element_to_shape_group(
-        &self,
+        &mut self,
         element: &Element,
         offset: [f64; 2],
         apply_color_tx_alpha: bool,
+        dash_override: Option<&NativeDashStroke>,
+        symbol_id: Option<&str>,
+        layer_id: Option<&str>,
+        frame: Option<u32>,
     ) -> Option<Value> {
-        let (mut commands, fill_rule) = element.to_path_commands()?;
+        let resolved = if dash_override.is_none() {
+            resolve_parametric_stroke_element(element)
+        } else {
+            None
+        };
+        let target = resolved.as_ref().unwrap_or(element);
+
+        let (mut commands, fill_rule) = if let Some(d_ov) = dash_override {
+            (d_ov.commands.clone(), FillRule::NonZero)
+        } else {
+            target.to_path_commands()?
+        };
         if offset != [0.0, 0.0] {
             commands =
                 transform_path_commands(&commands, [1.0, 0.0, 0.0, 1.0, offset[0], offset[1]]);
@@ -1690,9 +3181,10 @@ impl<'a> LottieBuilder<'a> {
             .into_iter()
             .enumerate()
             .map(|(i, bez)| {
+                let dir = bez.lottie_direction();
                 json!({
                     "ty": "sh",
-                    "d": 1,
+                    "d": dir,
                     "nm": format!("Path {}", i + 1),
                     "ks": {
                         "a": 0,
@@ -1702,12 +3194,51 @@ impl<'a> LottieBuilder<'a> {
             })
             .collect();
 
-        let (raw_fill, raw_stroke, stroke_width) = extract_element_paint(element);
         let ct = element.transform.color_transform;
+        if let Some(d_ov) = dash_override {
+            let stroke = apply_rgb_only(ct, d_ov.color, apply_color_tx_alpha);
+            if d_ov.width > 0.0 {
+                let dash_json = build_lottie_dash_array(d_ov.dash, d_ov.gap);
+                if let Some(grad) = &d_ov.gradient {
+                    if let (Some(sid), Some(lid), Some(fr)) = (symbol_id, layer_id, frame) {
+                        self.note_gradient_approximations(grad, sid, lid, fr);
+                    }
+                    let tinted = tint_gradient_paint(grad, ct, apply_color_tx_alpha);
+                    let mut gs = gradient_stroke_item(&tinted, d_ov.width);
+                    gs.as_object_mut()
+                        .unwrap()
+                        .insert("d".into(), Value::Array(dash_json));
+                    items.push(gs);
+                } else if stroke[3] > 0 {
+                    let [r, g, b, a] = stroke;
+                    items.push(json!({
+                        "ty": "st",
+                        "nm": "Stroke",
+                        "c": {"a": 0, "k": [round4(f64::from(r) / 255.0), round4(f64::from(g) / 255.0), round4(f64::from(b) / 255.0), 1.0]},
+                        "o": {"a": 0, "k": round4(f64::from(a) / 255.0 * 100.0)},
+                        "w": {"a": 0, "k": round4(d_ov.width)},
+                        "lc": 2,
+                        "lj": 2,
+                        "ml": 4,
+                        "d": dash_json,
+                        "bm": 0
+                    }));
+                }
+            }
+            items.push(identity_group_tr());
+            return Some(json!({
+                "ty": "gr",
+                "nm": if element.name.is_empty() { "Vector Shape" } else { &element.name },
+                "it": items,
+                "bm": 0
+            }));
+        }
+
+        let (raw_fill, raw_stroke, stroke_width) = extract_element_paint(target);
         let fill = apply_rgb_only(ct, raw_fill, apply_color_tx_alpha);
         let stroke = apply_rgb_only(ct, raw_stroke, apply_color_tx_alpha);
 
-        let (fill_grad, stroke_grad) = match &element.kind {
+        let (fill_grad, stroke_grad) = match &target.kind {
             ElementKind::PaintedPath {
                 fill_gradient,
                 stroke_gradient,
@@ -1717,7 +3248,11 @@ impl<'a> LottieBuilder<'a> {
         };
 
         if let Some(grad) = fill_grad {
-            items.push(gradient_fill_item(grad, fill_rule));
+            if let (Some(sid), Some(lid), Some(fr)) = (symbol_id, layer_id, frame) {
+                self.note_gradient_approximations(grad, sid, lid, fr);
+            }
+            let tinted = tint_gradient_paint(grad, ct, apply_color_tx_alpha);
+            items.push(gradient_fill_item(&tinted, fill_rule));
         } else if fill[3] > 0 {
             let [r, g, b, a] = fill;
             items.push(json!({
@@ -1732,7 +3267,11 @@ impl<'a> LottieBuilder<'a> {
 
         if stroke_width > 0.0 {
             if let Some(grad) = stroke_grad {
-                items.push(gradient_stroke_item(grad, stroke_width));
+                if let (Some(sid), Some(lid), Some(fr)) = (symbol_id, layer_id, frame) {
+                    self.note_gradient_approximations(grad, sid, lid, fr);
+                }
+                let tinted = tint_gradient_paint(grad, ct, apply_color_tx_alpha);
+                items.push(gradient_stroke_item(&tinted, stroke_width));
             } else if stroke[3] > 0 {
                 let [r, g, b, a] = stroke;
                 items.push(json!({
@@ -1743,6 +3282,7 @@ impl<'a> LottieBuilder<'a> {
                     "w": {"a": 0, "k": round4(stroke_width)},
                     "lc": 2,
                     "lj": 2,
+                    "ml": 4,
                     "bm": 0
                 }));
             }
@@ -1757,39 +3297,154 @@ impl<'a> LottieBuilder<'a> {
         }))
     }
 
-    fn attach_masks(
+    #[allow(clippy::too_many_arguments)]
+    fn attach_mask_or_matte(
         &mut self,
-        layer_obj: &mut Value,
+        symbol_id: &str,
         timeline: &Timeline,
         mask_layer: Option<&Layer>,
+        mut layer_obj: Value,
         first_frame: u32,
         last_frame: u32,
-        target_transform: Transform,
-    ) {
+        world_samples: &[(u32, Transform)],
+        comp_origin_offset: [f64; 2],
+        stack: &mut Vec<String>,
+        next_ind: &mut u32,
+    ) -> Result<Vec<Value>, ExportError> {
         let Some(mask_layer) = mask_layer else {
-            return;
+            return Ok(vec![layer_obj]);
         };
         if !layer_effectively_visible(timeline, mask_layer) {
-            return;
+            return Ok(vec![layer_obj]);
         }
-        if mask_layer.properties.mask_mode != neoflash_core::MaskMode::Geometry {
-            self.add_note(
+
+        let mask_has_non_vector = (first_frame..last_frame).any(|f| {
+            sample_layer_in_at_fps(timeline, mask_layer, f, self.source_fps)
+                .iter()
+                .any(|el| el.visible && el.to_path_commands().is_none())
+        });
+
+        let use_track_matte =
+            mask_layer.properties.mask_mode != MaskMode::Geometry || mask_has_non_vector;
+
+        if !use_track_matte
+            && self.try_attach_vector_masks(
+                &mut layer_obj,
+                timeline,
+                mask_layer,
+                first_frame,
+                last_frame,
+                world_samples,
+            )
+        {
+            return Ok(vec![layer_obj]);
+        }
+
+        let Some(matte_ref_id) = self.ensure_mask_matte_precomp(
+            symbol_id,
+            timeline,
+            mask_layer,
+            comp_origin_offset,
+            stack,
+        )?
+        else {
+            return Ok(vec![layer_obj]);
+        };
+
+        let tt_code = match (
+            mask_layer.properties.mask_mode,
+            mask_layer.properties.mask_invert,
+        ) {
+            (MaskMode::Luminance, false) => 3,
+            (MaskMode::Luminance, true) => 4,
+            (_, false) => 1,
+            (_, true) => 2,
+        };
+
+        if self.options.player != LottieTargetPlayer::LottieWeb && matches!(tt_code, 3 | 4) {
+            self.add_note_coded(
                 LottieNoteKind::Approximated,
+                Some("LOTTIE_LUMA_MATTE_PLAYER"),
                 format!("Mask layer '{}'", mask_layer.name),
                 format!(
-                    "{} mask layer exported as vector contour mask; Lottie does not support soft alpha/luminance/gradient/bitmap mask coverage.",
-                    mask_layer.properties.mask_mode.label()
+                    "Luminance track matte (`tt: {tt_code}`) may have limited support on {} player.",
+                    self.options.player.label()
                 ),
-                None,
+                Some(symbol_id.to_owned()),
                 Some(mask_layer.id.clone()),
                 Some(first_frame),
             );
         }
-        let inv_target = invert_affine(neoflash_core::transform_matrix(target_transform));
+
+        let matte_ind = *next_ind;
+        *next_ind += 1;
+        let matte_layer_json = json!({
+            "ddd": 0,
+            "ind": matte_ind,
+            "ty": 0,
+            "nm": format!("Matte · {}", mask_layer.name),
+            "refId": matte_ref_id,
+            "td": 1,
+            "sr": 1,
+            "ks": static_ks(Transform::default(), [0.0, 0.0], [0.0, 0.0]),
+            "ao": 0,
+            "w": self.comp_w.max(1),
+            "h": self.comp_h.max(1),
+            "ip": first_frame,
+            "op": last_frame,
+            "st": 0,
+            "bm": 0
+        });
+        if let Some(map) = layer_obj.as_object_mut() {
+            map.insert("tt".into(), json!(tt_code));
+        }
+        Ok(vec![matte_layer_json, layer_obj])
+    }
+
+    fn try_attach_vector_masks(
+        &mut self,
+        layer_obj: &mut Value,
+        timeline: &Timeline,
+        mask_layer: &Layer,
+        first_frame: u32,
+        last_frame: u32,
+        world_samples: &[(u32, Transform)],
+    ) -> bool {
         let fps = self.source_fps;
+        let fallback_target = world_samples.first().map(|(_, t)| *t).unwrap_or_default();
+        let target_at = |frame: u32| -> Transform {
+            match world_samples.binary_search_by_key(&frame, |(f, _)| *f) {
+                Ok(i) => world_samples[i].1,
+                Err(0) => fallback_target,
+                Err(i) if i >= world_samples.len() => world_samples.last().unwrap().1,
+                Err(i) => {
+                    let (f0, t0) = world_samples[i - 1];
+                    let (f1, t1) = world_samples[i];
+                    let u = if f1 > f0 {
+                        (frame - f0) as f64 / (f1 - f0) as f64
+                    } else {
+                        0.0
+                    };
+                    Transform {
+                        x: t0.x + (t1.x - t0.x) * u,
+                        y: t0.y + (t1.y - t0.y) * u,
+                        scale_x: t0.scale_x + (t1.scale_x - t0.scale_x) * u,
+                        scale_y: t0.scale_y + (t1.scale_y - t0.scale_y) * u,
+                        rotation: t0.rotation + (t1.rotation - t0.rotation) * u,
+                        skew: t0.skew + (t1.skew - t0.skew) * u,
+                        ..t0
+                    }
+                }
+            }
+        };
+
         let mask_contours_at = |frame: u32| -> Vec<LottieBezier> {
+            let inv_target = invert_affine(neoflash_core::transform_matrix(target_at(frame)));
             let mut out = Vec::new();
             for el in sample_layer_in_at_fps(timeline, mask_layer, frame, fps) {
+                if !el.visible {
+                    continue;
+                }
                 let Some((cmds, _)) = el.to_path_commands() else {
                     continue;
                 };
@@ -1806,11 +3461,15 @@ impl<'a> LottieBuilder<'a> {
 
         let first_contours = mask_contours_at(first_frame);
         if first_contours.is_empty() {
-            return;
+            return true;
         }
 
+        let target_moves = world_samples
+            .iter()
+            .any(|(_, t)| !transforms_approx_eq(*t, fallback_target));
         let mask_animated = last_frame > first_frame + 1
-            && (mask_layer.keyframes.len() > 1
+            && (target_moves
+                || mask_layer.keyframes.len() > 1
                 || mask_layer
                     .keyframes
                     .iter()
@@ -1837,55 +3496,36 @@ impl<'a> LottieBuilder<'a> {
                         .zip(&v_counts)
                         .all(|(c, &expected)| c.v.len() == expected)
             });
-            if compatible {
-                for c_idx in 0..count {
-                    let (inv, mode) = mask_mode_for_index(c_idx);
-                    let kfs: Vec<Value> = per_frame
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, (f, cs))| {
-                            let bez = cs[c_idx].to_json();
-                            if idx + 1 < per_frame.len() {
-                                json!({
-                                    "t": *f,
-                                    "s": [bez],
-                                    "i": {"x": [1.0], "y": [1.0]},
-                                    "o": {"x": [0.0], "y": [0.0]}
-                                })
-                            } else {
-                                json!({"t": *f, "s": [bez]})
-                            }
-                        })
-                        .collect();
-                    masks_props.push(json!({
-                        "inv": inv,
-                        "mode": mode,
-                        "pt": {"a": 1, "k": kfs},
-                        "o": {"a": 0, "k": 100},
-                        "x": {"a": 0, "k": 0},
-                        "nm": mask_layer.name
-                    }));
-                }
-            } else {
-                self.add_note(
-                    LottieNoteKind::Approximated,
-                    format!("Mask layer '{}'", mask_layer.name),
-                    "Mask contour topology changes mid-span; exported static first-frame mask contour.",
-                    None,
-                    Some(mask_layer.id.clone()),
-                    Some(first_frame),
-                );
-                for (c_idx, bez) in first_contours.into_iter().enumerate() {
-                    let (inv, mode) = mask_mode_for_index(c_idx);
-                    masks_props.push(json!({
-                        "inv": inv,
-                        "mode": mode,
-                        "pt": {"a": 0, "k": bez.to_json()},
-                        "o": {"a": 0, "k": 100},
-                        "x": {"a": 0, "k": 0},
-                        "nm": mask_layer.name
-                    }));
-                }
+            if !compatible {
+                return false;
+            }
+            for c_idx in 0..count {
+                let (inv, mode) = mask_mode_for_index(c_idx);
+                let kfs: Vec<Value> = per_frame
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (f, cs))| {
+                        let bez = cs[c_idx].to_json();
+                        if idx + 1 < per_frame.len() {
+                            json!({
+                                "t": *f,
+                                "s": [bez],
+                                "i": {"x": [1.0], "y": [1.0]},
+                                "o": {"x": [0.0], "y": [0.0]}
+                            })
+                        } else {
+                            json!({"t": *f, "s": [bez]})
+                        }
+                    })
+                    .collect();
+                masks_props.push(json!({
+                    "inv": inv,
+                    "mode": mode,
+                    "pt": {"a": 1, "k": kfs},
+                    "o": {"a": 0, "k": 100},
+                    "x": {"a": 0, "k": 0},
+                    "nm": mask_layer.name
+                }));
             }
         } else {
             for (c_idx, bez) in first_contours.into_iter().enumerate() {
@@ -1906,7 +3546,298 @@ impl<'a> LottieBuilder<'a> {
             map.insert("hasMask".into(), Value::Bool(true));
             map.insert("masksProperties".into(), Value::Array(masks_props));
         }
+        true
     }
+}
+
+#[derive(Clone, Debug)]
+struct NativeDashStroke {
+    commands: Vec<PathCommand>,
+    color: Color,
+    gradient: Option<GradientPaint>,
+    width: f64,
+    dash: f64,
+    gap: f64,
+}
+
+fn resolve_native_dash_stroke(
+    layer: &Layer,
+    frame: u32,
+    element_id: &str,
+) -> Option<NativeDashStroke> {
+    let kf = layer.key_at(frame)?;
+    let (base_id, entry_idx) = if kf.appearance(element_id).is_some() {
+        (element_id, 0usize)
+    } else if let Some((prefix, idx_str)) = element_id.rsplit_once("-app-")
+        && let Ok(idx) = idx_str.parse::<usize>()
+        && kf.appearance(prefix).is_some()
+    {
+        (prefix, idx)
+    } else {
+        return None;
+    };
+    let app = kf.appearance(base_id)?;
+    if !app.modifiers.is_empty() || app.text_binding.is_some() {
+        return None;
+    }
+    let entry = app.entries.get(entry_idx)?;
+    let AppearancePaintEntry::Stroke {
+        color,
+        gradient,
+        width,
+        offset_distance,
+        pattern_brush: Some(PatternBrushKind::DashPattern { dash, gap }),
+        ..
+    } = entry
+    else {
+        return None;
+    };
+    if *width <= 0.0 || *dash <= 0.0 || *gap < 0.0 || offset_distance.abs() > 1e-6 {
+        return None;
+    }
+    let base_el = kf.elements.iter().find(|e| e.id == base_id)?;
+    let (commands, _) = base_el.to_path_commands()?;
+    Some(NativeDashStroke {
+        commands,
+        color: *color,
+        gradient: gradient.clone(),
+        width: *width,
+        dash: *dash,
+        gap: *gap,
+    })
+}
+
+fn build_lottie_dash_array(dash: f64, gap: f64) -> Vec<Value> {
+    vec![
+        json!({"n": "d", "nm": "dash", "v": {"a": 0, "k": round4(dash.max(0.01))}}),
+        json!({"n": "g", "nm": "gap", "v": {"a": 0, "k": round4(gap.max(0.0))}}),
+        json!({"n": "o", "nm": "offset", "v": {"a": 0, "k": 0.0}}),
+    ]
+}
+
+fn resolve_parametric_stroke_element(element: &Element) -> Option<Element> {
+    if !element.stroke_width_profile().is_default()
+        && let Some(kind) = element.parametric_path_kind()
+    {
+        let mut expanded = element.clone();
+        expanded.kind = kind;
+        expanded.transform.primitive = None;
+        return Some(expanded);
+    }
+    None
+}
+
+fn build_button_up_timeline(timeline: &Timeline, fps: f64) -> Timeline {
+    let mut layers = Vec::with_capacity(timeline.layers.len());
+    for layer in &timeline.layers {
+        let mut up_layer = layer.clone();
+        let up_elements = sample_layer_in_at_fps(timeline, layer, 0, fps);
+        let any_sound = layer.keyframes.iter().find_map(|k| k.sound.clone());
+        let any_video = layer.keyframes.iter().find_map(|k| k.video.clone());
+        let all_filters: Vec<_> = layer
+            .keyframes
+            .iter()
+            .flat_map(|k| k.filters.iter().cloned())
+            .collect();
+        if up_elements.is_empty()
+            && any_sound.is_none()
+            && any_video.is_none()
+            && all_filters.is_empty()
+        {
+            up_layer.keyframes = Vec::new();
+        } else {
+            up_layer.keyframes = vec![Keyframe {
+                frame: 0,
+                elements: up_elements,
+                sound: any_sound,
+                video: any_video,
+                filters: all_filters,
+                ..Keyframe::default()
+            }];
+        }
+        up_layer.properties.end_frame = None;
+        layers.push(up_layer);
+    }
+    Timeline {
+        frame_count: 1,
+        layers,
+        scripts: timeline.scripts.clone(),
+        guides: Vec::new(),
+    }
+}
+
+fn has_asymmetric_pair_ease(eases: &[(TweenProperty, Easing)]) -> bool {
+    let lookup = |prop: TweenProperty| eases.iter().find(|(p, _)| *p == prop).map(|(_, e)| *e);
+    let x_ease = lookup(TweenProperty::X);
+    let y_ease = lookup(TweenProperty::Y);
+    if x_ease != y_ease && (x_ease.is_some() || y_ease.is_some()) {
+        return true;
+    }
+    let sx_ease = lookup(TweenProperty::ScaleX);
+    let sy_ease = lookup(TweenProperty::ScaleY);
+    sx_ease != sy_ease && (sx_ease.is_some() || sy_ease.is_some())
+}
+
+fn has_non_alpha_color_transform(ct: ColorTransform) -> bool {
+    (ct.multipliers[0] - 1.0).abs() > 1e-4
+        || (ct.multipliers[1] - 1.0).abs() > 1e-4
+        || (ct.multipliers[2] - 1.0).abs() > 1e-4
+        || ct.offsets[0].abs() > 0.5
+        || ct.offsets[1].abs() > 0.5
+        || ct.offsets[2].abs() > 0.5
+}
+
+fn lottie_skew_deg(skew: f64) -> f64 {
+    if !skew.is_finite() {
+        return 0.0;
+    }
+    skew.clamp(-85.0, 85.0)
+}
+
+fn lottie_skew_cos(skew: f64) -> f64 {
+    if skew.abs() <= 1e-6 || !skew.is_finite() {
+        return 1.0;
+    }
+    skew.clamp(-85.0, 85.0).to_radians().cos()
+}
+
+fn classic_span_rotation_delta(kf: &Keyframe, a_rot: f64, b_rot: f64) -> (f64, bool) {
+    let turns = (kf.classic_rotate_turns.min(Keyframe::MAX_ROTATE_TURNS) as f64) * 360.0;
+    match kf.classic_rotate_dir {
+        ClassicRotateDirection::Auto => {
+            if turns == 0.0 {
+                (b_rot - a_rot, false)
+            } else {
+                let delta = b_rot - a_rot;
+                let sign = if delta < 0.0 { -1.0 } else { 1.0 };
+                (delta + sign * turns, false)
+            }
+        }
+        ClassicRotateDirection::None => (b_rot - a_rot, true),
+        ClassicRotateDirection::Cw => {
+            let cw_delta = (b_rot - a_rot).rem_euclid(360.0) + turns;
+            (cw_delta, false)
+        }
+        ClassicRotateDirection::Ccw => {
+            let ccw_delta = (a_rot - b_rot).rem_euclid(360.0) + turns;
+            (-ccw_delta, false)
+        }
+    }
+}
+
+fn compute_lottie_auto_orient_deg(key_frames: &[(u32, Transform, Option<Easing>)]) -> Vec<f64> {
+    let n = key_frames.len();
+    if n < 2 {
+        return vec![0.0; n];
+    }
+    let chord_deg = |a: usize, b: usize| -> Option<f64> {
+        let dx = key_frames[b].1.x - key_frames[a].1.x;
+        let dy = key_frames[b].1.y - key_frames[a].1.y;
+        (dx.hypot(dy) > 1e-6).then(|| dy.atan2(dx).to_degrees())
+    };
+    let mut raw = vec![0.0; n];
+    for (idx, slot) in raw.iter_mut().enumerate() {
+        if let Some(deg) = (idx + 1 < n).then(|| chord_deg(idx, idx + 1)).flatten() {
+            *slot = deg;
+        } else if let Some(deg) = (idx > 0).then(|| chord_deg(idx - 1, idx)).flatten() {
+            *slot = deg;
+        } else {
+            for dist in 1..n {
+                if idx + dist < n
+                    && let Some(deg) = chord_deg(idx, idx + dist)
+                {
+                    *slot = deg;
+                    break;
+                }
+                if idx >= dist
+                    && let Some(deg) = chord_deg(idx - dist, idx)
+                {
+                    *slot = deg;
+                    break;
+                }
+            }
+        }
+    }
+    raw
+}
+
+fn compute_unwrapped_rotations(
+    layer: &Layer,
+    keys: &[(u32, Transform, Option<Easing>)],
+    dense: bool,
+) -> Vec<(f64, bool)> {
+    if keys.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(keys.len());
+    if !dense {
+        let mut turn_offset = 0.0f64;
+        for (idx, (f, t, _)) in keys.iter().enumerate() {
+            let curr_unwrapped = t.rotation + turn_offset;
+            let mut hold = false;
+            if idx + 1 < keys.len() {
+                let next_f = keys[idx + 1].0;
+                let next_raw_rot = keys[idx + 1].1.rotation;
+                if motion_span(layer, *f).is_none()
+                    && let Some(kf) = layer.key_at(*f)
+                    && kf.frame == *f
+                    && layer.keyframes.iter().any(|nk| nk.frame == next_f)
+                {
+                    if kf.tween.is_some() && kf.tween_kind == TweenKind::Classic {
+                        let (delta, is_hold) =
+                            classic_span_rotation_delta(kf, t.rotation, next_raw_rot);
+                        hold = is_hold;
+                        if !is_hold {
+                            let target_end = curr_unwrapped + delta;
+                            turn_offset = target_end - next_raw_rot;
+                        }
+                    } else if kf.tween.is_none() {
+                        hold = true;
+                    }
+                }
+            }
+            out.push((curr_unwrapped, hold));
+        }
+    } else {
+        let mut prev_unwrapped = keys[0].1.rotation;
+        let first_hold = motion_span(layer, keys[0].0).is_none()
+            && layer.key_at(keys[0].0).is_some_and(|k| {
+                k.tween.is_none()
+                    || (k.tween_kind == TweenKind::Classic
+                        && k.classic_rotate_dir == ClassicRotateDirection::None)
+            });
+        out.push((prev_unwrapped, first_hold));
+        for idx in 1..keys.len() {
+            let (curr_f, curr_t, _) = keys[idx];
+            let prev_f = keys[idx - 1].0;
+            let prev_hold = out[idx - 1].1;
+            let curr_unwrapped = if prev_hold {
+                curr_t.rotation
+            } else if motion_span(layer, prev_f).is_none()
+                && layer.keyframes.iter().any(|k| k.frame == curr_f)
+                && let Some(start_kf) = layer.key_at(prev_f)
+                && start_kf.tween.is_some()
+                && start_kf.tween_kind == TweenKind::Classic
+            {
+                // Exact end keyframe of a classic spin span: unwrap nearest to `prev_unwrapped`
+                // while respecting multi-turn direction if step >= 180 deg.
+                let k = ((prev_unwrapped - curr_t.rotation) / 360.0).round();
+                curr_t.rotation + k * 360.0
+            } else {
+                let k = ((prev_unwrapped - curr_t.rotation) / 360.0).round();
+                curr_t.rotation + k * 360.0
+            };
+            let hold = motion_span(layer, curr_f).is_none()
+                && layer.key_at(curr_f).is_some_and(|k| {
+                    k.tween.is_none()
+                        || (k.tween_kind == TweenKind::Classic
+                            && k.classic_rotate_dir == ClassicRotateDirection::None)
+                });
+            prev_unwrapped = curr_unwrapped;
+            out.push((curr_unwrapped, hold));
+        }
+    }
+    out
 }
 
 #[derive(Clone, Debug)]
@@ -2163,7 +4094,49 @@ fn build_scalar_keyframes(
     json!({"a": 1, "k": arr})
 }
 
+fn build_indexed_scalar_keyframes(
+    keys: &[(u32, Transform, Option<Easing>)],
+    extract: impl Fn(usize, &(u32, Transform, Option<Easing>), u32) -> (f64, Option<Easing>),
+) -> Value {
+    let first = extract(0, &keys[0], keys[0].0).0;
+    if keys
+        .iter()
+        .enumerate()
+        .all(|(idx, k)| (extract(idx, k, k.0).0 - first).abs() < 1e-4)
+    {
+        return json!({"a": 0, "k": first});
+    }
+    let mut arr = Vec::with_capacity(keys.len());
+    for (idx, k) in keys.iter().enumerate() {
+        let (val, ease) = extract(idx, k, k.0);
+        if idx + 1 < keys.len() {
+            if let Some(e) = ease {
+                let (o, i) = easing_to_lottie_tangents(e);
+                arr.push(json!({
+                    "t": k.0,
+                    "s": [val],
+                    "o": {"x": [o[0]], "y": [o[1]]},
+                    "i": {"x": [i[0]], "y": [i[1]]}
+                }));
+            } else {
+                arr.push(json!({
+                    "t": k.0,
+                    "s": [val],
+                    "h": 1
+                }));
+            }
+        } else {
+            arr.push(json!({
+                "t": k.0,
+                "s": [val]
+            }));
+        }
+    }
+    json!({"a": 1, "k": arr})
+}
+
 fn static_ks(t: Transform, anchor: [f64; 2], origin_offset: [f64; 2]) -> Value {
+    let sk_cos = lottie_skew_cos(t.skew);
     let mut ks = Map::new();
     ks.insert(
         "o".into(),
@@ -2180,10 +4153,13 @@ fn static_ks(t: Transform, anchor: [f64; 2], origin_offset: [f64; 2]) -> Value {
     );
     ks.insert(
         "s".into(),
-        json!({"a": 0, "k": [round4(t.scale_x * 100.0), round4(t.scale_y * 100.0), 100.0]}),
+        json!({"a": 0, "k": [round4(t.scale_x * 100.0), round4(t.scale_y * sk_cos * 100.0), 100.0]}),
     );
     if t.skew.abs() > 1e-4 {
-        ks.insert("sk".into(), json!({"a": 0, "k": round4(-t.skew)}));
+        ks.insert(
+            "sk".into(),
+            json!({"a": 0, "k": round4(lottie_skew_deg(t.skew))}),
+        );
         ks.insert("sa".into(), json!({"a": 0, "k": 0.0}));
     }
     Value::Object(ks)
@@ -2254,6 +4230,37 @@ fn extract_element_paint(element: &Element) -> (Color, Color, f64) {
     }
 }
 
+fn tint_gradient_paint(
+    grad: &GradientPaint,
+    ct: ColorTransform,
+    include_alpha: bool,
+) -> GradientPaint {
+    let mut out = grad.clone();
+    for stop in &mut out.stops {
+        stop.color = apply_rgb_only(ct, stop.color, include_alpha);
+    }
+    out
+}
+
+fn transform_gradient_paint(
+    grad: &GradientPaint,
+    m: [f64; 6],
+    ct: ColorTransform,
+    include_alpha: bool,
+) -> GradientPaint {
+    let mut out = tint_gradient_paint(grad, ct, include_alpha);
+    out.matrix = neoflash_core::affine_multiply(m, grad.matrix);
+    out
+}
+
+fn solid_as_matching_gradient(color: Color, template: &GradientPaint) -> GradientPaint {
+    let mut out = template.clone();
+    for stop in &mut out.stops {
+        stop.color = color;
+    }
+    out
+}
+
 fn gradient_endpoints(grad: &GradientPaint) -> ([f64; 2], [f64; 2], u8) {
     let [a, b, _c, _d, tx, ty] = grad.matrix;
     match grad.kind {
@@ -2270,7 +4277,17 @@ fn gradient_endpoints(grad: &GradientPaint) -> ([f64; 2], [f64; 2], u8) {
     }
 }
 
-fn gradient_stops_array(grad: &GradientPaint) -> Vec<f64> {
+fn gradient_radial_highlight(grad: &GradientPaint) -> Option<(f64, f64)> {
+    if grad.kind != GradientKind::Radial || grad.focal_point_ratio.abs() <= 1e-4 {
+        return None;
+    }
+    let r = grad.focal_point_ratio.clamp(-0.999, 0.999);
+    let h = round4(r.abs() * 100.0);
+    let a = if r < 0.0 { 180.0 } else { 0.0 };
+    Some((h, a))
+}
+
+fn gradient_stops_array_with_opacity(grad: &GradientPaint, include_opacity: bool) -> Vec<f64> {
     let mut arr = Vec::with_capacity(grad.stops.len() * 6);
     for stop in &grad.stops {
         arr.push(round4(f64::from(stop.ratio) / 255.0));
@@ -2278,7 +4295,7 @@ fn gradient_stops_array(grad: &GradientPaint) -> Vec<f64> {
         arr.push(round4(f64::from(stop.color[1]) / 255.0));
         arr.push(round4(f64::from(stop.color[2]) / 255.0));
     }
-    if grad.stops.iter().any(|s| s.color[3] < 255) {
+    if include_opacity {
         for stop in &grad.stops {
             arr.push(round4(f64::from(stop.ratio) / 255.0));
             arr.push(round4(f64::from(stop.color[3]) / 255.0));
@@ -2287,10 +4304,15 @@ fn gradient_stops_array(grad: &GradientPaint) -> Vec<f64> {
     arr
 }
 
+fn gradient_stops_array(grad: &GradientPaint) -> Vec<f64> {
+    let has_alpha = grad.stops.iter().any(|s| s.color[3] < 255);
+    gradient_stops_array_with_opacity(grad, has_alpha)
+}
+
 fn gradient_fill_item(grad: &GradientPaint, fill_rule: FillRule) -> Value {
     let (s, e, t) = gradient_endpoints(grad);
     let k = gradient_stops_array(grad);
-    json!({
+    let mut obj = json!({
         "ty": "gf",
         "nm": "Gradient Fill",
         "o": {"a": 0, "k": 100},
@@ -2303,19 +4325,27 @@ fn gradient_fill_item(grad: &GradientPaint, fill_rule: FillRule) -> Value {
         "s": {"a": 0, "k": s},
         "e": {"a": 0, "k": e},
         "t": t
-    })
+    });
+    if let Some((h, a)) = gradient_radial_highlight(grad)
+        && let Some(map) = obj.as_object_mut()
+    {
+        map.insert("h".into(), json!({"a": 0, "k": h}));
+        map.insert("a".into(), json!({"a": 0, "k": a}));
+    }
+    obj
 }
 
 fn gradient_stroke_item(grad: &GradientPaint, stroke_width: f64) -> Value {
     let (s, e, t) = gradient_endpoints(grad);
     let k = gradient_stops_array(grad);
-    json!({
+    let mut obj = json!({
         "ty": "gs",
         "nm": "Gradient Stroke",
         "o": {"a": 0, "k": 100},
         "w": {"a": 0, "k": round4(stroke_width)},
         "lc": 2,
         "lj": 2,
+        "ml": 4,
         "bm": 0,
         "g": {
             "p": grad.stops.len(),
@@ -2324,7 +4354,179 @@ fn gradient_stroke_item(grad: &GradientPaint, stroke_width: f64) -> Value {
         "s": {"a": 0, "k": s},
         "e": {"a": 0, "k": e},
         "t": t
-    })
+    });
+    if let Some((h, a)) = gradient_radial_highlight(grad)
+        && let Some(map) = obj.as_object_mut()
+    {
+        map.insert("h".into(), json!({"a": 0, "k": h}));
+        map.insert("a".into(), json!({"a": 0, "k": a}));
+    }
+    obj
+}
+
+fn build_linear_vec_prop<const N: usize>(samples: &[(u32, [f64; N])]) -> Value {
+    let first = samples[0].1;
+    if samples.iter().all(|(_, v)| *v == first) {
+        return json!({"a": 0, "k": first.as_slice()});
+    }
+    let kfs: Vec<Value> = samples
+        .iter()
+        .enumerate()
+        .map(|(idx, (f, v))| {
+            if idx + 1 < samples.len() {
+                json!({"t": *f, "s": v.as_slice(), "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
+            } else {
+                json!({"t": *f, "s": v.as_slice()})
+            }
+        })
+        .collect();
+    json!({"a": 1, "k": kfs})
+}
+
+fn build_linear_f64_slice_prop(samples: &[(u32, Vec<f64>)]) -> Value {
+    let first = &samples[0].1;
+    if samples.iter().all(|(_, v)| v == first) {
+        return json!({"a": 0, "k": first});
+    }
+    let kfs: Vec<Value> = samples
+        .iter()
+        .enumerate()
+        .map(|(idx, (f, v))| {
+            if idx + 1 < samples.len() {
+                json!({"t": *f, "s": v, "i": {"x": [1.0], "y": [1.0]}, "o": {"x": [0.0], "y": [0.0]}})
+            } else {
+                json!({"t": *f, "s": v})
+            }
+        })
+        .collect();
+    json!({"a": 1, "k": kfs})
+}
+
+fn animated_gradient_common(
+    grads: &[(u32, GradientPaint)],
+) -> (usize, u8, Value, Value, Value, Option<(Value, Value)>) {
+    let p_count = grads[0].1.stops.len();
+    let (_, _, t_code) = gradient_endpoints(&grads[0].1);
+    let include_opacity = grads
+        .iter()
+        .any(|(_, g)| g.stops.iter().any(|s| s.color[3] < 255));
+    let k_samples: Vec<(u32, Vec<f64>)> = grads
+        .iter()
+        .map(|(f, g)| (*f, gradient_stops_array_with_opacity(g, include_opacity)))
+        .collect();
+    let s_samples: Vec<(u32, [f64; 2])> = grads
+        .iter()
+        .map(|(f, g)| (*f, gradient_endpoints(g).0))
+        .collect();
+    let e_samples: Vec<(u32, [f64; 2])> = grads
+        .iter()
+        .map(|(f, g)| (*f, gradient_endpoints(g).1))
+        .collect();
+    let highlight = if t_code == 2 && grads.iter().any(|(_, g)| g.focal_point_ratio.abs() > 1e-4) {
+        let h_samples: Vec<(u32, [f64; 1])> = grads
+            .iter()
+            .map(|(f, g)| {
+                let r = g.focal_point_ratio.clamp(-0.999, 0.999);
+                (*f, [round4(r.abs() * 100.0)])
+            })
+            .collect();
+        let a_samples: Vec<(u32, [f64; 1])> = grads
+            .iter()
+            .map(|(f, g)| {
+                (
+                    *f,
+                    [if g.focal_point_ratio < -1e-4 {
+                        180.0
+                    } else {
+                        0.0
+                    }],
+                )
+            })
+            .collect();
+        let h_val = if h_samples.iter().all(|(_, v)| v[0] == h_samples[0].1[0]) {
+            json!({"a": 0, "k": h_samples[0].1[0]})
+        } else {
+            build_linear_vec_prop(&h_samples)
+        };
+        let a_val = if a_samples.iter().all(|(_, v)| v[0] == a_samples[0].1[0]) {
+            json!({"a": 0, "k": a_samples[0].1[0]})
+        } else {
+            build_linear_vec_prop(&a_samples)
+        };
+        Some((h_val, a_val))
+    } else {
+        None
+    };
+    (
+        p_count,
+        t_code,
+        build_linear_f64_slice_prop(&k_samples),
+        build_linear_vec_prop(&s_samples),
+        build_linear_vec_prop(&e_samples),
+        highlight,
+    )
+}
+
+fn animated_gradient_fill_item(grads: &[(u32, GradientPaint)], fill_rule: FillRule) -> Value {
+    let (p_count, t_code, k_val, s_val, e_val, highlight) = animated_gradient_common(grads);
+    let mut obj = json!({
+        "ty": "gf",
+        "nm": "Gradient Fill",
+        "o": {"a": 0, "k": 100},
+        "r": if fill_rule == FillRule::EvenOdd { 2 } else { 1 },
+        "bm": 0,
+        "g": {
+            "p": p_count,
+            "k": k_val
+        },
+        "s": s_val,
+        "e": e_val,
+        "t": t_code
+    });
+    if let Some((h_val, a_val)) = highlight
+        && let Some(map) = obj.as_object_mut()
+    {
+        map.insert("h".into(), h_val);
+        map.insert("a".into(), a_val);
+    }
+    obj
+}
+
+fn animated_gradient_stroke_item(grads: &[(u32, GradientPaint)], widths: &[(u32, f64)]) -> Value {
+    let (p_count, t_code, k_val, s_val, e_val, highlight) = animated_gradient_common(grads);
+    let w_samples: Vec<(u32, [f64; 1])> = widths.iter().map(|(f, w)| (*f, [round4(*w)])).collect();
+    let w_val = if w_samples
+        .iter()
+        .all(|(_, v)| (v[0] - w_samples[0].1[0]).abs() < 1e-4)
+    {
+        json!({"a": 0, "k": w_samples[0].1[0]})
+    } else {
+        build_linear_vec_prop(&w_samples)
+    };
+    let mut obj = json!({
+        "ty": "gs",
+        "nm": "Gradient Stroke",
+        "o": {"a": 0, "k": 100},
+        "w": w_val,
+        "lc": 2,
+        "lj": 2,
+        "ml": 4,
+        "bm": 0,
+        "g": {
+            "p": p_count,
+            "k": k_val
+        },
+        "s": s_val,
+        "e": e_val,
+        "t": t_code
+    });
+    if let Some((h_val, a_val)) = highlight
+        && let Some(map) = obj.as_object_mut()
+    {
+        map.insert("h".into(), h_val);
+        map.insert("a".into(), a_val);
+    }
+    obj
 }
 
 #[derive(Clone, Debug)]
@@ -2343,6 +4545,42 @@ impl LottieBezier {
             "i": self.i.iter().map(|p| [round4(p[0]), round4(p[1])]).collect::<Vec<_>>(),
             "o": self.o.iter().map(|p| [round4(p[0]), round4(p[1])]).collect::<Vec<_>>()
         })
+    }
+
+    /// Screen-space (Y-down) contour winding direction for Bodymovin `"ty": "sh"` (`1` = CW, `3` = CCW).
+    fn lottie_direction(&self) -> u8 {
+        if !self.c || self.v.len() < 2 {
+            return 1;
+        }
+        let n = self.v.len();
+        let mut pts = Vec::with_capacity(n * 4);
+        for idx in 0..n {
+            let next = (idx + 1) % n;
+            let p0 = self.v[idx];
+            let p1 = [p0[0] + self.o[idx][0], p0[1] + self.o[idx][1]];
+            let p3 = self.v[next];
+            let p2 = [p3[0] + self.i[next][0], p3[1] + self.i[next][1]];
+            for step in 0..4 {
+                let u = f64::from(step) / 4.0;
+                let mu = 1.0 - u;
+                let x = mu * mu * mu * p0[0]
+                    + 3.0 * mu * mu * u * p1[0]
+                    + 3.0 * mu * u * u * p2[0]
+                    + u * u * u * p3[0];
+                let y = mu * mu * mu * p0[1]
+                    + 3.0 * mu * mu * u * p1[1]
+                    + 3.0 * mu * u * u * p2[1]
+                    + u * u * u * p3[1];
+                pts.push([x, y]);
+            }
+        }
+        let mut area2 = 0.0;
+        for idx in 0..pts.len() {
+            let a = pts[idx];
+            let b = pts[(idx + 1) % pts.len()];
+            area2 += a[0] * b[1] - b[0] * a[1];
+        }
+        if area2 < -1e-6 { 3 } else { 1 }
     }
 }
 
@@ -2567,12 +4805,19 @@ fn build_markers(timeline: &Timeline, scene_ranges: &[neoflash_core::SceneRange]
 }
 
 /// Build a Lottie (`v: "5.7.14"`) JSON [`Value`] and [`LottieExportReport`] from `project`.
+pub fn export_lottie(
+    project: &Project,
+    options: &LottieOptions,
+) -> Result<(Value, LottieExportReport), ExportError> {
+    export_lottie_value(project, options)
+}
+
+/// Build a Lottie (`v: "5.7.14"`) JSON [`Value`] and [`LottieExportReport`] from `project`.
 pub fn export_lottie_value(
     project: &Project,
     options: &LottieOptions,
 ) -> Result<(Value, LottieExportReport), ExportError> {
-    let (value, report, _) = export_lottie_internal(project, options, |_| true)?;
-    Ok((value, report))
+    export_lottie_with_progress(project, options, |_| true)
 }
 
 /// Build a Lottie (`v: "5.7.14"`) JSON [`Value`] and [`LottieExportReport`] from `project`,
@@ -2585,18 +4830,52 @@ pub fn export_lottie_with_progress<F>(
 where
     F: FnMut(&LottieProgress) -> bool,
 {
-    let (value, report, _) = export_lottie_internal(project, options, on_progress)?;
+    let cancel = AtomicBool::new(false);
+    export_lottie_with_cancel(project, options, &cancel, on_progress)
+}
+
+/// Build a Lottie (`v: "5.7.14"`) JSON [`Value`] and [`LottieExportReport`] from `project`,
+/// supporting both an [`AtomicBool`] cancellation token and a progress callback.
+pub fn export_lottie_with_cancel<F>(
+    project: &Project,
+    options: &LottieOptions,
+    cancel: &AtomicBool,
+    mut on_progress: F,
+) -> Result<(Value, LottieExportReport), ExportError>
+where
+    F: FnMut(&LottieProgress) -> bool,
+{
+    let (value, report, _) =
+        export_lottie_internal(project, options, Some(cancel), &mut on_progress)?;
+    if cancel.load(Ordering::Relaxed)
+        || !on_progress(&LottieProgress {
+            completed_steps: 4,
+            total_steps: 4,
+            current_stage: "Completed".into(),
+        })
+    {
+        return Err(ExportError::Options("Export cancelled.".into()));
+    }
     Ok((value, report))
+}
+
+fn check_cancel_flag(cancel: Option<&AtomicBool>) -> Result<(), ExportError> {
+    if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+        return Err(ExportError::Options("Export cancelled.".into()));
+    }
+    Ok(())
 }
 
 fn export_lottie_internal<F>(
     project: &Project,
     options: &LottieOptions,
+    cancel: Option<&AtomicBool>,
     mut on_progress: F,
 ) -> Result<(Value, LottieExportReport, Vec<ExternalImageFile>), ExportError>
 where
     F: FnMut(&LottieProgress) -> bool,
 {
+    check_cancel_flag(cancel)?;
     project
         .validate()
         .map_err(|e| ExportError::InvalidProject(e.to_string()))?;
@@ -2608,6 +4887,7 @@ where
     }) {
         return Err(ExportError::Options("Export cancelled.".into()));
     }
+    check_cancel_flag(cancel)?;
 
     let (mut working_project, scene_ranges, target_symbol_id, comp_name, include_bg) =
         if let Some(sym_query) = options.symbol.as_deref() {
@@ -2649,6 +4929,7 @@ where
             )
         };
 
+    check_cancel_flag(cancel)?;
     let mut text_outlined_count = 0usize;
     if options.text_mode == LottieTextMode::Shapes {
         text_outlined_count = crate::fonts::convert_project_text_to_outlines(&mut working_project);
@@ -2661,6 +4942,7 @@ where
     }) {
         return Err(ExportError::Options("Export cancelled.".into()));
     }
+    check_cancel_flag(cancel)?;
 
     let target_symbol = working_project.symbol(&target_symbol_id).ok_or_else(|| {
         ExportError::InvalidProject(format!("Target symbol '{target_symbol_id}' is missing."))
@@ -2677,17 +4959,25 @@ where
     let comp_h = ((base_h as f64) * scale).round().max(1.0) as u32;
     let fps_u32 = options.fps.unwrap_or(working_project.fps).clamp(1, 240);
 
+    let package_external_images =
+        options.format == LottieFormat::DotLottie || options.image_mode == LottieImageMode::Folder;
     let mut builder = LottieBuilder {
         project: &working_project,
         options,
+        cancel,
         source_fps: f64::from(working_project.fps.max(1)),
         fps: f64::from(fps_u32),
         comp_w: working_project.width.max(1),
         comp_h: working_project.height.max(1),
+        package_external_images,
         assets: Vec::new(),
         external_images: Vec::new(),
-        exported_precomps: BTreeSet::new(),
-        exported_images: BTreeSet::new(),
+        precomp_id_by_symbol: BTreeMap::new(),
+        image_id_by_resource: BTreeMap::new(),
+        matte_precomps: BTreeMap::new(),
+        used_asset_ids: BTreeSet::new(),
+        fonts: BTreeMap::new(),
+        emitted_text_layer: false,
         exported_count: 0,
         notes: Vec::new(),
         warnings: Vec::new(),
@@ -2695,8 +4985,9 @@ where
     };
 
     if text_outlined_count > 0 {
-        builder.add_note(
+        builder.add_note_coded(
             LottieNoteKind::Approximated,
+            Some("LOTTIE_TEXT_OUTLINED"),
             "Document · Text",
             format!(
                 "Converted {text_outlined_count} text element(s) to vector shape outlines (Text: Shapes)."
@@ -2705,37 +4996,12 @@ where
             None,
             None,
         );
-    } else if options.text_mode == LottieTextMode::TextLayers
-        && options.player != LottieTargetPlayer::LottieWeb
-        && working_project.symbols.iter().any(|s| {
-            s.timeline.layers.iter().any(|l| {
-                l.keyframes.iter().any(|k| {
-                    k.elements.iter().any(|e| {
-                        matches!(
-                            e.kind,
-                            ElementKind::Text { .. } | ElementKind::TextBox { .. }
-                        )
-                    })
-                })
-            })
-        })
-    {
-        builder.add_note(
-            LottieNoteKind::Approximated,
-            "Document · Text",
-            format!(
-                "Text layers on {} require font registration; switch Text to 'Shapes' for portable outlines.",
-                options.player.label()
-            ),
-            None,
-            None,
-            None,
-        );
     }
 
     if working_project.has_program() {
-        builder.add_note(
+        builder.add_note_coded(
             LottieNoteKind::NotExported,
+            Some("LOTTIE_PROJECT_SCRIPTS"),
             "Project · Scripts",
             "Project scripts/classes (ActionScript/JavaScript) are not executed by Lottie players; timeline animation was exported.",
             None,
@@ -2744,8 +5010,6 @@ where
         );
     }
 
-    // For a non-scene symbol whose registration point is `(0, 0)`, center the root Lottie
-    // composition at `(width / 2, height / 2)` only if its artwork crosses negative coordinates.
     let is_scene = project.is_scene(&target_symbol.id) || target_symbol.id == working_project.root;
     let root_offset = if is_scene {
         [0.0, 0.0]
@@ -2758,13 +5022,30 @@ where
 
     let mut stack = vec![target_symbol_id.clone()];
     let mut layers = builder.build_timeline_layers(
+        &target_symbol_id,
         &comp_name,
         &target_symbol.timeline,
         root_offset,
         include_bg,
         &mut stack,
-    );
+    )?;
 
+    if builder.emitted_text_layer {
+        builder.add_note_coded(
+            LottieNoteKind::Approximated,
+            Some("LOTTIE_TEXT_FONT_DEPENDENCY"),
+            "Document · Text",
+            format!(
+                "Text layers on {} require runtime font availability matching `fonts.list`; switch Text to 'Shapes' for portable glyph outlines.",
+                options.player.label()
+            ),
+            Some(target_symbol_id.clone()),
+            None,
+            None,
+        );
+    }
+
+    check_cancel_flag(cancel)?;
     if !on_progress(&LottieProgress {
         completed_steps: 2,
         total_steps: 4,
@@ -2793,8 +5074,9 @@ where
     };
     let exported_frames = op.saturating_sub(ip).max(1);
     if exported_frames == 1 {
-        builder.add_note(
+        builder.add_note_coded(
             LottieNoteKind::Approximated,
+            Some("LOTTIE_SINGLE_FRAME_COMP"),
             comp_name.clone(),
             "Composition has 1 frame and will play as a still image.",
             Some(target_symbol_id.clone()),
@@ -2803,8 +5085,6 @@ where
         );
     }
 
-    // If overall output dimensions were scaled relative to the authored stage, wrap all layers
-    // under a master null layer (`ty: 3`) or scale root layer positions/scales proportionally.
     let sx = comp_w as f64 / working_project.width.max(1) as f64;
     let sy = comp_h as f64 / working_project.height.max(1) as f64;
     if (sx - 1.0).abs() > 1e-4 || (sy - 1.0).abs() > 1e-4 {
@@ -2850,19 +5130,19 @@ where
         "layers": layers,
         "markers": markers
     });
+    if !builder.fonts.is_empty()
+        && let Some(root_map) = root.as_object_mut()
+    {
+        let font_list: Vec<Value> = builder.fonts.values().cloned().collect();
+        root_map.insert("fonts".into(), json!({ "list": font_list }));
+    }
 
     let precision = options.precision.min(4);
     if precision < 4 {
         round_json_numbers(&mut root, precision);
     }
 
-    if !on_progress(&LottieProgress {
-        completed_steps: 4,
-        total_steps: 4,
-        current_stage: "Completed".into(),
-    }) {
-        return Err(ExportError::Options("Export cancelled.".into()));
-    }
+    check_cancel_flag(cancel)?;
 
     let approximated_count = builder
         .notes
@@ -2947,25 +5227,110 @@ pub fn export_lottie_json(
 pub fn export_lottie_json_with_progress<F>(
     project: &Project,
     options: &LottieOptions,
+    on_progress: F,
+) -> Result<(String, LottieExportReport), ExportError>
+where
+    F: FnMut(&LottieProgress) -> bool,
+{
+    let cancel = AtomicBool::new(false);
+    export_lottie_json_with_cancel(project, options, &cancel, on_progress)
+}
+
+/// Serialize `project` into a Lottie JSON string along with [`LottieExportReport`],
+/// supporting both an [`AtomicBool`] cancellation token and a progress callback.
+pub fn export_lottie_json_with_cancel<F>(
+    project: &Project,
+    options: &LottieOptions,
+    cancel: &AtomicBool,
     mut on_progress: F,
 ) -> Result<(String, LottieExportReport), ExportError>
 where
     F: FnMut(&LottieProgress) -> bool,
 {
     let (value, mut report, external_images) =
-        export_lottie_internal(project, options, &mut on_progress)?;
+        export_lottie_internal(project, options, Some(cancel), &mut on_progress)?;
+    check_cancel_flag(Some(cancel))?;
     let json = if options.pretty {
         serde_json::to_string_pretty(&value)?
     } else {
         serde_json::to_string(&value)?
     };
+    check_cancel_flag(Some(cancel))?;
     if options.format == LottieFormat::DotLottie {
-        let img_bytes: usize = external_images.iter().map(|i| i.bytes.len() + 96).sum();
-        report.bytes = json.len() + 256 + img_bytes;
+        let zip_bytes = build_dotlottie_zip(json.as_bytes(), &external_images, Some(cancel))?;
+        report.bytes = zip_bytes.len();
     } else {
         report.bytes = json.len();
     }
+    if cancel.load(Ordering::Relaxed)
+        || !on_progress(&LottieProgress {
+            completed_steps: 4,
+            total_steps: 4,
+            current_stage: "Completed".into(),
+        })
+    {
+        return Err(ExportError::Options("Export cancelled.".into()));
+    }
     Ok((json, report))
+}
+
+/// Build an in-memory `.lottie` ZIP archive and [`LottieExportReport`] from `project`.
+pub fn export_dotlottie_bytes(
+    project: &Project,
+    options: &LottieOptions,
+) -> Result<(Vec<u8>, LottieExportReport), ExportError> {
+    let cancel = AtomicBool::new(false);
+    export_dotlottie_bytes_with_cancel(project, options, &cancel, |_| true)
+}
+
+/// Build an in-memory `.lottie` ZIP archive with [`AtomicBool`] cancellation and progress reporting.
+pub fn export_dotlottie_bytes_with_cancel<F>(
+    project: &Project,
+    options: &LottieOptions,
+    cancel: &AtomicBool,
+    mut on_progress: F,
+) -> Result<(Vec<u8>, LottieExportReport), ExportError>
+where
+    F: FnMut(&LottieProgress) -> bool,
+{
+    let dot_opts = LottieOptions {
+        format: LottieFormat::DotLottie,
+        ..options.clone()
+    };
+    let (value, mut report, external_images) =
+        export_lottie_internal(project, &dot_opts, Some(cancel), &mut on_progress)?;
+    check_cancel_flag(Some(cancel))?;
+    let json = if dot_opts.pretty {
+        serde_json::to_string_pretty(&value)?
+    } else {
+        serde_json::to_string(&value)?
+    };
+    let zip_bytes = build_dotlottie_zip(json.as_bytes(), &external_images, Some(cancel))?;
+    validate_dotlottie_bytes(&zip_bytes)?;
+    report.bytes = zip_bytes.len();
+    if cancel.load(Ordering::Relaxed)
+        || !on_progress(&LottieProgress {
+            completed_steps: 4,
+            total_steps: 4,
+            current_stage: "Completed".into(),
+        })
+    {
+        return Err(ExportError::Options("Export cancelled.".into()));
+    }
+    Ok((zip_bytes, report))
+}
+
+/// Write a dotLottie (`.lottie`) ZIP package atomically to `output_file`.
+pub fn export_dotlottie(
+    project: &Project,
+    output_file: &Path,
+    options: &LottieOptions,
+) -> Result<LottieExportReport, ExportError> {
+    let dot_opts = LottieOptions {
+        format: LottieFormat::DotLottie,
+        ..options.clone()
+    };
+    export_project_lottie(project, output_file, &dot_opts)
 }
 
 /// Write a Lottie `.json` or `.lottie` file to `output_file` and return the resulting [`LottieExportReport`].
@@ -2987,136 +5352,476 @@ pub fn export_project_lottie_with_progress<F>(
 where
     F: FnMut(&LottieProgress) -> bool,
 {
-    let (value, mut report, external_images) =
-        export_lottie_internal(project, options, on_progress)?;
-    let json = if options.pretty {
-        serde_json::to_string_pretty(&value)?
-    } else {
-        serde_json::to_string(&value)?
-    };
+    let cancel = AtomicBool::new(false);
+    export_project_lottie_with_cancel(project, output_file, options, &cancel, on_progress)
+}
 
-    if let Some(parent) = output_file.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-
+/// Write a Lottie `.json` or `.lottie` file atomically to `output_file` with [`AtomicBool`]
+/// cancellation and progress reporting. If cancelled or errored at any point, zero partial or
+/// temporary files are left on disk and any pre-existing file at `output_file` remains untouched.
+pub fn export_project_lottie_with_cancel<F>(
+    project: &Project,
+    output_file: &Path,
+    options: &LottieOptions,
+    cancel: &AtomicBool,
+    mut on_progress: F,
+) -> Result<LottieExportReport, ExportError>
+where
+    F: FnMut(&LottieProgress) -> bool,
+{
+    check_cancel_flag(Some(cancel))?;
     let is_dotlottie = options.format == LottieFormat::DotLottie
         || output_file
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("lottie"));
 
-    if is_dotlottie {
-        let manifest = json!({
-            "version": "1.0",
-            "generator": "NeoFlash",
-            "animations": [{
-                "id": "animation",
-                "speed": 1,
-                "loop": true
-            }]
-        });
-        let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
-        let mut zip_entries: Vec<(String, Vec<u8>)> = vec![
-            ("manifest.json".into(), manifest_bytes),
-            ("animations/animation.json".into(), json.as_bytes().to_vec()),
-        ];
-        for img in &external_images {
-            zip_entries.push((img.relative_path.clone(), img.bytes.clone()));
+    let effective_options = if is_dotlottie && options.format != LottieFormat::DotLottie {
+        LottieOptions {
+            format: LottieFormat::DotLottie,
+            ..options.clone()
         }
-        let zip_bytes = build_stored_zip(&zip_entries);
-        fs::write(output_file, &zip_bytes)?;
+    } else {
+        options.clone()
+    };
+
+    let (value, mut report, external_images) =
+        export_lottie_internal(project, &effective_options, Some(cancel), &mut on_progress)?;
+    check_cancel_flag(Some(cancel))?;
+
+    if !on_progress(&LottieProgress {
+        completed_steps: 3,
+        total_steps: 4,
+        current_stage: "Packaging assets and staging files".into(),
+    }) {
+        return Err(ExportError::Options("Export cancelled.".into()));
+    }
+    check_cancel_flag(Some(cancel))?;
+
+    let json = if effective_options.pretty {
+        serde_json::to_string_pretty(&value)?
+    } else {
+        serde_json::to_string(&value)?
+    };
+    check_cancel_flag(Some(cancel))?;
+
+    let mut staged = StagedFileBatch::new();
+
+    if is_dotlottie {
+        let zip_bytes = build_dotlottie_zip(json.as_bytes(), &external_images, Some(cancel))?;
+        validate_dotlottie_bytes(&zip_bytes)?;
+        staged.stage_file(output_file, &zip_bytes, Some(cancel))?;
         report.bytes = zip_bytes.len();
     } else {
-        fs::write(output_file, json.as_bytes())?;
+        staged.stage_file(output_file, json.as_bytes(), Some(cancel))?;
         report.bytes = json.len();
     }
 
-    if (!is_dotlottie || options.html_preview)
-        && !external_images.is_empty()
-        && let Some(parent) = output_file.parent()
-    {
+    let write_external_folder_images = !external_images.is_empty()
+        && (!is_dotlottie
+            || effective_options.image_mode == LottieImageMode::Folder
+            || effective_options.html_preview);
+    if write_external_folder_images {
+        let base_dir = output_file
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
         for img in &external_images {
-            let path = parent.join(&img.relative_path);
-            if let Some(img_parent) = path.parent() {
-                fs::create_dir_all(img_parent)?;
-            }
-            fs::write(path, &img.bytes)?;
+            validate_zip_entry_path(&img.relative_path)?;
+            let img_path = base_dir.join(&img.relative_path);
+            staged.stage_file(&img_path, &img.bytes, Some(cancel))?;
         }
     }
 
-    if options.html_preview {
+    if effective_options.html_preview {
         let preview_path = output_file.with_extension("preview.html");
         let html = build_lottie_html_preview(&report.name, report.width, report.height, &json);
-        fs::write(&preview_path, html.as_bytes())?;
+        staged.stage_file(&preview_path, html.as_bytes(), Some(cancel))?;
         report.html_preview_path = Some(preview_path);
     }
 
+    if cancel.load(Ordering::Relaxed)
+        || !on_progress(&LottieProgress {
+            completed_steps: 4,
+            total_steps: 4,
+            current_stage: "Completed".into(),
+        })
+    {
+        return Err(ExportError::Options("Export cancelled.".into()));
+    }
+
+    staged.commit(Some(cancel))?;
     report.path = Some(output_file.to_path_buf());
     Ok(report)
 }
 
-fn build_stored_zip(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut central_dir = Vec::new();
-    for (name, data) in entries {
-        let name_bytes = name.as_bytes();
-        let offset = out.len() as u32;
-        let mut crc = flate2::Crc::new();
-        crc.update(data);
-        let crc32 = crc.sum();
-        let size = data.len() as u32;
+struct StagedFileBatch {
+    staged_files: Vec<(PathBuf, PathBuf)>,
+    created_dirs: Vec<PathBuf>,
+    committed: bool,
+}
 
-        // Local file header (`PK\x03\x04`)
-        out.extend_from_slice(&0x0403_4b50_u32.to_le_bytes());
-        out.extend_from_slice(&20_u16.to_le_bytes());
-        out.extend_from_slice(&0_u16.to_le_bytes());
-        out.extend_from_slice(&0_u16.to_le_bytes()); // stored (0)
-        out.extend_from_slice(&0_u16.to_le_bytes());
-        out.extend_from_slice(&0_u16.to_le_bytes());
-        out.extend_from_slice(&crc32.to_le_bytes());
-        out.extend_from_slice(&size.to_le_bytes());
-        out.extend_from_slice(&size.to_le_bytes());
-        out.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
-        out.extend_from_slice(&0_u16.to_le_bytes());
-        out.extend_from_slice(name_bytes);
-        out.extend_from_slice(data);
-
-        // Central directory header (`PK\x01\x02`)
-        central_dir.extend_from_slice(&0x0201_4b50_u32.to_le_bytes());
-        central_dir.extend_from_slice(&20_u16.to_le_bytes());
-        central_dir.extend_from_slice(&20_u16.to_le_bytes());
-        central_dir.extend_from_slice(&0_u16.to_le_bytes());
-        central_dir.extend_from_slice(&0_u16.to_le_bytes());
-        central_dir.extend_from_slice(&0_u16.to_le_bytes());
-        central_dir.extend_from_slice(&0_u16.to_le_bytes());
-        central_dir.extend_from_slice(&crc32.to_le_bytes());
-        central_dir.extend_from_slice(&size.to_le_bytes());
-        central_dir.extend_from_slice(&size.to_le_bytes());
-        central_dir.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
-        central_dir.extend_from_slice(&0_u16.to_le_bytes());
-        central_dir.extend_from_slice(&0_u16.to_le_bytes());
-        central_dir.extend_from_slice(&0_u16.to_le_bytes());
-        central_dir.extend_from_slice(&0_u16.to_le_bytes());
-        central_dir.extend_from_slice(&0_u32.to_le_bytes());
-        central_dir.extend_from_slice(&offset.to_le_bytes());
-        central_dir.extend_from_slice(name_bytes);
+impl StagedFileBatch {
+    fn new() -> Self {
+        Self {
+            staged_files: Vec::new(),
+            created_dirs: Vec::new(),
+            committed: false,
+        }
     }
-    let cd_offset = out.len() as u32;
-    let cd_size = central_dir.len() as u32;
-    let count = entries.len() as u16;
-    out.extend_from_slice(&central_dir);
-    // End of central directory (`PK\x05\x06`)
-    out.extend_from_slice(&0x0605_4b50_u32.to_le_bytes());
-    out.extend_from_slice(&0_u16.to_le_bytes());
-    out.extend_from_slice(&0_u16.to_le_bytes());
-    out.extend_from_slice(&count.to_le_bytes());
-    out.extend_from_slice(&count.to_le_bytes());
-    out.extend_from_slice(&cd_size.to_le_bytes());
-    out.extend_from_slice(&cd_offset.to_le_bytes());
-    out.extend_from_slice(&0_u16.to_le_bytes());
-    out
+
+    fn ensure_dir_tracked(&mut self, dir: &Path) -> Result<(), ExportError> {
+        if dir.as_os_str().is_empty() || dir.exists() {
+            return Ok(());
+        }
+        let mut missing = Vec::new();
+        let mut cur = Some(dir);
+        while let Some(p) = cur {
+            if p.as_os_str().is_empty() || p.exists() {
+                break;
+            }
+            missing.push(p.to_path_buf());
+            cur = p.parent();
+        }
+        for p in missing.into_iter().rev() {
+            match fs::create_dir(&p) {
+                Ok(()) => self.created_dirs.push(p),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(ExportError::Io(e)),
+            }
+        }
+        Ok(())
+    }
+
+    fn stage_file(
+        &mut self,
+        final_path: &Path,
+        bytes: &[u8],
+        cancel: Option<&AtomicBool>,
+    ) -> Result<(), ExportError> {
+        check_cancel_flag(cancel)?;
+        let parent = final_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        self.ensure_dir_tracked(parent)?;
+        check_cancel_flag(cancel)?;
+
+        let file_name = final_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("output");
+        static NEXT_TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+        let tmp_path = loop {
+            let seq = NEXT_TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+            let candidate = parent.join(format!(
+                ".{file_name}.neoflash-tmp-{}-{seq}",
+                std::process::id()
+            ));
+            if !candidate.exists() {
+                break candidate;
+            }
+        };
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp_path)?;
+        self.staged_files
+            .push((tmp_path.clone(), final_path.to_path_buf()));
+
+        for chunk in bytes.chunks(64 * 1024) {
+            check_cancel_flag(cancel)?;
+            file.write_all(chunk)?;
+        }
+        file.sync_all()?;
+        drop(file);
+        check_cancel_flag(cancel)?;
+        Ok(())
+    }
+
+    fn commit(mut self, cancel: Option<&AtomicBool>) -> Result<(), ExportError> {
+        check_cancel_flag(cancel)?;
+        let mut touched_parents = BTreeSet::new();
+        for (tmp_path, final_path) in &self.staged_files {
+            fs::rename(tmp_path, final_path)?;
+            if let Some(parent) = final_path.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                touched_parents.insert(parent.to_path_buf());
+            }
+        }
+        for parent in touched_parents {
+            if let Ok(dir_file) = fs::File::open(parent) {
+                let _ = dir_file.sync_all();
+            }
+        }
+        self.committed = true;
+        Ok(())
+    }
+}
+
+impl Drop for StagedFileBatch {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        for (tmp_path, _) in self.staged_files.drain(..).rev() {
+            let _ = fs::remove_file(tmp_path);
+        }
+        for dir in self.created_dirs.drain(..).rev() {
+            let _ = fs::remove_dir(dir);
+        }
+    }
+}
+
+fn validate_zip_entry_path(name: &str) -> Result<(), ExportError> {
+    if name.is_empty()
+        || name.starts_with('/')
+        || name.starts_with('\\')
+        || name.contains('\\')
+        || name.contains(':')
+        || name.chars().any(char::is_control)
+    {
+        return Err(ExportError::Options(format!(
+            "Invalid dotLottie archive entry path '{name}'."
+        )));
+    }
+    let parts: Vec<&str> = name.split('/').collect();
+    if parts
+        .iter()
+        .any(|seg| seg.is_empty() || *seg == "." || *seg == "..")
+    {
+        return Err(ExportError::Options(format!(
+            "Unsafe or non-normalized dotLottie archive entry path '{name}'."
+        )));
+    }
+    Ok(())
+}
+
+fn build_dotlottie_zip(
+    animation_json: &[u8],
+    external_images: &[ExternalImageFile],
+    cancel: Option<&AtomicBool>,
+) -> Result<Vec<u8>, ExportError> {
+    check_cancel_flag(cancel)?;
+    let manifest = json!({
+        "version": "1.0",
+        "generator": "NeoFlash",
+        "animations": [{
+            "id": "animation",
+            "speed": 1,
+            "loop": true
+        }]
+    });
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
+    let deflate_opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    let stored_opts =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
+    let cursor = Cursor::new(Vec::new());
+    let mut zw = zip::ZipWriter::new(cursor);
+
+    zw.start_file("manifest.json", deflate_opts)
+        .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
+    zw.write_all(&manifest_bytes)?;
+    check_cancel_flag(cancel)?;
+
+    zw.start_file("animations/animation.json", deflate_opts)
+        .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
+    zw.write_all(animation_json)?;
+    check_cancel_flag(cancel)?;
+
+    let mut seen_paths = BTreeSet::new();
+    seen_paths.insert("manifest.json".to_owned());
+    seen_paths.insert("animations/animation.json".to_owned());
+    for img in external_images {
+        check_cancel_flag(cancel)?;
+        validate_zip_entry_path(&img.relative_path)?;
+        if !seen_paths.insert(img.relative_path.clone()) {
+            return Err(ExportError::Options(format!(
+                "Duplicate dotLottie archive entry '{}'.",
+                img.relative_path
+            )));
+        }
+        zw.start_file(&img.relative_path, stored_opts)
+            .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
+        zw.write_all(&img.bytes)?;
+    }
+
+    let finished = zw
+        .finish()
+        .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
+    Ok(finished.into_inner())
+}
+
+/// Validate a `.lottie` ZIP archive against the dotLottie container specification,
+/// checking path safety, `manifest.json`, `animations/<id>.json`, and every referenced
+/// `assets[]` / `images/*` entry. Returns the parsed primary animation JSON [`Value`].
+pub fn validate_dotlottie_bytes(bytes: &[u8]) -> Result<Value, ExportError> {
+    if !bytes.starts_with(b"PK\x03\x04") {
+        return Err(ExportError::Options(
+            "dotLottie archive does not start with ZIP local header signature.".into(),
+        ));
+    }
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
+        .map_err(|e| ExportError::Options(format!("Invalid dotLottie ZIP archive: {e}")))?;
+    if archive.len() > 4096 {
+        return Err(ExportError::Options(
+            "dotLottie archive exceeds 4096 entry limit.".into(),
+        ));
+    }
+
+    let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    for idx in 0..archive.len() {
+        let mut entry = archive.by_index(idx).map_err(|e| {
+            ExportError::Options(format!("Invalid dotLottie ZIP entry #{idx}: {e}"))
+        })?;
+        let name = entry.name().to_owned();
+        if entry.is_dir() {
+            return Err(ExportError::Options(format!(
+                "dotLottie archive contains unexpected directory entry '{name}'."
+            )));
+        }
+        validate_zip_entry_path(&name)?;
+        if entries.contains_key(&name) {
+            return Err(ExportError::Options(format!(
+                "Duplicate entry '{name}' in dotLottie archive."
+            )));
+        }
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data)?;
+        entries.insert(name, data);
+    }
+
+    let manifest_bytes = entries.get("manifest.json").ok_or_else(|| {
+        ExportError::Options("dotLottie archive is missing 'manifest.json'.".into())
+    })?;
+    let manifest: Value = serde_json::from_slice(manifest_bytes).map_err(|e| {
+        ExportError::Options(format!("Invalid JSON in dotLottie 'manifest.json': {e}"))
+    })?;
+    let version = manifest["version"].as_str().unwrap_or("");
+    if version.trim().is_empty() {
+        return Err(ExportError::Options(
+            "dotLottie 'manifest.json' is missing non-empty 'version'.".into(),
+        ));
+    }
+    let generator = manifest["generator"].as_str().unwrap_or("");
+    if generator.trim().is_empty() {
+        return Err(ExportError::Options(
+            "dotLottie 'manifest.json' is missing 'generator'.".into(),
+        ));
+    }
+    let anims = manifest["animations"].as_array().ok_or_else(|| {
+        ExportError::Options("dotLottie 'manifest.json' is missing 'animations' array.".into())
+    })?;
+    if anims.is_empty() {
+        return Err(ExportError::Options(
+            "dotLottie 'manifest.json' must declare at least one animation.".into(),
+        ));
+    }
+
+    let mut primary_anim: Option<Value> = None;
+    for anim_meta in anims {
+        let anim_id = anim_meta["id"].as_str().unwrap_or("");
+        if anim_id.is_empty() || anim_id.contains('/') || anim_id.contains('\\') || anim_id == ".."
+        {
+            return Err(ExportError::Options(format!(
+                "Invalid animation id '{anim_id}' in dotLottie manifest."
+            )));
+        }
+        let anim_entry_path = format!("animations/{anim_id}.json");
+        let anim_bytes = entries.get(&anim_entry_path).ok_or_else(|| {
+            ExportError::Options(format!(
+                "dotLottie archive is missing animation file '{anim_entry_path}'."
+            ))
+        })?;
+        let anim_val: Value = serde_json::from_slice(anim_bytes).map_err(|e| {
+            ExportError::Options(format!("Invalid JSON in '{anim_entry_path}': {e}"))
+        })?;
+        validate_lottie_asset_references(&anim_val, Some(&entries))?;
+        if primary_anim.is_none() {
+            primary_anim = Some(anim_val);
+        }
+    }
+
+    primary_anim.ok_or_else(|| ExportError::Options("No animation found in dotLottie.".into()))
+}
+
+fn validate_lottie_asset_references(
+    lottie: &Value,
+    archive_entries: Option<&BTreeMap<String, Vec<u8>>>,
+) -> Result<(), ExportError> {
+    let assets = lottie["assets"].as_array().ok_or_else(|| {
+        ExportError::Options("Lottie JSON is missing root 'assets' array.".into())
+    })?;
+    let mut asset_ids = BTreeSet::new();
+    for asset in assets {
+        let id = asset["id"].as_str().unwrap_or("");
+        if id.is_empty() {
+            return Err(ExportError::Options(
+                "Lottie asset entry is missing non-empty 'id'.".into(),
+            ));
+        }
+        if !asset_ids.insert(id.to_owned()) {
+            return Err(ExportError::Options(format!(
+                "Duplicate Lottie asset id '{id}'."
+            )));
+        }
+        if let Some(p) = asset["p"].as_str() {
+            let embedded = asset["e"].as_i64().unwrap_or(0) == 1;
+            if embedded {
+                if !p.starts_with("data:image/") {
+                    return Err(ExportError::Options(format!(
+                        "Embedded Lottie image asset '{id}' does not use a valid data:image/* URI."
+                    )));
+                }
+            } else {
+                let u = asset["u"].as_str().unwrap_or("");
+                let rel = format!("{u}{p}");
+                validate_zip_entry_path(&rel)?;
+                if let Some(entries) = archive_entries {
+                    let img_bytes = entries.get(&rel).ok_or_else(|| {
+                        ExportError::Options(format!(
+                            "dotLottie archive is missing referenced image asset '{rel}' (id '{id}')."
+                        ))
+                    })?;
+                    if detect_raster_magic(img_bytes) == DetectedRaster::Other {
+                        return Err(ExportError::Options(format!(
+                            "dotLottie image entry '{rel}' does not have valid PNG/JPEG/WebP/GIF magic bytes."
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
+    let check_layers = |layers: &[Value], ctx: &str| -> Result<(), ExportError> {
+        for layer in layers {
+            if let Some(ref_id) = layer["refId"].as_str()
+                && !asset_ids.contains(ref_id)
+            {
+                return Err(ExportError::Options(format!(
+                    "Dangling refId '{ref_id}' in {ctx} layer '{}'.",
+                    layer["nm"].as_str().unwrap_or("<unnamed>")
+                )));
+            }
+        }
+        Ok(())
+    };
+
+    let root_layers = lottie["layers"].as_array().ok_or_else(|| {
+        ExportError::Options("Lottie JSON is missing root 'layers' array.".into())
+    })?;
+    check_layers(root_layers, "root")?;
+    for asset in assets {
+        if let Some(comp_layers) = asset["layers"].as_array() {
+            let id = asset["id"].as_str().unwrap_or("<precomp>");
+            check_layers(comp_layers, id)?;
+        }
+    }
+    Ok(())
 }
 
 fn escape_html_text(text: &str) -> String {
@@ -3128,6 +5833,8 @@ fn escape_html_text(text: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&#39;"),
+            '\u{2028}' => out.push_str("&#x2028;"),
+            '\u{2029}' => out.push_str("&#x2029;"),
             _ => out.push(ch),
         }
     }
@@ -3160,25 +5867,118 @@ fn build_lottie_html_preview(title: &str, width: u32, height: u32, lottie_json: 
 <title>{safe_title} — Lottie Preview</title>
 <style>
   body {{ margin: 0; background: #14171f; color: #e6e9f0; font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }}
-  #player {{ width: {width}px; height: {height}px; max-width: 92vw; max-height: 80vh; background: #1e222d; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); }}
+  #player {{ width: {width}px; height: {height}px; max-width: 92vw; max-height: 80vh; background: #1e222d; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); overflow: hidden; }}
   .meta {{ margin-top: 12px; font-size: 13px; color: #9aa2b2; }}
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js" async></script>
 </head>
 <body>
   <div id="player"></div>
   <div class="meta">{safe_title} · {width} × {height} · Bodymovin v{LOTTIE_VERSION}</div>
   <script>
-    const animationData = {safe_json};
-    if (window.lottie) {{
-      window.lottie.loadAnimation({{
-        container: document.getElementById('player'),
-        renderer: 'svg',
-        loop: true,
-        autoplay: true,
-        animationData
-      }});
-    }}
+    (function() {{
+      const rootEl = document.documentElement;
+      const container = document.getElementById('player');
+      const animationData = {safe_json};
+      window.__lottieAnimationData = animationData;
+
+      function mountPlayer() {{
+        if (window.lottie && !container.dataset.mounted) {{
+          container.dataset.mounted = 'lottie-web';
+          container.textContent = '';
+          window.lottie.loadAnimation({{
+            container: container,
+            renderer: 'svg',
+            loop: true,
+            autoplay: true,
+            animationData: animationData
+          }});
+          return true;
+        }}
+        return false;
+      }}
+
+      if (!mountPlayer()) {{
+        const ns = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('viewBox', '0 0 ' + (animationData.w || {width}) + ' ' + (animationData.h || {height}));
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', '100%');
+        const layers = Array.isArray(animationData.layers) ? animationData.layers : [];
+        for (let i = layers.length - 1; i >= 0; i--) {{
+          const layer = layers[i];
+          if (layer && layer.ty === 1 && typeof layer.sc === 'string') {{
+            const rect = document.createElementNS(ns, 'rect');
+            rect.setAttribute('width', String(layer.sw || animationData.w || {width}));
+            rect.setAttribute('height', String(layer.sh || animationData.h || {height}));
+            rect.setAttribute('fill', layer.sc);
+            svg.appendChild(rect);
+          }}
+        }}
+        container.appendChild(svg);
+        window.addEventListener('load', mountPlayer);
+      }}
+
+      const assets = Array.isArray(animationData.assets) ? animationData.assets : [];
+      const assetMap = new Map();
+      const imageAssets = [];
+      for (const asset of assets) {{
+        if (asset && typeof asset.id === 'string') {{
+          assetMap.set(asset.id, asset);
+          if (typeof asset.p === 'string' && asset.p.length > 0) {{
+            imageAssets.push(asset);
+          }}
+        }}
+      }}
+
+      const dangling = [];
+      function checkLayerRefs(list) {{
+        if (!Array.isArray(list)) return;
+        for (const layer of list) {{
+          if (layer && typeof layer.refId === 'string' && !assetMap.has(layer.refId)) {{
+            dangling.push(layer.refId);
+          }}
+        }}
+      }}
+      checkLayerRefs(animationData.layers);
+      for (const asset of assets) {{
+        if (asset && Array.isArray(asset.layers)) {{
+          checkLayerRefs(asset.layers);
+        }}
+      }}
+
+      rootEl.setAttribute('data-lottie-xss', String(Boolean(window.__xss || window.__t051_marker)));
+      rootEl.setAttribute('data-lottie-dangling-refs', String(dangling.length));
+      rootEl.setAttribute('data-lottie-images-expected', String(imageAssets.length));
+
+      if (imageAssets.length === 0) {{
+        rootEl.setAttribute('data-lottie-images-loaded', '0');
+        rootEl.setAttribute('data-lottie-images-failed', '0');
+        rootEl.setAttribute('data-lottie-images-verified', String(dangling.length === 0));
+        rootEl.setAttribute('data-lottie-ready', 'true');
+      }} else {{
+        let loaded = 0;
+        let failed = 0;
+        const finishOne = () => {{
+          if (loaded + failed === imageAssets.length) {{
+            rootEl.setAttribute('data-lottie-xss', String(Boolean(window.__xss || window.__t051_marker)));
+            rootEl.setAttribute('data-lottie-images-loaded', String(loaded));
+            rootEl.setAttribute('data-lottie-images-failed', String(failed));
+            rootEl.setAttribute(
+              'data-lottie-images-verified',
+              String(dangling.length === 0 && failed === 0 && loaded === imageAssets.length)
+            );
+            rootEl.setAttribute('data-lottie-ready', 'true');
+          }}
+        }};
+        for (const imgAsset of imageAssets) {{
+          const probe = new Image();
+          probe.onload = () => {{ loaded += 1; finishOne(); }};
+          probe.onerror = () => {{ failed += 1; finishOne(); }};
+          probe.src = imgAsset.e === 1 ? imgAsset.p : ((imgAsset.u || '') + imgAsset.p);
+        }}
+      }}
+    }})();
   </script>
 </body>
 </html>
