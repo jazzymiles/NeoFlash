@@ -37,11 +37,13 @@
 //! | `layer_properties.rs` | Layer properties modal dialog (`Modify ▸ Timeline ▸ Layer properties…`) |
 //! | `sound_properties.rs` | Sound properties modal dialog (`Properties ▸ Sound`, `Library menu`) |
 //! | `symbols_popover.rs` | Breadcrumb `▾` `Symbols & scenes` popover |
+//! | `beta_feedback.rs` | Beta feedback Stage `Bug?` chip and modal dialog (`R-103`) |
 //! | `planned.rs` | NF2 panels the engine does not support yet (read-only previews; bodies in `planned_*.rs`) |
 pub(crate) mod accessibility;
 mod actions;
 pub(crate) mod actions_sidebar;
 pub(crate) mod ai_dialogs;
+pub(crate) mod beta_feedback;
 pub(crate) mod code_snippets;
 pub(crate) mod compiler_errors;
 mod debugger;

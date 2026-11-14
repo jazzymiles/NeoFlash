@@ -52,6 +52,14 @@ pub(crate) struct NotificationCenter {
 }
 
 impl NotificationCenter {
+    #[cfg(test)]
+    pub(crate) fn visible_toasts(&self) -> Vec<(nf::ToastType, String)> {
+        self.visible
+            .iter()
+            .map(|t| (t.kind, t.message.clone()))
+            .collect()
+    }
+
     fn push(&mut self, kind: nf::ToastType, message: String, action: Option<NotificationAction>) {
         if let Some(old) = self
             .visible

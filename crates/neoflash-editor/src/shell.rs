@@ -210,6 +210,7 @@ impl Editor {
         let mode = self.workspace.stage_toolbar;
         if mode == Mode::EditBar {
             self.symbols_popover(&ctx, canvas);
+            self.beta_feedback_stage_chip(&ctx, canvas);
             self.view_settings_popover(&ctx, canvas);
             return;
         }
@@ -245,6 +246,7 @@ impl Editor {
             });
         if canvas.width() < 420. || canvas.height() < 160. {
             self.stage_view.settings_button = None;
+            self.beta_feedback_stage_chip(&ctx, canvas);
             self.view_settings_popover(&ctx, canvas);
             return;
         }
@@ -252,15 +254,20 @@ impl Editor {
         // floating toolbar steps aside, so it never covers the artwork being edited.
         let toolbar_rect_id = egui::Id::new("stage-toolbar-rect");
         let last_rect: Option<Rect> = ctx.data(|d| d.get_temp(toolbar_rect_id));
+        let last_chip_rect: Option<Rect> =
+            ctx.data(|d| d.get_temp(crate::panels::beta_feedback::chip_rect_temp_id()));
         let gesture = ctx.input(|i| {
             i.pointer.primary_down()
                 && i.pointer.is_decidedly_dragging()
-                && i.pointer
-                    .press_origin()
-                    .is_some_and(|p| canvas.contains(p) && last_rect.is_none_or(|r| !r.contains(p)))
+                && i.pointer.press_origin().is_some_and(|p| {
+                    canvas.contains(p)
+                        && last_rect.is_none_or(|r| !r.contains(p))
+                        && last_chip_rect.is_none_or(|r| !r.contains(p))
+                })
         });
         if gesture {
             self.stage_view.settings_button = None;
+            self.beta_feedback_stage_chip(&ctx, canvas);
             self.view_settings_popover(&ctx, canvas);
             return;
         }
@@ -305,6 +312,7 @@ impl Editor {
         self.stage_toolbar_menu(&area);
         self.stage_view.settings_button = settings.map(|r| r.rect);
         self.apply_zoom_action(action);
+        self.beta_feedback_stage_chip(&ctx, canvas);
         self.view_settings_popover(&ctx, canvas);
     }
 

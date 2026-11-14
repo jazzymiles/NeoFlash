@@ -84,6 +84,8 @@ mod workspace_presets;
 #[cfg(test)]
 mod ai_workflow_tests;
 #[cfg(test)]
+mod beta_feedback_tests;
+#[cfg(test)]
 mod clipboard_tests;
 #[cfg(test)]
 mod detached_tests;

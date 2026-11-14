@@ -198,6 +198,7 @@ pub struct Editor {
     pub workspace: WorkspacePrefs,
     pub(crate) publish_controller: crate::publish_controller::PublishController,
     pub(crate) updater: crate::updater::UpdaterController,
+    pub(crate) beta_feedback: crate::panels::beta_feedback::BetaFeedbackState,
     pub(crate) publish_settings: Option<crate::panels::publish_settings::PublishSettingsDraft>,
     pub detached: crate::detached::DetachedState,
     pub(crate) stage_view: crate::stage_view::StageView,
@@ -486,6 +487,7 @@ impl Editor {
             Ok("sound_properties") => s.open_sound_properties(&cc.egui_ctx, None),
             Ok("edit_envelope") => s.open_edit_envelope(),
             Ok("find_replace") => s.open_find_replace(),
+            Ok("beta_feedback") => s.open_beta_feedback(),
             Ok("paste_motion_special") => {
                 s.copy_motion();
                 s.open_paste_motion_special();
@@ -641,6 +643,7 @@ impl Editor {
             ai_manager: crate::ai_connections::AiConnectionManager::in_memory(),
             ai_connection_modal: None,
             ai_session: Default::default(),
+            beta_feedback: Default::default(),
         };
         if s.project.html_render_mode() == neoflash_core::HtmlRenderMode::Dom {
             s.workspace.publish.render_mode = neoflash_core::HtmlRenderMode::Dom;
@@ -958,6 +961,7 @@ impl Editor {
             || self.authoring_tools.polystar_dialog.is_some()
             || self.authoring_tools.magic_wand_dialog.is_some()
             || self.find_replace.is_some()
+            || self.beta_feedback.open
             || self.confirm_revert
             || self.has_external_change_prompt()
             || (self.recovery.has_prompt() && (!self.dirty() || !self.sessions.is_empty()))
@@ -3846,6 +3850,7 @@ impl Editor {
         self.polystar_settings_modal(ctx);
         self.scale_and_rotate_modal(ctx);
         self.help_manual_dialog(ctx);
+        self.beta_feedback_dialog(ctx);
         use neoflash_ui::{
             TextStyle,
             components::{Button, DialogHeader, Surface, logo, surface::dialog_footer},
@@ -4192,6 +4197,7 @@ impl eframe::App for Editor {
         self.apply_density(ctx);
         self.poll_debugger(ctx);
         self.poll_updater(ctx, true);
+        self.poll_beta_feedback(ctx);
         let native_quit = crate::native_quit::take_requested();
         if (native_quit || ctx.input(|i| i.viewport().close_requested())) && !self.allow_close {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);

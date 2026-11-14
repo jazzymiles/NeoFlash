@@ -137,6 +137,10 @@ impl Editor {
         origin: Pos2,
         mapping: StageMapping,
     ) {
+        if self.beta_feedback.open {
+            self.graphic_drop_position = None;
+            return;
+        }
         let ctx = ui.ctx();
         let (hovering, mut pointer, dropped) = ctx.input(|input| {
             (
