@@ -208,10 +208,12 @@ impl ZoomControl {
                 action = ZoomAction::ZoomOut;
             }
             let pct = format!("{:.0}%", self.zoom * 100.0);
-            if ui
-                .add(super::Button::ghost(&pct).width(52.0))
-                .on_hover_text("Reset to 100 % (⌘1)")
-                .clicked()
+            if super::display::tooltip(
+                ui.add(super::Button::ghost(&pct).width(52.0)),
+                "Reset to 100 %",
+                Some("⌘1"),
+            )
+            .clicked()
             {
                 action = ZoomAction::ZoomReset;
             }
@@ -291,10 +293,12 @@ impl ZoomControl {
                                 expand = true;
                             }
                             let pct = format!("{:.0}%", self.zoom * 100.0);
-                            if ui
-                                .add(super::Button::ghost(&pct).width(52.0))
-                                .on_hover_text("Reset to 100 % (⌘1)")
-                                .clicked()
+                            if super::display::tooltip(
+                                ui.add(super::Button::ghost(&pct).width(52.0)),
+                                "Reset to 100 %",
+                                Some("⌘1"),
+                            )
+                            .clicked()
                             {
                                 action = ZoomAction::ZoomReset;
                             }

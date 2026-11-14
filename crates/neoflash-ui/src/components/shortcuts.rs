@@ -22,6 +22,7 @@ const CHIP_GAP: f32 = 4.0;
 
 fn chip_width(ui: &Ui, key: &str) -> f32 {
     let p = palette(ui.ctx());
+    let key = &*super::display::platform_shortcut(key);
     (galley(ui, key, TextStyle::Small, p.text_secondary).size().x + 2.0 * 6.0).max(20.0)
 }
 
@@ -72,7 +73,12 @@ fn paint_chords(ui: &Ui, rect: Rect, right: f32, chords: &[&[&str]]) {
                 egui::Color32::TRANSPARENT,
                 Some(p.border_default),
             );
-            let g = galley(ui, key, TextStyle::Small, p.text_secondary);
+            let g = galley(
+                ui,
+                &super::display::platform_shortcut(key),
+                TextStyle::Small,
+                p.text_secondary,
+            );
             let gx = chip.center().x - g.size().x / 2.0;
             text_at(ui, gx, chip, g, p.text_secondary);
             x += w;

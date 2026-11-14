@@ -112,7 +112,7 @@ crates/neoflash-editor
 | `breadcrumb.rs` | Breadcrumb Item / Separator / Overflow |
 | `color.rs` | Color Well, Fill Stroke Chip, Swatch Cell, Registration Picker, Icon Group |
 | `icon_group_items.rs` | Icon Group with per-item disabled state and shortcut tooltips |
-| `display.rs` | Badge, Kbd, Tooltip (`set_tooltip_shortcuts` hides every shortcut chip for Preferences ▸ Show tooltips with shortcuts), Swatch, Divider, Logo, Spinner, Progress, Toast, Empty State, Inline Message |
+| `display.rs` | Badge, Kbd, Tooltip (`set_tooltip_shortcuts` hides every shortcut chip for Preferences ▸ Show tooltips with shortcuts), Swatch, Divider, Logo, Spinner, Progress, Toast, Empty State, Inline Message. `platform_shortcut` spells a shortcut for the running platform (`⇧⌘S` on macOS, `Ctrl+Shift+S` on Windows and Linux); Kbd, Menu Item and the shortcut chips apply it, so callers always pass macOS notation |
 | `unavailable.rs` | "Not available yet" tooltip for disabled controls |
 | `surface.rs` | Surfaces (App, Panel, Floating, Popover, Dialog, Canvas), scrim, dialog footer, status bar, Zoom Control, Dock Zone, Dock Compass, Drop Indicator, Splitter, Drag Ghost |
 | `docking.rs` | dock target and drag ghost helpers |

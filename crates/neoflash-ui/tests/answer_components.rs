@@ -276,3 +276,28 @@ fn tooltip_shortcut_chips_follow_the_context_flag() {
     c::set_tooltip_shortcuts(&ctx, true);
     assert!(c::tooltip_shortcuts(&ctx));
 }
+
+#[test]
+fn shortcuts_are_spelled_in_words_off_macos() {
+    for (mac, words) in [
+        ("⌘S", "Ctrl+S"),
+        ("⇧⌘Z", "Ctrl+Shift+Z"),
+        ("⌥⌘↵", "Ctrl+Alt+Enter"),
+        ("⌥F3", "Alt+F3"),
+        ("⌃⇥", "Ctrl+Tab"),
+        ("⌃⌘F", "Ctrl+Win+F"),
+        ("↵", "Enter"),
+        ("⌘", "Ctrl"),
+        ("⇧", "Shift"),
+        ("F6", "F6"),
+        ("", ""),
+    ] {
+        assert_eq!(c::shortcut_in_words(mac), words, "{mac}");
+    }
+    let expected = if cfg!(target_os = "macos") {
+        "⇧⌘S"
+    } else {
+        "Ctrl+Shift+S"
+    };
+    assert_eq!(c::platform_shortcut("⇧⌘S"), expected);
+}

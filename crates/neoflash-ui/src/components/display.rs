@@ -59,8 +59,69 @@ impl Widget for Badge<'_> {
     }
 }
 
+/// Shortcut label for the running platform. NF2 writes shortcuts in macOS notation (`⇧⌘S`, `⌥F3`, `↵`);
+/// on macOS the string is returned unchanged, elsewhere it becomes words joined by plus signs
+/// (`Ctrl+Shift+S`, `Alt+F3`, `Enter`). `NF2/Kbd`, `NF2/Menu Item` and the shortcut chips call it, so a
+/// caller never formats per platform.
+pub fn platform_shortcut(shortcut: &str) -> std::borrow::Cow<'_, str> {
+    if cfg!(target_os = "macos") {
+        std::borrow::Cow::Borrowed(shortcut)
+    } else {
+        shortcut_in_words(shortcut)
+    }
+}
+
+/// The Windows / Linux spelling of a macOS-notation shortcut (see [`platform_shortcut`]).
+pub fn shortcut_in_words(shortcut: &str) -> std::borrow::Cow<'_, str> {
+    const GLYPHS: &str = "⌃⌥⇧⌘↵⌤⌫⌦⎋⇥↑↓←→";
+    if !shortcut.chars().any(|c| GLYPHS.contains(c)) {
+        return std::borrow::Cow::Borrowed(shortcut);
+    }
+    let (mut ctrl, mut alt, mut shift, mut cmd) = (false, false, false, false);
+    let mut key = String::new();
+    for c in shortcut.trim().chars() {
+        match c {
+            '⌃' => ctrl = true,
+            '⌥' => alt = true,
+            '⇧' => shift = true,
+            '⌘' => cmd = true,
+            other => key.push(other),
+        }
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    if ctrl || cmd {
+        parts.push("Ctrl");
+    }
+    if alt {
+        parts.push("Alt");
+    }
+    if shift {
+        parts.push("Shift");
+    }
+    if ctrl && cmd {
+        parts.push("Win");
+    }
+    let key = match key.trim() {
+        "↵" | "⌤" => "Enter",
+        "⌫" => "Backspace",
+        "⌦" => "Delete",
+        "⎋" => "Esc",
+        "⇥" => "Tab",
+        "↑" => "Up",
+        "↓" => "Down",
+        "←" => "Left",
+        "→" => "Right",
+        other => other,
+    };
+    if !key.is_empty() {
+        parts.push(key);
+    }
+    std::borrow::Cow::Owned(parts.join("+"))
+}
+
 /// `NF2/Kbd` — shortcut chip ("F6", "⌘↵"). `inverse` = drawn inside a tooltip.
 pub fn kbd(ui: &mut Ui, key: &str, inverse: bool) -> Response {
+    let key = &*platform_shortcut(key);
     let p = palette(ui.ctx());
     let (bg, border, fg) = if inverse {
         (p.text_primary, p.text_primary, p.text_inverse)

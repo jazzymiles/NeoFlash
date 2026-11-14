@@ -73,10 +73,14 @@ impl Widget for MenuItem<'_> {
         let short_w = if self.shortcut.is_empty() {
             0.0
         } else {
-            galley(ui, self.shortcut, TextStyle::Small, p.text_tertiary)
-                .size()
-                .x
-                + space::S5
+            galley(
+                ui,
+                &super::display::platform_shortcut(self.shortcut),
+                TextStyle::Small,
+                p.text_tertiary,
+            )
+            .size()
+            .x + space::S5
         };
         let min_w = 24.0 + label_w + short_w + space::S3 + if self.submenu { 16.0 } else { 0.0 };
         let width = ui.available_width().max(min_w);
@@ -147,7 +151,12 @@ impl Widget for MenuItem<'_> {
             } else {
                 p.text_disabled
             };
-            let g = galley(ui, self.shortcut, TextStyle::Small, c);
+            let g = galley(
+                ui,
+                &super::display::platform_shortcut(self.shortcut),
+                TextStyle::Small,
+                c,
+            );
             text_at(ui, right - g.size().x, rect, g, c);
         }
         let kind = if self.checked {

@@ -1538,18 +1538,20 @@ wires them with the components named in each answer.
 - **Need:** the Windows and Linux previews show macOS glyphs (⌘ ⌥ ⇧ ⌃ ↵) in every shortcut label; the existing
   converter is not called, and about a dozen places pass literal glyph strings past the command table.
 - **Answer:**
-  1. *One source.* Every displayed shortcut comes from the command table through one formatter; no UI code passes a
-     literal such as "⌘W", "⌘↵" or "↵". This includes `document_chrome.rs`, the dialog buttons in `app.rs`, the
-     Color panel menu, `symbols_popover.rs`, `sources_diagnostics.rs`, `debugger.rs` and the unavailable menu rows.
-     The literals inside `neoflash-ui` (`headers.rs`, `surface.rs`, `timeline.rs`) are replaced by the design track.
+  1. *One conversion, in the design system.* `neoflash_ui::components::platform_shortcut` turns NF2's macOS notation
+     into the label of the running platform, and `Kbd`, `MenuItem`, tooltip chips, button shortcuts and the Shortcuts
+     chips call it when they draw. Callers keep passing macOS notation (`⇧⌘S`) from the command table and never
+     format per platform; `windows_platform::format_shortcut_for_platform` is not needed for display.
   2. *macOS.* Glyphs without separators, as now: `⇧⌘S`.
-  3. *Windows and Linux.* Words joined by plus signs in menus, tooltips and buttons: `Ctrl+Shift+S`, `Ctrl+Alt+Enter`,
-     `Alt+F3`, `Backspace`, `Tab`, `Enter`. In `Kbd` chips each key is its own chip and no plus sign is drawn. Linux
-     uses the same labels as Windows.
-  4. *Wording.* The settings window is `Preferences` on every platform. About reads `NeoFlash <version>` followed by
+  3. *Windows and Linux.* Words joined by plus signs: `Ctrl+Shift+S`, `Ctrl+Alt+Enter`, `Alt+F3`, `Backspace`,
+     `Tab`, `Enter`. Linux uses the same labels as Windows. A recorder chip holds one key (`Ctrl`, `Shift`, `S`).
+  4. *No glyphs inside sentences.* A shortcut is never typed into running text ("… ⌘↵ Test Movie", "Quick fix ⌘.",
+     "Reset to 100 % (⌘1)"): pass it as the tooltip or button shortcut instead. The literals inside `neoflash-ui` are
+     already corrected; the editor's are `app.rs` (initial status text), `sources_diagnostics.rs` and Help prose.
+  5. *Wording.* The settings window is `Preferences` on every platform. About reads `NeoFlash <version>` followed by
      `macOS Beta`, `Windows Technical Preview` or `Linux Technical Preview`. Help names the modifier of the running
      platform ("Alt-click" instead of "Option (⌥)-click") and gives install steps for the running platform only.
-  5. *Windows.* The main window keeps the native title bar; floating panels stay borderless, as on macOS.
-  6. *Scale.* The smallest NF2 text is 10 px (Small, Caption, Overline, Mono Small). Its legibility at 1× on Windows
+  6. *Windows.* The main window keeps the native title bar; floating panels stay borderless, as on macOS.
+  7. *Scale.* The smallest NF2 text is 10 px (Small, Caption, Overline, Mono Small). Its legibility at 1× on Windows
      and Linux displays has not been checked on hardware; the interface scale in Preferences (80–150 %) is the user control.
 

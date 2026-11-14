@@ -186,7 +186,14 @@ pub const BLEND_MODE_GROUPS: [&[&str]; 6] = [
 ];
 
 const MODE_TOOLTIP: &str = "Blend mode — click to change";
-const SOLO_TOOLTIP: &str = "Solo — show only soloed layers (⌥-click: only this one)";
+/// Solo tooltip; the modifier is named for the running platform.
+fn solo_tooltip() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Solo — show only soloed layers (⌥-click: only this one)"
+    } else {
+        "Solo — show only soloed layers (Alt-click: only this one)"
+    }
+}
 
 impl LayerRow<'_> {
     pub fn show(self, ui: &mut Ui, width: f32, height: f32) -> LayerRowResponse {
@@ -407,7 +414,7 @@ impl LayerRow<'_> {
             let resp = ui.interact(r, row.id.with("solo"), Sense::click());
             paint_solo_toggle(ui.painter(), ui.ctx(), r, on, resp.hovered());
             a11y(&resp, egui::WidgetType::Checkbox, "Solo layer", Some(on));
-            solo = super::display::tooltip(resp, SOLO_TOOLTIP, None).clicked();
+            solo = super::display::tooltip(resp, solo_tooltip(), None).clicked();
         }
         let solo_slot = columns.solo.is_some();
         let mut toggle = |ui: &mut Ui, kind: ToggleKind, on: bool| {

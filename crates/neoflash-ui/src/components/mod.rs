@@ -84,7 +84,8 @@ pub use color::{
 pub use color_picker::ColorPicker;
 pub use display::{
     Badge, BadgeType, EmptyState, InlineMessage, InlineMessageType, Toast, ToastType, divider, kbd,
-    logo, progress, set_tooltip_shortcuts, spinner, swatch, tooltip, tooltip_shortcuts,
+    logo, platform_shortcut, progress, set_tooltip_shortcuts, shortcut_in_words, spinner, swatch,
+    tooltip, tooltip_shortcuts,
 };
 pub use docking::{dock_target, drag_ghost_at};
 pub use ease::{EaseGraph, EasePreset, EasePresetKind, EaseRange, ease_preview_track};
