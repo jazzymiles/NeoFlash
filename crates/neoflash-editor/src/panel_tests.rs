@@ -8223,7 +8223,269 @@ fn top_bar_logo_scales_proportionally_without_stretching_bar_across_densities() 
 }
 
 #[test]
-fn output_panel_search_filters_rows_in_same_frame_and_preserves_full_log() {
+fn properties_stroke_width_roundtrips_through_appearance_stage_save_and_undo() {
+    fn render_properties(
+        editor: &mut Editor,
+        ctx: &egui::Context,
+        time: f64,
+        events: Vec<Event>,
+    ) -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(520.0, 900.0))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.properties(ui, ctx));
+            },
+        )
+    }
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 120.0,
+            height: 80.0,
+            fill: [40, 80, 160, 255],
+            stroke: [220, 230, 240, 255],
+            stroke_width: 2.0,
+        },
+        60.0,
+        70.0,
+    );
+    let element_id = editor
+        .selected_element()
+        .expect("new rectangle selected")
+        .id
+        .clone();
+    assert!(editor.appearance_add_fill([255, 80, 40, 255], [8.0, 4.0], 0.5));
+    assert!(editor.appearance_set_entry_opacity(0, 0.5));
+    assert!(
+        editor.appearance_add_procedural_effect(ProceduralVectorEffect::ZigZag {
+            size: 3.0,
+            ridges_per_segment: 2,
+            smooth: false,
+        })
+    );
+    let authored_start_x = editor
+        .selected_element()
+        .expect("selected rectangle")
+        .transform
+        .x;
+    {
+        let timeline = &mut editor.project.symbols[0].timeline;
+        timeline.frame_count = 11;
+        let layer = &mut timeline.layers[0];
+        layer.properties.filters.push(FilterSpec::Blur {
+            blur_x: 2.0,
+            blur_y: 2.0,
+            quality: 1,
+        });
+        let start = &mut layer.keyframes[0];
+        start.filters.push(FilterSpec::Blur {
+            blur_x: 1.0,
+            blur_y: 1.0,
+            quality: 1,
+        });
+        start.elements.push(Element {
+            id: "properties-parent".into(),
+            name: "Properties parent".into(),
+            transform: Transform {
+                x: 25.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 20.0,
+                height: 20.0,
+                fill: [20, 30, 40, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+        start.element_parents.push(ElementParentLink {
+            child_id: element_id.clone(),
+            parent_id: "properties-parent".into(),
+        });
+        start.property_expressions.push(PropertyExpression {
+            property: TweenProperty::X,
+            expression: "value + 100".into(),
+            ..PropertyExpression::default()
+        });
+        start.tween = Some(Easing::Linear);
+        start.tween_kind = TweenKind::Classic;
+        let mut end = start.clone();
+        end.frame = 10;
+        end.tween = None;
+        end.elements
+            .iter_mut()
+            .find(|element| element.id == element_id)
+            .expect("end rectangle")
+            .transform
+            .x += 100.0;
+        layer.keyframes.push(end);
+    }
+    editor.project.upgrade_format_for_features();
+    editor.frame = 5;
+    editor.workspace.timeline_prefs.auto_keyframe = true;
+    editor.clear_history();
+    let before = editor.project.clone();
+    render_properties(&mut editor, &ctx, 0.1, vec![]);
+    let output = render_properties(&mut editor, &ctx, 0.2, vec![]);
+    let field = named_bounds(&output, "Stroke width")
+        .expect("selected shape exposes the direct Stroke width field");
+    render_properties(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![
+            Event::PointerMoved(field.center()),
+            primary_button(field.center(), true),
+        ],
+    );
+    render_properties(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![primary_button(field.center(), false)],
+    );
+    render_properties(
+        &mut editor,
+        &ctx,
+        0.5,
+        vec![Event::Key {
+            key: egui::Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        }],
+    );
+    render_properties(&mut editor, &ctx, 0.6, vec![Event::Text("7".into())]);
+    render_properties(
+        &mut editor,
+        &ctx,
+        0.7,
+        vec![Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    render_properties(&mut editor, &ctx, 0.8, vec![]);
+
+    assert_eq!(editor.history.undo_len(), 1);
+    assert_eq!(editor.history.undo_label(), Some("Edit"));
+    let key = editor.symbol().timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|key| key.frame == 5)
+        .expect("Properties edit inserts the intermediate authored key");
+    assert_eq!(
+        key.elements.len(),
+        2,
+        "inserted key contains only authored child and parent, never generated Appearance paths"
+    );
+    let element = key
+        .elements
+        .iter()
+        .find(|element| element.id == element_id)
+        .expect("rectangle remains present");
+    let ElementKind::Rectangle { stroke_width, .. } = &element.kind else {
+        panic!("expected rectangle, got {:?}", element.kind);
+    };
+    assert_eq!(
+        *stroke_width, 7.0,
+        "Properties field must commit typed width"
+    );
+    assert_eq!(
+        element.transform.x,
+        authored_start_x + 50.0,
+        "the inserted key stores the interpolated authored pose, not expression or parent output"
+    );
+    assert!(
+        element.filters.is_empty(),
+        "keyframe/layer filters remain inherited metadata rather than copied onto the element"
+    );
+    assert_eq!(
+        key.vector_effects(&element_id)
+            .expect("live vector effect remains attached")
+            .procedural_effects
+            .len(),
+        1,
+        "Properties must not flatten or detach non-destructive geometry"
+    );
+
+    let appearance = key
+        .appearance(&element_id)
+        .expect("stored Appearance remains linked to the rectangle");
+    assert_eq!(appearance.entries.len(), 3, "extra fill must be preserved");
+    assert!(
+        appearance
+            .entries
+            .iter()
+            .any(|entry| matches!(entry, AppearancePaintEntry::Stroke { width: 7.0, .. }))
+    );
+    assert!(appearance.entries.iter().any(|entry| matches!(
+        entry,
+        AppearancePaintEntry::Fill {
+            color: [255, 80, 40, 255],
+            offset: [8.0, 4.0],
+            opacity: 0.5,
+            ..
+        }
+    )));
+    let evaluated = sample_layer(&editor.symbol().timeline.layers[0], 5);
+    let derived_source = evaluated
+        .iter()
+        .find(|element| element.id == element_id)
+        .expect("derived Stage result keeps the source identity");
+    assert_ne!(
+        derived_source.transform.x, element.transform.x,
+        "Stage still evaluates the expression and parenting without serializing their result"
+    );
+    assert_eq!(
+        derived_source.filters.len(),
+        2,
+        "Stage still composes keyframe and layer filters at evaluation time"
+    );
+    assert!(evaluated.iter().any(|element| matches!(
+        element.kind,
+        ElementKind::Path {
+            stroke_width: 7.0,
+            ..
+        }
+    )));
+
+    let json = editor.project.to_json().expect("serialize edited project");
+    let reopened = Project::from_json(&json).expect("reopen edited project");
+    let reopened_key = reopened.symbols[0].timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|key| key.frame == 5)
+        .expect("reopened intermediate key");
+    assert!(
+        reopened_key
+            .appearance(&element_id)
+            .expect("reopened Appearance")
+            .entries
+            .iter()
+            .any(|entry| matches!(entry, AppearancePaintEntry::Stroke { width: 7.0, .. }))
+    );
+    reopened.validate().expect("reopened project remains valid");
+
+    editor.undo();
+    assert_eq!(editor.project, before, "one Undo restores both surfaces");
+}
+
+#[test]
+fn output_dock_route_virtualizes_filters_copies_clears_and_invalidates_interior_edits() {
     fn collect_texts(shape: &egui::Shape, acc: &mut Vec<String>) {
         match shape {
             egui::Shape::Text(t) => acc.push(t.galley.job.text.clone()),
@@ -8239,12 +8501,36 @@ fn output_panel_search_filters_rows_in_same_frame_and_preserves_full_log() {
     let ctx = egui::Context::default();
     ctx.enable_accesskit();
     let mut editor = Editor::from_project(&ctx, Project::blank());
-    editor.output = vec![
-        "[trace] alpha_first".into(),
-        "[error] beta_match\n[error] beta_second_line".into(),
-        "[trace] gamma_last".into(),
-    ];
+    editor.output = (0..5_000)
+        .map(|line| format!("[trace] ordinary line {line}"))
+        .collect();
+    editor.output[0] = "[trace] alpha_first".into();
+    editor.output[2_500] = "[error] beta_match\n[error] beta_second_line".into();
+    editor.output[4_999] = "[trace] gamma_last".into();
     let filter_id = egui::Id::new(("neoflash-output-filter", &editor.clipboard.session));
+
+    // Exercise the real PanelId::Output dock dispatch and prove a large log paints only its
+    // viewport instead of rebuilding thousands of row widgets.
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(720.0, 360.0))),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.dock_panel_contents(ui, PanelId::Output);
+            });
+        },
+    );
+    let stats = editor
+        .last_output_virtual_stats(&ctx)
+        .expect("Output dock records virtualization stats");
+    assert_eq!(stats.total_lines, 5_001);
+    assert!(
+        stats.drawn_rows <= 64,
+        "large Output dock must paint O(viewport) rows, got {stats:?}"
+    );
+
     ctx.data_mut(|d| d.insert_temp::<String>(filter_id, "beta".into()));
 
     let out = ctx.run(
@@ -8254,7 +8540,7 @@ fn output_panel_search_filters_rows_in_same_frame_and_preserves_full_log() {
         },
         |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                editor.output_panel(ui);
+                editor.dock_panel_contents(ui, PanelId::Output);
             });
         },
     );
@@ -8274,7 +8560,7 @@ fn output_panel_search_filters_rows_in_same_frame_and_preserves_full_log() {
     );
     assert_eq!(
         editor.output.len(),
-        3,
+        5_000,
         "filtering Output must never mutate the underlying session log"
     );
 
@@ -8291,7 +8577,7 @@ fn output_panel_search_filters_rows_in_same_frame_and_preserves_full_log() {
         },
         |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                editor.output_panel(ui);
+                editor.dock_panel_contents(ui, PanelId::Output);
             });
         },
     );
@@ -8303,7 +8589,7 @@ fn output_panel_search_filters_rows_in_same_frame_and_preserves_full_log() {
         },
         |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                editor.output_panel(ui);
+                editor.dock_panel_contents(ui, PanelId::Output);
             });
         },
     );
@@ -8317,6 +8603,48 @@ fn output_panel_search_filters_rows_in_same_frame_and_preserves_full_log() {
         out_copy.platform_output.commands
     );
 
+    // Same count and same first/last entries, but an interior source mutation must invalidate the
+    // cache exactly. The old count/first/last sentinel left these two beta rows stale.
+    editor.output[2_500] = "[trace] interior replacement".into();
+    let out_after_interior_edit = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(720.0, 360.0))),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.dock_panel_contents(ui, PanelId::Output);
+            });
+        },
+    );
+    let mut after_edit_text = Vec::new();
+    for shape in &out_after_interior_edit.shapes {
+        collect_texts(&shape.shape, &mut after_edit_text);
+    }
+    assert!(
+        after_edit_text
+            .iter()
+            .any(|text| text == "No output matches “beta”.")
+    );
+    assert!(
+        !after_edit_text
+            .iter()
+            .any(|text| text.contains("beta_match"))
+    );
+    let copy_node = out_after_interior_edit
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .find(|(_, node)| node.label() == Some("Copy output"))
+        .expect("Copy output access node");
+    assert!(
+        copy_node.1.is_disabled(),
+        "Copy must be disabled when the filtered view has zero rows"
+    );
+
     ctx.data_mut(|d| d.insert_temp::<String>(filter_id, String::new()));
     let out_unfiltered = ctx.run(
         egui::RawInput {
@@ -8325,7 +8653,7 @@ fn output_panel_search_filters_rows_in_same_frame_and_preserves_full_log() {
         },
         |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                editor.output_panel(ui);
+                editor.dock_panel_contents(ui, PanelId::Output);
             });
         },
     );
@@ -8334,7 +8662,41 @@ fn output_panel_search_filters_rows_in_same_frame_and_preserves_full_log() {
         collect_texts(&c.shape, &mut painted_all);
     }
     assert!(painted_all.iter().any(|t| t == "[trace] alpha_first"));
-    assert!(painted_all.iter().any(|t| t == "[trace] gamma_last"));
+
+    let clear_rect = named_bounds(&out_unfiltered, "Clear output").expect("Clear output button");
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(720.0, 360.0))),
+            events: vec![
+                Event::PointerMoved(clear_rect.center()),
+                primary_button(clear_rect.center(), true),
+            ],
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.dock_panel_contents(ui, PanelId::Output);
+            });
+        },
+    );
+    let cleared = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(720.0, 360.0))),
+            events: vec![primary_button(clear_rect.center(), false)],
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.dock_panel_contents(ui, PanelId::Output);
+            });
+        },
+    );
+    assert!(editor.output.is_empty());
+    let mut cleared_text = Vec::new();
+    for shape in &cleared.shapes {
+        collect_texts(&shape.shape, &mut cleared_text);
+    }
+    assert!(cleared_text.iter().any(|text| text == "No output yet"));
 }
 
 #[test]
@@ -10290,6 +10652,86 @@ fn t300_open_popups_block_single_key_shortcuts_and_local_modal_enter() {
         d.inner.editor.symbol_conversion.is_none(),
         "Enter inside Symbol Name field confirms and closes dialog"
     );
+}
+
+#[test]
+fn t303_layer_outline_custom_area_blocks_shortcuts_and_escape_rolls_back() {
+    use crate::app::Tool;
+
+    let mut d = T300Driver::new(Project::blank());
+    d.inner.editor.add_element(
+        ElementKind::Rectangle {
+            width: 30.0,
+            height: 30.0,
+            fill: [200, 100, 60, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        60.0,
+        60.0,
+    );
+    let selected = d.inner.editor.selection.clone();
+    d.inner.editor.set_tool(Tool::Select);
+    d.settle();
+
+    let layer_id = d.inner.editor.symbol().timeline.layers[0].id.clone();
+    d.inner.editor.symbol_mut().timeline.layers[0]
+        .properties
+        .outline_color = Some([0x10, 0x20, 0x30]);
+    let layer = d.inner.editor.symbol().timeline.layers[0].clone();
+    let undo_before = d.inner.editor.history.undo_len();
+    d.inner.editor.begin_layer_outline_color(
+        &d.inner.ctx,
+        &layer,
+        Some(Rect::from_min_size(
+            Pos2::new(120.0, 420.0),
+            Vec2::splat(14.0),
+        )),
+    );
+    // Model the colour control's live preview before it is committed.
+    d.inner.editor.symbol_mut().timeline.layers[0]
+        .properties
+        .outline_color = Some([0xAA, 0xBB, 0xCC]);
+    assert!(d.inner.editor.has_open_popup(&d.inner.ctx));
+
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    d.key_tap(egui::Key::B, egui::Modifiers::NONE);
+    d.key_tap(egui::Key::Backspace, egui::Modifiers::NONE);
+    assert!(!d.inner.editor.playing);
+    assert_eq!(d.inner.editor.tool, Tool::Select);
+    assert_eq!(d.inner.editor.selection, selected);
+    assert_eq!(
+        d.inner
+            .editor
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .find(|layer| layer.id == layer_id)
+            .unwrap()
+            .properties
+            .outline_color,
+        Some([0xAA, 0xBB, 0xCC]),
+        "blocked shortcuts must leave the live preview intact"
+    );
+
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!d.inner.editor.has_open_popup(&d.inner.ctx));
+    assert_eq!(
+        d.inner
+            .editor
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .find(|layer| layer.id == layer_id)
+            .unwrap()
+            .properties
+            .outline_color,
+        Some([0x10, 0x20, 0x30]),
+        "Escape must roll the Layer Outline live preview back"
+    );
+    assert_eq!(d.inner.editor.history.undo_len(), undo_before);
 }
 
 #[test]

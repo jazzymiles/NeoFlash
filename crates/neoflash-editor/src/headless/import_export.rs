@@ -91,6 +91,7 @@ impl ExportTarget {
 
 /// Parameters controlling an export operation from either CLI flags or a JSON `batch` op.
 #[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ExportSpec {
     pub(crate) target: String,
     pub(crate) out: PathBuf,
@@ -884,14 +885,17 @@ fn resolve_publish_profile_and_options(
     Ok((profile, has_stored))
 }
 
-fn build_html_publish_config(spec: &ExportSpec) -> Result<(HtmlPublishConfig, bool), CliError> {
+fn build_html_publish_config(
+    spec: &ExportSpec,
+    clean_base: bool,
+) -> Result<(HtmlPublishConfig, bool), CliError> {
     let custom = spec.clean
         || spec.scale_mode.is_some()
         || spec.stage_align.is_some()
         || spec.allow_fullscreen.is_some()
         || spec.sprite_sheets
         || spec.assets_folder;
-    let mut cfg = if spec.clean {
+    let mut cfg = if spec.clean || clean_base {
         HtmlPublishConfig::clean_publish_default()
     } else {
         HtmlPublishConfig::default()
@@ -959,7 +963,7 @@ pub(crate) fn export_project_with_spec(
         ExportTarget::Html5 => {
             let runtime_dir = runtime.expect("html5 requires runtime");
             let (profile, _has_stored) = resolve_publish_profile_and_options(project, spec)?;
-            let (cfg, custom_cfg) = build_html_publish_config(spec)?;
+            let (cfg, custom_cfg) = build_html_publish_config(spec, false)?;
             let index = if custom_cfg {
                 neoflash_export::export_project_with_config(
                     project,
@@ -993,10 +997,7 @@ pub(crate) fn export_project_with_spec(
         ExportTarget::Desktop => {
             let runtime_dir = runtime.expect("desktop requires runtime");
             let (profile, _) = resolve_publish_profile_and_options(project, spec)?;
-            let (mut cfg, _) = build_html_publish_config(spec)?;
-            if !spec.clean {
-                cfg = HtmlPublishConfig::clean_publish_default();
-            }
+            let (cfg, _) = build_html_publish_config(spec, true)?;
             let app_dir = neoflash_export::export_desktop_app(
                 project,
                 &spec.out,

@@ -299,7 +299,10 @@ impl Editor {
             });
             return;
         }
-        let object = self.selected_sampled();
+        // Inspect the tweened authored pose before expressions, rigs, parenting, inherited
+        // filters, Asset Warp, vector effects, and Appearance expansion. The Stage still renders
+        // the derived result, but editing one property must not bake it back over the source.
+        let object = self.selected_authored_pose();
         let scope = egui::Id::new((
             "object-properties",
             &self.clipboard.session,
@@ -941,10 +944,32 @@ impl Editor {
                     self.begin_property_edit(scope, control);
                     self.select_single_id(original.id.clone());
                     self.ensure_selected_key();
-                    if let Some(current) = self.selected_element_mut() {
-                        current.name = element.name;
-                        current.transform = element.transform;
-                        current.kind = element.kind;
+                    let layer_index = self.layer;
+                    let frame = self.frame;
+                    if let Some(key) = self
+                        .symbol_mut()
+                        .timeline
+                        .layers
+                        .get_mut(layer_index)
+                        .and_then(|layer| layer.key_at_mut(frame))
+                    {
+                        let (elements, appearances) = (&mut key.elements, &mut key.appearances);
+                        if let Some(current) =
+                            elements.iter_mut().find(|current| current.id == original.id)
+                        {
+                            current.name = element.name;
+                            current.transform = element.transform;
+                            current.kind = element.kind;
+                            if let Some(appearance) = appearances
+                                .iter_mut()
+                                .find(|appearance| appearance.element_id == original.id)
+                            {
+                                appearance.sync_primary_paints_from_kinds(
+                                    &original.kind,
+                                    &current.kind,
+                                );
+                            }
+                        }
                     }
                     self.project.upgrade_format_for_features();
                 }

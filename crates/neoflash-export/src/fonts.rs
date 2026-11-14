@@ -1916,7 +1916,15 @@ fn subset_sfnt_inner(sfnt_bytes: &[u8], codepoints: &BTreeSet<u32>) -> Result<Ve
         }
     }
 
-    let new_cmap = build_compact_cmap(&retained_cmap).filter(|built| built.len() < cmap.len());
+    // `glyf` keeps stable glyph IDs but replaces every unretained outline with an empty slot.
+    // The matching cmap therefore has to be rewritten even when its sparse encoding is the same
+    // size as (or larger than) the original table. Keeping the original cmap in that case would
+    // advertise removed characters and make browsers select empty glyph slots instead of using
+    // their normal missing-glyph/fallback path.
+    let new_cmap = build_compact_cmap(&retained_cmap).ok_or_else(|| {
+        "Complete font preserved: retained Unicode mappings cannot be encoded safely in cmap format 4/12."
+            .to_owned()
+    })?;
 
     let mut new_head = head.to_vec();
     new_head[8..12].copy_from_slice(&[0, 0, 0, 0]);
@@ -1954,7 +1962,7 @@ fn subset_sfnt_inner(sfnt_bytes: &[u8], codepoints: &BTreeSet<u32>) -> Result<Ve
         let data = match tag {
             b"glyf" => new_glyf.clone(),
             b"loca" => new_loca.clone(),
-            b"cmap" => new_cmap.clone().unwrap_or_else(|| original.to_vec()),
+            b"cmap" => new_cmap.clone(),
             b"OS/2" => new_os2.clone().unwrap_or_else(|| original.to_vec()),
             b"head" => new_head.clone(),
             b"post" => new_post.clone().unwrap_or_else(|| original.to_vec()),
@@ -2718,6 +2726,57 @@ mod tests {
                 "unused glyph {unused} (gid {orig_gid}) was not pruned from glyf"
             );
         }
+    }
+
+    #[test]
+    fn subset_rewrites_cmap_even_when_sparse_table_is_not_smaller() {
+        let base_font = FontRef::try_from_slice(TEST_FONT).expect("valid Inter test font");
+        let space_gid = base_font.glyph_id(' ').0;
+        let a_gid = base_font.glyph_id('A').0;
+        assert_ne!(space_gid, 0);
+        assert_ne!(a_gid, 0);
+
+        // A..B share one idDelta segment, so the original cmap and the requested
+        // Space+A cmap have the same encoded size. The old size-only choice kept
+        // this original table after pruning B's glyph slot.
+        let original_cmap = build_compact_cmap(&BTreeMap::from([
+            (' ' as u32, space_gid),
+            ('A' as u32, a_gid),
+            ('B' as u32, a_gid + 1),
+        ]))
+        .expect("compact source cmap");
+        let retained_cmap = build_compact_cmap(&BTreeMap::from([
+            (' ' as u32, space_gid),
+            ('A' as u32, a_gid),
+        ]))
+        .expect("compact retained cmap");
+        assert_eq!(
+            original_cmap.len(),
+            retained_cmap.len(),
+            "fixture must exercise the equal-size cmap branch"
+        );
+
+        let source =
+            build_sfnt_with_replaced_table(TEST_FONT, None, &[(*b"cmap", Some(original_cmap))]);
+        let source_font = FontRef::try_from_slice(&source).expect("valid source font");
+        assert_eq!(source_font.glyph_id('A').0, a_gid);
+        assert_ne!(source_font.glyph_id('B').0, 0);
+
+        let subset = subset_ttf_font_bytes(&source, &BTreeSet::from(['A' as u32]))
+            .expect("source font should still shrink after glyph pruning");
+        assert_valid_sfnt_checksums_and_structure(&subset);
+        let subset_font = FontRef::try_from_slice(&subset).expect("valid subset font");
+        assert_eq!(subset_font.glyph_id('A').0, a_gid);
+        assert!(
+            outline_glyph(&subset_font, 'A', 0.0, 0.0, 16.0)
+                .is_some_and(|commands| !commands.is_empty()),
+            "retained A must remain renderable"
+        );
+        assert_eq!(
+            subset_font.glyph_id('B').0,
+            0,
+            "omitted B must not map to its now-pruned glyph slot"
+        );
     }
 
     #[test]

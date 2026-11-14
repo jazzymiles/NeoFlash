@@ -936,7 +936,11 @@ fn apply_layer_and_keyframe_filters(
     mut elements: Vec<Element>,
     key_filters: &[FilterSpec],
     layer_filters: &[FilterSpec],
+    evaluate_derived: bool,
 ) -> Vec<Element> {
+    if !evaluate_derived {
+        return elements;
+    }
     if key_filters.is_empty() && layer_filters.is_empty() {
         return elements;
     }
@@ -952,6 +956,22 @@ fn apply_layer_and_keyframe_filters(
 
 /// Sample a layer with an explicit document frame rate for property-expression evaluation.
 pub fn sample_layer_at_fps(layer: &Layer, frame: u32, fps: f64) -> Vec<Element> {
+    sample_layer_at_fps_inner(layer, frame, fps, true)
+}
+
+/// Sample the authored tween pose before expressions, rigs, parenting, Asset Warp, vector effects,
+/// Appearance geometry, or inherited key/layer filters are evaluated. Authoring commands use this
+/// view so a scalar edit or inserted key cannot bake derived state into serialized elements.
+pub fn sample_layer_authored_pose_at_fps(layer: &Layer, frame: u32, fps: f64) -> Vec<Element> {
+    sample_layer_at_fps_inner(layer, frame, fps, false)
+}
+
+fn sample_layer_at_fps_inner(
+    layer: &Layer,
+    frame: u32,
+    fps: f64,
+    evaluate_derived: bool,
+) -> Vec<Element> {
     let Some(key) = layer.key_at(frame) else {
         return vec![];
     };
@@ -961,30 +981,54 @@ pub fn sample_layer_at_fps(layer: &Layer, frame: u32, fps: f64) -> Vec<Element> 
         let elements = sample_motion(layer, frame);
         let start_key = motion_span(layer, frame).map(|(s, _, _)| s).unwrap_or(key);
         let key_filters = sample_motion_key_filters(layer, frame, start_key);
-        let evaluated =
-            apply_keyframe_rigs_and_appearances(elements, start_key, None, 0.0, frame, fps);
+        let evaluated = apply_keyframe_rigs_and_appearances(
+            elements,
+            start_key,
+            None,
+            0.0,
+            frame,
+            fps,
+            evaluate_derived,
+        );
         return apply_layer_and_keyframe_filters(
             evaluated,
             &key_filters,
             &layer.properties.filters,
+            evaluate_derived,
         );
     }
     let Some(ease) = key.tween else {
-        let evaluated =
-            apply_keyframe_rigs_and_appearances(key.elements.clone(), key, None, 0.0, frame, fps);
+        let evaluated = apply_keyframe_rigs_and_appearances(
+            key.elements.clone(),
+            key,
+            None,
+            0.0,
+            frame,
+            fps,
+            evaluate_derived,
+        );
         return apply_layer_and_keyframe_filters(
             evaluated,
             &key.filters,
             &layer.properties.filters,
+            evaluate_derived,
         );
     };
     let Some(next) = next_key(layer, key.frame) else {
-        let evaluated =
-            apply_keyframe_rigs_and_appearances(key.elements.clone(), key, None, 0.0, frame, fps);
+        let evaluated = apply_keyframe_rigs_and_appearances(
+            key.elements.clone(),
+            key,
+            None,
+            0.0,
+            frame,
+            fps,
+            evaluate_derived,
+        );
         return apply_layer_and_keyframe_filters(
             evaluated,
             &key.filters,
             &layer.properties.filters,
+            evaluate_derived,
         );
     };
     let t = easing(
@@ -1003,12 +1047,20 @@ pub fn sample_layer_at_fps(layer: &Layer, frame: u32, fps: f64) -> Vec<Element> 
             &key.shape_hints,
             t,
         );
-        let evaluated =
-            apply_keyframe_rigs_and_appearances(elements, key, Some(next), t, frame, fps);
+        let evaluated = apply_keyframe_rigs_and_appearances(
+            elements,
+            key,
+            Some(next),
+            t,
+            frame,
+            fps,
+            evaluate_derived,
+        );
         return apply_layer_and_keyframe_filters(
             evaluated,
             &key_filters,
             &layer.properties.filters,
+            evaluate_derived,
         );
     }
     let elements: Vec<Element> = key
@@ -1021,8 +1073,21 @@ pub fn sample_layer_at_fps(layer: &Layer, frame: u32, fps: f64) -> Vec<Element> 
                 .map_or_else(|| e.clone(), |n| interpolate_classic(e, n, t, key))
         })
         .collect();
-    let evaluated = apply_keyframe_rigs_and_appearances(elements, key, Some(next), t, frame, fps);
-    apply_layer_and_keyframe_filters(evaluated, &key_filters, &layer.properties.filters)
+    let evaluated = apply_keyframe_rigs_and_appearances(
+        elements,
+        key,
+        Some(next),
+        t,
+        frame,
+        fps,
+        evaluate_derived,
+    );
+    apply_layer_and_keyframe_filters(
+        evaluated,
+        &key_filters,
+        &layer.properties.filters,
+        evaluate_derived,
+    )
 }
 
 fn interpolate_asset_warp_rig(a: &AssetWarpRig, b: Option<&AssetWarpRig>, t: f64) -> AssetWarpRig {
@@ -1067,6 +1132,7 @@ fn apply_keyframe_rigs_and_appearances(
     t: f64,
     frame: u32,
     fps: f64,
+    evaluate_derived: bool,
 ) -> Vec<Element> {
     fn reserve_synthetic_id(occupied: &mut HashSet<Id>, preferred: Id) -> Id {
         if occupied.insert(preferred.clone()) {
@@ -1079,6 +1145,13 @@ fn apply_keyframe_rigs_and_appearances(
             }
         }
         unreachable!("the bounded sampled layer always leaves a free synthetic ID")
+    }
+
+    // Authoring reads the interpolated source pose, not live derived state. In particular, a
+    // width/color edit must not serialize property-expression, IK, parenting, filter, Asset Warp,
+    // vector-effect, or Appearance results alongside the requested scalar change.
+    if !evaluate_derived {
+        return elements;
     }
 
     // 0. Apply deterministic property expressions (`property_expressions`, T-121).

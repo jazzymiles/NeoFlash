@@ -297,7 +297,7 @@
       }));
     } catch (_) { /* Diagnostic observers must never change authored playback. */ }
   }
-  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, scriptFunction, mapScriptStack, sourceLocationText, mappedErrorFrames, emitScriptMessage };
+  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, scriptFunction, mapScriptStack, sourceLocationText, mappedErrorFrames, emitScriptMessage, ensureBundleFontsLoaded, mountAfterBundleFonts };
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (typeof document === 'undefined') return;
 
@@ -319,9 +319,96 @@
     console.error(error);
   }
 
+  function bundleFontDescriptors(cssRules) {
+    const descriptors=[];
+    const raw=typeof cssRules==='string'?cssRules:'';
+    const fontFaceBodies=()=>{
+      const bodies=[];
+      const marker=/@font-face\b/gi;
+      for(let match=marker.exec(raw);match;match=marker.exec(raw)){
+        let open=marker.lastIndex;
+        while(open<raw.length&&/\s/.test(raw[open]))open++;
+        if(raw[open]!=='{')continue;
+        let quote='',escaped=false,depth=1;
+        for(let index=open+1;index<raw.length;index++){
+          const ch=raw[index];
+          if(quote){
+            if(escaped){escaped=false;continue;}
+            if(ch==='\\'){escaped=true;continue;}
+            if(ch===quote)quote='';
+            continue;
+          }
+          if(ch==='"'||ch==="'"){quote=ch;continue;}
+          if(ch==='{'){depth++;continue;}
+          if(ch==='}'&&--depth===0){
+            bodies.push(raw.slice(open+1,index));
+            marker.lastIndex=index+1;
+            break;
+          }
+        }
+      }
+      return bodies;
+    };
+    const properties=body=>{
+      const result=new Map();
+      let start=0,quote='',escaped=false,parentheses=0;
+      const add=end=>{
+        const declaration=body.slice(start,end);
+        const colon=declaration.indexOf(':');
+        if(colon<0)return;
+        const name=declaration.slice(0,colon).trim().toLowerCase();
+        if(name&&!result.has(name))result.set(name,declaration.slice(colon+1).trim());
+      };
+      for(let index=0;index<body.length;index++){
+        const ch=body[index];
+        if(quote){
+          if(escaped){escaped=false;continue;}
+          if(ch==='\\'){escaped=true;continue;}
+          if(ch===quote)quote='';
+          continue;
+        }
+        if(ch==='"'||ch==="'"){quote=ch;continue;}
+        if(ch==='('){parentheses++;continue;}
+        if(ch===')'&&parentheses>0){parentheses--;continue;}
+        if(ch===';'&&parentheses===0){add(index);start=index+1;}
+      }
+      add(body.length);
+      return result;
+    };
+    const familyValue=value=>{
+      let family=String(value||'').trim();
+      const quote=family[0];
+      if((quote==='"'||quote==="'")&&family.endsWith(quote)){
+        const encoded=family.slice(1,-1);
+        family='';
+        for(let index=0;index<encoded.length;index++){
+          if(encoded[index]==='\\'&&index+1<encoded.length)index++;
+          family+=encoded[index];
+        }
+      }
+      return family.trim();
+    };
+    const styleValue=value=>String(value||'normal').trim().toLowerCase()||'normal';
+    const weightValue=value=>{
+      const weight=String(value||'normal').trim().toLowerCase()||'normal';
+      return weight==='normal'?'400':weight==='bold'?'700':weight;
+    };
+    for(const body of fontFaceBodies()){
+      const property=properties(body);
+      const family=familyValue(property.get('font-family'));
+      if(!family)continue;
+      const style=styleValue(property.get('font-style'));
+      const weight=weightValue(property.get('font-weight'));
+      const key=`${family.toLowerCase()}\u0000${style}\u0000${weight}`;
+      if(!descriptors.some(item=>item.key===key))descriptors.push({family,style,weight,key});
+    }
+    return descriptors;
+  }
+
   async function ensureBundleFontsLoaded(doc, cssRules) {
     if (!doc) return;
     const trimmed = typeof cssRules === 'string' ? cssRules.trim() : '';
+    const descriptors=bundleFontDescriptors(trimmed);
     if (trimmed && doc.head) {
       const styles = typeof doc.querySelectorAll === 'function' ? Array.from(doc.querySelectorAll('style')) : [];
       const alreadyPresent = styles.some(el => typeof el.textContent === 'string' && el.textContent.includes(trimmed));
@@ -333,21 +420,55 @@
       }
     }
     const fontSet = doc.fonts;
-    if (!fontSet) return;
+    if (!fontSet || descriptors.length===0) return;
     const loads = [];
+    const matchedDescriptors=new Set();
+    const normalizeFamily=value=>{
+      let family=String(value||'').trim();
+      if((family.startsWith('"')&&family.endsWith('"'))||(family.startsWith("'")&&family.endsWith("'")))family=family.slice(1,-1);
+      return family.replace(/\\([\\"'])/g,'$1').trim().toLowerCase();
+    };
+    const normalizeStyle=value=>String(value||'normal').trim().toLowerCase()||'normal';
+    const normalizeWeight=value=>{
+      const weight=String(value||'normal').trim().toLowerCase()||'normal';
+      return weight==='normal'?'400':weight==='bold'?'700':weight;
+    };
     if (typeof fontSet[Symbol.iterator] === 'function') {
       for (const face of fontSet) {
-        if (face && face.status !== 'loaded' && typeof face.load === 'function') {
+        const family=normalizeFamily(face?.family);
+        const style=normalizeStyle(face?.style);
+        const weight=normalizeWeight(face?.weight);
+        const matches=descriptors.filter(item=>item.family.toLowerCase()===family&&item.style===style&&item.weight===weight);
+        if(matches.length===0)continue;
+        for(const descriptor of matches)matchedDescriptors.add(descriptor.key);
+        if (face.status !== 'loaded' && typeof face.load === 'function') {
           loads.push(Promise.resolve().then(() => face.load()).catch(() => null));
         }
+      }
+    }
+    if(typeof fontSet.load==='function'){
+      for(const descriptor of descriptors){
+        if(matchedDescriptors.has(descriptor.key))continue;
+        const family=descriptor.family.replace(/([\\"])/g,'\\$1');
+        loads.push(Promise.resolve().then(()=>fontSet.load(`${descriptor.style} ${descriptor.weight} 16px "${family}"`)).catch(()=>null));
       }
     }
     if (loads.length > 0) {
       await Promise.all(loads);
     }
-    if (fontSet.ready && typeof fontSet.ready.then === 'function') {
-      await fontSet.ready.catch(() => null);
-    }
+  }
+
+  function mountAfterBundleFonts(doc, childBundle, mount, isCurrent, afterFonts) {
+    if(typeof mount!=='function')throw new TypeError('Published bundle mount callback is required.');
+    const current=typeof isCurrent==='function'?isCurrent:()=>true;
+    if(!current())return null;
+    const cssRules=typeof childBundle?.fonts?.css_rules==='string'?childBundle.fonts.css_rules:'';
+    if(!cssRules.trim())return mount();
+    return ensureBundleFontsLoaded(doc,cssRules).then(()=>{
+      if(!current())return null;
+      if(typeof afterFonts==='function')afterFonts();
+      return mount();
+    });
   }
 
   async function boot() {
@@ -994,7 +1115,8 @@
           inspectSwfBytes:bytes=>fte3dHost?fte3dHost.inspectSwfBytes(bytes):null,
           getFrameRate:()=>runtimeFrameRate,getRootDisplay:()=>proxyFor([]),
           getStageSize:()=>{const [w,h]=logicalSize();return {width:w,height:h};},
-          mountPublishedBundle:(record,childBundle,childUrl='')=>{
+          mountPublishedBundle:(record,childBundle,childUrl='',isCurrent)=>{
+            const mount=()=>{
             if(typeof player.loader_mount_project!=='function')throw new Error('Published bundle mounting requires the NeoFlash WASM runtime.');
             const normUrl=String(childUrl||'').split('#')[0];
             if(display?.nodes&&record?.ref){
@@ -1062,9 +1184,6 @@
               const existingIds=new Set(project.resources.map(r=>r.id));
               for(const res of remappedResources){if(!existingIds.has(res.id))project.resources.push(res);}
             }
-            if(typeof childBundle?.fonts?.css_rules==='string'&&childBundle.fonts.css_rules.trim()&&typeof ensureBundleFontsLoaded==='function'){
-              ensureBundleFontsLoaded(typeof document==='undefined'?null:document,childBundle.fonts.css_rules).then(()=>{textHost?.invalidateCache?.();if(typeof context!=='undefined')render();});
-            }
             const mut=mounted.mutation||mounted;
             const contentTargetKey=JSON.stringify(mut.content_ref||record.ref);
             if(normUrl)mountedTargetUrl.set(contentTargetKey,normUrl);
@@ -1085,6 +1204,16 @@
               height:Number(mounted.height||childBundle.project?.height)||400,
               frameRate:Number(mounted.fps||childBundle.project?.fps)||runtimeFrameRate,
             };
+            };
+            const gateFonts=typeof mountAfterBundleFonts==='function'?mountAfterBundleFonts:null;
+            if(!gateFonts)return mount();
+            return gateFonts(
+              typeof document==='undefined'?null:document,
+              childBundle,
+              mount,
+              isCurrent,
+              ()=>textHost?.invalidateCache?.(),
+            );
           },
           unloadPublishedBundle:(record,stopDetached=false)=>{
             cleanupPublishedResources(record);

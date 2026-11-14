@@ -1389,7 +1389,7 @@ test('Clean-machine browser runtime loads embedded @font-face before Frame 0 lay
     fonts: {
       policy: 'subset',
       // Deliberately omit <style> from index.html so runtime.js ensureBundleFontsLoaded()
-      // must inject css_rules, await face.load(), and await document.fonts.ready before Frame 0.
+      // must inject css_rules and await only those faces before Frame 0.
       css_rules:
         `@font-face { font-family: "${cleanFamily}"; font-style: normal; font-weight: 400; src: url('data:font/ttf;base64,${interBytes.toString('base64')}'); font-display: block; }\n` +
         `@font-face { font-family: "${cleanWoffFamily}"; font-style: normal; font-weight: 400; src: url('data:font/woff;base64,${woffBytes.toString('base64')}'); font-display: block; }\n`,

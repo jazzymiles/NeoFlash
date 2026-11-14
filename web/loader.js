@@ -325,13 +325,10 @@
       finally{try{player.bitmap_dispose?.(key(bmd));}catch(_){}}
       commitPixelBytes(op,pngBytes,bytes,'image/svg+xml');
     }
-    function commitPublishedBundle(op,bundleObj,bytes){
+    function finishPublishedBundleMount(op,mounted){
       if(!current(op))return;
+      if(!mounted)throw new Error('Published bundle mount did not return a result.');
       const record=op.record;
-      record.bytesLoaded=record.bytesTotal=bytes.length;record.rawBytes=new Uint8Array(bytes);
-      if(record.as2&&!legacyNotify(op,'onLoadComplete',[record.target,op.status]))return;
-      if(!current(op))return;
-      const mounted=options.mountPublishedBundle(record,bundleObj,record.url);
       record.publishedMounted=true;record.pixel=null;
       record.content=mounted.contentRef?proxyForRef(mounted.contentRef):(record.as2?record.target:null);
       record.width=mounted.width;record.height=mounted.height;record.frameRate=mounted.frameRate;
@@ -342,6 +339,30 @@
       if(record.as2)legacyNotify(op,'onLoadInit',[record.target]);
       else if(notify(op,new events.Event('init')))notify(op,new events.Event('complete'));
       if(current(op))record.operation=null;
+    }
+    function commitPublishedBundle(op,bundleObj,bytes){
+      if(!current(op))return;
+      const record=op.record;
+      record.bytesLoaded=record.bytesTotal=bytes.length;record.rawBytes=new Uint8Array(bytes);
+      if(record.as2&&!legacyNotify(op,'onLoadComplete',[record.target,op.status]))return;
+      if(!current(op))return;
+      const mounted=options.mountPublishedBundle(record,bundleObj,record.url,()=>current(op));
+      if(mounted&&typeof mounted.then==='function'){
+        Promise.resolve(mounted).then(value=>{
+          if(!current(op))return;
+          try{finishPublishedBundleMount(op,value);}
+          catch(error){
+            if(error instanceof CallbackFailure)report(error.cause);
+            else if(current(op)){try{failLoad(op,error instanceof Error?error.message:String(error));}catch(callbackError){report(callbackError instanceof CallbackFailure?callbackError.cause:callbackError);}}
+          }
+        },error=>{
+          if(!current(op))return;
+          if(error instanceof CallbackFailure)report(error.cause);
+          else try{failLoad(op,error instanceof Error?error.message:String(error));}catch(callbackError){report(callbackError instanceof CallbackFailure?callbackError.cause:callbackError);}
+        });
+        return;
+      }
+      finishPublishedBundleMount(op,mounted);
     }
     function decode(op,bytes){
       if(!current(op))return;

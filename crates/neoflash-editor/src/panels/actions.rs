@@ -14,7 +14,7 @@ use eframe::egui;
 use neoflash_core::*;
 use neoflash_ui::components::{self as nf, TreeItemType};
 use neoflash_ui::icons::{Icon, i16};
-use neoflash_ui::tokens::{TextStyle, radius, space};
+use neoflash_ui::tokens::{TextStyle, space};
 use std::collections::HashSet;
 
 /// Toolbar commands of the NF2 Actions panel in Figma order. Commands without an action are not
@@ -91,97 +91,6 @@ impl Editor {
             PanelId::Output => self.output_panel(ui),
             _ => {}
         }
-    }
-
-    /// Output: filter, copy and clear, then the log in `NF2/Mono`. Editor messages carry no level or
-    /// time stamp, so the NF2 "Show: All / Errors / Warnings / Trace" select is not offered.
-    pub(crate) fn output_panel(&mut self, ui: &mut egui::Ui) {
-        let filter_id = egui::Id::new(("neoflash-output-filter", &self.clipboard.session));
-        let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-        let all_lines: Vec<String> = self
-            .output
-            .iter()
-            .flat_map(|entry| {
-                if entry.is_empty() {
-                    vec![String::new()]
-                } else {
-                    entry.lines().map(str::to_owned).collect::<Vec<_>>()
-                }
-            })
-            .collect();
-        let mut visible_lines: Vec<String> = Vec::new();
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
-            let search = (ui.available_width()
-                - 2. * (neoflash_ui::metrics::control() + space::S2))
-                .max(80.);
-            let search_resp = ui.add(nf::Search::new(&mut filter, "Filter output").width(search));
-            if search_resp.changed() {
-                ui.ctx().request_repaint();
-            }
-            let needle = filter.trim().to_lowercase();
-            visible_lines = all_lines
-                .iter()
-                .filter(|line| needle.is_empty() || line.to_lowercase().contains(&needle))
-                .cloned()
-                .collect();
-            let copy_sc = self.tooltip_sc(crate::commands::CommandId::EditCopy);
-            let mut copy_btn = nf::IconButton::new(i16::COPY, "Copy output");
-            if let Some(sc) = copy_sc.as_deref() {
-                copy_btn = copy_btn.shortcut(sc);
-            }
-            let copy = ui.add_enabled_semantic(!visible_lines.is_empty(), copy_btn);
-            if copy.clicked() {
-                ui.ctx().copy_text(visible_lines.join("\n"));
-            }
-            let clear = ui.add_enabled_semantic(
-                !self.output.is_empty(),
-                nf::IconButton::new(i16::TRASH, "Clear output"),
-            );
-            if clear.clicked() {
-                self.output.clear();
-                visible_lines.clear();
-            }
-        });
-        ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
-        ui.add_space(space::S2);
-        if self.output.is_empty() {
-            nf::EmptyState {
-                icon: i16::TERMINAL,
-                title: "No output yet",
-                body: "Status messages, script checks and export results appear here.",
-                action: None,
-            }
-            .show(ui);
-            return;
-        }
-        let needle_active = !filter.trim().is_empty();
-        let p = neoflash_ui::palette(ui.ctx());
-        egui::Frame::new()
-            .fill(p.bg_field)
-            .corner_radius(radius::MD)
-            .inner_margin(egui::Margin::same(space::S2 as i8))
-            .show(ui, |ui| {
-                ui.set_min_size(ui.available_size());
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .id_salt(("output_contents", &self.clipboard.session))
-                    .stick_to_bottom(!needle_active)
-                    .themed()
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.y = 0.;
-                        super::timeline::output::show_virtualized_output_rows(ui, &visible_lines);
-                        if visible_lines.is_empty() {
-                            ui.label(
-                                neoflash_ui::typography::rich(
-                                    format!("No output matches “{}”.", filter.trim()),
-                                    TextStyle::Small,
-                                )
-                                .color(p.text_tertiary),
-                            );
-                        }
-                    });
-            });
     }
 
     pub(crate) fn actions_editor_id(&self) -> egui::Id {

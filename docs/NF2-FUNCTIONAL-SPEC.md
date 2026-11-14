@@ -592,6 +592,16 @@ their own layout.
 - Depends on: engine (renderer, export, hit testing). Ragged/Stipple/Hatched are P3; Solid/Dashed/Dotted + caps/joins
   P2. Acceptance: dashed 2 px square-cap line renders the same in editor and HTML5.
 
+**PR-03A · Properties — Appearance data round-trip** — done (`panels/properties.rs`, `panels/appearance.rs`, `selection.rs`)
+- Direct Fill, Stroke and Stroke width edits operate on the interpolated authored shape before property expressions,
+  rigs, parenting, inherited filters, Asset Warp, procedural vector effects and Appearance geometry are evaluated.
+  The edited primary paint is mirrored back into the stored Appearance stack without flattening the source shape or
+  detaching its live effects; a width-only edit preserves paint colour, gradient, opacity and both element/entry
+  swatch links. Extra fills, strokes, offsets and modifiers stay unchanged.
+- Acceptance: a Properties edit updates the live Stage result, survives save/reopen, validates, and one Undo restores
+  both the source element and Appearance stack. Applying a solid Graphic Style clears incompatible stored
+  `PaintedPath` gradients so Properties, Stage and export continue to describe the same paint.
+
 **PR-04 · Movie clip — Colour effect styles** — done (`panels/properties.rs` `color_effect_section_ui`: `Style: None / Brightness / Tint / Advanced / Alpha` with value fields, sliders, tint colour picker and two-column Advanced RGBA multiplier/offset rows)
 - Purpose: Style None / Brightness / Tint / Advanced / Alpha + value slider (Tint: colour + %, Advanced: 8 fields).
 - Layout: Style/value and every Advanced multiplier/offset pair use the shared responsive grid; Tint keeps its
@@ -739,7 +749,11 @@ Status: AC-02, AC-04, AC-05 and AC-06 work, AC-01 re-indents only, bounded AC-07
 ## 8. Output and Compiler errors (`panels/output.rs`, `panels/compiler_errors.rs`)
 
 **OU-01 · Output filter search, empty state, and timestamps** — partial (`panels/output.rs`)
-- Available: Output starts empty (`NF2/EmptyState` `"No output yet"` — no hardcoded boot banner), provides live `"Filter output"` search, `Copy output`, `Clear output`, viewport row virtualization (`T-227`), and per-document session isolation.
+- Available: Output starts empty (`NF2/EmptyState` `"No output yet"` — no hardcoded boot banner). The dock dispatches
+  through one cached, viewport-virtualized implementation for live `"Filter output"` search, filtered `Copy output`,
+  `Clear output` and per-document session isolation. Copy is disabled when the filter has no matches, and cached rows
+  invalidate when an interior log entry changes. Painting is bounded to the visible rows; detecting source changes
+  still scans the current entries and is not claimed as an end-to-end `O(viewport)` update.
 - Missing: structured `All / Errors / Warnings / Trace` severity selector and per-line timestamps remain absent (`Editor.output: Vec<String>`).
 - Acceptance: launching a blank document renders `NF2/EmptyState`; search filter hides non-matching lines; copy copies the filtered lines.
 
@@ -784,7 +798,7 @@ Status: AC-02, AC-04, AC-05 and AC-06 work, AC-01 re-indents only, bounded AC-07
 **PP-03 · Properties — Motion tween** = PR-10.
 
 **PP-04 · Debugger** — done (`PanelId::Debugger`, `panels/debugger.rs`, `debugger.rs`, `debugger_protocol.rs`, `sources.rs`)
-- Connected: `Window ▸ Panels ▸ Debugger` is a persistent dockable panel that stays open when idle (`Not running` badge, enabled `Continue` launching `Debug Movie`, enabled caret-line `Toggle breakpoint` `⌘B`, disabled `Stop debugging` while idle, and idle breakpoint inspection/removal). Actions `Debug options` starts or pauses the owned Chromium session. `Continue` F8, `Step over` F10, `Step in` F11, `Step out` ⇧F11, `Stop`, `Remove all` breakpoints, call-frame selection (navigating Actions to the frame's authored source/line without hiding Debugger if sharing a dock group), and read-only `Variables` use the live VM. `Test Movie` ⌘↵ restarts the active session.
+- Connected: `Window ▸ Panels ▸ Debugger` is a persistent dockable panel that stays open when idle (`Not running` badge, enabled `Continue` launching `Debug Movie`, enabled caret-line `Toggle breakpoint` `⌘B`, disabled `Stop debugging` while idle, and idle breakpoint inspection/removal). Actions `Debug options` starts or pauses the owned Chromium session. `Continue` F8, `Step over` F10, `Step in` F11, `Step out` ⇧F11, `Stop`, `Remove all` breakpoints, call-frame selection (navigating Actions to the frame's authored source/line without hiding Debugger if sharing a dock group), and read-only `Variables` use the live VM. Disconnected and failed terminal sessions remain inspectable but reject VM commands; `Test Movie` ⌘↵ launches a fresh movie instead of sending a command to a dead channel.
 - Data: per-document-session breakpoints (`sources.rs`) synced with `self.debugger.breakpoints` across document tabs and VM state, never serialized document data. Source edits/document switches invalidate the running session cleanly; `Stop` preserves breakpoints while clearing active pause/stack/message caches.
 - Transport: isolated temporary Chromium profile and private inherited CDP pipe; forwards `Runtime.consoleAPICalled` and `Runtime.exceptionThrown` into the active document's `Output`. Existing compiler maps provide authored positions.
 - Limits: statement-start AS mapping, grouped identical handlers, generated-frame fallback, bounded stack/locals and helper stepping. `Variables` provides primitive values/object summaries without invoking getters. The docked `Debugger` panel's `Watch` column remains read-only (`"Watch expressions are not available yet. Inspect read-only values in Variables while paused."`, while the Actions authoring debugger inspector in `sources.rs` supports `WatchExpression` evaluation and live variable editing); breakpoint gutter clicks await NF2 gutter design.
@@ -974,8 +988,8 @@ audition). P3.
 | --- | --- | --- | --- | --- |
 | DL-09 | Edit envelope — **done** (`panels/edit_envelope.rs`) | Modal dialog with Left/right `EnvelopeLane`s (`1..=8` draggable stereo points in format-7 `FrameSound.envelope`, `SoundEffect::Custom`), presets, seconds/frames ruler, zoom, Play/Stop preview, one Undo | TL-07 audio model (done) | P3 |
 | DL-10 | Import PSD to library — **done for the supported profile** | The bounded PSD/PSB reader and project conversion options are wired through editor and CLI routes; numbered sequences, PDF/AI, FXG and ACT/CLR/ASE palette imports use the same failure-atomic import workflow and report unsupported fidelity explicitly | broader format fidelity remains governed by importer diagnostics | P3 |
-| DL-11 | Font embedding — **done for full resources; subsetting partial** (`panels/font_embedding.rs`) | Font list, character ranges, extra chars, export for AS + class, glyph count; stores the author-selected standalone TTF/OTF binary plus metadata after technical container validation. NeoFlash does not adjudicate OpenType licence flags because it cannot know the author's separate rights; lawful use remains the author's responsibility. HTML5 performs real TrueType glyph/table subsetting and conservatively keeps the complete face for dynamic/input or unsupported preservation cases; complete generated-class output remains partial. | `web-font-portability` export policy | P3 |
-| DL-12 | Test Movie window | Browser `Test Movie` (`Control ▸ Test movie`, `⌘↵`) executes the published HTML5 movie with `Output`, `Compiler errors` and `Debugger` mapped back per active document; `panels/live_planned.rs::test_movie_preview_window` provides the floating in-editor preview with empty-state `Output` drawer | Per-session `test_movie_preview_open` + CDP bridge | P2 |
+| DL-11 | Font embedding — **done for full resources; subsetting partial** (`panels/font_embedding.rs`) | Font list, character ranges, extra chars, export for AS + class, glyph count; stores the author-selected standalone TTF/OTF binary plus metadata after technical container validation. NeoFlash does not adjudicate OpenType licence flags because it cannot know the author's separate rights; lawful use remains the author's responsibility. HTML5 performs real TrueType glyph/table subsetting, rewrites `cmap` even when the compact replacement is not smaller, preserves exact family/style/weight face selection, and gates Frame 0 only on fonts owned by that bundle; dynamically loaded child bundles wait for their own fonts before mounting. Unsupported preservation cases conservatively keep the complete face; complete generated-class output remains partial. | `web-font-portability` export policy | P3 |
+| DL-12 | Test Movie window | Browser `Test Movie` (`Control ▸ Test movie`, `⌘↵`) is the production route and executes the published HTML5 movie with `Output`, `Compiler errors` and `Debugger` mapped back per active document. `panels/live_planned.rs::test_movie_preview_window` contains a floating in-editor preview with an empty-state `Output` drawer, but it currently has only a test route and no NF2-approved production opener. | Production browser/CDP route; floating-preview opener requires NF2 design | P2 |
 | DL-13 | Find and replace (⌘F) | Text / Font / Colour / Symbol / Sound / Video / Bitmap search, scope, regex, results table, Replace all | editor scan of `Project` (+ scripts); Replace all = one Undo | P2 |
 | DL-14 | Movie Explorer | Tree document ▸ scene ▸ layer ▸ frame ▸ instance / actions, filters, path footer | editor traversal of `Project` | P2 |
 | DL-15 | Convert to Symbol ▸ Advanced — **done** | Library Properties edits the 9-slice rectangle and shared linkage; Stage drags 9-slice guides interactively with Escape cancel and 1-Undo; open documents and external `.nflash` files chosen on disk act as collision-safe donor libraries and synchronize shared symbols | — | P3 |

@@ -1,6 +1,161 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const {localPoint, hitShape, oneBasedFrame, sourceKey} = require('../runtime.js');
+const {
+  localPoint,
+  hitShape,
+  oneBasedFrame,
+  sourceKey,
+  ensureBundleFontsLoaded,
+  mountAfterBundleFonts,
+} = require('../runtime.js');
+
+test('bundle font readiness ignores unrelated host faces and gates child mount', async () => {
+  let releaseBundleFace;
+  let bundleLoads = 0;
+  let unrelatedLoads = 0;
+  let unrelatedVariantLoads = 0;
+  const bundleFace = {
+    family: '"NeoFlash Child Font"',
+    style: 'normal',
+    weight: '400',
+    status: 'unloaded',
+    load() {
+      bundleLoads++;
+      return new Promise(resolve => {
+        releaseBundleFace = () => {
+          this.status = 'loaded';
+          resolve(this);
+        };
+      });
+    },
+  };
+  const unrelatedFace = {
+    family: '"Host Page Font"',
+    style: 'normal',
+    weight: '400',
+    status: 'unloaded',
+    load() {
+      unrelatedLoads++;
+      return new Promise(() => {});
+    },
+  };
+  const unrelatedVariant = {
+    family: '"NeoFlash Child Font"',
+    style: 'italic',
+    weight: '700',
+    status: 'unloaded',
+    load() {
+      unrelatedVariantLoads++;
+      return new Promise(() => {});
+    },
+  };
+  const inserted = [];
+  const fontSet = {
+    ready: new Promise(() => {}),
+    *[Symbol.iterator]() {
+      yield unrelatedFace;
+      yield unrelatedVariant;
+      yield bundleFace;
+    },
+  };
+  const doc = {
+    fonts: fontSet,
+    head: { appendChild: node => inserted.push(node) },
+    querySelectorAll: () => [],
+    createElement: () => ({ setAttribute() {}, textContent: '' }),
+  };
+  const css = '@font-face { font-family: "NeoFlash Child Font"; font-style: normal; font-weight: 400; src: url(data:font/ttf;base64,AA==); }';
+
+  const loading = ensureBundleFontsLoaded(doc, css);
+  await Promise.resolve();
+  assert.equal(bundleLoads, 1, 'the face introduced by this bundle starts loading');
+  assert.equal(unrelatedLoads, 0, 'an unrelated host-page face is never forced to load');
+  assert.equal(unrelatedVariantLoads, 0, 'an unrelated style in the same family is never forced to load');
+  assert.equal(inserted.length, 1, 'missing bundle CSS is injected once');
+  releaseBundleFace();
+  await loading;
+
+  bundleFace.status = 'unloaded';
+  releaseBundleFace = null;
+  let current = true;
+  let mounted = 0;
+  const cancelled = mountAfterBundleFonts(
+    doc,
+    { fonts: { css_rules: css } },
+    () => {
+      mounted++;
+      return { contentRef: ['child'] };
+    },
+    () => current,
+  );
+  await Promise.resolve();
+  assert.equal(mounted, 0, 'child mount waits for its embedded face');
+  current = false;
+  releaseBundleFace();
+  assert.equal(await cancelled, null, 'a cancelled child is not mounted after its font resolves');
+  assert.equal(mounted, 0);
+
+  bundleFace.status = 'unloaded';
+  releaseBundleFace = null;
+  current = true;
+  const mountedResult = mountAfterBundleFonts(
+    doc,
+    { fonts: { css_rules: css } },
+    () => {
+      mounted++;
+      return { contentRef: ['child'] };
+    },
+    () => current,
+  );
+  await Promise.resolve();
+  assert.equal(mounted, 0);
+  releaseBundleFace();
+  assert.deepEqual(await mountedResult, { contentRef: ['child'] });
+  assert.equal(mounted, 1, 'active child mounts only after its own font is ready');
+  assert.equal(unrelatedLoads, 0);
+  assert.equal(unrelatedVariantLoads, 0);
+
+  let syncMounted = false;
+  const syncResult = mountAfterBundleFonts(doc, { fonts: { css_rules: '' } }, () => {
+    syncMounted = true;
+    return { contentRef: ['fontless-child'] };
+  });
+  assert.equal(syncMounted, true, 'a fontless child keeps the existing synchronous mount path');
+  assert.deepEqual(syncResult, { contentRef: ['fontless-child'] });
+});
+
+test('bundle font parsing preserves quoted delimiters and exporter escapes', async () => {
+  const family = 'Semi; {Brace} Quote " Slash \\ Family';
+  const escapedFamily = family.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  let matchingLoads = 0;
+  let fallbackLoads = 0;
+  const matchingFace = {
+    family: `"${escapedFamily}"`,
+    style: 'italic',
+    weight: '700',
+    status: 'unloaded',
+    load() {
+      matchingLoads++;
+      return Promise.resolve(this);
+    },
+  };
+  const css =
+    `@font-face { font-family: "${escapedFamily}"; font-style: italic; font-weight: 700; ` +
+    `src: url('data:font/ttf;variant=a}b;base64,AA=='); font-display: block; }`;
+  const doc = {
+    fonts: {
+      *[Symbol.iterator]() { yield matchingFace; },
+      load() {
+        fallbackLoads++;
+        return new Promise(() => {});
+      },
+    },
+  };
+
+  await ensureBundleFontsLoaded(doc, css);
+  assert.equal(matchingLoads, 1, 'quoted semicolons, braces, quotes and backslashes preserve the exact family match');
+  assert.equal(fallbackLoads, 0, 'an exact parsed descriptor does not fall back to a broad family lookup');
+});
 
 test('inverse transforms rotated/scaled nested display coordinates', () => {
   const local = localPoint([0, 2, -3, 0, 100, 200], 85, 208);

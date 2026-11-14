@@ -250,6 +250,12 @@ impl Editor {
         self.element_in_edit_scope(layer, &target.element)
     }
     pub fn selected_sampled(&self) -> Option<Element> {
+        self.selected_sampled_impl(true)
+    }
+    pub(crate) fn selected_authored_pose(&self) -> Option<Element> {
+        self.selected_sampled_impl(false)
+    }
+    fn selected_sampled_impl(&self, evaluate_derived: bool) -> Option<Element> {
         if self.selection.symbol != self.symbol_id() {
             return None;
         }
@@ -258,7 +264,12 @@ impl Editor {
             return None;
         }
         let layer = &self.symbol().timeline.layers[self.target_layer_index(target)?];
-        sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps))
+        let sampled = if evaluate_derived {
+            sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps))
+        } else {
+            sample_layer_authored_pose_at_fps(layer, self.frame, f64::from(self.project.fps))
+        };
+        sampled
             .into_iter()
             .find(|element| element.id == target.element)
             .or_else(|| {
@@ -496,7 +507,7 @@ impl Editor {
             }
             return;
         }
-        let sampled = sample_layer_at_fps(layer, frame, fps);
+        let sampled = sample_layer_authored_pose_at_fps(layer, frame, fps);
         let motion = motion_span(layer, frame).map(|(start, ..)| (start.tween, start.tween_kind));
         let mut key = if blank {
             Keyframe {

@@ -27,16 +27,25 @@
   inputs with `ColorField` RGBA pickers and `Move up` / `Move down` / `Remove` icon buttons, and full-width
   `Add modifier` / `Add effect` `Select` menus with NF2 paired/full-width modifier and vector-effect fields
   (`T-301`).
+- Kept `Properties` and `Appearance` bidirectionally consistent: direct fill/stroke/width edits now update the
+  primary Appearance paint without baking expressions, rigs, parenting, inherited filters, Asset Warp, procedural
+  vector effects or generated paths, preserve extra paints, gradients, opacity and swatch links when untouched,
+  survive save/reopen, and undo as one edit.
 - Added display-free headless CLI and AI scriptability mode (`neoflash-editor --headless` / `NEOFLASH_HEADLESS=1`)
   before native GUI startup (preserving macOS Finder `-psn_*` launches), with JSON/text `capabilities`/`schema`,
   `new`, `inspect`, `validate`, `compile` (shared `Compiler errors` diagnostics), deterministic & `AuthoredPlayback`
-  `eval`, capability-scoped JSFL (`FLfile` deny-all unless `--allow-read`/`--allow-write`/`--allow-delete`), atomic
-  17-operation JSON `batch` pipelines, and `import`/`export` delegation across all 12 export targets (`T-302`).
+  `eval`, capability-scoped JSFL (`FLfile` deny-all unless `--allow-read`/`--allow-write`/`--allow-delete`), strict
+  17-operation JSON `batch` pipelines with atomic final project replacement, and `import`/`export` delegation across
+  all 12 export targets (`T-302`). Explicit batch `save`/`export` and permitted JSFL filesystem writes remain
+  immediate side effects rather than rollback transactions.
 - Promoted `Debugger` (`R-092`) into the persistent dockable `Window ▸ Panels` workspace, retired `PlannedPanel` and five dead `planned_*.rs` placeholders so live panels/dialogs/`Tool Options`/`Test Movie` route directly without `"Planned feature"` chrome, started `Output` and `Test Movie`'s Output drawer cleanly empty (`EmptyState`, `R-073`), routed mapped `Runtime.consoleAPICalled` and `exceptionThrown` events into `Output`, and isolated `Actions`, `Debugger`, `Output`, and `Test Movie` sessions per document tab (`T-291`).
+- Consolidated the real Output dock onto one cached viewport-virtualized filter/copy/clear route, including zero-match
+  Copy disabling and interior-row cache invalidation; terminal Debugger sessions now reject VM commands while
+  remaining inspectable, and Test Movie relaunches instead of addressing a disconnected channel.
 - Audited AS2 & AS3 Areas 1–7 against executable tests (`T-007` schema-2 reviews `2026-11-14-as3-areas1to7-audit.json` and `2026-11-14-as2-areas1to7-audit.json`), reconciled stale `product.json` claims across `web-dom-layout`, `web-shared-runtime`, `web-typescript`, and `web-script-events`, reconciled AS3 `Array.prototype` borrowing, unbound `toString`/`toLocaleString` and sparse semantics (`T-011`), and reconciled AS3 construction, `FRAME_CONSTRUCTED`/`EXIT_FRAME`/`RENDER`/deepest-first `REMOVED` lifecycle ordering and synchronous `goto*` superseding via `visit_id` while keeping AS2 deferred `goto*` (`T-010`).
 - Established an executable AS2/AS3 HTML5 publish-correctness gate (`publish_correctness_gate` + `scripts/verify-as-publish-gate.mjs` across 37 projects and `Full`/`Balanced`/`Compact`/`Shared` HTTP and `file://` bundles, plus atomic `.app` preflight, `#include` diagnostic path preservation, and `AVI -> MP4` alias propagation in `loadPublish`) (`T-292`).
 - Certified all seven `FLA`/`XFL` interchange profiles with Adobe-compatible `bin/sound*.dat` caches, binary FLA linkage/grid fixes, `<DOMVideoItem>`/`<DOMVideoInstance>`, fail-closed asset validation and external JPEXS `FLA Convert 3.0.0` verification, and hardened Flash 8 AVM1 and Flash Player 9/10 AVM2 SWF publishing (`relative #include`, per-instance `DefineButton2`, unique `DoInitAction` sprites, `document_class`/`SimpleButton`, `StartSound` trims, mask depth validation) (`T-293`).
-- Implemented browser-valid TrueType SFNT and WOFF1 font subsetting (`GSUB` lookup 1..=8 + composite glyph closure, compact `cmap` Format 4/12, pruned `glyf`/`loca`, `post` v3.0, `DSIG` removal, exact checksums, and explicit complete-face diagnostics for CFF/WOFF2/opaque/complex/dynamic cases) and preloaded embedded `@font-face` rules before Frame 0 layout/scripts/render (`T-294`).
+- Implemented browser-valid TrueType SFNT and WOFF1 font subsetting (`GSUB` lookup 1..=8 + composite glyph closure, compact `cmap` Format 4/12 even when the rewritten table is not smaller, pruned `glyf`/`loca`, `post` v3.0, `DSIG` removal, exact checksums, and explicit complete-face diagnostics for CFF/WOFF2/opaque/complex/dynamic cases). HTML5 binds exact family/style/weight faces, waits only for the current bundle's embedded fonts before Frame 0, and waits for each dynamically loaded child bundle's own fonts before mounting (`T-294`).
 - Hardened Windows portable archive POSIX mode normalization (`stat.S_IXUSR`), HTTP mock socket draining/UNC path fixture creation, and paired 6-pair `AB BA BA AB AB BA` `threadCpuUsage` benchmarking in `scripts/check-performance-ab.py` (`T-289`).
 
 - Replaced fabricated placeholder status and inactive toggles in `Preferences ▸ Updates` with real build metadata (`BuildIdentity` shared with `About NeoFlash`) and non-blocking GitHub Releases update checking (`jazzymiles/NeoFlash`), `Stable`/`Beta` SemVer 2.0.0 prerelease filtering, opt-in daily checks, release-notes handoff, streaming platform downloads with cancellation, fail-closed `SHA256SUMS` verification before saving, Finder/Explorer reveal for manual replacement (no silent self-install in Beta 1), real installed-extension count, and visibly disabled non-collecting Privacy switches (`T-298`).

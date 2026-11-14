@@ -1,12 +1,12 @@
 //! Virtualized Output panel helpers (`T-227`): keeps rendering `O(visible_rows)` when the log buffer
 //! grows to thousands of trace/compiler/export lines.
-#![allow(dead_code)]
 use crate::app::Editor;
 use crate::theme::{DesignUi as _, ScrollTheme as _};
 use eframe::egui::{self, Sense, Vec2};
 use neoflash_ui::components::{self as nf, code::Severity};
 use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::{TextStyle, radius, space};
+use std::sync::Arc;
 
 /// Line count above which Output switches to viewport row virtualization (`T-227`).
 pub const OUTPUT_VIRTUALIZATION_THRESHOLD: usize = 64;
@@ -24,11 +24,46 @@ pub struct OutputVirtualStats {
 
 #[derive(Clone, Default)]
 struct CachedOutputLines {
-    entry_count: usize,
-    first_entry: Option<String>,
-    last_entry: Option<String>,
+    /// Exact source snapshot. Comparing the whole buffer catches in-place edits to an interior
+    /// entry; count/first/last sentinels are insufficient for that case.
+    source_entries: Vec<String>,
     filter_lower: String,
     visible_lines: Vec<String>,
+}
+
+fn cached_output_lines(
+    ctx: &egui::Context,
+    cache_id: egui::Id,
+    output: &[String],
+    filter: &str,
+) -> Arc<CachedOutputLines> {
+    let needle = filter.trim().to_lowercase();
+    let cached = ctx.data(|data| data.get_temp::<Arc<CachedOutputLines>>(cache_id));
+    if let Some(cached) = cached
+        && cached.source_entries == output
+        && cached.filter_lower == needle
+    {
+        return cached;
+    }
+
+    let visible_lines = output
+        .iter()
+        .flat_map(|entry| {
+            if entry.is_empty() {
+                vec![String::new()]
+            } else {
+                entry.lines().map(str::to_owned).collect::<Vec<_>>()
+            }
+        })
+        .filter(|line| needle.is_empty() || line.to_lowercase().contains(&needle))
+        .collect();
+    let cached = Arc::new(CachedOutputLines {
+        source_entries: output.to_vec(),
+        filter_lower: needle,
+        visible_lines,
+    });
+    ctx.data_mut(|data| data.insert_temp(cache_id, Arc::clone(&cached)));
+    cached
 }
 
 /// Nominal height of a single-line `NF2/LogLine` row (`Mono` line height + `S1` vertical padding).
@@ -101,19 +136,21 @@ pub fn show_virtualized_output_rows(
 
 impl Editor {
     /// Return the most recent `OutputVirtualStats` recorded by the Output panel.
+    #[cfg(test)]
     pub fn last_output_virtual_stats(&self, ctx: &egui::Context) -> Option<OutputVirtualStats> {
         ctx.data(|d| d.get_temp(egui::Id::new("neoflash-output-virtual-stats")))
     }
 
-    /// Virtualized Output panel (`T-227`): caches filtered line expansion across unchanged frames
-    /// and renders only the visible `LogLine` slice inside the scroll viewport.
-    pub fn output_panel_virtualized(&mut self, ui: &mut egui::Ui) {
+    /// Output: filter, copy and clear, then the log in `NF2/Mono`. Filtered line expansion is cached
+    /// across unchanged frames and only the visible `LogLine` slice is painted inside the viewport.
+    /// Editor messages carry no level or time stamp, so the NF2 level selector is not offered.
+    pub(crate) fn output_panel(&mut self, ui: &mut egui::Ui) {
         let filter_id = egui::Id::new(("neoflash-output-filter", &self.clipboard.session));
         let cache_id = egui::Id::new(("neoflash-output-lines-cache", &self.clipboard.session));
         let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
 
         let mut clear_clicked = false;
-        let mut copy_clicked = false;
+        let mut visible_cache: Option<Arc<CachedOutputLines>> = None;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = space::S2;
             let search = (ui.available_width()
@@ -123,14 +160,15 @@ impl Editor {
             if search_resp.changed() {
                 ui.ctx().request_repaint();
             }
+            let cache = cached_output_lines(ui.ctx(), cache_id, &self.output, &filter);
             let copy_sc = self.tooltip_sc(crate::commands::CommandId::EditCopy);
             let mut copy_btn = nf::IconButton::new(i16::COPY, "Copy output");
             if let Some(sc) = copy_sc.as_deref() {
                 copy_btn = copy_btn.shortcut(sc);
             }
-            let copy = ui.add_enabled_semantic(!self.output.is_empty(), copy_btn);
+            let copy = ui.add_enabled_semantic(!cache.visible_lines.is_empty(), copy_btn);
             if copy.clicked() {
-                copy_clicked = true;
+                ui.ctx().copy_text(cache.visible_lines.join("\n"));
             }
             let clear = ui.add_enabled_semantic(
                 !self.output.is_empty(),
@@ -139,10 +177,11 @@ impl Editor {
             if clear.clicked() {
                 clear_clicked = true;
             }
+            visible_cache = Some(cache);
         });
         if clear_clicked {
             self.output.clear();
-            ui.data_mut(|d| d.remove::<CachedOutputLines>(cache_id));
+            ui.data_mut(|d| d.remove::<Arc<CachedOutputLines>>(cache_id));
         }
         ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
         ui.add_space(space::S2);
@@ -162,55 +201,10 @@ impl Editor {
             .show(ui);
             return;
         }
-
-        let needle = filter.trim().to_lowercase();
-        let first_entry = self.output.first().cloned();
-        let last_entry = self.output.last().cloned();
-        let entry_count = self.output.len();
-        let cached: Option<CachedOutputLines> = ui.data(|d| d.get_temp(cache_id));
-        let visible_lines = match cached {
-            Some(c)
-                if c.entry_count == entry_count
-                    && c.first_entry == first_entry
-                    && c.last_entry == last_entry
-                    && c.filter_lower == needle =>
-            {
-                c.visible_lines
-            }
-            _ => {
-                let lines: Vec<String> = self
-                    .output
-                    .iter()
-                    .flat_map(|entry| {
-                        if entry.is_empty() {
-                            vec![String::new()]
-                        } else {
-                            entry.lines().map(str::to_owned).collect::<Vec<_>>()
-                        }
-                    })
-                    .filter(|line| needle.is_empty() || line.to_lowercase().contains(&needle))
-                    .collect();
-                ui.data_mut(|d| {
-                    d.insert_temp(
-                        cache_id,
-                        CachedOutputLines {
-                            entry_count,
-                            first_entry,
-                            last_entry,
-                            filter_lower: needle.clone(),
-                            visible_lines: lines.clone(),
-                        },
-                    );
-                });
-                lines
-            }
-        };
-
-        if copy_clicked && !visible_lines.is_empty() {
-            ui.ctx().copy_text(visible_lines.join("\n"));
-        }
-
-        let needle_active = !needle.is_empty();
+        let visible_cache = visible_cache
+            .unwrap_or_else(|| cached_output_lines(ui.ctx(), cache_id, &self.output, &filter));
+        let visible_lines = &visible_cache.visible_lines;
+        let needle_active = !visible_cache.filter_lower.is_empty();
         let p = neoflash_ui::palette(ui.ctx());
         egui::Frame::new()
             .fill(p.bg_field)
@@ -225,7 +219,7 @@ impl Editor {
                     .themed()
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.;
-                        show_virtualized_output_rows(ui, &visible_lines);
+                        show_virtualized_output_rows(ui, visible_lines);
                         if visible_lines.is_empty() {
                             ui.label(
                                 neoflash_ui::typography::rich(
@@ -237,5 +231,12 @@ impl Editor {
                         }
                     });
             });
+    }
+
+    /// Compatibility entry point for focused virtualization tests. Production dock routing calls
+    /// [`Self::output_panel`] directly, so there is only one implementation.
+    #[cfg(test)]
+    pub fn output_panel_virtualized(&mut self, ui: &mut egui::Ui) {
+        self.output_panel(ui);
     }
 }

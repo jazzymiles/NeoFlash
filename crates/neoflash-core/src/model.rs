@@ -1070,6 +1070,272 @@ pub struct ElementAppearance {
     pub text_binding: Option<TextPathBinding>,
 }
 
+impl VectorStyle {
+    /// Replace the style-owned part of an appearance while preserving unrelated text bindings.
+    ///
+    /// A linked Graphic Style owns its paints and path modifiers. Keeping this conversion here
+    /// ensures the editor, authored evaluation, and exporters all observe the same stack instead
+    /// of updating only the element's legacy primary paint fields.
+    pub fn apply_to_appearance(&self, appearance: &mut ElementAppearance) {
+        appearance.fill_swatch_id = None;
+        appearance.stroke_swatch_id = None;
+        appearance.entries = vec![
+            AppearancePaintEntry::Fill {
+                color: self.fill,
+                gradient: None,
+                swatch_id: None,
+                offset: [0.0, 0.0],
+                opacity: 1.0,
+            },
+            AppearancePaintEntry::Stroke {
+                color: self.stroke,
+                gradient: None,
+                width: self.stroke_width,
+                swatch_id: None,
+                offset_distance: 0.0,
+                pattern_brush: None,
+                opacity: 1.0,
+            },
+        ];
+        appearance.modifiers = self.modifiers.clone();
+    }
+
+    fn apply_to_element(&self, element: &mut Element) -> bool {
+        match &mut element.kind {
+            ElementKind::Rectangle {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            }
+            | ElementKind::Ellipse {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            }
+            | ElementKind::Path {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            } => {
+                *fill = self.fill;
+                *stroke = self.stroke;
+                *stroke_width = self.stroke_width;
+                true
+            }
+            ElementKind::PaintedPath {
+                fill,
+                stroke,
+                stroke_width,
+                fill_gradient,
+                stroke_gradient,
+                ..
+            } => {
+                *fill = self.fill;
+                *stroke = self.stroke;
+                *stroke_width = self.stroke_width;
+                *fill_gradient = None;
+                *stroke_gradient = None;
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+fn appearance_source_color_from_effective(effective: Color, entry_opacity: &mut f64) -> Color {
+    let mut source = effective;
+    let opacity = if entry_opacity.is_finite() {
+        entry_opacity.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let effective_alpha = f64::from(effective[3]);
+    if opacity <= f64::EPSILON {
+        *entry_opacity = 1.0;
+    } else {
+        let source_alpha = effective_alpha / opacity;
+        if source_alpha <= 255.0 {
+            *entry_opacity = opacity;
+            source[3] = source_alpha.round().clamp(0.0, 255.0) as u8;
+            return source;
+        }
+        // The requested visible alpha cannot be represented at the old opacity. Preserve the
+        // visible Properties value exactly and raise the entry opacity only as far as necessary.
+        *entry_opacity = (effective_alpha / 255.0).clamp(0.0, 1.0);
+        source[3] = 255;
+        return source;
+    }
+    source
+}
+
+struct VectorElementPaints {
+    fill: Color,
+    fill_gradient: Option<crate::GradientPaint>,
+    stroke: Color,
+    stroke_gradient: Option<crate::GradientPaint>,
+    stroke_width: f64,
+}
+
+fn vector_element_paints(kind: &ElementKind) -> Option<VectorElementPaints> {
+    match kind {
+        ElementKind::Rectangle {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Ellipse {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Path {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        } => Some(VectorElementPaints {
+            fill: *fill,
+            fill_gradient: None,
+            stroke: *stroke,
+            stroke_gradient: None,
+            stroke_width: *stroke_width,
+        }),
+        ElementKind::PaintedPath {
+            fill,
+            stroke,
+            fill_gradient,
+            stroke_gradient,
+            stroke_width,
+            ..
+        } => Some(VectorElementPaints {
+            fill: *fill,
+            fill_gradient: fill_gradient.clone(),
+            stroke: *stroke,
+            stroke_gradient: stroke_gradient.clone(),
+            stroke_width: *stroke_width,
+        }),
+        _ => None,
+    }
+}
+
+impl ElementAppearance {
+    /// Mirror direct Properties paint edits into the primary entries of a stored Appearance stack.
+    /// Other paints, offsets, opacity, modifiers, and text bindings remain untouched.
+    pub fn sync_primary_paints_from_kinds(
+        &mut self,
+        before: &ElementKind,
+        after: &ElementKind,
+    ) -> bool {
+        let Some(old) = vector_element_paints(before) else {
+            return false;
+        };
+        let Some(new) = vector_element_paints(after) else {
+            return false;
+        };
+
+        let fill_changed = old.fill != new.fill || old.fill_gradient != new.fill_gradient;
+        let stroke_paint_changed =
+            old.stroke != new.stroke || old.stroke_gradient != new.stroke_gradient;
+        let stroke_width_changed = (old.stroke_width - new.stroke_width).abs() > f64::EPSILON;
+        let stroke_changed = stroke_paint_changed || stroke_width_changed;
+        if fill_changed {
+            self.fill_swatch_id = None;
+            let index = self
+                .entries
+                .iter()
+                .position(|entry| {
+                    matches!(entry, AppearancePaintEntry::Fill { opacity, .. } if *opacity > 0.0)
+                })
+                .or_else(|| {
+                    self.entries
+                        .iter()
+                        .position(|entry| matches!(entry, AppearancePaintEntry::Fill { .. }))
+                });
+            if let Some(index) = index {
+                if let AppearancePaintEntry::Fill {
+                    color,
+                    gradient,
+                    swatch_id,
+                    opacity,
+                    ..
+                } = &mut self.entries[index]
+                {
+                    *color = appearance_source_color_from_effective(new.fill, opacity);
+                    *gradient = new.fill_gradient;
+                    *swatch_id = None;
+                }
+            } else {
+                self.entries.insert(
+                    0,
+                    AppearancePaintEntry::Fill {
+                        color: new.fill,
+                        gradient: new.fill_gradient,
+                        swatch_id: None,
+                        offset: [0.0, 0.0],
+                        opacity: 1.0,
+                    },
+                );
+            }
+        }
+        if stroke_changed {
+            let index = self
+                .entries
+                .iter()
+                .position(|entry| {
+                    matches!(entry, AppearancePaintEntry::Stroke { opacity, .. } if *opacity > 0.0)
+                })
+                .or_else(|| {
+                    self.entries
+                        .iter()
+                        .position(|entry| matches!(entry, AppearancePaintEntry::Stroke { .. }))
+                });
+            if let Some(index) = index {
+                if let AppearancePaintEntry::Stroke {
+                    color,
+                    gradient,
+                    width,
+                    swatch_id,
+                    opacity,
+                    ..
+                } = &mut self.entries[index]
+                {
+                    if stroke_paint_changed {
+                        self.stroke_swatch_id = None;
+                        *color = appearance_source_color_from_effective(new.stroke, opacity);
+                        *gradient = new.stroke_gradient;
+                        *swatch_id = None;
+                    }
+                    if stroke_width_changed {
+                        *width = new.stroke_width;
+                    }
+                }
+            } else {
+                let swatch_id = if stroke_paint_changed {
+                    self.stroke_swatch_id = None;
+                    None
+                } else {
+                    self.stroke_swatch_id.clone()
+                };
+                self.entries.push(AppearancePaintEntry::Stroke {
+                    color: new.stroke,
+                    gradient: new.stroke_gradient,
+                    width: new.stroke_width,
+                    swatch_id,
+                    offset_distance: 0.0,
+                    pattern_brush: None,
+                    opacity: 1.0,
+                });
+            }
+        }
+        fill_changed || stroke_changed
+    }
+}
+
 /// An object-specific spatial-path override on a Motion Tween track (format 10).
 ///
 /// Absence of an override keeps the legacy keyframe-level `motion_path`. `Disabled`
@@ -3836,42 +4102,12 @@ impl Project {
                 for key in &mut layer.keyframes {
                     for app in &mut key.appearances {
                         if app.style_id.as_deref() == Some(style_id) {
-                            app.modifiers = style.modifiers.clone();
+                            style.apply_to_appearance(app);
                             if let Some(el) =
                                 key.elements.iter_mut().find(|e| e.id == app.element_id)
+                                && style.apply_to_element(el)
                             {
-                                match &mut el.kind {
-                                    ElementKind::Rectangle {
-                                        fill,
-                                        stroke,
-                                        stroke_width,
-                                        ..
-                                    }
-                                    | ElementKind::Ellipse {
-                                        fill,
-                                        stroke,
-                                        stroke_width,
-                                        ..
-                                    }
-                                    | ElementKind::Path {
-                                        fill,
-                                        stroke,
-                                        stroke_width,
-                                        ..
-                                    }
-                                    | ElementKind::PaintedPath {
-                                        fill,
-                                        stroke,
-                                        stroke_width,
-                                        ..
-                                    } => {
-                                        *fill = style.fill;
-                                        *stroke = style.stroke;
-                                        *stroke_width = style.stroke_width;
-                                        count += 1;
-                                    }
-                                    _ => {}
-                                }
+                                count += 1;
                             }
                         }
                     }

@@ -2213,8 +2213,7 @@ impl Editor {
             return;
         }
         if test {
-            if self.debugger.active() {
-                self.debug_command(crate::debugger_protocol::DebugCommand::Restart);
+            if self.restart_debug_movie_if_commandable() {
                 return;
             }
             let output = std::env::temp_dir()
@@ -2718,9 +2717,10 @@ impl Editor {
     }
 
     /// Whether any `egui::Popup` or editor popover (View settings, Tools flyout/popover, Color,
-    /// Symbols & scenes, Help search) is open in `ctx`.
+    /// layer outline colour, Symbols & scenes, Help search) is open in `ctx`.
     pub(crate) fn has_open_popup(&self, ctx: &egui::Context) -> bool {
-        self.stage_view.settings_open || crate::panels::dialog_helpers::is_any_popup_open(ctx)
+        self.stage_view.settings_open
+            || crate::panels::dialog_helpers::is_any_editor_popup_open(self, ctx)
     }
 
     /// True while widget keyboard focus (text input or Tab-focused control), a modal dialog, or

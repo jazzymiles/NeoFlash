@@ -1,8 +1,9 @@
 //! Headless scriptable CLI for AI agents, automation scripts, and CI pipelines (`T-302`).
 //!
 //! Dispatched from `main.rs` before initializing `eframe` so all project creation, inspection,
-//! validation, compilation, playback evaluation, sandboxed JSFL scripting, atomic JSON batching,
-//! import, and export workflows run with zero windowing/display dependency.
+//! validation, compilation, playback evaluation, sandboxed JSFL scripting, strict JSON batching,
+//! import, and export workflows run with zero windowing/display dependency. Batch project output is
+//! replaced atomically after validation; explicit filesystem side effects are not transactional.
 mod batch;
 mod import_export;
 mod jsfl_fs;
@@ -23,12 +24,9 @@ use serde_json::{Value, json};
 use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
-
-static ATOMIC_TMP_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OutputFormat {
@@ -389,45 +387,6 @@ pub(crate) fn write_json_error<W: Write>(
     }
 }
 
-/// Atomically write bytes to `path` by writing and syncing a sibling temporary file first.
-pub(crate) fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-    let parent = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let stem = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("document");
-    let seq = ATOMIC_TMP_SEQ.fetch_add(1, Ordering::Relaxed);
-    let tmp_path = parent.join(format!(".{stem}.neoflash-tmp-{}-{seq}", std::process::id()));
-
-    let write_res = (|| -> io::Result<()> {
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&tmp_path)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        Ok(())
-    })();
-    if let Err(err) = write_res {
-        let _ = fs::remove_file(&tmp_path);
-        return Err(err);
-    }
-    if let Err(err) = fs::rename(&tmp_path, path) {
-        let _ = fs::remove_file(&tmp_path);
-        return Err(err);
-    }
-    Ok(())
-}
-
 /// Load a `.nflash` file into a `Project`, tolerating validation issues so `inspect`/`validate`
 /// can report every `ValidationIssue` cleanly.
 pub(crate) fn load_project_lenient(path: &Path) -> Result<Project, CliError> {
@@ -475,7 +434,7 @@ pub(crate) fn save_project_atomic(project: &mut Project, path: &Path) -> Result<
     let json = project
         .to_json()
         .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
-    write_bytes_atomic(path, json.as_bytes()).map_err(|e| {
+    crate::windows_platform::atomic_replace_file(path, json.as_bytes()).map_err(|e| {
         CliError::runtime(
             "io_error",
             format!("Failed saving project '{}': {e}", path.display()),
@@ -862,7 +821,7 @@ fn help_text(topic: Option<&str>) -> String {
             "  compile                 Compile/check all scripts with located diagnostics\n",
             "  eval                    Evaluate deterministic frame poses and optional native AuthoredPlayback script traces\n",
             "  jsfl                    Run capability-gated JSFL scripts cleanly against a project\n",
-            "  batch                   Execute an atomic JSON batch pipeline of authoring, script, eval, and export ops\n",
+            "  batch                   Execute a strict JSON batch with atomic final project replacement\n",
             "  import                  Import FLA/XFL/SWF/SWC/SVG/PSD/PDF/AI/FXG/Figma/palette/sequence into .nflash\n",
             "  export                  Publish/export HTML5, Desktop, Banner, FLA, XFL, SWF, SVG, Lottie, Atlas, Sequence, Video, Audio\n"
         ).into(),
@@ -943,7 +902,7 @@ fn subcommands_schema() -> Value {
         },
         {
             "name": "batch",
-            "summary": "Execute an atomic JSON sequence of declarative authoring, scripting, evaluation, and export operations",
+            "summary": "Execute a strict JSON sequence with atomic final project replacement after validation",
             "flags": ["--file <ops.json> | --stdin", "--project <in.nflash>", "--out <out.nflash> | --in-place"]
         },
         {
@@ -993,7 +952,8 @@ fn cmd_capabilities<W1: Write, W2: Write>(
         },
         "batch_schema": {
             "containers": ["{ \"ops\": [ ... ] }", "{ \"steps\": [ ... ] }", "[ ... ]"],
-            "atomicity": "All operations mutate an in-memory candidate project; --out / --in-place is written atomically only after every step and Project::validate() pass.",
+            "strict": "Unknown wrapper, operation, nested transform, path-command, authoring-command, and export fields are rejected.",
+            "atomicity": "Operations mutate an in-memory candidate project; the implicit final --out / --in-place project replacement occurs atomically only after every step and Project::validate() pass. Explicit save/export operations and permitted JSFL FLfile writes occur immediately and are not rolled back if a later step fails.",
             "operations": {
                 "new": ["name?", "width?", "height?", "fps?", "bg?", "language?", "demo?"],
                 "open": ["path"],
@@ -1001,17 +961,22 @@ fn cmd_capabilities<W1: Write, W2: Write>(
                 "add_symbol": ["id?", "name", "kind?", "frame_count?", "linkage_id?", "class_name?", "folder?", "as_scene?"],
                 "add_layer": ["symbol?", "id?", "name", "role?", "visible?", "locked?", "mask_layer?", "motion_guide?"],
                 "add_keyframe": ["symbol?", "layer", "frame", "label?", "tween?", "tween_kind?", "copy_previous?", "clear_elements?"],
-                "add_element": ["symbol?", "layer?", "frame?", "id?", "name?", "kind (rectangle|oval|ellipse|text|text_box|path|instance)", "transform?", "x?", "y?", "scale_x?", "scale_y?", "rotation?", "skew?", "alpha?", "width?", "height?", "fill?", "stroke?", "stroke_width?", "text?", "font_family?", "font_size?", "color?", "commands?", "d?", "symbol_id?", "playback?"],
+                "add_element": ["symbol?", "layer?", "frame?", "id?", "name?", "kind (rectangle|oval|ellipse|text|text_box|path|instance)", "transform?", "x?", "y?", "scale_x?", "scale_y?", "rotation?", "skew?", "alpha?", "visible?", "width?", "height?", "fill?", "stroke?", "stroke_width?", "text?", "font_family?", "font_size?", "color?", "word_wrap?", "multiline?", "commands?", "d?", "fill_rule?", "symbol_id?", "playback?"],
                 "set_script": ["symbol?", "layer?", "frame?", "element?", "event?", "path?", "id?", "language?", "source", "remove_empty?"],
                 "remove_element": ["symbol?", "layer?", "frame?", "element"],
                 "apply_command_steps": ["symbol?", "layer?", "frame?", "elements", "steps"],
-                "jsfl": ["code? | script_file?", "symbol?", "frame?", "allow_read?", "allow_write?", "allow_delete?"],
+                "jsfl": ["exactly one of code? | source? | script_file?", "symbol?", "frame?", "allow_read?", "allow_write?", "allow_delete?"],
                 "validate": ["strict?"],
                 "compile": ["strict?"],
                 "eval": ["scene?", "symbol?", "frame?", "frames?", "scripts?"],
                 "inspect": ["symbol?", "frame?", "no_elements?", "no_scripts?", "no_resources?"],
-                "export": ["target", "out", "profile?", "size_level?", "runtime?", "runtime_url?", "..."],
+                "export": ["target", "out", "profile?", "size_level?", "runtime?", "runtime_url?", "font_policy?", "audio_policy?", "clean?", "sprite_sheets?", "assets_folder?", "scale_mode?", "stage_align?", "allow_fullscreen?", "fla_profile?", "swf_profile?", "scriptless?", "outline_text?", "symbol?", "frame?", "end_frame?", "width?", "height?", "transparent?", "text_as_outlines?", "pretty?", "atlas_format?", "atlas_extrude?", "audio_format?", "banner_max_gzip?"],
                 "save": ["path?"]
+            },
+            "nested_schemas": {
+                "transform": ["x?", "y?", "scale_x?", "scale_y?", "rotation?", "skew?", "alpha?"],
+                "frame_range_object": ["start", "end"],
+                "path_command_ops": ["move_to{x,y}", "line_to{x,y}", "quadratic_to{cx,cy,x,y}", "cubic_to{cx1,cy1,cx2,cy2,x,y}", "close"]
             },
             "command_step_ops": [
                 "translate",

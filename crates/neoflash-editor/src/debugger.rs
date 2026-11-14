@@ -174,8 +174,19 @@ impl Debugger {
             .ok()
             .map(|s| s.clone())
     }
+    #[cfg(test)]
     pub(crate) fn active(&self) -> bool {
         self.session.is_some()
+    }
+    /// A terminal session remains available for its status, messages and stack presentation, but
+    /// its worker has exited and its command channel must no longer be used.
+    pub(crate) fn commandable(&self) -> bool {
+        self.snapshot().is_some_and(|snapshot| {
+            !matches!(
+                snapshot.state,
+                DebugState::Disconnected | DebugState::Failed
+            )
+        })
     }
     #[cfg(test)]
     pub(crate) fn has_presentation(&self) -> bool {
@@ -297,7 +308,7 @@ impl Editor {
         self.show_panel(PanelId::Debugger);
     }
 
-    pub(crate) fn debug_command(&mut self, command: DebugCommand) {
+    pub(crate) fn debug_command(&mut self, command: DebugCommand) -> bool {
         if self
             .debugger
             .project
@@ -306,11 +317,24 @@ impl Editor {
         {
             self.debugger.reset_document();
             self.message("Debug session stopped because the document changed. Start Debug options again to use the edited source.");
-            return;
+            return false;
+        }
+        if !self.debugger.commandable() {
+            return false;
         }
         if let Err(error) = self.debugger.send(command) {
             self.message(error);
+            false
+        } else {
+            true
         }
+    }
+
+    /// Restart an existing live debugger for Control ▸ Test movie. Returning `false` lets the
+    /// caller launch the normal Test Movie path when the retained session is terminal or its
+    /// channel has already closed.
+    pub(crate) fn restart_debug_movie_if_commandable(&mut self) -> bool {
+        self.debug_command(DebugCommand::Restart)
     }
 
     pub(crate) fn poll_debugger(&mut self, ctx: &egui::Context) {
@@ -655,7 +679,7 @@ impl Editor {
             return;
         };
         self.toggle_breakpoint(&point.source, point.line);
-        if self.debugger.active() {
+        if self.debugger.commandable() {
             self.debug_command(DebugCommand::SetBreakpoints(
                 self.debugger.breakpoints.clone(),
             ));
@@ -708,6 +732,69 @@ mod tests {
             language: ScriptLanguage::ActionScript3,
             location: "Frame 1".into(),
         }];
+    }
+
+    #[test]
+    fn terminal_sessions_remain_presented_but_do_not_accept_restart_or_breakpoint_commands() {
+        for state in [DebugState::Disconnected, DebugState::Failed] {
+            let ctx = egui::Context::default();
+            let mut editor = Editor::from_project(&ctx, Project::blank());
+            let mut snapshot =
+                DebugProtocol::new("file:///fixture.html".into(), vec![], vec![]).snapshot();
+            snapshot.state = state;
+            snapshot.reason = format!("terminal {state:?}");
+            let (commands, receiver) = mpsc::sync_channel(4);
+            editor.debugger.session = Some(DebugSession {
+                snapshot: Arc::new(Mutex::new(snapshot)),
+                commands,
+                stop: Arc::new(AtomicBool::new(false)),
+                worker: None,
+                errors: Arc::new(Mutex::new(vec![])),
+            });
+            editor.debugger.project = Some(editor.project.clone());
+            editor.debugger.breakpoints = vec![AuthoredBreakpoint {
+                source: "Scene 1 / frame 1".into(),
+                line: 1,
+                column: None,
+            }];
+
+            assert!(editor.debugger.active());
+            assert!(editor.debugger.has_presentation());
+            assert!(!editor.debugger.commandable());
+            assert!(
+                !editor.restart_debug_movie_if_commandable(),
+                "terminal {state:?} must fall through to the normal Test Movie launch"
+            );
+            assert!(receiver.try_recv().is_err());
+
+            assert!(!editor.debug_command(DebugCommand::SetBreakpoints(
+                editor.debugger.breakpoints.clone()
+            )));
+            assert!(
+                receiver.try_recv().is_err(),
+                "terminal {state:?} must not receive breakpoint synchronization"
+            );
+            assert_eq!(editor.debugger.snapshot().unwrap().state, state);
+        }
+
+        // A live session still takes the fast restart path and receives exactly one command.
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        let mut snapshot =
+            DebugProtocol::new("file:///fixture.html".into(), vec![], vec![]).snapshot();
+        snapshot.state = DebugState::Running;
+        let (commands, receiver) = mpsc::sync_channel(4);
+        editor.debugger.session = Some(DebugSession {
+            snapshot: Arc::new(Mutex::new(snapshot)),
+            commands,
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+            errors: Arc::new(Mutex::new(vec![])),
+        });
+        editor.debugger.project = Some(editor.project.clone());
+        assert!(editor.debugger.commandable());
+        assert!(editor.restart_debug_movie_if_commandable());
+        assert!(matches!(receiver.try_recv(), Ok(DebugCommand::Restart)));
     }
 
     #[test]

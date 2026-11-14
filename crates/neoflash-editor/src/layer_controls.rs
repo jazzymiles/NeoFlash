@@ -634,6 +634,14 @@ impl Editor {
     fn outline_draft_id(&self) -> egui::Id {
         egui::Id::new(("layer-outline-color", &self.clipboard.session))
     }
+    /// The outline colour picker is a custom `Area`, not an `egui::Popup`, so shared shortcut
+    /// gating must query its document-scoped draft explicitly.
+    pub(crate) fn is_layer_outline_color_popover_open(&self, ctx: &egui::Context) -> bool {
+        ctx.data(|data| {
+            data.get_temp::<LayerOutlineDraft>(self.outline_draft_id())
+                .is_some()
+        })
+    }
     fn outline_swatch_rect_id(session: &str, symbol_id: &str, layer_id: &str) -> egui::Id {
         egui::Id::new(("layer-outline-swatch-rect", session, symbol_id, layer_id))
     }

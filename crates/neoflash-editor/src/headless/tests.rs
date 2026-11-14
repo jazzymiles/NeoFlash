@@ -145,7 +145,21 @@ fn help_version_and_capabilities_schema() {
     let caps: Value = serde_json::from_str(&stdout).expect("json capabilities");
     assert_eq!(caps["ok"], true);
     assert_eq!(caps["command"], "capabilities");
+    assert!(caps["batch_schema"]["strict"].is_string());
+    assert!(
+        caps["batch_schema"]["atomicity"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("not rolled back")
+    );
     assert!(caps["batch_schema"]["operations"]["add_element"].is_array());
+    assert!(
+        caps["batch_schema"]["operations"]["export"]
+            .as_array()
+            .expect("export schema")
+            .iter()
+            .any(|field| field == "banner_max_gzip?")
+    );
     assert!(
         caps["export_targets"]
             .as_array()
@@ -755,6 +769,26 @@ fn batch_pipeline_builds_validates_exports_and_rolls_back_atomically() {
     assert_eq!(err["error"]["details"]["step_index"], 2);
     assert_eq!(fs::read_to_string(&out_proj).unwrap(), snapshot_before);
 
+    // A successful in-place batch must atomically replace an existing project on every platform.
+    let overwrite_ops = json!([
+        { "op": "set_project", "name": "BatchOverwriteOk" }
+    ]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            out_proj.to_str().unwrap(),
+            "--in-place",
+        ],
+        &overwrite_ops.to_string(),
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert!(stdout.contains("\"ok\":true"));
+    let overwritten = Project::from_json(&fs::read_to_string(&out_proj).unwrap()).unwrap();
+    assert_eq!(overwritten.name, "BatchOverwriteOk");
+
     // Per-step diagnostic JSON parse error + `code` alias for `set_script`
     let bad_shape = json!({
         "ops": [
@@ -790,6 +824,216 @@ fn batch_pipeline_builds_validates_exports_and_rolls_back_atomically() {
         alias_res["results"][2]["result"]["trace_lines"][0],
         "alias_ok"
     );
+}
+
+#[test]
+fn batch_rejects_unknown_or_ambiguous_json_fields() {
+    let invalid_batches = [
+        json!({ "ops": [], "metadata": "silently ignored before T-303" }),
+        json!({ "ops": [], "steps": [] }),
+        json!([{ "op": "set_project", "widht": 777 }]),
+        json!([{
+            "op": "add_element",
+            "kind": "rectangle",
+            "transform": { "xx": 12.0 }
+        }]),
+        json!([{
+            "op": "add_element",
+            "kind": "path",
+            "commands": [{ "op": "move_to", "x": 0.0, "y": 0.0, "z": 0.0 }]
+        }]),
+        json!([{
+            "op": "apply_command_steps",
+            "elements": [],
+            "steps": [{ "op": "translate", "dx": 1.0, "dy": 2.0, "dyy": 2.0 }]
+        }]),
+        json!([{
+            "op": "eval",
+            "frames": { "start": 0, "end": 1, "extra": true }
+        }]),
+        json!([{
+            "op": "export",
+            "target": "svg",
+            "out": "ignored.svg",
+            "fram": 0
+        }]),
+    ];
+
+    for invalid in invalid_batches {
+        let (code, stdout, stderr) =
+            run_args(&["--headless", "batch", "--stdin"], &invalid.to_string());
+        assert_eq!(code, 2, "batch={invalid}, stdout={stdout}, stderr={stderr}");
+        assert!(stdout.is_empty());
+        let error: Value = serde_json::from_str(&stderr).unwrap();
+        assert_eq!(error["error"]["code"], "invalid_batch_json");
+    }
+
+    let ambiguous_jsfl = json!([{
+        "op": "jsfl",
+        "code": "fl.trace('code');",
+        "source": "fl.trace('source');"
+    }]);
+    let (code, stdout, stderr) = run_args(
+        &["--headless", "batch", "--stdin"],
+        &ambiguous_jsfl.to_string(),
+    );
+    assert_eq!(code, 2, "stdout={stdout}, stderr={stderr}");
+    assert!(stdout.is_empty());
+    let error: Value = serde_json::from_str(&stderr).unwrap();
+    assert_eq!(error["error"]["code"], "invalid_arguments");
+}
+
+#[test]
+fn batch_held_span_mutations_share_active_keyframe_and_empty_removal_is_noop() {
+    let held_span_ops = json!({
+        "ops": [
+            { "op": "new", "name": "HeldSpan" },
+            { "op": "add_keyframe", "layer": "Layer 1", "frame": 4 },
+            {
+                "op": "add_element",
+                "layer": "Layer 1",
+                "frame": 0,
+                "id": "held_element",
+                "name": "Held",
+                "kind": "rectangle"
+            },
+            {
+                "op": "set_script",
+                "layer": "Layer 1",
+                "frame": 2,
+                "element": "held_element",
+                "event": "click",
+                "language": "as2",
+                "source": "trace(\"held\");"
+            },
+            {
+                "op": "apply_command_steps",
+                "layer": "Layer 1",
+                "frame": 2,
+                "elements": ["held_element"],
+                "steps": [{ "op": "translate", "dx": 12.0, "dy": 7.0 }]
+            },
+            { "op": "inspect", "frame": 2, "no_resources": true },
+            {
+                "op": "remove_element",
+                "layer": "Layer 1",
+                "frame": 3,
+                "element": "held_element"
+            },
+            { "op": "inspect", "frame": 3, "no_resources": true },
+            { "op": "validate" }
+        ]
+    });
+    let (code, stdout, stderr) = run_args(
+        &["--headless", "batch", "--stdin"],
+        &held_span_ops.to_string(),
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let result: Value = serde_json::from_str(&stdout).unwrap();
+    let held_keyframe = &result["results"][5]["result"]["symbols"][0]["layers"][0]["keyframes"][0];
+    assert_eq!(held_keyframe["frame"], 0);
+    let held = &held_keyframe["elements"][0];
+    assert_eq!(held["transform"]["x"], 12.0);
+    assert_eq!(held["transform"]["y"], 7.0);
+    assert_eq!(held["scripts"][0]["event"], "click");
+    assert_eq!(held["scripts"][0]["language"], "actionscript2");
+    assert_eq!(
+        result["results"][7]["result"]["symbols"][0]["layers"][0]["keyframes"][0]["element_count"],
+        0
+    );
+
+    let empty_removal_ops = json!([
+        { "op": "new", "name": "EmptyRemoval" },
+        { "op": "inspect", "no_elements": true, "no_resources": true },
+        {
+            "op": "set_script",
+            "frame": 500,
+            "source": "",
+            "remove_empty": true
+        },
+        { "op": "inspect", "no_elements": true, "no_resources": true }
+    ]);
+    let (code, stdout, stderr) = run_args(
+        &["--headless", "batch", "--stdin"],
+        &empty_removal_ops.to_string(),
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let result: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        result["results"][3]["result"]["symbols"][0]["frame_count"],
+        result["results"][1]["result"]["symbols"][0]["frame_count"]
+    );
+    assert_eq!(
+        result["results"][3]["result"]["symbols"][0]["frame_scripts"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+
+    // A held key stops being active at the layer's exclusive exposure end. Object mutations must
+    // not reach back into that hidden key merely because the symbol timeline itself is longer.
+    let tmp = TempDirGuard::new("held-span-end");
+    let project_path = tmp.path.join("layer-end.nflash");
+    let mut project = Project::blank();
+    project.format_version = 5;
+    project.symbols[0].timeline.frame_count = 6;
+    project.symbols[0].timeline.layers[0].properties.end_frame = Some(2);
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "hidden-after-end".into(),
+            name: "Hidden after end".into(),
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 30.0,
+                fill: [10, 20, 30, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+    fs::write(&project_path, project.to_json().unwrap()).unwrap();
+    let hidden_mutations = [
+        json!({
+            "op": "set_script",
+            "frame": 3,
+            "element": "hidden-after-end",
+            "source": "trace('must not attach');"
+        }),
+        json!({
+            "op": "remove_element",
+            "frame": 3,
+            "element": "hidden-after-end"
+        }),
+        json!({
+            "op": "apply_command_steps",
+            "frame": 3,
+            "elements": ["hidden-after-end"],
+            "steps": [{ "op": "translate", "dx": 10.0, "dy": 20.0 }]
+        }),
+    ];
+    for mutation in hidden_mutations {
+        let (code, stdout, stderr) = run_args(
+            &[
+                "--headless",
+                "batch",
+                "--stdin",
+                "--project",
+                project_path.to_str().unwrap(),
+            ],
+            &json!([mutation]).to_string(),
+        );
+        assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+        assert!(stdout.is_empty());
+        let error: Value = serde_json::from_str(&stderr).unwrap();
+        assert_eq!(error["error"]["code"], "element_not_found");
+        assert_eq!(
+            Project::from_json(&fs::read_to_string(&project_path).unwrap()).unwrap(),
+            project,
+            "failed out-of-exposure mutation must not touch the source project"
+        );
+    }
 }
 
 #[test]
@@ -977,5 +1221,46 @@ fn import_and_export_targets_roundtrip() {
         let res: Value = serde_json::from_str(&stdout).unwrap();
         assert_eq!(res["ok"], true);
         assert!(html_out.join("index.html").is_file());
+
+        let desktop_out = tmp.path.join("desktop");
+        let (code, stdout, stderr) = run_args(
+            &[
+                "--headless",
+                "export",
+                "--project",
+                svg_proj.to_str().unwrap(),
+                "--target",
+                "desktop",
+                "--scale-mode",
+                "no_scale",
+                "--stage-align",
+                "bottom_right",
+                "--allow-fullscreen",
+                "false",
+                "--out",
+                desktop_out.to_str().unwrap(),
+            ],
+            "",
+        );
+        assert_eq!(code, 0, "stderr: {stderr}");
+        let res: Value = serde_json::from_str(&stdout).unwrap();
+        let app_dir = PathBuf::from(res["output_path"].as_str().unwrap());
+        let bundle_raw = fs::read_to_string(
+            app_dir
+                .join("Contents")
+                .join("Resources")
+                .join("web")
+                .join("bundle.js"),
+        )
+        .unwrap();
+        let bundle_json = bundle_raw
+            .strip_prefix("globalThis.NeoFlashBundle = ")
+            .unwrap()
+            .strip_suffix(";\n")
+            .unwrap();
+        let bundle: Value = serde_json::from_str(bundle_json).unwrap();
+        assert_eq!(bundle["player_config"]["scale_mode"], "no_scale");
+        assert_eq!(bundle["player_config"]["stage_align"], "bottom_right");
+        assert_eq!(bundle["player_config"]["allow_fullscreen"], false);
     }
 }

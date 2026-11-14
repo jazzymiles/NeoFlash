@@ -204,7 +204,10 @@ fn normalize_unc_segments(path: &str) -> String {
 /// (`.<name>.neoflash-tmp-<pid>-<seq>`), flushing with `sync_all()`, closing the handle before
 /// replacement (required on Windows NTFS), and replacing `dst` atomically (`T-280`).
 pub fn atomic_replace_file(dst: &Path, bytes: &[u8]) -> Result<(), String> {
-    let parent = dst.parent().unwrap_or_else(|| Path::new("."));
+    let parent = dst
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let name = dst
         .file_name()

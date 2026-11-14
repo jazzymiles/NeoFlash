@@ -328,21 +328,25 @@ fn sanitize_modifier(modifier: VectorModifier) -> VectorModifier {
     }
 }
 
+fn next_graphic_style_name(styles: &[VectorStyle]) -> String {
+    let mut index = 1usize;
+    loop {
+        let candidate = format!("Style {index}");
+        if styles.iter().all(|style| style.name != candidate) {
+            return candidate;
+        }
+        index += 1;
+    }
+}
+
 impl Editor {
     fn selected_vector_element_id(&self) -> Option<Id> {
-        let id = self
-            .selected_element()
-            .map(|e| e.id.clone())
-            .or_else(|| self.selection.targets.first().map(|t| t.element.clone()))?;
-        let symbol = self.symbol();
-        let layer = symbol.timeline.layers.get(self.layer)?;
-        let key = layer.key_at(self.frame)?;
-        let el = key.elements.iter().find(|e| e.id == id)?;
+        let el = self.selected_element()?;
         match &el.kind {
             ElementKind::Rectangle { .. }
             | ElementKind::Ellipse { .. }
             | ElementKind::Path { .. }
-            | ElementKind::PaintedPath { .. } => Some(id),
+            | ElementKind::PaintedPath { .. } => Some(el.id.clone()),
             _ => None,
         }
     }
@@ -836,7 +840,12 @@ impl Editor {
         let mut saved_id: Option<Id> = None;
         self.transact_named("Save Graphic Style", |editor| {
             let mut styles = editor.project.vector_styles();
-            let style_id = format!("style-{}", styles.len() + 1);
+            let style_id = loop {
+                let candidate = new_id("style");
+                if styles.iter().all(|style| style.id != candidate) {
+                    break candidate;
+                }
+            };
             let symbol = editor.symbol_mut();
             let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
                 return;
@@ -929,25 +938,7 @@ impl Editor {
                         .cloned()
                         .unwrap_or_else(|| default_appearance_for_element(&el));
                     app.style_id = Some(style.id.clone());
-                    app.modifiers = style.modifiers.clone();
-                    app.entries = vec![
-                        AppearancePaintEntry::Fill {
-                            color: style.fill,
-                            gradient: None,
-                            swatch_id: None,
-                            offset: [0.0, 0.0],
-                            opacity: 1.0,
-                        },
-                        AppearancePaintEntry::Stroke {
-                            color: style.stroke,
-                            gradient: None,
-                            width: style.stroke_width,
-                            swatch_id: None,
-                            offset_distance: 0.0,
-                            pattern_brush: None,
-                            opacity: 1.0,
-                        },
-                    ];
+                    style.apply_to_appearance(&mut app);
                     key.set_appearance(app);
                     applied = true;
                 }
@@ -1091,7 +1082,7 @@ impl Editor {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = space::S2;
                     if ui.add(nf::Button::new("Save style…")).clicked() {
-                        let next_name = format!("Style {}", styles.len() + 1);
+                        let next_name = next_graphic_style_name(&styles);
                         let _ = self.appearance_save_graphic_style(&next_name);
                     }
                     if ui
@@ -1902,7 +1893,53 @@ mod appearance_tests {
         assert_eq!(editor.appearance_update_graphic_style(updated), 2);
         editor.project.validate().expect("valid project");
 
-        // Undo style update restores previous modifiers on both shapes
+        let key = &editor.project.symbols[0].timeline.layers[0].keyframes[0];
+        let app2_updated = key.appearance("rect-2").expect("updated rect-2 appearance");
+        assert!(matches!(
+            &app2_updated.entries[0],
+            AppearancePaintEntry::Fill {
+                color: [20, 220, 180, 255],
+                ..
+            }
+        ));
+        assert!(matches!(
+            &app2_updated.entries[1],
+            AppearancePaintEntry::Stroke {
+                color: [255, 255, 255, 255],
+                width: 4.0,
+                ..
+            }
+        ));
+        let evaluated = sample_layer(&editor.project.symbols[0].timeline.layers[0], 0);
+        assert!(evaluated.iter().any(|element| {
+            element.id == "rect-2"
+                && matches!(
+                    element.kind,
+                    ElementKind::Path {
+                        fill: [20, 220, 180, 255],
+                        ..
+                    }
+                )
+        }));
+        assert!(evaluated.iter().any(|element| {
+            element.id.starts_with("rect-2-app-")
+                && matches!(
+                    element.kind,
+                    ElementKind::Path {
+                        stroke: [255, 255, 255, 255],
+                        stroke_width: 4.0,
+                        ..
+                    }
+                )
+        }));
+        let json = editor.project.to_json().expect("serialize updated styles");
+        let reopened = Project::from_json(&json).expect("reopen updated styles");
+        let reopened_app = reopened.symbols[0].timeline.layers[0].keyframes[0]
+            .appearance("rect-2")
+            .expect("reopened linked appearance");
+        assert_eq!(reopened_app.entries, app2_updated.entries);
+
+        // Undo style update restores previous paints and modifiers on both shapes.
         editor.undo();
         let app2_after_undo = editor
             .selected_element_appearance()
@@ -1911,6 +1948,301 @@ mod appearance_tests {
             app2_after_undo.modifiers,
             vec![VectorModifier::OffsetContour { delta: 6.0 }]
         );
+        assert!(matches!(
+            app2_after_undo.entries[0],
+            AppearancePaintEntry::Fill {
+                color: [200, 60, 40, 255],
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn graphic_style_ids_do_not_replace_survivors_after_deletion() {
+        let mut editor = editor_with_selected_rect();
+        let first = VectorStyle {
+            id: "style-1".into(),
+            name: "Style 1".into(),
+            fill: [10, 20, 30, 255],
+            stroke: [40, 50, 60, 255],
+            stroke_width: 2.0,
+            modifiers: vec![],
+        };
+        let survivor = VectorStyle {
+            id: "style-2".into(),
+            name: "Style 2".into(),
+            fill: [70, 80, 90, 255],
+            stroke: [100, 110, 120, 255],
+            stroke_width: 3.0,
+            modifiers: vec![VectorModifier::LiveCorners { radius: 8.0 }],
+        };
+        editor.project.set_vector_styles(&[first, survivor.clone()]);
+        assert!(editor.appearance_delete_graphic_style("style-1"));
+
+        let generated_name = next_graphic_style_name(&editor.project.vector_styles());
+        assert_eq!(generated_name, "Style 1");
+        let created = editor
+            .appearance_save_graphic_style(&generated_name)
+            .expect("save replacement style");
+        assert_ne!(created, survivor.id);
+        let styles = editor.project.vector_styles();
+        assert_eq!(styles.len(), 2);
+        assert!(styles.contains(&survivor));
+        assert_eq!(styles.iter().filter(|style| style.id == created).count(), 1);
+        assert_eq!(
+            styles
+                .iter()
+                .filter(|style| style.name == generated_name)
+                .count(),
+            1
+        );
+        editor
+            .project
+            .validate()
+            .expect("unique style ids validate");
+    }
+
+    #[test]
+    fn appearance_commands_refuse_stale_selection_on_locked_layer() {
+        let mut editor = editor_with_selected_rect();
+        editor.project.symbols[0].timeline.layers[0].locked = true;
+        let before = editor.project.clone();
+
+        assert!(editor.selected_element().is_none());
+        assert!(!editor.appearance_add_fill([1, 2, 3, 255], [0.0, 0.0], 1.0));
+        assert!(!editor.appearance_expand_selected());
+        assert_eq!(editor.project, before);
+    }
+
+    #[test]
+    fn direct_shape_paints_sync_the_primary_appearance_without_flattening_the_stack() {
+        let mut editor = editor_with_selected_rect();
+        assert!(editor.appearance_add_fill([9, 8, 7, 255], [12.0, 4.0], 0.5));
+        let key = &mut editor.project.symbols[0].timeline.layers[0].keyframes[0];
+        let before = key.elements[0].kind.clone();
+        let mut after = before.clone();
+        if let ElementKind::Rectangle {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        } = &mut after
+        {
+            *fill = [21, 31, 41, 255];
+            *stroke = [201, 202, 203, 255];
+            *stroke_width = 7.0;
+        }
+        key.elements[0].kind = after.clone();
+        let app = key.appearances.first_mut().expect("stored appearance");
+        assert!(app.sync_primary_paints_from_kinds(&before, &after));
+        assert_eq!(app.entries.len(), 3, "extra fill remains in the stack");
+        assert!(matches!(
+            app.entries[0],
+            AppearancePaintEntry::Fill {
+                color: [21, 31, 41, 255],
+                ..
+            }
+        ));
+        assert!(matches!(
+            app.entries[1],
+            AppearancePaintEntry::Stroke {
+                color: [201, 202, 203, 255],
+                width: 7.0,
+                ..
+            }
+        ));
+        assert!(matches!(
+            app.entries[2],
+            AppearancePaintEntry::Fill {
+                color: [9, 8, 7, 255],
+                offset: [12.0, 4.0],
+                opacity: 0.5,
+                ..
+            }
+        ));
+        let evaluated = sample_layer(&editor.project.symbols[0].timeline.layers[0], 0);
+        assert!(evaluated.iter().any(|element| matches!(
+            element.kind,
+            ElementKind::Path {
+                fill: [21, 31, 41, 255],
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn direct_properties_alpha_is_not_multiplied_twice_by_appearance_opacity() {
+        let mut editor = editor_with_selected_rect();
+        assert!(editor.appearance_add_fill([9, 8, 7, 255], [12.0, 4.0], 0.5));
+        assert!(editor.appearance_set_entry_opacity(0, 0.5));
+
+        let key = &mut editor.project.symbols[0].timeline.layers[0].keyframes[0];
+        let before = key.elements[0].kind.clone();
+        let mut after = before.clone();
+        if let ElementKind::Rectangle { fill, .. } = &mut after {
+            *fill = [21, 31, 41, 64];
+        }
+        key.elements[0].kind = after.clone();
+        let app = key.appearances.first_mut().expect("stored appearance");
+        assert!(app.sync_primary_paints_from_kinds(&before, &after));
+        assert!(matches!(
+            app.entries[0],
+            AppearancePaintEntry::Fill {
+                color: [21, 31, 41, 128],
+                opacity: 0.5,
+                ..
+            }
+        ));
+
+        let mut mirrored = key.elements[0].clone();
+        sync_primary_element_paints(&mut mirrored, app);
+        assert!(matches!(
+            mirrored.kind,
+            ElementKind::Rectangle {
+                fill: [21, 31, 41, 64],
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn direct_properties_width_preserves_stroke_paint_gradient_opacity_and_swatches() {
+        let mut editor = editor_with_selected_rect();
+        assert!(editor.appearance_add_fill([9, 8, 7, 255], [12.0, 4.0], 0.5));
+        let gradient = GradientPaint {
+            stops: vec![
+                GradientStop {
+                    ratio: 0,
+                    color: [255, 0, 0, 255],
+                },
+                GradientStop {
+                    ratio: 255,
+                    color: [0, 0, 255, 255],
+                },
+            ],
+            ..GradientPaint::default()
+        };
+
+        let key = &mut editor.project.symbols[0].timeline.layers[0].keyframes[0];
+        let before = key.elements[0].kind.clone();
+        let mut after = before.clone();
+        if let ElementKind::Rectangle { stroke_width, .. } = &mut after {
+            *stroke_width = 7.0;
+        }
+        let app = key.appearances.first_mut().expect("stored appearance");
+        app.stroke_swatch_id = Some("top-stroke-swatch".into());
+        let stroke = app
+            .entries
+            .iter_mut()
+            .find(|entry| matches!(entry, AppearancePaintEntry::Stroke { .. }))
+            .expect("primary stroke");
+        let AppearancePaintEntry::Stroke {
+            color,
+            gradient: entry_gradient,
+            width,
+            swatch_id,
+            opacity,
+            ..
+        } = stroke
+        else {
+            unreachable!();
+        };
+        *color = [10, 20, 30, 200];
+        *entry_gradient = Some(gradient.clone());
+        *width = 2.0;
+        *swatch_id = Some("entry-stroke-swatch".into());
+        *opacity = 0.4;
+
+        assert!(app.sync_primary_paints_from_kinds(&before, &after));
+        assert_eq!(app.stroke_swatch_id.as_deref(), Some("top-stroke-swatch"));
+        assert!(matches!(
+            app.entries
+                .iter()
+                .find(|entry| matches!(entry, AppearancePaintEntry::Stroke { .. }))
+                .expect("preserved stroke"),
+            AppearancePaintEntry::Stroke {
+                color: [10, 20, 30, 200],
+                gradient: Some(saved_gradient),
+                width: 7.0,
+                swatch_id: Some(saved_swatch),
+                opacity: 0.4,
+                ..
+            } if saved_gradient == &gradient && saved_swatch == "entry-stroke-swatch"
+        ));
+    }
+
+    #[test]
+    fn solid_graphic_style_clears_painted_path_gradients_and_undoes() {
+        let mut editor = editor_with_selected_rect();
+        let gradient = GradientPaint {
+            stops: vec![
+                GradientStop {
+                    ratio: 0,
+                    color: [255, 0, 0, 255],
+                },
+                GradientStop {
+                    ratio: 255,
+                    color: [0, 0, 255, 255],
+                },
+            ],
+            ..GradientPaint::default()
+        };
+        editor.project.symbols[0].timeline.layers[0].keyframes[0].elements[0].kind =
+            ElementKind::PaintedPath {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    PathCommand::LineTo { x: 80.0, y: 0.0 },
+                    PathCommand::LineTo { x: 80.0, y: 60.0 },
+                    PathCommand::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+                fill: [200, 60, 40, 255],
+                stroke: [20, 30, 40, 255],
+                stroke_width: 2.0,
+                fill_gradient: Some(gradient.clone()),
+                stroke_gradient: Some(gradient),
+            };
+        let style = VectorStyle {
+            id: "solid-style".into(),
+            name: "Solid".into(),
+            fill: [10, 120, 230, 255],
+            stroke: [240, 230, 20, 255],
+            stroke_width: 6.0,
+            modifiers: vec![],
+        };
+        editor
+            .project
+            .set_vector_styles(std::slice::from_ref(&style));
+        let before = editor.project.clone();
+
+        assert!(editor.appearance_apply_graphic_style(&style.id));
+        let key = &editor.project.symbols[0].timeline.layers[0].keyframes[0];
+        assert!(matches!(
+            key.elements[0].kind,
+            ElementKind::PaintedPath {
+                fill: [10, 120, 230, 255],
+                stroke: [240, 230, 20, 255],
+                stroke_width: 6.0,
+                fill_gradient: None,
+                stroke_gradient: None,
+                ..
+            }
+        ));
+        let evaluated = sample_layer(&editor.project.symbols[0].timeline.layers[0], 0);
+        assert!(evaluated.iter().any(|element| matches!(
+            element.kind,
+            ElementKind::Path {
+                fill: [10, 120, 230, 255],
+                ..
+            }
+        )));
+        editor
+            .project
+            .validate()
+            .expect("solid style project valid");
+
+        editor.undo();
+        assert_eq!(editor.project, before);
     }
 
     fn collect_shape_texts(shapes: &[egui::epaint::Shape], out: &mut Vec<String>) {

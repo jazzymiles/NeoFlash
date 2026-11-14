@@ -1,4 +1,6 @@
-//! Atomic JSON batch automation runner (`neoflash-editor --headless batch`).
+//! Strict JSON batch automation runner with atomic final project replacement
+//! (`neoflash-editor --headless batch`). Explicit export/save/JSFL filesystem side effects are
+//! immediate and intentionally outside that final replacement boundary.
 use super::import_export::{ExportSpec, export_project_with_spec};
 use super::jsfl_fs::{JsflExecRequest, execute_jsfl_on_project, jsfl_value_to_json};
 use super::{
@@ -15,7 +17,7 @@ use neoflash_core::{
     ScriptLanguage, SourceUnit, Symbol, TextFormat, Timeline, Transform,
     apply_command_steps_to_elements, new_id,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::fs;
@@ -28,15 +30,37 @@ fn parse_batch_ops(raw_ops: &str) -> Result<Vec<BatchOp>, CliError> {
     let items = match root {
         Value::Array(items) => items,
         Value::Object(mut map) => {
-            let list = map
-                .remove("ops")
-                .or_else(|| map.remove("steps"))
-                .ok_or_else(|| {
-                    CliError::usage(
-                        "invalid_batch_json",
-                        "Invalid batch JSON: expected an array or object with an 'ops' or 'steps' array",
-                    )
-                })?;
+            let has_ops = map.contains_key("ops");
+            let has_steps = map.contains_key("steps");
+            if has_ops && has_steps {
+                return Err(CliError::usage(
+                    "invalid_batch_json",
+                    "Invalid batch JSON: specify exactly one of 'ops' or 'steps', not both",
+                ));
+            }
+            let key = if has_ops {
+                "ops"
+            } else if has_steps {
+                "steps"
+            } else {
+                return Err(CliError::usage(
+                    "invalid_batch_json",
+                    "Invalid batch JSON: expected an array or object with an 'ops' or 'steps' array",
+                ));
+            };
+            let list = map.remove(key).ok_or_else(|| {
+                CliError::usage(
+                    "invalid_batch_json",
+                    "Invalid batch JSON: expected an array or object with an 'ops' or 'steps' array",
+                )
+            })?;
+            if !map.is_empty() {
+                let fields = map.keys().cloned().collect::<Vec<_>>().join(", ");
+                return Err(CliError::usage(
+                    "invalid_batch_json",
+                    format!("Invalid batch JSON: unknown wrapper field(s): {fields}"),
+                ));
+            }
             match list {
                 Value::Array(items) => items,
                 _ => {
@@ -70,13 +94,14 @@ fn parse_batch_ops(raw_ops: &str) -> Result<Vec<BatchOp>, CliError> {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 enum FrameRangeParam {
     Text(String),
     Object { start: u32, end: u32 },
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TransformSpec {
     x: Option<f64>,
     y: Option<f64>,
@@ -87,7 +112,158 @@ struct TransformSpec {
     alpha: Option<f64>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+enum StrictPathCommand {
+    MoveTo {
+        x: f64,
+        y: f64,
+    },
+    LineTo {
+        x: f64,
+        y: f64,
+    },
+    QuadraticTo {
+        cx: f64,
+        cy: f64,
+        x: f64,
+        y: f64,
+    },
+    CubicTo {
+        cx1: f64,
+        cy1: f64,
+        cx2: f64,
+        cy2: f64,
+        x: f64,
+        y: f64,
+    },
+    Close,
+}
+
+impl From<StrictPathCommand> for PathCommand {
+    fn from(command: StrictPathCommand) -> Self {
+        match command {
+            StrictPathCommand::MoveTo { x, y } => Self::MoveTo { x, y },
+            StrictPathCommand::LineTo { x, y } => Self::LineTo { x, y },
+            StrictPathCommand::QuadraticTo { cx, cy, x, y } => Self::QuadraticTo { cx, cy, x, y },
+            StrictPathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => Self::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            },
+            StrictPathCommand::Close => Self::Close,
+        }
+    }
+}
+
+fn deserialize_optional_path_commands<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<PathCommand>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<Vec<StrictPathCommand>>::deserialize(deserializer).map(|commands| {
+        commands.map(|commands| commands.into_iter().map(PathCommand::from).collect())
+    })
+}
+
 #[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+enum StrictAuthoringCommandStep {
+    Translate {
+        dx: f64,
+        dy: f64,
+    },
+    Scale {
+        sx: f64,
+        sy: f64,
+    },
+    Rotate {
+        degrees: f64,
+    },
+    Skew {
+        degrees: f64,
+    },
+    SetAlpha {
+        alpha: f64,
+    },
+    SetFillColor {
+        color: Color,
+    },
+    SetStrokeColor {
+        color: Color,
+    },
+    SetStrokeWidth {
+        width: f64,
+    },
+    SetVisible {
+        visible: bool,
+    },
+    SetBlendMode {
+        blend_mode: neoflash_core::BlendMode,
+    },
+    RenameSelection {
+        name: String,
+    },
+    DuplicateSelection {
+        offset_x: f64,
+        offset_y: f64,
+    },
+    DeleteSelection,
+    SwapSymbol {
+        target_symbol_id: String,
+    },
+}
+
+impl From<StrictAuthoringCommandStep> for AuthoringCommandStep {
+    fn from(step: StrictAuthoringCommandStep) -> Self {
+        match step {
+            StrictAuthoringCommandStep::Translate { dx, dy } => Self::Translate { dx, dy },
+            StrictAuthoringCommandStep::Scale { sx, sy } => Self::Scale { sx, sy },
+            StrictAuthoringCommandStep::Rotate { degrees } => Self::Rotate { degrees },
+            StrictAuthoringCommandStep::Skew { degrees } => Self::Skew { degrees },
+            StrictAuthoringCommandStep::SetAlpha { alpha } => Self::SetAlpha { alpha },
+            StrictAuthoringCommandStep::SetFillColor { color } => Self::SetFillColor { color },
+            StrictAuthoringCommandStep::SetStrokeColor { color } => Self::SetStrokeColor { color },
+            StrictAuthoringCommandStep::SetStrokeWidth { width } => Self::SetStrokeWidth { width },
+            StrictAuthoringCommandStep::SetVisible { visible } => Self::SetVisible { visible },
+            StrictAuthoringCommandStep::SetBlendMode { blend_mode } => {
+                Self::SetBlendMode { blend_mode }
+            }
+            StrictAuthoringCommandStep::RenameSelection { name } => Self::RenameSelection { name },
+            StrictAuthoringCommandStep::DuplicateSelection { offset_x, offset_y } => {
+                Self::DuplicateSelection { offset_x, offset_y }
+            }
+            StrictAuthoringCommandStep::DeleteSelection => Self::DeleteSelection,
+            StrictAuthoringCommandStep::SwapSymbol { target_symbol_id } => {
+                Self::SwapSymbol { target_symbol_id }
+            }
+        }
+    }
+}
+
+fn deserialize_authoring_command_steps<'de, D>(
+    deserializer: D,
+) -> Result<Vec<AuthoringCommandStep>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<StrictAuthoringCommandStep>::deserialize(deserializer)
+        .map(|steps| steps.into_iter().map(AuthoringCommandStep::from).collect())
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AddElementSpec {
     symbol: Option<String>,
     layer: Option<String>,
@@ -119,6 +295,7 @@ struct AddElementSpec {
     word_wrap: bool,
     #[serde(default)]
     multiline: bool,
+    #[serde(default, deserialize_with = "deserialize_optional_path_commands")]
     commands: Option<Vec<PathCommand>>,
     d: Option<String>,
     fill_rule: Option<String>,
@@ -128,7 +305,7 @@ struct AddElementSpec {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 enum BatchOp {
     New {
         name: Option<String>,
@@ -214,6 +391,7 @@ enum BatchOp {
         #[serde(default)]
         frame: u32,
         elements: Vec<String>,
+        #[serde(deserialize_with = "deserialize_authoring_command_steps")]
         steps: Vec<AuthoringCommandStep>,
     },
     Jsfl {
@@ -1023,6 +1201,15 @@ fn execute_batch_op(
                 .unwrap_or(project_default_lang);
 
             if let Some(el_sel) = element {
+                if frame >= sym.timeline.frame_count {
+                    return Err(CliError::runtime(
+                        "frame_out_of_range",
+                        format!(
+                            "Frame {frame} is outside symbol '{}' range 0..{}",
+                            sym.name, sym.timeline.frame_count
+                        ),
+                    ));
+                }
                 let obj_event = event
                     .as_deref()
                     .map(parse_object_event)
@@ -1035,7 +1222,7 @@ fn execute_batch_op(
                 };
                 for li in layer_indices {
                     let lyr = &mut sym.timeline.layers[li];
-                    let Some(kf) = lyr.keyframes.iter_mut().find(|k| k.frame == frame) else {
+                    let Some(kf) = lyr.key_at_mut(frame) else {
                         continue;
                     };
                     if let Some(el) = kf
@@ -1087,9 +1274,6 @@ fn execute_batch_op(
                 }));
             }
 
-            if frame >= sym.timeline.frame_count {
-                sym.timeline.frame_count = frame + 1;
-            }
             let resolved_lang =
                 if let Some(existing) = sym.timeline.scripts.iter().find(|s| s.frame == frame) {
                     explicit_lang.unwrap_or(existing.script.language)
@@ -1098,22 +1282,25 @@ fn execute_batch_op(
                 };
             if remove_empty && source.trim().is_empty() {
                 sym.timeline.scripts.retain(|s| s.frame != frame);
-            } else if let Some(existing) =
-                sym.timeline.scripts.iter_mut().find(|s| s.frame == frame)
-            {
-                existing.script = Script {
-                    language: resolved_lang,
-                    source,
-                };
             } else {
-                sym.timeline.scripts.push(FrameScript {
-                    frame,
-                    script: Script {
+                if frame >= sym.timeline.frame_count {
+                    sym.timeline.frame_count = frame + 1;
+                }
+                if let Some(existing) = sym.timeline.scripts.iter_mut().find(|s| s.frame == frame) {
+                    existing.script = Script {
                         language: resolved_lang,
                         source,
-                    },
-                });
-                sym.timeline.scripts.sort_by_key(|s| s.frame);
+                    };
+                } else {
+                    sym.timeline.scripts.push(FrameScript {
+                        frame,
+                        script: Script {
+                            language: resolved_lang,
+                            source,
+                        },
+                    });
+                    sym.timeline.scripts.sort_by_key(|s| s.frame);
+                }
             }
             Ok(json!({
                 "target": "frame",
@@ -1133,17 +1320,22 @@ fn execute_batch_op(
                 None => project.root.clone(),
             };
             let sym = resolve_symbol_mut(project, &sym_id)?;
+            if frame >= sym.timeline.frame_count {
+                return Err(CliError::runtime(
+                    "frame_out_of_range",
+                    format!(
+                        "Frame {frame} is outside symbol '{}' range 0..{}",
+                        sym.name, sym.timeline.frame_count
+                    ),
+                ));
+            }
             let layer_indices: Vec<usize> = match layer.as_deref() {
                 Some(sel) => vec![resolve_layer_index(&sym.timeline, sel)?],
                 None => (0..sym.timeline.layers.len()).collect(),
             };
             let mut removed_id: Option<String> = None;
             for li in layer_indices {
-                let Some(kf) = sym.timeline.layers[li]
-                    .keyframes
-                    .iter_mut()
-                    .find(|k| k.frame == frame)
-                else {
+                let Some(kf) = sym.timeline.layers[li].key_at_mut(frame) else {
                     continue;
                 };
                 if let Some(pos) = kf
@@ -1183,17 +1375,22 @@ fn execute_batch_op(
             let valid_symbol_refs: HashSet<&str> =
                 valid_symbols.iter().map(String::as_str).collect();
             let sym = resolve_symbol_mut(project, &sym_id)?;
+            if frame >= sym.timeline.frame_count {
+                return Err(CliError::runtime(
+                    "frame_out_of_range",
+                    format!(
+                        "Frame {frame} is outside symbol '{}' range 0..{}",
+                        sym.name, sym.timeline.frame_count
+                    ),
+                ));
+            }
             let layer_indices: Vec<usize> = match layer.as_deref() {
                 Some(sel) => vec![resolve_layer_index(&sym.timeline, sel)?],
                 None => (0..sym.timeline.layers.len()).collect(),
             };
             let mut total_applied = 0usize;
             for li in layer_indices {
-                let Some(kf) = sym.timeline.layers[li]
-                    .keyframes
-                    .iter_mut()
-                    .find(|k| k.frame == frame)
-                else {
+                let Some(kf) = sym.timeline.layers[li].key_at_mut(frame) else {
                     continue;
                 };
                 let mut selected_ids: Vec<String> = kf
@@ -1236,9 +1433,11 @@ fn execute_batch_op(
             allow_write,
             allow_delete,
         } => {
-            let (script_name, script_src) = match (code.or(source), script_file) {
-                (Some(src), None) => ("batch-inline.jsfl".to_owned(), src),
-                (None, Some(path)) => {
+            let (script_name, script_src) = match (code, source, script_file) {
+                (Some(src), None, None) | (None, Some(src), None) => {
+                    ("batch-inline.jsfl".to_owned(), src)
+                }
+                (None, None, Some(path)) => {
                     let name = path
                         .file_name()
                         .and_then(|s| s.to_str())
@@ -1255,7 +1454,7 @@ fn execute_batch_op(
                 _ => {
                     return Err(CliError::usage(
                         "invalid_arguments",
-                        "batch jsfl step requires exactly one of 'code' or 'script_file'",
+                        "batch jsfl step requires exactly one of 'code', 'source', or 'script_file'",
                     ));
                 }
             };

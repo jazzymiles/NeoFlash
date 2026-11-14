@@ -105,8 +105,9 @@ pub use evaluate::{
     DrawItem, EvaluatedInstancePose, GuidePath, InstancePoseError, affine_multiply,
     camera_layer_matrix, easing, effective_property_ease, evaluate, evaluate_instance_pose,
     guide_polyline, motion_path_polyline, motion_path_segment, motion_path_waypoints, motion_span,
-    placement_start, property_value, sample_layer, sample_layer_at_fps, sample_layer_in,
-    sample_layer_in_at_fps, sample_timeline_camera, transform_matrix,
+    placement_start, property_value, sample_layer, sample_layer_at_fps,
+    sample_layer_authored_pose_at_fps, sample_layer_in, sample_layer_in_at_fps,
+    sample_timeline_camera, transform_matrix,
 };
 pub use extensions::{
     CURRENT_EXTENSION_API_VERSION, CURRENT_HOST_VERSION, CompatibilityReport, CompatibilityStatus,

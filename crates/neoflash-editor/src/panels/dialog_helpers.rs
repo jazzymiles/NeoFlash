@@ -1,5 +1,6 @@
 //! Shared, presentation-only and keyboard-transaction helpers used by editor dialogs.
 
+use crate::app::Editor;
 use eframe::egui::{self, Ui};
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::rich;
@@ -49,6 +50,12 @@ pub(crate) fn is_any_popup_open(ctx: &egui::Context) -> bool {
         || crate::authoring_modify::is_color_popover_open(ctx)
         || super::symbols_popover::is_symbols_popover_open(ctx)
         || super::function_search::is_function_search_open(ctx)
+}
+
+/// Editor-aware popup check used by global shortcut and Stage input gating. This includes custom
+/// document-scoped areas which cannot be discovered through `egui::Popup::is_any_open`.
+pub(crate) fn is_any_editor_popup_open(editor: &Editor, ctx: &egui::Context) -> bool {
+    is_any_popup_open(ctx) || editor.is_layer_outline_color_popover_open(ctx)
 }
 
 /// Whether unmodified `Enter` inside a local modal should be ignored because a control holds

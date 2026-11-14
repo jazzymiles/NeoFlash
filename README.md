@@ -128,7 +128,7 @@ neoflash-editor --headless eval --project app.nflash --frames 0..=1 --scripts
 neoflash-editor --headless export --project app.nflash --target html5 --size-level compact --out dist-web
 ```
 
-`inspect`, `validate`, atomic JSON `batch` pipelines (`--stdin` / `--file`), `import`, and capability-gated JSFL `FLfile` access (`--allow-read` / `--allow-write` / `--allow-delete`, default deny-all) return structured JSON on stdout (`{ "ok": true, ... }`) and errors on stderr with non-zero exit codes. See [workspace and headless CLI notes](docs/WORKSPACE.md#headless-cli-and-ai-automation).
+`inspect`, `validate`, strict JSON `batch` pipelines (`--stdin` / `--file`) with atomic final `.nflash` replacement, `import`, and capability-gated JSFL `FLfile` access (`--allow-read` / `--allow-write` / `--allow-delete`, default deny-all) return structured JSON on stdout (`{ "ok": true, ... }`) and errors on stderr with non-zero exit codes. Explicit batch `save` / `export` steps and permitted JSFL filesystem writes happen at their step and are not rolled back by a later failure. See [workspace and headless CLI notes](docs/WORKSPACE.md#headless-cli-and-ai-automation).
 
 ## Project layout
 
