@@ -1780,22 +1780,22 @@ SVG text is outlined.
 | `exports/interface/light/svg/` | 14 |
 | `exports/interface/mid-neutral-gray/png/` | 14 |
 | `exports/interface/mid-neutral-gray/svg/` | 14 |
-| `exports/panels/dark-graphite/boards/png/` | 27 |
-| `exports/panels/dark-graphite/boards/svg/` | 27 |
-| `exports/panels/dark-graphite/png/` | 130 |
-| `exports/panels/dark-graphite/svg/` | 130 |
-| `exports/panels/dark/boards/png/` | 27 |
-| `exports/panels/dark/boards/svg/` | 27 |
-| `exports/panels/dark/png/` | 130 |
-| `exports/panels/dark/svg/` | 130 |
-| `exports/panels/light/boards/png/` | 27 |
-| `exports/panels/light/boards/svg/` | 27 |
-| `exports/panels/light/png/` | 130 |
-| `exports/panels/light/svg/` | 130 |
-| `exports/panels/mid-neutral-gray/boards/png/` | 27 |
-| `exports/panels/mid-neutral-gray/boards/svg/` | 27 |
-| `exports/panels/mid-neutral-gray/png/` | 130 |
-| `exports/panels/mid-neutral-gray/svg/` | 130 |
+| `exports/panels/dark-graphite/boards/png/` | 28 |
+| `exports/panels/dark-graphite/boards/svg/` | 28 |
+| `exports/panels/dark-graphite/png/` | 134 |
+| `exports/panels/dark-graphite/svg/` | 134 |
+| `exports/panels/dark/boards/png/` | 28 |
+| `exports/panels/dark/boards/svg/` | 28 |
+| `exports/panels/dark/png/` | 134 |
+| `exports/panels/dark/svg/` | 134 |
+| `exports/panels/light/boards/png/` | 28 |
+| `exports/panels/light/boards/svg/` | 28 |
+| `exports/panels/light/png/` | 134 |
+| `exports/panels/light/svg/` | 134 |
+| `exports/panels/mid-neutral-gray/boards/png/` | 28 |
+| `exports/panels/mid-neutral-gray/boards/svg/` | 28 |
+| `exports/panels/mid-neutral-gray/png/` | 134 |
+| `exports/panels/mid-neutral-gray/svg/` | 134 |
 
 
 ---
@@ -1958,6 +1958,12 @@ Use the full outlines for exact structure (auto layout direction and gap, sizes,
 
 ```
 §AI connections — Preferences, connection and consent · §Dialog / Preferences — AI · [Dialog Header "Preferences"] · §Main · §Categories · [Tree Item "General"] · [Tree Item "Code editor"] · [Tree Item "Timeline"] · [Tree Item "Drawing"] · [Tree Item "Text"] · [Tree Item "Clipboard"] · [Tree Item "Shortcuts"] · [Tree Item "Publish"] · [Tree Item "AI"] · [Tree Item "Updates"] · §Connections · "Connections" · §Connections table · "Work — Anthropic" · "Anthropic · claude-sonnet-5-5" · [Badge "Ready"] · "Local Ollama" · "Local (OpenAI-compatible) · llama3.1" · [Badge "Not tested"] · "OpenAI" · "OpenAI · gpt-4o" · [Badge "No key"] · [Button "Add connection…"] · [Button "Edit…"] · [Button "Test"] · [Button "Remove"] · §Default · "Default" · "Default connection" · [Select "Work — Anthropic"] · §Privacy · "Privacy" · §Inline message / info · "Nothing is sent to a provider until you press Send in the review dialog. Every request lists what will leave this computer." · §Inline message / info · "API keys are kept in the system keychain. They are never written to the project, to preferences or to logs." · [Button "Reset to defaults"] · [Button "Cancel"] · [Button "Save"] · §Dialog / AI connection · [Dialog Header "AI connection"] · [Select "Provider: Anthropic"] · [Field "Name" "Work — Anthropic"] · [Field "Base URL" "https://api.anthropic.com"] · [Field "Model" "claude-sonnet-5-5"] · [Field "API key" "••••••••••••••••••••"] · "Stored in the system keychain. The key is never shown again and never saved with the project." · [Section Header "Advanced"] · [Field "Timeout" "15 s"] · [Field "Retries" "2"] · [Checkbox "Streaming responses"] · [Checkbox "Image input"] · [Button "Test connection"] · §Inline message / check · "Connected · claude-sonnet-5-5" · §Footer · §Dialog / AI connection — local provider, failed test · [Select "Provider: Local (OpenAI-compatible)"] · [Field "Name" "Local Ollama"] · [Field "Base URL" "http://localhost:11434/v1"] · [Field "Model" "llama3.1"] · [Field "API key" "Not required"] · "A local provider may use http:// on this computer. Cloud providers must use https://." · §Inline message / error · "Provider unreachable (offline): connection refused" · §Footer · §Dialog / Send to AI · [Dialog Header "Send to AI"] · [Select "Connection: Work — Anthropic · claude-sonnet-5-5"] · "Request" · [Field "Ask" "Why does the orbit clip stop at frame 30?"] · "What will be sent" · §Context table · [Checkbox "Project and symbol names"] · "Ideas in motion · Scene 1 · frame 30" · [Checkbox "Selected elements (2)"] · "name, type and position" · [Checkbox "Script excerpt"] · "ActionScript 3.0 · 1.2 KB" · [Checkbox "Asset list (2)"] · "name, type and size only" · "Not sent: intro.mp4 (video is not an allowed type), theme.mp3 (larger than 64 KB)." · §Inline message / info · "Keys, tokens and passwords found in the text are replaced with [REDACTED_SECRET] before sending." · "Destination: api.anthropic.com over HTTPS. The answer is a proposal: nothing in the document changes until you apply it." · §Footer · [Button "Send"]
+```
+
+### panels-beta-feedback
+
+```
+§Beta feedback — Bug? chip and feedback dialog · §Stage — bottom-left corner with the Bug? chip · §Stage — "Ideas in motion" (user content, vector) · "NEOFLASH / MOTION STUDY 01" · "Ideas in motion." · "One symbol. Many possibilities." · "A familiar timeline. A modern canvas." · "BUILT TO BE INTERACTIVE" · "CLICK THE ORBIT IN WEB PREVIEW" · "EDIT A SYMBOL  ·  SCRUB THE TIMELINE  ·  EXPORT HTML5" · [Stage Grid] · §Guides · [Guide] · §Rulers · [Stage Ruler "-200" "-100" "0" "100" "200" "300" "400" "500" "600" "700" "800" "900"] · [Stage Ruler "-500" "-400" "-300" "-200" "-100" "0" "100" "200" "300" "400" "500" "600"] · [Ruler Corner] · §Scene selector · "Scene 1" · §Beta feedback chip · "Bug?" · §Dialog / Beta feedback — email, name and text · [Dialog Header "Beta feedback"] · [Field "Email" "ada@example.com"] · [Field "Name" "Ada Lovelace"] · "The playhead jumps back to frame 1 when I press Enter inside a motion tween. I expected playback to start from the current frame." · §Attachments · §Attachment · "Screenshot 2026-11-15 at 10.42.png" · "412 KB" · [Icon Button] · §Attachment · "timeline-jump.png" · "1.2 MB" · §Footer · [Button "Attach image…"] · [Button "Cancel"] · [Button "Send"] · §Dialog / Beta feedback — email and text · §Footer · §Dialog / Beta feedback — name and text · §Footer · §Dialog / Beta feedback — text only · §Footer
 ```
 
 ### panels-brushes-pencil-panels

@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-14T22:15:53.779Z",
+ "generated": "2026-11-14T22:40:54.143Z",
  "file": "Interface test",
  "pages": [
   {
@@ -1355,6 +1355,30 @@
      "name": "Script language — Document settings, Properties and Actions — Dark Graphite",
      "w": 1880,
      "h": 966
+    },
+    {
+     "id": "359:55914",
+     "name": "Beta feedback — Bug? chip and feedback dialog",
+     "w": 2700,
+     "h": 548
+    },
+    {
+     "id": "360:56424",
+     "name": "Beta feedback — Bug? chip and feedback dialog — Light",
+     "w": 2700,
+     "h": 548
+    },
+    {
+     "id": "360:56501",
+     "name": "Beta feedback — Bug? chip and feedback dialog — Mid Neutral Gray",
+     "w": 2700,
+     "h": 548
+    },
+    {
+     "id": "360:56578",
+     "name": "Beta feedback — Bug? chip and feedback dialog — Dark Graphite",
+     "w": 2700,
+     "h": 548
     }
    ]
   },

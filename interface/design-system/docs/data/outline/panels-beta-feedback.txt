@@ -1,0 +1,83 @@
+F Beta feedback — Bug? chip and feedback dialog 2700×548 [H gap 40]
+  F Stage — bottom-left corner with the Bug? chip 620×548
+    F Stage — "Ideas in motion" (user content, vector) 720×452
+      T "NEOFLASH / MOTION STUDY 01"
+      T "Ideas in motion."
+      T "One symbol. Many possibilities."
+      T "A familiar timeline. A modern canvas."
+      T "BUILT TO BE INTERACTIVE"
+      T "CLICK THE ORBIT IN WEB PREVIEW"
+      T "EDIT A SYMBOL  ·  SCRUB THE TIMELINE  ·  EXPORT HTML5"
+    I NF2/Stage Grid 720×452
+    F Guides 1544×588
+      I NF2/Guide {Orientation=Vertical, State=Default} 9×528
+      I NF2/Guide {Orientation=Vertical, State=Default} 9×528
+      I NF2/Guide {Orientation=Horizontal, State=Selected} 1524×9
+    F Rulers 1544×588
+      I NF2/Stage Ruler {Orientation=Vertical} 20×1000 "-200" "-100" "0" "100" "200" "300" "400" "500" "600" "700" "800" "900"
+      I NF2/Stage Ruler {Orientation=Horizontal} 1600×20 "-500" "-400" "-300" "-200" "-100" "0" "100" "200" "300" "400" "500" "600"
+      I NF2/Ruler Corner 20×20
+    F Scene selector 107×34 [H gap 6]
+      I NF2 Icon/16/scene 16×16
+      T "Scene 1"
+      I NF2 Icon/16/chevdown 16×16
+    F Beta feedback chip 72×34 [H gap 6]
+      I NF2 Icon/16/debug 16×16
+      T "Bug?"
+  F Dialog / Beta feedback — email, name and text 480×390 [V gap 0]
+    I NF2/Dialog Header 478×60 "Beta feedback"
+    F Body 478×328 [V gap 12]
+      I NF2/Field {Show prefix=true, Prefix=Email, Label=ada@example.com, State=Default} 430×32 "Email" "ada@example.com"
+      I NF2/Field {Show prefix=true, Prefix=Name, Label=Ada Lovelace, State=Default} 430×32 "Name" "Ada Lovelace"
+      F Text area 430×100 [V gap 0]
+        T "The playhead jumps back to frame 1 when I press Enter inside a motion tween. I expected playback to start from the current frame."
+      F Attachments 430×64 [V gap 0]
+        F Attachment 430×32 [H gap 8]
+          I NF2 Icon/16/bitmap 16×16
+          T "Screenshot 2026-11-15 at 10.42.png"
+          T "412 KB"
+          F Spacer 127×2
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+        F Attachment 430×32 [H gap 8]
+          I NF2 Icon/16/bitmap 16×16
+          T "timeline-jump.png"
+          T "1.2 MB"
+          F Spacer 224×2
+          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+      F Footer 430×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Attach image…, Type=Ghost, State=Default} 103×32 "Attach image…"
+        F Spacer 189×2
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Send, Type=Primary, State=Default} 51×32 "Send"
+  F Dialog / Beta feedback — email and text 480×270 [V gap 0]
+    I NF2/Dialog Header 478×60 "Beta feedback"
+    F Body 478×208 [V gap 12]
+      I NF2/Field {Show prefix=true, Prefix=Email, Label=ada@example.com, State=Default} 430×32 "Email" "ada@example.com"
+      F Text area 430×100 [V gap 0]
+        T "The playhead jumps back to frame 1 when I press Enter inside a motion tween. I expected playback to start from the current frame."
+      F Footer 430×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Attach image…, Type=Ghost, State=Default} 103×32 "Attach image…"
+        F Spacer 189×2
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Send, Type=Primary, State=Default} 51×32 "Send"
+  F Dialog / Beta feedback — name and text 480×270 [V gap 0]
+    I NF2/Dialog Header 478×60 "Beta feedback"
+    F Body 478×208 [V gap 12]
+      I NF2/Field {Show prefix=true, Prefix=Name, Label=Ada Lovelace, State=Default} 430×32 "Name" "Ada Lovelace"
+      F Text area 430×100 [V gap 0]
+        T "The playhead jumps back to frame 1 when I press Enter inside a motion tween. I expected playback to start from the current frame."
+      F Footer 430×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Attach image…, Type=Ghost, State=Default} 103×32 "Attach image…"
+        F Spacer 189×2
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Send, Type=Primary, State=Default} 51×32 "Send"
+  F Dialog / Beta feedback — text only 480×226 [V gap 0]
+    I NF2/Dialog Header 478×60 "Beta feedback"
+    F Body 478×164 [V gap 12]
+      F Text area 430×100 [V gap 0]
+        T "The playhead jumps back to frame 1 when I press Enter inside a motion tween. I expected playback to start from the current frame."
+      F Footer 430×32 [H gap 8]
+        I NF2/Button {Icon=false, Label=Attach image…, Type=Ghost, State=Default} 103×32 "Attach image…"
+        F Spacer 189×2
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=Send, Type=Primary, State=Default} 51×32 "Send"

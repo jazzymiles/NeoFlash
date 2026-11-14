@@ -4226,5 +4226,57 @@
   "h": 966,
   "pngMaxDimension": 3760,
   "split": true
+ },
+ {
+  "id": "359:55914",
+  "name": "Beta feedback — Bug? chip and feedback dialog",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "beta-feedback",
+  "png": "exports/panels/dark/boards/png/beta-feedback.png",
+  "svg": "exports/panels/dark/boards/svg/beta-feedback.svg",
+  "w": 2700,
+  "h": 548,
+  "pngMaxDimension": 5400,
+  "split": true
+ },
+ {
+  "id": "360:56501",
+  "name": "Beta feedback — Bug? chip and feedback dialog",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "beta-feedback",
+  "png": "exports/panels/mid-neutral-gray/boards/png/beta-feedback.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/beta-feedback.svg",
+  "w": 2700,
+  "h": 548,
+  "pngMaxDimension": 5400,
+  "split": true
+ },
+ {
+  "id": "360:56578",
+  "name": "Beta feedback — Bug? chip and feedback dialog",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "beta-feedback",
+  "png": "exports/panels/dark-graphite/boards/png/beta-feedback.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/beta-feedback.svg",
+  "w": 2700,
+  "h": 548,
+  "pngMaxDimension": 5400,
+  "split": true
+ },
+ {
+  "id": "360:56424",
+  "name": "Beta feedback — Bug? chip and feedback dialog",
+  "group": "panels",
+  "theme": "light",
+  "slug": "beta-feedback",
+  "png": "exports/panels/light/boards/png/beta-feedback.png",
+  "svg": "exports/panels/light/boards/svg/beta-feedback.svg",
+  "w": 2700,
+  "h": 548,
+  "pngMaxDimension": 5400,
+  "split": true
  }
 ]

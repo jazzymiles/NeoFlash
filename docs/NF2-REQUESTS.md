@@ -36,7 +36,7 @@ still open.
 - **Resolved, waiting for the editor to adopt the new API or assets:** R-016 (`set_tooltip_shortcuts`), R-047
   (`CompactTypeHeader`), R-049 (mask icons), R-067b (tool masters), R-081 (`paint_gradient_overflow_preview`).
 - **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
-- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-097, R-099, R-102;
+- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-097, R-099, R-102, R-103;
   earlier R-022, R-038, R-043.
 - Everything else is resolved.
 
@@ -1770,3 +1770,45 @@ wires them with the components named in each answer.
      of item 7. A document saved before this setting must open with a visible result — its language chosen by the
      implementation track's migration rule, and the count message of item 3 whenever that rule leaves scripts in
      other languages. No script is ever deleted or rewritten by a change of language or policy.
+
+### R-103 · Beta feedback: the `Bug?` chip on the Stage and the feedback dialog
+- **Status:** answered (board `Beta feedback — Bug? chip and feedback dialog` is drawn in Figma in four themes, outline `panels-beta-feedback.txt`, exported as `boards/png/beta-feedback.png`)
+- **Requested by / for:** project owner, 15 November 2026 · Beta 1 testing (`T-316`)
+- **Where:** the Stage (bottom-left corner) and a new dialog.
+- **Need:** a floating element at the bottom-left of the Stage that reads "Bug?" and opens a feedback form; four
+  variants of the form — email, name and text · email and text · name and text · text only — each with a send button
+  and the possibility to attach screenshots or other images.
+- **Answer:**
+  1. *Chip.* A pill of the same build as the Stage's Scene selector: 34 pt high, `bg/raised`, 1 pt `border/subtle`,
+     radius 6, padding 8 × 12 pt, 6 pt gap, icon `i16::DEBUG` and the `NF2/Small` text "Bug?", no chevron. It sits in
+     the bottom-left corner of the Stage area on the Scene selector's left edge (16 pt right of the vertical ruler,
+     or of the Stage edge when rulers are hidden), 10 pt above the bottom edge, like the Zoom control. Hover:
+     `bg/hover`. Tooltip "Send beta feedback". It floats over the artwork, does not scroll or zoom with it and takes
+     keyboard focus in the normal Tab order. It is shown in beta builds only; a release build has no chip.
+  2. *Dialog "Beta feedback"* (480 pt, standard dialog shell with the close button). Body, 12 pt between rows, all
+     rows at full width: `Field` with the prefix "Email" · `Field` with the prefix "Name" · `TextArea`, six rows,
+     hint "What happened? What did you expect?" · the list of attached images (absent while there are none) · footer
+     Ghost `Attach image…` at the left, then `Cancel` · Primary `Send` at the right. A click on the chip opens it
+     with the focus in the text.
+  3. *Four variants, one layout.* They differ only in which of the two fields exist; order and sizes never change:
+     email, name and text (314 pt high) · email and text (270 pt) · name and text (270 pt) · text only (226 pt);
+     every attached image adds 32 pt. One variant is built into a given beta build; the user does not switch between
+     them. The board shows the first variant with two images attached and the other three without.
+     **Beta 1 ships the fourth variant — text only, with image attachments, no Email and no Name** (owner decision,
+     15 November 2026). The other three stay on the board as alternatives and are not built.
+  4. *Attached images.* `Attach image…` opens the system file dialog for PNG, JPEG, GIF and WebP, several files at
+     once; pasting an image from the clipboard (`⌘V`) and dropping image files on the dialog attach them too. Each
+     image is one 32 pt row under the text: icon `i16::BITMAP`, file name (`Body`, truncated in the middle when
+     long), size (`Small`, `text/tertiary`) and at the right a Ghost `IconButton` `i16::X` "Remove" that drops only
+     this row. A pasted image is named "Pasted image" with a number. At most five images of 10 MB each; a file over
+     the limit or of another type is not added and an Error `InlineMessage` under the list names it and the reason.
+     With five images `Attach image…` is disabled with the reason as its tooltip. The dialog does not take a
+     screenshot by itself and shows no previews.
+  5. *Rules.* Only the text is required: `Send` is disabled while it is empty, with or without images. Email and Name may stay empty; a
+     filled Email that is not an address shows an Error `InlineMessage` under the field and keeps the dialog open.
+     `Send` closes the dialog and shows the Success `Toast` "Feedback sent"; a failure keeps the dialog and its
+     contents and shows an Error `InlineMessage` above the footer with the reason. `Esc` and `Cancel` close without
+     sending; the typed text and the attached images are kept until the application quits. `⌘↵` sends.
+  6. *What is sent.* Exactly the fields and the images the dialog shows. Where the feedback goes (service, transport,
+     storage) is decided by the implementation track (owner decision, 15 November 2026); the dialog stays the same. If the build is to attach anything else (version, system,
+     the open document), that needs a visible line in the dialog first — ask the design track.
