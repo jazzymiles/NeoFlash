@@ -41,6 +41,7 @@
 pub(crate) mod accessibility;
 mod actions;
 pub(crate) mod actions_sidebar;
+pub(crate) mod ai_dialogs;
 pub(crate) mod code_snippets;
 pub(crate) mod compiler_errors;
 mod debugger;

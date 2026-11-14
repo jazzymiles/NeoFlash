@@ -291,6 +291,13 @@ impl Editor {
                             }
                         }
                     }
+                    if self.has_ready_ai_connection() {
+                        nf::menu_separator(ui);
+                        if ui.add(nf::MenuItem::new("Send to AI…")).clicked() {
+                            let _ = self.open_send_to_ai();
+                            ui.close();
+                        }
+                    }
                 });
             }
             let help = ui.add(nf::IconButton::new(i16::HELP, "About Actions"));

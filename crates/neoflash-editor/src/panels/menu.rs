@@ -722,6 +722,13 @@ impl Editor {
                 ui.close();
             }
             nf::menu_separator(ui);
+            if self.has_ready_ai_connection() {
+                if menu_item(ui, "Send to AI…", &self.sc(C::EditSendToAi)).clicked() {
+                    let _ = self.open_send_to_ai();
+                    ui.close();
+                }
+                nf::menu_separator(ui);
+            }
         });
         if menu_item(ui, "Preferences…", &self.sc(C::EditPreferences)).clicked() {
             self.open_preferences(crate::panels::preferences::PAGE_GENERAL);

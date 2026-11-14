@@ -671,6 +671,7 @@ pub enum CommandId {
     EditTimelineCopyMotion,
     EditTimelinePasteMotion,
     EditSymbols,
+    EditSendToAi,
     EditPreferences,
     EditKeyboardShortcuts,
     // View
@@ -997,6 +998,7 @@ impl CommandId {
         Self::EditTimelineCopyMotion,
         Self::EditTimelinePasteMotion,
         Self::EditSymbols,
+        Self::EditSendToAi,
         Self::EditPreferences,
         Self::EditKeyboardShortcuts,
         Self::ViewZoomIn,
@@ -1438,6 +1440,14 @@ impl CommandId {
                 title: "Edit ▸ Edit symbols",
                 keywords: "",
                 defaults: S_CMD_E,
+                allow_when_typing: false,
+            },
+            Self::EditSendToAi => CommandMeta {
+                id: "edit.send_to_ai",
+                category: C::Edit,
+                title: "Edit ▸ Send to AI…",
+                keywords: "ai assistant prompt llm openai anthropic gemini",
+                defaults: &[],
                 allow_when_typing: false,
             },
             Self::EditPreferences => CommandMeta {

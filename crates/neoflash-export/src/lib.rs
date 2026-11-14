@@ -1,6 +1,7 @@
 //! Self-contained HTML5 publication. Authored evaluation remains in the Rust WASM runtime.
 
 pub mod aep;
+pub mod ai_http;
 pub mod atlas;
 pub mod audio;
 pub mod banner;

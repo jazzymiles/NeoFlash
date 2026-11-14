@@ -31,7 +31,7 @@ const LABEL: f32 = 120.0;
 const WIDTH: f32 = 720.0;
 const SIDEBAR: f32 = 160.0;
 
-pub(crate) const PREFERENCE_PAGES: [&str; 9] = [
+pub(crate) const PREFERENCE_PAGES: [&str; 10] = [
     "General",
     "Code editor",
     "Timeline",
@@ -40,6 +40,7 @@ pub(crate) const PREFERENCE_PAGES: [&str; 9] = [
     "Clipboard",
     "Shortcuts",
     "Publish",
+    "AI",
     "Updates",
 ];
 pub(crate) const PAGE_GENERAL: usize = 0;
@@ -50,7 +51,8 @@ pub(crate) const PAGE_TEXT: usize = 4;
 pub(crate) const PAGE_CLIPBOARD: usize = 5;
 pub(crate) const PAGE_SHORTCUTS: usize = 6;
 pub(crate) const PAGE_PUBLISH: usize = 7;
-pub(crate) const PAGE_UPDATES: usize = 8;
+pub(crate) const PAGE_AI: usize = 8;
+pub(crate) const PAGE_UPDATES: usize = 9;
 
 /// Editable copy of the wired preferences while the dialog is open.
 #[derive(Clone, Debug, PartialEq)]
@@ -82,6 +84,10 @@ pub(crate) struct PreferencesDraft {
     pub(crate) publish: PublishPrefs,
     pub(crate) sequence_import_options: neoflash_import::ImageSequenceImportOptions,
     pub(crate) shortcuts: ShortcutPrefs,
+    pub(crate) ai: crate::ai_connections::AiPrefs,
+    pub(crate) selected_ai_profile: Option<String>,
+    pub(crate) removed_ai_secrets: Vec<String>,
+    pub(crate) has_ready_ai: bool,
     pub(crate) updates: UpdatePrefs,
     /// Stage view settings edited by Drawing ▸ Snap to pixels (`StageView::prefs`, one state).
     pub(crate) pixels_snap: bool,
@@ -93,7 +99,13 @@ impl PreferencesDraft {
         page: usize,
         font_families: Vec<String>,
         pixels_snap: bool,
+        has_ready_ai: bool,
     ) -> Self {
+        let selected_ai_profile = prefs
+            .ai
+            .default_profile_id
+            .clone()
+            .or_else(|| prefs.ai.profiles.first().map(|p| p.id.clone()));
         Self {
             page,
             original_theme: prefs.theme,
@@ -118,6 +130,10 @@ impl PreferencesDraft {
             publish: prefs.publish.clone(),
             sequence_import_options: prefs.sequence_import_options.clone(),
             shortcuts: prefs.shortcuts.clone(),
+            ai: prefs.ai.clone(),
+            selected_ai_profile,
+            removed_ai_secrets: Vec::new(),
+            has_ready_ai,
             updates: prefs.updates.clone(),
             pixels_snap,
         }
@@ -173,6 +189,16 @@ impl PreferencesDraft {
             PAGE_CLIPBOARD => {
                 self.paste_in_place = defaults.paste_in_place;
                 self.clipboard_prefs = defaults.clipboard_prefs;
+            }
+            PAGE_AI => {
+                for p in &self.ai.profiles {
+                    if !self.removed_ai_secrets.contains(&p.id) {
+                        self.removed_ai_secrets.push(p.id.clone());
+                    }
+                }
+                self.ai = defaults.ai;
+                self.selected_ai_profile = None;
+                self.has_ready_ai = false;
             }
             PAGE_UPDATES => {
                 let last_check = self.updates.last_check_unix;
@@ -236,16 +262,23 @@ fn bound_stepper(
 impl Editor {
     /// Open Preferences on `page` (a new draft from the saved preferences).
     pub(crate) fn open_preferences(&mut self, page: usize) {
+        let has_ready_ai = self.has_ready_ai_connection();
         self.preferences = Some(PreferencesDraft::from_prefs(
             &self.workspace,
             page.min(PREFERENCE_PAGES.len() - 1),
             self.fonts.families.clone(),
             self.stage_view.prefs.pixels_snap,
+            has_ready_ai,
         ));
     }
 
     /// Apply and persist a confirmed draft (Save).
     pub(crate) fn save_preferences(&mut self, ctx: &egui::Context, draft: &PreferencesDraft) {
+        for removed_id in &draft.removed_ai_secrets {
+            if draft.ai.profile(removed_id).is_none() {
+                let _ = self.ai_manager.delete_secret(removed_id);
+            }
+        }
         self.set_theme(ctx, draft.theme);
         let w = &mut self.workspace;
         if draft.ui_scale.is_finite() {
@@ -287,6 +320,7 @@ impl Editor {
         w.publish = draft.publish.clone();
         w.sequence_import_options = draft.sequence_import_options.clone();
         w.shortcuts = draft.shortcuts.clone();
+        w.ai = draft.ai.clone();
         let preserved_last_check = w.updates.last_check_unix;
         w.updates = draft.updates.clone();
         w.updates.last_check_unix = match (preserved_last_check, draft.updates.last_check_unix) {
@@ -359,7 +393,14 @@ impl Editor {
                             .auto_shrink([false, true])
                             .themed()
                             .show(ui, |ui| {
-                                body(ui, &mut draft, &mut self.updater, installed_ext_count)
+                                body(
+                                    ui,
+                                    &mut draft,
+                                    &mut self.updater,
+                                    &mut self.ai_manager,
+                                    &mut self.ai_connection_modal,
+                                    installed_ext_count,
+                                )
                             });
                         match footer_clicked(
                             ui,
@@ -379,7 +420,11 @@ impl Editor {
                         }
                     });
             });
-        if !close_cancel && !close_save && !was_recording {
+        if !close_cancel
+            && !close_save
+            && !was_recording
+            && self.ai_connection_modal.is_none()
+        {
             match kb.resolve(ctx, &modal, true) {
                 super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
                 super::dialog_helpers::DialogKeyboardOutcome::Confirm => close_save = true,
@@ -413,6 +458,8 @@ fn body(
     ui: &mut Ui,
     draft: &mut PreferencesDraft,
     updater: &mut UpdaterController,
+    ai_manager: &mut crate::ai_connections::AiConnectionManager,
+    ai_connection_modal: &mut Option<super::ai_dialogs::AiConnectionModal>,
     installed_ext_count: usize,
 ) {
     ui.horizontal_top(|ui| {
@@ -431,6 +478,7 @@ fn body(
                     i16::PASTE,
                     i16::KEYBOARD,
                     i16::PUBLISH,
+                    i16::WAND,
                     i16::RECENT,
                 ];
                 for (i, (name, icon)) in PREFERENCE_PAGES.iter().zip(icons).enumerate() {
@@ -455,6 +503,7 @@ fn body(
             5 => prefs_clipboard(ui, draft),
             6 => prefs_shortcuts(ui, draft),
             7 => prefs_publish(ui, draft),
+            8 => prefs_ai(ui, draft, ai_manager, ai_connection_modal),
             _ => prefs_updates(ui, draft, updater, installed_ext_count),
         });
     });
@@ -1383,6 +1432,9 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
     let mut chord_owners: std::collections::BTreeMap<crate::commands::Shortcut, usize> =
         std::collections::BTreeMap::new();
     for &cmd in crate::commands::CommandId::ALL {
+        if matches!(cmd, crate::commands::CommandId::EditSendToAi) && !draft.has_ready_ai {
+            continue;
+        }
         for sc in crate::commands::effective_shortcuts(&draft.shortcuts, cmd) {
             *chord_owners.entry(sc).or_insert(0) += 1;
         }
@@ -1454,6 +1506,9 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
     let query = state.search.trim().to_lowercase();
     let any_title_or_path_match = !query.is_empty()
         && crate::commands::CommandId::ALL.iter().any(|&cmd| {
+            if matches!(cmd, crate::commands::CommandId::EditSendToAi) && !draft.has_ready_ai {
+                return false;
+            }
             cmd.title().to_lowercase().contains(&query)
                 || cmd.menu_path().to_lowercase().contains(&query)
                 || cmd.row_title().to_lowercase().contains(&query)
@@ -1510,7 +1565,11 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
                 let all_in_cat: Vec<crate::commands::CommandId> = crate::commands::CommandId::ALL
                     .iter()
                     .copied()
-                    .filter(|cmd| cmd.category() == category)
+                    .filter(|cmd| {
+                        cmd.category() == category
+                            && (!matches!(cmd, crate::commands::CommandId::EditSendToAi)
+                                || draft.has_ready_ai)
+                    })
                     .collect();
                 let total = all_in_cat.len();
                 let assigned = all_in_cat
@@ -2226,4 +2285,222 @@ fn prefs_updates(
         }
         None => {}
     }
+}
+
+fn prefs_ai(
+    ui: &mut Ui,
+    draft: &mut PreferencesDraft,
+    ai_manager: &mut crate::ai_connections::AiConnectionManager,
+    ai_connection_modal: &mut Option<super::ai_dialogs::AiConnectionModal>,
+) {
+    use crate::ai_connections::AiConnectionStatus;
+    use super::ai_dialogs::{AiConnectionModal, AiConnectionModalTarget};
+
+    let nf = neoflash_ui::palette(ui.ctx());
+    draft.has_ready_ai = ai_manager.has_ready_connection(&draft.ai);
+
+    section(ui, "Connections");
+    if draft.ai.profiles.is_empty() {
+        draft.selected_ai_profile = None;
+        if (c::EmptyState {
+            icon: i16::WAND,
+            title: "No AI connections",
+            body: "Add an OpenAI, Anthropic, Google Gemini or local provider to review and send prompts.",
+            action: Some("Add connection…"),
+        })
+        .show(ui)
+        {
+            *ai_connection_modal = Some(AiConnectionModal::new_add(
+                &draft.ai,
+                AiConnectionModalTarget::Preferences,
+            ));
+        }
+    } else {
+        let valid_selected = draft
+            .selected_ai_profile
+            .as_deref()
+            .is_some_and(|id| draft.ai.profiles.iter().any(|p| p.id == id));
+        if !valid_selected {
+            draft.selected_ai_profile = draft.ai.profiles.first().map(|p| p.id.clone());
+        }
+
+        let total = draft.ai.profiles.len();
+        let mut clicked_id: Option<String> = None;
+        let mut double_clicked_id: Option<String> = None;
+
+        egui::Frame::new()
+            .fill(nf.bg_panel)
+            .stroke(egui::Stroke::new(1.0_f32, nf.border_subtle))
+            .corner_radius(egui::CornerRadius::same(radius::MD as u8))
+            .show(ui, |ui| {
+                let table_w = ui.available_width();
+                ui.set_width(table_w);
+                ui.spacing_mut().item_spacing.y = 0.0;
+                for (row_idx, profile) in draft.ai.profiles.iter().enumerate() {
+                    let is_selected =
+                        draft.selected_ai_profile.as_deref() == Some(profile.id.as_str());
+                    let status = ai_manager.profile_status(profile);
+                    let badge_type = match status {
+                        AiConnectionStatus::Ready => c::BadgeType::Accent,
+                        AiConnectionStatus::NotTested => c::BadgeType::Neutral,
+                        AiConnectionStatus::NoKey | AiConnectionStatus::Failed => {
+                            c::BadgeType::Warning
+                        }
+                    };
+                    let row_h = neoflash_ui::metrics::control() + space::S1;
+                    let (rect, resp) = ui.allocate_exact_size(
+                        egui::vec2(table_w, row_h),
+                        egui::Sense::click(),
+                    );
+                    if is_selected {
+                        ui.painter().rect_filled(rect, 0.0, nf.bg_selected);
+                    } else if resp.hovered() {
+                        ui.painter().rect_filled(rect, 0.0, nf.bg_hover);
+                    }
+                    if row_idx + 1 < total {
+                        ui.painter().hline(
+                            rect.x_range(),
+                            rect.bottom() - 0.5,
+                            egui::Stroke::new(1.0_f32, nf.border_subtle),
+                        );
+                    }
+                    let inner = rect.shrink2(egui::vec2(space::S3, 0.0));
+                    ui.scope_builder(
+                        egui::UiBuilder::new()
+                            .max_rect(inner)
+                            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                        |ui| {
+                            ui.spacing_mut().item_spacing.x = space::S2;
+                            ui.label(
+                                rich(&profile.display_name, TextStyle::Body)
+                                    .color(nf.text_primary),
+                            );
+                            let sub = format!(
+                                "{} · {}",
+                                profile.kind.display_name(),
+                                profile.default_model
+                            );
+                            ui.label(rich(&sub, TextStyle::Small).color(nf.text_secondary));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.add(c::Badge::new(status.label(), badge_type));
+                                },
+                            );
+                        },
+                    );
+                    if resp.clicked() {
+                        clicked_id = Some(profile.id.clone());
+                    }
+                    if resp.double_clicked() {
+                        double_clicked_id = Some(profile.id.clone());
+                    }
+                }
+            });
+
+        if let Some(id) = clicked_id {
+            draft.selected_ai_profile = Some(id);
+        }
+        if let Some(id) = double_clicked_id
+            && let Some(prof) = draft.ai.profile(&id)
+        {
+            let has_key = ai_manager.has_secret(&prof.id);
+            *ai_connection_modal = Some(AiConnectionModal::new_edit(
+                prof,
+                has_key,
+                AiConnectionModalTarget::Preferences,
+            ));
+        }
+
+        let selected_profile = draft
+            .selected_ai_profile
+            .as_deref()
+            .and_then(|id| draft.ai.profile(id))
+            .cloned();
+        let has_sel = selected_profile.is_some();
+
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::S2;
+            if ui.add(c::Button::new("Add connection…")).clicked() {
+                *ai_connection_modal = Some(AiConnectionModal::new_add(
+                    &draft.ai,
+                    AiConnectionModalTarget::Preferences,
+                ));
+            }
+            if ui
+                .add_enabled(has_sel, c::Button::ghost("Edit…"))
+                .clicked()
+                && let Some(prof) = &selected_profile
+            {
+                let has_key = ai_manager.has_secret(&prof.id);
+                *ai_connection_modal = Some(AiConnectionModal::new_edit(
+                    prof,
+                    has_key,
+                    AiConnectionModalTarget::Preferences,
+                ));
+            }
+            if ui
+                .add_enabled(has_sel, c::Button::ghost("Test"))
+                .clicked()
+                && let Some(prof) = &selected_profile
+            {
+                let _ = ai_manager.test_profile(prof);
+                draft.has_ready_ai = ai_manager.has_ready_connection(&draft.ai);
+            }
+            if ui
+                .add_enabled(has_sel, c::Button::ghost("Remove"))
+                .clicked()
+                && let Some(prof) = &selected_profile
+            {
+                draft.ai.remove_profile(&prof.id);
+                ai_manager.clear_test_state(&prof.id);
+                if !draft.removed_ai_secrets.contains(&prof.id) {
+                    draft.removed_ai_secrets.push(prof.id.clone());
+                }
+                draft.selected_ai_profile = draft.ai.profiles.first().map(|p| p.id.clone());
+                draft.has_ready_ai = ai_manager.has_ready_connection(&draft.ai);
+            }
+        });
+    }
+
+    section(ui, "Default");
+    row(ui, "Default connection", |ui| {
+        if draft.ai.profiles.is_empty() {
+            disabled(ui, |ui| select(ui, "None", 280.0));
+        } else {
+            let current_label = draft
+                .ai
+                .default_profile_id
+                .as_deref()
+                .and_then(|id| draft.ai.profile(id))
+                .or_else(|| draft.ai.profiles.first())
+                .map_or("None", |p| p.display_name.as_str())
+                .to_owned();
+            c::Select::new("prefs-ai-default", &current_label)
+                .width(280.0)
+                .show(ui, |ui| {
+                    let ids_and_names: Vec<(String, String)> = draft
+                        .ai
+                        .profiles
+                        .iter()
+                        .map(|p| (p.id.clone(), p.display_name.clone()))
+                        .collect();
+                    for (id, name) in ids_and_names {
+                        let is_sel = draft.ai.default_profile_id.as_deref() == Some(id.as_str());
+                        if ui.add(c::MenuItem::new(&name).checked(is_sel)).clicked() {
+                            draft.ai.default_profile_id = Some(id);
+                            ui.close();
+                        }
+                    }
+                });
+        }
+    });
+
+    section(ui, "Privacy");
+    ui.add(c::InlineMessage::info(
+        "Nothing is sent to a provider until you press Send in the review dialog. Every request lists what will leave this computer.",
+    ));
+    ui.add(c::InlineMessage::info(
+        "API keys are kept in the system keychain. They are never written to the project, to preferences or to logs.",
+    ));
 }

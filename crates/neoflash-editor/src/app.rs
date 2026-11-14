@@ -225,6 +225,9 @@ pub struct Editor {
     pub(crate) bitmap_trace: crate::bitmap_trace::BitmapTraceController,
     pub(crate) stage_text_edit: crate::stage_text_edit::StageTextEditState,
     pub(crate) scale9_guide_drag: Option<crate::bitmaps::Scale9GuideDrag>,
+    pub(crate) ai_manager: crate::ai_connections::AiConnectionManager,
+    pub(crate) ai_connection_modal: Option<crate::panels::ai_dialogs::AiConnectionModal>,
+    pub(crate) ai_session: crate::panels::ai_dialogs::AiDocumentSession,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -294,6 +297,7 @@ impl Editor {
             s.apply_on_launch(&cc.egui_ctx);
         }
         if !is_screenshot {
+            s.ai_manager = crate::ai_connections::AiConnectionManager::system_default();
             let rec_dir = crate::recovery::RecoveryManager::default_recovery_dir();
             s.propagate_recovery_dir(rec_dir);
             s.check_recovery_on_launch();
@@ -629,6 +633,9 @@ impl Editor {
             bitmap_trace: Default::default(),
             stage_text_edit: Default::default(),
             scale9_guide_drag: None,
+            ai_manager: crate::ai_connections::AiConnectionManager::in_memory(),
+            ai_connection_modal: None,
+            ai_session: Default::default(),
         };
         if s.project.html_render_mode() == neoflash_core::HtmlRenderMode::Dom {
             s.workspace.publish.render_mode = neoflash_core::HtmlRenderMode::Dom;
@@ -939,6 +946,8 @@ impl Editor {
             || self.export_lottie.is_some()
             || self.export_video.is_some()
             || self.preferences.is_some()
+            || self.ai_connection_modal.is_some()
+            || self.ai_session.has_open_modal()
             || self.edit_envelope.is_some()
             || self.authoring_modify.scale_and_rotate_dialog.is_some()
             || self.authoring_tools.polystar_dialog.is_some()
@@ -3497,6 +3506,9 @@ impl Editor {
         if self.take_command_shortcut(ctx, C::EditSymbols) {
             self.toggle_edit_symbols();
         }
+        if self.take_command_shortcut(ctx, C::EditSendToAi) && self.has_ready_ai_connection() {
+            let _ = self.open_send_to_ai();
+        }
         if self.take_command_shortcut(ctx, C::EditPreferences) {
             self.open_preferences(crate::panels::preferences::PAGE_GENERAL);
         }
@@ -3803,6 +3815,7 @@ impl Editor {
             self.fonts.ensure_loaded(ctx, &font);
         }
         self.preferences_dialog(ctx);
+        self.ai_dialogs(ctx);
         self.find_replace_dialog(ctx);
         self.edit_envelope_dialog(ctx);
         self.paste_motion_special_dialog(ctx);

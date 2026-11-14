@@ -103,10 +103,17 @@ pub(crate) fn function_search_results(query: &str) -> Vec<CommandId> {
     results.into_iter().map(|(_, _, command)| command).collect()
 }
 
-fn results_for_context(query: &str, has_document: bool) -> Vec<CommandId> {
+pub(crate) fn results_for_context(
+    query: &str,
+    has_document: bool,
+    has_ready_ai: bool,
+) -> Vec<CommandId> {
     function_search_results(query)
         .into_iter()
         .filter(|command| {
+            if matches!(command, CommandId::EditSendToAi) && !has_ready_ai {
+                return false;
+            }
             has_document
                 || matches!(
                     command,
@@ -169,6 +176,7 @@ impl Editor {
         );
         let width = (content.width() - space::S5 * 2.0).clamp(1.0, 560.0);
         let has_document = self.has_document();
+        let has_ready_ai = self.has_ready_ai_connection();
         let mut activated = None;
         let mut open_manual = false;
 
@@ -197,7 +205,7 @@ impl Editor {
                     }
                     ui.add_space(space::S1);
 
-                    let results = results_for_context(&state.query, has_document);
+                    let results = results_for_context(&state.query, has_document, has_ready_ai);
                     let visible = results.len().min(MAX_VISIBLE_RESULTS);
                     if visible == 0 {
                         state.active = 0;
@@ -270,7 +278,7 @@ impl Editor {
                 });
             });
 
-        let results = results_for_context(&state.query, has_document);
+        let results = results_for_context(&state.query, has_document, has_ready_ai);
         let visible = results.len().min(MAX_VISIBLE_RESULTS);
         let mut close = false;
         if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) {
@@ -381,7 +389,7 @@ mod tests {
         let output = ctx.run(input(Vec::new()), |ctx| editor.function_search_popover(ctx));
         let state = function_search_state(&ctx);
         assert_eq!(state.active, 20);
-        let active_label = results_for_context(&state.query, true)[state.active]
+        let active_label = results_for_context(&state.query, true, false)[state.active]
             .menu_path()
             .replace(" ▸ ", " > ");
         let nodes = &output

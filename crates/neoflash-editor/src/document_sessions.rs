@@ -103,6 +103,7 @@ document_state! { project, path, undo_levels, recovery, saved_project, root;
     timeline_motion: crate::timeline_motion::MotionState = Default::default(),
     timeline_shape_hints: crate::timeline_shape_hints::ShapeHintsState = Default::default(),
     solo_layers: std::collections::HashMap<neoflash_core::Id, std::collections::BTreeSet<neoflash_core::Id>> = Default::default(),
+    ai_session: crate::panels::ai_dialogs::AiDocumentSession = Default::default(),
     recovery: crate::recovery::RecoveryManager = recovery,
 }
 
@@ -419,6 +420,7 @@ impl Editor {
         if index != self.active_session {
             return;
         }
+        self.ai_session.cancel_and_clear();
         self.clear_active_recovery();
         let origin = self.close_origin.take().unwrap_or(index);
         if self.sessions.len() <= 1 {

@@ -1792,6 +1792,8 @@ pub struct WorkspacePrefs {
     pub publish: PublishPrefs,
     pub shortcuts: ShortcutPrefs,
     #[serde(default)]
+    pub ai: crate::ai_connections::AiPrefs,
+    #[serde(default)]
     pub updates: UpdatePrefs,
     /// Complete named layouts, managed through the workspace selector.
     #[serde(
@@ -3199,6 +3201,7 @@ impl Default for WorkspacePrefs {
             clipboard_prefs: ClipboardPrefs::default(),
             publish: PublishPrefs::default(),
             shortcuts: ShortcutPrefs::default(),
+            ai: crate::ai_connections::AiPrefs::default(),
             updates: UpdatePrefs::default(),
             named_presets: std::collections::BTreeMap::new(),
             active_named_preset: None,
@@ -3797,6 +3800,7 @@ impl WorkspacePrefs {
             .clamp(*Self::TEXT_SIZES.start(), *Self::TEXT_SIZES.end());
         self.text_font.truncate(256);
         self.sanitize_preference_groups();
+        self.ai.sanitize();
         if let Some(view) = &mut self.view_defaults {
             view.sanitize();
         }

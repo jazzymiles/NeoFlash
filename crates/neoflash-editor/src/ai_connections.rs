@@ -14,11 +14,17 @@
 //!   automatic token/key redaction ([`redact_sensitive_tokens`]).
 
 use neoflash_core::{ElementKind, Project, ScriptLanguage};
+use neoflash_export::ai_http::{
+    AiEndpointSecurity, AiHttpError, ValidatedAiEndpoint, send_ai_get, send_ai_post_json,
+    stream_ai_post_lines, validate_ai_base_url,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
+#[cfg(test)]
+use std::io::{BufRead, BufReader, Read};
+#[cfg(test)]
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -26,7 +32,9 @@ use std::sync::{
 };
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use url::{Host, Url};
+#[cfg(test)]
+use url::Host;
+use url::Url;
 
 /// Maximum UTF-8 byte length of a script excerpt included in an [`AiContextPack`].
 pub const MAX_SCRIPT_BYTES: usize = 16_384;
@@ -42,7 +50,7 @@ pub const MAX_AI_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_AI_ERROR_BYTES: usize = 64 * 1024;
 
 /// Maximum HTTP status/header/SSE line length accepted from a provider.
-const MAX_AI_HTTP_LINE_BYTES: usize = 1024 * 1024;
+pub const MAX_AI_HTTP_LINE_BYTES: usize = 1024 * 1024;
 
 /// Explicit MIME whitelist for asset inspection metadata in [`AiContextPack`].
 pub const ALLOWED_ASSET_MIME_TYPES: &[&str] = &[
@@ -69,6 +77,13 @@ pub enum AiProviderKind {
 }
 
 impl AiProviderKind {
+    pub const ALL: [Self; 4] = [
+        Self::OpenAi,
+        Self::Anthropic,
+        Self::Gemini,
+        Self::LocalOpenAiCompatible,
+    ];
+
     pub const fn display_name(self) -> &'static str {
         match self {
             Self::OpenAi => "OpenAI",
@@ -78,10 +93,35 @@ impl AiProviderKind {
         }
     }
 
+    pub const fn default_base_url(self) -> &'static str {
+        match self {
+            Self::OpenAi => "https://api.openai.com",
+            Self::Anthropic => "https://api.anthropic.com",
+            Self::Gemini => "https://generativelanguage.googleapis.com",
+            Self::LocalOpenAiCompatible => "http://127.0.0.1:11434",
+        }
+    }
+
+    pub const fn default_model_hint(self) -> &'static str {
+        match self {
+            Self::OpenAi => "gpt-4o",
+            Self::Anthropic => "claude-sonnet-4-6",
+            Self::Gemini => "gemini-2.5-flash",
+            Self::LocalOpenAiCompatible => "llama3.1",
+        }
+    }
+
     pub const fn requires_secret(self) -> bool {
         match self {
             Self::OpenAi | Self::Anthropic | Self::Gemini => true,
             Self::LocalOpenAiCompatible => false,
+        }
+    }
+
+    pub const fn endpoint_security(self) -> AiEndpointSecurity {
+        match self {
+            Self::OpenAi | Self::Anthropic | Self::Gemini => AiEndpointSecurity::HttpsRequired,
+            Self::LocalOpenAiCompatible => AiEndpointSecurity::HttpsOrLoopbackHttp,
         }
     }
 }
@@ -444,6 +484,302 @@ impl SecretStore for KeychainSecretStore {
     }
 }
 
+/// Platform default secret store: macOS Keychain (`com.neoflash.ai-connections`) with read-only
+/// fallback to `NEOFLASH_AI_TOKEN_<PROFILE_ID>` environment variables; non-macOS uses session
+/// memory plus environment fallback.
+#[derive(Debug)]
+pub struct SystemSecretStore {
+    #[cfg(target_os = "macos")]
+    primary: KeychainSecretStore,
+    #[cfg(not(target_os = "macos"))]
+    primary: MemorySecretStore,
+    env_fallback: EnvSecretStore,
+}
+
+impl Default for SystemSecretStore {
+    fn default() -> Self {
+        Self {
+            #[cfg(target_os = "macos")]
+            primary: KeychainSecretStore::default(),
+            #[cfg(not(target_os = "macos"))]
+            primary: MemorySecretStore::new(),
+            env_fallback: EnvSecretStore::new(),
+        }
+    }
+}
+
+impl SecretStore for SystemSecretStore {
+    fn get_secret(&self, profile_id: &str) -> Result<Option<String>, AiConnectionError> {
+        if let Some(secret) = self.primary.get_secret(profile_id)? {
+            return Ok(Some(secret));
+        }
+        self.env_fallback.get_secret(profile_id)
+    }
+
+    fn set_secret(&self, profile_id: &str, secret: &str) -> Result<(), AiConnectionError> {
+        self.primary.set_secret(profile_id, secret)
+    }
+
+    fn delete_secret(&self, profile_id: &str) -> Result<(), AiConnectionError> {
+        self.primary.delete_secret(profile_id)
+    }
+}
+
+/// Status badge state for an AI connection profile (`R-097`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AiConnectionStatus {
+    Ready,
+    NotTested,
+    NoKey,
+    Failed,
+}
+
+impl AiConnectionStatus {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Ready => "Ready",
+            Self::NotTested => "Not tested",
+            Self::NoKey => "No key",
+            Self::Failed => "Failed",
+        }
+    }
+}
+
+/// Ephemeral last-test outcome recorded by [`AiConnectionManager`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum AiProfileTestState {
+    #[default]
+    Untested,
+    Connected {
+        model: String,
+    },
+    Failed {
+        message: String,
+    },
+}
+
+/// Non-secret AI preferences persisted inside `WorkspacePrefs`.
+///
+/// `#[serde(deny_unknown_fields)]` ensures stray credential keys in `preferences.json` are rejected.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AiPrefs {
+    pub profiles: Vec<AiProviderProfile>,
+    pub default_profile_id: Option<String>,
+}
+
+impl AiPrefs {
+    pub fn sanitize(&mut self) {
+        let mut seen_ids = std::collections::BTreeSet::new();
+        self.profiles.retain(|p| {
+            let clean = !p.id.trim().is_empty();
+            clean && seen_ids.insert(p.id.clone())
+        });
+        for profile in &mut self.profiles {
+            profile.timeout_ms = profile.timeout_ms.clamp(1_000, 300_000);
+            profile.max_retries = profile.max_retries.min(5);
+            if profile.display_name.trim().is_empty() {
+                profile.display_name = profile.kind.display_name().to_owned();
+            }
+            if profile.base_url.trim().is_empty() {
+                profile.base_url = profile.kind.default_base_url().to_owned();
+            }
+            if profile.default_model.trim().is_empty() {
+                profile.default_model = profile.kind.default_model_hint().to_owned();
+            }
+        }
+        let default_valid = self
+            .default_profile_id
+            .as_deref()
+            .is_some_and(|id| self.profiles.iter().any(|p| p.id == id));
+        if !default_valid {
+            self.default_profile_id = self.profiles.first().map(|p| p.id.clone());
+        }
+    }
+
+    pub fn profile(&self, id: &str) -> Option<&AiProviderProfile> {
+        self.profiles.iter().find(|p| p.id == id)
+    }
+
+    pub fn upsert_profile(&mut self, profile: AiProviderProfile) {
+        if let Some(existing) = self.profiles.iter_mut().find(|p| p.id == profile.id) {
+            *existing = profile;
+        } else {
+            if self.default_profile_id.is_none() {
+                self.default_profile_id = Some(profile.id.clone());
+            }
+            self.profiles.push(profile);
+        }
+        self.sanitize();
+    }
+
+    pub fn remove_profile(&mut self, id: &str) -> bool {
+        let before = self.profiles.len();
+        self.profiles.retain(|p| p.id != id);
+        let removed = self.profiles.len() != before;
+        self.sanitize();
+        removed
+    }
+
+    pub fn next_profile_id(&self, kind: AiProviderKind) -> String {
+        let prefix = match kind {
+            AiProviderKind::OpenAi => "openai",
+            AiProviderKind::Anthropic => "anthropic",
+            AiProviderKind::Gemini => "gemini",
+            AiProviderKind::LocalOpenAiCompatible => "local",
+        };
+        for idx in 1..=9_999u32 {
+            let candidate = format!("{prefix}-{idx}");
+            if !self.profiles.iter().any(|p| p.id == candidate) {
+                return candidate;
+            }
+        }
+        format!("{prefix}-custom")
+    }
+}
+
+/// Editor-wide AI connection coordinator owning the [`SecretStore`] and runtime connection test
+/// status without ever exposing raw credentials to `WorkspacePrefs` or `.nflash` documents.
+pub struct AiConnectionManager {
+    secret_store: Arc<dyn SecretStore>,
+    test_states: BTreeMap<String, AiProfileTestState>,
+}
+
+impl fmt::Debug for AiConnectionManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AiConnectionManager")
+            .field("tracked_profiles", &self.test_states.len())
+            .field("secret_store", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl AiConnectionManager {
+    pub fn new(secret_store: Arc<dyn SecretStore>) -> Self {
+        Self {
+            secret_store,
+            test_states: BTreeMap::new(),
+        }
+    }
+
+    pub fn in_memory() -> Self {
+        Self::new(Arc::new(MemorySecretStore::new()))
+    }
+
+    pub fn system_default() -> Self {
+        Self::new(Arc::new(SystemSecretStore::default()))
+    }
+
+    pub fn secret_store(&self) -> Arc<dyn SecretStore> {
+        Arc::clone(&self.secret_store)
+    }
+
+    pub fn has_secret(&self, profile_id: &str) -> bool {
+        self.secret_store
+            .get_secret(profile_id)
+            .ok()
+            .flatten()
+            .is_some_and(|s| !s.trim().is_empty())
+    }
+
+    pub fn set_secret(&mut self, profile_id: &str, secret: &str) -> Result<(), AiConnectionError> {
+        self.secret_store.set_secret(profile_id, secret)?;
+        self.test_states.remove(profile_id);
+        Ok(())
+    }
+
+    pub fn delete_secret(&mut self, profile_id: &str) -> Result<(), AiConnectionError> {
+        let res = self.secret_store.delete_secret(profile_id);
+        self.test_states.remove(profile_id);
+        res
+    }
+
+    pub fn clear_test_state(&mut self, profile_id: &str) {
+        self.test_states.remove(profile_id);
+    }
+
+    pub fn set_test_state(&mut self, profile_id: impl Into<String>, state: AiProfileTestState) {
+        self.test_states.insert(profile_id.into(), state);
+    }
+
+    pub fn test_state(&self, profile_id: &str) -> AiProfileTestState {
+        self.test_states
+            .get(profile_id)
+            .cloned()
+            .unwrap_or(AiProfileTestState::Untested)
+    }
+
+    pub fn profile_status(&self, profile: &AiProviderProfile) -> AiConnectionStatus {
+        if profile.kind.requires_secret() && !self.has_secret(&profile.id) {
+            return AiConnectionStatus::NoKey;
+        }
+        match self.test_states.get(&profile.id) {
+            Some(AiProfileTestState::Connected { .. }) => AiConnectionStatus::Ready,
+            Some(AiProfileTestState::Failed { .. }) => AiConnectionStatus::Failed,
+            None | Some(AiProfileTestState::Untested) => AiConnectionStatus::NotTested,
+        }
+    }
+
+    pub fn test_profile(
+        &mut self,
+        profile: &AiProviderProfile,
+    ) -> Result<String, AiConnectionError> {
+        let res = test_provider_connection(profile, self.secret_store.as_ref());
+        match &res {
+            Ok(_) => {
+                self.test_states.insert(
+                    profile.id.clone(),
+                    AiProfileTestState::Connected {
+                        model: profile.default_model.clone(),
+                    },
+                );
+            }
+            Err(err) => {
+                self.test_states.insert(
+                    profile.id.clone(),
+                    AiProfileTestState::Failed {
+                        message: redact_sensitive_tokens(&err.to_string()),
+                    },
+                );
+            }
+        }
+        res
+    }
+
+    pub fn has_ready_connection(&self, prefs: &AiPrefs) -> bool {
+        prefs
+            .profiles
+            .iter()
+            .any(|p| self.profile_status(p) == AiConnectionStatus::Ready)
+    }
+
+    pub fn ready_profiles<'a>(&self, prefs: &'a AiPrefs) -> Vec<&'a AiProviderProfile> {
+        prefs
+            .profiles
+            .iter()
+            .filter(|p| self.profile_status(p) == AiConnectionStatus::Ready)
+            .collect()
+    }
+
+    pub fn default_ready_profile<'a>(&self, prefs: &'a AiPrefs) -> Option<&'a AiProviderProfile> {
+        if let Some(default_id) = prefs.default_profile_id.as_deref()
+            && let Some(profile) = prefs.profile(default_id)
+            && self.profile_status(profile) == AiConnectionStatus::Ready
+        {
+            return Some(profile);
+        }
+        self.ready_profiles(prefs).into_iter().next()
+    }
+
+    pub fn spawn_request(
+        &self,
+        profile: AiProviderProfile,
+        request: AiPromptRequest,
+    ) -> AiConnectionWorker {
+        AiConnectionWorker::spawn(profile, request, Arc::clone(&self.secret_store))
+    }
+}
+
 /// Redact API keys, Bearer tokens, and key=value secret patterns from arbitrary text before it
 /// can enter logs, UI diagnostics, or context packs.
 pub fn redact_sensitive_tokens(input: &str) -> String {
@@ -709,6 +1045,116 @@ impl AiContextPack {
             selected_assets,
         }
     }
+
+    pub fn included_asset_count(&self) -> usize {
+        self.selected_assets.iter().filter(|a| a.included).count()
+    }
+
+    /// Return a copy of this context pack containing strictly the sections ticked in `selection`,
+    /// with excluded (`!included`) assets stripped.
+    pub fn filtered_for_consent(&self, selection: AiContextSelection) -> Self {
+        Self {
+            project_name: if selection.project_and_symbol {
+                self.project_name.clone()
+            } else {
+                String::new()
+            },
+            symbol_name: if selection.project_and_symbol {
+                self.symbol_name.clone()
+            } else {
+                String::new()
+            },
+            active_frame: if selection.project_and_symbol {
+                self.active_frame
+            } else {
+                0
+            },
+            selected_elements: if selection.selected_elements {
+                self.selected_elements.clone()
+            } else {
+                Vec::new()
+            },
+            script_excerpt: if selection.script_excerpt {
+                self.script_excerpt.clone()
+            } else {
+                None
+            },
+            selected_assets: if selection.asset_list {
+                self.selected_assets
+                    .iter()
+                    .filter(|a| a.included)
+                    .cloned()
+                    .collect()
+            } else {
+                Vec::new()
+            },
+        }
+    }
+
+    /// Human-readable `"Not sent: ..."` summary for excluded assets and truncated scripts (`R-097`).
+    pub fn omitted_items_note(&self) -> Option<String> {
+        let mut items = Vec::new();
+        if let Some(script) = &self.script_excerpt
+            && script.truncated
+        {
+            items.push(format!(
+                "script tail beyond {} KB",
+                MAX_SCRIPT_BYTES / 1024
+            ));
+        }
+        for asset in self.selected_assets.iter().filter(|a| !a.included) {
+            let short_name = asset
+                .path
+                .rsplit(['/', '\\'])
+                .next()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&asset.resource_id);
+            let reason = if asset.byte_len > MAX_ASSET_BYTES {
+                format!("larger than {} KB", MAX_ASSET_BYTES / 1024)
+            } else {
+                let category = asset
+                    .media_type
+                    .split('/')
+                    .next()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("asset");
+                format!("{category} is not an allowed type")
+            };
+            items.push(format!("{short_name} ({reason})"));
+        }
+        (!items.is_empty()).then(|| format!("Not sent: {}.", items.join(", ")))
+    }
+}
+
+/// User consent toggles for the four `What will be sent` rows in `Dialog / Send to AI` (`R-097`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AiContextSelection {
+    pub project_and_symbol: bool,
+    pub selected_elements: bool,
+    pub script_excerpt: bool,
+    pub asset_list: bool,
+}
+
+impl Default for AiContextSelection {
+    fn default() -> Self {
+        Self {
+            project_and_symbol: true,
+            selected_elements: true,
+            script_excerpt: true,
+            asset_list: true,
+        }
+    }
+}
+
+impl AiContextSelection {
+    pub fn from_pack(pack: &AiContextPack) -> Self {
+        Self {
+            project_and_symbol: true,
+            selected_elements: !pack.selected_elements.is_empty(),
+            script_excerpt: pack.script_excerpt.is_some(),
+            asset_list: pack.included_asset_count() > 0,
+        }
+    }
 }
 
 fn truncate_utf8_bytes(s: &str, max_bytes: usize) -> (&str, bool) {
@@ -720,6 +1166,29 @@ fn truncate_utf8_bytes(s: &str, max_bytes: usize) -> (&str, bool) {
         end -= 1;
     }
     (&s[..end], true)
+}
+
+fn deserialize_proposal_language<'de, D>(deserializer: D) -> Result<ScriptLanguage, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    let norm: String = raw
+        .trim()
+        .chars()
+        .flat_map(char::to_lowercase)
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    match norm.as_str() {
+        "actionscript3" | "actionscript30" | "as3" => Ok(ScriptLanguage::ActionScript3),
+        "actionscript2" | "actionscript20" | "as2" => Ok(ScriptLanguage::ActionScript2),
+        "actionscript1" | "actionscript10" | "as1" => Ok(ScriptLanguage::ActionScript1),
+        "javascript" | "js" | "ecmascript" => Ok(ScriptLanguage::JavaScript),
+        "typescript" | "ts" => Ok(ScriptLanguage::TypeScript),
+        _ => Err(serde::de::Error::custom(format!(
+            "unsupported proposal script language: {raw}"
+        ))),
+    }
 }
 
 /// Strictly untrusted AI output proposal.
@@ -734,6 +1203,7 @@ pub enum AiUntrustedProposal {
         body: String,
     },
     CodeSnippetProposal {
+        #[serde(deserialize_with = "deserialize_proposal_language")]
         language: ScriptLanguage,
         target_hint: String,
         code: String,
@@ -832,12 +1302,52 @@ pub struct AiPromptRequest {
 
 impl AiPromptRequest {
     pub fn compose_user_message(&self) -> String {
-        let ctx_json = serde_json::to_string(&self.context_pack).unwrap_or_default();
-        format!(
-            "{}\n\n[NeoFlash Selection Context]\n{}",
-            redact_sensitive_tokens(&self.user_prompt),
-            ctx_json
-        )
+        let user = redact_sensitive_tokens(&self.user_prompt);
+        let mut ctx_map = serde_json::Map::new();
+        if !self.context_pack.project_name.is_empty() || !self.context_pack.symbol_name.is_empty() {
+            ctx_map.insert(
+                "project_name".into(),
+                serde_json::json!(self.context_pack.project_name),
+            );
+            ctx_map.insert(
+                "symbol_name".into(),
+                serde_json::json!(self.context_pack.symbol_name),
+            );
+            ctx_map.insert(
+                "active_frame".into(),
+                serde_json::json!(self.context_pack.active_frame),
+            );
+        }
+        if !self.context_pack.selected_elements.is_empty() {
+            ctx_map.insert(
+                "selected_elements".into(),
+                serde_json::to_value(&self.context_pack.selected_elements).unwrap_or_default(),
+            );
+        }
+        if let Some(script) = &self.context_pack.script_excerpt {
+            ctx_map.insert(
+                "script_excerpt".into(),
+                serde_json::to_value(script).unwrap_or_default(),
+            );
+        }
+        let included_assets: Vec<&AiAssetMetadata> = self
+            .context_pack
+            .selected_assets
+            .iter()
+            .filter(|a| a.included)
+            .collect();
+        if !included_assets.is_empty() {
+            ctx_map.insert(
+                "selected_assets".into(),
+                serde_json::to_value(&included_assets).unwrap_or_default(),
+            );
+        }
+        if ctx_map.is_empty() {
+            user
+        } else {
+            let ctx_json = serde_json::Value::Object(ctx_map).to_string();
+            format!("{user}\n\n[NeoFlash Selection Context]\n{ctx_json}")
+        }
     }
 }
 
@@ -934,6 +1444,20 @@ impl fmt::Debug for FormattedProviderRequest {
     }
 }
 
+fn validate_gemini_model_id(model: &str) -> Result<(), AiConnectionError> {
+    if model.is_empty()
+        || model.len() > 128
+        || !model
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err(AiConnectionError::InvalidEndpoint {
+            reason: "Gemini model name must be a 1..128 byte path-safe identifier.".into(),
+        });
+    }
+    Ok(())
+}
+
 /// Build the provider-specific HTTP request for `OpenAi`, `Anthropic`, `Gemini`, or
 /// `LocalOpenAiCompatible`.
 pub fn format_provider_request(
@@ -959,13 +1483,18 @@ pub fn format_provider_request(
     let system_text = redact_sensitive_tokens(&request.system_prompt);
     let user_text = request.compose_user_message();
     let base_path = extract_base_path(&profile.base_url)?;
+    let accept_header = if request.stream {
+        "text/event-stream"
+    } else {
+        "application/json"
+    };
 
     match profile.kind {
         AiProviderKind::OpenAi | AiProviderKind::LocalOpenAiCompatible => {
             let path_and_query = join_endpoint_path(&base_path, "/v1/chat/completions");
             let mut headers = vec![
                 ("Content-Type".to_owned(), "application/json".to_owned()),
-                ("Accept".to_owned(), "text/event-stream".to_owned()),
+                ("Accept".to_owned(), accept_header.to_owned()),
             ];
             if let Some(tok) = token {
                 headers.push(("Authorization".to_owned(), format!("Bearer {tok}")));
@@ -994,7 +1523,7 @@ pub fn format_provider_request(
             let tok = token.expect("checked above");
             let headers = vec![
                 ("Content-Type".to_owned(), "application/json".to_owned()),
-                ("Accept".to_owned(), "text/event-stream".to_owned()),
+                ("Accept".to_owned(), accept_header.to_owned()),
                 ("x-api-key".to_owned(), tok.to_owned()),
                 ("anthropic-version".to_owned(), "2023-06-01".to_owned()),
             ];
@@ -1018,16 +1547,7 @@ pub fn format_provider_request(
             })
         }
         AiProviderKind::Gemini => {
-            if model.is_empty()
-                || model.len() > 128
-                || !model
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-            {
-                return Err(AiConnectionError::InvalidEndpoint {
-                    reason: "Gemini model name must be a 1..128 byte path-safe identifier.".into(),
-                });
-            }
+            validate_gemini_model_id(model)?;
             let action = if request.stream {
                 "streamGenerateContent?alt=sse"
             } else {
@@ -1038,9 +1558,15 @@ pub fn format_provider_request(
             let tok = token.expect("checked above");
             let headers = vec![
                 ("Content-Type".to_owned(), "application/json".to_owned()),
-                ("Accept".to_owned(), "text/event-stream".to_owned()),
+                ("Accept".to_owned(), accept_header.to_owned()),
                 ("x-goog-api-key".to_owned(), tok.to_owned()),
             ];
+            let mut gen_cfg = serde_json::json!({
+                "maxOutputTokens": request.max_output_tokens,
+            });
+            if let Some(temp) = request.temperature {
+                gen_cfg["temperature"] = serde_json::json!(temp);
+            }
             let payload = serde_json::json!({
                 "systemInstruction": {
                     "parts": [{ "text": system_text }]
@@ -1051,9 +1577,7 @@ pub fn format_provider_request(
                         "parts": [{ "text": user_text }]
                     }
                 ],
-                "generationConfig": {
-                    "maxOutputTokens": request.max_output_tokens,
-                }
+                "generationConfig": gen_cfg,
             });
             Ok(FormattedProviderRequest {
                 method: "POST",
@@ -1181,9 +1705,172 @@ pub fn parse_sse_line(
     }
 }
 
+/// Parse a complete non-streaming JSON completion body (`stream == false`).
+pub fn parse_non_streaming_response(
+    kind: AiProviderKind,
+    body: &str,
+) -> Result<String, AiConnectionError> {
+    let value: serde_json::Value =
+        serde_json::from_str(body.trim()).map_err(|e| AiConnectionError::Protocol {
+            message: format!("Malformed JSON response payload: {e}"),
+        })?;
+    if let Some(err_msg) = value
+        .get("error")
+        .and_then(|e| e.get("message").or(Some(e)))
+        .and_then(|m| m.as_str())
+    {
+        return Err(AiConnectionError::Protocol {
+            message: redact_sensitive_tokens(err_msg),
+        });
+    }
+
+    let raw_text = match kind {
+        AiProviderKind::OpenAi | AiProviderKind::LocalOpenAiCompatible => {
+            let content = value
+                .get("choices")
+                .and_then(|c| c.as_array())
+                .and_then(|a| a.first())
+                .and_then(|ch| ch.get("message"))
+                .and_then(|m| m.get("content"));
+            match content {
+                Some(serde_json::Value::String(s)) => s.clone(),
+                Some(serde_json::Value::Array(items)) => items
+                    .iter()
+                    .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(""),
+                _ => String::new(),
+            }
+        }
+        AiProviderKind::Anthropic => value
+            .get("content")
+            .and_then(|c| c.as_array())
+            .map(|blocks| {
+                blocks
+                    .iter()
+                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .unwrap_or_default(),
+        AiProviderKind::Gemini => value
+            .get("candidates")
+            .and_then(|c| c.as_array())
+            .and_then(|a| a.first())
+            .and_then(|cand| cand.get("content"))
+            .and_then(|content| content.get("parts"))
+            .and_then(|p| p.as_array())
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|part| part.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .unwrap_or_default(),
+    };
+    let safe = redact_sensitive_tokens(&raw_text);
+    if safe.len() > MAX_AI_RESPONSE_BYTES {
+        return Err(AiConnectionError::Protocol {
+            message: format!(
+                "Provider response exceeds the {} MiB limit.",
+                MAX_AI_RESPONSE_BYTES / (1024 * 1024)
+            ),
+        });
+    }
+    Ok(safe)
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static TEST_LOOPBACK_HTTP_OVERRIDE: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Allow deterministic local `http://127.0.0.1:<port>` mock fixtures for cloud providers strictly
+/// within a test scope. Outside this scope (and unconditionally in non-test builds), cloud
+/// providers reject all non-`https://` URLs.
+#[cfg(test)]
+pub(crate) fn with_test_loopback_http_override<R>(origin: &str, f: impl FnOnce() -> R) -> R {
+    struct Guard(Option<String>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            TEST_LOOPBACK_HTTP_OVERRIDE.with(|slot| {
+                *slot.borrow_mut() = self.0.take();
+            });
+        }
+    }
+    let prev = TEST_LOOPBACK_HTTP_OVERRIDE.with(|slot| slot.borrow_mut().replace(origin.to_owned()));
+    let _guard = Guard(prev);
+    f()
+}
+
+fn current_loopback_http_override() -> Option<String> {
+    #[cfg(test)]
+    {
+        TEST_LOOPBACK_HTTP_OVERRIDE.with(|slot| slot.borrow().clone())
+    }
+    #[cfg(not(test))]
+    {
+        None
+    }
+}
+
+/// Validate a profile's Base URL for UI display (destination host + scheme) and transport.
+pub fn validate_profile_endpoint(
+    profile: &AiProviderProfile,
+) -> Result<ValidatedAiEndpoint, AiConnectionError> {
+    let override_origin = current_loopback_http_override();
+    validate_ai_base_url(
+        &profile.base_url,
+        profile.kind.endpoint_security(),
+        override_origin.as_deref(),
+    )
+    .map_err(|err| map_ai_http_error(err, profile.timeout_ms))
+}
+
+fn map_ai_http_error(err: AiHttpError, timeout_ms: u64) -> AiConnectionError {
+    match err {
+        AiHttpError::InvalidEndpoint(reason) => AiConnectionError::InvalidEndpoint {
+            reason: redact_sensitive_tokens(&reason),
+        },
+        AiHttpError::Offline(reason) => AiConnectionError::Offline {
+            reason: redact_sensitive_tokens(&reason),
+        },
+        AiHttpError::Timeout => AiConnectionError::Timeout { timeout_ms },
+        AiHttpError::RateLimited {
+            retry_after_ms,
+            body,
+        } => AiConnectionError::RateLimited {
+            retry_after_ms,
+            message: if body.trim().is_empty() {
+                "HTTP 429 Too Many Requests".into()
+            } else {
+                redact_sensitive_tokens(body.trim())
+            },
+        },
+        AiHttpError::HttpStatus { status, body, .. } => AiConnectionError::HttpStatus {
+            status,
+            message: redact_sensitive_tokens(body.trim()),
+        },
+        AiHttpError::RedirectRejected { status, location } => AiConnectionError::InvalidEndpoint {
+            reason: redact_sensitive_tokens(&format!(
+                "Redirect HTTP {status} to '{location}' rejected; configure the direct HTTPS provider endpoint."
+            )),
+        },
+        AiHttpError::Protocol(message) => AiConnectionError::Protocol {
+            message: redact_sensitive_tokens(&message),
+        },
+        AiHttpError::Cancelled => AiConnectionError::Cancelled,
+    }
+}
+
+#[cfg(test)]
 struct ParsedUrl {
     host: String,
+    #[allow(dead_code)]
     host_header: String,
+    #[allow(dead_code)]
     port: u16,
 }
 
@@ -1224,12 +1911,12 @@ fn parse_base_url(base_url: &str) -> Result<Url, AiConnectionError> {
     Ok(parsed)
 }
 
+#[cfg(test)]
 fn parse_http_url(base_url: &str) -> Result<ParsedUrl, AiConnectionError> {
     let parsed = parse_base_url(base_url)?;
     if parsed.scheme() == "https" {
         return Err(AiConnectionError::InvalidEndpoint {
-            reason: "Direct HTTPS transport is not connected yet; use a trusted local HTTP proxy."
-                .into(),
+            reason: "Plaintext socket helper accepts http:// only.".into(),
         });
     }
     let host = parsed.host_str().unwrap_or_default().to_owned();
@@ -1256,46 +1943,28 @@ fn extract_base_path(base_url: &str) -> Result<String, AiConnectionError> {
 }
 
 fn join_endpoint_path(base_path: &str, suffix: &str) -> String {
-    if base_path.is_empty() || base_path == "/" || suffix.starts_with(base_path) {
-        suffix.to_owned()
-    } else {
-        format!("{base_path}{suffix}")
+    if base_path.is_empty() || base_path == "/" {
+        return suffix.to_owned();
     }
-}
-
-fn resolve_socket_addr(host: &str, port: u16) -> Result<SocketAddr, AiConnectionError> {
-    (host, port)
-        .to_socket_addrs()
-        .map_err(|e| AiConnectionError::Offline {
-            reason: format!("Could not resolve {host}:{port}: {e}"),
-        })?
-        .next()
-        .ok_or_else(|| AiConnectionError::Offline {
-            reason: format!("No socket address found for {host}:{port}"),
-        })
-}
-
-fn is_timeout_io_error(err: &std::io::Error) -> bool {
-    matches!(
-        err.kind(),
-        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
-    )
-}
-
-fn response_read_error(error: std::io::Error, timeout_ms: u64) -> AiConnectionError {
-    if is_timeout_io_error(&error) {
-        AiConnectionError::Timeout { timeout_ms }
-    } else if error.kind() == std::io::ErrorKind::InvalidData {
-        AiConnectionError::Protocol {
-            message: error.to_string(),
-        }
-    } else {
-        AiConnectionError::Offline {
-            reason: error.to_string(),
-        }
+    if suffix == base_path
+        || suffix
+            .strip_prefix(base_path)
+            .is_some_and(|rest| rest.starts_with('/'))
+    {
+        return suffix.to_owned();
     }
+    if let Some(rest) = suffix.strip_prefix("/v1/")
+        && base_path.ends_with("/v1")
+    {
+        return format!("{base_path}/{rest}");
+    }
+    if suffix == "/v1" && base_path.ends_with("/v1") {
+        return base_path.to_owned();
+    }
+    format!("{base_path}{suffix}")
 }
 
+#[cfg(test)]
 fn read_bounded_line<R: BufRead + ?Sized>(
     reader: &mut R,
     max_bytes: usize,
@@ -1333,6 +2002,7 @@ fn read_bounded_line<R: BufRead + ?Sized>(
     })
 }
 
+#[cfg(test)]
 fn read_error_body_bounded<R: Read + ?Sized>(reader: &mut R) -> std::io::Result<String> {
     let mut bytes = Vec::new();
     reader
@@ -1347,8 +2017,10 @@ fn read_error_body_bounded<R: Read + ?Sized>(reader: &mut R) -> std::io::Result<
     Ok(text)
 }
 
+#[cfg(test)]
 const MAX_AI_HTTP_CHUNK_BYTES: usize = 8 * 1024 * 1024;
 
+#[cfg(test)]
 struct ChunkedBodyReader<R> {
     inner: R,
     remaining: usize,
@@ -1356,6 +2028,7 @@ struct ChunkedBodyReader<R> {
     finished: bool,
 }
 
+#[cfg(test)]
 impl<R: BufRead> ChunkedBodyReader<R> {
     fn new(inner: R) -> Self {
         Self {
@@ -1442,6 +2115,7 @@ impl<R: BufRead> ChunkedBodyReader<R> {
     }
 }
 
+#[cfg(test)]
 impl<R: BufRead> Read for ChunkedBodyReader<R> {
     fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
         if output.is_empty() || self.finished {
@@ -1466,6 +2140,7 @@ impl<R: BufRead> Read for ChunkedBodyReader<R> {
     }
 }
 
+#[cfg(test)]
 fn response_uses_chunked_transfer(headers: &[(String, String)]) -> Result<bool, AiConnectionError> {
     let mut codings = Vec::new();
     for (_, value) in headers
@@ -1508,6 +2183,7 @@ fn validate_http_header_value(name: &str, value: &str) -> Result<(), AiConnectio
     Ok(())
 }
 
+#[cfg(test)]
 fn is_loopback_host(host: &str) -> bool {
     host.eq_ignore_ascii_case("localhost")
         || host
@@ -1515,6 +2191,7 @@ fn is_loopback_host(host: &str) -> bool {
             .is_ok_and(|address| address.is_loopback())
 }
 
+#[cfg(test)]
 fn validate_plaintext_transport(
     parsed: &ParsedUrl,
     resolved: SocketAddr,
@@ -1527,28 +2204,15 @@ fn validate_plaintext_transport(
     })
 }
 
-fn parse_retry_after_ms(headers: &[(String, String)]) -> Option<u64> {
-    for (k, v) in headers {
-        if k.eq_ignore_ascii_case("retry-after-ms")
-            && let Ok(ms) = v.trim().parse::<u64>()
-        {
-            return Some(ms);
-        }
-        if k.eq_ignore_ascii_case("retry-after")
-            && let Ok(secs) = v.trim().parse::<u64>()
-        {
-            return Some(secs.saturating_mul(1_000));
-        }
-    }
-    None
-}
-
-/// Test a provider connection profile without mutating project state.
+/// Test a provider connection profile over TLS/HTTPS (or loopback HTTP for local providers)
+/// without mutating project state.
 pub fn test_provider_connection(
     profile: &AiProviderProfile,
     secret_store: &dyn SecretStore,
 ) -> Result<String, AiConnectionError> {
-    let secret = secret_store.get_secret(&profile.id)?;
+    let secret = secret_store
+        .get_secret(&profile.id)?
+        .filter(|s| !s.trim().is_empty());
     if profile.kind.requires_secret() && secret.is_none() {
         return Err(AiConnectionError::MissingSecret {
             profile_id: profile.id.clone(),
@@ -1557,95 +2221,55 @@ pub fn test_provider_connection(
     if let Some(token) = secret.as_deref() {
         validate_http_header_value("Provider credential", token)?;
     }
-    let parsed = parse_http_url(&profile.base_url)?;
-    let addr = resolve_socket_addr(&parsed.host, parsed.port)?;
-    validate_plaintext_transport(&parsed, addr)?;
-    let timeout = Duration::from_millis(profile.timeout_ms.max(50));
-    let mut stream = TcpStream::connect_timeout(&addr, timeout).map_err(|e| {
-        if is_timeout_io_error(&e) {
-            AiConnectionError::Timeout {
-                timeout_ms: profile.timeout_ms,
-            }
-        } else {
-            AiConnectionError::Offline {
-                reason: e.to_string(),
+
+    let endpoint = validate_profile_endpoint(profile)?;
+    let suffix = match profile.kind {
+        AiProviderKind::OpenAi | AiProviderKind::LocalOpenAiCompatible | AiProviderKind::Anthropic => {
+            "/v1/models".to_owned()
+        }
+        AiProviderKind::Gemini => {
+            let model = profile.default_model.trim();
+            if model.is_empty() {
+                "/v1beta/models".to_owned()
+            } else {
+                validate_gemini_model_id(model)?;
+                format!("/v1beta/models/{model}")
             }
         }
-    })?;
-    let _ = stream.set_read_timeout(Some(timeout));
-    let _ = stream.set_write_timeout(Some(timeout));
+    };
+    let path_and_query = join_endpoint_path(&endpoint.base_path, &suffix);
 
-    let base_path = extract_base_path(&profile.base_url)?;
-    let path = join_endpoint_path(&base_path, "/v1/models");
-    let mut req = format!(
-        "GET {path} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\n",
-        parsed.host_header, parsed.port
-    );
-    if let Some(tok) = secret.as_deref() {
+    let mut headers = vec![("Accept".to_owned(), "application/json".to_owned())];
+    if let Some(tok) = secret.as_deref().map(str::trim) {
         match profile.kind {
             AiProviderKind::OpenAi | AiProviderKind::LocalOpenAiCompatible => {
-                req.push_str(&format!("Authorization: Bearer {tok}\r\n"));
+                headers.push(("Authorization".to_owned(), format!("Bearer {tok}")));
             }
             AiProviderKind::Anthropic => {
-                req.push_str(&format!(
-                    "x-api-key: {tok}\r\nanthropic-version: 2023-06-01\r\n"
-                ));
+                headers.push(("x-api-key".to_owned(), tok.to_owned()));
+                headers.push(("anthropic-version".to_owned(), "2023-06-01".to_owned()));
             }
             AiProviderKind::Gemini => {
-                req.push_str(&format!("x-goog-api-key: {tok}\r\n"));
+                headers.push(("x-goog-api-key".to_owned(), tok.to_owned()));
             }
         }
     }
-    req.push_str("\r\n");
-    stream
-        .write_all(req.as_bytes())
-        .map_err(|e| AiConnectionError::Offline {
-            reason: e.to_string(),
-        })?;
 
-    let mut reader = BufReader::new(stream);
-    let status_line = read_bounded_line(&mut reader, MAX_AI_HTTP_LINE_BYTES)
-        .map_err(|error| response_read_error(error, profile.timeout_ms))?
-        .ok_or_else(|| AiConnectionError::Protocol {
-            message: "Provider closed the connection before an HTTP status line.".into(),
-        })?;
-    let status = parse_http_status(&status_line)?;
-    if (200..300).contains(&status) {
-        Ok(format!(
-            "{} ({}) reachable",
-            profile.display_name,
-            profile.kind.display_name()
-        ))
-    } else if status == 429 {
-        Err(AiConnectionError::RateLimited {
-            retry_after_ms: None,
-            message: "HTTP 429 Too Many Requests".into(),
-        })
+    let timeout = Duration::from_millis(profile.timeout_ms.max(50));
+    let cancel = AtomicBool::new(false);
+    send_ai_get(&endpoint, &path_and_query, &headers, timeout, &cancel)
+        .map_err(|err| map_ai_http_error(err, profile.timeout_ms))?;
+
+    let model_label = if profile.default_model.trim().is_empty() {
+        profile.display_name.as_str()
     } else {
-        Err(AiConnectionError::HttpStatus {
-            status,
-            message: status_line.trim().to_owned(),
-        })
-    }
+        profile.default_model.trim()
+    };
+    Ok(format!("Connected · {model_label}"))
 }
 
-fn parse_http_status(status_line: &str) -> Result<u16, AiConnectionError> {
-    let mut parts = status_line.split_whitespace();
-    let _http = parts.next().ok_or_else(|| AiConnectionError::Protocol {
-        message: "Empty HTTP status line".into(),
-    })?;
-    let code_str = parts.next().ok_or_else(|| AiConnectionError::Protocol {
-        message: format!("Malformed HTTP status line: '{}'", status_line.trim()),
-    })?;
-    code_str
-        .parse::<u16>()
-        .map_err(|_| AiConnectionError::Protocol {
-            message: format!("Invalid HTTP status code: '{code_str}'"),
-        })
-}
-
-/// Execute a streaming (or non-streaming) AI prompt request with configurable timeout,
-/// [`CancellationToken`], and automatic HTTP 429 / 5xx retry handling.
+/// Execute a streaming (or non-streaming) AI prompt request over `ureq` + `rustls` with
+/// configurable timeout, [`CancellationToken`], and automatic HTTP 429 / 5xx retry handling.
 pub fn run_streaming_request(
     profile: &AiProviderProfile,
     request: &AiPromptRequest,
@@ -1671,8 +2295,8 @@ pub fn run_streaming_request(
             return Err(err);
         }
     };
-    let parsed_url = match parse_http_url(&profile.base_url) {
-        Ok(u) => u,
+    let endpoint = match validate_profile_endpoint(profile) {
+        Ok(ep) => ep,
         Err(err) => {
             on_event(AiStreamEvent::Failed {
                 request_id: request.request_id.clone(),
@@ -1681,27 +2305,11 @@ pub fn run_streaming_request(
             return Err(err);
         }
     };
-    let addr = match resolve_socket_addr(&parsed_url.host, parsed_url.port) {
-        Ok(a) => a,
-        Err(err) => {
-            on_event(AiStreamEvent::Failed {
-                request_id: request.request_id.clone(),
-                error: err.clone(),
-            });
-            return Err(err);
-        }
-    };
-    if let Err(err) = validate_plaintext_transport(&parsed_url, addr) {
-        on_event(AiStreamEvent::Failed {
-            request_id: request.request_id.clone(),
-            error: err.clone(),
-        });
-        return Err(err);
-    }
 
     let model_name = request
         .model
         .clone()
+        .filter(|m| !m.trim().is_empty())
         .unwrap_or_else(|| profile.default_model.clone());
     let timeout = Duration::from_millis(profile.timeout_ms.max(25));
     let mut attempt = 0u32;
@@ -1714,309 +2322,176 @@ pub fn run_streaming_request(
             return Err(AiConnectionError::Cancelled);
         }
 
-        let stream_res = TcpStream::connect_timeout(&addr, timeout);
-        let mut stream = match stream_res {
-            Ok(s) => s,
-            Err(e) => {
-                let err = if is_timeout_io_error(&e) {
-                    AiConnectionError::Timeout {
-                        timeout_ms: profile.timeout_ms,
-                    }
-                } else {
-                    AiConnectionError::Offline {
-                        reason: e.to_string(),
-                    }
-                };
-                on_event(AiStreamEvent::Failed {
-                    request_id: request.request_id.clone(),
-                    error: err.clone(),
-                });
-                return Err(err);
-            }
-        };
-        let _ = stream.set_read_timeout(Some(timeout));
-        let _ = stream.set_write_timeout(Some(timeout));
-
-        let mut raw_http = format!(
-            "{} {} HTTP/1.1\r\nHost: {}:{}\r\nContent-Length: {}\r\nConnection: close\r\n",
-            formatted.method,
-            formatted.path_and_query,
-            parsed_url.host_header,
-            parsed_url.port,
-            formatted.body.len()
-        );
-        for (k, v) in &formatted.headers {
-            raw_http.push_str(&format!("{k}: {v}\r\n"));
-        }
-        raw_http.push_str("\r\n");
-        raw_http.push_str(&formatted.body);
-
-        if let Err(e) = stream.write_all(raw_http.as_bytes()) {
-            let err = if is_timeout_io_error(&e) {
-                AiConnectionError::Timeout {
-                    timeout_ms: profile.timeout_ms,
-                }
-            } else {
-                AiConnectionError::Offline {
-                    reason: e.to_string(),
-                }
-            };
-            on_event(AiStreamEvent::Failed {
-                request_id: request.request_id.clone(),
-                error: err.clone(),
-            });
-            return Err(err);
-        }
-
-        let mut reader = BufReader::new(stream);
-        let status_line = match read_bounded_line(&mut reader, MAX_AI_HTTP_LINE_BYTES) {
-            Ok(Some(line)) => line,
-            Ok(None) => {
-                let err = AiConnectionError::Protocol {
-                    message: "Provider closed the connection before an HTTP status line.".into(),
-                };
-                on_event(AiStreamEvent::Failed {
-                    request_id: request.request_id.clone(),
-                    error: err.clone(),
-                });
-                return Err(err);
-            }
-            Err(error) => {
-                let err = response_read_error(error, profile.timeout_ms);
-                on_event(AiStreamEvent::Failed {
-                    request_id: request.request_id.clone(),
-                    error: err.clone(),
-                });
-                return Err(err);
-            }
-        };
-
-        let status = match parse_http_status(&status_line) {
-            Ok(s) => s,
-            Err(err) => {
-                on_event(AiStreamEvent::Failed {
-                    request_id: request.request_id.clone(),
-                    error: err.clone(),
-                });
-                return Err(err);
-            }
-        };
-
-        let mut resp_headers = Vec::new();
-        let mut response_header_bytes = 0usize;
-        loop {
-            match read_bounded_line(&mut reader, MAX_AI_HTTP_LINE_BYTES) {
-                Ok(None) => break,
-                Ok(Some(hline)) => {
-                    if hline == "\r\n" || hline == "\n" {
-                        break;
-                    }
-                    response_header_bytes = response_header_bytes.saturating_add(hline.len());
-                    if response_header_bytes > 64 * 1024 || resp_headers.len() >= 256 {
-                        let err = AiConnectionError::Protocol {
-                            message:
-                                "Provider response headers exceed the 64 KiB / 256-field limit."
-                                    .into(),
-                        };
-                        on_event(AiStreamEvent::Failed {
-                            request_id: request.request_id.clone(),
-                            error: err.clone(),
-                        });
-                        return Err(err);
-                    }
-                    if let Some((k, v)) = hline.split_once(':') {
-                        resp_headers.push((k.trim().to_owned(), v.trim().to_owned()));
-                    }
-                }
-                Err(error) => {
-                    let err = response_read_error(error, profile.timeout_ms);
-                    on_event(AiStreamEvent::Failed {
-                        request_id: request.request_id.clone(),
-                        error: err.clone(),
-                    });
-                    return Err(err);
-                }
-            }
-        }
-
-        let uses_chunked_transfer = match response_uses_chunked_transfer(&resp_headers) {
-            Ok(value) => value,
-            Err(err) => {
-                on_event(AiStreamEvent::Failed {
-                    request_id: request.request_id.clone(),
-                    error: err.clone(),
-                });
-                return Err(err);
-            }
-        };
-        // HTTP chunk framing is a transport detail. Decode it before applying diagnostic-body,
-        // SSE-line, and total-response limits so those limits continue to describe provider data.
-        let mut body_reader: Box<dyn BufRead> = if uses_chunked_transfer {
-            Box::new(BufReader::new(ChunkedBodyReader::new(reader)))
-        } else {
-            Box::new(reader)
-        };
-
-        if status == 429 || (500..600).contains(&status) {
-            let err_body = match read_error_body_bounded(body_reader.as_mut()) {
-                Ok(body) => body,
-                Err(error) => {
-                    let err = response_read_error(error, profile.timeout_ms);
-                    on_event(AiStreamEvent::Failed {
-                        request_id: request.request_id.clone(),
-                        error: err.clone(),
-                    });
-                    return Err(err);
-                }
-            };
-            let retry_after_ms = parse_retry_after_ms(&resp_headers);
-            let message = if err_body.trim().is_empty() {
-                status_line.trim().to_owned()
-            } else {
-                redact_sensitive_tokens(err_body.trim())
-            };
-            if status == 429 {
-                on_event(AiStreamEvent::RateLimited {
-                    request_id: request.request_id.clone(),
-                    retry_after_ms,
-                    message: message.clone(),
-                });
-            }
-            if attempt < profile.max_retries {
-                attempt += 1;
-                let delay_ms = retry_after_ms.unwrap_or(20 * u64::from(attempt)).min(250);
-                on_event(AiStreamEvent::RetryScheduled {
-                    request_id: request.request_id.clone(),
-                    attempt,
-                    delay_ms,
-                    reason: format!("HTTP {status}"),
-                });
-                let deadline = Instant::now() + Duration::from_millis(delay_ms);
-                while Instant::now() < deadline {
-                    if cancel_token.is_cancelled() {
-                        on_event(AiStreamEvent::Cancelled {
-                            request_id: request.request_id.clone(),
-                        });
-                        return Err(AiConnectionError::Cancelled);
-                    }
-                    std::thread::sleep(Duration::from_millis(5));
-                }
-                continue;
-            }
-            let err = if status == 429 {
-                AiConnectionError::RateLimited {
-                    retry_after_ms,
-                    message,
-                }
-            } else {
-                AiConnectionError::HttpStatus { status, message }
-            };
-            on_event(AiStreamEvent::Failed {
-                request_id: request.request_id.clone(),
-                error: err.clone(),
-            });
-            return Err(err);
-        }
-
-        if !(200..300).contains(&status) {
-            let err_body = match read_error_body_bounded(body_reader.as_mut()) {
-                Ok(body) => body,
-                Err(error) => {
-                    let err = response_read_error(error, profile.timeout_ms);
-                    on_event(AiStreamEvent::Failed {
-                        request_id: request.request_id.clone(),
-                        error: err.clone(),
-                    });
-                    return Err(err);
-                }
-            };
-            let err = AiConnectionError::HttpStatus {
-                status,
-                message: redact_sensitive_tokens(err_body.trim()),
-            };
-            on_event(AiStreamEvent::Failed {
-                request_id: request.request_id.clone(),
-                error: err.clone(),
-            });
-            return Err(err);
-        }
-
-        on_event(AiStreamEvent::Started {
-            request_id: request.request_id.clone(),
-            provider: profile.kind,
-            model: model_name,
-        });
-
         let mut full_text = String::new();
-        let mut decoded_body_bytes = 0usize;
-        loop {
-            if cancel_token.is_cancelled() {
+        let mut sse_error: Option<AiConnectionError> = None;
+
+        let transport_result = if request.stream {
+            let started_req_id = request.request_id.clone();
+            let started_model = model_name.clone();
+            let provider_kind = profile.kind;
+            let delta_req_id = request.request_id.clone();
+            let on_event_cell = std::cell::RefCell::new(&mut on_event);
+            stream_ai_post_lines(
+                &endpoint,
+                &formatted.path_and_query,
+                &formatted.headers,
+                &formatted.body,
+                timeout,
+                &cancel_token.cancelled,
+                || {
+                    (on_event_cell.borrow_mut())(AiStreamEvent::Started {
+                        request_id: started_req_id,
+                        provider: provider_kind,
+                        model: started_model,
+                    });
+                },
+                |line| match parse_sse_line(provider_kind, line) {
+                    Ok(SseParseOutcome::Ignore) => Ok(true),
+                    Ok(SseParseOutcome::Delta(delta)) => {
+                        let safe_delta = redact_sensitive_tokens(&delta);
+                        if full_text.len().saturating_add(safe_delta.len()) > MAX_AI_RESPONSE_BYTES
+                        {
+                            sse_error = Some(AiConnectionError::Protocol {
+                                message: format!(
+                                    "Provider response exceeds the {} MiB limit.",
+                                    MAX_AI_RESPONSE_BYTES / (1024 * 1024)
+                                ),
+                            });
+                            return Err(AiHttpError::Protocol("response_limit".into()));
+                        }
+                        full_text.push_str(&safe_delta);
+                        (on_event_cell.borrow_mut())(AiStreamEvent::TextDelta {
+                            request_id: delta_req_id.clone(),
+                            delta: safe_delta,
+                        });
+                        Ok(true)
+                    }
+                    Ok(SseParseOutcome::Done) => Ok(false),
+                    Err(err) => {
+                        sse_error = Some(err);
+                        Err(AiHttpError::Protocol("sse_parse_error".into()))
+                    }
+                },
+            )
+        } else {
+            send_ai_post_json(
+                &endpoint,
+                &formatted.path_and_query,
+                &formatted.headers,
+                &formatted.body,
+                timeout,
+                &cancel_token.cancelled,
+            )
+            .and_then(|json_body| {
+                on_event(AiStreamEvent::Started {
+                    request_id: request.request_id.clone(),
+                    provider: profile.kind,
+                    model: model_name.clone(),
+                });
+                match parse_non_streaming_response(profile.kind, &json_body) {
+                    Ok(parsed_text) => {
+                        if !parsed_text.is_empty() {
+                            on_event(AiStreamEvent::TextDelta {
+                                request_id: request.request_id.clone(),
+                                delta: parsed_text.clone(),
+                            });
+                        }
+                        full_text = parsed_text;
+                        Ok(())
+                    }
+                    Err(err) => {
+                        sse_error = Some(err);
+                        Err(AiHttpError::Protocol("json_parse_error".into()))
+                    }
+                }
+            })
+        };
+
+        if let Err(http_err) = transport_result {
+            if let Some(err) = sse_error {
+                on_event(AiStreamEvent::Failed {
+                    request_id: request.request_id.clone(),
+                    error: err.clone(),
+                });
+                return Err(err);
+            }
+            if matches!(http_err, AiHttpError::Cancelled) || cancel_token.is_cancelled() {
                 on_event(AiStreamEvent::Cancelled {
                     request_id: request.request_id.clone(),
                 });
                 return Err(AiConnectionError::Cancelled);
             }
-            match read_bounded_line(body_reader.as_mut(), MAX_AI_HTTP_LINE_BYTES) {
-                Ok(None) => break,
-                Ok(Some(line)) => {
-                    decoded_body_bytes = decoded_body_bytes.saturating_add(line.len());
-                    if decoded_body_bytes > MAX_AI_RESPONSE_BYTES {
-                        let err = AiConnectionError::Protocol {
-                            message: format!(
-                                "Provider response exceeds the {} MiB limit.",
-                                MAX_AI_RESPONSE_BYTES / (1024 * 1024)
-                            ),
-                        };
-                        on_event(AiStreamEvent::Failed {
-                            request_id: request.request_id.clone(),
-                            error: err.clone(),
-                        });
-                        return Err(err);
-                    }
-                    match parse_sse_line(profile.kind, &line) {
-                        Ok(SseParseOutcome::Ignore) => {}
-                        Ok(SseParseOutcome::Delta(delta)) => {
-                            let safe_delta = redact_sensitive_tokens(&delta);
-                            if full_text.len().saturating_add(safe_delta.len())
-                                > MAX_AI_RESPONSE_BYTES
-                            {
-                                let err = AiConnectionError::Protocol {
-                                    message: format!(
-                                        "Provider response exceeds the {} MiB limit.",
-                                        MAX_AI_RESPONSE_BYTES / (1024 * 1024)
-                                    ),
-                                };
-                                on_event(AiStreamEvent::Failed {
-                                    request_id: request.request_id.clone(),
-                                    error: err.clone(),
-                                });
-                                return Err(err);
-                            }
-                            full_text.push_str(&safe_delta);
-                            on_event(AiStreamEvent::TextDelta {
-                                request_id: request.request_id.clone(),
-                                delta: safe_delta,
-                            });
-                        }
-                        Ok(SseParseOutcome::Done) => break,
-                        Err(err) => {
-                            on_event(AiStreamEvent::Failed {
-                                request_id: request.request_id.clone(),
-                                error: err.clone(),
-                            });
-                            return Err(err);
-                        }
-                    }
-                }
-                Err(error) => {
-                    let err = response_read_error(error, profile.timeout_ms);
-                    on_event(AiStreamEvent::Failed {
+
+            let retryable = match &http_err {
+                AiHttpError::RateLimited {
+                    retry_after_ms,
+                    body,
+                } => Some((429u16, *retry_after_ms, body.as_str())),
+                AiHttpError::HttpStatus {
+                    status,
+                    retry_after_ms,
+                    body,
+                } if (500..600).contains(status) => Some((*status, *retry_after_ms, body.as_str())),
+                _ => None,
+            };
+
+            if let Some((status, retry_after_ms, raw_body)) = retryable {
+                let message = if raw_body.trim().is_empty() {
+                    format!("HTTP {status}")
+                } else {
+                    redact_sensitive_tokens(raw_body.trim())
+                };
+                if status == 429 {
+                    on_event(AiStreamEvent::RateLimited {
                         request_id: request.request_id.clone(),
-                        error: err.clone(),
+                        retry_after_ms,
+                        message: message.clone(),
                     });
-                    return Err(err);
                 }
+                if attempt < profile.max_retries {
+                    attempt += 1;
+                    let delay_ms = retry_after_ms
+                        .unwrap_or(50 * u64::from(attempt))
+                        .min(30_000);
+                    on_event(AiStreamEvent::RetryScheduled {
+                        request_id: request.request_id.clone(),
+                        attempt,
+                        delay_ms,
+                        reason: format!("HTTP {status}"),
+                    });
+                    let deadline = Instant::now() + Duration::from_millis(delay_ms);
+                    while Instant::now() < deadline {
+                        if cancel_token.is_cancelled() {
+                            on_event(AiStreamEvent::Cancelled {
+                                request_id: request.request_id.clone(),
+                            });
+                            return Err(AiConnectionError::Cancelled);
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    continue;
+                }
+                let err = if status == 429 {
+                    AiConnectionError::RateLimited {
+                        retry_after_ms,
+                        message,
+                    }
+                } else {
+                    AiConnectionError::HttpStatus { status, message }
+                };
+                on_event(AiStreamEvent::Failed {
+                    request_id: request.request_id.clone(),
+                    error: err.clone(),
+                });
+                return Err(err);
             }
+
+            let err = map_ai_http_error(http_err, profile.timeout_ms);
+            on_event(AiStreamEvent::Failed {
+                request_id: request.request_id.clone(),
+                error: err.clone(),
+            });
+            return Err(err);
         }
 
         let proposals = parse_untrusted_proposals(&full_text);
@@ -2051,18 +2526,28 @@ impl AiConnectionWorker {
         let (tx, rx) = mpsc::channel();
         let cancel_token = CancellationToken::new();
         let worker_cancel = cancel_token.clone();
+        #[cfg(test)]
+        let inherited_override = current_loopback_http_override();
         let handle = std::thread::Builder::new()
             .name("neoflash-ai-connection".into())
             .spawn(move || {
-                let _ = run_streaming_request(
-                    &profile,
-                    &request,
-                    secret_store.as_ref(),
-                    &worker_cancel,
-                    |event| {
-                        let _ = tx.send(event);
-                    },
-                );
+                let run = || {
+                    let _ = run_streaming_request(
+                        &profile,
+                        &request,
+                        secret_store.as_ref(),
+                        &worker_cancel,
+                        |event| {
+                            let _ = tx.send(event);
+                        },
+                    );
+                };
+                #[cfg(test)]
+                if let Some(origin) = inherited_override.as_deref() {
+                    with_test_loopback_http_override(origin, run);
+                    return;
+                }
+                run();
             })
             .ok();
         Self {
@@ -2108,6 +2593,7 @@ impl Drop for AiConnectionWorker {
 mod tests {
     use super::*;
     use neoflash_core::{Element, ResourceUnit, Transform};
+    use std::io::Write;
     use std::net::TcpListener;
 
     fn sample_context_pack() -> AiContextPack {
@@ -2175,23 +2661,30 @@ mod tests {
                 match expected_kind {
                     AiProviderKind::OpenAi => {
                         assert!(request_line.starts_with("POST /v1/chat/completions "));
-                        assert!(
-                            headers
-                                .iter()
-                                .any(|h| h == "Authorization: Bearer sk-test-openai-secret-12345")
-                        );
+                        assert!(headers.iter().any(|h| {
+                            h.split_once(':').is_some_and(|(k, v)| {
+                                k.eq_ignore_ascii_case("authorization")
+                                    && v.trim() == "Bearer sk-test-openai-secret-12345"
+                            })
+                        }));
                     }
                     AiProviderKind::LocalOpenAiCompatible => {
                         assert!(request_line.starts_with("POST /v1/chat/completions "));
                     }
                     AiProviderKind::Anthropic => {
                         assert!(request_line.starts_with("POST /v1/messages "));
-                        assert!(
-                            headers
-                                .iter()
-                                .any(|h| h == "x-api-key: sk-ant-secret-key-67890")
-                        );
-                        assert!(headers.iter().any(|h| h == "anthropic-version: 2023-06-01"));
+                        assert!(headers.iter().any(|h| {
+                            h.split_once(':').is_some_and(|(k, v)| {
+                                k.eq_ignore_ascii_case("x-api-key")
+                                    && v.trim() == "sk-ant-secret-key-67890"
+                            })
+                        }));
+                        assert!(headers.iter().any(|h| {
+                            h.split_once(':').is_some_and(|(k, v)| {
+                                k.eq_ignore_ascii_case("anthropic-version")
+                                    && v.trim() == "2023-06-01"
+                            })
+                        }));
                     }
                     AiProviderKind::Gemini => {
                         assert!(
@@ -2201,10 +2694,15 @@ mod tests {
                             "unexpected Gemini request line: {request_line}"
                         );
                         assert!(
-                            headers
-                                .iter()
-                                .any(|h| h == "x-goog-api-key: AIzaSyTestGeminiKey123456789")
+                            !request_line.contains("AIza"),
+                            "Gemini API key must never appear in request URI: {request_line}"
                         );
+                        assert!(headers.iter().any(|h| {
+                            h.split_once(':').is_some_and(|(k, v)| {
+                                k.eq_ignore_ascii_case("x-goog-api-key")
+                                    && v.trim() == "AIzaSyTestGeminiKey123456789"
+                            })
+                        }));
                     }
                 }
 
@@ -2277,9 +2775,21 @@ mod tests {
 
             let mut events = Vec::new();
             let cancel = CancellationToken::new();
-            let proposals =
+            let origin = format!("http://{addr}");
+            let proposals = if kind == AiProviderKind::LocalOpenAiCompatible {
                 run_streaming_request(&profile, &request, &store, &cancel, |ev| events.push(ev))
-                    .unwrap();
+                    .unwrap()
+            } else {
+                // Without explicit test override, cloud providers reject loopback http://
+                assert!(matches!(
+                    run_streaming_request(&profile, &request, &store, &cancel, |_| {}),
+                    Err(AiConnectionError::InvalidEndpoint { .. })
+                ));
+                with_test_loopback_http_override(&origin, || {
+                    run_streaming_request(&profile, &request, &store, &cancel, |ev| events.push(ev))
+                        .unwrap()
+                })
+            };
 
             server.join().unwrap();
             assert!(!proposals.is_empty());
@@ -2950,10 +3460,25 @@ mod tests {
             "https://api.example.com",
             "gpt-4.1",
         );
-        assert!(matches!(
-            test_provider_connection(&https_profile, &store),
-            Err(AiConnectionError::InvalidEndpoint { .. })
-        ));
+        assert!(validate_profile_endpoint(&https_profile).is_ok());
+
+        for cloud_kind in [
+            AiProviderKind::OpenAi,
+            AiProviderKind::Anthropic,
+            AiProviderKind::Gemini,
+        ] {
+            let loopback_cloud = AiProviderProfile::new(
+                "provider",
+                "Loopback Cloud",
+                cloud_kind,
+                "http://127.0.0.1:8080",
+                "model-1",
+            );
+            assert!(matches!(
+                test_provider_connection(&loopback_cloud, &store),
+                Err(AiConnectionError::InvalidEndpoint { .. })
+            ));
+        }
 
         let mut gemini_request = request.clone();
         gemini_request.model = Some("gemini-safe\r\nInjected".into());
