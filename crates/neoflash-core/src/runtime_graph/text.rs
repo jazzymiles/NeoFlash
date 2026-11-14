@@ -126,7 +126,13 @@ impl Player {
         if state.as2_viewport.auto_size == "none" {
             return Ok(false);
         }
-        let layout = state.layout_portable(None)?;
+        let font_bytes = crate::resolve_project_font_bytes(
+            project,
+            &state.format.font,
+            state.format.bold,
+            state.format.italic,
+        );
+        let layout = state.layout_portable(font_bytes.as_deref())?;
         self.as2_text_fit(project, reference, &layout)
     }
 

@@ -817,6 +817,82 @@ fn font_policies_embed_subset_and_convert_static_text_to_outlines() {
 }
 
 #[test]
+fn font_subset_fallback_emits_explicit_per_font_diagnostics_without_stale_placeholder() {
+    let dir = temp();
+    let rt = dir.join("runtime");
+    runtime(&rt);
+
+    let mut project = Project::blank();
+    project.format_version = 7;
+    let ttf_bytes = include_bytes!("../../neoflash-ui/assets/fonts/Inter-Regular.ttf");
+    project.resources.push(
+        neoflash_core::ResourceUnit::from_bytes(
+            "font-dyn-unbounded",
+            "fonts/DynamicUnbounded.ttf",
+            "font/ttf",
+            ttf_bytes,
+        )
+        .unwrap(),
+    );
+    let dyn_fmt = neoflash_core::TextFormat {
+        font: "DynamicUnbounded".to_owned(),
+        size: 16.0,
+        ..neoflash_core::TextFormat::default()
+    };
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(neoflash_core::Element {
+            id: "dyn-score".to_owned(),
+            name: "score_txt".to_owned(),
+            kind: ElementKind::TextBox {
+                text: "0".to_owned(),
+                width: 120.0,
+                height: 28.0,
+                format: dyn_fmt,
+                word_wrap: false,
+                multiline: false,
+            },
+            ..Default::default()
+        });
+
+    let out_dir = dir.join("out-fallback");
+    export_project_with_policy(&project, &out_dir, &rt, FontExportPolicy::Subset).unwrap();
+    let bundle: serde_json::Value = serde_json::from_str(
+        fs::read_to_string(out_dir.join("bundle.js"))
+            .unwrap()
+            .strip_prefix("globalThis.NeoFlashBundle = ")
+            .unwrap()
+            .strip_suffix(";\n")
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(bundle["fonts"]["subset_stats"][0]["subset_applied"], false);
+    assert!(
+        bundle["fonts"]["metrics"]["DynamicUnbounded"]["advances"]["77"]
+            .as_u64()
+            .is_some(),
+        "preserved font must still export embedded portable font metrics"
+    );
+    let warnings: Vec<String> = bundle["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_owned))
+        .collect();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("DynamicUnbounded") && w.contains("Dynamic/Input")),
+        "expected explicit per-font fallback warning, got: {warnings:?}"
+    );
+    assert!(
+        !warnings.iter().any(|w| w.contains("not implemented yet")),
+        "stale subsetting warning must never appear: {warnings:?}"
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn selected_text_embedding_uses_authored_family_style_ranges_and_field_state() {
     let dir = temp();
     let rt = dir.join("runtime");

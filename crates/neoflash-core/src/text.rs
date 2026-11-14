@@ -4739,78 +4739,35 @@ impl PortableFontMetrics {
 }
 
 fn parse_sfnt_metrics(family: &str, bytes: &[u8]) -> Option<PortableFontMetrics> {
-    if bytes.len() < 12 {
-        return None;
-    }
-    let is_woff = &bytes[0..4] == b"wOFF";
-    let num_tables = if is_woff {
-        if bytes.len() < 44 {
-            return None;
-        }
-        u16::from_be_bytes([bytes[12], bytes[13]]) as usize
-    } else {
-        u16::from_be_bytes([bytes[4], bytes[5]]) as usize
-    };
+    let sfnt = sfnt_view_bytes(bytes)?;
+    let bytes = sfnt.as_ref();
+    let num_tables = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
     let mut tables = std::collections::HashMap::<[u8; 4], (usize, usize)>::new();
     for i in 0..num_tables.min(128) {
-        if is_woff {
-            let entry = 44 + i * 20;
-            if entry + 20 > bytes.len() {
-                break;
-            }
-            let tag = [
-                bytes[entry],
-                bytes[entry + 1],
-                bytes[entry + 2],
-                bytes[entry + 3],
-            ];
-            let offset = u32::from_be_bytes([
-                bytes[entry + 4],
-                bytes[entry + 5],
-                bytes[entry + 6],
-                bytes[entry + 7],
-            ]) as usize;
-            let comp_len = u32::from_be_bytes([
-                bytes[entry + 8],
-                bytes[entry + 9],
-                bytes[entry + 10],
-                bytes[entry + 11],
-            ]) as usize;
-            let orig_len = u32::from_be_bytes([
-                bytes[entry + 12],
-                bytes[entry + 13],
-                bytes[entry + 14],
-                bytes[entry + 15],
-            ]) as usize;
-            if comp_len == orig_len && offset.saturating_add(comp_len) <= bytes.len() {
-                tables.insert(tag, (offset, comp_len));
-            }
-        } else {
-            let entry = 12 + i * 16;
-            if entry + 16 > bytes.len() {
-                break;
-            }
-            let tag = [
-                bytes[entry],
-                bytes[entry + 1],
-                bytes[entry + 2],
-                bytes[entry + 3],
-            ];
-            let offset = u32::from_be_bytes([
-                bytes[entry + 8],
-                bytes[entry + 9],
-                bytes[entry + 10],
-                bytes[entry + 11],
-            ]) as usize;
-            let length = u32::from_be_bytes([
-                bytes[entry + 12],
-                bytes[entry + 13],
-                bytes[entry + 14],
-                bytes[entry + 15],
-            ]) as usize;
-            if offset.saturating_add(length) <= bytes.len() {
-                tables.insert(tag, (offset, length));
-            }
+        let entry = 12 + i * 16;
+        if entry + 16 > bytes.len() {
+            break;
+        }
+        let tag = [
+            bytes[entry],
+            bytes[entry + 1],
+            bytes[entry + 2],
+            bytes[entry + 3],
+        ];
+        let offset = u32::from_be_bytes([
+            bytes[entry + 8],
+            bytes[entry + 9],
+            bytes[entry + 10],
+            bytes[entry + 11],
+        ]) as usize;
+        let length = u32::from_be_bytes([
+            bytes[entry + 12],
+            bytes[entry + 13],
+            bytes[entry + 14],
+            bytes[entry + 15],
+        ]) as usize;
+        if offset.saturating_add(length) <= bytes.len() {
+            tables.insert(tag, (offset, length));
         }
     }
     let &(head_off, head_len) = tables.get(b"head")?;

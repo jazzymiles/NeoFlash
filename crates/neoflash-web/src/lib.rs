@@ -754,7 +754,26 @@ impl WebPlayer {
         strings_json: &str,
         format_json: &str,
     ) -> Result<String, JsValue> {
-        portable_measure_text_json(strings_json, format_json)
+        if strings_json.len() > 8 * 1024 * 1024 || format_json.len() > 64 * 1024 {
+            return Err(JsValue::from_str(
+                "Portable text measurement input exceeds size budget",
+            ));
+        }
+        let strings: Vec<String> = serde_json::from_str(strings_json).map_err(display_error)?;
+        let format: neoflash_core::TextFormat =
+            serde_json::from_str(format_json).map_err(display_error)?;
+        let font_bytes = neoflash_core::resolve_project_font_bytes(
+            &self.project,
+            &format.font,
+            format.bold,
+            format.italic,
+        );
+        serde_json::to_string(&neoflash_core::TextFormat::portable_measure_strings(
+            &strings,
+            &format,
+            font_bytes.as_deref(),
+        ))
+        .map_err(display_error)
     }
     pub fn parse_html_text_json(&self, field_json: &str, html: &str) -> Result<String, JsValue> {
         parse_html_text_json(field_json, html)
@@ -763,7 +782,18 @@ impl WebPlayer {
         serialize_html_text_json(field_json)
     }
     pub fn text_to_outlines_json(&self, field_json: &str) -> Result<String, JsValue> {
-        text_to_outlines_json(field_json)
+        if field_json.len() > 8 * 1024 * 1024 {
+            return Err(JsValue::from_str("Text field state exceeds 8 MiB"));
+        }
+        let field: TextFieldState = serde_json::from_str(field_json).map_err(display_error)?;
+        let font_bytes = neoflash_core::resolve_project_font_bytes(
+            &self.project,
+            &field.format.font,
+            field.format.bold,
+            field.format.italic,
+        );
+        let commands = field.to_outline_commands(font_bytes.as_deref());
+        serde_json::to_string(&commands).map_err(display_error)
     }
     pub fn object_text_fit_portable(&mut self, target: &str) -> Result<String, JsValue> {
         let layout = self

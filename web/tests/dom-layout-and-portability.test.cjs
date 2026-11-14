@@ -1082,3 +1082,637 @@ test('TextInput: clicking Dynamic/Static text keeps Canvas text visible without 
   textInput.dispose();
   player.free();
 });
+
+function packSfntToWoff1ForTest(sfntBuf) {
+  const zlib = require('node:zlib');
+  const sfntVer = sfntBuf.readUInt32BE(0);
+  const numTables = sfntBuf.readUInt16BE(4);
+  const tableRecords = [];
+  let totalSfntSize = 12 + numTables * 16;
+  for (let i = 0; i < numTables; i += 1) {
+    const off = 12 + i * 16;
+    const tag = sfntBuf.subarray(off, off + 4);
+    const checksum = sfntBuf.readUInt32BE(off + 4);
+    const offset = sfntBuf.readUInt32BE(off + 8);
+    const length = sfntBuf.readUInt32BE(off + 12);
+    const raw = sfntBuf.subarray(offset, offset + length);
+    totalSfntSize += (length + 3) & ~3;
+    const compressed = zlib.deflateSync(raw, { level: 6 });
+    const data = compressed.length < raw.length ? compressed : raw;
+    tableRecords.push({ tag, checksum, origLength: length, data });
+  }
+  const dirStart = 44;
+  let dataOffset = dirStart + numTables * 20;
+  for (const rec of tableRecords) {
+    rec.outOffset = dataOffset;
+    dataOffset += (rec.data.length + 3) & ~3;
+  }
+  const out = Buffer.alloc(dataOffset);
+  out.write('wOFF', 0, 'ascii');
+  out.writeUInt32BE(sfntVer, 4);
+  out.writeUInt32BE(out.length, 8);
+  out.writeUInt16BE(numTables, 12);
+  out.writeUInt16BE(0, 14);
+  out.writeUInt32BE(totalSfntSize, 16);
+  out.writeUInt16BE(1, 20);
+  out.writeUInt16BE(0, 22);
+  for (let i = 0; i < tableRecords.length; i += 1) {
+    const rec = tableRecords[i];
+    const entryOff = dirStart + i * 20;
+    rec.tag.copy(out, entryOff);
+    out.writeUInt32BE(rec.outOffset, entryOff + 4);
+    out.writeUInt32BE(rec.data.length, entryOff + 8);
+    out.writeUInt32BE(rec.origLength, entryOff + 12);
+    out.writeUInt32BE(rec.checksum, entryOff + 16);
+    rec.data.copy(out, rec.outOffset);
+  }
+  return out;
+}
+
+test('Portable text metrics resolve embedded TTF and WOFF1 fonts via WebPlayer without Canvas 2D', async () => {
+  const { context, wasm, ready } = loadWasmAndModules();
+  await ready;
+  const interBytes = fs.readFileSync(
+    path.resolve(__dirname, '../../crates/neoflash-ui/assets/fonts/Inter-Regular.ttf')
+  );
+  const woffBytes = packSfntToWoff1ForTest(interBytes);
+
+  const makeFmt = (font) => ({
+    font,
+    size: 24,
+    color: 0,
+    bold: false,
+    italic: false,
+    leading: 0,
+    align: 'left',
+    leftMargin: 0,
+    rightMargin: 0,
+    indent: 0,
+    blockIndent: 0,
+    underline: false,
+    letterSpacing: 0,
+    kerning: false,
+    bullet: false,
+    tabStops: [],
+    url: '',
+    target: '',
+  });
+
+  const builtinWidths = JSON.parse(
+    wasm.portable_measure_text_json(JSON.stringify(['MMMM', 'iiii']), JSON.stringify(makeFmt('NonExistentCleanFont294')))
+  );
+
+  for (const [label, family, mediaType, bytes] of [
+    ['TTF', 'NeoCleanWasmTtf294', 'font/ttf', interBytes],
+    ['WOFF1', 'NeoCleanWasmWoff294', 'font/woff', woffBytes],
+  ]) {
+    const proj = makeBlankProject();
+    proj.format_version = 7;
+    proj.resources = [
+      {
+        id: 'font-res',
+        path: `fonts/${family}.${label === 'WOFF1' ? 'woff' : 'ttf'}`,
+        media_type: mediaType,
+        data_base64: bytes.toString('base64'),
+      },
+      {
+        id: 'font-meta',
+        path: 'fonts/embedding.json',
+        media_type: 'application/json',
+        data_base64: Buffer.from(
+          JSON.stringify([{ id: 'font-res', family, style: 'Regular', ranges: [], extra_chars: '' }])
+        ).toString('base64'),
+      },
+    ];
+
+    const player = new wasm.WebPlayer(JSON.stringify(proj));
+    const embeddedWidths = JSON.parse(
+      player.portable_measure_text_json(JSON.stringify(['MMMM', 'iiii']), JSON.stringify(makeFmt(family)))
+    );
+    assert.ok(
+      embeddedWidths[0] > embeddedWidths[1] * 3.0,
+      `${label}: expected Inter M width >> i width, got ${JSON.stringify(embeddedWidths)}`
+    );
+    assert.ok(
+      Math.abs(embeddedWidths[0] - builtinWidths[0]) > 2.0 ||
+        Math.abs(embeddedWidths[1] - builtinWidths[1]) > 0.5,
+      `${label}: expected embedded SFNT/WOFF1 advance widths (${JSON.stringify(embeddedWidths)}) to differ from builtin heuristic (${JSON.stringify(builtinWidths)})`
+    );
+
+    const textService = context.NeoFlashText.create({
+      player,
+      wasm,
+      events: context.NeoFlashEvents,
+      project: proj,
+      onUpdate: () => {},
+    });
+    const ref = player.create_display('text_field');
+    textService.update(ref, {
+      text: 'MMMM',
+      width: 20,
+      height: 28,
+      multiline: false,
+      word_wrap: false,
+      embed_fonts: true,
+      format: { font: family, size: 24 },
+    });
+    textService.set(ref, 'autoSize', 'left');
+    const twM = textService.get(ref, 'textWidth');
+    assert.ok(
+      Math.abs(twM - embeddedWidths[0]) < 1.0,
+      `${label}: autoSize textWidth (${twM}) must match embedded portable measurement (${embeddedWidths[0]})`
+    );
+    textService.set(ref, 'text', 'iiii');
+    const twI = textService.get(ref, 'textWidth');
+    assert.ok(twM > twI * 3.0, `${label}: embedded autoSize ratio check (${twM} vs ${twI})`);
+
+    textService.dispose();
+    player.free();
+  }
+});
+
+test('Clean-machine browser runtime loads embedded @font-face before Frame 0 layout, measurement, Canvas 2D paint, and DOM overlay', async () => {
+  const { spawn } = require('node:child_process');
+  const http = require('node:http');
+  const os = require('node:os');
+
+  const chromeCandidates = [
+    process.env.CHROME_BIN,
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  ].filter(Boolean);
+  const chromeBin = chromeCandidates.find((p) => fs.existsSync(p));
+  assert.ok(chromeBin, `Headless Chrome binary not found; checked ${chromeCandidates.join(', ')}`);
+
+  const interBytes = fs.readFileSync(
+    path.resolve(__dirname, '../../crates/neoflash-ui/assets/fonts/Inter-Regular.ttf')
+  );
+  const woffBytes = packSfntToWoff1ForTest(interBytes);
+  const cleanFamily = 'NeoCleanMachineUnique294';
+  const cleanWoffFamily = 'NeoCleanMachineWoff294';
+
+  const frame0Script = `
+    this.tfM.autoSize = 'left';
+    this.tfI.autoSize = 'left';
+    trace('CLEAN_METRICS=' + JSON.stringify({
+      wM: this.tfM.textWidth,
+      wI: this.tfI.textWidth,
+      bM: this.tfM.width,
+      bI: this.tfI.width,
+      woffM: this.tfWoffM.textWidth,
+      woffI: this.tfWoffI.textWidth
+    }));
+  `;
+
+  const makeBox = (id, name, font, text, x, y) => ({
+    id,
+    name,
+    transform: { x, y, scale_x: 1, scale_y: 1, rotation: 0, alpha: 1 },
+    kind: {
+      type: 'text_box',
+      text,
+      width: 16,
+      height: 36,
+      word_wrap: false,
+      multiline: false,
+      format: {
+        font,
+        size: 24,
+        color: 0xffffff,
+        bold: false,
+        italic: false,
+        leading: 0,
+        align: 'left',
+        leftMargin: 0,
+        rightMargin: 0,
+        indent: 0,
+        blockIndent: 0,
+        underline: false,
+        letterSpacing: 0,
+        kerning: false,
+        bullet: false,
+        tabStops: [],
+        url: '',
+        target: '',
+        fieldOptions: {
+          field_type: 'dynamic',
+          selectable: false,
+          embed_fonts: true,
+          auto_size: 'left',
+        },
+      },
+    },
+    scripts: [],
+  });
+
+  const bundle = {
+    project: {
+      format_version: 7,
+      name: 'CleanMachineFont294',
+      width: 480,
+      height: 320,
+      fps: 24,
+      background: [18, 22, 31, 255],
+      root: 'root',
+      resources: [
+        {
+          id: 'clean-ttf',
+          path: `fonts/${cleanFamily}.ttf`,
+          media_type: 'font/ttf',
+          data_base64: interBytes.toString('base64'),
+        },
+        {
+          id: 'clean-woff',
+          path: `fonts/${cleanWoffFamily}.woff`,
+          media_type: 'font/woff',
+          data_base64: woffBytes.toString('base64'),
+        },
+        {
+          id: 'font-meta',
+          path: 'fonts/embedding.json',
+          media_type: 'application/json',
+          data_base64: Buffer.from(
+            JSON.stringify([
+              { id: 'clean-ttf', family: cleanFamily, style: 'Regular', ranges: [], extra_chars: '' },
+              { id: 'clean-woff', family: cleanWoffFamily, style: 'Regular', ranges: [], extra_chars: '' },
+            ])
+          ).toString('base64'),
+        },
+      ],
+      symbols: [
+        {
+          id: 'root',
+          name: 'Scene 1',
+          kind: 'movie_clip',
+          timeline: {
+            frame_count: 1,
+            layers: [
+              {
+                id: 'layer-main',
+                name: 'Layer 1',
+                visible: true,
+                locked: false,
+                keyframes: [
+                  {
+                    frame: 0,
+                    label: '',
+                    tween: null,
+                    elements: [
+                      makeBox('box-m', 'tfM', cleanFamily, 'MMMM', 20, 20),
+                      makeBox('box-i', 'tfI', cleanFamily, 'iiii', 20, 70),
+                      makeBox('box-wm', 'tfWoffM', cleanWoffFamily, 'MMMM', 240, 20),
+                      makeBox('box-wi', 'tfWoffI', cleanWoffFamily, 'iiii', 240, 70),
+                      {
+                        id: 'static-txt',
+                        name: '',
+                        transform: { x: 20, y: 150, scale_x: 1, scale_y: 1, rotation: 0, alpha: 1 },
+                        kind: {
+                          type: 'text',
+                          text: 'StaticClean294',
+                          font_family: cleanFamily,
+                          font_size: 28,
+                          color: [245, 245, 250, 255],
+                        },
+                        scripts: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+            scripts: [{ frame: 0, script: { language: 'java_script', source: frame0Script } }],
+          },
+        },
+      ],
+    },
+    wasm_url: '/runtime/neoflash_web_bg.wasm',
+    fonts: {
+      policy: 'subset',
+      // Deliberately omit <style> from index.html so runtime.js ensureBundleFontsLoaded()
+      // must inject css_rules, await face.load(), and await document.fonts.ready before Frame 0.
+      css_rules:
+        `@font-face { font-family: "${cleanFamily}"; font-style: normal; font-weight: 400; src: url('data:font/ttf;base64,${interBytes.toString('base64')}'); font-display: block; }\n` +
+        `@font-face { font-family: "${cleanWoffFamily}"; font-style: normal; font-weight: 400; src: url('data:font/woff;base64,${woffBytes.toString('base64')}'); font-display: block; }\n`,
+      metrics: {},
+      subset_stats: [],
+      outlined_elements: 0,
+    },
+    scripts: [
+      {
+        language: 'java_script',
+        source: frame0Script,
+        code: frame0Script,
+        location: 'Scene 1 / frame 1',
+        locations: ['Scene 1 / frame 1'],
+        source_url: 'neoflash-script-0.js',
+      },
+    ],
+    warnings: [],
+    player_config: { autoplay: false, preloader: true },
+  };
+
+  const hostModuleOrder = [
+    'path.js', 'accessibility.js', 'preview.js', 'events.js', 'stage.js', 'legacy-input.js',
+    'geom.js', 'geom3d.js', 'as2-strings.js', 'as2-platform.js', 'as2-object.js',
+    'as2-transitions.js', 'as2-depth-manager.js', 'as2-print.js', 'as2-boxing.js',
+    'as2-capture.js', 'as2-connections.js', 'as2-stage.js', 'as2-media.js', 'as2-services.js',
+    'as2-locale.js', 'as2-files.js', 'as2-network.js', 'as2-text.js', 'as2-data.js',
+    'as2-binding.js', 'as3-strings.js', 'as3-fte-3d.js', 'easing.js', 'math.js', 'date.js',
+    'number-format.js', 'broadcaster.js', 'timers.js', 'byte-array.js', 'net.js',
+    'external.js', 'bitmap.js', 'text.js', 'text-input.js', 'filters.js', 'audio-formats.js',
+    'audio.js', 'video.js', 'xml.js', 'loader.js', 'amf.js', 'storage.js', 'air.js',
+    'as3-net-sys.js', 'as3-media-events.js', 'display.js', 'dom-layout.js',
+  ];
+
+  const html = `<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>CleanMachine294</title></head>
+<body style="margin:0;background:#12161f;color:#fff;">
+  <div id="loading">Loading</div>
+  <div id="error" style="display:none"></div>
+  <div id="name"></div>
+  <div id="load-info"></div>
+  <div id="status">Booting</div>
+  <button id="toggle">Pause</button>
+  <button id="restart">Restart</button>
+  <button id="audio-toggle"></button>
+  <span id="audio-status"></span>
+  <select id="zoom"><option value="fit">Fit</option></select>
+  <button id="pan"></button>
+  <button id="fullscreen-toggle"></button>
+  <button id="report-toggle" hidden></button>
+  <pre id="size-report"></pre>
+  <pre id="trace"></pre>
+  <div id="viewport" style="width:480px;height:320px;position:relative;">
+    <div id="stage-space"><div id="stage-surface" style="position:relative;">
+      <canvas id="stage" width="480" height="320"></canvas>
+      <div id="semantic-layer"></div>
+    </div></div>
+  </div>
+  <script src="/runtime/neoflash_web.js"></script>
+  ${hostModuleOrder.map((f) => `<script src="/web/${f}"></script>`).join('\n  ')}
+  <script>window.NeoFlashBundle = ${JSON.stringify(bundle)};</script>
+  <script src="/web/runtime.js"></script>
+</body>
+</html>`;
+
+  const server = http.createServer((req, res) => {
+    const reqPath = decodeURIComponent((req.url || '/').split('?')[0]);
+    if (reqPath === '/' || reqPath === '/index.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+      return;
+    }
+    const target = reqPath.startsWith('/runtime/')
+      ? path.join(runtimeDir, path.basename(reqPath))
+      : reqPath.startsWith('/web/')
+        ? path.join(webDir, path.basename(reqPath))
+        : null;
+    if (!target || !fs.existsSync(target)) {
+      res.writeHead(404);
+      res.end('Not found');
+      return;
+    }
+    const ext = path.extname(target);
+    const mime =
+      ext === '.js' ? 'text/javascript; charset=utf-8'
+        : ext === '.wasm' ? 'application/wasm'
+          : 'application/octet-stream';
+    res.writeHead(200, { 'Content-Type': mime });
+    fs.createReadStream(target).pipe(res);
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-clean-font-294-'));
+  let chromeProc = null;
+  let ws = null;
+  try {
+    chromeProc = spawn(
+      chromeBin,
+      [
+        '--headless=new',
+        '--remote-debugging-port=0',
+        `--user-data-dir=${userDataDir}`,
+        '--no-first-run',
+        '--no-default-browser-check',
+        'about:blank',
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+    const wsUrl = await new Promise((resolve, reject) => {
+      let stderrBuf = '';
+      const timer = setTimeout(() => reject(new Error(`Chrome DevTools timeout: ${stderrBuf}`)), 15000);
+      chromeProc.stderr.on('data', async (chunk) => {
+        stderrBuf += chunk.toString();
+        const match = stderrBuf.match(/DevTools listening on (ws:\/\/\S+)/);
+        if (match) {
+          clearTimeout(timer);
+          try {
+            const devOrigin = match[1].replace(/^ws:/, 'http:').replace(/\/devtools\/.*/, '');
+            const resp = await fetch(`${devOrigin}/json/list`);
+            const targets = await resp.json();
+            const page = targets.find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
+            if (!page) reject(new Error('No page CDP target'));
+            else resolve(page.webSocketDebuggerUrl);
+          } catch (err) {
+            reject(err);
+          }
+        }
+      });
+      chromeProc.once('exit', (code) => {
+        clearTimeout(timer);
+        reject(new Error(`Chrome exited prematurely (${code}): ${stderrBuf}`));
+      });
+    });
+
+    ws = new WebSocket(wsUrl);
+    await new Promise((resolve, reject) => {
+      ws.addEventListener('open', resolve, { once: true });
+      ws.addEventListener('error', reject, { once: true });
+    });
+    let nextId = 1;
+    const pending = new Map();
+    const consoleErrors = [];
+    let loadResolve = null;
+    ws.addEventListener('message', (event) => {
+      const msg = JSON.parse(String(event.data));
+      if (msg.method === 'Page.loadEventFired' && loadResolve) {
+        const fn = loadResolve;
+        loadResolve = null;
+        fn();
+      } else if (msg.method === 'Runtime.exceptionThrown') {
+        consoleErrors.push(JSON.stringify(msg.params.exceptionDetails));
+      } else if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type === 'error') {
+        consoleErrors.push(JSON.stringify(msg.params.args));
+      } else if (msg.id && pending.has(msg.id)) {
+        const { resolve, reject } = pending.get(msg.id);
+        pending.delete(msg.id);
+        if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+        else resolve(msg.result);
+      }
+    });
+    const cdpSend = (method, params = {}) =>
+      new Promise((resolve, reject) => {
+        const id = nextId++;
+        pending.set(id, { resolve, reject });
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+    await cdpSend('Page.enable');
+    await cdpSend('Runtime.enable');
+    const loadedPromise = new Promise((resolve) => {
+      loadResolve = resolve;
+    });
+    await cdpSend('Page.navigate', { url: `http://127.0.0.1:${port}/index.html` });
+    await loadedPromise;
+    const evalJson = async (expression) => {
+      const res = await cdpSend('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+      if (res.exceptionDetails) throw new Error(JSON.stringify(res.exceptionDetails));
+      return res.result?.value;
+    };
+
+    const report = await evalJson(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 15000;
+        const tick = () => {
+          const loadingEl = document.getElementById('loading');
+          const errEl = document.getElementById('error');
+          if (errEl && errEl.textContent.trim()) {
+            reject(new Error('Runtime error element: ' + errEl.textContent));
+            return;
+          }
+          const traceText = document.getElementById('trace')?.textContent || '';
+          if (loadingEl && loadingEl.style.display === 'none' && traceText.includes('CLEAN_METRICS=') && window.NeoFlashPlayer) {
+            const faces = Array.from(document.fonts).map((f) => ({
+              family: f.family.replace(/^["']|["']$/g, ''),
+              status: f.status,
+              weight: f.weight,
+              style: f.style,
+            }));
+            const canvas = document.getElementById('stage');
+            const ctx = canvas.getContext('2d');
+            const sx = canvas.width / 480;
+            const sy = canvas.height / 320;
+            const countLitPixels = (rx, ry, rw, rh) => {
+              const img = ctx.getImageData(Math.floor(rx * sx), Math.floor(ry * sy), Math.max(1, Math.floor(rw * sx)), Math.max(1, Math.floor(rh * sy))).data;
+              let lit = 0;
+              for (let i = 0; i < img.length; i += 4) {
+                if (Math.abs(img[i] - 18) > 12 || Math.abs(img[i + 1] - 22) > 12 || Math.abs(img[i + 2] - 31) > 12) lit++;
+              }
+              return lit;
+            };
+            const domOverlayHost = document.createElement('div');
+            document.body.appendChild(domOverlayHost);
+            const domOverlay = new window.NeoFlashDomLayout.SemanticDomTextLayer(domOverlayHost, document);
+            domOverlay.sync(
+              [
+                {
+                  instance_path: ['static-txt'],
+                  transform: [1, 0, 0, 1, 20, 150],
+                  bounds: { x: 0, y: 0, width: 280, height: 40 },
+                  kind: {
+                    type: 'text',
+                    text: 'StaticClean294',
+                    font_family: ${JSON.stringify(cleanFamily)},
+                    font_size: 28,
+                    color: [245, 245, 250, 255],
+                  },
+                },
+                {
+                  instance_path: ['dom-m'],
+                  transform: [1, 0, 0, 1, 20, 200],
+                  bounds: { x: 0, y: 0, width: 280, height: 40 },
+                  kind: {
+                    type: 'text',
+                    text: 'MMMM',
+                    font_family: ${JSON.stringify(cleanWoffFamily)},
+                    font_size: 24,
+                    color: [245, 245, 250, 255],
+                  },
+                },
+                {
+                  instance_path: ['dom-i'],
+                  transform: [1, 0, 0, 1, 20, 240],
+                  bounds: { x: 0, y: 0, width: 280, height: 40 },
+                  kind: {
+                    type: 'text',
+                    text: 'iiii',
+                    font_family: ${JSON.stringify(cleanWoffFamily)},
+                    font_size: 24,
+                    color: [245, 245, 250, 255],
+                  },
+                },
+              ],
+              { x: 1, y: 1 }
+            );
+            const domTexts = Array.from(domOverlayHost.querySelectorAll('.neoflash-dom-text-node')).map((el) => {
+              const range = document.createRange();
+              range.selectNodeContents(el);
+              return {
+                text: el.textContent,
+                fontFamily: el.style.fontFamily,
+                fontWeight: el.style.fontWeight,
+                fontStyle: el.style.fontStyle,
+                glyphWidth: range.getBoundingClientRect().width,
+              };
+            });
+            resolve({
+              faces,
+              traceText,
+              litTtfBox: countLitPixels(18, 18, 120, 40),
+              litWoffBox: countLitPixels(238, 18, 120, 40),
+              litStaticText: countLitPixels(18, 145, 220, 45),
+              domTexts,
+              styleInjected: document.querySelectorAll('style[data-neoflash-fonts="true"]').length,
+            });
+            return;
+          }
+          if (Date.now() > deadline) {
+            reject(new Error('Timeout waiting for Frame 0 render: status=' + document.getElementById('status')?.textContent + ' trace=' + traceText));
+            return;
+          }
+          setTimeout(tick, 40);
+        };
+        tick();
+      })
+    `);
+
+    assert.deepEqual(consoleErrors, [], `Browser console errors: ${consoleErrors.join('; ')}`);
+    assert.equal(report.styleInjected, 1, 'runtime.js must inject bundle.fonts.css_rules dynamically when absent from <head>');
+
+    const ttfFace = report.faces.find((f) => f.family === cleanFamily);
+    const woffFace = report.faces.find((f) => f.family === cleanWoffFamily);
+    assert.equal(ttfFace?.status, 'loaded', `Clean-machine TTF @font-face must load: ${JSON.stringify(report.faces)}`);
+    assert.equal(woffFace?.status, 'loaded', `Clean-machine WOFF1 @font-face must load: ${JSON.stringify(report.faces)}`);
+
+    const match = report.traceText.match(/CLEAN_METRICS=(\{[^\n]+\})/);
+    assert.ok(match, `Missing Frame 0 metrics trace: ${report.traceText}`);
+    const metrics = JSON.parse(match[1]);
+    assert.ok(metrics.wM > metrics.wI * 3.0, `Frame 0 TTF Canvas metrics must reflect Inter M/i proportion, got ${JSON.stringify(metrics)}`);
+    assert.ok(metrics.woffM > metrics.woffI * 3.0, `Frame 0 WOFF1 Canvas metrics must reflect Inter M/i proportion, got ${JSON.stringify(metrics)}`);
+    assert.ok(metrics.bM > metrics.bI * 2.5, `Frame 0 autoSize width must grow with loaded @font-face: ${JSON.stringify(metrics)}`);
+
+    assert.ok(report.litTtfBox > 30, `Canvas 2D TTF TextBox drew ${report.litTtfBox} pixels`);
+    assert.ok(report.litWoffBox > 30, `Canvas 2D WOFF1 TextBox drew ${report.litWoffBox} pixels`);
+    assert.ok(report.litStaticText > 30, `Canvas 2D ElementKind::Text drew ${report.litStaticText} pixels`);
+
+    const staticDom = report.domTexts.find((d) => d.text.includes('StaticClean294'));
+    assert.ok(staticDom && staticDom.fontFamily.includes(cleanFamily) && staticDom.fontWeight === '400', `DOM overlay typography mismatch: ${JSON.stringify(report.domTexts)}`);
+    const domM = report.domTexts.find((d) => d.text === 'MMMM');
+    const domI = report.domTexts.find((d) => d.text === 'iiii');
+    assert.ok(domM && domI && domM.glyphWidth > domI.glyphWidth * 3.0, `DOM overlay glyph layout must reflect loaded @font-face: ${JSON.stringify(report.domTexts)}`);
+  } finally {
+    try { ws?.close(); } catch {}
+    if (chromeProc && chromeProc.exitCode === null) {
+      await new Promise((resolve) => {
+        chromeProc.once('exit', resolve);
+        chromeProc.kill('SIGKILL');
+        setTimeout(resolve, 1500);
+      });
+    }
+    await new Promise((resolve) => server.close(resolve));
+    try {
+      fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    } catch {}
+  }
+});

@@ -113,7 +113,15 @@
     if(mode&&['justify','start','end'].includes(mode))result.align=mode;
     return result;
   }
-  function cssFont(format,embedOnly=false){return `${format.italic?'italic ':''}${format.bold?'bold ':''}${format.size}px ${JSON.stringify(format.font)}${embedOnly?'':', sans-serif'}`;}
+  const GENERIC_FONT_FAMILIES=new Set(['serif','sans-serif','monospace','cursive','fantasy','system-ui','ui-serif','ui-sans-serif','ui-monospace','ui-rounded','emoji','math','fangsong']);
+  function cssFontFamily(rawFamily,embedOnly=false){
+    const name=String(rawFamily||'').trim();
+    if(!name)return 'sans-serif';
+    const lower=name.toLowerCase();
+    if(GENERIC_FONT_FAMILIES.has(lower))return lower;
+    return embedOnly?JSON.stringify(name):`${JSON.stringify(name)}, sans-serif`;
+  }
+  function cssFont(format,embedOnly=false){return `${format.italic?'italic ':''}${format.bold?'bold ':''}${format.size}px ${cssFontFamily(format.font,embedOnly)}`;}
   function applyFont(context,format,measurement=false,embedOnly=false,field=null,surface=null){
     context.font=cssFont(format,embedOnly);
     if('fontKerning' in context)context.fontKerning=format.kerning===null||format.kerning===undefined?'auto':format.kerning?'normal':'none';
@@ -142,13 +150,29 @@
   }
   const publicText=value=>value.replace(/\n/g,'\r');
   const UNHANDLED=Symbol('unhandled text member');
-  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,portableMetrics=false,onUpdate=()=>{},onScroll=null}={}){
+  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,portableMetrics=false,fontMetrics=null,onUpdate=()=>{},onScroll=null}={}){
     if(!player)throw new TypeError('TextField requires the shared Player.');
     const defaultPortableMeasure=(textValue,style)=>{
       const runtimeWasm=wasm||(typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm);
       const fn=player?.portable_measure_text_json?.bind(player)||runtimeWasm?.portable_measure_text_json;
       if(typeof fn==='function'){
         try{return JSON.parse(fn(JSON.stringify([String(textValue)]),JSON.stringify(style)))[0]??0;}catch(_){}
+      }
+      if(fontMetrics&&typeof fontMetrics==='object'){
+        const rawFont=String(style?.font||'');
+        const wanted=rawFont.trim().toLowerCase();
+        const entry=fontMetrics[rawFont]||Object.entries(fontMetrics).find(([k])=>k.toLowerCase()===wanted)?.[1];
+        if(entry&&Number(entry.units_per_em)>0){
+          const scale=(Number(style?.size)||16)/Number(entry.units_per_em);
+          const defAdv=Number(entry.default_advance)||600;
+          const advMap=entry.advances||{};
+          let sum=0;
+          for(const ch of String(textValue)){
+            const cp=String(ch.codePointAt(0));
+            sum+=(advMap[cp]!==undefined?Number(advMap[cp]):defAdv)*scale;
+          }
+          return sum;
+        }
       }
       const size=Number(style?.size)||16;
       return String(textValue).length*size*0.56;
@@ -412,6 +436,18 @@
         const isFont=mime.startsWith('font/')||mime.includes('truetype')||mime.includes('opentype')||mime.includes('woff')||/\.(?:ttf|otf|woff2?)$/.test(name);
         return isFont&&name.includes(wanted);
       }))return true;
+      if(document?.fonts&&typeof document.fonts[Symbol.iterator]==='function'){
+        const wantItalic=Boolean(format?.italic),wantWeight=format?.bold?700:400;
+        for(const face of document.fonts){
+          const faceFam=String(face?.family||'').replace(/^['"]|['"]$/g,'').trim().toLowerCase();
+          if(faceFam!==wanted)continue;
+          const rawWeight=String(face?.weight||'400').toLowerCase();
+          const faceWeight=rawWeight==='bold'?700:(Number(face?.weight)||400);
+          const rawStyle=String(face?.style||'normal').toLowerCase();
+          const faceItalic=rawStyle==='italic'||rawStyle==='oblique';
+          if(faceWeight===wantWeight&&faceItalic===wantItalic&&face?.status==='loaded')return true;
+        }
+      }
       return false;
     }
     function draw(context,field){
@@ -536,7 +572,7 @@
         const prog=getProgram?.();
         const instance=prog?.isClass?.(fontClass)?prog.constructClass(fontClass,[]):new fontClass();
         if(!Font.__nfIs(instance))throw new TypeError('ArgumentError: Font.registerFont requires a Font subclass.');
-        if(!registeredFontClasses.has(fontClass)){registeredFontClasses.add(fontClass);registeredFonts.push(instance);}
+        if(!registeredFontClasses.has(fontClass)){registeredFontClasses.add(fontClass);registeredFonts.push(instance);invalidateCache();}
       }
       static enumerateFonts(enumerateDeviceFonts=false){
         active();
@@ -709,10 +745,11 @@
       if(typeof fn!=='function')throw new Error('Text outline conversion kernel is unavailable.');
       return JSON.parse(fn(JSON.stringify(field)));
     }
-    function reset(){active();cache.clear();cacheBytes=0;fieldStates.clear();rendererState=defaultRenderer();rendererAntiAliasType=AntiAliasType.NORMAL;registeredFonts.length=0;registeredFontClasses.clear();}
+    function invalidateCache(){cache.clear();cacheBytes=0;}
+    function reset(){active();invalidateCache();fieldStates.clear();rendererState=defaultRenderer();rendererAntiAliasType=AntiAliasType.NORMAL;registeredFonts.length=0;registeredFontClasses.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),portableMeasure:(strings,format)=>strings.map(value=>defaultPortableMeasure(value,format)),toOutlines,TextFormat,As2TextFormat,legacyFormatCopy,formatPatch,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
+    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),portableMeasure:(strings,format)=>strings.map(value=>defaultPortableMeasure(value,format)),toOutlines,TextFormat,As2TextFormat,legacyFormatCopy,formatPatch,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),invalidateCache,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
   }
-  const api={create,TextFormat,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextLineMetrics,formatPatch,formatCopy,cssFont,applyFont};
+  const api={create,TextFormat,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextLineMetrics,formatPatch,formatCopy,cssFontFamily,cssFont,applyFont};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashText=api;
 })(globalThis);

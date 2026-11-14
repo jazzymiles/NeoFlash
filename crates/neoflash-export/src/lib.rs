@@ -1018,14 +1018,16 @@ pub(crate) fn prepare_with_config(
     warnings.extend(avi_warnings);
     warnings.extend(seq_warnings);
     warnings.extend(bitmap_warnings);
-    if font_policy == FontExportPolicy::Subset
-        && fonts.subset_stats.iter().any(|stats| !stats.subset_applied)
-    {
-        warnings.push(
-            "Font subset requested: NeoFlash preserved the complete browser-loadable font because true SFNT/WOFF subsetting is not implemented yet."
-                .to_owned(),
-        );
+    if font_policy == FontExportPolicy::Subset {
+        for stats in &fonts.subset_stats {
+            if !stats.subset_applied
+                && let Some(diagnostic) = &stats.diagnostic
+            {
+                warnings.push(format!("Font '{}': {}", stats.family, diagnostic));
+            }
+        }
     }
+    warnings.extend(fonts.outline_diagnostics.clone());
     Ok(Prepared {
         program,
         scripts,

@@ -189,7 +189,7 @@
   // the authoritative snapshot; this adapter never reconstructs a scene graph.
   function createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,context,matrix=item=>item.transform,hidden=()=>false,snapBitmaps=true}) {
     const bitmapMatrix=matrix;
-    const font=kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`;
+    const font=kind=>`${kind.font_size}px ${global.NeoFlashText?.cssFontFamily?global.NeoFlashText.cssFontFamily(kind.font_family):`${JSON.stringify(kind.font_family)}, sans-serif`}`;
     function paintItem(context,item) {
         const kind = item.kind;
         if(kind.type==='text_field'&&hidden(item.owner_ref))return;
@@ -221,6 +221,7 @@
           textHost.draw(context,kind.field);
         } else if (kind.type === 'text') {
           context.font = font(kind);
+          context.textAlign = 'left';
           context.textBaseline = 'top';
           context.fillStyle = color(kind.color);
           kind.text.split('\n').forEach((line, index) => context.fillText(line, 0, index * kind.font_size * 1.2));
@@ -316,6 +317,37 @@
     errorElement.textContent = 'NeoFlash could not run this project.\n\n' + (location ? location + '\n' : '') + describeThrown(error, true) + hint;
     emitScriptMessage('error', describeThrown(error), frames);
     console.error(error);
+  }
+
+  async function ensureBundleFontsLoaded(doc, cssRules) {
+    if (!doc) return;
+    const trimmed = typeof cssRules === 'string' ? cssRules.trim() : '';
+    if (trimmed && doc.head) {
+      const styles = typeof doc.querySelectorAll === 'function' ? Array.from(doc.querySelectorAll('style')) : [];
+      const alreadyPresent = styles.some(el => typeof el.textContent === 'string' && el.textContent.includes(trimmed));
+      if (!alreadyPresent && typeof doc.createElement === 'function') {
+        const styleEl = doc.createElement('style');
+        styleEl.setAttribute('data-neoflash-fonts', 'true');
+        styleEl.textContent = trimmed;
+        doc.head.appendChild(styleEl);
+      }
+    }
+    const fontSet = doc.fonts;
+    if (!fontSet) return;
+    const loads = [];
+    if (typeof fontSet[Symbol.iterator] === 'function') {
+      for (const face of fontSet) {
+        if (face && face.status !== 'loaded' && typeof face.load === 'function') {
+          loads.push(Promise.resolve().then(() => face.load()).catch(() => null));
+        }
+      }
+    }
+    if (loads.length > 0) {
+      await Promise.all(loads);
+    }
+    if (fontSet.ready && typeof fontSet.ready.then === 'function') {
+      await fontSet.ready.catch(() => null);
+    }
   }
 
   async function boot() {
@@ -606,6 +638,7 @@
       }
       return result;
     }
+    let fontLoadingDoneHandler=null;
     function initializeFamily() {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
       const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
@@ -625,7 +658,14 @@
           bitmapHost.cache.beginFrame();try{capturePainter.draw(target,snapshot,{semantic:false});}finally{bitmapHost.cache.endFrame();}
         }});
       if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player,getBitmap:()=>bitmapHost,geometry:geometryHost});
-      if(global.NeoFlashText&&typeof player.object_text_info==='function')textHost=global.NeoFlashText.create({player,wasm,events:global.NeoFlashEvents,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document,getProgram:()=>program,geometry:geometryHost,onUpdate:ref=>textInputHost?.sync(ref),onScroll:ref=>{if(eventHub&&global.NeoFlashEvents&&player.object_alive(ref))eventHub.dispatch(proxyForRef(JSON.parse(ref)),new global.NeoFlashEvents.Event('scroll',false,false));},measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
+      if(global.NeoFlashText&&typeof player.object_text_info==='function'){
+        textHost=global.NeoFlashText.create({player,wasm,events:global.NeoFlashEvents,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document,getProgram:()=>program,geometry:geometryHost,fontMetrics:bundle?.fonts?.metrics||null,onUpdate:ref=>textInputHost?.sync(ref),onScroll:ref=>{if(eventHub&&global.NeoFlashEvents&&player.object_alive(ref))eventHub.dispatch(proxyForRef(JSON.parse(ref)),new global.NeoFlashEvents.Event('scroll',false,false));},measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
+        if(typeof document!=='undefined'&&document?.fonts?.addEventListener){
+          if(fontLoadingDoneHandler)document.fonts.removeEventListener('loadingdone',fontLoadingDoneHandler);
+          fontLoadingDoneHandler=()=>{textHost?.invalidateCache?.();if(typeof context!=='undefined')render();};
+          document.fonts.addEventListener('loadingdone',fontLoadingDoneHandler);
+        }
+      }
       let invokeAsfunction=()=>{};
       if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,onAsfunction:(ref,spec)=>{const tf=proxyForRef(JSON.parse(ref));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document});
       display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,onSuperConstruct:handleSuperConstruct,isRetiring:target=>retiringTargets.has(target),onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,
@@ -1022,6 +1062,9 @@
               const existingIds=new Set(project.resources.map(r=>r.id));
               for(const res of remappedResources){if(!existingIds.has(res.id))project.resources.push(res);}
             }
+            if(typeof childBundle?.fonts?.css_rules==='string'&&childBundle.fonts.css_rules.trim()&&typeof ensureBundleFontsLoaded==='function'){
+              ensureBundleFontsLoaded(typeof document==='undefined'?null:document,childBundle.fonts.css_rules).then(()=>{textHost?.invalidateCache?.();if(typeof context!=='undefined')render();});
+            }
             const mut=mounted.mutation||mounted;
             const contentTargetKey=JSON.stringify(mut.content_ref||record.ref);
             if(normUrl)mountedTargetUrl.set(contentTargetKey,normUrl);
@@ -1366,6 +1409,10 @@
       dispatchScripts();
     }
     function disposeFamily() {
+      if(fontLoadingDoneHandler&&typeof document!=='undefined'&&document?.fonts?.removeEventListener){
+        document.fonts.removeEventListener('loadingdone',fontLoadingDoneHandler);
+      }
+      fontLoadingDoneHandler=null;
       pointerOverContent=false;legacyCursorVisible=true;updateCursor();
       capturePainter?.clear();capturePainter=null;
       filterHost?.renderer.clear();
@@ -2385,7 +2432,7 @@
       }
     }
     function resize() { preview.resize(); }
-    function font(kind) { return `${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`; }
+    function font(kind) { return `${kind.font_size}px ${global.NeoFlashText?.cssFontFamily ? global.NeoFlashText.cssFontFamily(kind.font_family) : `${JSON.stringify(kind.font_family)}, sans-serif`}`; }
     function bitmapMatrix(item){
       if(item.kind.type!=='bitmap_pixels')return item.transform;
       const [width,height]=logicalSize(),[ox,oy]=stageOrigin(),sx=canvas.width/width,sy=canvas.height/height,[a,b,c,d,e,f]=item.transform;
@@ -2632,8 +2679,8 @@
       });
     }
     global.addEventListener('pagehide', event => { storageHost?.flushAll();if(!event.persisted){gradients.clear();clippings.clear();disposeFamily();} });
-    new ResizeObserver(() => { resize(); render(); }).observe(viewport);
     stopAsyncOnFailure=()=>{as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();gradients.clear();clippings.clear();filterHost?.renderer.clear();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
+    await ensureBundleFontsLoaded(typeof document==='undefined'?null:document,bundle?.fonts?.css_rules||'');
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();
@@ -2645,6 +2692,7 @@
     // Startup script failures use the same stopped-but-restartable policy as
     // later events. Keep installing the animation loop after reporting them.
     try { dispatchScripts(); render(); } catch (error) { fail(error); }
+    new ResizeObserver(() => { resize(); render(); }).observe(viewport);
     document.getElementById('loading').style.display = 'none';
     function animate(now) {
       if (!failed && !document.hidden) {

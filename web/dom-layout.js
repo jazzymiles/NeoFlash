@@ -233,6 +233,13 @@
         const selectable = field ? Boolean(field.selectable || field.field_type === 'input') : true;
         const fontFamily = field ? field.format?.font || 'sans-serif' : kind.font_family || 'sans-serif';
         const fontSize = field ? Number(field.format?.size) || 12 : Number(kind.font_size) || 12;
+        const fontWeight = field?.format?.bold ? '700' : '400';
+        const fontStyle = field?.format?.italic ? 'italic' : 'normal';
+        const resolvedCssFamily = global.NeoFlashText?.cssFontFamily
+          ? global.NeoFlashText.cssFontFamily(fontFamily)
+          : (['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'emoji', 'math', 'fangsong'].includes(String(fontFamily).trim().toLowerCase())
+              ? String(fontFamily).trim().toLowerCase()
+              : `${JSON.stringify(fontFamily)}, sans-serif`);
         const colorCss = field
           ? `#${((field.format?.color ?? 0) & 0xffffff).toString(16).padStart(6, '0')}`
           : Array.isArray(kind.color)
@@ -245,8 +252,10 @@
           top: '0px',
           transformOrigin: '0 0',
           transform: `matrix(${a * scaleX},${b * scaleY},${c * scaleX},${d * scaleY},${tx * scaleX},${ty * scaleY})`,
-          fontFamily: JSON.stringify(fontFamily) + ', sans-serif',
+          fontFamily: resolvedCssFamily,
           fontSize: `${fontSize}px`,
+          fontWeight,
+          fontStyle,
           lineHeight: '1.2',
           color: 'transparent',
           userSelect: selectable ? 'text' : 'none',

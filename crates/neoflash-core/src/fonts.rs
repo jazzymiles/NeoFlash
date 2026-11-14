@@ -327,6 +327,360 @@ impl TextFormat {
     }
 }
 
+#[derive(Clone, Debug, Default, Deserialize)]
+struct CoreEmbeddedFontMetadata {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    family: String,
+    #[serde(default)]
+    style: String,
+}
+
+fn core_requested_style(bold: bool, italic: bool) -> &'static str {
+    match (bold, italic) {
+        (true, true) => "Bold Italic",
+        (true, false) => "Bold",
+        (false, true) => "Italic",
+        (false, false) => "Regular",
+    }
+}
+
+/// Returns true when `resource` represents a font binary rather than metadata or another asset.
+pub fn is_font_resource_unit(resource: &crate::ResourceUnit) -> bool {
+    let mime = resource.media_type.trim().to_ascii_lowercase();
+    if matches!(
+        mime.as_str(),
+        "font/ttf"
+            | "font/otf"
+            | "font/woff"
+            | "font/woff2"
+            | "application/font-sfnt"
+            | "application/x-font-ttf"
+            | "application/x-font-opentype"
+            | "application/vnd.ms-opentype"
+            | "application/font-woff"
+    ) {
+        return true;
+    }
+    let path_lower = resource.path.to_ascii_lowercase();
+    path_lower.ends_with(".ttf")
+        || path_lower.ends_with(".otf")
+        || path_lower.ends_with(".woff")
+        || path_lower.ends_with(".woff2")
+}
+
+/// Derives the fallback CSS family name from a font resource's path stem or ID.
+pub fn font_family_for_resource_unit(resource: &crate::ResourceUnit) -> String {
+    let stem = std::path::Path::new(&resource.path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&resource.id)
+        .trim();
+    if stem.is_empty() {
+        resource.id.clone()
+    } else {
+        stem.to_string()
+    }
+}
+
+/// Resolves the decoded font bytes from `project.resources` matching `(family, bold, italic)`.
+pub fn resolve_project_font_bytes(
+    project: &crate::Project,
+    family: &str,
+    bold: bool,
+    italic: bool,
+) -> Option<Vec<u8>> {
+    let metadata: BTreeMap<String, CoreEmbeddedFontMetadata> = project
+        .resources
+        .iter()
+        .find(|resource| resource.path.eq_ignore_ascii_case("fonts/embedding.json"))
+        .and_then(|resource| resource.decoded_bytes().ok())
+        .and_then(|bytes| serde_json::from_slice::<Vec<CoreEmbeddedFontMetadata>>(&bytes).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|entry| !entry.id.is_empty())
+        .map(|entry| (entry.id.clone(), entry))
+        .collect();
+    let target_style = core_requested_style(bold, italic);
+    let mut fallback: Option<Vec<u8>> = None;
+    for res in &project.resources {
+        if !is_font_resource_unit(res) {
+            continue;
+        }
+        let Ok(bytes) = res.decoded_bytes() else {
+            continue;
+        };
+        let entry = metadata.get(&res.id);
+        let res_family = entry
+            .map(|e| e.family.trim())
+            .filter(|f| !f.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| font_family_for_resource_unit(res));
+        let res_style = entry
+            .map(|e| e.style.trim())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Regular");
+        if res_family.eq_ignore_ascii_case(family.trim())
+            && res_style.eq_ignore_ascii_case(target_style)
+        {
+            return Some(bytes);
+        }
+        if fallback.is_none()
+            && (res_family.eq_ignore_ascii_case(family.trim())
+                || res.id.eq_ignore_ascii_case(family.trim()))
+        {
+            fallback = Some(bytes);
+        }
+    }
+    fallback
+}
+
+/// Computes OpenType big-endian 32-bit table checksum over `bytes` (zero-padded to 4 bytes).
+pub fn sfnt_checksum(bytes: &[u8]) -> u32 {
+    let mut sum = 0u32;
+    let (chunks, rem) = bytes.as_chunks::<4>();
+    for chunk in chunks {
+        sum = sum.wrapping_add(u32::from_be_bytes(*chunk));
+    }
+    if !rem.is_empty() {
+        let mut tail = [0u8; 4];
+        tail[..rem.len()].copy_from_slice(rem);
+        sum = sum.wrapping_add(u32::from_be_bytes(tail));
+    }
+    sum
+}
+
+/// Sniffs the canonical MIME type for SFNT/WOFF/WOFF2 font bytes.
+pub fn sniff_font_media_type<'a>(bytes: &[u8], fallback: &'a str) -> &'a str {
+    if bytes.len() >= 4 {
+        match &bytes[0..4] {
+            b"wOFF" => return "font/woff",
+            b"wOF2" => return "font/woff2",
+            b"OTTO" => return "font/otf",
+            [0, 1, 0, 0] | b"true" | b"typ1" => return "font/ttf",
+            _ => {}
+        }
+    }
+    if fallback.trim().is_empty() {
+        "font/ttf"
+    } else {
+        fallback.trim()
+    }
+}
+
+/// Decompresses a WOFF1 (`wOFF`) container into a valid 4-byte-aligned SFNT binary.
+pub fn unpack_woff_to_sfnt(bytes: &[u8]) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+
+    const MAX_SFNT_BYTES: usize = 64 * 1024 * 1024;
+    if bytes.len() < 44 || &bytes[0..4] != b"wOFF" {
+        return None;
+    }
+    let flavor = [bytes[4], bytes[5], bytes[6], bytes[7]];
+    if flavor != [0, 1, 0, 0] && &flavor != b"OTTO" && &flavor != b"true" && &flavor != b"typ1" {
+        return None;
+    }
+    let num_tables = u16::from_be_bytes([bytes[12], bytes[13]]) as usize;
+    let total_sfnt_size = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]) as usize;
+    if num_tables == 0 || num_tables > 256 || total_sfnt_size > MAX_SFNT_BYTES {
+        return None;
+    }
+    let dir_end = 44usize.checked_add(num_tables.checked_mul(20)?)?;
+    if dir_end > bytes.len() {
+        return None;
+    }
+
+    let mut tables = Vec::<([u8; 4], Vec<u8>)>::with_capacity(num_tables);
+    let mut sum_raw_padded = 12usize.checked_add(num_tables * 16)?;
+    for i in 0..num_tables {
+        let entry = 44 + i * 20;
+        let tag = [
+            bytes[entry],
+            bytes[entry + 1],
+            bytes[entry + 2],
+            bytes[entry + 3],
+        ];
+        let offset = u32::from_be_bytes([
+            bytes[entry + 4],
+            bytes[entry + 5],
+            bytes[entry + 6],
+            bytes[entry + 7],
+        ]) as usize;
+        let comp_len = u32::from_be_bytes([
+            bytes[entry + 8],
+            bytes[entry + 9],
+            bytes[entry + 10],
+            bytes[entry + 11],
+        ]) as usize;
+        let orig_len = u32::from_be_bytes([
+            bytes[entry + 12],
+            bytes[entry + 13],
+            bytes[entry + 14],
+            bytes[entry + 15],
+        ]) as usize;
+        let end = offset.checked_add(comp_len)?;
+        if end > bytes.len() || comp_len > orig_len || orig_len > MAX_SFNT_BYTES {
+            return None;
+        }
+        sum_raw_padded = sum_raw_padded.checked_add((orig_len + 3) & !3)?;
+        if sum_raw_padded > MAX_SFNT_BYTES {
+            return None;
+        }
+        let raw_table = if comp_len == orig_len {
+            bytes[offset..end].to_vec()
+        } else {
+            let mut decoded = Vec::with_capacity(orig_len);
+            let decoder = flate2::read::ZlibDecoder::new(&bytes[offset..end]);
+            decoder
+                .take((orig_len as u64).saturating_add(1))
+                .read_to_end(&mut decoded)
+                .ok()?;
+            if decoded.len() != orig_len {
+                return None;
+            }
+            decoded
+        };
+        tables.push((tag, raw_table));
+    }
+    tables.sort_by_key(|(tag, _)| *tag);
+
+    let table_count = tables.len() as u16;
+    let entry_selector = 15u16.saturating_sub(table_count.leading_zeros() as u16);
+    let search_range = (1u16 << entry_selector) * 16;
+    let range_shift = table_count * 16 - search_range;
+
+    let mut out = Vec::with_capacity(sum_raw_padded);
+    out.extend_from_slice(&flavor);
+    out.extend_from_slice(&table_count.to_be_bytes());
+    out.extend_from_slice(&search_range.to_be_bytes());
+    out.extend_from_slice(&entry_selector.to_be_bytes());
+    out.extend_from_slice(&range_shift.to_be_bytes());
+
+    let dir_pos = out.len();
+    out.resize(dir_pos + tables.len() * 16, 0);
+    let mut head_offset = None;
+    for (idx, (tag, data)) in tables.iter().enumerate() {
+        let mut table_bytes = data.clone();
+        if tag == b"head" && table_bytes.len() >= 12 {
+            table_bytes[8..12].copy_from_slice(&[0, 0, 0, 0]);
+            head_offset = Some(out.len());
+        }
+        let offset = out.len() as u32;
+        let length = table_bytes.len() as u32;
+        let checksum = sfnt_checksum(&table_bytes);
+        let rec_pos = dir_pos + idx * 16;
+        out[rec_pos..rec_pos + 4].copy_from_slice(tag);
+        out[rec_pos + 4..rec_pos + 8].copy_from_slice(&checksum.to_be_bytes());
+        out[rec_pos + 8..rec_pos + 12].copy_from_slice(&offset.to_be_bytes());
+        out[rec_pos + 12..rec_pos + 16].copy_from_slice(&length.to_be_bytes());
+        out.extend_from_slice(&table_bytes);
+        while !out.len().is_multiple_of(4) {
+            out.push(0);
+        }
+    }
+    if let Some(head_off) = head_offset {
+        let adjustment = 0xB1B0_AFBAu32.wrapping_sub(sfnt_checksum(&out));
+        out[head_off + 8..head_off + 12].copy_from_slice(&adjustment.to_be_bytes());
+    }
+    Some(out)
+}
+
+/// Packs a valid SFNT font into a zlib-compressed WOFF1 (`wOFF`) container.
+pub fn pack_sfnt_to_woff(sfnt: &[u8]) -> Option<Vec<u8>> {
+    use std::io::Write as _;
+
+    if sfnt.len() < 12 {
+        return None;
+    }
+    let flavor = [sfnt[0], sfnt[1], sfnt[2], sfnt[3]];
+    if flavor != [0, 1, 0, 0] && &flavor != b"OTTO" && &flavor != b"true" && &flavor != b"typ1" {
+        return None;
+    }
+    let num_tables = u16::from_be_bytes([sfnt[4], sfnt[5]]) as usize;
+    let dir_end = 12usize.checked_add(num_tables.checked_mul(16)?)?;
+    if num_tables == 0 || dir_end > sfnt.len() {
+        return None;
+    }
+
+    struct EncodedTable {
+        tag: [u8; 4],
+        payload: Vec<u8>,
+        orig_len: u32,
+        orig_checksum: u32,
+    }
+    let mut encoded = Vec::<EncodedTable>::with_capacity(num_tables);
+    let mut total_sfnt_size = dir_end;
+    for i in 0..num_tables {
+        let rec = &sfnt[12 + i * 16..12 + (i + 1) * 16];
+        let tag = [rec[0], rec[1], rec[2], rec[3]];
+        let orig_checksum = u32::from_be_bytes([rec[4], rec[5], rec[6], rec[7]]);
+        let offset = u32::from_be_bytes([rec[8], rec[9], rec[10], rec[11]]) as usize;
+        let orig_len = u32::from_be_bytes([rec[12], rec[13], rec[14], rec[15]]) as usize;
+        let end = offset.checked_add(orig_len)?;
+        if end > sfnt.len() {
+            return None;
+        }
+        total_sfnt_size = total_sfnt_size.checked_add((orig_len + 3) & !3)?;
+        let raw = &sfnt[offset..end];
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+        let compressed = encoder
+            .write_all(raw)
+            .ok()
+            .and_then(|()| encoder.finish().ok())
+            .filter(|c| c.len() < raw.len());
+        encoded.push(EncodedTable {
+            tag,
+            payload: compressed.unwrap_or_else(|| raw.to_vec()),
+            orig_len: orig_len as u32,
+            orig_checksum,
+        });
+    }
+    encoded.sort_by_key(|t| t.tag);
+
+    let data_start = 44usize.checked_add(encoded.len() * 20)?;
+    let mut out = vec![0u8; data_start];
+    for (idx, table) in encoded.iter().enumerate() {
+        let offset = out.len() as u32;
+        let comp_len = table.payload.len() as u32;
+        let dir = 44 + idx * 20;
+        out[dir..dir + 4].copy_from_slice(&table.tag);
+        out[dir + 4..dir + 8].copy_from_slice(&offset.to_be_bytes());
+        out[dir + 8..dir + 12].copy_from_slice(&comp_len.to_be_bytes());
+        out[dir + 12..dir + 16].copy_from_slice(&table.orig_len.to_be_bytes());
+        out[dir + 16..dir + 20].copy_from_slice(&table.orig_checksum.to_be_bytes());
+        out.extend_from_slice(&table.payload);
+        while !out.len().is_multiple_of(4) {
+            out.push(0);
+        }
+    }
+    let total_len = out.len() as u32;
+    out[0..4].copy_from_slice(b"wOFF");
+    out[4..8].copy_from_slice(&flavor);
+    out[8..12].copy_from_slice(&total_len.to_be_bytes());
+    out[12..14].copy_from_slice(&(encoded.len() as u16).to_be_bytes());
+    out[14..16].copy_from_slice(&0u16.to_be_bytes());
+    out[16..20].copy_from_slice(&(total_sfnt_size as u32).to_be_bytes());
+    out[20..22].copy_from_slice(&1u16.to_be_bytes());
+    out[22..24].copy_from_slice(&0u16.to_be_bytes());
+    Some(out)
+}
+
+/// Returns an SFNT view over raw SFNT or WOFF1 bytes.
+pub fn sfnt_view_bytes(bytes: &[u8]) -> Option<std::borrow::Cow<'_, [u8]>> {
+    if bytes.len() < 12 {
+        return None;
+    }
+    let sig = &bytes[0..4];
+    if sig == [0, 1, 0, 0] || sig == b"OTTO" || sig == b"true" || sig == b"typ1" {
+        return Some(std::borrow::Cow::Borrowed(bytes));
+    }
+    if sig == b"wOFF" {
+        return unpack_woff_to_sfnt(bytes).map(std::borrow::Cow::Owned);
+    }
+    None
+}
+
 impl PortableFontMetrics {
     pub fn has_outline_for_char(&self, ch: char) -> bool {
         if ch.is_whitespace() {
@@ -357,85 +711,11 @@ impl PortableFontMetrics {
     }
 }
 
-fn parse_sfnt_cmap_table(bytes: &[u8]) -> Option<std::collections::BTreeMap<u32, u16>> {
-    if bytes.len() < 12 {
-        return None;
-    }
-    let is_woff = &bytes[0..4] == b"wOFF";
-    let num_tables = if is_woff {
-        if bytes.len() < 44 {
-            return None;
-        }
-        u16::from_be_bytes([bytes[12], bytes[13]]) as usize
-    } else {
-        let sig = &bytes[0..4];
-        if sig != [0, 1, 0, 0] && sig != b"OTTO" && sig != b"true" && sig != b"typ1" {
-            return None;
-        }
-        u16::from_be_bytes([bytes[4], bytes[5]]) as usize
-    };
-    let mut cmap_slice: Option<&[u8]> = None;
-    for i in 0..num_tables.min(128) {
-        if is_woff {
-            let entry = 44 + i * 20;
-            if entry + 20 > bytes.len() {
-                break;
-            }
-            let tag = &bytes[entry..entry + 4];
-            let offset = u32::from_be_bytes([
-                bytes[entry + 4],
-                bytes[entry + 5],
-                bytes[entry + 6],
-                bytes[entry + 7],
-            ]) as usize;
-            let comp_len = u32::from_be_bytes([
-                bytes[entry + 8],
-                bytes[entry + 9],
-                bytes[entry + 10],
-                bytes[entry + 11],
-            ]) as usize;
-            let orig_len = u32::from_be_bytes([
-                bytes[entry + 12],
-                bytes[entry + 13],
-                bytes[entry + 14],
-                bytes[entry + 15],
-            ]) as usize;
-            if tag == b"cmap"
-                && comp_len == orig_len
-                && offset.saturating_add(comp_len) <= bytes.len()
-            {
-                cmap_slice = Some(&bytes[offset..offset + comp_len]);
-                break;
-            }
-        } else {
-            let entry = 12 + i * 16;
-            if entry + 16 > bytes.len() {
-                break;
-            }
-            let tag = &bytes[entry..entry + 4];
-            let offset = u32::from_be_bytes([
-                bytes[entry + 8],
-                bytes[entry + 9],
-                bytes[entry + 10],
-                bytes[entry + 11],
-            ]) as usize;
-            let length = u32::from_be_bytes([
-                bytes[entry + 12],
-                bytes[entry + 13],
-                bytes[entry + 14],
-                bytes[entry + 15],
-            ]) as usize;
-            if tag == b"cmap" && offset.saturating_add(length) <= bytes.len() {
-                cmap_slice = Some(&bytes[offset..offset + length]);
-                break;
-            }
-        }
-    }
-    let cmap = cmap_slice?;
+pub(crate) fn parse_cmap_subtables(cmap: &[u8]) -> BTreeMap<u32, u16> {
+    let mut cmap_map = BTreeMap::<u32, u16>::new();
     if cmap.len() < 4 {
-        return None;
+        return cmap_map;
     }
-    let mut cmap_map = std::collections::BTreeMap::<u32, u16>::new();
     let subtables = u16::from_be_bytes([cmap[2], cmap[3]]) as usize;
     for i in 0..subtables.min(32) {
         let rec = 4 + i * 8;
@@ -473,6 +753,9 @@ fn parse_sfnt_cmap_table(bytes: &[u8]) -> Option<std::collections::BTreeMap<u32,
                     let ro_pos = id_range_offsets + s * 2;
                     let ro = u16::from_be_bytes([cmap[ro_pos], cmap[ro_pos + 1]]) as usize;
                     for c in start_c..=end_c {
+                        if cmap_map.len() >= MAX_GLYPHS {
+                            return cmap_map;
+                        }
                         let gid = if ro == 0 {
                             ((c as i32 + delta) & 0xFFFF) as u16
                         } else {
@@ -504,7 +787,7 @@ fn parse_sfnt_cmap_table(bytes: &[u8]) -> Option<std::collections::BTreeMap<u32,
                 cmap[sub_off + 14],
                 cmap[sub_off + 15],
             ]) as usize;
-            for g in 0..n_groups.min(4096) {
+            for g in 0..n_groups.min(16384) {
                 let grp = sub_off + 16 + g * 12;
                 if grp + 12 > cmap.len() {
                     break;
@@ -523,8 +806,11 @@ fn parse_sfnt_cmap_table(bytes: &[u8]) -> Option<std::collections::BTreeMap<u32,
                     cmap[grp + 10],
                     cmap[grp + 11],
                 ]);
-                if end_c.saturating_sub(start_c) <= 1024 {
+                if end_c >= start_c && end_c - start_c <= MAX_GLYPHS as u32 {
                     for c in start_c..=end_c {
+                        if cmap_map.len() >= MAX_GLYPHS {
+                            return cmap_map;
+                        }
                         let gid = (start_gid + (c - start_c)) as u16;
                         if gid > 0 {
                             cmap_map.insert(c, gid);
@@ -534,7 +820,37 @@ fn parse_sfnt_cmap_table(bytes: &[u8]) -> Option<std::collections::BTreeMap<u32,
             }
         }
     }
-    Some(cmap_map)
+    cmap_map
+}
+
+fn parse_sfnt_cmap_table(bytes: &[u8]) -> Option<std::collections::BTreeMap<u32, u16>> {
+    let sfnt = sfnt_view_bytes(bytes)?;
+    let num_tables = u16::from_be_bytes([sfnt[4], sfnt[5]]) as usize;
+    let mut cmap_slice: Option<&[u8]> = None;
+    for i in 0..num_tables.min(128) {
+        let entry = 12 + i * 16;
+        if entry + 16 > sfnt.len() {
+            break;
+        }
+        let tag = &sfnt[entry..entry + 4];
+        let offset = u32::from_be_bytes([
+            sfnt[entry + 8],
+            sfnt[entry + 9],
+            sfnt[entry + 10],
+            sfnt[entry + 11],
+        ]) as usize;
+        let length = u32::from_be_bytes([
+            sfnt[entry + 12],
+            sfnt[entry + 13],
+            sfnt[entry + 14],
+            sfnt[entry + 15],
+        ]) as usize;
+        if tag == b"cmap" && offset.saturating_add(length) <= sfnt.len() {
+            cmap_slice = Some(&sfnt[offset..offset + length]);
+            break;
+        }
+    }
+    Some(parse_cmap_subtables(cmap_slice?))
 }
 
 fn glyf_slice_for_gid<'a>(
@@ -940,5 +1256,78 @@ mod fonts_tests {
         assert!(diags[0].contains("COLR"));
         assert!(diags[0].contains("CBDT"));
         assert!(diags[1].contains("U+03A9"));
+    }
+
+    #[test]
+    fn woff1_container_roundtrips_metrics_outlines_and_portable_player_resolution() {
+        let sfnt = build_synthetic_sfnt_with_tables(&[]);
+        let woff = crate::pack_sfnt_to_woff(&sfnt).expect("pack synthetic SFNT to WOFF1");
+        assert!(woff.starts_with(b"wOFF"));
+        assert_eq!(crate::sniff_font_media_type(&woff, "application/octet-stream"), "font/woff");
+        let unpacked = crate::unpack_woff_to_sfnt(&woff).expect("unpack WOFF1 back to SFNT");
+        assert_eq!(crate::sfnt_checksum(&unpacked), 0xB1B0_AFBA);
+
+        let woff_metrics =
+            PortableFontMetrics::from_bytes("SyntheticWoff", &woff).expect("WOFF1 metrics");
+        assert_eq!(woff_metrics.units_per_em, 1000);
+        assert_eq!(woff_metrics.advances.get(&('A' as u32)).copied(), Some(600));
+        assert!(woff_metrics.has_outline_for_char('Á'));
+
+        // Build a project containing ONLY the WOFF1 font under an unknown custom family name and
+        // ensure Player::object_text_fit_portable uses its embedded metrics (advance 600 vs builtin).
+        let mut project = crate::Project::blank();
+        project.resources.push(
+            crate::ResourceUnit::from_bytes("font-woff", "fonts/SyntheticWoff.woff", "font/woff", &woff)
+                .expect("woff resource"),
+        );
+        let mut fmt = TextFormat {
+            font: "SyntheticWoff".to_owned(),
+            size: 100.0,
+            ..TextFormat::default()
+        };
+        fmt.set_field_options(Some(AuthoredTextFieldOptions {
+            auto_size: "left".to_owned(),
+            ..AuthoredTextFieldOptions::default()
+        }));
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(crate::Element {
+                id: "woff-box".to_owned(),
+                name: "woffBox".to_owned(),
+                kind: crate::ElementKind::TextBox {
+                    text: "AAAA".to_owned(),
+                    width: 40.0,
+                    height: 30.0,
+                    format: fmt,
+                    word_wrap: false,
+                    multiline: false,
+                },
+                ..crate::Element::default()
+            });
+
+        let mut player = crate::Player::new(&project);
+        let child_path = player
+            .display_nodes(&project)
+            .into_iter()
+            .find(|node| node.name == "woffBox")
+            .expect("woffBox display node")
+            .path;
+        let child_ref = player
+            .object_ref(&child_path)
+            .expect("woffBox object_ref");
+        assert!(
+            player
+                .object_text_fit_portable(&project, &child_ref)
+                .expect("fit portable")
+        );
+        let fitted = player
+            .object_text_info(&project, &child_ref)
+            .expect("fitted text info");
+        // 4 * (600 / 1000 * 100) = 240 + 4px TextField padding = 244 (vs builtin 722 -> 292.8)
+        assert!(
+            (fitted.box_size.as_ref().expect("box_size").width - 244.0).abs() < 2.5,
+            "expected WOFF1 embedded advance width (~244.0), got {:?}",
+            fitted.box_size
+        );
     }
 }
