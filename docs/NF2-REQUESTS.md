@@ -36,7 +36,7 @@ still open.
 - **Resolved, waiting for the editor to adopt the new API or assets:** R-016 (`set_tooltip_shortcuts`), R-047
   (`CompactTypeHeader`), R-049 (mask icons), R-067b (tool masters), R-081 (`paint_gradient_overflow_preview`).
 - **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
-- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-097, R-099, R-100;
+- **Answered, waiting for implementation:** R-057 (accessibility repairs), R-061, R-062, R-063, R-068, R-069, R-072–R-080, R-082–R-087, R-089–R-091, R-093–R-097, R-099;
   earlier R-022, R-038, R-043.
 - Everything else is resolved.
 
@@ -1651,7 +1651,7 @@ wires them with the components named in each answer.
      request cancels it. The answer is not kept after the dialog closes.
 
 ### R-100 · Properties: section names and the place of object opacity
-- **Status:** answered
+- **Status:** resolved (implemented in `panels/properties.rs`)
 - **Requested by / for:** design track · Beta 1 interface review (`panels/properties.rs`, `pos_title` and
   `appearance_title`)
 - **Where:** Properties of a selected object; Figma `Panel / Properties — Text` and its narrow fallback (four themes).
@@ -1664,10 +1664,12 @@ wires them with the components named in each answer.
      instance). "Position and transform" is not used anywhere. The Figma text panels are corrected.
   2. *Second section, named after what the object is made of.* `Fill and stroke` for drawn shapes and primitives,
      `Character` for text, `Colour effect` for symbol instances, `Display` for bitmaps and video. Unchanged.
-  3. *Object opacity is not a character attribute.* For text (point text and text box) the `Opacity` row leaves
-     Character and becomes the first row of the text's `Display` section, above `Visible`. Bitmaps and video keep it
-     as the first row of `Display`; drawn shapes, which have no Display section, keep it as the first row of
-     `Fill and stroke`; an instance has no Opacity row — its transparency is `Colour effect ▸ Style: Alpha`.
-  4. The colour of the text itself keeps its own opacity inside the `ColorField` of Character; that is the paint's
-     opacity, not the object's.
+  3. *Object opacity is not a character attribute.* Simple text had a separate `Opacity` row at the top of
+     Character; it moves to a `Display` section of its own, placed after the text sections, with that one row.
+     Bitmaps and video keep `Opacity` as the first row of `Display`; drawn shapes, which have no Display section,
+     keep it as the first row of `Fill and stroke`; an instance has no Opacity row — its transparency is
+     `Colour effect ▸ Style: Alpha`.
+  4. *Text box.* A text box has no separate row: the opacity part of the `ColorField` in Character is the opacity of
+     the whole box, as built. That stays for Beta 1. Showing the Display section (Visible, Cache as bitmap, Blending)
+     for text in Properties, as for a movie clip, is not part of this answer.
 

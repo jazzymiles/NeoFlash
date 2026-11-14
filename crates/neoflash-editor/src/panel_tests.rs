@@ -7314,7 +7314,7 @@ fn properties_context_is_automatic_without_selection_tool_toggle() {
         .clone();
     editor.select_single_id(rectangle_id);
     let object = render(&mut editor, 0.3);
-    assert!(named_bounds(&object, "Position and transform").is_some());
+    assert!(named_bounds(&object, "Position and size").is_some());
     assert!(named_bounds(&object, "Tool options").is_none());
 
     editor.set_tool(Tool::Brush);
@@ -7323,7 +7323,7 @@ fn properties_context_is_automatic_without_selection_tool_toggle() {
     assert!(named_bounds(&requested_tool, "Brush mode").is_some());
     editor.set_tool(Tool::Pencil);
     let tool_changed = render(&mut editor, 0.32);
-    assert!(named_bounds(&tool_changed, "Position and transform").is_some());
+    assert!(named_bounds(&tool_changed, "Position and size").is_some());
     assert!(named_bounds(&tool_changed, "Brush mode").is_none());
 
     editor.set_tool(Tool::Brush);
@@ -7413,7 +7413,7 @@ fn brushes_options_activates_brush_before_opening_contextual_properties() {
         },
     );
     assert!(named_bounds(&properties, "Brush mode").is_some());
-    assert!(named_bounds(&properties, "Position and transform").is_none());
+    assert!(named_bounds(&properties, "Position and size").is_none());
 }
 
 #[test]
@@ -9484,4 +9484,78 @@ fn t295_r061_r062_r072_r076_r079_r080_to_r087_interface_answers() {
             },
         );
     }
+}
+
+/// R-100: one title for the first Properties section, and the opacity of simple text sits in its
+/// own Display section below Character instead of inside it.
+#[test]
+fn properties_use_one_position_title_and_keep_text_opacity_out_of_character() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let render = |editor: &mut Editor, time| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(360.0, 1600.0))),
+                time: Some(time),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.properties(ui, ctx));
+            },
+        )
+    };
+    let select_last = |editor: &mut Editor| {
+        let id = editor.symbol().timeline.layers[editor.layer]
+            .key_at(editor.frame)
+            .unwrap()
+            .elements
+            .last()
+            .unwrap()
+            .id
+            .clone();
+        editor.select_single_id(id);
+    };
+
+    editor.add_element(
+        ElementKind::Text {
+            text: "Title".to_owned(),
+            font_family: "Inter".to_owned(),
+            font_size: 24.0,
+            color: [255, 255, 255, 255],
+        },
+        20.0,
+        30.0,
+    );
+    select_last(&mut editor);
+    let _ = render(&mut editor, 0.1);
+    let text = render(&mut editor, 0.2);
+    assert!(named_bounds(&text, "Position and size").is_some());
+    assert!(named_bounds(&text, "Position and transform").is_none());
+    let character = named_bounds(&text, "Character").expect("Character section");
+    let display = named_bounds(&text, "Display").expect("Display section of simple text");
+    let opacity = named_bounds(&text, "Opacity percent").expect("Opacity row");
+    assert!(display.top() > character.bottom());
+    assert!(opacity.top() >= display.bottom());
+
+    editor.add_element(
+        ElementKind::Ellipse {
+            width: 80.0,
+            height: 60.0,
+            fill: [40, 80, 160, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        120.0,
+        30.0,
+    );
+    select_last(&mut editor);
+    let _ = render(&mut editor, 0.3);
+    let shape = render(&mut editor, 0.4);
+    assert!(named_bounds(&shape, "Position and size").is_some());
+    assert!(named_bounds(&shape, "Position and transform").is_none());
+    let fill = named_bounds(&shape, "Fill and stroke").expect("Fill and stroke section");
+    let opacity = named_bounds(&shape, "Opacity percent").expect("Opacity row of a shape");
+    assert!(opacity.top() >= fill.bottom());
+    assert!(named_bounds(&shape, "Display").is_none());
 }

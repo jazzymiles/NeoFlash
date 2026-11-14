@@ -444,12 +444,8 @@ impl Editor {
 
                     let is_text_any =
                         is_text_box || matches!(element.kind, ElementKind::Text { .. });
-                    let pos_title = if is_instance || is_text_any {
-                        "Position and size"
-                    } else {
-                        "Position and transform"
-                    };
-                    inspector_section_with_open(ui, pos_title, !is_text_any, |ui| {
+                    // R-100: one title for every kind of object.
+                    inspector_section_with_open(ui, "Position and size", !is_text_any, |ui| {
                         // Row 1: W and H + Constrain proportions lock icon on one line.
                         let link_id = egui::Id::new("properties-element-size-linked");
                         let mut linked =
@@ -680,7 +676,8 @@ impl Editor {
                             fmt
                         });
                     inspector_section(ui, appearance_title(&element.kind), |ui| {
-                        if !is_instance && !is_text_box {
+                        // R-100: the opacity of the object is not a character attribute.
+                        if !is_instance && !is_text_any {
                             changes.note(percent_row(ui, "Opacity", &mut element.transform.alpha));
                         }
                         let (orig_fill_grad, orig_stroke_grad) = match &original.kind {
@@ -848,6 +845,11 @@ impl Editor {
                             element.transform.alpha *= color[3] as f64 / 255.0;
                             element.kind = temp_box;
                         }
+                    }
+                    if matches!(original.kind, ElementKind::Text { .. }) {
+                        inspector_section(ui, "Display", |ui| {
+                            changes.note(percent_row(ui, "Opacity", &mut element.transform.alpha));
+                        });
                     }
                     if let Some(control) = self.primitive_options_properties_ui(ui, &mut element) {
                         changes.control = Some(control);
