@@ -1,11 +1,11 @@
 // Array family adapter, embedded in compiled handlers and the project program.
 // Original implementation; semantic references are listed in collections-fixtures.mjs.
 // Arrays retain native identity/storage. No JavaScript prototype is modified.
-// This profile covers ordinary indexed arrays, documented sort flags and AS3
-// callbacks and AS3 trait method values. Historical comparison-call order,
-// prototype extensions/borrowing and exotic constructor/index coercions remain
-// unsupported. AS3 traits and public prototype functions are distinct in pinned
-// Adobe Array.as; toString/toLocaleString are not receiver-bound traits.
+// This profile covers ordinary indexed arrays, documented sort flags, AS3
+// callbacks, AS3 trait method closures, AS3 Array.prototype borrowing, and
+// prototype-only toString/toLocaleString extraction up to 1,000,000 elements.
+// Historical comparison-call order, mutating Array.prototype at runtime, custom
+// namespace lookup, and exotic constructor/length coercions remain unsupported.
 const __nfNativeArray = Array;
 const __nfArrayIsArray = Array.isArray;
 const __nfArrayApply = Reflect.apply;
@@ -13,13 +13,24 @@ const __nfArrayNumber = Number;
 const __nfArrayString = String;
 const __nfArrayTypeError = TypeError;
 const __nfArrayRangeError = RangeError;
+const __nfArrayObjectToString = Object.prototype.toString;
+const __nfArrayTraitNames = [
+    'push', 'pop', 'shift', 'unshift', 'join', 'slice', 'concat', 'reverse', 'splice',
+    'sort', 'sortOn', 'indexOf', 'lastIndexOf', 'map', 'filter', 'forEach', 'every', 'some',
+    'insertAt', 'removeAt',
+];
+const __nfArrayPrototypeNames = ['toString', 'toLocaleString'];
 const __nfArrayMethods = Object.freeze(Object.fromEntries([
     'push', 'pop', 'shift', 'unshift', 'join', 'slice', 'concat', 'reverse', 'splice',
-    'sort', 'indexOf', 'lastIndexOf', 'map', 'filter', 'forEach', 'every', 'some', 'toString',
+    'sort', 'indexOf', 'lastIndexOf', 'map', 'filter', 'forEach', 'every', 'some',
+    'toString', 'toLocaleString',
 ].map(name => [name, Array.prototype[name]])));
 const __nfArrayFlags = Object.freeze({ CASEINSENSITIVE: 1, DESCENDING: 2, UNIQUESORT: 4, RETURNINDEXEDARRAY: 8, NUMERIC: 16 });
 const __nfArrayLimit = 1000000;
 const __nfArrayLocalState = { classes: new Map(), methods: new WeakMap() };
+// Tracks active outer Array formatting frames to emit "" on cyclic references
+// without breaking non-cyclic DAG sharing (try/finally delete).
+const __nfArraySeen = new Set();
 function __nfArrayState(as3) {
     return as3 && typeof __nfLegacy !== 'undefined' && __nfLegacy?.objects3?.arrays || __nfArrayLocalState;
 }
@@ -27,6 +38,98 @@ function __nfArrayState(as3) {
 function __nfArrayBound(length) {
     if (!Number.isInteger(length) || length < 0 || length > __nfArrayLimit) {
         throw new __nfArrayRangeError('NeoFlash Array operations currently support integer lengths from 0 through 1000000. Larger arrays and legacy length coercions are not implemented.');
+    }
+}
+function __nfArrayEnsureReceiver(receiver, name) {
+    if (receiver === null || receiver === undefined) {
+        throw new __nfArrayTypeError(`Array.prototype.${name} requires a non-null object receiver.`);
+    }
+    return typeof receiver === 'object' || typeof receiver === 'function' ? receiver : Object(receiver);
+}
+function __nfArrayTruncInt(value) {
+    const n = __nfArrayNumber(value);
+    if (Number.isNaN(n) || n === 0) return 0;
+    return Number.isFinite(n) ? Math.trunc(n) : n;
+}
+function __nfArrayReadLength(target) {
+    if (__nfArrayIsArray(target)) {
+        __nfArrayBound(target.length);
+        return target.length;
+    }
+    const raw = target.length;
+    if (raw === undefined || raw === null) return 0;
+    const n = __nfArrayNumber(raw);
+    if (Number.isNaN(n) || n === 0) return 0;
+    if (!Number.isFinite(n)) throw new __nfArrayRangeError('Borrowed Array length must be a finite non-negative integer within 1000000.');
+    const truncated = Math.trunc(n);
+    __nfArrayBound(truncated);
+    return truncated;
+}
+function __nfArrayRelativeIndex(raw, length, fallback) {
+    if (raw === undefined) return fallback;
+    const int = __nfArrayTruncInt(raw);
+    if (int === Infinity) return length;
+    if (int === -Infinity) return 0;
+    return int < 0 ? Math.max(length + int, 0) : Math.min(int, length);
+}
+function __nfArrayWriteProp(target, key, value) {
+    if (!Reflect.set(target, key, value)) {
+        throw new __nfArrayTypeError(`Cannot assign '${__nfArrayString(key)}' on borrowed Array target.`);
+    }
+}
+function __nfArrayDeleteProp(target, key) {
+    if (!Reflect.deleteProperty(target, key)) {
+        throw new __nfArrayTypeError(`Cannot delete '${__nfArrayString(key)}' on borrowed Array target.`);
+    }
+}
+function __nfArrayFormatElement(item, locale) {
+    if (item === null || item === undefined) return '';
+    const program = typeof __nfProgram !== 'undefined' ? __nfProgram : null;
+    if (__nfArrayIsArray(item)) {
+        const key = locale ? 'toLocaleString' : 'toString';
+        const resolved = item[key];
+        if (resolved !== __nfArrayMethods[key] && typeof resolved === 'function') {
+            return __nfArrayString(__nfArrayApply(resolved, item, []));
+        }
+        return locale ? __nfArrayLocaleString(item) : __nfArrayJoin(item, ',');
+    }
+    if (typeof item === 'object' || typeof item === 'function') {
+        const key = locale ? 'toLocaleString' : 'toString';
+        const resolved = item[key];
+        const defaultMethod = program?.defaultObjectMethod?.(item, key, resolved);
+        if (defaultMethod) return __nfArrayString(__nfArrayApply(defaultMethod, item, []));
+        if (locale && typeof resolved === 'function') return __nfArrayString(__nfArrayApply(resolved, item, []));
+        return __nfArrayString(item);
+    }
+    if (locale) return __nfArrayString(Object(item).toLocaleString());
+    return __nfArrayString(item);
+}
+function __nfArrayJoin(target, separator) {
+    const length = __nfArrayReadLength(target);
+    if (__nfArraySeen.has(target)) return '';
+    __nfArraySeen.add(target);
+    try {
+        const parts = [];
+        for (let index = 0; index < length; index++) {
+            parts.push(index in target ? __nfArrayFormatElement(target[index], false) : '');
+        }
+        return __nfArrayApply(__nfArrayMethods.join, parts, [separator]);
+    } finally {
+        __nfArraySeen.delete(target);
+    }
+}
+function __nfArrayLocaleString(target) {
+    const length = __nfArrayReadLength(target);
+    if (__nfArraySeen.has(target)) return '';
+    __nfArraySeen.add(target);
+    try {
+        const parts = [];
+        for (let index = 0; index < length; index++) {
+            parts.push(index in target ? __nfArrayFormatElement(target[index], true) : '');
+        }
+        return __nfArrayApply(__nfArrayMethods.join, parts, [',']);
+    } finally {
+        __nfArraySeen.delete(target);
     }
 }
 function __nfArrayCreate(as3, args) {
@@ -46,8 +149,19 @@ function __nfArrayClass(as3) {
         for (const [name, value] of Object.entries(__nfArrayFlags)) Object.defineProperty(facade, name, { value, enumerable: true });
         Object.defineProperty(facade, '__nfIs', { value: __nfArrayIsArray });
         Object.defineProperty(facade, Symbol.hasInstance, { value: __nfArrayIsArray });
-        // Prototype augmentation is outside this adapter. Do not expose a mutable
-        // alias to Array.prototype or pretend facade methods were installed there.
+        if (as3) {
+            // Expose AS3 Array.prototype generic functions without touching global Array.prototype.
+            for (const name of [...__nfArrayTraitNames, ...__nfArrayPrototypeNames]) {
+                Object.defineProperty(facade.prototype, name, {
+                    value: function() {
+                        'use strict';
+                        if (new.target) throw new __nfArrayTypeError(`Array.prototype.${name} is not a constructor.`);
+                        return __nfArrayExecute(this, name, __nfArrayApply(__nfArrayMethods.slice, arguments, []), true);
+                    },
+                    enumerable: false,
+                });
+            }
+        }
         Object.freeze(facade.prototype);
         classes.set(as3, Object.freeze(facade));
     }
@@ -55,13 +169,17 @@ function __nfArrayClass(as3) {
 }
 function __nfArrayMethodValue(value) {
     if (Object.values(__nfArrayMethods).includes(value)) {
-        throw new __nfArrayTypeError('Unbound Array native method values are unsupported. Call the method directly on the array, or read a supported AS3 trait method from its array receiver. Prototype method borrowing is outside this profile.');
+        throw new __nfArrayTypeError('Unbound Array native method values are unsupported. Call the method directly on the array, or read a supported AS3 trait/prototype method in AS3.');
     }
     return value;
 }
 function __nfArrayReference(receiver, name, value, as3, capturedPresence) {
     if (!as3 || !__nfArrayIsArray(receiver)) return value;
-    const native = name !== 'toString' && Object.hasOwn(__nfArrayMethods, name) && value === __nfArrayMethods[name];
+    if (name === 'constructor' && value === __nfNativeArray) return __nfArrayClass(true);
+    if ((name === 'toString' || name === 'toLocaleString') && value === __nfArrayMethods[name]) {
+        return __nfArrayClass(true).prototype[name];
+    }
+    const native = name !== 'toString' && name !== 'toLocaleString' && Object.hasOwn(__nfArrayMethods, name) && value === __nfArrayMethods[name];
     const present = capturedPresence === undefined ? name in receiver : capturedPresence;
     const synthetic = (name === 'sortOn' || name === 'insertAt' || name === 'removeAt') && value === undefined && !present;
     if (!native && !synthetic) return value;
@@ -102,7 +220,7 @@ function __nfArrayCompare(a, b, options, as3) {
     return options & 2 ? -result : result;
 }
 function __nfArraySort(receiver, args, as3, onFields) {
-    __nfArrayBound(receiver.length);
+    const length = __nfArrayReadLength(receiver);
     let flags = 0, compare, uniqueCompare;
     if (onFields) {
         if (args.length < 1 || args.length > 2) throw new __nfArrayTypeError('sortOn requires a field name or field-name array and optional sort flags.');
@@ -156,28 +274,39 @@ function __nfArraySort(receiver, args, as3, onFields) {
         uniqueCompare = comparator && !as3 ? ordinary : compare;
     }
     const values = [];
-    for (let index = 0; index < receiver.length; index++) values.push({ index, value: receiver[index], present: index in receiver });
-    __nfArrayApply(__nfArrayMethods.sort, values, [(a, b) => compare(a.value, b.value)]);
+    for (let index = 0; index < length; index++) {
+        const present = index in receiver;
+        values.push({ index, value: present ? receiver[index] : undefined, present });
+    }
+    __nfArrayApply(__nfArrayMethods.sort, values, [(a, b) => {
+        if (as3) {
+            if (!a.present && !b.present) return 0;
+            if (!a.present) return 1;
+            if (!b.present) return -1;
+        }
+        return compare(a.value, b.value);
+    }]);
     if (flags & 4) for (let index = 1; index < values.length; index++) {
+        if (as3 && (!values[index - 1].present || !values[index].present)) continue;
         if (uniqueCompare(values[index - 1].value, values[index].value) === 0) return 0;
     }
     if (flags & 8) return values.map(item => item.index);
     // Comparison and validation complete before changing the receiver.
     for (let index = 0; index < values.length; index++) {
-        if (as3 && !values[index].present) delete receiver[index];
-        else receiver[index] = values[index].value;
+        if (as3 && !values[index].present) __nfArrayDeleteProp(receiver, index);
+        else __nfArrayWriteProp(receiver, index, values[index].value);
     }
     return receiver;
 }
 function __nfArrayIterate(receiver, name, args) {
     const callback = args[0], thisObject = args.length > 1 ? args[1] : null;
     if (typeof callback !== 'function' || args.length > 2) throw new __nfArrayTypeError(`${name} requires a callback and optional thisObject.`);
-    const length = receiver.length, result = [];
-    __nfArrayBound(length);
+    const length = __nfArrayReadLength(receiver), result = [];
     // The initial length is fixed; current values are fetched for each index.
     // AVM2 visits holes as undefined, unlike JavaScript Array.prototype.map.
     for (let index = 0; index < length; index++) {
-        const value = receiver[index], answer = __nfArrayApply(callback, thisObject, [value, index, receiver]);
+        const value = index in receiver ? receiver[index] : undefined;
+        const answer = __nfArrayApply(callback, thisObject, [value, index, receiver]);
         if (name === 'map') result.push(answer);
         else if (name === 'filter' && answer) result.push(value);
         else if (name === 'every' && !answer) return false;
@@ -187,6 +316,181 @@ function __nfArrayIterate(receiver, name, args) {
     if (name === 'some') return false;
     if (name === 'forEach') return undefined;
     return result;
+}
+function __nfArrayConcatBound(target, length, args) {
+    let total = __nfArrayIsArray(target) ? length : 1;
+    for (let index = 0; index < args.length; index++) {
+        const item = args[index];
+        if (__nfArrayIsArray(item)) {
+            __nfArrayBound(item.length);
+            total += item.length;
+        } else {
+            total += 1;
+        }
+        __nfArrayBound(total);
+    }
+}
+function __nfArrayShiftElements(target, start, end, delta) {
+    if (delta > 0) {
+        for (let index = end - 1; index >= start; index--) {
+            if (index in target) __nfArrayWriteProp(target, index + delta, target[index]);
+            else __nfArrayDeleteProp(target, index + delta);
+        }
+    } else if (delta < 0) {
+        for (let index = start; index < end; index++) {
+            if (index in target) __nfArrayWriteProp(target, index + delta, target[index]);
+            else __nfArrayDeleteProp(target, index + delta);
+        }
+    }
+}
+function __nfArrayBorrowSlice(target, length, args) {
+    const start = __nfArrayRelativeIndex(args[0], length, 0);
+    const end = args.length > 1 && args[1] !== undefined ? __nfArrayRelativeIndex(args[1], length, length) : length;
+    const count = Math.max(0, end - start), out = new __nfNativeArray(count);
+    for (let index = 0; index < count; index++) {
+        const source = start + index;
+        if (source in target) out[index] = target[source];
+    }
+    return out;
+}
+function __nfArrayBorrowSplice(target, length, args) {
+    __nfArrayBound(length + Math.max(0, args.length - 2));
+    if (!args.length) return [];
+    const start = __nfArrayRelativeIndex(args[0], length, 0);
+    const actualDelete = args.length === 1 ? length - start : Math.min(Math.max(__nfArrayTruncInt(args[1]), 0), length - start);
+    const removed = new __nfNativeArray(actualDelete);
+    for (let index = 0; index < actualDelete; index++) {
+        const source = start + index;
+        if (source in target) removed[index] = target[source];
+    }
+    const items = __nfArrayApply(__nfArrayMethods.slice, args, [2]);
+    const itemCount = items.length, delta = itemCount - actualDelete;
+    if (delta > 0 && typeof __nfVectorIs === 'function' && __nfVectorIs(target)) {
+        // Vector append trap rejects index > length; expand sequentially before shifting right.
+        __nfArrayWriteProp(target, 'length', length + delta);
+    }
+    if (delta < 0) {
+        __nfArrayShiftElements(target, start + actualDelete, length, delta);
+        for (let index = length + delta; index < length; index++) __nfArrayDeleteProp(target, index);
+    } else if (delta > 0) {
+        __nfArrayShiftElements(target, start + actualDelete, length, delta);
+    }
+    for (let index = 0; index < itemCount; index++) __nfArrayWriteProp(target, start + index, items[index]);
+    __nfArrayWriteProp(target, 'length', length + delta);
+    return removed;
+}
+function __nfArrayMutateAt(target, length, name, args) {
+    const required = name === 'insertAt' ? 2 : 1;
+    if (args.length !== required) throw new __nfArrayTypeError(`Array.${name} requires ${required} arguments.`);
+    const service = typeof __nfLegacy !== 'undefined' ? __nfLegacy?.objects3 : null;
+    if (typeof service?.arrayPlan !== 'function') throw new __nfArrayTypeError('Rust Array mutation services are unavailable; rebuild and re-export this project.');
+    let plan;
+    try { plan = service.arrayPlan(name, length, __nfArrayNumber(args[0]) | 0); }
+    catch (error) { throw new __nfArrayRangeError(String(error?.message ?? error)); }
+    if (__nfArrayIsArray(target)) {
+        if (!Object.isExtensible(target) || !Object.getOwnPropertyDescriptor(target, 'length')?.writable) throw new __nfArrayTypeError('Array insertAt/removeAt requires ordinary mutable storage.');
+        for (let index = 0; index < length; index++) {
+            const descriptor = Object.getOwnPropertyDescriptor(target, String(index));
+            if (descriptor && (!Object.hasOwn(descriptor, 'value') || !descriptor.writable || !descriptor.configurable)) throw new __nfArrayTypeError('Array insertAt/removeAt does not support exotic element descriptors.');
+        }
+    }
+    const removed = __nfArrayExecute(target, 'splice', plan.insert ? [plan.index, 0, args[1]] : [plan.index, plan.remove], true);
+    return plan.insert ? undefined : removed[0];
+}
+function __nfArrayIndexSearch(target, length, backwards, args) {
+    if (!length) return -1;
+    let index;
+    if (args.length > 1) {
+        const n = __nfArrayNumber(args[1]);
+        index = Number.isNaN(n) || n === 0 ? 0 : n === Infinity ? length : n === -Infinity ? -length - 1 : Math.trunc(n);
+    } else {
+        index = backwards ? length - 1 : 0;
+    }
+    if (index < 0) index = length + index;
+    index = backwards ? Math.min(index, length - 1) : Math.max(index, 0);
+    for (; index >= 0 && index < length; index += backwards ? -1 : 1) {
+        if ((index in target) && target[index] === args[0]) return index;
+    }
+    return -1;
+}
+function __nfArrayExecute(receiver, name, args, as3) {
+    const target = __nfArrayEnsureReceiver(receiver, name);
+    const array = __nfArrayIsArray(target);
+    const length = __nfArrayReadLength(target);
+    if (!as3 && (name === 'toString' || name === 'toLocaleString')) return __nfArrayApply(__nfArrayMethods[name], target, args);
+    if (name === 'insertAt' || name === 'removeAt') {
+        if (!as3) throw new __nfArrayTypeError(`${name} is an AS3 Array method.`);
+        return __nfArrayMutateAt(target, length, name, args);
+    }
+    if (name === 'sort' || name === 'sortOn') return __nfArraySort(target, args, as3, name === 'sortOn');
+    if (name === 'map' || name === 'filter' || name === 'forEach' || name === 'every' || name === 'some') {
+        if (!as3) throw new __nfArrayTypeError(`${name} is an AS3 Array method. Use an AS2 loop or a custom method.`);
+        return __nfArrayIterate(target, name, args);
+    }
+    if (as3 && (name === 'indexOf' || name === 'lastIndexOf')) return __nfArrayIndexSearch(target, length, name === 'lastIndexOf', args);
+    if (as3 && name === 'join') return __nfArrayJoin(target, args.length && args[0] !== undefined ? __nfArrayString(args[0]) : ',');
+    if (as3 && name === 'toString') {
+        if (array) return __nfArrayJoin(target, ',');
+        if (typeof target.join === 'function') return __nfArrayApply(target.join, target, []);
+        const program = typeof __nfProgram !== 'undefined' ? __nfProgram : null;
+        const defaultMethod = program?.defaultObjectMethod?.(target, 'toString', target.toString);
+        return defaultMethod ? __nfArrayApply(defaultMethod, target, []) : __nfArrayApply(__nfArrayObjectToString, target, []);
+    }
+    if (as3 && name === 'toLocaleString') return __nfArrayLocaleString(target);
+    if (name === 'concat') {
+        __nfArrayConcatBound(target, length, args);
+        return __nfArrayApply(__nfArrayMethods.concat, target, args);
+    }
+    if (array) {
+        if (name === 'push' || name === 'unshift') __nfArrayBound(length + args.length);
+        if (name === 'splice') __nfArrayBound(length + Math.max(0, args.length - 2));
+        return __nfArrayApply(__nfArrayMethods[name], target, args);
+    }
+    if (name === 'slice') return __nfArrayBorrowSlice(target, length, args);
+    if (name === 'splice') return __nfArrayBorrowSplice(target, length, args);
+    if (name === 'push') {
+        __nfArrayBound(length + args.length);
+        let next = length;
+        for (let index = 0; index < args.length; index++) __nfArrayWriteProp(target, next++, args[index]);
+        __nfArrayWriteProp(target, 'length', next);
+        return next;
+    }
+    if (name === 'pop') {
+        if (!length) { __nfArrayWriteProp(target, 'length', 0); return undefined; }
+        const last = length - 1, value = last in target ? target[last] : undefined;
+        if (last in target) __nfArrayDeleteProp(target, last);
+        __nfArrayWriteProp(target, 'length', last);
+        return value;
+    }
+    if (name === 'shift') {
+        if (!length) { __nfArrayWriteProp(target, 'length', 0); return undefined; }
+        const first = 0 in target ? target[0] : undefined;
+        __nfArrayShiftElements(target, 1, length, -1);
+        __nfArrayDeleteProp(target, length - 1);
+        __nfArrayWriteProp(target, 'length', length - 1);
+        return first;
+    }
+    if (name === 'unshift') {
+        const count = args.length;
+        __nfArrayBound(length + count);
+        if (count > 0 && typeof __nfVectorIs === 'function' && __nfVectorIs(target)) __nfArrayWriteProp(target, 'length', length + count);
+        __nfArrayShiftElements(target, 0, length, count);
+        for (let index = 0; index < count; index++) __nfArrayWriteProp(target, index, args[index]);
+        __nfArrayWriteProp(target, 'length', length + count);
+        return length + count;
+    }
+    if (name === 'reverse') {
+        const middle = Math.floor(length / 2);
+        for (let lower = 0; lower < middle; lower++) {
+            const upper = length - 1 - lower, hasLower = lower in target, hasUpper = upper in target;
+            const lowerValue = hasLower ? target[lower] : undefined, upperValue = hasUpper ? target[upper] : undefined;
+            if (hasLower && hasUpper) { __nfArrayWriteProp(target, lower, upperValue); __nfArrayWriteProp(target, upper, lowerValue); }
+            else if (!hasLower && hasUpper) { __nfArrayWriteProp(target, lower, upperValue); __nfArrayDeleteProp(target, upper); }
+            else if (hasLower && !hasUpper) { __nfArrayDeleteProp(target, lower); __nfArrayWriteProp(target, upper, lowerValue); }
+        }
+        return target;
+    }
+    return __nfArrayApply(__nfArrayMethods[name], target, args);
 }
 function __nfArrayMethod(receiver, name, as3, resolved) {
     // Resolve once before caller evaluates arguments. An override, including a
@@ -202,42 +506,6 @@ function __nfArrayMethod(receiver, name, as3, resolved) {
             if (typeof method !== 'function') throw new __nfArrayTypeError(`Array/custom member '${name}' is not callable.`);
             return __nfArrayApply(method, receiver, args);
         }
-        __nfArrayBound(receiver.length);
-        if (synthesizeMutation) {
-            const required = name === 'insertAt' ? 2 : 1;
-            if (args.length !== required) throw new __nfArrayTypeError(`Array.${name} requires ${required} arguments.`);
-            const service = typeof __nfLegacy !== 'undefined' ? __nfLegacy?.objects3 : null;
-            if (typeof service?.arrayPlan !== 'function') throw new __nfArrayTypeError('Rust Array mutation services are unavailable; rebuild and re-export this project.');
-            let plan;
-            try { plan = service.arrayPlan(name, receiver.length, __nfArrayNumber(args[0]) | 0); }
-            catch (error) { throw new __nfArrayRangeError(String(error?.message ?? error)); }
-            // Only storage operations happen here. Rust owns index and growth policy.
-            // Refuse sparse/accessor/frozen storage before touching any element.
-            if (!Object.isExtensible(receiver) || !Object.getOwnPropertyDescriptor(receiver, 'length')?.writable) throw new __nfArrayTypeError('Array insertAt/removeAt requires ordinary mutable dense storage.');
-            for (let i = 0; i < receiver.length; i++) {
-                const descriptor = Object.getOwnPropertyDescriptor(receiver, String(i));
-                if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.writable || !descriptor.configurable) throw new __nfArrayTypeError('Array insertAt/removeAt does not yet support sparse arrays or exotic element descriptors.');
-            }
-            const removed = __nfArrayApply(__nfArrayMethods.splice, receiver, plan.insert ? [plan.index, 0, args[1]] : [plan.index, plan.remove]);
-            return plan.insert ? undefined : removed[0];
-        }
-        if (name === 'sort' || name === 'sortOn') return __nfArraySort(receiver, args, as3, name === 'sortOn');
-        if (['map', 'filter', 'forEach', 'every', 'some'].includes(name)) {
-            if (!as3) throw new __nfArrayTypeError(`${name} is an AS3 Array method. Use an AS2 loop or a custom method.`);
-            return __nfArrayIterate(receiver, name, args);
-        }
-        if (as3 && (name === 'indexOf' || name === 'lastIndexOf')) {
-            const length = receiver.length, backwards = name === 'lastIndexOf';
-            let index = args.length > 1 ? (__nfArrayNumber(args[1]) | 0) : backwards ? length - 1 : 0;
-            if (index < 0) index = length + index;
-            index = backwards ? Math.min(index, length - 1) : Math.max(index, 0);
-            for (; index >= 0 && index < length; index += backwards ? -1 : 1) if (receiver[index] === args[0]) return index;
-            return -1;
-        }
-        if (name === 'push' || name === 'unshift') __nfArrayBound(receiver.length + args.length);
-        if (name === 'splice') __nfArrayBound(receiver.length + Math.max(0, args.length - 2));
-        // Ordinary mutation/search/slicing uses native indexed storage. Exotic
-        // coercions, borrowed receivers and legacy sparse-array quirks are not claimed.
-        return __nfArrayApply(method, receiver, args);
+        return __nfArrayExecute(receiver, name, args, as3);
     };
 }

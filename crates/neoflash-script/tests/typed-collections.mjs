@@ -78,6 +78,14 @@ export async function verifyTypedCollections(root,cargo) {
     assert.equal(scene.cards[2],firstCards[0]);assert.equal(scene.cards[0],firstCards[1]);
     click();check(['FILM','RESTOCK-1','RESTOCK-2'],[5,6,6],2);assert.equal(scene.released,true);
     assert.equal(scene.cards[2],firstCards[1]);
+    const ArrayProto=host.program().type('Array').prototype;
+    assert.equal(Object.hasOwn(Array.prototype,'sortOn'),false,'host JS Array.prototype remains untouched');
+    assert.equal(typeof ArrayProto.toString==='function'&&typeof ArrayProto.toLocaleString==='function',true);
+    scene[0]='clip-alpha';scene[1]='clip-beta';scene.length=2;
+    assert.deepEqual(ArrayProto.slice.call(scene,0),['clip-alpha','clip-beta'],'MovieClip display proxy supports borrowed Array.prototype.slice');
+    assert.equal(ArrayProto.push.call(scene,'clip-gamma'),3);
+    assert.equal(ArrayProto.join.call(scene,'|'),'clip-alpha|clip-beta|clip-gamma');
+    assert.equal(ArrayProto.join.call([scene,null],','),scene.toString()+',');
     host.resetProject();scene=host.proxyFor([]);
     assert.notEqual(scene.items,firstItems);assert.notEqual(scene.cards[0],firstCards[0]);
     assert.notEqual(scene.classProbe,firstProbe,'Restart constructs fresh class-alias instances');

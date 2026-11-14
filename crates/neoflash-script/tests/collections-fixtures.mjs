@@ -16,7 +16,7 @@ export const collectionsProfile = {
     'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/Array.as',
     'https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/MethodClosure.cpp',
   ],
-  boundary: 'Ordinary indexed arrays and data records; up to 1,000,000 elements. AS3 trait method values retain their array receiver and publication identity; AS2 native extraction and prototype-only toString/toLocaleString extraction are unsupported. No historical comparator-call order, prototype augmentation/borrowing, custom namespace lookup, or exotic length coercions. AS3 NUMERIC requires numeric values. Equal-length sortOn options arrays; AS2 sortOn plain stored fields. String case folding uses JavaScript Unicode tables.',
+  boundary: 'Ordinary indexed arrays and data records; up to 1,000,000 elements. AS3 trait method values retain their array receiver and publication identity; AS3 Array.prototype borrowing, prototype-only toString/toLocaleString extraction, sparse Array sort/search/mutation/property queries, and cyclic formatting are covered. AS2 native extraction, runtime Array.prototype mutation, custom namespace lookup, and exotic length coercions remain unsupported. AS3 NUMERIC requires numeric values. Equal-length sortOn options arrays; AS2 sortOn plain stored fields. String case folding uses JavaScript Unicode tables.',
 };
 
 export const collectionSources = {
@@ -95,6 +95,85 @@ var indexTotal:int=0; for(var key:int in typed)indexTotal+=key;
 var sourceRecord:Object={a:1,b:2};var remaining:int=0;
 for(var recordKey:String in sourceRecord){remaining+=sourceRecord[recordKey];delete sourceRecord.b;sourceRecord.c=99;}
 var retained:Boolean="c" in sourceRecord;
+var borrowTarget:Object={0:"x",1:"y",2:"z",length:3};
+var borrowedSlice:Array=Array.prototype.slice.call(borrowTarget,1);
+var borrowedJoin:String=Array.prototype.join.call(borrowTarget,"-");
+var borrowedPush:int=Array.prototype.push.call(borrowTarget,"w");
+var borrowedUnshift:int=Array.prototype.unshift.call(borrowTarget,"p","q");
+var borrowedPop:*=Array.prototype.pop.call(borrowTarget);
+var borrowedShift:*=Array.prototype.shift.call(borrowTarget);
+var borrowedSplice:Array=Array.prototype.splice.call(borrowTarget,1,1,"m","n");
+Array.prototype.reverse.call(borrowTarget);
+Array.prototype.sort.call(borrowTarget);
+var borrowedMap:Array=Array.prototype.map.call({0:2,1:5,length:2},function(v:int,i:int,s:*):int{return v+i;});
+var borrowedIdx:int=Array.prototype.indexOf.call(borrowTarget,"n");
+var noLen:Object={a:1};
+var noLenPush:int=Array.prototype.push.call(noLen,"v");
+var borrowedVec:Vector.<int>=Vector.<int>([30,10,20]);
+var vecJoin:String=Array.prototype.join.call(borrowedVec,":");
+var vecSlice:Array=Array.prototype.slice.call(borrowedVec,1);
+Array.prototype.unshift.call(borrowedVec,1,2);
+Array.prototype.splice.call(borrowedVec,2,1,9,8);
+Array.prototype.sort.call(borrowedVec,Array.NUMERIC);
+var vecBorrowStr:String=Array.prototype.join.call(borrowedVec,",");
+var fixedBorrowRejected:Boolean=false;
+borrowedVec.fixed=true;
+try{Array.prototype.push.call(borrowedVec,99);}catch(err:RangeError){fixedBorrowRejected=true;}
+function borrowArgs(head:*):Array{return Array.prototype.slice.call(arguments,1);}
+var argsSlice:Array=borrowArgs("skip","one","two");
+var strJoin:String=Array.prototype.join.call("abc",".");
+var protoA:Array=[10,20]; var protoB:Array=[30,40];
+var protoToStringShared:Boolean=(protoA.toString===protoB.toString)&&(protoA.toString===Array.prototype.toString);
+var protoToLocaleShared:Boolean=(protoA.toLocaleString===protoB.toLocaleString)&&(protoA.toLocaleString===Array.prototype.toLocaleString);
+var extractedTS:Function=protoA.toString;
+var extractedTLS:Function=protoA.toLocaleString;
+var tsBoundlessCall:String=extractedTS.call(protoB);
+var tlsBoundlessApply:String=extractedTLS.apply(protoB,[]);
+var tsFrameCall:String=extractedTS();
+var tsNullError:Boolean=false;
+try{extractedTS.call(null);}catch(err:TypeError){tsNullError=true;}
+var tsLocalBareError:Boolean=(function():Boolean{var localTS:Function=protoA.toString;try{localTS();return false;}catch(err:TypeError){return true;}return false;})();
+var customTSArr:Array=[1,2];
+customTSArr.toString=function():String{return "custom:"+this.join(":");};
+var customTSResult:String=customTSArr.toString();
+var localeNested:Array=[null,undefined,,[7,{toLocaleString:function():String{return "tag";}}]];
+var localeNestedStr:String=localeNested.toLocaleString();
+var cyclicArr:Array=["root"]; cyclicArr.push(cyclicArr);
+var cyclicStr:String=cyclicArr.toString();
+var cyclicLocaleStr:String=cyclicArr.toLocaleString();
+var diamondSub:Array=[1,2];
+var diamondStr:String=[diamondSub,diamondSub].join("|");
+var sparseExotic:Array=[,10,undefined,5];
+var sparseOwnChecks:Array=[sparseExotic.hasOwnProperty(0),sparseExotic.hasOwnProperty(1),sparseExotic.hasOwnProperty(2),sparseExotic.hasOwnProperty("length"),sparseExotic.propertyIsEnumerable("length")];
+sparseExotic.tag="kept";
+sparseExotic[-1]="neg";
+sparseExotic[4294967295]="maxu32";
+var exoticLenPreserved:int=sparseExotic.length;
+sparseExotic.setPropertyIsEnumerable("tag",false);
+sparseExotic.setPropertyIsEnumerable(1,false);
+var enumAfterHide:Array=[];
+for(var ek:String in sparseExotic)enumAfterHide.push(ek);
+enumAfterHide.sort();
+var holeIndexResults:Array=[[,10].indexOf(undefined),[,10].lastIndexOf(undefined),sparseExotic.indexOf(undefined),sparseExotic.lastIndexOf(undefined)];
+delete sparseExotic[3];
+var afterDeleteCheck:Array=[3 in sparseExotic,sparseExotic.hasOwnProperty(3),sparseExotic.length];
+sparseExotic.length=2;
+var afterTruncate:Array=[sparseExotic.length,2 in sparseExotic,sparseExotic.tag,sparseExotic[-1],sparseExotic[4294967295]];
+sparseExotic.length=4;
+var afterExpand:Array=[sparseExotic.length,2 in sparseExotic,sparseExotic.hasOwnProperty(2)];
+var sparseNums:Array=[,30,,5];
+sparseNums.sort(Array.NUMERIC|Array.DESCENDING);
+var sparseSortPresent:Array=[0 in sparseNums,1 in sparseNums,2 in sparseNums,3 in sparseNums,sparseNums[0],sparseNums[1]];
+var sparseIdxOrder:Array=[,30,,5].sort(Array.NUMERIC|Array.RETURNINDEXEDARRAY);
+var sparseUniqueOk:Boolean=([,20,,10].sort(Array.NUMERIC|Array.UNIQUESORT)) is Array;
+var sparseRecs:Array=[,{score:20},,{score:10}];
+sparseRecs.sortOn("score",Array.NUMERIC);
+var sparseRecScore0:int=sparseRecs[0].score;
+var sparseInsertArr:Array=[,2,3];
+sparseInsertArr.insertAt(1,9);
+var sparseRemovedVal:*=sparseInsertArr.removeAt(0);
+var sparseMutationState:Array=[sparseRemovedVal,sparseInsertArr.length,0 in sparseInsertArr,sparseInsertArr[0],sparseInsertArr[1]];
+var ctorMatch:Boolean=protoA.constructor===Array;
 result = labels.join("|");
 trace("AS3", result, "total", total, "checks", all && any, "find", first, last);`,
 };
@@ -155,6 +234,16 @@ export const collectionsFixtures = [
       assert.equal(c.assignment,4294967295);assert.equal(c.wrapped,-1);assert.equal(c.before,-1);assert.equal(c.after,0);
       assert.equal(c.fixedError,true);assert.equal(c.genericJSON,'[[3,1,2]]');assert.equal(c.shifts,12);
       assert.equal(c.typedTotal,10);assert.equal(c.finallyVisits,3);assert.equal(c.indexTotal,3);assert.equal(c.remaining,1);assert.equal(c.retained,true);
+      assert.deepEqual(c.borrowedSlice,['y','z']);assert.equal(c.borrowedJoin,'x-y-z');assert.equal(c.borrowedPush,4);assert.equal(c.borrowedUnshift,6);assert.equal(c.borrowedPop,'w');assert.equal(c.borrowedShift,'p');assert.deepEqual(c.borrowedSplice,['x']);assert.equal(c.borrowTarget.length,5);assert.deepEqual(c.borrowedMap,[2,6]);assert.equal(c.borrowedIdx,1);
+      assert.equal(c.noLenPush,1);assert.equal(c.noLen[0],'v');assert.equal(c.noLen.length,1);
+      assert.equal(c.vecJoin,'30:10:20');assert.deepEqual(c.vecSlice,[10,20]);assert.equal(c.vecBorrowStr,'1,2,8,9,10,20');assert.equal(c.fixedBorrowRejected,true);
+      assert.deepEqual(c.argsSlice,['one','two']);assert.equal(c.strJoin,'a.b.c');
+      assert.equal(c.protoToStringShared,true);assert.equal(c.protoToLocaleShared,true);assert.equal(c.tsBoundlessCall,'30,40');assert.equal(c.tlsBoundlessApply,'30,40');assert.equal(c.tsFrameCall,'[object Object]');assert.equal(c.tsNullError,true);assert.equal(c.tsLocalBareError,true);assert.equal(c.customTSResult,'custom:1:2');
+      assert.equal(c.localeNestedStr,',,,7,tag');assert.equal(c.cyclicStr,'root,');assert.equal(c.cyclicLocaleStr,'root,');assert.equal(c.diamondStr,'1,2|1,2');
+      assert.deepEqual(c.sparseOwnChecks,[false,true,true,true,false]);assert.equal(c.exoticLenPreserved,4);assert.deepEqual(c.enumAfterHide,['-1','2','3','4294967295']);
+      assert.deepEqual(c.holeIndexResults,[-1,-1,2,2]);assert.deepEqual(c.afterDeleteCheck,[false,false,4]);assert.deepEqual(c.afterTruncate,[2,false,'kept','neg','maxu32']);assert.deepEqual(c.afterExpand,[4,false,false]);
+      assert.deepEqual(c.sparseSortPresent,[true,true,false,false,30,5]);assert.deepEqual(c.sparseIdxOrder,[3,1,0,2]);assert.equal(c.sparseUniqueOk,true);assert.equal(c.sparseRecScore0,10);
+      assert.deepEqual(c.sparseMutationState,[undefined,3,true,9,2]);assert.equal(c.ctorMatch,true);
       assert.deepEqual(logs,[['AS3','Zoe:45|Ada:30|Bob:20','total',95,'checks',true,'find',1,2]]);
     } },
 ];
@@ -222,8 +311,32 @@ export function verifyCollectionsAdapter() {
   assert.equal(sortOn('score',api.type(true).NUMERIC),records);assert.equal(records[0].score,1);
   assert.throws(()=>new push(1),TypeError);
   assert.equal(api.reference(queue,'sort',Array.prototype.sort,false),Array.prototype.sort);
-  assert.equal(api.reference(queue,'toString',Array.prototype.toString,true),Array.prototype.toString);
-  assert.throws(()=>api.value(api.reference(queue,'toString',Array.prototype.toString,true)),/Prototype method borrowing/);
+  const A3=api.type(true);
+  assert.equal(api.reference(queue,'toString',Array.prototype.toString,true),A3.prototype.toString);
+  assert.equal(api.reference(queue,'toLocaleString',Array.prototype.toLocaleString,true),A3.prototype.toLocaleString);
+  assert.equal(otherAPI.reference(other,'toString',Array.prototype.toString,true),A3.prototype.toString,'toString shares one prototype function across units and receivers');
+  assert.equal(api.value(api.reference(queue,'toString',Array.prototype.toString,true)),A3.prototype.toString);
+  assert.equal(api.value(api.reference(queue,'toLocaleString',Array.prototype.toLocaleString,true)),A3.prototype.toLocaleString);
+  assert.throws(()=>api.value(Array.prototype.toLocaleString),/Call the method directly/);
+  const bareToString=A3.prototype.toString;
+  assert.throws(()=>bareToString(),TypeError);
+  assert.equal(A3.prototype.toString(),'');
+  assert.throws(()=>A3.prototype.slice.call({length:-1}),RangeError);
+  assert.throws(()=>A3.prototype.push.call(Object.freeze({length:0}),1),TypeError);
+  const customToString=function(){return 'custom-ts:'+this.length;};
+  Object.defineProperty(queue,'toString',{configurable:true,value:customToString});
+  assert.equal(api.reference(queue,'toString',queue.toString,true),customToString);
+  assert.equal(api.method(queue,'toString',true)(),'custom-ts:'+queue.length);
+  const sparseSortTarget=[,30,,5];
+  assert.equal(A3.prototype.sort.call(sparseSortTarget,A3.NUMERIC),sparseSortTarget);
+  assert.deepEqual([0 in sparseSortTarget,1 in sparseSortTarget,2 in sparseSortTarget,sparseSortTarget[0],sparseSortTarget[1]],[true,true,false,5,30]);
+  const selfCycle=['head'];selfCycle.push(selfCycle);
+  assert.equal(A3.prototype.join.call(selfCycle,','),'head,');
+  assert.equal(A3.prototype.toLocaleString.call(selfCycle),'head,');
+  const borrowedRecord={0:'a',2:'c',length:3};
+  const sliceSpare=A3.prototype.slice.call(borrowedRecord,0);
+  assert.equal(sliceSpare[0],'a');assert.equal(1 in sliceSpare,false);assert.equal(sliceSpare[2],'c');assert.equal(sliceSpare.length,3);
+  assert.equal(api.reference(queue,'constructor',Array,true),A3);
   assert.equal(Object.hasOwn(Array.prototype,'sortOn'),false,'adapter must not modify JavaScript prototypes');
   console.log('Array adapter: two coherent AS2/AS3 processing pipelines passed; compiler/export integration pending.');
 }

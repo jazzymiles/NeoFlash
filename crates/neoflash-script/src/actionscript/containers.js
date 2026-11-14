@@ -51,9 +51,10 @@ function __nfObjectPropertyDescriptor(receiver,name){
     if(project)return project;
     if(receiver===null||typeof receiver!=='object')return {supported:false};
     const prototype=Object.getPrototypeOf(receiver);
-    if(prototype!==null&&prototype!==Object.prototype)return {supported:false};
+    const array=Array.isArray(receiver)&&prototype===Array.prototype;
+    if(!array&&prototype!==null&&prototype!==Object.prototype)return {supported:false};
     const descriptor=Object.getOwnPropertyDescriptor(receiver,name);
-    return {supported:true,fixed:false,own:!!descriptor,enumerable:!!descriptor?.enumerable,configurable:!!descriptor?.configurable};
+    return {supported:true,fixed:array&&name==='length',own:!!descriptor,enumerable:!!descriptor?.enumerable,configurable:!!descriptor?.configurable};
 }
 function __nfObjectPropertyMethod(receiver,method){
     return (...args)=>{
@@ -232,7 +233,7 @@ function __nfContainerMethod(receiver,key,as3,caller,legacyCase){
         return (...args)=>__nfApply(method,receiver,args);
     }
     key=__nfLegacyKey(receiver,key,as3,legacyCase);
-    if(__nfArrayIsArray(receiver))return __nfArrayMethod(receiver,key,as3);
+    if(__nfArrayIsArray(receiver)&&!(as3&&(key==='hasOwnProperty'||key==='propertyIsEnumerable'||key==='setPropertyIsEnumerable')))return __nfArrayMethod(receiver,key,as3);
     if(typeof receiver==='string')return __nfStringMethod(receiver,key,as3);
     if(__nfDateIs(receiver))return __nfDateMethod(receiver,key,as3);
     if(as3&&key==='toFixed')return __nfFixedMethod(receiver);
