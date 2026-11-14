@@ -120,6 +120,8 @@ pub(crate) struct ExportSpec {
     #[serde(default)]
     pub(crate) allow_fullscreen: Option<bool>,
     #[serde(default)]
+    pub(crate) render_mode: Option<String>,
+    #[serde(default)]
     pub(crate) fla_profile: Option<String>,
     #[serde(default)]
     pub(crate) swf_profile: Option<String>,
@@ -624,6 +626,9 @@ fn run_cmd_export<W1: Write>(
                     }
                 });
             }
+            "--render-mode" => {
+                spec.render_mode = Some(take_flag_value(args, &mut i, "--render-mode")?);
+            }
             "--fla-profile" => {
                 spec.fla_profile = Some(take_flag_value(args, &mut i, "--fla-profile")?);
             }
@@ -890,6 +895,10 @@ fn resolve_publish_profile_and_options(
     if let Some(ref ap) = spec.audio_policy {
         profile.options.audio = parse_audio_policy(ap)?;
     }
+    if let Some(ref rm) = spec.render_mode {
+        profile.render_mode = neoflash_core::HtmlRenderMode::parse(rm)
+            .map_err(|e| CliError::usage("invalid_argument", e))?;
+    }
     Ok((profile, has_stored))
 }
 
@@ -897,10 +906,19 @@ fn build_html_publish_config(
     spec: &ExportSpec,
     clean_base: bool,
 ) -> Result<(HtmlPublishConfig, bool), CliError> {
+    let parsed_render_mode = spec
+        .render_mode
+        .as_deref()
+        .map(|rm| {
+            neoflash_core::HtmlRenderMode::parse(rm)
+                .map_err(|e| CliError::usage("invalid_argument", e))
+        })
+        .transpose()?;
     let custom = spec.clean
         || spec.scale_mode.is_some()
         || spec.stage_align.is_some()
         || spec.allow_fullscreen.is_some()
+        || parsed_render_mode.is_some()
         || spec.sprite_sheets
         || spec.assets_folder;
     let mut cfg = if spec.clean || clean_base {
@@ -916,6 +934,9 @@ fn build_html_publish_config(
     }
     if let Some(fs_ok) = spec.allow_fullscreen {
         cfg.allow_fullscreen = fs_ok;
+    }
+    if let Some(rm) = parsed_render_mode {
+        cfg.render_mode = rm;
     }
     if spec.sprite_sheets {
         cfg.sprite_sheets = true;
@@ -971,27 +992,68 @@ pub(crate) fn export_project_with_spec(
         ExportTarget::Html5 => {
             let runtime_dir = runtime.expect("html5 requires runtime");
             let (profile, _has_stored) = resolve_publish_profile_and_options(project, spec)?;
-            let (cfg, custom_cfg) = build_html_publish_config(spec, false)?;
-            let index = if custom_cfg {
+            let explicit_render_mode = spec
+                .render_mode
+                .as_deref()
+                .map(|rm| {
+                    neoflash_core::HtmlRenderMode::parse(rm)
+                        .map_err(|e| CliError::usage("invalid_argument", e))
+                })
+                .transpose()?;
+            let mut overridden_project: Option<Project> = None;
+            if explicit_render_mode == Some(neoflash_core::HtmlRenderMode::Canvas)
+                && project.html_render_mode() != neoflash_core::HtmlRenderMode::Canvas
+            {
+                let mut cloned = project.clone();
+                cloned.set_html_render_mode(neoflash_core::HtmlRenderMode::Canvas);
+                overridden_project = Some(cloned);
+            }
+            let effective_project = overridden_project.as_ref().unwrap_or(project);
+            let (mut cfg, custom_cfg) = build_html_publish_config(spec, false)?;
+            if explicit_render_mode.is_none()
+                && cfg.render_mode == neoflash_core::HtmlRenderMode::Canvas
+                && profile.render_mode != neoflash_core::HtmlRenderMode::Canvas
+            {
+                cfg.render_mode = profile.render_mode;
+            }
+            let effective_render_mode = if let Some(rm) = explicit_render_mode {
+                rm
+            } else if cfg.render_mode != neoflash_core::HtmlRenderMode::Canvas {
+                cfg.render_mode
+            } else {
+                effective_project.html_render_mode()
+            };
+            let use_custom_cfg = custom_cfg
+                && !(explicit_render_mode == Some(neoflash_core::HtmlRenderMode::Canvas)
+                    && cfg == HtmlPublishConfig::default());
+            let index = if use_custom_cfg {
                 neoflash_export::export_project_with_config(
-                    project,
+                    effective_project,
                     &spec.out,
                     &runtime_dir,
                     &profile.options,
                     &cfg,
                 )
-            } else if spec.profile.is_some() || profile.html_template.is_some() {
-                export_project_with_profile(project, &spec.out, &runtime_dir, &profile)
+            } else if spec.profile.is_some()
+                || profile.html_template.is_some()
+                || profile.render_mode != neoflash_core::HtmlRenderMode::Canvas
+            {
+                export_project_with_profile(effective_project, &spec.out, &runtime_dir, &profile)
             } else {
                 neoflash_export::export_project_with_options(
-                    project,
+                    effective_project,
                     &spec.out,
                     &runtime_dir,
                     &profile.options,
                 )
             }
             .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
-            let warnings = neoflash_export::export_warnings(project);
+            let mut warnings = neoflash_export::export_warnings(effective_project);
+            if effective_render_mode == neoflash_core::HtmlRenderMode::Dom
+                && effective_project.html_render_mode() != neoflash_core::HtmlRenderMode::Dom
+            {
+                warnings.extend(neoflash_export::dom_publish_diagnostics(effective_project));
+            }
             Ok(json!({
                 "target": target.as_str(),
                 "output_path": index.display().to_string(),
@@ -999,6 +1061,7 @@ pub(crate) fn export_project_with_spec(
                 "runtime_dir": runtime_dir.display().to_string(),
                 "profile": profile.name,
                 "size_level": profile.options.size.name(),
+                "render_mode": effective_render_mode.as_str(),
                 "warnings": warnings,
             }))
         }

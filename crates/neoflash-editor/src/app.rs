@@ -630,6 +630,10 @@ impl Editor {
             stage_text_edit: Default::default(),
             scale9_guide_drag: None,
         };
+        if s.project.html_render_mode() == neoflash_core::HtmlRenderMode::Dom {
+            s.workspace.publish.render_mode = neoflash_core::HtmlRenderMode::Dom;
+            s.workspace.publish.profile = crate::workspace::PublishProfilePreset::WebAppDom;
+        }
         s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);
         s.normalize_selection();
@@ -2221,11 +2225,20 @@ impl Editor {
                 .join(std::process::id().to_string());
             self.finish_edits();
             let preview_config = self.workspace.publish.preview_html_config();
+            let preview_options = self
+                .workspace
+                .publish
+                .options
+                .clone()
+                .validated()
+                .ok()
+                .filter(|opts| !matches!(opts.size, neoflash_export::SizeLevel::Shared(_)))
+                .unwrap_or_default();
             match neoflash_export::export_project_with_config(
                 &self.project,
                 &output,
                 &Self::runtime_dir(),
-                &neoflash_export::PublishOptions::default(),
+                &preview_options,
                 &preview_config,
             ) {
                 Ok(index) => {
@@ -2684,11 +2697,20 @@ impl Editor {
             .join("neoflash-preview-scene")
             .join(std::process::id().to_string());
         let preview_config = self.workspace.publish.preview_html_config();
+        let preview_options = self
+            .workspace
+            .publish
+            .options
+            .clone()
+            .validated()
+            .ok()
+            .filter(|opts| !matches!(opts.size, neoflash_export::SizeLevel::Shared(_)))
+            .unwrap_or_default();
         match neoflash_export::export_project_with_config(
             &project,
             &output,
             &Self::runtime_dir(),
-            &neoflash_export::PublishOptions::default(),
+            &preview_options,
             &preview_config,
         ) {
             Ok(index) => {

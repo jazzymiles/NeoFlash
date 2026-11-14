@@ -1191,6 +1191,8 @@ fn html_publish_config_drives_clean_publish_preview_chrome_templates_scale_jpeg_
         assets_folder: false,
         include_html: true,
         sequence_policy: SequencePublishPolicy::KeepFrames,
+        render_mode: neoflash_core::HtmlRenderMode::Canvas,
+        breakpoints: Vec::new(),
     };
     export_project_with_config(&project, &out_hud, &rt, &options, &hud_cfg).unwrap();
     let html_hud = fs::read_to_string(out_hud.join("index.html")).unwrap();
@@ -1582,6 +1584,229 @@ fn export_project_emits_stage_a11y_overlay_with_extended_aria_attributes() {
         bundle.contains("\"extended_accessibility\""),
         "exported bundle.js must preserve extended_accessibility for runtime frame sync"
     );
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn default_canvas_export_stays_byte_identical_and_dom_mode_supports_full_compact_shared_and_diagnostics()
+ {
+    fn collect_tree(root: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        fn walk(
+            base: &Path,
+            cur: &Path,
+            out: &mut std::collections::BTreeMap<String, Vec<u8>>,
+        ) {
+            for entry in fs::read_dir(cur).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(base, &path, out);
+                } else {
+                    let rel = path
+                        .strip_prefix(base)
+                        .unwrap()
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    out.insert(rel, fs::read(&path).unwrap());
+                }
+            }
+        }
+        let mut map = std::collections::BTreeMap::new();
+        walk(root, root, &mut map);
+        map
+    }
+
+    let dir = temp();
+    let mock_rt = dir.join("mock-runtime");
+    runtime(&mock_rt);
+    let real_rt = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime");
+    let rt = if real_rt.join("neoflash_web_bg.wasm").is_file() {
+        real_rt.as_path()
+    } else {
+        mock_rt.as_path()
+    };
+
+    // 1. Byte-identical Canvas default invariant across API entry points and T-292 example.
+    let example_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/as3/06-dynamic-input-html-text.nflash");
+    let example_project =
+        Project::from_json(&fs::read_to_string(&example_path).unwrap()).unwrap();
+    assert_eq!(
+        example_project.html_render_mode(),
+        neoflash_core::HtmlRenderMode::Canvas
+    );
+
+    for (tag, base_project) in [("demo", Project::demo()), ("t292_text", example_project)] {
+        let out_default = dir.join(format!("{tag}-default"));
+        let out_options = dir.join(format!("{tag}-options"));
+        let out_html_opts = dir.join(format!("{tag}-html-opts"));
+        let out_profile = dir.join(format!("{tag}-profile"));
+        let out_roundtrip = dir.join(format!("{tag}-roundtrip"));
+
+        export_project(&base_project, &out_default, &mock_rt).unwrap();
+        export_project_with_options(
+            &base_project,
+            &out_options,
+            &mock_rt,
+            &PublishOptions::default(),
+        )
+        .unwrap();
+        export_html_with_options(
+            &base_project,
+            &out_html_opts,
+            &mock_rt,
+            &HtmlExportOptions::default(),
+        )
+        .unwrap();
+        export_project_with_profile(
+            &base_project,
+            &out_profile,
+            &mock_rt,
+            &PublishProfile::default(),
+        )
+        .unwrap();
+
+        let orig_json = base_project.to_json().unwrap();
+        let mut toggled = base_project.clone();
+        toggled.set_html_render_mode(neoflash_core::HtmlRenderMode::Dom);
+        assert_eq!(toggled.html_render_mode(), neoflash_core::HtmlRenderMode::Dom);
+        toggled.set_html_render_mode(neoflash_core::HtmlRenderMode::Canvas);
+        assert_eq!(
+            toggled.html_render_mode(),
+            neoflash_core::HtmlRenderMode::Canvas
+        );
+        assert_eq!(
+            toggled.to_json().unwrap(),
+            orig_json,
+            "resetting render_mode to Canvas must leave .nflash JSON byte-identical"
+        );
+        export_project(&toggled, &out_roundtrip, &mock_rt).unwrap();
+
+        let baseline = collect_tree(&out_default);
+        assert_eq!(collect_tree(&out_options), baseline, "{tag}: options mismatch");
+        assert_eq!(
+            collect_tree(&out_html_opts),
+            baseline,
+            "{tag}: html_options mismatch"
+        );
+        assert_eq!(
+            collect_tree(&out_profile),
+            baseline,
+            "{tag}: default profile mismatch"
+        );
+        assert_eq!(
+            collect_tree(&out_roundtrip),
+            baseline,
+            "{tag}: Dom->Canvas roundtrip mismatch"
+        );
+
+        let canvas_html = String::from_utf8(baseline["index.html"].clone()).unwrap();
+        let canvas_bundle = String::from_utf8(baseline["bundle.js"].clone()).unwrap();
+        assert!(!canvas_html.contains("data-render-mode=\"dom\""));
+        assert!(!canvas_html.contains("<neoflash-stage"));
+        assert!(!canvas_html.contains(".nf-dom-scene"));
+        assert!(!canvas_bundle.contains("\"renderMode\""));
+    }
+
+    // 2. Explicit publish diagnostics for unsupported graphics (<canvas> islands) in DOM mode.
+    let mut app_project = Project::demo();
+    app_project.format_version = 7;
+    app_project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(neoflash_core::Element {
+            id: "glow-badge".into(),
+            name: "glowBadge".into(),
+            blend_mode: neoflash_core::BlendMode::Add,
+            filters: vec![neoflash_core::FilterSpec::Blur {
+                blur_x: 8.0,
+                blur_y: 8.0,
+                quality: 1,
+            }],
+            kind: ElementKind::Rectangle {
+                width: 80.0,
+                height: 36.0,
+                fill: [64, 156, 255, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..neoflash_core::Element::default()
+        });
+    assert!(
+        !export_warnings(&app_project)
+            .iter()
+            .any(|w| w.contains("DOM publish mode:")),
+        "Canvas mode must not emit DOM island warnings"
+    );
+    let dom_diags = dom_publish_diagnostics(&app_project);
+    assert_eq!(dom_diags.len(), 1);
+    assert!(dom_diags[0].contains("bitmap filters"));
+    assert!(dom_diags[0].contains("composited blend modes"));
+    assert!(dom_diags[0].contains("scoped <canvas> islands"));
+
+    app_project.set_html_render_mode(neoflash_core::HtmlRenderMode::Dom);
+    assert!(
+        export_warnings(&app_project)
+            .iter()
+            .any(|w| w.contains("scoped <canvas> islands")),
+        "DOM mode must include explicit <canvas> island diagnostics in export_warnings"
+    );
+
+    // 3. DOM mode export across Full, Compact, and Shared runtime modes.
+    let dom_full = dir.join("dom-full");
+    export_html_with_options(&app_project, &dom_full, rt, &HtmlExportOptions::dom()).unwrap();
+
+    let dom_shared_parent = dir.join("dom-shared");
+    let shared_rt_dir = dom_shared_parent.join("shared_runtime");
+    let dom_shared_app = dom_shared_parent.join("app");
+    export_shared_runtime(&shared_rt_dir, rt).unwrap();
+    let mut shared_opts = HtmlExportOptions::dom();
+    shared_opts.options.size = SizeLevel::Shared("../shared_runtime".into());
+    export_html_with_options(&app_project, &dom_shared_app, rt, &shared_opts).unwrap();
+
+    let mut mode_dirs = vec![("full", dom_full), ("shared", dom_shared_app)];
+    if rt == real_rt.as_path() {
+        let dom_compact = dir.join("dom-compact");
+        let mut compact_opts = HtmlExportOptions::dom();
+        compact_opts.options.size = SizeLevel::Compact;
+        export_html_with_options(&app_project, &dom_compact, rt, &compact_opts).unwrap();
+        let wasm_bytes = fs::read(dom_compact.join("neoflash_web_bg.wasm")).unwrap();
+        let wasm_ascii = String::from_utf8_lossy(&wasm_bytes);
+        assert!(
+            wasm_ascii.contains("object_text_input") && wasm_ascii.contains("object_click"),
+            "Compact WASM stripping must retain DOM form/button entry points"
+        );
+        mode_dirs.push(("compact", dom_compact));
+    }
+
+    for (mode_name, mode_dir) in mode_dirs {
+        let html = fs::read_to_string(mode_dir.join("index.html")).unwrap();
+        let bundle = fs::read_to_string(mode_dir.join("bundle.js")).unwrap();
+        assert!(
+            html.contains("data-render-mode=\"dom\""),
+            "{mode_name}: index.html missing data-render-mode=\"dom\""
+        );
+        assert!(
+            html.contains(
+                "<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\""
+            ),
+            "{mode_name}: index.html missing <neoflash-stage id=\"stage-dom-root\">"
+        );
+        assert!(
+            html.contains(".nf-dom-canvas-island"),
+            "{mode_name}: index.html missing DOM stylesheet"
+        );
+        assert!(
+            bundle.contains("\"renderMode\":\"dom\"") && bundle.contains("\"render_mode\":\"dom\""),
+            "{mode_name}: bundle.js missing renderMode/render_mode dom metadata"
+        );
+        assert!(
+            bundle.contains("scoped <canvas> islands"),
+            "{mode_name}: bundle.js warnings must preserve DOM island diagnostic"
+        );
+    }
 
     fs::remove_dir_all(dir).unwrap();
 }

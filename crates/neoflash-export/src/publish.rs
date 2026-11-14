@@ -393,6 +393,12 @@ pub struct HtmlPublishConfig {
     pub acceleration: HtmlAcceleration,
     #[serde(default)]
     pub chrome: PlayerChromeConfig,
+    /// Stage rendering mode (`Canvas` default; `Dom` for websites and applications, `T-307`).
+    #[serde(default, skip_serializing_if = "neoflash_core::HtmlRenderMode::is_default")]
+    pub render_mode: neoflash_core::HtmlRenderMode,
+    /// Optional responsive breakpoints evaluated by the DOM/Canvas layout controller (`T-307`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub breakpoints: Vec<neoflash_core::PublishBreakpoint>,
 }
 
 impl Default for HtmlPublishConfig {
@@ -416,6 +422,33 @@ impl Default for HtmlPublishConfig {
             minify: true,
             acceleration: HtmlAcceleration::GpuWebGl,
             chrome: PlayerChromeConfig::preview_default(),
+            render_mode: neoflash_core::HtmlRenderMode::Canvas,
+            breakpoints: Vec::new(),
+        }
+    }
+}
+
+/// Unified HTML5 export options combining [`PublishOptions`], [`HtmlPublishConfig`], and
+/// [`neoflash_core::HtmlRenderMode`] (`T-307`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HtmlExportOptions {
+    pub options: PublishOptions,
+    pub config: HtmlPublishConfig,
+    #[serde(default, skip_serializing_if = "neoflash_core::HtmlRenderMode::is_default")]
+    pub render_mode: neoflash_core::HtmlRenderMode,
+}
+
+impl HtmlExportOptions {
+    /// Options preset enabling [`neoflash_core::HtmlRenderMode::Dom`] for websites and apps.
+    pub fn dom() -> Self {
+        Self {
+            options: PublishOptions::default(),
+            config: HtmlPublishConfig {
+                render_mode: neoflash_core::HtmlRenderMode::Dom,
+                ..HtmlPublishConfig::default()
+            },
+            render_mode: neoflash_core::HtmlRenderMode::Dom,
         }
     }
 }

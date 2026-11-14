@@ -3286,6 +3286,7 @@ impl Project {
     pub const VECTOR_STYLES_RESOURCE_PATH: &'static str = "palette/vector_styles.json";
     pub const DOCUMENT_ACCESSIBILITY_RESOURCE_PATH: &'static str = "accessibility/document.json";
     pub const SHARED_LIBRARIES_RESOURCE_PATH: &'static str = "library/shared_libraries.json";
+    pub const PUBLISH_SETTINGS_RESOURCE_PATH: &'static str = "publish/settings.json";
 
     /// Shared Library linkage entries stored portably in the project (`T-128`).
     pub fn shared_libraries(&self) -> Vec<SharedLibraryLinkage> {
@@ -3913,6 +3914,94 @@ impl Project {
         self.format_version = self.format_version.max(3);
     }
 
+    /// Document-level HTML5 publish settings (`render_mode`, `breakpoints`, `T-307`).
+    pub fn publish_settings(&self) -> PublishSettings {
+        let Some(unit) = self
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH))
+        else {
+            return PublishSettings::default();
+        };
+        let Ok(bytes) = unit.decoded_bytes() else {
+            return PublishSettings::default();
+        };
+        serde_json::from_slice::<PublishSettings>(&bytes).unwrap_or_default()
+    }
+
+    /// Persist document-level HTML5 publish settings (`T-307`).
+    /// Removes the internal resource when settings equal [`PublishSettings::default`] so default
+    /// Canvas documents remain byte-for-byte compatible.
+    pub fn set_publish_settings(&mut self, settings: &PublishSettings) {
+        let prev_saved_ver = self
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH))
+            .and_then(|r| r.decoded_bytes().ok())
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|v| v.get("prev_format_version")?.as_u64())
+            .map(|v| v as u32);
+
+        if settings.is_default() {
+            self.resources
+                .retain(|r| !r.path.eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH));
+            if let Some(prev) = prev_saved_ver
+                && self.resources.is_empty()
+                && self.format_version == 3
+            {
+                self.format_version = prev;
+            }
+            return;
+        }
+        let Ok(mut val) = serde_json::to_value(settings) else {
+            return;
+        };
+        if let Some(prev) = prev_saved_ver.or_else(|| (self.format_version < 3).then_some(self.format_version))
+            && let Some(obj) = val.as_object_mut()
+        {
+            obj.insert("prev_format_version".into(), serde_json::Value::from(prev));
+        }
+        let Ok(bytes) = serde_json::to_vec(&val) else {
+            return;
+        };
+        let existing_id = self
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH))
+            .map(|r| r.id.clone())
+            .unwrap_or_else(|| new_id("resource"));
+        let Ok(unit) = crate::ResourceUnit::from_bytes(
+            existing_id,
+            Self::PUBLISH_SETTINGS_RESOURCE_PATH,
+            "application/json",
+            &bytes,
+        ) else {
+            return;
+        };
+        if let Some(slot) = self
+            .resources
+            .iter_mut()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH))
+        {
+            *slot = unit;
+        } else {
+            self.resources.push(unit);
+        }
+        self.format_version = self.format_version.max(3);
+    }
+
+    /// Resolved HTML5 stage rendering mode stored on this document (`Canvas` default, `T-307`).
+    pub fn html_render_mode(&self) -> HtmlRenderMode {
+        self.publish_settings().render_mode
+    }
+
+    /// Set the document's HTML5 stage rendering mode (`Canvas` or `Dom`, `T-307`).
+    pub fn set_html_render_mode(&mut self, render_mode: HtmlRenderMode) {
+        let mut settings = self.publish_settings();
+        settings.render_mode = render_mode;
+        self.set_publish_settings(&settings);
+    }
+
     /// Document-level named global colour swatches linked to elements (T-114).
     pub fn global_swatches(&self) -> Vec<GlobalSwatch> {
         let Some(unit) = self.resources.iter().find(|r| {
@@ -4260,5 +4349,85 @@ impl Layer {
         }
         self.normalize_motion_keys();
         baked
+    }
+}
+
+/// HTML5 stage rendering backend (`Canvas` default, `Dom` for websites and applications, `T-307`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HtmlRenderMode {
+    /// Traditional Canvas 2D display-list rendering (default).
+    #[default]
+    Canvas,
+    /// Interactive DOM stage backed by live HTML/SVG elements, two-way forms, and scoped `<canvas>` islands.
+    Dom,
+}
+
+impl HtmlRenderMode {
+    pub const ALL: [Self; 2] = [Self::Canvas, Self::Dom];
+
+    pub const fn is_default(&self) -> bool {
+        matches!(self, Self::Canvas)
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Canvas => "canvas",
+            Self::Dom => "dom",
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Canvas => "Canvas 2D",
+            Self::Dom => "DOM (Websites & Apps)",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "canvas" | "canvas2d" | "canvas_2d" => Ok(Self::Canvas),
+            "dom" | "html_dom" | "html-dom" => Ok(Self::Dom),
+            other => Err(format!(
+                "Unknown HTML5 render mode '{other}'. Use 'canvas' or 'dom'."
+            )),
+        }
+    }
+}
+
+/// Responsive viewport breakpoint rule for HTML5 DOM/Canvas layout (`T-307`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublishBreakpoint {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage_height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<String>,
+}
+
+/// Portable document-level HTML5 publish settings (`T-307`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublishSettings {
+    #[serde(default, skip_serializing_if = "HtmlRenderMode::is_default")]
+    pub render_mode: HtmlRenderMode,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub breakpoints: Vec<PublishBreakpoint>,
+}
+
+impl PublishSettings {
+    pub fn is_default(&self) -> bool {
+        self.render_mode.is_default() && self.breakpoints.is_empty()
     }
 }

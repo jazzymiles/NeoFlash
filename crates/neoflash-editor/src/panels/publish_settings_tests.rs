@@ -1087,3 +1087,180 @@ fn save_as_fla_supports_all_seven_version_profiles_logs_compatibility_and_preser
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn web_app_dom_profile_persists_across_nflash_save_reopen_and_drives_publish_and_test_movie() {
+    use crate::workspace::PublishProfilePreset;
+    use neoflash_core::HtmlRenderMode;
+
+    fn collect_tree(root: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        fn walk(
+            base: &Path,
+            cur: &Path,
+            out: &mut std::collections::BTreeMap<String, Vec<u8>>,
+        ) {
+            for entry in std::fs::read_dir(cur).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(base, &path, out);
+                } else {
+                    let rel = path
+                        .strip_prefix(base)
+                        .unwrap()
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    out.insert(rel, std::fs::read(&path).unwrap());
+                }
+            }
+        }
+        let mut map = std::collections::BTreeMap::new();
+        walk(root, root, &mut map);
+        map
+    }
+
+    let temp_dir =
+        std::env::temp_dir().join(format!("neoflash-web-app-dom-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    let rt_dir = temp_dir.join("runtime");
+    std::fs::create_dir_all(&rt_dir).unwrap();
+    std::fs::write(rt_dir.join("neoflash_web.js"), "var NeoFlashWasm;").unwrap();
+    std::fs::write(rt_dir.join("neoflash_web_bg.wasm"), b"\0asm\x01\0\0\0").unwrap();
+
+    let mut d = Driver::new(ThemeMode::Dark);
+    d.editor.workspace.publish.warnings_as_errors = false;
+
+    // 1. Capture baseline Default (Canvas) publish output before touching WebAppDom.
+    let baseline_canvas_dir = temp_dir.join("baseline-canvas");
+    assert!(d.editor.publish_html5_with_settings(
+        &baseline_canvas_dir,
+        &rt_dir,
+        &d.editor.workspace.publish.clone()
+    ));
+    let baseline_canvas_files = collect_tree(&baseline_canvas_dir);
+
+    // 2. Open File ▸ Publish Settings…, select Profile: Web App · DOM in the NF2 Profile dropdown, and apply OK.
+    d.open();
+    d.click("Profile: Default");
+    d.click("Profile: Web App · DOM");
+    assert_eq!(
+        d.editor
+            .publish_settings
+            .as_ref()
+            .unwrap()
+            .settings
+            .profile,
+        PublishProfilePreset::WebAppDom
+    );
+    assert_eq!(
+        d.editor
+            .publish_settings
+            .as_ref()
+            .unwrap()
+            .settings
+            .render_mode,
+        HtmlRenderMode::Dom
+    );
+    d.click("OK");
+
+    assert_eq!(
+        d.editor.workspace.publish.profile,
+        PublishProfilePreset::WebAppDom
+    );
+    assert_eq!(d.editor.workspace.publish.render_mode, HtmlRenderMode::Dom);
+    assert_eq!(d.editor.project.html_render_mode(), HtmlRenderMode::Dom);
+    assert_eq!(
+        d.editor.workspace.publish.publish_html_config().render_mode,
+        HtmlRenderMode::Dom
+    );
+    assert_eq!(
+        d.editor.workspace.publish.preview_html_config().render_mode,
+        HtmlRenderMode::Dom,
+        "Test Movie (⌘↵) preview config must also honor Web App · DOM"
+    );
+
+    // 3. Save .nflash to disk and reopen in a brand-new Editor instance with default Canvas workspace prefs.
+    let nflash_path = temp_dir.join("web-app-dom.nflash");
+    assert!(d.editor.save_to_path(nflash_path.clone()));
+    assert!(!d.editor.dirty());
+
+    let fresh_ctx = egui::Context::default();
+    let mut reopened = Editor::from_project(&fresh_ctx, Project::blank());
+    assert_eq!(reopened.workspace.publish.render_mode, HtmlRenderMode::Canvas);
+    assert!(reopened.open_path_in_session(&fresh_ctx, nflash_path.clone()));
+    assert_eq!(reopened.project.html_render_mode(), HtmlRenderMode::Dom);
+    assert_eq!(reopened.workspace.publish.render_mode, HtmlRenderMode::Dom);
+    assert_eq!(
+        reopened.workspace.publish.profile,
+        PublishProfilePreset::WebAppDom
+    );
+    reopened.open_publish_settings();
+    assert_eq!(
+        reopened
+            .publish_settings
+            .as_ref()
+            .unwrap()
+            .active_profile_label(),
+        "Profile: Web App · DOM"
+    );
+    reopened.publish_settings = None;
+
+    // 4. Publish (⇧F12) and Test Movie (⌘↵) from the reopened editor both produce live DOM bundles.
+    let dom_publish_dir = temp_dir.join("dom-publish");
+    reopened.workspace.publish.warnings_as_errors = false;
+    assert!(reopened.publish_html5_with_settings(
+        &dom_publish_dir,
+        &rt_dir,
+        &reopened.workspace.publish.clone()
+    ));
+    let dom_html = std::fs::read_to_string(dom_publish_dir.join("index.html")).unwrap();
+    let dom_bundle = std::fs::read_to_string(dom_publish_dir.join("bundle.js")).unwrap();
+    assert!(dom_html.contains("data-render-mode=\"dom\""));
+    assert!(dom_html.contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\""));
+    assert!(dom_bundle.contains("\"renderMode\":\"dom\""));
+
+    let test_movie_dir = temp_dir.join("dom-test-movie");
+    neoflash_export::export_project_with_config(
+        &reopened.project,
+        &test_movie_dir,
+        &rt_dir,
+        &reopened
+            .workspace
+            .publish
+            .export_options(&reopened.project)
+            .unwrap(),
+        &reopened.workspace.publish.preview_html_config(),
+    )
+    .unwrap();
+    let preview_html = std::fs::read_to_string(test_movie_dir.join("index.html")).unwrap();
+    assert!(preview_html.contains("data-render-mode=\"dom\""));
+    assert!(preview_html.contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\""));
+
+    // 5. Switching back to Profile: Default restores byte-identical Canvas output.
+    d.open();
+    d.click("Profile: Web App · DOM");
+    d.click("Profile: Default");
+    d.click("OK");
+    assert_eq!(d.editor.project.html_render_mode(), HtmlRenderMode::Canvas);
+    assert_eq!(
+        d.editor.workspace.publish.render_mode,
+        HtmlRenderMode::Canvas
+    );
+    d.editor.workspace.publish.warnings_as_errors = false;
+
+    let restored_canvas_dir = temp_dir.join("restored-canvas");
+    assert!(d.editor.publish_html5_with_settings(
+        &restored_canvas_dir,
+        &rt_dir,
+        &d.editor.workspace.publish.clone()
+    ));
+    assert_eq!(
+        collect_tree(&restored_canvas_dir),
+        baseline_canvas_files,
+        "switching back to Profile: Default must produce byte-identical Canvas bundle"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

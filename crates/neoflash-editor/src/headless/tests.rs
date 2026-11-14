@@ -1291,5 +1291,127 @@ fn import_and_export_targets_roundtrip() {
         assert_eq!(bundle["player_config"]["scale_mode"], "no_scale");
         assert_eq!(bundle["player_config"]["stage_align"], "bottom_right");
         assert_eq!(bundle["player_config"]["allow_fullscreen"], false);
+
+        // 6. Export HTML5 DOM publishing mode via CLI --render-mode and strict JSON batch ExportSpec (T-307)
+        let dom_cli_out = tmp.path.join("html5_dom_cli");
+        let (code, stdout, stderr) = run_args(
+            &[
+                "--headless",
+                "export",
+                "--project",
+                svg_proj.to_str().unwrap(),
+                "--target",
+                "html5",
+                "--render-mode",
+                "dom",
+                "--out",
+                dom_cli_out.to_str().unwrap(),
+            ],
+            "",
+        );
+        assert_eq!(code, 0, "stderr: {stderr}");
+        let dom_res: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(dom_res["ok"], true);
+        assert_eq!(dom_res["render_mode"], "dom");
+        let dom_cli_html = fs::read_to_string(dom_cli_out.join("index.html")).unwrap();
+        assert!(dom_cli_html.contains("data-render-mode=\"dom\""));
+        assert!(dom_cli_html.contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\""));
+
+        let dom_batch_out = tmp.path.join("html5_dom_batch");
+        let batch_payload = json!([
+            {
+                "op": "export",
+                "target": "html5",
+                "out": dom_batch_out.to_str().unwrap(),
+                "render_mode": "dom"
+            }
+        ]);
+        let (code, stdout, stderr) = run_args(
+            &[
+                "--headless",
+                "batch",
+                "--stdin",
+                "--project",
+                svg_proj.to_str().unwrap(),
+            ],
+            &batch_payload.to_string(),
+        );
+        assert_eq!(code, 0, "stderr: {stderr}");
+        let batch_res: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(batch_res["results"][0]["result"]["render_mode"], "dom");
+        let dom_batch_html = fs::read_to_string(dom_batch_out.join("index.html")).unwrap();
+        assert!(dom_batch_html.contains("<neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\""));
+
+        // Explicit --render-mode canvas overrides a persisted Dom project setting
+        let mut dom_persisted = Project::from_json(&fs::read_to_string(&svg_proj).unwrap()).unwrap();
+        dom_persisted.set_html_render_mode(neoflash_core::HtmlRenderMode::Dom);
+        let dom_proj_path = tmp.path.join("dom_persisted.nflash");
+        fs::write(&dom_proj_path, dom_persisted.to_json().unwrap()).unwrap();
+        let canvas_override_out = tmp.path.join("html5_canvas_override");
+        let (code, stdout, stderr) = run_args(
+            &[
+                "--headless",
+                "export",
+                "--project",
+                dom_proj_path.to_str().unwrap(),
+                "--target",
+                "html5",
+                "--render-mode",
+                "canvas",
+                "--out",
+                canvas_override_out.to_str().unwrap(),
+            ],
+            "",
+        );
+        assert_eq!(code, 0, "stderr: {stderr}");
+        let override_res: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(override_res["render_mode"], "canvas");
+        let canvas_override_html = fs::read_to_string(canvas_override_out.join("index.html")).unwrap();
+        assert!(!canvas_override_html.contains("data-render-mode=\"dom\""));
+        assert!(!canvas_override_html.contains("<neoflash-stage"));
+
+        // Invalid render_mode values and unknown camelCase fields fail closed with exit code 2
+        let (code, _, stderr) = run_args(
+            &[
+                "--headless",
+                "export",
+                "--project",
+                svg_proj.to_str().unwrap(),
+                "--target",
+                "html5",
+                "--render-mode",
+                "bogus",
+                "--out",
+                tmp.path.join("ignored_out").to_str().unwrap(),
+            ],
+            "",
+        );
+        assert_eq!(code, 2, "stderr: {stderr}");
+        assert_eq!(
+            serde_json::from_str::<Value>(&stderr).unwrap()["error"]["code"],
+            "invalid_argument"
+        );
+
+        let bad_camel = json!([{
+            "op": "export",
+            "target": "html5",
+            "out": tmp.path.join("ignored_camel").to_str().unwrap(),
+            "renderMode": "dom"
+        }]);
+        let (code, _, stderr) = run_args(
+            &[
+                "--headless",
+                "batch",
+                "--stdin",
+                "--project",
+                svg_proj.to_str().unwrap(),
+            ],
+            &bad_camel.to_string(),
+        );
+        assert_eq!(code, 2, "stderr: {stderr}");
+        assert_eq!(
+            serde_json::from_str::<Value>(&stderr).unwrap()["error"]["code"],
+            "invalid_batch_json"
+        );
     }
 }

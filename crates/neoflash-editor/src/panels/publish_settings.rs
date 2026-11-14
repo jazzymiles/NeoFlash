@@ -63,13 +63,28 @@ impl PublishSettingsDraft {
         project: &neoflash_core::Project,
     ) -> Self {
         let mut draft = Self::new(settings);
-        if let Ok((profiles, active_id)) = load_profiles_from_project(project) {
+        if project.html_render_mode() == neoflash_core::HtmlRenderMode::Dom
+            && draft.settings.render_mode == neoflash_core::HtmlRenderMode::Canvas
+        {
+            draft.settings.render_mode = neoflash_core::HtmlRenderMode::Dom;
+            if draft.settings.profile == PublishProfilePreset::Default {
+                draft.settings.profile = PublishProfilePreset::WebAppDom;
+            }
+        }
+        let has_stored_profiles = project.resources.iter().any(|r| {
+            r.path
+                .eq_ignore_ascii_case(neoflash_export::PUBLISH_PROFILES_RESOURCE_PATH)
+        });
+        if has_stored_profiles
+            && let Ok((profiles, active_id)) = load_profiles_from_project(project)
+        {
             draft.custom_profiles = profiles;
             if let Some(ref act) = active_id
                 && let Some(found) = draft.custom_profiles.iter().find(|p| p.id == *act).cloned()
             {
                 draft.active_custom_profile_id = Some(found.id.clone());
                 draft.network_preset = found.network_profile.preset;
+                draft.settings.render_mode = found.render_mode;
             }
         }
         let _ = draft.simulate_network(project);
@@ -92,6 +107,7 @@ impl PublishSettingsDraft {
             let mut profile = found.clone();
             profile.options = self.settings.options.clone();
             profile.network_profile.preset = self.network_preset;
+            profile.render_mode = self.settings.render_mode;
             return profile;
         }
         PublishProfile {
@@ -111,6 +127,7 @@ impl PublishSettingsDraft {
                 delayed_assets: Vec::new(),
                 extra_asset_delay_ms: 0,
             },
+            render_mode: self.settings.render_mode,
         }
     }
 
@@ -125,6 +142,7 @@ impl PublishSettingsDraft {
         };
         self.active_custom_profile_id = Some(found.id);
         self.settings.options = found.options;
+        self.settings.render_mode = found.render_mode;
         self.runtime_url = match &self.settings.options.size {
             SizeLevel::Shared(url) => url.clone(),
             _ => self.runtime_url.clone(),
@@ -312,6 +330,21 @@ fn video_footer_label(project: &neoflash_core::Project, draft: &PublishSettingsD
 }
 
 impl Editor {
+    pub(crate) fn apply_publish_settings_draft(&mut self, draft: &mut PublishSettingsDraft) {
+        draft.settings.sanitize();
+        if draft.profiles_dirty {
+            let _ = store_profiles_in_project(
+                &mut self.project,
+                &draft.custom_profiles,
+                draft.active_custom_profile_id.as_deref(),
+            );
+        }
+        if self.project.html_render_mode() != draft.settings.render_mode {
+            self.project.set_html_render_mode(draft.settings.render_mode);
+        }
+        self.workspace.publish = draft.settings.clone();
+    }
+
     pub(crate) fn open_publish_settings(&mut self) {
         self.finish_edits();
         self.publish_controller.cancel();
@@ -379,7 +412,9 @@ impl Editor {
                                             )
                                             .clicked()
                                         {
-                                            draft.active_custom_profile_id = None;
+                                            if draft.active_custom_profile_id.take().is_some() {
+                                                draft.profiles_dirty = true;
+                                            }
                                             draft.settings.apply_profile(preset);
                                             let _ = draft.simulate_network(&self.project);
                                             draft.error = None;
@@ -1004,15 +1039,7 @@ impl Editor {
             }
         }
         if !close && save {
-            draft.settings.sanitize();
-            if draft.profiles_dirty {
-                let _ = store_profiles_in_project(
-                    &mut self.project,
-                    &draft.custom_profiles,
-                    draft.active_custom_profile_id.as_deref(),
-                );
-            }
-            self.workspace.publish = draft.settings.clone();
+            self.apply_publish_settings_draft(&mut draft);
             close = true;
         } else if !close && publish {
             draft.settings.sanitize();
@@ -1022,6 +1049,9 @@ impl Editor {
                     &draft.custom_profiles,
                     draft.active_custom_profile_id.as_deref(),
                 );
+            }
+            if self.project.html_render_mode() != draft.settings.render_mode {
+                self.project.set_html_render_mode(draft.settings.render_mode);
             }
             if !draft.settings.has_any_enabled_target() {
                 draft.settings.enable_target(draft.selected_target);

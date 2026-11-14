@@ -626,13 +626,49 @@
         this._breakpoints = [];
         this._player = null;
         this._mounted = false;
-        const root = typeof this.attachShadow === 'function' ? this.attachShadow({ mode: 'open' }) : this;
+        this._disposed = false;
+        this._mountCount = 0;
+        this._disposeCount = 0;
+        this._onDispose = null;
+        const isDomHost = this.getAttribute?.('data-render-mode') === 'dom';
+        this._isDomHost = isDomHost;
+        const root = !isDomHost && typeof this.attachShadow === 'function'
+          ? this.attachShadow({ mode: 'open' })
+          : this;
         this.shadowRootNode = root;
+      }
+
+      get mountCount() {
+        return this._mountCount;
+      }
+
+      get disposeCount() {
+        return this._disposeCount;
+      }
+
+      get isMounted() {
+        return this._mounted && !this._disposed;
       }
 
       connectedCallback() {
         if (this._mounted) return;
         this._mounted = true;
+        this._disposed = false;
+        this._mountCount += 1;
+        if (this.getAttribute?.('data-render-mode') === 'dom' || this._isDomHost) {
+          this._isDomHost = true;
+          this.shadowRootNode = this;
+          const doc = this.ownerDocument || global.document;
+          if (doc && !this.sceneElement) {
+            const existing = this.querySelector?.('[data-nf-scene="root"]') || null;
+            const scene = existing || doc.createElement('div');
+            scene.className = 'nf-dom-scene';
+            scene.setAttribute('data-nf-scene', 'root');
+            if (!existing) this.appendChild(scene);
+            this.sceneElement = scene;
+          }
+          return;
+        }
         const doc = this.ownerDocument || global.document;
         if (doc && this.shadowRootNode) {
           const viewport = doc.createElement('div');
@@ -682,11 +718,35 @@
         }
       }
 
-      disconnectedCallback() {
+      dispose() {
+        if (!this._mounted || this._disposed) return false;
+        this._disposed = true;
+        this._mounted = false;
+        this._disposeCount += 1;
+        const onDispose = this._onDispose;
+        this._onDispose = null;
+        if (typeof onDispose === 'function') {
+          try { onDispose(); } catch (_) {}
+        }
         this.responsiveController?.dispose();
         this.domText?.clear();
         this.domForms?.clear();
-        this._mounted = false;
+        if (this.sceneElement) {
+          this.sceneElement.replaceChildren?.();
+          this.sceneElement.remove?.();
+          this.sceneElement = null;
+        }
+        if (this.viewportElement) {
+          this.viewportElement.remove?.();
+          this.viewportElement = null;
+          this.surfaceElement = null;
+          this.canvasElement = null;
+        }
+        return true;
+      }
+
+      disconnectedCallback() {
+        this.dispose();
       }
 
       attributeChangedCallback(name, _oldValue, newValue) {
@@ -812,10 +872,1732 @@
     });
   }
 
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const CSS_BLEND_MODES = Object.freeze({
+    normal: 'normal',
+    layer: 'normal',
+    multiply: 'multiply',
+    screen: 'screen',
+    overlay: 'overlay',
+    darken: 'darken',
+    lighten: 'lighten',
+    hardlight: 'hard-light',
+    'hard-light': 'hard-light',
+    difference: 'difference',
+  });
+  const COMPOSITE_TO_CSS_BLEND = Object.freeze({
+    'source-over': 'normal',
+    multiply: 'multiply',
+    screen: 'screen',
+    overlay: 'overlay',
+    darken: 'darken',
+    lighten: 'lighten',
+    'hard-light': 'hard-light',
+    difference: 'difference',
+  });
+
+  function matMultiply(a, b) {
+    return [
+      a[0] * b[0] + a[2] * b[1],
+      a[1] * b[0] + a[3] * b[1],
+      a[0] * b[2] + a[2] * b[3],
+      a[1] * b[2] + a[3] * b[3],
+      a[0] * b[4] + a[2] * b[5] + a[4],
+      a[1] * b[4] + a[3] * b[5] + a[5],
+    ];
+  }
+
+  function matInverse(m) {
+    if (!Array.isArray(m) || m.length < 6) return null;
+    const det = m[0] * m[3] - m[1] * m[2];
+    if (!Number.isFinite(det) || Math.abs(det) < 1e-9) return null;
+    const inv = [
+      m[3] / det,
+      -m[1] / det,
+      -m[2] / det,
+      m[0] / det,
+      (m[2] * m[5] - m[3] * m[4]) / det,
+      (m[1] * m[4] - m[0] * m[5]) / det,
+    ];
+    return inv.every(Number.isFinite) ? inv : null;
+  }
+
+  function matPoint(m, x, y) {
+    return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+  }
+
+  function cssMatrix(m) {
+    if (!Array.isArray(m) || m.length < 6 || !m.every(Number.isFinite)) return 'none';
+    if (m[0] === 1 && m[1] === 0 && m[2] === 0 && m[3] === 1 && m[4] === 0 && m[5] === 0) return 'none';
+    return `matrix(${m[0]}, ${m[1]}, ${m[2]}, ${m[3]}, ${m[4]}, ${m[5]})`;
+  }
+
+  function xmlAttrEscape(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function svgPathData(commands = []) {
+    const parts = [];
+    for (const op of commands) {
+      if (!op) continue;
+      if (op.op === 'move_to') parts.push(`M${op.x} ${op.y}`);
+      else if (op.op === 'line_to') parts.push(`L${op.x} ${op.y}`);
+      else if (op.op === 'quadratic_to') parts.push(`Q${op.cx} ${op.cy} ${op.x} ${op.y}`);
+      else if (op.op === 'cubic_to') parts.push(`C${op.cx1} ${op.cy1} ${op.cx2} ${op.cy2} ${op.x} ${op.y}`);
+      else if (op.op === 'close') parts.push('Z');
+    }
+    return parts.join(' ');
+  }
+
+  function svgGradientDef(id, paint) {
+    const radius = 819.2;
+    const spread = paint.spread === 'reflect' || paint.spread_method === 'reflect'
+      ? 'reflect'
+      : (paint.spread === 'repeat' || paint.spread_method === 'repeat' ? 'repeat' : 'pad');
+    const m = Array.isArray(paint.matrix) && paint.matrix.length === 6 ? paint.matrix : [1, 0, 0, 1, 0, 0];
+    const gt = `matrix(${m[0]} ${m[1]} ${m[2]} ${m[3]} ${m[4]} ${m[5]})`;
+    const stops = (paint.stops || []).map(s => {
+      const c = s.color || [0, 0, 0, 255];
+      const offset = Math.max(0, Math.min(1, Number(s.ratio || 0) / 255));
+      const alpha = Math.max(0, Math.min(1, Number(c[3] ?? 255) / 255));
+      return `<stop offset="${offset}" stop-color="rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})" stop-opacity="${alpha}"/>`;
+    }).join('');
+    if (paint.kind === 'radial') {
+      const fx = (Number(paint.focal_point_ratio) || 0) * radius;
+      return `<radialGradient id="${xmlAttrEscape(id)}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="${radius}" fx="${fx}" fy="0" spreadMethod="${spread}" gradientTransform="${gt}">${stops}</radialGradient>`;
+    }
+    return `<linearGradient id="${xmlAttrEscape(id)}" gradientUnits="userSpaceOnUse" x1="${-radius}" y1="0" x2="${radius}" y2="0" spreadMethod="${spread}" gradientTransform="${gt}">${stops}</linearGradient>`;
+  }
+
+  function computeTextDiff(before, after) {
+    let begin = 0;
+    while (begin < before.length && begin < after.length && before[begin] === after[begin]) begin++;
+    let beforeEnd = before.length;
+    let afterEnd = after.length;
+    while (beforeEnd > begin && afterEnd > begin && before[beforeEnd - 1] === after[afterEnd - 1]) {
+      beforeEnd--;
+      afterEnd--;
+    }
+    return { begin, end: beforeEnd, text: after.slice(begin, afterEnd) };
+  }
+
+  function displayedFieldText(field) {
+    const raw = String(field?.text ?? '');
+    return field?.multiline ? raw : raw.replace(/\n/g, ' ');
+  }
+
+  function rgbIntToCss(rgbInt, fallback = '#000000') {
+    if (!Number.isInteger(rgbInt) || rgbInt < 0) return fallback;
+    const r = (rgbInt >>> 16) & 255;
+    const g = (rgbInt >>> 8) & 255;
+    const b = rgbInt & 255;
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  function syncChildrenOrder(parent, desired) {
+    const desiredList = desired.filter(Boolean);
+    const desiredSet = new Set(desiredList);
+    for (let cur = parent.firstElementChild; cur;) {
+      const next = cur.nextElementSibling;
+      if (!desiredSet.has(cur)) cur.remove();
+      cur = next;
+    }
+    const doc = parent.ownerDocument;
+    const active = doc?.activeElement || null;
+    const selStart = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
+    const selEnd = active && typeof active.selectionEnd === 'number' ? active.selectionEnd : null;
+    let cursor = parent.firstElementChild;
+    for (const child of desiredList) {
+      if (child === cursor) {
+        cursor = cursor.nextElementSibling;
+      } else {
+        parent.insertBefore(child, cursor);
+      }
+    }
+    if (active && desiredSet.has(active) && doc?.activeElement !== active && !active.disabled) {
+      try {
+        active.focus({ preventScroll: true });
+        if (selStart !== null && selEnd !== null && typeof active.setSelectionRange === 'function') {
+          active.setSelectionRange(selStart, selEnd);
+        }
+      } catch (_) {}
+    }
+  }
+
+  function defaultViewportBreakpointName(vw) {
+    if (vw <= 600) return 'mobile';
+    if (vw <= 1024) return 'tablet';
+    return 'desktop';
+  }
+
+  function createDomStageHost(options = {}) {
+    const {
+      document: doc = global.document,
+      surface = doc?.getElementById?.('stage-surface') || null,
+      viewport = doc?.getElementById?.('viewport') || null,
+      canvas = doc?.getElementById?.('stage') || null,
+      project = null,
+      config = {},
+      player = null,
+      getDisplay = () => null,
+      getStageHost = () => null,
+      getTextHost = () => null,
+      getBitmapHost = () => null,
+      getVideoHost = () => null,
+      getEventHub = () => null,
+      getEvents = () => global.NeoFlashEvents || null,
+      getAs2ObjectHost = () => null,
+      getAs2TextHost = () => null,
+      getAudioHost = () => null,
+      proxyFor = () => null,
+      proxyForRef = () => null,
+      referenceOf = () => null,
+      onActivateObject = null,
+      onTextLink = null,
+      onAsfunction = null,
+      onNavigateUrl = null,
+      afterInput = null,
+      onError = null,
+      paintCanvasIsland = null,
+    } = options;
+
+    const a11yApi = typeof module !== 'undefined' && module.exports
+      ? require('./accessibility.js')
+      : global.NeoFlashAccessibility;
+
+    if (!doc || !surface) {
+      return Object.freeze({
+        isActive: () => false,
+        evaluateViewport: () => null,
+        render: () => {},
+        sync: () => {},
+        owns: () => false,
+        canFocus: () => true,
+        focusChanged: () => true,
+        reset: () => {},
+        dispose: () => {},
+      });
+    }
+
+    let stageElement = doc.getElementById?.('stage-dom-root')
+      || surface.querySelector?.('neoflash-stage[data-render-mode="dom"]')
+      || null;
+    if (!stageElement) {
+      stageElement = doc.createElement('neoflash-stage');
+      stageElement.id = 'stage-dom-root';
+      stageElement.setAttribute('data-render-mode', 'dom');
+      stageElement.setAttribute('width', String(project?.width || 800));
+      stageElement.setAttribute('height', String(project?.height || 600));
+      surface.insertBefore(stageElement, surface.firstElementChild?.nextSibling || null);
+    }
+    if (typeof stageElement.connectedCallback === 'function' && !stageElement.isMounted) {
+      stageElement.connectedCallback();
+    }
+    let sceneElement = stageElement.sceneElement || stageElement.querySelector?.('[data-nf-scene="root"]') || null;
+    if (!sceneElement) {
+      sceneElement = doc.createElement('div');
+      sceneElement.className = 'nf-dom-scene';
+      sceneElement.setAttribute('data-nf-scene', 'root');
+      stageElement.appendChild(sceneElement);
+      stageElement.sceneElement = sceneElement;
+    }
+
+    const authoredClickPlacements = new Set();
+    if (Array.isArray(project?.symbols)) {
+      for (const sym of project.symbols) {
+        for (const layer of sym?.timeline?.layers || []) {
+          for (const kf of layer?.keyframes || []) {
+            for (const el of kf?.elements || []) {
+              if (Array.isArray(el?.scripts) && el.scripts.length > 0) {
+                if (el.id) authoredClickPlacements.add(String(el.id));
+                if (el.name) authoredClickPlacements.add(String(el.name));
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const configuredBreakpoints = Array.isArray(config?.breakpoints) && config.breakpoints.length
+      ? config.breakpoints.map(bp => ({
+          name: bp.name,
+          minWidth: bp.min_width ?? bp.minWidth,
+          maxWidth: bp.max_width ?? bp.maxWidth,
+          minHeight: bp.min_height ?? bp.minHeight,
+          maxHeight: bp.max_height ?? bp.maxHeight,
+          stageWidth: bp.stage_width ?? bp.stageWidth,
+          stageHeight: bp.stage_height ?? bp.stageHeight,
+          scaleMode: bp.scale_mode ?? bp.scaleMode,
+          align: bp.stage_align ?? bp.align,
+        }))
+      : (Array.isArray(project?.breakpoints) ? project.breakpoints.slice() : []);
+
+    let activeBreakpointName = null;
+    let disposed = false;
+    let idSeq = 1;
+    let scratchEncodeCanvas = null;
+
+    const containerRecords = new Map();
+    const leafRecords = new Map();
+    const islandRecords = new Map();
+    const inputRecordsByRef = new Map();
+    const bitmapUrlCache = new Map();
+    const ownedInputControls = new WeakSet();
+    const cleanups = [];
+
+    function guardedCall(fn) {
+      try {
+        return fn();
+      } catch (err) {
+        if (typeof onError === 'function') onError(err);
+        else throw err;
+        return undefined;
+      }
+    }
+
+    function evaluateViewport(vw, vh, defaults = {}) {
+      const matched = configuredBreakpoints.length
+        ? evaluateBreakpoint(vw, vh, configuredBreakpoints)
+        : null;
+      const bpName = matched?.name || defaultViewportBreakpointName(vw);
+      if (bpName !== activeBreakpointName) {
+        activeBreakpointName = bpName;
+        stageElement.setAttribute('data-breakpoint', bpName);
+        if (doc.body) doc.body.setAttribute('data-breakpoint', bpName);
+      }
+      if (stageElement.style?.setProperty) {
+        stageElement.style.setProperty('--neoflash-viewport-width', `${vw}px`);
+        stageElement.style.setProperty('--neoflash-viewport-height', `${vh}px`);
+      }
+      const mapScale = sm => {
+        if (!sm) return null;
+        if (sm === 'no_scale' || sm === 'noScale') return 'noScale';
+        if (sm === 'exact_fit' || sm === 'exactFit') return 'exactFit';
+        if (sm === 'fill_crop' || sm === 'noBorder') return 'noBorder';
+        if (sm === 'fit_keep_ratio' || sm === 'showAll') return 'showAll';
+        return sm;
+      };
+      const alignMap = {
+        center: '', top: 'T', bottom: 'B', left: 'L', right: 'R',
+        top_left: 'TL', top_right: 'TR', bottom_left: 'BL', bottom_right: 'BR',
+      };
+      const mappedAlign = matched?.align !== undefined && matched?.align !== null
+        ? (Object.hasOwn(alignMap, matched.align) ? alignMap[matched.align] : String(matched.align))
+        : defaults.align;
+      return {
+        breakpoint: bpName,
+        matched,
+        docW: Number(matched?.stageWidth) > 0 ? Number(matched.stageWidth) : defaults.docW,
+        docH: Number(matched?.stageHeight) > 0 ? Number(matched.stageHeight) : defaults.docH,
+        scaleMode: mapScale(matched?.scaleMode) || defaults.scaleMode,
+        align: mappedAlign,
+      };
+    }
+
+    function syntheticPointerFromDom(domEvent, element) {
+      if (domEvent && Number.isFinite(domEvent.clientX) && Number.isFinite(domEvent.clientY)
+          && !(domEvent.clientX === 0 && domEvent.clientY === 0 && domEvent.detail === 0)) {
+        return domEvent;
+      }
+      const rect = element?.getBoundingClientRect?.() || canvas?.getBoundingClientRect?.() || { left: 0, top: 0, width: 2, height: 2 };
+      return {
+        type: domEvent?.type || 'click',
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+        button: domEvent?.button ?? 0,
+        detail: domEvent?.detail || 1,
+        pointerType: 'mouse',
+        isPrimary: true,
+        ctrlKey: Boolean(domEvent?.ctrlKey),
+        altKey: Boolean(domEvent?.altKey),
+        shiftKey: Boolean(domEvent?.shiftKey),
+        metaKey: Boolean(domEvent?.metaKey),
+      };
+    }
+
+    function unlockMediaFromGesture() {
+      for (const host of [getAudioHost(), getVideoHost()]) {
+        if (host && host.status?.().state === 'awaiting_gesture') {
+          host.resumeFromGesture?.().catch(() => {});
+        }
+      }
+    }
+
+    function onSceneBackgroundClick(event) {
+      if (disposed) return;
+      const t = event.target;
+      if (t && t !== sceneElement && t !== stageElement) {
+        const tag = (t.tagName || '').toUpperCase();
+        if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'A' || tag === 'SELECT') return;
+        if (t.closest?.('button, input, textarea, a, select')) return;
+      }
+      guardedCall(() => {
+        unlockMediaFromGesture();
+        const sh = getStageHost();
+        const disp = getDisplay();
+        if (!sh) return;
+        const ptEvent = syntheticPointerFromDom(event, sceneElement);
+        let picked = null;
+        if (disp?.pickDetails && canvas) {
+          const r = canvas.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) {
+            const lw = Number(stageElement.dataset.logicalWidth) || project?.width || 800;
+            const lh = Number(stageElement.dataset.logicalHeight) || project?.height || 600;
+            const ox = Number(stageElement.dataset.originX) || 0;
+            const oy = Number(stageElement.dataset.originY) || 0;
+            const sx = (ptEvent.clientX - r.left) * lw / r.width - ox;
+            const sy = (ptEvent.clientY - r.top) * lh / r.height - oy;
+            picked = disp.pickDetails(sx, sy);
+          }
+        }
+        const target = picked?.target || null;
+        const authored = picked?.owner || target;
+        if (sh.handlePointer('click', ptEvent, target || sh.stage, Boolean(target)) === false) return;
+        if (target && authored && disp?.alive?.(target) && disp?.alive?.(authored) && typeof onActivateObject === 'function') {
+          onActivateObject(target, authored, ptEvent);
+        }
+      });
+    }
+
+    function onScenePointerDown() {
+      if (!disposed) unlockMediaFromGesture();
+    }
+
+    const hostWin = doc?.defaultView || global;
+    function onWindowPageHide(ev) {
+      if (!ev?.persisted) dispose();
+    }
+    function onWindowUnload() {
+      dispose();
+    }
+    sceneElement.addEventListener('pointerdown', onScenePointerDown);
+    sceneElement.addEventListener('click', onSceneBackgroundClick);
+    hostWin?.addEventListener?.('pagehide', onWindowPageHide);
+    hostWin?.addEventListener?.('unload', onWindowUnload);
+    cleanups.push(() => {
+      sceneElement.removeEventListener('pointerdown', onScenePointerDown);
+      sceneElement.removeEventListener('click', onSceneBackgroundClick);
+      hostWin?.removeEventListener?.('pagehide', onWindowPageHide);
+      hostWin?.removeEventListener?.('unload', onWindowUnload);
+    });
+
+    function bitmapDataUrlFor(kind) {
+      const bitmapHost = getBitmapHost();
+      if (!bitmapHost?.cache?.paint) return null;
+      const pixelKey = JSON.stringify(kind.pixel_ref || kind.id || '');
+      const c = kind.color_transform || {};
+      const colorKey = Array.isArray(c.multiply) ? JSON.stringify([c.multiply, c.add]) : '';
+      const cacheKey = `${pixelKey}:${kind.revision ?? 0}:${colorKey}`;
+      const cached = bitmapUrlCache.get(cacheKey);
+      if (cached) return cached;
+      let url = null;
+      bitmapHost.cache.paint(kind, record => {
+        if (!record || record.width <= 0 || record.height <= 0) return;
+        if (record.canvas && typeof record.canvas.toDataURL === 'function') {
+          url = record.canvas.toDataURL('image/png');
+          return;
+        }
+        if (!scratchEncodeCanvas && typeof doc.createElement === 'function') {
+          scratchEncodeCanvas = doc.createElement('canvas');
+        }
+        if (scratchEncodeCanvas && typeof scratchEncodeCanvas.getContext === 'function') {
+          scratchEncodeCanvas.width = record.width;
+          scratchEncodeCanvas.height = record.height;
+          const ctx = scratchEncodeCanvas.getContext('2d');
+          if (ctx) {
+            if (record.canvas) {
+              ctx.clearRect(0, 0, record.width, record.height);
+              ctx.drawImage(record.canvas, 0, 0);
+            } else if (record.bytes) {
+              const img = ctx.createImageData(record.width, record.height);
+              img.data.set(record.bytes);
+              ctx.putImageData(img, 0, 0);
+            }
+            if (typeof scratchEncodeCanvas.toDataURL === 'function') {
+              url = scratchEncodeCanvas.toDataURL('image/png');
+            }
+          }
+        }
+      });
+      if (url) {
+        if (bitmapUrlCache.size > 256) {
+          const firstKey = bitmapUrlCache.keys().next().value;
+          bitmapUrlCache.delete(firstKey);
+        }
+        bitmapUrlCache.set(cacheKey, url);
+      }
+      return url;
+    }
+
+    function isSimpleSvgClip(clipIds, clipsById) {
+      if (!clipIds?.length) return true;
+      for (const id of clipIds) {
+        const clip = clipsById.get(id);
+        if (!clip || clip.invert || clip.alpha_components?.length) return false;
+        if (!Array.isArray(clip.components) || clip.components.some(c => c.clip_ids?.length || c.fill_gradient)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    function islandReasonForDraw(item, filterGroupsById, clipsById) {
+      if (item.filter_id !== null && item.filter_id !== undefined) {
+        const fg = filterGroupsById.get(item.filter_id);
+        if (!fg) return 'filter_group';
+        if (fg.filters?.length) return 'filters';
+        if (fg.alpha_masks?.length) return 'alpha_mask';
+        if (fg.opaque_background) return 'opaque_background';
+        if (fg.composite_operation && !Object.hasOwn(COMPOSITE_TO_CSS_BLEND, fg.composite_operation)) {
+          return `blend:${fg.composite_operation}`;
+        }
+      }
+      const kind = item.kind;
+      if (kind?.fill_bitmap || kind?.stroke_bitmap) return 'bitmap_fill';
+      if (item.clip_ids?.length) {
+        const isSvgKind = ['rectangle', 'ellipse', 'path', 'gradient_path'].includes(kind?.type);
+        if (!isSvgKind || !isSimpleSvgClip(item.clip_ids, clipsById)) return 'mask';
+      }
+      return null;
+    }
+
+    function ensureButtonRecord(containerRec, ownerKey) {
+      if (containerRec.buttonRecord) return containerRec.buttonRecord;
+      const btn = doc.createElement('button');
+      btn.type = 'button';
+      btn.className = 'nf-dom-button';
+      btn.setAttribute('data-nf-id', `btn:${ownerKey}`);
+      btn.setAttribute('data-nf-kind', 'button');
+      const resolveProxy = () => {
+        try {
+          const parsed = JSON.parse(ownerKey);
+          return Array.isArray(parsed) ? proxyFor(parsed) : proxyForRef(parsed);
+        } catch (_) {
+          return null;
+        }
+      };
+      const onPointer = (type, ev) => guardedCall(() => {
+        if (disposed || btn.disabled) return;
+        if (type === 'pointerdown') unlockMediaFromGesture();
+        const sh = getStageHost();
+        const disp = getDisplay();
+        const target = resolveProxy();
+        if (!sh || !target || (disp && !disp.alive(target))) return;
+        const resolved = disp?.resolveInput ? (disp.resolveInput(target) || target) : target;
+        const syn = syntheticPointerFromDom(ev, btn);
+        sh.handlePointer(type, syn, resolved, false);
+      });
+      let hadPointerPress = false;
+      const onEnter = ev => onPointer('pointermove', ev);
+      const onMove = ev => onPointer('pointermove', ev);
+      const onDown = ev => {
+        hadPointerPress = true;
+        onPointer('pointerdown', ev);
+      };
+      const onUp = ev => onPointer('pointerup', ev);
+      const onLeave = ev => {
+        hadPointerPress = false;
+        onPointer('pointerleave', ev);
+      };
+      const onClick = ev => {
+        ev.stopPropagation();
+        const fromPointer = hadPointerPress;
+        hadPointerPress = false;
+        if (disposed || btn.disabled) return;
+        guardedCall(() => {
+          unlockMediaFromGesture();
+          const sh = getStageHost();
+          const disp = getDisplay();
+          const target = resolveProxy();
+          if (!target || (disp && !disp.alive(target))) return;
+          const resolved = disp?.resolveInput ? (disp.resolveInput(target) || target) : target;
+          const syn = syntheticPointerFromDom(ev, btn);
+          if (!fromPointer && disp?.pointer) {
+            disp.pointer('mouseDown', resolved, syn);
+            disp.pointer('mouseUp', resolved, syn);
+          }
+          if (sh && (!disp || disp.alive(resolved))) {
+            sh.stage.focus = resolved;
+            if (sh.handlePointer('click', syn, resolved, false) === false) return;
+          }
+          if ((!disp || disp.alive(resolved)) && typeof onActivateObject === 'function') {
+            onActivateObject(resolved, target, syn);
+          } else {
+            afterInput?.();
+          }
+        });
+      };
+      btn.addEventListener('pointerenter', onEnter);
+      btn.addEventListener('pointermove', onMove);
+      btn.addEventListener('pointerdown', onDown);
+      btn.addEventListener('pointerup', onUp);
+      btn.addEventListener('pointerleave', onLeave);
+      btn.addEventListener('click', onClick);
+      const record = {
+        element: btn,
+        cleanup() {
+          btn.removeEventListener('pointerenter', onEnter);
+          btn.removeEventListener('pointermove', onMove);
+          btn.removeEventListener('pointerdown', onDown);
+          btn.removeEventListener('pointerup', onUp);
+          btn.removeEventListener('pointerleave', onLeave);
+          btn.removeEventListener('click', onClick);
+          btn.remove();
+        },
+      };
+      containerRec.buttonRecord = record;
+      return record;
+    }
+
+    function ensureInputRecord(leafKey, ownerKey, multiline) {
+      let rec = leafRecords.get(leafKey);
+      const wantTag = multiline ? 'TEXTAREA' : 'INPUT';
+      if (rec && (rec.kind !== 'input' || rec.element.tagName.toUpperCase() !== wantTag)) {
+        rec.cleanup?.();
+        leafRecords.delete(leafKey);
+        inputRecordsByRef.delete(ownerKey);
+        rec = null;
+      }
+      if (rec) return rec;
+
+      const el = doc.createElement(multiline ? 'textarea' : 'input');
+      if (!multiline) el.type = 'text';
+      el.className = 'nf-dom-input';
+      el.setAttribute('data-nf-id', `input:${ownerKey}`);
+      el.setAttribute('data-nf-kind', 'input');
+      el.setAttribute('autocomplete', 'off');
+      el.setAttribute('autocapitalize', 'off');
+      el.setAttribute('spellcheck', 'false');
+      ownedInputControls.add(el);
+
+      const resolveReceiver = () => {
+        try {
+          const parsed = JSON.parse(ownerKey);
+          return Array.isArray(parsed) ? proxyFor(parsed) : proxyForRef(parsed);
+        } catch (_) {
+          return null;
+        }
+      };
+
+      const onFocus = () => guardedCall(() => {
+        if (disposed || rec.syncingFocus) return;
+        const sh = getStageHost();
+        const disp = getDisplay();
+        const receiver = resolveReceiver();
+        if (!sh || !receiver || (disp && !disp.alive(receiver))) return;
+        if (sh.stage.focus !== receiver) {
+          const prev = sh.stage.focus;
+          sh.stage.focus = receiver;
+          receiver.onSetFocus?.(prev);
+          getAs2TextHost()?.textEvent?.(ownerKey, 'onSetFocus', [prev]);
+          afterInput?.();
+        }
+      });
+
+      const onBlur = ev => guardedCall(() => {
+        if (disposed || rec.syncingFocus) return;
+        const sh = getStageHost();
+        const receiver = resolveReceiver();
+        if (!sh || !receiver) return;
+        const related = ev?.relatedTarget;
+        if (related && ownedInputControls.has(related)) return;
+        if (sh.stage.focus === receiver) {
+          sh.stage.focus = null;
+          receiver.onKillFocus?.(null);
+          getAs2TextHost()?.textEvent?.(ownerKey, 'onKillFocus', [null]);
+          afterInput?.();
+        }
+      });
+
+      const onKeyDown = ev => guardedCall(() => {
+        if (!multiline && ev.key === 'Enter') {
+          ev.preventDefault();
+        }
+      });
+
+      const onInput = () => guardedCall(() => {
+        if (disposed || rec.syncingValue) return;
+        const textHost = getTextHost();
+        const disp = getDisplay();
+        const receiver = resolveReceiver();
+        if (!textHost || !player?.object_text_input || !receiver || (disp && !disp.alive(receiver))) return;
+        const base = textHost.info(ownerKey);
+        const before = displayedFieldText(base);
+        const normalized = el.value.replace(/\r\n?|\n/g, '\n');
+        const edit = computeTextDiff(before, normalized);
+        const insert = base.multiline ? edit.text : edit.text.replace(/\n/g, '');
+        if (!edit.text.length && edit.begin === edit.end) return;
+
+        const evApi = getEvents();
+        const hub = getEventHub();
+        if (insert.length > 0 && evApi?.TextEvent && hub) {
+          const textEvt = new evApi.TextEvent(evApi.TextEvent.TEXT_INPUT || 'textInput', true, true, insert);
+          if (!hub.dispatch(receiver, textEvt)) {
+            const current = textHost.info(ownerKey);
+            rec.syncingValue = true;
+            try { el.value = displayedFieldText(current); } finally { rec.syncingValue = false; }
+            afterInput?.();
+            return;
+          }
+        }
+        const post = textHost.info(ownerKey);
+        const postEdit = post.revision === base.revision
+          ? { begin: edit.begin, end: edit.end, insert }
+          : (() => {
+              const d = computeTextDiff(displayedFieldText(post), normalized);
+              return { begin: d.begin, end: d.end, insert: post.multiline ? d.text : d.text.replace(/\n/g, '') };
+            })();
+        const committed = JSON.parse(player.object_text_input(ownerKey, JSON.stringify({
+          expected_revision: post.revision,
+          begin: postEdit.begin,
+          end: postEdit.end,
+          text: postEdit.insert,
+        })));
+        const nextText = displayedFieldText(committed);
+        if (el.value !== nextText) {
+          rec.syncingValue = true;
+          try {
+            el.value = nextText;
+            if (doc.activeElement === el && typeof el.setSelectionRange === 'function' && Number.isInteger(committed.caret_index)) {
+              el.setSelectionRange(committed.caret_index, committed.caret_index);
+            }
+          } finally {
+            rec.syncingValue = false;
+          }
+        }
+        if (committed.text !== base.text) {
+          if (evApi?.Event && hub) {
+            hub.dispatch(receiver, new evApi.Event(evApi.Event.CHANGE || 'change', true, false));
+          }
+          getAs2ObjectHost()?.textChanged?.(receiver);
+          receiver.onChanged?.(receiver);
+          getAs2TextHost()?.textEvent?.(ownerKey, 'onChanged', [receiver]);
+        }
+        afterInput?.();
+      });
+
+      const stopClick = ev => ev.stopPropagation();
+      el.addEventListener('focus', onFocus);
+      el.addEventListener('blur', onBlur);
+      el.addEventListener('keydown', onKeyDown);
+      el.addEventListener('input', onInput);
+      el.addEventListener('click', stopClick);
+
+      rec = {
+        kind: 'input',
+        ownerKey,
+        element: el,
+        syncingValue: false,
+        syncingFocus: false,
+        cleanup() {
+          el.removeEventListener('focus', onFocus);
+          el.removeEventListener('blur', onBlur);
+          el.removeEventListener('keydown', onKeyDown);
+          el.removeEventListener('input', onInput);
+          el.removeEventListener('click', stopClick);
+          inputRecordsByRef.delete(ownerKey);
+          el.remove();
+        },
+      };
+      leafRecords.set(leafKey, rec);
+      inputRecordsByRef.set(ownerKey, rec);
+      return rec;
+    }
+
+    function updateInputElement(rec, field, localTransform, alpha, semanticMeta, nodeInput) {
+      const el = rec.element;
+      if (el.tagName.toUpperCase() === 'INPUT') {
+        const wantType = field.display_as_password ? 'password' : 'text';
+        if (el.type !== wantType) el.type = wantType;
+      }
+      const box = field.box || { width: 160, height: Math.max(22, (field.format?.size || 14) * 1.5) };
+      const fmt = field.format || {};
+      const fontSize = Number(fmt.size) || 14;
+      const fontFamily = global.NeoFlashText?.cssFontFamily
+        ? global.NeoFlashText.cssFontFamily(fmt.font)
+        : (fmt.font ? `${JSON.stringify(fmt.font)}, sans-serif` : 'sans-serif');
+      const vp = field.as2_viewport || {};
+      const hasBg = Boolean(vp.background ?? field.background);
+      const bgRgb = vp.backgroundColor ?? field.background_color ?? 0xffffff;
+      const hasBorder = Boolean(vp.border ?? field.border);
+      const borderRgb = vp.borderColor ?? field.border_color ?? 0x000000;
+      const enabled = nodeInput?.mouse_enabled !== false;
+
+      Object.assign(el.style, {
+        transform: cssMatrix(localTransform),
+        width: `${Math.max(4, box.width)}px`,
+        height: `${Math.max(4, box.height)}px`,
+        fontFamily,
+        fontSize: `${fontSize}px`,
+        fontWeight: fmt.bold ? 'bold' : 'normal',
+        fontStyle: fmt.italic ? 'italic' : 'normal',
+        textDecoration: fmt.underline ? 'underline' : 'none',
+        textAlign: fmt.align || 'left',
+        color: rgbIntToCss(fmt.color ?? 0, '#000000'),
+        background: hasBg ? rgbIntToCss(bgRgb, '#ffffff') : 'transparent',
+        border: hasBorder ? `1px solid ${rgbIntToCss(borderRgb, '#000000')}` : 'none',
+        padding: '2px 4px',
+        opacity: String(Math.max(0, Math.min(1, alpha * ((field.alpha ?? 255) / 255)))),
+        resize: 'none',
+        whiteSpace: field.multiline ? (field.word_wrap ? 'pre-wrap' : 'pre') : 'nowrap',
+        overflow: field.multiline ? 'auto' : 'hidden',
+      });
+      el.readOnly = !enabled;
+      const nextDisplayed = displayedFieldText(field);
+      if (el.value !== nextDisplayed) {
+        rec.syncingValue = true;
+        try { el.value = nextDisplayed; } finally { rec.syncingValue = false; }
+      }
+      a11yApi?.applyDomAccessibility?.(el, semanticMeta, {
+        autoLabel: semanticMeta?.name || field.variable || '',
+        isInteractive: true,
+        explicitTabIndex: nodeInput?.tab_index,
+        disabled: !enabled,
+      });
+    }
+
+    function renderTextRunsInto(container, field, ownerKey) {
+      const fullText = String(field.text ?? '');
+      const runs = Array.isArray(field.format_runs) && field.format_runs.length
+        ? field.format_runs
+        : [{ begin: 0, end: fullText.length, format: field.format || {} }];
+      container.replaceChildren();
+      let cursor = 0;
+      const appendSegment = (segmentText, fmt) => {
+        if (!segmentText) return;
+        const url = String(fmt?.url || '').trim();
+        const node = url ? doc.createElement('a') : doc.createElement('span');
+        node.textContent = segmentText;
+        if (fmt?.bold) node.style.fontWeight = 'bold';
+        if (fmt?.italic) node.style.fontStyle = 'italic';
+        if (fmt?.underline || url) node.style.textDecoration = 'underline';
+        if (Number.isInteger(fmt?.color)) node.style.color = rgbIntToCss(fmt.color);
+        if (Number(fmt?.size) > 0) node.style.fontSize = `${fmt.size}px`;
+        if (fmt?.font) {
+          node.style.fontFamily = global.NeoFlashText?.cssFontFamily
+            ? global.NeoFlashText.cssFontFamily(fmt.font)
+            : `${JSON.stringify(fmt.font)}, sans-serif`;
+        }
+        if (url) {
+          node.style.pointerEvents = 'auto';
+          node.style.cursor = 'pointer';
+          if (/^event:/i.test(url)) {
+            node.href = '#';
+            node.addEventListener('click', ev => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              guardedCall(() => onTextLink?.(ownerKey, url.slice(6)));
+            });
+          } else if (/^asfunction:/i.test(url)) {
+            node.href = '#';
+            node.addEventListener('click', ev => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              guardedCall(() => onAsfunction?.(ownerKey, url.slice(11)));
+            });
+          } else {
+            node.href = url;
+            if (fmt?.target) node.target = fmt.target;
+            else node.target = '_blank';
+            node.rel = 'noopener noreferrer';
+            if (typeof onNavigateUrl === 'function') {
+              node.addEventListener('click', ev => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                guardedCall(() => onNavigateUrl(url, fmt?.target || '_blank'));
+              });
+            }
+          }
+        }
+        container.appendChild(node);
+      };
+      for (const run of runs) {
+        const b = Math.max(cursor, Math.min(fullText.length, Number(run.begin) || 0));
+        const e = Math.max(b, Math.min(fullText.length, Number(run.end) || 0));
+        if (b > cursor) appendSegment(fullText.slice(cursor, b), field.format || {});
+        if (e > b) appendSegment(fullText.slice(b, e), { ...(field.format || {}), ...(run.format || {}) });
+        cursor = e;
+      }
+      if (cursor < fullText.length) {
+        appendSegment(fullText.slice(cursor), field.format || {});
+      }
+    }
+
+    function updateTextElement(rec, item, localTransform, insideInteractiveButton, semanticMeta) {
+      const el = rec.element;
+      const kind = item.kind;
+      if (kind.type === 'text') {
+        const rgbaCol = Array.isArray(kind.color) ? kind.color : [0, 0, 0, 255];
+        const fontSize = Number(kind.font_size) || 14;
+        const fontFamily = global.NeoFlashText?.cssFontFamily
+          ? global.NeoFlashText.cssFontFamily(kind.font_family)
+          : `${JSON.stringify(kind.font_family || 'sans-serif')}, sans-serif`;
+        const sig = JSON.stringify([kind.text, fontSize, fontFamily, rgbaCol, item.alpha, insideInteractiveButton]);
+        Object.assign(el.style, {
+          transform: cssMatrix(localTransform),
+          fontFamily,
+          fontSize: `${fontSize}px`,
+          fontWeight: kind.bold ? 'bold' : 'normal',
+          fontStyle: kind.italic ? 'italic' : 'normal',
+          lineHeight: '1.2',
+          whiteSpace: 'pre',
+          color: `rgba(${rgbaCol[0] | 0}, ${rgbaCol[1] | 0}, ${rgbaCol[2] | 0}, ${(rgbaCol[3] ?? 255) / 255})`,
+          background: 'transparent',
+          border: 'none',
+          opacity: String(Math.max(0, Math.min(1, item.alpha))),
+          userSelect: insideInteractiveButton ? 'none' : 'text',
+          webkitUserSelect: insideInteractiveButton ? 'none' : 'text',
+          pointerEvents: insideInteractiveButton ? 'none' : 'auto',
+          cursor: insideInteractiveButton ? 'inherit' : 'text',
+        });
+        if (rec.signature !== sig) {
+          rec.signature = sig;
+          el.textContent = String(kind.text ?? '');
+        }
+        a11yApi?.applyDomAccessibility?.(el, semanticMeta, { autoLabel: kind.text || '', isInteractive: false });
+        return;
+      }
+
+      const field = kind.field;
+      const fmt = field.format || {};
+      const fontSize = Number(fmt.size) || 14;
+      const fontFamily = global.NeoFlashText?.cssFontFamily
+        ? global.NeoFlashText.cssFontFamily(fmt.font)
+        : `${JSON.stringify(fmt.font || 'sans-serif')}, sans-serif`;
+      const vp = field.as2_viewport || {};
+      const hasBg = Boolean(vp.background ?? field.background);
+      const bgRgb = vp.backgroundColor ?? field.background_color ?? 0xffffff;
+      const hasBorder = Boolean(vp.border ?? field.border);
+      const borderRgb = vp.borderColor ?? field.border_color ?? 0x000000;
+      const selectable = !insideInteractiveButton && field.selectable !== false;
+      const leading = Number(fmt.leading) || 0;
+      const box = field.box;
+      Object.assign(el.style, {
+        transform: cssMatrix(localTransform),
+        width: box ? `${Math.max(1, box.width)}px` : 'auto',
+        height: box ? `${Math.max(1, box.height)}px` : 'auto',
+        overflow: box ? 'hidden' : 'visible',
+        fontFamily,
+        fontSize: `${fontSize}px`,
+        fontWeight: fmt.bold ? 'bold' : 'normal',
+        fontStyle: fmt.italic ? 'italic' : 'normal',
+        textDecoration: fmt.underline ? 'underline' : 'none',
+        textAlign: fmt.align || 'left',
+        lineHeight: `${Math.max(1, fontSize * 1.2 + leading)}px`,
+        paddingLeft: fmt.leftMargin ? `${fmt.leftMargin}px` : '2px',
+        paddingRight: fmt.rightMargin ? `${fmt.rightMargin}px` : '2px',
+        paddingTop: '2px',
+        textIndent: fmt.indent ? `${fmt.indent}px` : '0px',
+        letterSpacing: fmt.letterSpacing ? `${fmt.letterSpacing}px` : 'normal',
+        whiteSpace: field.word_wrap ? 'pre-wrap' : 'pre',
+        color: rgbIntToCss(fmt.color ?? 0, '#000000'),
+        background: hasBg ? rgbIntToCss(bgRgb, '#ffffff') : 'transparent',
+        border: hasBorder ? `1px solid ${rgbIntToCss(borderRgb, '#000000')}` : 'none',
+        opacity: String(Math.max(0, Math.min(1, item.alpha * ((field.alpha ?? 255) / 255)))),
+        userSelect: selectable ? 'text' : 'none',
+        webkitUserSelect: selectable ? 'text' : 'none',
+        pointerEvents: selectable ? 'auto' : 'none',
+        cursor: selectable ? 'text' : 'inherit',
+      });
+      const sig = JSON.stringify([field.revision, field.text, fmt, field.format_runs]);
+      if (rec.signature !== sig) {
+        rec.signature = sig;
+        renderTextRunsInto(el, field, rec.ownerKey);
+      }
+      a11yApi?.applyDomAccessibility?.(el, semanticMeta, { autoLabel: field.text || '', isInteractive: false });
+    }
+
+    function updateSvgElement(rec, item, localTransform, clipsById) {
+      const svg = rec.element;
+      const kind = item.kind;
+      svg.style.transform = cssMatrix(localTransform);
+      svg.style.opacity = String(Math.max(0, Math.min(1, item.alpha)));
+
+      const itemInv = item.clip_ids?.length ? matInverse(item.transform) : null;
+      const clipSig = item.clip_ids?.length
+        ? item.clip_ids.map(cid => clipsById.get(cid))
+        : null;
+      const sig = JSON.stringify([kind, clipSig, item.clip_ids?.length ? item.transform : null]);
+      if (rec.signature === sig) return;
+      rec.signature = sig;
+
+      const defs = [];
+      let fillAttr = 'none';
+      let fillOpacityAttr = '';
+      if (kind.fill_gradient) {
+        const gid = `nf-grad-${rec.uid}-f`;
+        defs.push(svgGradientDef(gid, kind.fill_gradient));
+        fillAttr = `url(#${gid})`;
+      } else if (Array.isArray(kind.fill) && (kind.fill[3] ?? 0) > 0) {
+        fillAttr = `rgb(${kind.fill[0] | 0},${kind.fill[1] | 0},${kind.fill[2] | 0})`;
+        if (kind.fill[3] < 255) fillOpacityAttr = ` fill-opacity="${kind.fill[3] / 255}"`;
+      }
+
+      let strokeAttrs = ' stroke="none"';
+      const sw = Number(kind.stroke_width) || 0;
+      if (sw > 0) {
+        if (kind.stroke_gradient) {
+          const gid = `nf-grad-${rec.uid}-s`;
+          defs.push(svgGradientDef(gid, kind.stroke_gradient));
+          strokeAttrs = ` stroke="url(#${gid})" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"`;
+        } else if (Array.isArray(kind.stroke) && (kind.stroke[3] ?? 0) > 0) {
+          const sa = kind.stroke[3] < 255 ? ` stroke-opacity="${kind.stroke[3] / 255}"` : '';
+          strokeAttrs = ` stroke="rgb(${kind.stroke[0] | 0},${kind.stroke[1] | 0},${kind.stroke[2] | 0})"${sa} stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"`;
+        }
+      }
+
+      let clipWrapStart = '';
+      let clipWrapEnd = '';
+      if (item.clip_ids?.length && itemInv) {
+        for (let ci = 0; ci < item.clip_ids.length; ci++) {
+          const clip = clipsById.get(item.clip_ids[ci]);
+          if (!clip) continue;
+          const cid = `nf-clip-${rec.uid}-${ci}`;
+          const compPaths = (clip.components || []).map(comp => {
+            if (typeof comp.alpha === 'number' && comp.alpha <= 0) return '';
+            const relM = matMultiply(itemInv, comp.matrix || [1, 0, 0, 1, 0, 0]);
+            const d = svgPathData(comp.commands || []);
+            const rule = comp.fill_rule === 'evenodd' ? 'evenodd' : 'nonzero';
+            return `<path d="${xmlAttrEscape(d)}" clip-rule="${rule}" transform="matrix(${relM[0]} ${relM[1]} ${relM[2]} ${relM[3]} ${relM[4]} ${relM[5]})"/>`;
+          }).join('');
+          defs.push(`<clipPath id="${cid}" clipPathUnits="userSpaceOnUse">${compPaths}</clipPath>`);
+          clipWrapStart += `<g clip-path="url(#${cid})">`;
+          clipWrapEnd = `</g>${clipWrapEnd}`;
+        }
+      }
+
+      let body = '';
+      if (kind.type === 'rectangle') {
+        body = `<rect x="0" y="0" width="${Math.max(0, kind.width)}" height="${Math.max(0, kind.height)}" fill="${fillAttr}"${fillOpacityAttr}${strokeAttrs}/>`;
+      } else if (kind.type === 'ellipse') {
+        const rx = Math.max(0, kind.width / 2);
+        const ry = Math.max(0, kind.height / 2);
+        body = `<ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" fill="${fillAttr}"${fillOpacityAttr}${strokeAttrs}/>`;
+      } else {
+        const d = svgPathData(kind.commands || []);
+        const rule = kind.fill_rule === 'evenodd' ? ' fill-rule="evenodd"' : '';
+        body = `<path d="${xmlAttrEscape(d)}" fill="${fillAttr}"${fillOpacityAttr}${rule}${strokeAttrs}/>`;
+      }
+      const defsMarkup = defs.length ? `<defs>${defs.join('')}</defs>` : '';
+      svg.setAttribute('width', '1');
+      svg.setAttribute('height', '1');
+      svg.setAttribute('viewBox', '0 0 1 1');
+      svg.innerHTML = `${defsMarkup}${clipWrapStart}${body}${clipWrapEnd}`;
+    }
+
+    function computeOwnerLocalBounds(ownerNode, ownerDraws, semBoundsByKey, ownerKey) {
+      const invOwner = matInverse(ownerNode.world || [1, 0, 0, 1, 0, 0]);
+      let box = null;
+      const include = b => {
+        if (!b || !Number.isFinite(b.left) || !Number.isFinite(b.top) || !Number.isFinite(b.right) || !Number.isFinite(b.bottom)) return;
+        if (b.right <= b.left || b.bottom <= b.top) return;
+        box = box
+          ? {
+              left: Math.min(box.left, b.left),
+              top: Math.min(box.top, b.top),
+              right: Math.max(box.right, b.right),
+              bottom: Math.max(box.bottom, b.bottom),
+            }
+          : { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+      };
+      if (invOwner && ownerDraws?.length) {
+        const textHost = getTextHost();
+        for (const item of ownerDraws) {
+          const relM = matMultiply(invOwner, item.transform || [1, 0, 0, 1, 0, 0]);
+          const enrichedKind = item.kind?.type === 'text_field' && textHost
+            ? { ...item.kind, text_bounds: textHost.bounds(item.kind.field, true) }
+            : item.kind;
+          const b = a11yApi?.itemBounds?.(
+            { ...item, alpha: 1, transform: relM, kind: enrichedKind },
+            (line, tk) => line.length * (Number(tk.font_size) || 14) * 0.6,
+          );
+          include(b);
+        }
+      }
+      if (!box) {
+        const disp = getDisplay();
+        try {
+          const parsed = JSON.parse(ownerKey);
+          const proxy = Array.isArray(parsed) ? proxyFor(parsed) : proxyForRef(parsed);
+          if (proxy && disp?.alive?.(proxy) && typeof proxy.getBounds === 'function') {
+            const rect = proxy.getBounds(proxy);
+            if (rect && rect.width > 0 && rect.height > 0) {
+              include({ left: rect.x, top: rect.y, right: rect.x + rect.width, bottom: rect.y + rect.height });
+            }
+          }
+        } catch (_) {}
+      }
+      if (!box && invOwner && semBoundsByKey?.has(ownerKey)) {
+        const wb = semBoundsByKey.get(ownerKey);
+        const pts = [[wb.left, wb.top], [wb.right, wb.top], [wb.right, wb.bottom], [wb.left, wb.bottom]].map(p => matPoint(invOwner, p[0], p[1]));
+        const xs = pts.map(p => p[0]);
+        const ys = pts.map(p => p[1]);
+        include({ left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) });
+      }
+      return box;
+    }
+
+    function isInteractiveButtonNode(node, nodeKey, semByRef) {
+      if (!node || !node.parent_ref) return false;
+      if (node.input?.mouse_enabled === false) return false;
+      const sem = semByRef.get(nodeKey);
+      if (sem?.accessibility?.role === 'button') return true;
+      if (node.owner === 'button') return true;
+      if (node.owner !== 'movie_clip' && node.owner !== 'sprite') return false;
+      if (node.input?.button_mode) return true;
+      if (node.name && authoredClickPlacements.has(node.name)) return true;
+      if (Array.isArray(node.source_path) && node.source_path.some(seg => authoredClickPlacements.has(String(seg)))) return true;
+      const disp = getDisplay();
+      try {
+        const proxy = node.object_ref ? proxyForRef(node.object_ref) : proxyFor(node.path || []);
+        if (!proxy || (disp && !disp.alive(proxy))) return false;
+        if (disp?.handCursor?.(proxy)) return true;
+        if (typeof proxy.hasEventListener === 'function') {
+          for (const t of ['click', 'mouseDown', 'mouseUp', 'rollOver', 'rollOut']) {
+            if (proxy.hasEventListener(t)) return true;
+          }
+        }
+      } catch (_) {}
+      return false;
+    }
+
+    function ensureContainerRecord(key, node) {
+      let rec = containerRecords.get(key);
+      if (!rec) {
+        const el = doc.createElement('div');
+        el.className = 'nf-dom-container';
+        el.setAttribute('data-nf-id', key);
+        rec = {
+          key,
+          element: el,
+          clipWrapper: null,
+          buttonRecord: null,
+          cleanup() {
+            rec.buttonRecord?.cleanup?.();
+            rec.buttonRecord = null;
+            el.remove();
+          },
+        };
+        containerRecords.set(key, rec);
+      }
+      const el = rec.element;
+      if (node.owner && el.getAttribute('data-nf-owner') !== node.owner) {
+        el.setAttribute('data-nf-owner', node.owner);
+      }
+      if (node.name) {
+        if (el.getAttribute('data-nf-name') !== node.name) el.setAttribute('data-nf-name', node.name);
+      } else if (el.hasAttribute('data-nf-name')) {
+        el.removeAttribute('data-nf-name');
+      }
+      const localM = node.content_local_matrix || node.local_matrix || [1, 0, 0, 1, 0, 0];
+      el.style.transform = cssMatrix(localM);
+      el.style.display = node.visible === false || node.effective_visible === false ? 'none' : 'block';
+      const cssBlend = node.blend_mode ? CSS_BLEND_MODES[String(node.blend_mode).toLowerCase()] : null;
+      el.style.mixBlendMode = cssBlend && cssBlend !== 'normal' ? cssBlend : '';
+
+      if (node.scroll_rect && node.scroll_rect.width > 0 && node.scroll_rect.height > 0) {
+        if (!rec.clipWrapper) {
+          const clip = doc.createElement('div');
+          clip.className = 'nf-dom-scroll-rect';
+          Object.assign(clip.style, {
+            position: 'absolute',
+            left: '0px',
+            top: '0px',
+            overflow: 'hidden',
+            pointerEvents: 'none',
+          });
+          const inner = doc.createElement('div');
+          inner.className = 'nf-dom-scroll-inner';
+          Object.assign(inner.style, { position: 'absolute', left: '0px', top: '0px', transformOrigin: '0 0' });
+          clip.appendChild(inner);
+          rec.clipWrapper = clip;
+          rec.clipInner = inner;
+        }
+        const sr = node.scroll_rect;
+        rec.clipWrapper.style.width = `${sr.width}px`;
+        rec.clipWrapper.style.height = `${sr.height}px`;
+        rec.clipInner.style.transform = `translate(${-sr.x}px, ${-sr.y}px)`;
+      } else if (rec.clipWrapper) {
+        rec.clipWrapper.remove();
+        rec.clipWrapper = null;
+        rec.clipInner = null;
+      }
+      return rec;
+    }
+
+    function render(frameState) {
+      if (disposed) return;
+      const {
+        snapshot,
+        semantics = [],
+        width = project?.width || 800,
+        height = project?.height || 600,
+        originX = 0,
+        originY = 0,
+        scale = { x: 1, y: 1 },
+        stageColor = null,
+        background = project?.background || [255, 255, 255, 255],
+      } = frameState || {};
+
+      const scaleX = Number(scale?.x) || 1;
+      const scaleY = Number(scale?.y) || scaleX;
+      stageElement.dataset.logicalWidth = String(width);
+      stageElement.dataset.logicalHeight = String(height);
+      stageElement.dataset.originX = String(originX);
+      stageElement.dataset.originY = String(originY);
+      if (stageElement.style?.setProperty) {
+        stageElement.style.setProperty('--neoflash-scale-x', String(scaleX));
+        stageElement.style.setProperty('--neoflash-scale-y', String(scaleY));
+      }
+      stageElement.style.backgroundColor = Number.isInteger(stageColor)
+        ? rgbIntToCss(stageColor)
+        : `rgba(${background[0] | 0}, ${background[1] | 0}, ${background[2] | 0}, ${(background[3] ?? 255) / 255})`;
+
+      Object.assign(sceneElement.style, {
+        width: `${width}px`,
+        height: `${height}px`,
+        transform: `matrix(${scaleX}, 0, 0, ${scaleY}, ${originX * scaleX}, ${originY * scaleY})`,
+      });
+
+      const draws = snapshot?.draws || [];
+      const objectsList = snapshot?.objects || [];
+      const objectsByKey = new Map();
+      for (const n of objectsList) {
+        const k = n.object_ref ? JSON.stringify(n.object_ref) : JSON.stringify(n.path || []);
+        objectsByKey.set(k, n);
+      }
+
+      const semByRef = new Map();
+      for (const sem of semantics) {
+        const k = sem?.owner_ref ? JSON.stringify(sem.owner_ref) : JSON.stringify(sem?.instance_path || []);
+        if (k) semByRef.set(k, sem);
+      }
+
+      const filterGroupsById = new Map((snapshot?.filter_groups || []).map(fg => [fg.id, fg]));
+      const clipsById = new Map((snapshot?.clips || []).map(c => [c.id, c]));
+
+      const fgAncestry = id => {
+        const chain = [];
+        const seen = new Set();
+        for (let cur = id ? filterGroupsById.get(id) : null; cur && !seen.has(cur.id); cur = cur.parent_id ? filterGroupsById.get(cur.parent_id) : null) {
+          seen.add(cur.id);
+          chain.unshift(cur);
+        }
+        return chain;
+      };
+
+      const seenContainers = new Set();
+      const seenLeaves = new Set();
+      const seenIslands = new Set();
+      const desiredChildrenByContainer = new Map();
+      const sceneDesired = [];
+
+      const interactiveOwnerKeys = new Set();
+      for (const [k, n] of objectsByKey) {
+        if (isInteractiveButtonNode(n, k, semByRef)) interactiveOwnerKeys.add(k);
+      }
+
+      const drawsByOwnerAndAncestors = new Map();
+      for (const item of draws) {
+        const ownKey = item.owner_ref ? JSON.stringify(item.owner_ref) : JSON.stringify(item.instance_path || []);
+        for (let cur = objectsByKey.get(ownKey); cur; cur = cur.parent_ref ? objectsByKey.get(JSON.stringify(cur.parent_ref)) : null) {
+          const ck = cur.object_ref ? JSON.stringify(cur.object_ref) : JSON.stringify(cur.path || []);
+          let arr = drawsByOwnerAndAncestors.get(ck);
+          if (!arr) drawsByOwnerAndAncestors.set(ck, arr = []);
+          arr.push(item);
+        }
+      }
+
+      const containerChainFor = ownerKey => {
+        const chain = [];
+        const visited = new Set();
+        for (let cur = objectsByKey.get(ownerKey); cur; cur = cur.parent_ref ? objectsByKey.get(JSON.stringify(cur.parent_ref)) : null) {
+          const ck = cur.object_ref ? JSON.stringify(cur.object_ref) : JSON.stringify(cur.path || []);
+          if (visited.has(ck)) break;
+          visited.add(ck);
+          if (['movie_clip', 'sprite', 'button', 'loader'].includes(cur.owner)) {
+            chain.unshift({ key: ck, node: cur });
+          }
+        }
+        return chain;
+      };
+
+      const mountContainerChain = chain => {
+        let parentChildren = sceneDesired;
+        let currentWorld = [1, 0, 0, 1, 0, 0];
+        let insideButton = false;
+        for (const { key, node } of chain) {
+          const invWorld = matInverse(node.world || [1, 0, 0, 1, 0, 0]);
+          if (!invWorld) {
+            return { targetList: null, worldMatrix: currentWorld, insideButton };
+          }
+          const rec = ensureContainerRecord(key, node);
+          seenContainers.add(key);
+          if (!parentChildren.includes(rec.element)) {
+            parentChildren.push(rec.element);
+          }
+          let childList = desiredChildrenByContainer.get(key);
+          if (!childList) desiredChildrenByContainer.set(key, childList = []);
+          parentChildren = childList;
+          currentWorld = node.world || currentWorld;
+          if (interactiveOwnerKeys.has(key)) insideButton = true;
+        }
+        return { targetList: parentChildren, worldMatrix: currentWorld, insideButton };
+      };
+
+      // Group contiguous island draws so whole filter_groups rasterize together accurately.
+      const renderQueue = [];
+      for (let i = 0; i < draws.length; i++) {
+        const item = draws[i];
+        const reason = islandReasonForDraw(item, filterGroupsById, clipsById);
+        if (!reason) {
+          renderQueue.push({ type: 'dom', item, index: i });
+          continue;
+        }
+        const rootFg = item.filter_id ? fgAncestry(item.filter_id)[0] : null;
+        if (rootFg) {
+          const groupDraws = [item];
+          while (i + 1 < draws.length) {
+            const nextFg = draws[i + 1].filter_id ? fgAncestry(draws[i + 1].filter_id)[0] : null;
+            if (nextFg && nextFg.id === rootFg.id) {
+              groupDraws.push(draws[++i]);
+            } else {
+              break;
+            }
+          }
+          renderQueue.push({
+            type: 'island',
+            islandKey: `fg:${rootFg.id}`,
+            reason,
+            draws: groupDraws,
+            rootFg,
+          });
+        } else {
+          const ownKey = item.owner_ref ? JSON.stringify(item.owner_ref) : `idx:${i}`;
+          renderQueue.push({
+            type: 'island',
+            islandKey: `draw:${ownKey}:${item.element_id || i}`,
+            reason,
+            draws: [item],
+            rootFg: null,
+          });
+        }
+      }
+
+      for (const entry of renderQueue) {
+        if (entry.type === 'island') {
+          if (typeof paintCanvasIsland !== 'function') continue;
+          const islandKey = entry.islandKey;
+          let rec = islandRecords.get(islandKey);
+          if (!rec) {
+            const c = doc.createElement('canvas');
+            c.className = 'nf-dom-canvas-island';
+            c.setAttribute('data-nf-id', `island:${islandKey}`);
+            c.setAttribute('data-nf-kind', 'canvas-island');
+            rec = { element: c, cleanup() { c.remove(); } };
+            islandRecords.set(islandKey, rec);
+          }
+          rec.element.setAttribute('data-nf-island-reason', entry.reason);
+          const painted = paintCanvasIsland(rec.element, entry.draws, snapshot, { width, height, originX, originY });
+          if (painted && painted.width > 0 && painted.height > 0) {
+            seenIslands.add(islandKey);
+            Object.assign(rec.element.style, {
+              transform: `translate(${painted.left}px, ${painted.top}px)`,
+              width: `${painted.width}px`,
+              height: `${painted.height}px`,
+            });
+            sceneDesired.push(rec.element);
+          }
+          continue;
+        }
+
+        const { item, index } = entry;
+        if (!(item.alpha > 0)) continue;
+        const ownerKey = item.owner_ref ? JSON.stringify(item.owner_ref) : JSON.stringify(item.instance_path || []);
+        const ownerNode = objectsByKey.get(ownerKey) || null;
+        const chain = containerChainFor(ownerKey);
+        const mounted = mountContainerChain(chain);
+        if (!mounted.targetList) continue;
+
+        const invContainer = matInverse(mounted.worldMatrix) || [1, 0, 0, 1, 0, 0];
+        const localM = matMultiply(invContainer, item.transform || [1, 0, 0, 1, 0, 0]);
+        const kind = item.kind;
+        const semMeta = semByRef.get(ownerKey)?.accessibility || null;
+
+        if (kind.type === 'text_field' && kind.field?.field_type === 'input') {
+          const leafKey = `input:${ownerKey}`;
+          const rec = ensureInputRecord(leafKey, ownerKey, Boolean(kind.field.multiline));
+          seenLeaves.add(leafKey);
+          updateInputElement(rec, kind.field, localM, item.alpha, semMeta, ownerNode?.input);
+          mounted.targetList.push(rec.element);
+          continue;
+        }
+
+        if (kind.type === 'text' || kind.type === 'text_field') {
+          const leafKey = `text:${ownerKey}:${item.element_id || index}`;
+          let rec = leafRecords.get(leafKey);
+          if (rec && rec.kind !== 'text') {
+            rec.cleanup?.();
+            leafRecords.delete(leafKey);
+            rec = null;
+          }
+          if (!rec) {
+            const el = doc.createElement('div');
+            el.className = 'nf-dom-text';
+            el.setAttribute('data-nf-id', leafKey);
+            el.setAttribute('data-nf-kind', 'text');
+            rec = { kind: 'text', ownerKey, element: el, signature: null, cleanup() { el.remove(); } };
+            leafRecords.set(leafKey, rec);
+          }
+          seenLeaves.add(leafKey);
+          updateTextElement(rec, item, localM, mounted.insideButton, semMeta);
+          mounted.targetList.push(rec.element);
+          continue;
+        }
+
+        if (['rectangle', 'ellipse', 'path', 'gradient_path'].includes(kind.type)) {
+          const leafKey = `svg:${ownerKey}:${item.element_id || index}`;
+          let rec = leafRecords.get(leafKey);
+          if (rec && rec.kind !== 'svg') {
+            rec.cleanup?.();
+            leafRecords.delete(leafKey);
+            rec = null;
+          }
+          if (!rec) {
+            const svg = doc.createElementNS
+              ? doc.createElementNS(SVG_NS, 'svg')
+              : doc.createElement('svg');
+            svg.setAttribute('class', 'nf-dom-svg');
+            svg.setAttribute('data-nf-id', leafKey);
+            svg.setAttribute('data-nf-kind', 'svg');
+            rec = { kind: 'svg', uid: idSeq++, element: svg, signature: null, cleanup() { svg.remove(); } };
+            leafRecords.set(leafKey, rec);
+          }
+          seenLeaves.add(leafKey);
+          updateSvgElement(rec, item, localM, clipsById);
+          mounted.targetList.push(rec.element);
+          continue;
+        }
+
+        if (kind.type === 'bitmap_pixels') {
+          const url = bitmapDataUrlFor(kind);
+          if (!url) continue;
+          const leafKey = `bmp:${ownerKey}:${item.element_id || index}`;
+          let rec = leafRecords.get(leafKey);
+          if (rec && rec.kind !== 'bitmap') {
+            rec.cleanup?.();
+            leafRecords.delete(leafKey);
+            rec = null;
+          }
+          if (!rec) {
+            const img = doc.createElement('img');
+            img.className = 'nf-dom-bitmap';
+            img.setAttribute('data-nf-id', leafKey);
+            img.setAttribute('data-nf-kind', 'bitmap');
+            img.alt = semMeta?.name || '';
+            img.decoding = 'sync';
+            img.draggable = false;
+            rec = { kind: 'bitmap', element: img, lastUrl: null, cleanup() { img.remove(); } };
+            leafRecords.set(leafKey, rec);
+          }
+          seenLeaves.add(leafKey);
+          const img = rec.element;
+          if (rec.lastUrl !== url) {
+            rec.lastUrl = url;
+            img.src = url;
+          }
+          Object.assign(img.style, {
+            transform: cssMatrix(localM),
+            width: `${kind.width}px`,
+            height: `${kind.height}px`,
+            opacity: String(Math.max(0, Math.min(1, item.alpha))),
+            imageRendering: kind.smoothing === false ? 'pixelated' : 'auto',
+          });
+          a11yApi?.applyDomAccessibility?.(img, semMeta, { autoLabel: '', isInteractive: false });
+          mounted.targetList.push(img);
+          continue;
+        }
+
+        if (kind.type === 'video_frame') {
+          const videoHost = getVideoHost();
+          if (!videoHost) continue;
+          const leafKey = `vid:${ownerKey}:${item.element_id || index}`;
+          let rec = leafRecords.get(leafKey);
+          if (!rec || rec.kind !== 'video') {
+            rec?.cleanup?.();
+            const vc = doc.createElement('canvas');
+            vc.className = 'nf-dom-video';
+            vc.setAttribute('data-nf-id', leafKey);
+            vc.setAttribute('data-nf-kind', 'video');
+            rec = { kind: 'video', element: vc, cleanup() { vc.remove(); } };
+            leafRecords.set(leafKey, rec);
+          }
+          seenLeaves.add(leafKey);
+          const vc = rec.element;
+          const vw = Math.max(1, Math.round(kind.width || 1));
+          const vh = Math.max(1, Math.round(kind.height || 1));
+          if (vc.width !== vw || vc.height !== vh) {
+            vc.width = vw;
+            vc.height = vh;
+          }
+          const vctx = vc.getContext?.('2d');
+          if (vctx) {
+            vctx.clearRect(0, 0, vw, vh);
+            videoHost.draw(vctx, kind, item.owner_ref);
+          }
+          Object.assign(vc.style, {
+            transform: cssMatrix(localM),
+            width: `${vw}px`,
+            height: `${vh}px`,
+            opacity: String(Math.max(0, Math.min(1, item.alpha))),
+          });
+          mounted.targetList.push(vc);
+        }
+      }
+
+      // Ensure hit-only / empty-frame interactive buttons still mount in the DOM tree.
+      for (const ownerKey of interactiveOwnerKeys) {
+        if (!seenContainers.has(ownerKey)) {
+          const chain = containerChainFor(ownerKey);
+          if (chain.length) mountContainerChain(chain);
+        }
+      }
+
+      // Attach/update interactive <button> overlays inside their owning containers.
+      for (const [key, rec] of containerRecords) {
+        if (!seenContainers.has(key)) continue;
+        const node = objectsByKey.get(key);
+        const childList = desiredChildrenByContainer.get(key) || [];
+        if (interactiveOwnerKeys.has(key) && node) {
+          const localBounds = computeOwnerLocalBounds(node, drawsByOwnerAndAncestors.get(key), null, key);
+          if (localBounds && localBounds.right > localBounds.left && localBounds.bottom > localBounds.top) {
+            const btnRec = ensureButtonRecord(rec, key);
+            const btn = btnRec.element;
+            Object.assign(btn.style, {
+              left: `${localBounds.left}px`,
+              top: `${localBounds.top}px`,
+              width: `${localBounds.right - localBounds.left}px`,
+              height: `${localBounds.bottom - localBounds.top}px`,
+            });
+            const autoLabel = (drawsByOwnerAndAncestors.get(key) || [])
+              .map(d => d.kind?.type === 'text' ? d.kind.text : (d.kind?.type === 'text_field' ? d.kind.field?.text : ''))
+              .filter(Boolean)
+              .join(' ')
+              .trim() || node.name || '';
+            const semMeta = semByRef.get(key)?.accessibility || null;
+            const disabled = Boolean(
+              (node.owner === 'button' && node.input?.button_enabled === false)
+              || (node.owner === 'movie_clip' && node.input?.movieclip_enabled === false)
+              || semMeta?.disabled,
+            );
+            a11yApi?.applyDomAccessibility?.(btn, semMeta, {
+              autoLabel,
+              isInteractive: true,
+              explicitTabIndex: node.input?.tab_index,
+              disabled,
+            });
+            childList.push(btn);
+          } else if (rec.buttonRecord) {
+            rec.buttonRecord.cleanup();
+            rec.buttonRecord = null;
+          }
+        } else if (rec.buttonRecord) {
+          rec.buttonRecord.cleanup();
+          rec.buttonRecord = null;
+        }
+        const semMeta = !interactiveOwnerKeys.has(key) ? (semByRef.get(key)?.accessibility || null) : null;
+        if (semMeta) {
+          a11yApi?.applyDomAccessibility?.(rec.element, semMeta, {
+            autoLabel: node?.name || '',
+            isInteractive: false,
+            tabEnabled: node?.input?.tab_enabled ? true : undefined,
+            explicitTabIndex: node?.input?.tab_index,
+          });
+        }
+        if (rec.clipWrapper && rec.clipInner) {
+          syncChildrenOrder(rec.clipInner, childList);
+          syncChildrenOrder(rec.element, [rec.clipWrapper]);
+        } else {
+          syncChildrenOrder(rec.element, childList);
+        }
+      }
+
+      // Prune stale records (zero DOM node or listener leaks!).
+      for (const [k, rec] of leafRecords) {
+        if (!seenLeaves.has(k)) {
+          rec.cleanup?.();
+          leafRecords.delete(k);
+        }
+      }
+      for (const [k, rec] of islandRecords) {
+        if (!seenIslands.has(k)) {
+          rec.cleanup?.();
+          islandRecords.delete(k);
+        }
+      }
+      for (const [k, rec] of containerRecords) {
+        if (!seenContainers.has(k)) {
+          rec.cleanup?.();
+          containerRecords.delete(k);
+        }
+      }
+
+      syncChildrenOrder(sceneElement, sceneDesired);
+    }
+
+    function sync(refKey) {
+      if (disposed || !refKey) return;
+      const rec = inputRecordsByRef.get(refKey);
+      if (!rec) return;
+      const textHost = getTextHost();
+      if (!textHost) return;
+      try {
+        const field = textHost.info(refKey);
+        const nextVal = displayedFieldText(field);
+        if (rec.element.value !== nextVal) {
+          rec.syncingValue = true;
+          try { rec.element.value = nextVal; } finally { rec.syncingValue = false; }
+        }
+      } catch (_) {}
+    }
+
+    function owns(node) {
+      return Boolean(node && ownedInputControls.has(node));
+    }
+
+    function canFocus(target) {
+      const disp = getDisplay();
+      const ref = referenceOf(target);
+      if (!ref || !disp?.alive?.(target)) return true;
+      const desc = disp.descriptor(target);
+      if (desc?.owner !== 'text') return true;
+      return desc.text?.field_type === 'input' || desc.text?.selectable !== false;
+    }
+
+    function focusChanged(next, previous) {
+      if (disposed) return true;
+      if (previous) {
+        const prevRef = referenceOf(previous);
+        const prevRec = prevRef ? inputRecordsByRef.get(prevRef.key) : null;
+        if (prevRec && doc.activeElement === prevRec.element) {
+          prevRec.syncingFocus = true;
+          try { prevRec.element.blur?.(); } finally { prevRec.syncingFocus = false; }
+        }
+      }
+      if (next) {
+        const nextRef = referenceOf(next);
+        const nextRec = nextRef ? inputRecordsByRef.get(nextRef.key) : null;
+        if (nextRec && doc.activeElement !== nextRec.element && !nextRec.element.disabled) {
+          nextRec.syncingFocus = true;
+          try { nextRec.element.focus?.({ preventScroll: true }); } finally { nextRec.syncingFocus = false; }
+        }
+      }
+      return true;
+    }
+
+    const Selection = Object.freeze({
+      getFocus() {
+        const sh = getStageHost();
+        const disp = getDisplay();
+        const focused = sh?.stage?.focus;
+        if (!focused || focused === sh?.stage || !disp?.alive?.(focused)) return null;
+        return disp.targetPath?.(focused) || null;
+      },
+      setFocus(target) {
+        const sh = getStageHost();
+        if (!sh) return false;
+        if (target === null || target === undefined) {
+          sh.stage.focus = null;
+          return true;
+        }
+        if (!canFocus(target)) return false;
+        sh.stage.focus = target;
+        return sh.stage.focus === target;
+      },
+      getBeginIndex() {
+        const el = doc.activeElement;
+        return ownedInputControls.has(el) ? (el.selectionStart ?? -1) : -1;
+      },
+      getEndIndex() {
+        const el = doc.activeElement;
+        return ownedInputControls.has(el) ? (el.selectionEnd ?? -1) : -1;
+      },
+      getCaretIndex() {
+        const el = doc.activeElement;
+        return ownedInputControls.has(el) ? (el.selectionEnd ?? -1) : -1;
+      },
+      setSelection(begin, end) {
+        const el = doc.activeElement;
+        if (ownedInputControls.has(el) && typeof el.setSelectionRange === 'function') {
+          el.setSelectionRange(Math.max(0, Number(begin) | 0), Math.max(0, Number(end) | 0));
+        }
+      },
+    });
+
+    function clearSceneRecords() {
+      for (const rec of leafRecords.values()) rec.cleanup?.();
+      for (const rec of islandRecords.values()) rec.cleanup?.();
+      for (const rec of containerRecords.values()) rec.cleanup?.();
+      leafRecords.clear();
+      islandRecords.clear();
+      containerRecords.clear();
+      inputRecordsByRef.clear();
+      bitmapUrlCache.clear();
+      sceneElement.replaceChildren?.();
+    }
+
+    function reset() {
+      if (disposed) return;
+      clearSceneRecords();
+    }
+
+    function dispose() {
+      if (disposed) return;
+      disposed = true;
+      clearSceneRecords();
+      while (cleanups.length) {
+        const fn = cleanups.pop();
+        try { fn(); } catch (_) {}
+      }
+      stageElement.dispose?.();
+    }
+
+    stageElement._onDispose = () => {
+      if (!disposed) {
+        disposed = true;
+        clearSceneRecords();
+        while (cleanups.length) {
+          const fn = cleanups.pop();
+          try { fn(); } catch (_) {}
+        }
+      }
+    };
+
+    return Object.freeze({
+      isActive: () => !disposed,
+      stageElement,
+      sceneElement,
+      evaluateViewport,
+      render,
+      sync,
+      owns,
+      canFocus,
+      focusChanged,
+      Selection,
+      reset,
+      dispose,
+    });
+  }
+
   const NeoFlashStageElement = registerStageComponent();
 
   const api = Object.freeze({
     create,
+    createDomStageHost,
     computeResponsiveLayout,
     evaluateBreakpoint,
     ResponsiveController,

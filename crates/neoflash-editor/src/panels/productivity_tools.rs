@@ -388,6 +388,8 @@ pub(crate) fn is_internal_system_resource_path(path: &str) -> bool {
         || path.eq_ignore_ascii_case(Project::VECTOR_STYLES_RESOURCE_PATH)
         || path.eq_ignore_ascii_case(Project::DOCUMENT_ACCESSIBILITY_RESOURCE_PATH)
         || path.eq_ignore_ascii_case(Project::SHARED_LIBRARIES_RESOURCE_PATH)
+        || path.eq_ignore_ascii_case(Project::PUBLISH_SETTINGS_RESOURCE_PATH)
+        || path.eq_ignore_ascii_case("publish/profiles.json")
         || path.eq_ignore_ascii_case("fonts/embedding.json")
 }
 

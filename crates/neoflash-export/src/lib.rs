@@ -31,10 +31,11 @@ pub use image_export::*;
 pub use legacy_fla::*;
 pub use lottie::*;
 pub use profiles::*;
+pub use neoflash_core::{HtmlRenderMode, PublishBreakpoint, PublishSettings};
 pub use publish::{
-    HtmlAcceleration, HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign, HtmlTemplate,
-    PlayerChromeConfig, PublishOptions, SequencePublishPolicy, SizeEstimate, SizeLevel, SizePart,
-    gzip_len, validate_runtime_url,
+    HtmlAcceleration, HtmlExportOptions, HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign,
+    HtmlTemplate, PlayerChromeConfig, PublishOptions, SequencePublishPolicy, SizeEstimate,
+    SizeLevel, SizePart, gzip_len, validate_runtime_url,
 };
 pub use svg::*;
 pub use swf::*;
@@ -281,6 +282,65 @@ struct PublishInfo {
     level: &'static str,
     /// Titles of runtime families a Compact package leaves out.
     omitted_modules: Vec<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "renderMode")]
+    render_mode: Option<&'static str>,
+}
+
+/// Inspects a project for graphics features that cannot be represented as pure semantic HTML/SVG
+/// in [`HtmlRenderMode::Dom`] and will therefore render inside scoped `<canvas>` islands (`T-307`).
+pub fn dom_publish_diagnostics(project: &Project) -> Vec<String> {
+    let mut diagnostics = Vec::new();
+    for symbol in &project.symbols {
+        let mut has_filters = false;
+        let mut has_non_css_blend = false;
+        let mut has_bitmap_fill = false;
+        for layer in &symbol.timeline.layers {
+            if !layer.properties.filters.is_empty() {
+                has_filters = true;
+            }
+            for key in &layer.keyframes {
+                if !key.filters.is_empty() {
+                    has_filters = true;
+                }
+                if !key.bitmap_fills.is_empty() {
+                    has_bitmap_fill = true;
+                }
+                for element in &key.elements {
+                    if !element.filters.is_empty() {
+                        has_filters = true;
+                    }
+                    if matches!(
+                        element.blend_mode,
+                        neoflash_core::BlendMode::Add
+                            | neoflash_core::BlendMode::Subtract
+                            | neoflash_core::BlendMode::Invert
+                            | neoflash_core::BlendMode::Alpha
+                            | neoflash_core::BlendMode::Erase
+                    ) {
+                        has_non_css_blend = true;
+                    }
+                }
+            }
+        }
+        let mut reasons = Vec::new();
+        if has_filters {
+            reasons.push("bitmap filters");
+        }
+        if has_non_css_blend {
+            reasons.push("composited blend modes");
+        }
+        if has_bitmap_fill {
+            reasons.push("bitmap pattern fills");
+        }
+        if !reasons.is_empty() {
+            diagnostics.push(format!(
+                "DOM publish mode: symbol '{}' uses {} that cannot be expressed as pure semantic DOM; rendering affected artwork in scoped <canvas> islands.",
+                symbol.name,
+                reasons.join(", ")
+            ));
+        }
+    }
+    diagnostics
 }
 
 #[derive(Serialize)]
@@ -353,10 +413,26 @@ pub fn export_warnings(project: &Project) -> Vec<String> {
     let non_font_resources = project
         .resources
         .iter()
-        .filter(|res| !is_font_resource(res))
+        .filter(|res| {
+            !is_font_resource(res)
+                && !res
+                    .path
+                    .eq_ignore_ascii_case(Project::PUBLISH_SETTINGS_RESOURCE_PATH)
+        })
         .count();
     if non_font_resources > 0 {
-        warnings.push(format!("{} project resource(s) are embedded and available by their relative paths. Embedding bytes alone does not create display placements or install fonts.", project.resources.len()));
+        let user_resource_total = project
+            .resources
+            .iter()
+            .filter(|res| {
+                !res.path
+                    .eq_ignore_ascii_case(Project::PUBLISH_SETTINGS_RESOURCE_PATH)
+            })
+            .count();
+        warnings.push(format!("{} project resource(s) are embedded and available by their relative paths. Embedding bytes alone does not create display placements or install fonts.", user_resource_total));
+    }
+    if project.html_render_mode() == HtmlRenderMode::Dom {
+        warnings.extend(dom_publish_diagnostics(project));
     }
     warnings
 }
@@ -505,10 +581,51 @@ pub fn export_project_with_options(
     runtime_dir: &Path,
     options: &PublishOptions,
 ) -> Result<PathBuf, ExportError> {
+    if project.html_render_mode() == HtmlRenderMode::Dom {
+        let dom_cfg = HtmlPublishConfig {
+            render_mode: HtmlRenderMode::Dom,
+            breakpoints: project.publish_settings().breakpoints,
+            ..HtmlPublishConfig::default()
+        };
+        return export_project_with_config(project, output_dir, runtime_dir, options, &dom_cfg);
+    }
     let options = options.validated().map_err(ExportError::Options)?;
     let prepared = prepare(project, runtime_dir, options.fonts, options.audio)?;
     let package = assemble(project, &prepared, &options.size)?;
     write_package(output_dir, &package.files, &project.name, "project")
+}
+
+/// Export an HTML5 package with unified [`HtmlExportOptions`] (`options`, `config`, and
+/// `render_mode`: `Canvas` default or `Dom` for interactive websites and applications, `T-307`).
+pub fn export_html_with_options(
+    project: &Project,
+    output_dir: &Path,
+    runtime_dir: &Path,
+    html_options: &HtmlExportOptions,
+) -> Result<PathBuf, ExportError> {
+    let effective_mode = if html_options.render_mode != HtmlRenderMode::Canvas {
+        html_options.render_mode
+    } else if html_options.config.render_mode != HtmlRenderMode::Canvas {
+        html_options.config.render_mode
+    } else {
+        project.html_render_mode()
+    };
+    if effective_mode == HtmlRenderMode::Canvas
+        && html_options.config == HtmlPublishConfig::default()
+    {
+        return export_project_with_options(
+            project,
+            output_dir,
+            runtime_dir,
+            &html_options.options,
+        );
+    }
+    let mut cfg = html_options.config.clone();
+    cfg.render_mode = effective_mode;
+    if cfg.breakpoints.is_empty() && effective_mode == HtmlRenderMode::Dom {
+        cfg.breakpoints = project.publish_settings().breakpoints;
+    }
+    export_project_with_config(project, output_dir, runtime_dir, &html_options.options, &cfg)
 }
 
 /// Export an HTML5 package with explicit [`PublishOptions`] and [`HtmlPublishConfig`]
@@ -522,14 +639,33 @@ pub fn export_project_with_config(
     config: &HtmlPublishConfig,
 ) -> Result<PathBuf, ExportError> {
     let options = options.validated().map_err(ExportError::Options)?;
+    let mut owned_cfg: Option<HtmlPublishConfig> = None;
+    if config.render_mode == HtmlRenderMode::Canvas
+        && project.html_render_mode() == HtmlRenderMode::Dom
+    {
+        let mut next = config.clone();
+        next.render_mode = HtmlRenderMode::Dom;
+        if next.breakpoints.is_empty() {
+            next.breakpoints = project.publish_settings().breakpoints;
+        }
+        owned_cfg = Some(next);
+    } else if config.render_mode == HtmlRenderMode::Dom && config.breakpoints.is_empty() {
+        let doc_bps = project.publish_settings().breakpoints;
+        if !doc_bps.is_empty() {
+            let mut next = config.clone();
+            next.breakpoints = doc_bps;
+            owned_cfg = Some(next);
+        }
+    }
+    let effective_cfg = owned_cfg.as_ref().unwrap_or(config);
     let prepared = prepare_with_config(
         project,
         runtime_dir,
         options.fonts,
         options.audio,
-        Some(config),
+        Some(effective_cfg),
     )?;
-    let package = assemble_with_config(project, &prepared, &options.size, Some(config))?;
+    let package = assemble_with_config(project, &prepared, &options.size, Some(effective_cfg))?;
     write_package(output_dir, &package.files, &project.name, "project")
 }
 
@@ -1015,6 +1151,11 @@ pub(crate) fn prepare_with_config(
     let (_, bitmap_warnings) = apply_bitmap_export_settings(&mut published, default_jpeg_q);
     let runtime_id = shared_runtime_id(&bindings, &wasm);
     let mut warnings = export_warnings(project);
+    if config.is_some_and(|c| c.render_mode == HtmlRenderMode::Dom)
+        && project.html_render_mode() != HtmlRenderMode::Dom
+    {
+        warnings.extend(dom_publish_diagnostics(project));
+    }
     warnings.extend(avi_warnings);
     warnings.extend(seq_warnings);
     warnings.extend(bitmap_warnings);
@@ -1512,7 +1653,15 @@ pub(crate) fn assemble_with_config(
         );
     }
 
-    let non_default_config = config.filter(|c| **c != HtmlPublishConfig::default());
+    let is_dom_mode = config.is_some_and(|c| c.render_mode == HtmlRenderMode::Dom)
+        || (config.is_none() && project.html_render_mode() == HtmlRenderMode::Dom);
+    let synthesized_dom_cfg = (config.is_none() && is_dom_mode).then(|| HtmlPublishConfig {
+        render_mode: HtmlRenderMode::Dom,
+        breakpoints: project.publish_settings().breakpoints,
+        ..HtmlPublishConfig::default()
+    });
+    let effective_config = config.or(synthesized_dom_cfg.as_ref());
+    let non_default_config = effective_config.filter(|c| **c != HtmlPublishConfig::default());
     let bundle = Bundle {
         project: &effective_published,
         scenes: prepared.scenes.clone(),
@@ -1533,6 +1682,7 @@ pub(crate) fn assemble_with_config(
         publish: PublishInfo {
             level: level.name(),
             omitted_modules: omitted_titles.clone(),
+            render_mode: is_dom_mode.then_some("dom"),
         },
         warnings: warnings.clone(),
         load_summary,
@@ -1568,7 +1718,7 @@ pub(crate) fn assemble_with_config(
         &prepared.fonts.css_rules,
         &scripts,
         a11y_overlay_html.trim(),
-        config,
+        effective_config,
     );
     let readme = format!(
         "{} — NeoFlash HTML5 export\n\n{}\nThe player and embedded project data need no plugins, SWF or build tools.\nExternal HTTP(S) requests, if used by your scripts, need reachable servers and browser CORS permission. Embedded resources work offline; local filesystem URLs are not a network fallback.\n\nPublishing notes:\n{}\n\nUse scripts in Actions only from authors you trust: JavaScript executes in the browser.\n",
@@ -2091,6 +2241,32 @@ fn html_document_with_config(
     } else {
         ""
     };
+    let is_dom_mode = config.is_some_and(|c| c.render_mode == HtmlRenderMode::Dom);
+    let body_render_attr = if is_dom_mode {
+        " data-render-mode=\"dom\""
+    } else {
+        ""
+    };
+    let dom_css = if is_dom_mode {
+        "\n    body[data-render-mode=\"dom\"] #stage { position: absolute; inset: 0; pointer-events: none; opacity: 0; visibility: hidden; }\n    #stage-dom-root { position: absolute; inset: 0; display: block; width: 100%; height: 100%; overflow: hidden; transform-origin: 0 0; }\n    .nf-dom-scene { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; pointer-events: auto; }\n    .nf-dom-container { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }\n    .nf-dom-button { position: absolute; left: 0; top: 0; transform-origin: 0 0; padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent; color: inherit; min-height: 0; pointer-events: auto; cursor: pointer; text-align: left; }\n    .nf-dom-button:hover, .nf-dom-button:disabled { background: transparent; }\n    .nf-dom-button:focus-visible { outline: 2px solid #7ba9ef; outline-offset: 2px; }\n    .nf-dom-text { position: absolute; left: 0; top: 0; transform-origin: 0 0; margin: 0; padding: 0; line-height: 1.2; }\n    .nf-dom-input { position: absolute; left: 0; top: 0; transform-origin: 0 0; margin: 0; box-sizing: border-box; pointer-events: auto; }\n    .nf-dom-input:focus-visible { outline: 2px solid #7ba9ef; outline-offset: 1px; }\n    .nf-dom-svg { position: absolute; left: 0; top: 0; overflow: visible; transform-origin: 0 0; pointer-events: none; }\n    .nf-dom-bitmap, .nf-dom-video, .nf-dom-canvas-island { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }"
+    } else {
+        ""
+    };
+    let stage_markup = if is_dom_mode {
+        let dom_scale = config
+            .map(|c| c.scale_mode.as_flash_scale_mode())
+            .unwrap_or("showAll");
+        let dom_align = config
+            .map(|c| c.stage_align.as_flash_code())
+            .unwrap_or("");
+        format!(
+            "<canvas id=\"stage\"{canvas_accel_attr} aria-hidden=\"true\"></canvas><neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\" width=\"{width}\" height=\"{height}\" scale-mode=\"{dom_scale}\" align=\"{dom_align}\"></neoflash-stage><div id=\"semantic-layer\"></div>"
+        )
+    } else {
+        format!(
+            "<canvas id=\"stage\"{canvas_accel_attr} aria-label=\"{title}\"></canvas><div id=\"semantic-layer\"></div>{a11y_overlay_html}"
+        )
+    };
     format!(
         r##"<!doctype html>
 <html lang="en">
@@ -2130,11 +2306,11 @@ fn html_document_with_config(
     #size-report {{ position: fixed; inset: 24px 24px 72px 24px; max-height: calc(100vh - 96px); overflow: auto; margin: 0; z-index: 2; padding: 20px 24px; border: 1px solid #555a64; border-radius: 6px; background: #1d1f24f2; color: #d8dee9; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; display: none; box-shadow: 0 16px 48px #0009; }}
     #error {{ position: fixed; inset: 24px; max-height: 60vh; overflow: auto; margin: auto; z-index: 2; padding: 24px; border: 1px solid #f19393; background: #351d22; color: #ffe0e0; white-space: pre-wrap; display: none; }}
     #loading {{ position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }}
-    @media (max-width: 600px) {{ footer {{ padding: 8px; }} .transport {{ gap: 6px; }} .preview-info {{ flex-basis: 100%; }} #name {{ display: none; }} }}{font_rules}
+    @media (max-width: 600px) {{ footer {{ padding: 8px; }} .transport {{ gap: 6px; }} .preview-info {{ flex-basis: 100%; }} #name {{ display: none; }} }}{dom_css}{font_rules}
   </style>
 {script_tags}</head>
-<body{body_attr}>
-  <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}"><canvas id="stage"{canvas_accel_attr} aria-label="{title}"></canvas><div id="semantic-layer"></div>{a11y_overlay_html}</div></div></main>
+<body{body_render_attr}{body_attr}>
+  <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}">{stage_markup}</div></div></main>
   <footer{footer_attr}><div class="transport" aria-label="Preview controls"{transport_attr}><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button><button id="fullscreen-toggle" type="button" aria-pressed="false" title="Toggle fullscreen stage"{fullscreen_attr}>Fullscreen</button><button id="audio-toggle" type="button" hidden>Enable audio</button><button id="report-toggle" type="button" aria-pressed="false" title="Show project weight and loaded assets breakdown" hidden>Size report</button></div><div class="preview-info"><span id="name">{display_name}</span><span id="status"{status_attr}></span><span id="load-info"{load_attr}></span><span id="audio-status" role="status" aria-live="polite" aria-atomic="true" hidden></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"{trace_attr}></span></div></footer>
   <div id="loading" role="status"{loading_attr}>Loading project…</div><pre id="size-report" aria-label="Project size and load report"></pre><pre id="error" role="alert"></pre>
 </body>

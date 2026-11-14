@@ -913,7 +913,7 @@ fn subcommands_schema() -> Value {
         {
             "name": "export",
             "summary": "Publish or export HTML5, FLA, XFL, SWF, SVG, Lottie, Atlas, Sequence, Video, Audio, Banner, or Desktop targets",
-            "flags": ["--project <file.nflash>", "--target <html5|fla|xfl|swf|svg|lottie|atlas|sequence|video|audio|banner|desktop>", "--out <path>", "--profile <name|id>", "--size-level <full|balanced|compact|shared>", "--runtime <dir>", "--runtime-url <url>", "--font-policy <device|embed|subset|outlines>", "--clean", "--fla-profile <...>", "--swf-profile <fp8|fp9|fp10>", "--symbol <id|name>", "--frame <u32>", "--end-frame <u32>"]
+            "flags": ["--project <file.nflash>", "--target <html5|fla|xfl|swf|svg|lottie|atlas|sequence|video|audio|banner|desktop>", "--out <path>", "--profile <name|id>", "--size-level <full|balanced|compact|shared>", "--runtime <dir>", "--runtime-url <url>", "--font-policy <device|embed|subset|outlines>", "--render-mode <canvas|dom>", "--clean", "--fla-profile <...>", "--swf-profile <fp8|fp9|fp10>", "--symbol <id|name>", "--frame <u32>", "--end-frame <u32>"]
         }
     ])
 }
@@ -970,7 +970,7 @@ fn cmd_capabilities<W1: Write, W2: Write>(
                 "compile": ["strict?"],
                 "eval": ["scene?", "symbol?", "frame?", "frames?", "scripts?"],
                 "inspect": ["symbol?", "frame?", "no_elements?", "no_scripts?", "no_resources?"],
-                "export": ["target", "out", "profile?", "size_level?", "runtime?", "runtime_url?", "font_policy?", "audio_policy?", "clean?", "sprite_sheets?", "assets_folder?", "scale_mode?", "stage_align?", "allow_fullscreen?", "fla_profile?", "swf_profile?", "scriptless?", "outline_text?", "symbol?", "frame?", "end_frame?", "width?", "height?", "transparent?", "text_as_outlines?", "pretty?", "atlas_format?", "atlas_extrude?", "audio_format?", "banner_max_gzip?"],
+                "export": ["target", "out", "profile?", "size_level?", "runtime?", "runtime_url?", "font_policy?", "audio_policy?", "render_mode?", "clean?", "sprite_sheets?", "assets_folder?", "scale_mode?", "stage_align?", "allow_fullscreen?", "fla_profile?", "swf_profile?", "scriptless?", "outline_text?", "symbol?", "frame?", "end_frame?", "width?", "height?", "transparent?", "text_as_outlines?", "pretty?", "atlas_format?", "atlas_extrude?", "audio_format?", "banner_max_gzip?"],
                 "save": ["path?"]
             },
             "nested_schemas": {
@@ -997,7 +997,8 @@ fn cmd_capabilities<W1: Write, W2: Write>(
         },
         "import_formats": ["fla", "xfl", "swf", "swc", "svg", "psd", "psb", "pdf", "ai", "fxg", "fig", "figma", "figma.json", "act", "clr", "ase", "image-sequence"],
         "export_targets": ["html5", "fla", "xfl", "swf", "svg", "lottie", "atlas", "sequence", "video", "audio", "banner", "desktop"],
-        "size_levels": ["full", "balanced", "compact", "shared"]
+        "size_levels": ["full", "balanced", "compact", "shared"],
+        "html_render_modes": ["canvas", "dom"]
     });
     match format {
         OutputFormat::Json => match serialize_json_value(&payload, pretty) {

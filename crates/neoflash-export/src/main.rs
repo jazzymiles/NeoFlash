@@ -1,11 +1,11 @@
 use neoflash_core::Project;
 use neoflash_export::{
     AepOptions, AtlasFormat, AtlasOptions, AudioExportOptions, AudioExportPolicy, AudioFormat,
-    BannerOptions, FontExportPolicy, HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign,
-    ImageExportFormat, ImageExportOptions, ImageExportRange, LottieOptions, NetworkPreset,
-    NetworkStartupEstimate, PublishOptions, PublishProfile, SizeLevel, SvgOptions, VideoFormat,
-    VideoOptions, export_profile_json, export_project_with_profile, import_profile_json,
-    load_profiles_from_project, simulate_network_startup,
+    BannerOptions, FontExportPolicy, HtmlPublishConfig, HtmlRenderMode, HtmlScaleMode,
+    HtmlStageAlign, ImageExportFormat, ImageExportOptions, ImageExportRange, LottieOptions,
+    NetworkPreset, NetworkStartupEstimate, PublishOptions, PublishProfile, SizeLevel, SvgOptions,
+    VideoFormat, VideoOptions, export_profile_json, export_project_with_profile,
+    import_profile_json, load_profiles_from_project, simulate_network_startup,
 };
 use std::{env, fs, path::PathBuf};
 
@@ -56,6 +56,7 @@ where
     let mut scale_mode: Option<HtmlScaleMode> = None;
     let mut stage_align: Option<HtmlStageAlign> = None;
     let mut allow_fullscreen: Option<bool> = None;
+    let mut render_mode: Option<HtmlRenderMode> = None;
     let mut pack_sprite_sheets = false;
     let mut assets_folder = false;
     let mut export_profile_path: Option<PathBuf> = None;
@@ -230,6 +231,12 @@ where
             }
             "--no-fullscreen" => allow_fullscreen = Some(false),
             "--allow-fullscreen" => allow_fullscreen = Some(true),
+            "--render-mode" => {
+                let raw = args
+                    .next()
+                    .ok_or("--render-mode requires 'canvas' or 'dom'")?;
+                render_mode = Some(HtmlRenderMode::parse(&raw)?);
+            }
             "--pack-sprite-sheet" | "--sprite-sheets" => pack_sprite_sheets = true,
             "--assets-folder" => assets_folder = true,
             "--help" | "-h" => {
@@ -558,6 +565,9 @@ where
     if let Some(preset) = simulate_network_preset {
         active_profile.network_profile.preset = preset;
     }
+    if let Some(rm) = render_mode {
+        active_profile.render_mode = rm;
+    }
 
     let mut cli_out = CliRunOutput {
         active_profile: Some(active_profile.clone()),
@@ -594,6 +604,7 @@ where
         || scale_mode.is_some()
         || stage_align.is_some()
         || allow_fullscreen.is_some()
+        || render_mode.is_some()
         || pack_sprite_sheets
         || assets_folder;
     let index = if has_custom_html_cfg {
@@ -611,6 +622,11 @@ where
         if let Some(fs_ok) = allow_fullscreen {
             cfg.allow_fullscreen = fs_ok;
         }
+        if let Some(rm) = render_mode {
+            cfg.render_mode = rm;
+        } else if active_profile.render_mode != HtmlRenderMode::Canvas {
+            cfg.render_mode = active_profile.render_mode;
+        }
         if pack_sprite_sheets {
             cfg.sprite_sheets = true;
         }
@@ -621,6 +637,7 @@ where
     } else if import_profile_path.is_some()
         || profile_selector.is_some()
         || active_profile.html_template.is_some()
+        || active_profile.render_mode != HtmlRenderMode::Canvas
     {
         export_project_with_profile(&project, &output, &runtime, &active_profile)?
     } else {

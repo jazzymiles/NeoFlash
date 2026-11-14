@@ -609,14 +609,15 @@
     const clipFrameLabels = new Map();
     let callFrameDepth = 0, inDispatch = false;
     let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null, as2ObjectHost = null, as2TextHost = null, as2DataHost = null, as2BindingHost = null, as2NetworkHost = null, as2FilesHost = null, as2LocaleHost = null, as2MediaHost = null, as2ServicesHost = null, as2TransitionsHost = null, as2DepthManagerHost = null, as2StageHost = null, as2CaptureHost = null, as2ConnectionsHost = null, as2BoxingHost = null, as2PrintHost = null;
-    let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null, airHost = null, as3NetSysHost = null, fte3dHost = null, as3MediaEventsHost = null, currentBuiltins = null;
+    let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null, airHost = null, as3NetSysHost = null, fte3dHost = null, as3MediaEventsHost = null, domStageHost = null, currentBuiltins = null;
     let frameLabelType = null, sceneValueFactory = null;
     const timelineMetadataProperties=Object.freeze({currentLabel:'current_label',currentFrameLabel:'current_frame_label',currentLabels:'labels',framesLoaded:'frames_loaded',isPlaying:'is_playing',currentScene:'scene_name',scenes:'scene_name'});
     let eventFamilies = {};
-    let timerRenderGeneration=0, capturePainter=null,inputPaths=null;
+    let timerRenderGeneration=0, capturePainter=null, islandPainter=null, inputPaths=null;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
     const hostPlayerConfig = typeof bundle !== 'undefined' && bundle?.player_config ? bundle.player_config : {};
+    const isDomRenderMode = hostPlayerConfig.render_mode === 'dom' || (typeof bundle !== 'undefined' && bundle?.publish?.renderMode === 'dom');
     const initialFlashScaleMode = hostPlayerConfig.scale_mode === 'no_scale' ? 'noScale'
       : hostPlayerConfig.scale_mode === 'exact_fit' ? 'exactFit'
       : hostPlayerConfig.scale_mode === 'fill_crop' ? 'noBorder'
@@ -634,13 +635,17 @@
     function shouldAutoEnableStageLayout() {
       const chromeCfg = hostPlayerConfig.chrome || {};
       const clean = chromeCfg.clean === true || (chromeCfg.show_fps === false && chromeCfg.show_dimensions === false && chromeCfg.show_controls === false && chromeCfg.show_load_summary === false && chromeCfg.show_trace === false);
-      return Boolean(clean || hostPlayerConfig.template === 'fullscreen' || (hostPlayerConfig.stage_align && hostPlayerConfig.stage_align !== 'center') || (hostPlayerConfig.scale_mode && hostPlayerConfig.scale_mode !== 'fit_keep_ratio'));
+      return Boolean(isDomRenderMode || clean || hostPlayerConfig.template === 'fullscreen' || (hostPlayerConfig.stage_align && hostPlayerConfig.stage_align !== 'center') || (hostPlayerConfig.scale_mode && hostPlayerConfig.scale_mode !== 'fit_keep_ratio'));
     }
     function computeHostStageLayout(vw, vh) {
-      const docW = typeof project === 'undefined' ? 800 : project.width;
-      const docH = typeof project === 'undefined' ? 600 : project.height;
-      const mode = stageHost?.stage?.scaleMode || initialFlashScaleMode;
-      const align = stageHost?.stage?.align ?? initialFlashAlign;
+      let docW = typeof project === 'undefined' ? 800 : project.width;
+      let docH = typeof project === 'undefined' ? 600 : project.height;
+      let mode = stageHost?.stage?.scaleMode || initialFlashScaleMode;
+      let align = stageHost?.stage?.align ?? initialFlashAlign;
+      if (domStageHost?.isActive?.()) {
+        const bpOut = domStageHost.evaluateViewport(vw, vh, { docW, docH, scaleMode: mode, align });
+        if (bpOut) { docW = bpOut.docW; docH = bpOut.docH; mode = bpOut.scaleMode; align = bpOut.align; }
+      }
       const fsRect = stageHost?.fullScreenSourceRect?.() || null;
       const isFs = ownsViewportFullscreen() || Boolean(stageHost?.stage?.displayState && stageHost.stage.displayState !== 'normal');
       const next = global.NeoFlashStage.computeStageLayout(docW, docH, vw, vh, {
@@ -780,7 +785,7 @@
         }});
       if(global.NeoFlashFilters&&typeof player.filter_rgba==='function')filterHost=global.NeoFlashFilters.create({player,getBitmap:()=>bitmapHost,geometry:geometryHost});
       if(global.NeoFlashText&&typeof player.object_text_info==='function'){
-        textHost=global.NeoFlashText.create({player,wasm,events:global.NeoFlashEvents,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document,getProgram:()=>program,geometry:geometryHost,fontMetrics:bundle?.fonts?.metrics||null,onUpdate:ref=>textInputHost?.sync(ref),onScroll:ref=>{if(eventHub&&global.NeoFlashEvents&&player.object_alive(ref))eventHub.dispatch(proxyForRef(JSON.parse(ref)),new global.NeoFlashEvents.Event('scroll',false,false));},measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
+        textHost=global.NeoFlashText.create({player,wasm,events:global.NeoFlashEvents,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document,getProgram:()=>program,geometry:geometryHost,fontMetrics:bundle?.fonts?.metrics||null,onUpdate:ref=>(domStageHost||textInputHost)?.sync(ref),onScroll:ref=>{if(eventHub&&global.NeoFlashEvents&&player.object_alive(ref))eventHub.dispatch(proxyForRef(JSON.parse(ref)),new global.NeoFlashEvents.Event('scroll',false,false));},measureText:(text,format)=>{if(typeof context==='undefined')throw new Error('Text layout requires the Canvas font measurement service.');context.save();try{global.NeoFlashText.applyFont(context,format,true);return context.measureText(text).width;}finally{context.restore();}}});
         if(typeof document!=='undefined'&&document?.fonts?.addEventListener){
           if(fontLoadingDoneHandler)document.fonts.removeEventListener('loadingdone',fontLoadingDoneHandler);
           fontLoadingDoneHandler=()=>{textHost?.invalidateCache?.();if(typeof context!=='undefined')render();};
@@ -817,7 +822,7 @@
           onFullScreenSourceRectChanged:()=>{if(ownsViewportFullscreen()||(stageHost?.stage?.displayState&&stageHost.stage.displayState!=='normal')){enableHostStageLayout(false);if(typeof context!=='undefined')render();}},
           onDisplayStateChanged:state=>{if(state!=='normal')enableHostStageLayout(false);else if(!hostStageLayoutPinned)syncInitialStageLayout();else if(typeof preview!=='undefined'&&preview)preview.resize();if(typeof context!=='undefined')render();},
           onColorChanged:()=>{if(typeof context!=='undefined')render();},onInvalidate:requestTimerRender,
-          onFocusChanged:(next,previous)=>{fte3dHost?.handleFocusChange?.(next,previous);return textInputHost?.focusChanged(next,previous);},ownsTextInput:node=>textInputHost?.owns(node),canFocus:value=>{if(textInputHost&&!textInputHost.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
+          onFocusChanged:(next,previous)=>{fte3dHost?.handleFocusChange?.(next,previous);return (domStageHost||textInputHost)?.focusChanged(next,previous);},ownsTextInput:node=>(domStageHost||textInputHost)?.owns(node),canFocus:value=>{const ih=domStageHost||textInputHost;if(ih&&!ih.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
           hitTest:event=>{const p=stagePointFromEvent(event);return p&&p.inside?display.pick(p.x,p.y):null;},
           coordinates:event=>{const p=stagePointFromEvent(event);return p?[p.x,p.y]:null;},
           isInputEnabled:()=>typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick),
@@ -1027,7 +1032,59 @@
         printAsBitmap(target,boundingBox){legacyPrint(this,target,boundingBox,false);},
         printNum(level,boundingBox){legacyPrint(this,level,boundingBox,true);},
         printAsBitmapNum(level,boundingBox){legacyPrint(this,level,boundingBox,true);}});
-      if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
+      if(isDomRenderMode&&global.NeoFlashDomLayout?.createDomStageHost){
+        domStageHost=global.NeoFlashDomLayout.createDomStageHost({
+          document:typeof document==='undefined'?null:document,
+          surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),
+          viewport:typeof viewport==='undefined'?null:viewport,
+          canvas:typeof canvas==='undefined'?null:canvas,
+          project:typeof project==='undefined'?null:project,
+          config:hostPlayerConfig,
+          player,
+          getDisplay:()=>display,
+          getStageHost:()=>stageHost,
+          getTextHost:()=>textHost,
+          getBitmapHost:()=>bitmapHost,
+          getVideoHost:()=>videoHost,
+          getEventHub:()=>eventHub,
+          getEvents:()=>({...global.NeoFlashEvents,...eventFamilies}),
+          getAs2ObjectHost:()=>as2ObjectHost,
+          getAs2TextHost:()=>as2TextHost,
+          getAudioHost:()=>audioHost,
+          proxyFor,
+          proxyForRef,
+          referenceOf:target=>references.get(target),
+          afterInput:afterTimerEvent,
+          onError:inputFailure,
+          onTextLink:(ownerKey,text)=>{const target=proxyForRef(JSON.parse(ownerKey));if(eventHub&&global.NeoFlashEvents&&display?.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},
+          onAsfunction:(ownerKey,spec)=>{const tf=proxyForRef(JSON.parse(ownerKey));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},
+          onActivateObject:(target,authored)=>{if(!display?.alive(target)||!display?.alive(authored))return;if(graphMode&&typeof player.object_click==='function')player.object_click(references.get(authored).key);else{let owner=authored,node=display.descriptor(owner);while(graphMode&&node.authored_path===null){owner=display.parentSpace(owner);if(!owner||owner===stageHost?.stage)break;node=display.descriptor(owner);}const path=graphMode?node.authored_path:node.path;if(path)player.click(JSON.stringify(path));}dispatchScripts(authored);if(typeof context!=='undefined')render();},
+          paintCanvasIsland:(islandCanvas,islandDraws,fullSnapshot,stageBox)=>{
+            if(typeof context==='undefined'||!global.NeoFlashPaths)return null;
+            if(!islandPainter)islandPainter=createScenePainter({global,paths:new global.NeoFlashPaths.PathCache(),gradients:new global.NeoFlashPaths.GradientRenderer({createCanvas:()=>bitmapHost?bitmapHost.createCanvas(1,1):document.createElement('canvas')}),clippings:new global.NeoFlashPaths.ClipRenderer({createCanvas:()=>bitmapHost?bitmapHost.createCanvas(1,1):document.createElement('canvas')}),bitmapHost,textHost,filterHost,videoHost,context,snapBitmaps:false});
+            const allGroups=new Map((fullSnapshot?.filter_groups||[]).map(g=>[g.id,g])),neededGroups=new Set();
+            for(const d of islandDraws){for(let cur=d.filter_id?allGroups.get(d.filter_id):null;cur&&!neededGroups.has(cur.id);cur=cur.parent_id?allGroups.get(cur.parent_id):null)neededGroups.add(cur.id);}
+            const subGroups=(fullSnapshot?.filter_groups||[]).filter(g=>neededGroups.has(g.id));
+            let area=null;
+            for(const d of islandDraws){const b=islandPainter.paintBounds(d,true);if(b&&b.right>b.left&&b.bottom>b.top)area=area?{left:Math.min(area.left,b.left),top:Math.min(area.top,b.top),right:Math.max(area.right,b.right),bottom:Math.max(area.bottom,b.bottom)}:{...b};}
+            if(!area)return null;
+            if(subGroups.length&&typeof player.filter_padding==='function'){
+              for(const fg of subGroups){if(fg.filters?.length){const pad=JSON.parse(player.filter_padding(JSON.stringify(fg.filters)));area={left:area.left-pad.left,top:area.top-pad.top,right:area.right+pad.right,bottom:area.bottom+pad.bottom};}}
+            }
+            const minX=-(stageBox?.originX||0),minY=-(stageBox?.originY||0),maxX=(stageBox?.width||800)+minX,maxY=(stageBox?.height||600)+minY;
+            const left=Math.max(minX,Math.floor(area.left)-1),top=Math.max(minY,Math.floor(area.top)-1),right=Math.min(maxX,Math.ceil(area.right)+1),bottom=Math.min(maxY,Math.ceil(area.bottom)+1);
+            if(!(right>left&&bottom>top))return null;
+            const w=right-left,h=bottom-top,dpr=Math.min(2,Math.max(1,global.devicePixelRatio||1));
+            const pw=Math.max(1,Math.round(w*dpr)),ph=Math.max(1,Math.round(h*dpr));
+            if(islandCanvas.width!==pw||islandCanvas.height!==ph){islandCanvas.width=pw;islandCanvas.height=ph;}
+            const ictx=islandCanvas.getContext('2d');if(!ictx)return null;
+            ictx.setTransform(1,0,0,1,0,0);ictx.clearRect(0,0,pw,ph);ictx.setTransform(dpr,0,0,dpr,-left*dpr,-top*dpr);
+            islandPainter.draw(ictx,{draws:islandDraws,objects:fullSnapshot?.objects||[],semantics:[],clips:fullSnapshot?.clips||[],filter_groups:subGroups},{minX:left,minY:top,width:w,height:h,semantic:false});
+            return {left,top,width:w,height:h};
+          },
+        });
+        legacyGlobals=Object.freeze({...legacyGlobals,Selection:Object.freeze({...domStageHost.Selection,setFocus:value=>{const target=typeof value==='string'?(value?display.resolveTarget(value,proxyFor([])):null):value;if(!display.as2CanFocus?.(target))return false;return domStageHost.Selection.setFocus(target);}})});
+      }else if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
         textInputHost=global.NeoFlashTextInput.create({getSize:logicalSize,getOrigin:stageOrigin,player,text:textHost,display,events:{...global.NeoFlashEvents,...eventFamilies},hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,onLegacyTab:event=>display.as2Tab?.(event)||false,beforeLegacyTextEvent:(target,name)=>{if(name==='onChanged')as2ObjectHost?.textChanged(target);},onLegacyTextEvent:(target,name,args)=>as2TextHost?.textEvent(references.get(target).key,name,args),
           canvas:typeof canvas==='undefined'?null:canvas,surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),document:typeof document==='undefined'?null:document,project:typeof project==='undefined'?null:project,
           onError:inputFailure,afterInput:afterTimerEvent,onClick:(target,event)=>{target=display.resolveInput(target);if(!target)return;stageHost.handlePointer('click',event,target);if(display.alive(target)){player.object_click(references.get(target).key);dispatchScripts(target);if(typeof context!=='undefined')render();}}});
@@ -1525,10 +1582,10 @@
     }
     function resetProject() {
       pointerOverContent=false;legacyCursorVisible=true;updateCursor();
-      capturePainter?.clear();capturePainter=null;
+      capturePainter?.clear();capturePainter=null;islandPainter?.clear();islandPainter=null;
       filterHost?.renderer.clear();
       as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
-      as3MediaEventsHost?.reset();fte3dHost?.reset();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
+      as3MediaEventsHost?.reset();fte3dHost?.reset();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();domStageHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
       proxies.clear(); attachedClasses.clear(); constructedNodes.clear(); superConstructedNodes.clear(); offstageLinkedTargets.clear(); retiringTargets.clear(); constructSessions.length = 0; frameLabelDispatchedScopes.clear(); boundTextVariables.clear(); registeredClasses.clear(); executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0; if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';lastTraceLocation = '';
       syncInitialStageLayout();
       soundsPreloaded=false;
@@ -1543,10 +1600,10 @@
       }
       fontLoadingDoneHandler=null;
       pointerOverContent=false;legacyCursorVisible=true;updateCursor();
-      capturePainter?.clear();capturePainter=null;
+      capturePainter?.clear();capturePainter=null;islandPainter?.clear();islandPainter=null;
       filterHost?.renderer.clear();
       as2PrintHost?.dispose();as2BoxingHost?.dispose();as2StageHost?.dispose();as2ConnectionsHost?.dispose();as2DepthManagerHost?.dispose();as2TransitionsHost?.dispose();as2MediaHost?.dispose();as2ServicesHost?.dispose();as2FilesHost?.dispose();as2NetworkHost?.dispose();as2LocaleHost?.dispose();as2TextHost?.dispose();as2BindingHost?.dispose();as2DataHost?.dispose();as2ObjectHost?.dispose();
-      as3MediaEventsHost?.dispose();fte3dHost?.dispose();as3NetSysHost?.dispose();airHost?.dispose();externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();amfHost?.reset?.();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();as2CaptureHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
+      as3MediaEventsHost?.dispose();fte3dHost?.dispose();as3NetSysHost?.dispose();airHost?.dispose();externalHost?.dispose();domStageHost?.dispose();textInputHost?.dispose();storageHost?.dispose();amfHost?.reset?.();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();as2CaptureHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
       constructedNodes.clear();superConstructedNodes.clear();offstageLinkedTargets.clear();retiringTargets.clear();constructSessions.length=0;frameLabelDispatchedScopes.clear();boundTextVariables.clear();registeredClasses.clear();executedInitClips.clear();clipFrameLabels.clear();callFrameDepth=0;if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
       as2PlatformHost?.dispose();legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
@@ -2575,9 +2632,21 @@
       if(snapshot&&typeof videoHost!=='undefined'&&videoHost)snapshot=videoHost.prepareSnapshot(snapshot);
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
       assertUnfilteredEditing(stageHost?.stage.focus);
-      if(snapshot)textInputHost?.update(snapshot);
       const [width,height]=logicalSize();
       const [originX,originY]=stageOrigin();
+      if(domStageHost?.isActive?.()){
+        const rawSemNodes=snapshot?(snapshot.semantics.length?snapshot.semantics.filter(node=>Boolean(semanticRoute(node,snapshot.objects))):[]):JSON.parse(player.accessibility_json());
+        const enrichedSemNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawSemNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawSemNodes;
+        semanticLayer.clear?.();
+        if(typeof a11yOverlay!=='undefined'&&a11yOverlay)a11yOverlay.replaceChildren?.();
+        canvas.setAttribute('aria-hidden','true');
+        const stageRgb=stageHost?.stage?.color;
+        bitmapHost?.cache.beginFrame();
+        try{
+          domStageHost.render({snapshot:snapshot||{draws:scene,objects:[],semantics:[],clips:[],filter_groups:[]},semantics:enrichedSemNodes,width,height,originX,originY,scale:{x:preview.view.scale,y:preview.view.scaleY||preview.view.scale},stageColor:Number.isInteger(stageRgb)&&stageHost?.colorAssigned?.()?stageRgb:null,background:project.background});
+        }finally{bitmapHost?.cache.endFrame();}
+      }else{
+      if(snapshot)textInputHost?.update(snapshot);
       const sx=canvas.width/width,sy=canvas.height/height;
       if(typeof player.as2_settings_command==='function'&&display){
         const quality=display.as2GlobalPropRef('_quality').get();
@@ -2605,6 +2674,7 @@
       syncStageAccessibilityOverlay(enrichedSemNodes);
       bitmapHost?.cache.endFrame();
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
+      }
       status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;
       if (typeof measuredFps === 'number' && measuredFps > 0) {
         status.dataset.measuredFps = measuredFps.toFixed(1);

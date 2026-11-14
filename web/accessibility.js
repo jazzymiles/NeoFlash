@@ -220,7 +220,74 @@
       }
       return wanted.length;
     }
+    clear() {
+      for (const record of this.records.values()) record.element.remove();
+      this.records.clear();
+    }
   }
-  const api={itemBounds,targetBounds,sceneBoundsByPath,pathBounds,areaCapable,SemanticLayer};
+  function applyDomAccessibility(element, metadata = null, options = {}) {
+    if (!element) return;
+    const { autoLabel = '', isInteractive = false, tabEnabled = undefined, explicitTabIndex = undefined, disabled = false } = options;
+    const silent = Boolean(metadata?.silent);
+    const suppressAuto = Boolean(metadata?.noAutoLabeling || metadata?.no_auto_labeling);
+    const label = String(metadata?.name || (!suppressAuto ? autoLabel : '') || '').trim();
+    if (silent) {
+      element.setAttribute('aria-hidden', 'true');
+      if (element.hasAttribute('aria-label')) element.removeAttribute('aria-label');
+    } else {
+      if (element.getAttribute('aria-hidden') === 'true') element.removeAttribute('aria-hidden');
+      if (label) {
+        if (element.getAttribute('aria-label') !== label) element.setAttribute('aria-label', label);
+      } else if (element.hasAttribute('aria-label')) {
+        element.removeAttribute('aria-label');
+      }
+    }
+    const description = String(metadata?.description || '').trim();
+    if (description && !silent) {
+      if (element.getAttribute('aria-description') !== description) element.setAttribute('aria-description', description);
+    } else if (element.hasAttribute('aria-description')) {
+      element.removeAttribute('aria-description');
+    }
+    const shortcut = String(metadata?.shortcut || '').trim();
+    if (shortcut && !silent) {
+      if (element.getAttribute('aria-keyshortcuts') !== shortcut) element.setAttribute('aria-keyshortcuts', shortcut);
+    } else if (element.hasAttribute('aria-keyshortcuts')) {
+      element.removeAttribute('aria-keyshortcuts');
+    }
+    const live = String(metadata?.live || '').trim();
+    if (live && live !== 'off' && !silent) {
+      if (element.getAttribute('aria-live') !== live) element.setAttribute('aria-live', live);
+    } else if (element.hasAttribute('aria-live')) {
+      element.removeAttribute('aria-live');
+    }
+    if (metadata?.forceSimple || metadata?.force_simple) element.setAttribute('data-force-simple', 'true');
+    else if (element.hasAttribute('data-force-simple')) element.removeAttribute('data-force-simple');
+    if (suppressAuto) element.setAttribute('data-no-auto-labeling', 'true');
+    else if (element.hasAttribute('data-no-auto-labeling')) element.removeAttribute('data-no-auto-labeling');
+    const tag = (element.tagName || '').toUpperCase();
+    const isNativeControl = tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    const effectiveDisabled = Boolean(disabled || metadata?.disabled);
+    if (isNativeControl) {
+      element.disabled = effectiveDisabled;
+    } else if (metadata?.role && !silent) {
+      const role = metadata.role === 'image' ? 'img' : String(metadata.role);
+      if (element.getAttribute('role') !== role) element.setAttribute('role', role);
+    }
+    const rawOrder = explicitTabIndex !== undefined && explicitTabIndex !== null && Number(explicitTabIndex) >= 0
+      ? Number(explicitTabIndex)
+      : (metadata?.tab_order ?? metadata?.tabIndex);
+    const parsedOrder = rawOrder !== undefined && rawOrder !== null && rawOrder !== '' ? Number(rawOrder) : NaN;
+    const positiveOrder = Number.isInteger(parsedOrder) && parsedOrder > 0 ? parsedOrder : null;
+    if (silent || effectiveDisabled || tabEnabled === false) {
+      if (isInteractive || element.hasAttribute('tabindex')) element.tabIndex = -1;
+    } else if (positiveOrder !== null) {
+      if (element.tabIndex !== positiveOrder) element.tabIndex = positiveOrder;
+    } else if (isInteractive || tabEnabled === true || parsedOrder === 0) {
+      if (element.tabIndex !== 0) element.tabIndex = 0;
+    } else if (element.hasAttribute('tabindex')) {
+      element.removeAttribute('tabindex');
+    }
+  }
+  const api={itemBounds,targetBounds,sceneBoundsByPath,pathBounds,areaCapable,SemanticLayer,applyDomAccessibility};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAccessibility=api;
 })(globalThis);

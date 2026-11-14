@@ -4,8 +4,8 @@
 //! duplicates size calculation logic.
 
 use crate::{
-    ExportError, LoadSummary, PublishOptions, RuntimeFigures, assemble, html_escape, prepare,
-    size_report_from, static_runtime_js_bytes, write_package,
+    ExportError, LoadSummary, PublishOptions, RuntimeFigures, html_escape, size_report_from,
+    static_runtime_js_bytes, write_package,
 };
 use neoflash_core::{ElementKind, Project, ResourceUnit, new_id};
 use serde::{Deserialize, Serialize};
@@ -198,6 +198,9 @@ pub struct PublishProfile {
     pub html_template: Option<String>,
     #[serde(default)]
     pub network_profile: NetworkSimulationProfile,
+    /// HTML5 stage rendering mode (`Canvas` default; `Dom` for websites and applications, `T-307`).
+    #[serde(default, skip_serializing_if = "neoflash_core::HtmlRenderMode::is_default")]
+    pub render_mode: neoflash_core::HtmlRenderMode,
 }
 
 impl Default for PublishProfile {
@@ -208,6 +211,7 @@ impl Default for PublishProfile {
             options: ExportOptions::default(),
             html_template: None,
             network_profile: NetworkSimulationProfile::default(),
+            render_mode: neoflash_core::HtmlRenderMode::Canvas,
         }
     }
 }
@@ -220,6 +224,7 @@ impl PublishProfile {
             options,
             html_template: None,
             network_profile: NetworkSimulationProfile::default(),
+            render_mode: neoflash_core::HtmlRenderMode::Canvas,
         }
     }
 
@@ -251,6 +256,7 @@ pub fn duplicate_profile(profile: &PublishProfile, new_name: Option<&str>) -> Pu
         options: profile.options.clone(),
         html_template: profile.html_template.clone(),
         network_profile: profile.network_profile.clone(),
+        render_mode: profile.render_mode,
     }
 }
 
@@ -456,8 +462,27 @@ pub fn export_project_with_profile(
 ) -> Result<PathBuf, ExportError> {
     profile.validate()?;
     let options = profile.options.validated().map_err(ExportError::Options)?;
-    let prepared = prepare(project, runtime_dir, options.fonts, options.audio)?;
-    let mut package = assemble(project, &prepared, &options.size)?;
+    let effective_mode = if profile.render_mode != neoflash_core::HtmlRenderMode::Canvas {
+        profile.render_mode
+    } else {
+        project.html_render_mode()
+    };
+    let dom_cfg = (effective_mode == neoflash_core::HtmlRenderMode::Dom).then(|| {
+        crate::HtmlPublishConfig {
+            render_mode: neoflash_core::HtmlRenderMode::Dom,
+            breakpoints: project.publish_settings().breakpoints,
+            ..crate::HtmlPublishConfig::default()
+        }
+    });
+    let prepared = crate::prepare_with_config(
+        project,
+        runtime_dir,
+        options.fonts,
+        options.audio,
+        dom_cfg.as_ref(),
+    )?;
+    let mut package =
+        crate::assemble_with_config(project, &prepared, &options.size, dom_cfg.as_ref())?;
 
     if let Some(template) = &profile.html_template {
         let project_json = serde_json::to_string(&prepared.published)?;

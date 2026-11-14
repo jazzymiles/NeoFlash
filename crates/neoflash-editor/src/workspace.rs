@@ -2360,16 +2360,18 @@ pub enum PublishProfilePreset {
     Default,
     WebCompact,
     WebBalanced,
+    WebAppDom,
     WebBannerNative,
     HighQuality,
     DebugPreview,
 }
 
 impl PublishProfilePreset {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Default,
         Self::WebCompact,
         Self::WebBalanced,
+        Self::WebAppDom,
         Self::WebBannerNative,
         Self::HighQuality,
         Self::DebugPreview,
@@ -2381,6 +2383,7 @@ impl PublishProfilePreset {
             Self::Default => "Default",
             Self::WebCompact => "Web Compact",
             Self::WebBalanced => "Web Balanced",
+            Self::WebAppDom => "Web App · DOM",
             Self::WebBannerNative => "Web Banner · Native",
             Self::HighQuality => "High Quality",
             Self::DebugPreview => "Preview / Debug",
@@ -2392,6 +2395,7 @@ impl PublishProfilePreset {
             Self::Default => "Profile: Default",
             Self::WebCompact => "Profile: Web Compact",
             Self::WebBalanced => "Profile: Web Balanced",
+            Self::WebAppDom => "Profile: Web App · DOM",
             Self::WebBannerNative => "Profile: Web Banner · Native",
             Self::HighQuality => "Profile: High Quality",
             Self::DebugPreview => "Profile: Preview / Debug",
@@ -2532,6 +2536,9 @@ pub struct PublishPrefs {
     /// Compatibility options for `File ▸ Save As` FLA/XFL export.
     #[serde(default)]
     pub fla_export_options: neoflash_export::FlaExportOptions,
+    /// HTML5 stage rendering mode (`Canvas` default, `Dom` for interactive websites and apps, `T-307`).
+    #[serde(default, skip_serializing_if = "neoflash_core::HtmlRenderMode::is_default")]
+    pub render_mode: neoflash_core::HtmlRenderMode,
 }
 impl Default for PublishPrefs {
     fn default() -> Self {
@@ -2579,6 +2586,7 @@ impl Default for PublishPrefs {
             preview_chrome: neoflash_export::PlayerChromeConfig::preview_default(),
             fla_target_profile: neoflash_export::FlaTargetProfile::AnimateCC,
             fla_export_options: neoflash_export::FlaExportOptions::default(),
+            render_mode: neoflash_core::HtmlRenderMode::Canvas,
         }
     }
 }
@@ -2633,6 +2641,7 @@ impl PublishPrefs {
                 self.options.size = neoflash_export::SizeLevel::Full;
                 self.options.fonts = neoflash_export::FontExportPolicy::Embed;
                 self.options.audio = neoflash_export::AudioExportPolicy::Original;
+                self.render_mode = neoflash_core::HtmlRenderMode::Canvas;
                 self.html_wrapper = true;
                 self.source_maps = false;
                 self.jpeg_quality = 80;
@@ -2644,6 +2653,7 @@ impl PublishPrefs {
                 self.options.size = neoflash_export::SizeLevel::Compact;
                 self.options.fonts = neoflash_export::FontExportPolicy::Subset;
                 self.options.audio = neoflash_export::AudioExportPolicy::Mp3_128;
+                self.render_mode = neoflash_core::HtmlRenderMode::Canvas;
                 self.html_wrapper = true;
                 self.source_maps = false;
                 self.jpeg_quality = 75;
@@ -2655,6 +2665,7 @@ impl PublishPrefs {
                 self.options.size = neoflash_export::SizeLevel::Balanced;
                 self.options.fonts = neoflash_export::FontExportPolicy::Embed;
                 self.options.audio = neoflash_export::AudioExportPolicy::Mp3_160;
+                self.render_mode = neoflash_core::HtmlRenderMode::Canvas;
                 self.html_wrapper = true;
                 self.source_maps = false;
                 self.jpeg_quality = 85;
@@ -2662,10 +2673,24 @@ impl PublishPrefs {
                 self.minify = true;
                 self.publish_clean = true;
             }
+            PublishProfilePreset::WebAppDom => {
+                self.options.size = neoflash_export::SizeLevel::Full;
+                self.options.fonts = neoflash_export::FontExportPolicy::Embed;
+                self.options.audio = neoflash_export::AudioExportPolicy::Original;
+                self.render_mode = neoflash_core::HtmlRenderMode::Dom;
+                self.html_wrapper = true;
+                self.source_maps = false;
+                self.jpeg_quality = 85;
+                self.include_trace = false;
+                self.minify = true;
+                self.publish_clean = true;
+                self.html5_enabled = true;
+            }
             PublishProfilePreset::WebBannerNative => {
                 self.options.size = neoflash_export::SizeLevel::Compact;
                 self.options.fonts = neoflash_export::FontExportPolicy::Subset;
                 self.options.audio = neoflash_export::AudioExportPolicy::Mp3_128;
+                self.render_mode = neoflash_core::HtmlRenderMode::Canvas;
                 self.html_wrapper = true;
                 self.source_maps = false;
                 self.jpeg_quality = 75;
@@ -2678,6 +2703,7 @@ impl PublishPrefs {
                 self.options.size = neoflash_export::SizeLevel::Full;
                 self.options.fonts = neoflash_export::FontExportPolicy::Embed;
                 self.options.audio = neoflash_export::AudioExportPolicy::Original;
+                self.render_mode = neoflash_core::HtmlRenderMode::Canvas;
                 self.html_wrapper = true;
                 self.source_maps = false;
                 self.jpeg_quality = 95;
@@ -2689,6 +2715,7 @@ impl PublishPrefs {
                 self.options.size = neoflash_export::SizeLevel::Full;
                 self.options.fonts = neoflash_export::FontExportPolicy::Embed;
                 self.options.audio = neoflash_export::AudioExportPolicy::Original;
+                self.render_mode = neoflash_core::HtmlRenderMode::Canvas;
                 self.html_wrapper = true;
                 self.source_maps = true;
                 self.jpeg_quality = 85;
@@ -2726,6 +2753,8 @@ impl PublishPrefs {
             minify: self.minify,
             acceleration: self.acceleration,
             chrome,
+            render_mode: self.render_mode,
+            breakpoints: Vec::new(),
         }
     }
 
@@ -2751,6 +2780,8 @@ impl PublishPrefs {
             minify: true,
             acceleration: self.acceleration,
             chrome: self.preview_chrome,
+            render_mode: self.render_mode,
+            breakpoints: Vec::new(),
         }
     }
 }

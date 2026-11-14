@@ -226,6 +226,17 @@ impl Editor {
         self.video_textures = Default::default();
         self.timeline_thumbnails = Default::default();
         self.authored_preview = None;
+        let doc_mode = self.project.html_render_mode();
+        self.workspace.publish.render_mode = doc_mode;
+        if doc_mode == neoflash_core::HtmlRenderMode::Dom
+            && self.workspace.publish.profile == crate::workspace::PublishProfilePreset::Default
+        {
+            self.workspace.publish.profile = crate::workspace::PublishProfilePreset::WebAppDom;
+        } else if doc_mode == neoflash_core::HtmlRenderMode::Canvas
+            && self.workspace.publish.profile == crate::workspace::PublishProfilePreset::WebAppDom
+        {
+            self.workspace.publish.profile = crate::workspace::PublishProfilePreset::Default;
+        }
         self.sync_runtime_breakpoints_from_session();
         self.load_project_fonts(ctx);
         self.normalize_selection();
@@ -309,7 +320,17 @@ impl Editor {
             .and_then(|raw| Project::from_json(&raw).map_err(|e| e.to_string()))
         {
             Ok(project) => {
+                let doc_render_mode = project.html_render_mode();
                 self.open_new_session_tab(ctx, project, Some(path.clone()));
+                if doc_render_mode == neoflash_core::HtmlRenderMode::Dom {
+                    self.workspace.publish.render_mode = neoflash_core::HtmlRenderMode::Dom;
+                    if self.workspace.publish.profile
+                        == crate::workspace::PublishProfilePreset::Default
+                    {
+                        self.workspace.publish.profile =
+                            crate::workspace::PublishProfilePreset::WebAppDom;
+                    }
+                }
                 self.workspace.general.push_recent(&path);
                 true
             }
