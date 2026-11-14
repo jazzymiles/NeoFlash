@@ -55,7 +55,7 @@ from `neoflash-ui`, which `build.rs` generates from the exported files. Exact ga
    Major frame labels are centred on their ticks; frame 1 uses the edge-safe rule and seconds labels remain separate.
 7. **Single-line text has no extra leading.** Labels inside controls use `rich` / `format_line` so glyphs centre
    exactly in 28/32/40 pt rows; the style line height is only for paragraphs.
-8. **Accessibility.** Text contrast ≥ 4.5:1 (see findings), 2 pt focus ring on keyboard focus only
+8. **Accessibility.** Text contrast follows the contrast contract below (primary and secondary text ≥ 4.5:1), 2 pt focus ring on keyboard focus only
    (`theme::keyboard_focus` + `theme::focus_ring`), every icon-only control has an accessible name and an NF2 tooltip
    with its shortcut (`components::tooltip`; `components::unavailable` for disabled controls).
 9. **No v1.** `NF1` components in Figma are the legacy reconstruction; never implement them.
@@ -103,7 +103,7 @@ crates/neoflash-editor
 | --- | --- |
 | `button.rs` | Button (Primary / Secondary / Ghost / Danger), Icon Button (Ghost / Selected / Primary, SM / MD), Tool Button (`ToolButton::corner_hit` = flyout corner hit area) |
 | `field.rs` | Field (prefix, unit, scrub, ↑/↓, ⇧×10, `stepper()` = Stepper Field, `presets()` = Combo Field), Text Field, Search, Select, Color Field, Line Style Select |
-| `inspector.rs` | DragField (inspector number field with drag-to-scrub and type-to-edit), Type Header |
+| `inspector.rs` | DragField (inspector number field with drag-to-scrub and type-to-edit), Type Header (48 pt) and Compact Type Header (36 pt row and tile, 20 pt tool icon; Brush and Pencil properties) |
 | `toggle.rs` | Checkbox, Switch, Radio, Slider (`SliderValue::{None, Field, Inline}`) |
 | `segmented.rs` | Segmented Control / Segment |
 | `headers.rs` | Dock Tab, Panel Tab, Script Tab, Section Header, Panel Header, Floating Panel Header, Dialog Header, Document Tab |
@@ -112,7 +112,7 @@ crates/neoflash-editor
 | `breadcrumb.rs` | Breadcrumb Item / Separator / Overflow |
 | `color.rs` | Color Well, Fill Stroke Chip, Swatch Cell, Registration Picker, Icon Group |
 | `icon_group_items.rs` | Icon Group with per-item disabled state and shortcut tooltips |
-| `display.rs` | Badge, Kbd, Tooltip, Swatch, Divider, Logo, Spinner, Progress, Toast, Empty State, Inline Message |
+| `display.rs` | Badge, Kbd, Tooltip (`set_tooltip_shortcuts` hides every shortcut chip for Preferences ▸ Show tooltips with shortcuts), Swatch, Divider, Logo, Spinner, Progress, Toast, Empty State, Inline Message |
 | `unavailable.rs` | "Not available yet" tooltip for disabled controls |
 | `surface.rs` | Surfaces (App, Panel, Floating, Popover, Dialog, Canvas), scrim, dialog footer, status bar, Zoom Control, Dock Zone, Dock Compass, Drop Indicator, Splitter, Drag Ghost |
 | `docking.rs` | dock target and drag ghost helpers |
@@ -127,7 +127,7 @@ crates/neoflash-editor
 | `swatches.rs` | Swatches Popover, gradient swatches |
 | `view_settings.rs` | View Settings (rulers, guides & grid) |
 | `color_picker.rs` | Color Picker (saturation/brightness area, hue and alpha strips; standard HSB conversion) |
-| `gradient.rs` | Gradient Bar, Gradient Stop |
+| `gradient.rs` | Gradient Bar, Gradient Stop, Gradient Overflow Preview (Extend / Reflect / Repeat; `paint_gradient_overflow_preview`) |
 | `envelope.rs` | Sound envelope lanes and anchor points (Edit envelope) |
 | `canvas.rs` | Stage Ruler, Ruler Corner, Guide, Stage Grid, Selection Box, Transform Box, Anchor Point, Bezier Handle, Marquee, Shape Selection (two-tone hatch), Gradient Transform, Snap Ring, Motion Path, Motion Path Handle, Shape Hint |
 
@@ -238,22 +238,29 @@ the black/white-pair rule):
 | --- | --- |
 | 3D gizmo axes X `#E64444`, Y `#38C462`, Z `#428AF5`, vanishing point `#F5B234` | `panels/properties_movie_clip.rs` |
 | Puppet / bone pins `#F5B234` with a black ring | `panels/properties_tool.rs` |
-| Gradient overflow preview greys and a red dashed boundary (red is reserved for errors) | `authoring_modify.rs` (`paint_overflow_preview`) |
-| Stage text-preview error in `DARK_RED` monospace 12 | `stage_primitives.rs` |
+| Gradient overflow preview greys and a red dashed boundary (red is reserved for errors) | `authoring_modify.rs` (`paint_overflow_preview`); replaced by `paint_gradient_overflow_preview` (R-081) |
+| Stage text-preview error in `DARK_RED` monospace 12 | `stage_primitives.rs`; replaced by the error plate of R-085 |
 
-### Design findings to resolve in Figma
+### Contrast contract and open design findings
 
-| Finding | Detail |
+Text contrast, measured from `tokens.json` (14 November 2026, after the Light and Dark Graphite corrections):
+
+| Text colour | Dark, Light, Dark Graphite | Mid Neutral Gray |
+| --- | --- | --- |
+| `text/primary`, `text/secondary` | ≥ 4.5:1 on app, panel, raised, field, hover and selected | `text/primary` ≥ 4.5:1 everywhere; `text/secondary` 4.04–4.16 on hover / raised |
+| `text/tertiary`, `accent/default`, `danger/default`, `warning/default`, `success/default` | ≥ 4.5:1 on app, panel, raised and field; ≥ 3:1 on hover and selected | not guaranteed (`success/default` 1.9–3.1, tertiary 3.0–4.9) |
+
+These colours never carry meaning alone: an error, warning or success state always has an icon and text.
+
+| Finding | State |
 | --- | --- |
-| Light `warning/default` (`#b26a00`) on `bg/raised` is 4.24:1 | Below the 4.5:1 text rule. Warnings are never colour-only (icon + text); the editor accepts ≥ 4.2 until the token is darkened. |
-| Text contrast outside Dark (measured 2026-11-14 from `tokens.json`) | **Light:** warning 3.55–4.24, success 3.66–4.37, accent 3.86–4.31 and danger 4.03–4.49 on app / panel / hover / selected; tertiary 4.16–4.36 on app / hover / selected. **Dark Graphite:** tertiary 2.96–4.36 on panel / raised / field / hover / selected; secondary 3.75 / 4.12 on selected / hover; accent and success below 4.5 on raised / hover / selected. **Mid Neutral Gray:** secondary 4.04 / 4.16 on hover / raised; tertiary 3.02–4.48; success 1.90–3.09 everywhere. **Dark:** tertiary 4.42 on selected. |
-| Mid Neutral Gray has no red / amber semantics | `danger/default #FFF5F4`, `warning/default #FFF5E0` and `timeline/label #FFF5F4` are near-white and cannot be told apart from `text/primary #F4F4F4`; rule 5 (red means error) does not hold in this theme. The owner kept the palette unchanged for Beta 1; errors and warnings must therefore always carry an icon and text. |
-| Control boundaries | `border/default` against `bg/field` / `bg/panel` is 1.39–2.02:1 in all four themes (WCAG 1.4.11 asks 3:1 for boundaries needed to identify a control). |
-| Idle scrollbar thumb (`text/disabled` on `bg/hover`) ≈ 2:1 | The NF2 Technical shelf shows a quiet 4 pt floating thumb; hover and drag reach ≥ 3:1. |
-| Library is 100 pt tall in `editor-main` | Shows only the header and search; users drag the splitter for the list. Stacked groups never shrink below their header + first row. Since the item-count row and the footer were added, the default Inspector-priority layout leaves only a clipped sliver of the tree; the minimum needs a new value. |
+| Mid Neutral Gray has no red / amber semantics | `danger/default #FFF5F4`, `warning/default #FFF5E0` and `timeline/label #FFF5F4` are near-white and cannot be told apart from `text/primary #F4F4F4`. The owner kept the palette for Beta 1; it is a known limit of this theme. |
+| Control boundaries | `border/default` against `bg/field` / `bg/panel` is 1.39–2.02:1 in all four themes (WCAG 1.4.11 asks 3:1). Accepted: a field is identified by its fill, label and border together, and keyboard focus adds the 2 pt ring. |
+| Idle scrollbar thumb (`text/disabled` on `bg/hover`) ≈ 2:1 | Accepted: a quiet 4 pt floating thumb; hover and drag reach ≥ 3:1. |
+| Stacked side dock | Decided in R-077: the second group keeps a useful minimum (Library 245 / 213 / 185 pt by density) or collapses to its header. Implementation pending. |
+| Minimum window 1024 × 720 | Decided in R-078 (Stage row ≥ 360 pt, pinned Tools block with "…" overflow, workspace select 132–180 pt). Implementation and the reference board pending. |
+| `editor-main` export predates v2.25 details | Decided in R-087: the boards are redrawn to the product (label "Classic", Scene selector, three dock tabs, two-column Tools, Mode / Solo); Properties ▸ Publish settings… is added to the product. |
 | §3.2 says "field rows gap 8", outlines use 12 in the inspector | The editor follows the outlines (inspector 12, Library 8). |
-| Minimum window 1024 × 720 has no board | The bottom dock keeps its height, so the Stage gets ≈ 370 pt; the Tools palette clips without the "…" overflow; the workspace select leaves the top bar. |
-| `editor-main` export predates v2.25 details | It shows the one-column rail, no Mode / Solo columns, a breadcrumb instead of the Scene selector, an Accessibility dock tab and Properties ▸ Publish settings…; the editor differs on each point. |
 
 ## Provisional surfaces after v2.25
 
@@ -262,14 +269,14 @@ reference; changes to them still need a design-track answer.
 
 | Surface | Code | What is provisional |
 | --- | --- | --- |
-| Publish settings extensions | `panels/publish_settings.rs` | Profile Duplicate / Import JSON / Export JSON row, Runtime segmented control (Full / Balanced / Compact / Shared runtime) instead of the designed WASM select, Fullscreen, Align and Sequences rows, Network startup simulator; R-071 / R-072 open. |
+| Publish settings extensions | `panels/publish_settings.rs` | Profile Duplicate / Import JSON / Export JSON row, Runtime segmented control (Full / Balanced / Compact / Shared runtime) instead of the designed WASM select, Fullscreen, Align and Sequences rows, Network startup simulator. R-071 resolved (profile in File ▸ Export); R-072 answered (label adds Linux). |
 | Preferences ▸ Updates | `panels/preferences.rs` | Still shows the design board's sample data (version, extensions); it is being replaced by a real GitHub Releases check and verified download (owner decision 2026-11-14). |
 | Video montage | `panels/properties_video.rs`, `timeline_preview.rs`, Video edit workspace | 44 pt preview rows with thumbnails, Razor tool, linked audio/video spans, trim / cue points / Split at playhead / Extract audio. |
 | Properties ▸ Appearance | `panels/appearance.rs` | Multi-paint stack, path modifiers, vector effects, Graphic Styles. |
-| Stage gizmos | `panels/properties_movie_clip.rs`, `panels/properties_tool.rs` | 3D, puppet / bone and deform handles with hard-coded colours (R-070 open). |
+| Stage gizmos | `panels/properties_movie_clip.rs`, `panels/properties_tool.rs` | 3D, puppet / bone and deform handles with hard-coded colours (activation ratified in R-070; masters in R-067b). |
 | Motion editor tools | `panels/motion_editor.rs` | Wiggler and Motion Sketch row. |
 | Live Debugger and Quick-Fixes | `panels/debugger.rs`, `debugger*.rs` | Live states beyond the static `panel-debugger` board. |
-| Productivity dialogs | `panels/productivity_tools.rs` | Batch rename / linkage / bitmap compression, Auto Instance Namer, Randomize selection (R-068). |
+| Productivity dialogs | `panels/productivity_tools.rs` | Batch rename / linkage / bitmap compression, Auto Instance Namer, Randomize selection (accepted as built for Beta 1 in R-068; boards pending). |
 | Project and Selection colours | `panels/swatches.rs`, `panels/properties.rs` | Usage badges, select-by-colour and project-wide replace rows. |
 | UI Layout Studio | `panels/ui_studio/` (Window ▸ UI Layout Studio…) | Developer tool composition and history contract (R-069). |
 

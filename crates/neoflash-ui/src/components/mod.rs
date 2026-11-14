@@ -84,18 +84,21 @@ pub use color::{
 pub use color_picker::ColorPicker;
 pub use display::{
     Badge, BadgeType, EmptyState, InlineMessage, InlineMessageType, Toast, ToastType, divider, kbd,
-    logo, progress, spinner, swatch, tooltip,
+    logo, progress, set_tooltip_shortcuts, spinner, swatch, tooltip, tooltip_shortcuts,
 };
 pub use docking::{dock_target, drag_ghost_at};
 pub use ease::{EaseGraph, EasePreset, EasePresetKind, EaseRange, ease_preview_track};
 pub use envelope::{AnchorPoint, EnvelopeLane};
 pub use field::{ColorField, Field, LineStyle, LineStyleSelect, Search, Select, TextField};
-pub use gradient::{GradientBar, GradientStop};
+pub use gradient::{
+    GRADIENT_OVERFLOW_PREVIEW, GradientBar, GradientOverflowMode, GradientStop,
+    paint_gradient_overflow_preview,
+};
 pub use headers::{
     DialogHeader, DockTab, DocumentTab, DocumentTabResponse, FloatingPanelHeader, PanelHeader,
     PanelTab, ScriptTab, SectionHeader,
 };
-pub use inspector::{DragField, TypeHeader};
+pub use inspector::{CompactTypeHeader, DragField, TypeHeader};
 pub use menu::{
     MenuBarItem, MenuItem, context_menu, menu_bar, menu_section, menu_separator, popover_frame,
     popup_below, submenu,

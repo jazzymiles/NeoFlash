@@ -62,7 +62,7 @@ NeoFlash keeps the mental model Flash animators already have, and modernises the
 | Group by task | Transport, onion skin, zoom, layer actions are grouped controls, not scattered rows. |
 | Surfaces, not borders | Depth comes from background levels (`bg/app → panel → raised → field`); borders are separators only. |
 | Systematic | Own variables (colour, spacing, radius), text styles and components; four themes on one collection. |
-| Accessible | Text contrast ≥ 4.5:1, focus ring 2 px, hit areas ≥ 32 px, every tool tooltip shows its shortcut. |
+| Accessible | Primary and secondary text ≥ 4.5:1 on every surface; tertiary and semantic text ≥ 4.5:1 on base surfaces and ≥ 3:1 on hover / selected (Mid Neutral Gray: primary text only). Focus ring 2 px, hit areas ≥ 32 px (28 Compact, 24 Classic Flash), every tool tooltip shows its shortcut. |
 | Isolated from v1 | No v2 variable, style or component references v1. |
 | Flash-literate | Layer kinds, frame states, keyframe glyphs, symbol types, menus and shortcuts follow Flash semantics so that a Flash user is instantly at home. |
 
@@ -426,8 +426,8 @@ table in §3.1 includes Mid Neutral Gray and Dark Graphite values for the same s
 | Comment | `#6e7891` | `#8a93a6` | grey |
 | XML tag | `#7dc4e4` | `#0b6e99` | blue (never red) |
 | Attribute | `#eed49f` | `#8a6500` | sand |
-| Error | `#ff6b6b` | `#d92d2d` | **the only red** |
-| Warning | `#f5b94a` | `#b26a00` | amber |
+| Error | `#ff6b6b` | `#d32626` | **the only red** |
+| Warning | `#f5b94a` | `#9e5e00` | amber |
 | Breakpoint | `#ff9a5c` | `#e8731f` | orange |
 | Selection | `#2a3a63` | `#d5e2ff` | |
 | Current line | `#171c27` | `#f2f5fb` | |

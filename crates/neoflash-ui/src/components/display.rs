@@ -76,10 +76,29 @@ pub fn kbd(ui: &mut Ui, key: &str, inverse: bool) -> Response {
     response
 }
 
+fn tooltip_shortcuts_id() -> egui::Id {
+    egui::Id::new("nf2-tooltip-shortcuts-hidden")
+}
+
+/// Preferences ▸ General ▸ "Show tooltips with shortcuts": when `show` is false every `NF2/Tooltip`,
+/// including the ones inside `neoflash-ui` components, omits its shortcut chip. Default: shown.
+pub fn set_tooltip_shortcuts(ctx: &egui::Context, show: bool) {
+    ctx.data_mut(|data| data.insert_temp(tooltip_shortcuts_id(), !show));
+}
+
+/// Whether tooltips currently show their shortcut chip (see [`set_tooltip_shortcuts`]).
+pub fn tooltip_shortcuts(ctx: &egui::Context) -> bool {
+    !ctx.data(|data| {
+        data.get_temp::<bool>(tooltip_shortcuts_id())
+            .unwrap_or(false)
+    })
+}
+
 /// `NF2/Tooltip` — `tooltip/bg` + `text/inverse`, label and optional shortcut chip.
 /// Use instead of `on_hover_text` for every icon-only control.
 pub fn tooltip(response: Response, label: &str, shortcut: Option<&str>) -> Response {
     let ctx = response.ctx.clone();
+    let shortcut = shortcut.filter(|_| tooltip_shortcuts(&ctx));
     if !response.hovered() || label.is_empty() || ctx.input(|i| i.pointer.any_down()) {
         return response;
     }

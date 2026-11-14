@@ -39,8 +39,12 @@ to HTML5 / Rust + WebAssembly, video, images, audio). The design is made in Figm
    Virtualise rows and frames.
 6. **Flash semantics are part of the spec:** layer kinds (normal, folder, guide, motion guide, mask, masked, sound,
    video, armature), keyframe glyphs (● ○ ▯ ◆ a), tween colours, symbol types, shortcuts (F5 / F6 / F7, F8, F9, ⌘↵).
-7. Accessibility: text contrast ≥ 4.5:1 (tokens already satisfy it), 2 px focus ring on keyboard focus only,
-   hit areas ≥ 32 px, every icon-only control has a tooltip with its shortcut.
+7. Accessibility: `text/primary` and `text/secondary` are ≥ 4.5:1 on every surface; `text/tertiary` and the accent,
+   danger, warning and success text colours are ≥ 4.5:1 on app, panel, raised and field and ≥ 3:1 on hover and
+   selected, and never carry meaning alone (icon + text). Mid Neutral Gray is a deliberately low-contrast palette:
+   it guarantees 4.5:1 only for `text/primary` and has no red / amber semantics, so errors and warnings there always
+   show icon + text. 2 px focus ring on keyboard focus only, hit areas ≥ 32 px (28 Compact, 24 Classic Flash), every
+   icon-only control has a tooltip with its shortcut.
 8. v1 (`NF1`) is the legacy UI kept for comparison. Do not implement or reuse it.
 9. **v2.25 preserves features.** Tools has one standard title and no redundant body captions; Properties and Color
    are contextual and have no Selection / Tool or Selection / Drawing mode switches. Never remove an implemented
@@ -50,7 +54,7 @@ to HTML5 / Rust + WebAssembly, video, images, audio). The design is made in Figm
 
 - Window regions (1920 × 1080): top bar 48 · tools rail 56 · inspector 320 · bottom dock 420 (tabs 40, controls 44,
   timeline body 336) · status bar 24.
-- Control heights: 32 fields / buttons / icon buttons, 28 rows / menu items / layer rows, 36 panel header and tabs,
+- Control heights: 32 fields / buttons / icon buttons, 28 rows / menu items / layer rows, 40 panel header, 36 panel tabs,
   40 dock tabs and the main play button, 24 status bar.
 - Spacing scale 4 / 8 / 12 / 16 / 24 / 32; radii 4 / 6 / 8 / 12 / full.
 - Fonts: Inter (UI), Roboto Mono (code, timecode, numbers).

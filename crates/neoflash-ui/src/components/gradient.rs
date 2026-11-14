@@ -1,5 +1,6 @@
 //! `NF2/Gradient Stop` (12 × 16, Selected) and `NF2/Gradient Bar` (232 × 40): gradient preview with colour
 //! stops. Drag a stop to move it, click the bar to add one, drag a stop off (down) to remove it.
+//! `NF2/Gradient Overflow Preview` (140 × 40): what a gradient does outside its range.
 //!
 //! Stop colours are document colour data; the chrome uses palette tokens only.
 use super::{State, a11y};
@@ -204,4 +205,68 @@ impl Widget for GradientBar<'_> {
         a11y(&response, egui::WidgetType::Other, "Gradient", None);
         response
     }
+}
+
+/// Variant of `NF2/Gradient Overflow Preview`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GradientOverflowMode {
+    /// The end colours continue: one ramp across the preview.
+    Extend,
+    /// The ramp mirrors at each end: forward, back, forward.
+    Reflect,
+    /// The ramp starts again at each end: four forward ramps.
+    Repeat,
+}
+
+/// Master size of `NF2/Gradient Overflow Preview`.
+pub const GRADIENT_OVERFLOW_PREVIEW: egui::Vec2 = egui::vec2(140.0, 40.0);
+/// Sample ramp of the preview. Like swatch colours it is sample artwork, not a UI token, and is the
+/// same in every theme.
+const OVERFLOW_FROM: Color32 = Color32::from_rgb(0x2E, 0x7A, 0xD1);
+const OVERFLOW_TO: Color32 = Color32::from_rgb(0xF5, 0x94, 0x2E);
+
+/// `NF2/Gradient Overflow Preview` — the sample ramp laid out for `mode`, radius `sm`, 1 pt
+/// `border/default`. Paints into any `rect` (Select rows use a smaller one than the 140 × 40 master).
+pub fn paint_gradient_overflow_preview(
+    painter: &egui::Painter,
+    ctx: &egui::Context,
+    rect: Rect,
+    mode: GradientOverflowMode,
+) {
+    if rect.width() <= 2.0 || rect.height() <= 2.0 {
+        return;
+    }
+    let p = palette(ctx);
+    // (start colour, end colour) of each equal-width segment, left to right.
+    let forward = (OVERFLOW_FROM, OVERFLOW_TO);
+    let back = (OVERFLOW_TO, OVERFLOW_FROM);
+    let segments: &[(Color32, Color32)] = match mode {
+        GradientOverflowMode::Extend => &[forward],
+        GradientOverflowMode::Reflect => &[forward, back, forward],
+        GradientOverflowMode::Repeat => &[forward, forward, forward, forward],
+    };
+    let step = rect.width() / segments.len() as f32;
+    let mut mesh = egui::Mesh::default();
+    for (i, (from, to)) in segments.iter().enumerate() {
+        let (x0, x1) = (
+            rect.left() + i as f32 * step,
+            rect.left() + (i + 1) as f32 * step,
+        );
+        let base = mesh.vertices.len() as u32;
+        mesh.colored_vertex(egui::pos2(x0, rect.top()), *from);
+        mesh.colored_vertex(egui::pos2(x0, rect.bottom()), *from);
+        mesh.colored_vertex(egui::pos2(x1, rect.top()), *to);
+        mesh.colored_vertex(egui::pos2(x1, rect.bottom()), *to);
+        mesh.add_triangle(base, base + 2, base + 3);
+        mesh.add_triangle(base, base + 3, base + 1);
+    }
+    painter
+        .with_clip_rect(rect.shrink(1.0).intersect(painter.clip_rect()))
+        .add(mesh);
+    painter.rect_stroke(
+        rect,
+        cr(radius::SM),
+        Stroke::new(1.0_f32, p.border_default),
+        StrokeKind::Inside,
+    );
 }

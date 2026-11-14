@@ -229,36 +229,88 @@ pub struct TypeHeader<'a> {
 
 impl Widget for TypeHeader<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let p = palette(ui.ctx());
-        let (rect, response) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), Sense::hover());
-        let tile = Rect::from_min_size(rect.min, egui::vec2(48.0, 48.0));
-        ui.painter().rect_filled(tile, cr(radius::LG), p.bg_raised);
-        icons::paint(ui.painter(), ui.ctx(), tile, self.icon, p.text_primary);
-        let x = tile.right() + space::S3;
-        let clip = Rect::from_min_max(egui::pos2(x, rect.top()), rect.max);
-        let title = galley(ui, self.title, TextStyle::BodyStrong, p.text_primary);
-        let sub = galley(ui, self.subtitle, TextStyle::Small, p.text_secondary);
-        let total = title.size().y
-            + 2.0
-            + if self.subtitle.is_empty() {
-                0.0
-            } else {
-                sub.size().y
-            };
-        let top = rect.center().y - total / 2.0;
-        let title_h = title.size().y;
-        let painter = ui.painter().with_clip_rect(clip.intersect(ui.clip_rect()));
-        painter.galley(egui::pos2(x, top), title, p.text_primary);
-        if !self.subtitle.is_empty() {
-            painter.galley(egui::pos2(x, top + title_h + 2.0), sub, p.text_secondary);
-        }
-        let label = if self.subtitle.is_empty() {
-            self.title.to_owned()
-        } else {
-            format!("{} · {}", self.title, self.subtitle)
-        };
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &label));
-        response
+        type_header(
+            ui,
+            self.icon,
+            self.title,
+            self.subtitle,
+            48.0,
+            space::S3,
+            None,
+        )
     }
+}
+
+/// Compact type header of tool properties (Brush, Pencil): 36 px row and tile, the 20 px tool icon
+/// and a 10 px gap before the title and subtitle.
+pub struct CompactTypeHeader<'a> {
+    pub icon: Icon,
+    pub title: &'a str,
+    pub subtitle: &'a str,
+}
+
+impl Widget for CompactTypeHeader<'_> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        type_header(
+            ui,
+            self.icon,
+            self.title,
+            self.subtitle,
+            36.0,
+            10.0,
+            Some(20.0),
+        )
+    }
+}
+
+fn type_header(
+    ui: &mut Ui,
+    icon: Icon,
+    title: &str,
+    subtitle: &str,
+    side: f32,
+    gap: f32,
+    icon_side: Option<f32>,
+) -> Response {
+    let p = palette(ui.ctx());
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), side), Sense::hover());
+    let tile = Rect::from_min_size(rect.min, egui::vec2(side, side));
+    ui.painter().rect_filled(tile, cr(radius::LG), p.bg_raised);
+    match icon_side {
+        Some(icon_side) => icons::paint_sized(
+            ui.painter(),
+            ui.ctx(),
+            tile,
+            icon,
+            icon_side,
+            p.text_primary,
+        ),
+        None => icons::paint(ui.painter(), ui.ctx(), tile, icon, p.text_primary),
+    }
+    let x = tile.right() + gap;
+    let clip = Rect::from_min_max(egui::pos2(x, rect.top()), rect.max);
+    let title_galley = galley(ui, title, TextStyle::BodyStrong, p.text_primary);
+    let sub = galley(ui, subtitle, TextStyle::Small, p.text_secondary);
+    let total = title_galley.size().y
+        + 2.0
+        + if subtitle.is_empty() {
+            0.0
+        } else {
+            sub.size().y
+        };
+    let top = rect.center().y - total / 2.0;
+    let title_h = title_galley.size().y;
+    let painter = ui.painter().with_clip_rect(clip.intersect(ui.clip_rect()));
+    painter.galley(egui::pos2(x, top), title_galley, p.text_primary);
+    if !subtitle.is_empty() {
+        painter.galley(egui::pos2(x, top + title_h + 2.0), sub, p.text_secondary);
+    }
+    let label = if subtitle.is_empty() {
+        title.to_owned()
+    } else {
+        format!("{title} · {subtitle}")
+    };
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &label));
+    response
 }

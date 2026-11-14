@@ -220,3 +220,59 @@ fn keyboard_highlighted_menu_item_lays_out_like_a_row() {
     });
     assert_eq!(h, 28.0);
 }
+
+#[test]
+fn compact_type_header_is_36_and_the_default_stays_48() {
+    for t in [Theme::Dark, Theme::Light] {
+        let (regular, compact) = run(t, |ui| {
+            let regular = ui.add(c::TypeHeader {
+                icon: i20::TOOL_BRUSH,
+                title: "Brush tool",
+                subtitle: "Paints fills · B",
+            });
+            let compact = ui.add(c::CompactTypeHeader {
+                icon: i20::TOOL_BRUSH,
+                title: "Brush tool",
+                subtitle: "Paints fills · B",
+            });
+            (regular.rect.height(), compact.rect.height())
+        });
+        assert_eq!((regular, compact), (48.0, 36.0));
+    }
+}
+
+#[test]
+fn gradient_overflow_preview_lays_out_one_three_and_four_ramps() {
+    use c::GradientOverflowMode as Mode;
+    for (mode, ramps) in [(Mode::Extend, 1), (Mode::Reflect, 3), (Mode::Repeat, 4)] {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(typography::font_definitions());
+        theme::install(&ctx, Theme::Dark);
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let (rect, _) =
+                    ui.allocate_exact_size(c::GRADIENT_OVERFLOW_PREVIEW, egui::Sense::hover());
+                c::paint_gradient_overflow_preview(ui.painter(), ui.ctx(), rect, mode);
+            });
+        });
+        let vertices: usize = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Mesh(mesh) => Some(mesh.vertices.len()),
+                _ => None,
+            })
+            .sum();
+        assert_eq!(vertices, ramps * 4, "{mode:?}");
+    }
+}
+
+#[test]
+fn tooltip_shortcut_chips_follow_the_context_flag() {
+    let ctx = egui::Context::default();
+    assert!(c::tooltip_shortcuts(&ctx));
+    c::set_tooltip_shortcuts(&ctx, false);
+    assert!(!c::tooltip_shortcuts(&ctx));
+    c::set_tooltip_shortcuts(&ctx, true);
+    assert!(c::tooltip_shortcuts(&ctx));
+}

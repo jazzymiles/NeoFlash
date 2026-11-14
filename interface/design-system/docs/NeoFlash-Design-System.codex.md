@@ -50,7 +50,7 @@ NeoFlash keeps the mental model Flash animators already have, and modernises the
 | Group by task | Transport, onion skin, zoom, layer actions are grouped controls, not scattered rows. |
 | Surfaces, not borders | Depth comes from background levels (`bg/app → panel → raised → field`); borders are separators only. |
 | Systematic | Own variables (colour, spacing, radius), text styles and components; four themes on one collection. |
-| Accessible | Text contrast ≥ 4.5:1, focus ring 2 px, hit areas ≥ 32 px, every tool tooltip shows its shortcut. |
+| Accessible | Primary and secondary text ≥ 4.5:1 on every surface; tertiary and semantic text ≥ 4.5:1 on base surfaces and ≥ 3:1 on hover / selected (Mid Neutral Gray: primary text only). Focus ring 2 px, hit areas ≥ 32 px (28 Compact, 24 Classic Flash), every tool tooltip shows its shortcut. |
 | Isolated from v1 | No v2 variable, style or component references v1. |
 | Flash-literate | Layer kinds, frame states, keyframe glyphs, symbol types, menus and shortcuts follow Flash semantics so that a Flash user is instantly at home. |
 
@@ -185,8 +185,8 @@ else changes. Mid Neutral Gray starts at `color/bg/app = #505050`; Dark Graphite
 | Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
 |---|---|---|---|---|
 | `color/text/primary` | `#e7eaf2` | `#171b26` | `#f4f4f4` | `#d0d0d0` |
-| `color/text/secondary` | `#9aa3b6` | `#5b6477` | `#e8e8e8` | `#929292` |
-| `color/text/tertiary` | `#8790a4` | `#667086` | `#cacaca` | `#808080` |
+| `color/text/secondary` | `#9aa3b6` | `#5b6477` | `#e8e8e8` | `#a1a1a1` |
+| `color/text/tertiary` | `#8790a4` | `#636d82` | `#cacaca` | `#909090` |
 | `color/text/disabled` | `#566073` | `#a2a9b8` | `#a2a2a2` | `#626262` |
 | `color/text/on-accent` | `#0b1020` | `#ffffff` | `#1f1f1f` | `#171717` |
 | `color/text/inverse` | `#0d1016` | `#f6f7fa` | `#f2f2f2` | `#1f1f1f` |
@@ -195,7 +195,7 @@ else changes. Mid Neutral Gray starts at `color/bg/app = #505050`; Dark Graphite
 
 | Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
 |---|---|---|---|---|
-| `color/accent/default` | `#6c93ff` | `#3c6bf0` | `#dcecff` | `#4f91ca` |
+| `color/accent/default` | `#6c93ff` | `#2f61ef` | `#dcecff` | `#5595cc` |
 | `color/accent/hover` | `#86a5ff` | `#2f59d6` | `#c5ddf6` | `#63a6de` |
 | `color/accent/subtle` | `#1f2a48` | `#e3ebff` | `#576572` | `#223242` |
 
@@ -209,21 +209,21 @@ else changes. Mid Neutral Gray starts at `color/bg/app = #505050`; Dark Graphite
 
 | Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
 |---|---|---|---|---|
-| `color/danger/default` | `#ff6b6b` | `#d92d2d` | `#fff5f4` | `#f47b75` |
+| `color/danger/default` | `#ff6b6b` | `#d32626` | `#fff5f4` | `#f47b75` |
 | `color/danger/subtle` | `#3a1d22` | `#fde8e8` | `#755555` | `#3a1f1f` |
 
 #### Warning
 
 | Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
 |---|---|---|---|---|
-| `color/warning/default` | `#f5b94a` | `#b26a00` | `#fff5e0` | `#c0a000` |
+| `color/warning/default` | `#f5b94a` | `#9e5e00` | `#fff5e0` | `#c0a000` |
 | `color/warning/subtle` | `#38300f` | `#fef3d6` | `#766a45` | `#3a3315` |
 
 #### Success
 
 | Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
 |---|---|---|---|---|
-| `color/success/default` | `#3dd68c` | `#168a57` | `#54b370` | `#25a044` |
+| `color/success/default` | `#3dd68c` | `#147d4f` | `#54b370` | `#26a546` |
 
 #### Layer colours
 
@@ -918,8 +918,8 @@ table in §3.1 includes Mid Neutral Gray and Dark Graphite values for the same s
 | Comment | `#6e7891` | `#8a93a6` | grey |
 | XML tag | `#7dc4e4` | `#0b6e99` | blue (never red) |
 | Attribute | `#eed49f` | `#8a6500` | sand |
-| Error | `#ff6b6b` | `#d92d2d` | **the only red** |
-| Warning | `#f5b94a` | `#b26a00` | amber |
+| Error | `#ff6b6b` | `#d32626` | **the only red** |
+| Warning | `#f5b94a` | `#9e5e00` | amber |
 | Breakpoint | `#ff9a5c` | `#e8731f` | orange |
 | Selection | `#2a3a63` | `#d5e2ff` | |
 | Current line | `#171c27` | `#f2f5fb` | |
