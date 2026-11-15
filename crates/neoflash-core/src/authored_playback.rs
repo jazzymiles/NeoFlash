@@ -8,6 +8,16 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 
+fn script_is_compiled(project: &Project, language: ScriptLanguage) -> bool {
+    project
+        .script_disposition_for(
+            project.effective_script_language(),
+            project.also_compile_compatible_scripts,
+            language,
+        )
+        .is_compiled()
+}
+
 /// Typed runtime value for live authoring script preview (`T-266`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum PreviewValue {
@@ -363,7 +373,11 @@ impl AuthoredPlayback {
             {
                 return Some(prefix.to_vec());
             }
-            if !node.scripts.is_empty() {
+            if node
+                .scripts
+                .iter()
+                .any(|os| script_is_compiled(project, os.script.language))
+            {
                 return Some(prefix.to_vec());
             }
             let lifetime = self.player.lifetime_id(prefix);
@@ -371,6 +385,7 @@ impl AuthoredPlayback {
                 h.event == RegisteredEvent::Click
                     && h.target_path == prefix
                     && lifetime == Some(h.target_lifetime)
+                    && script_is_compiled(project, h.language)
             }) {
                 return Some(prefix.to_vec());
             }
@@ -512,7 +527,9 @@ impl AuthoredPlayback {
         let snapshot: Vec<RegisteredHandler> = self
             .registered_handlers
             .iter()
-            .filter(|h| h.event == RegisteredEvent::EnterFrame)
+            .filter(|h| {
+                h.event == RegisteredEvent::EnterFrame && script_is_compiled(project, h.language)
+            })
             .cloned()
             .collect();
         for handler in snapshot {
@@ -545,7 +562,11 @@ impl AuthoredPlayback {
         let snapshot: Vec<RegisteredHandler> = self
             .registered_handlers
             .iter()
-            .filter(|h| h.event == event && h.target_path == target_path)
+            .filter(|h| {
+                h.event == event
+                    && h.target_path == target_path
+                    && script_is_compiled(project, h.language)
+            })
             .cloned()
             .collect();
         let script_event = match event {
@@ -595,7 +616,8 @@ impl AuthoredPlayback {
             }
             if let Some(node) = self.player.previous.get(&path) {
                 for handler in &node.scripts {
-                    if handler.event != crate::ObjectEvent::Load
+                    if script_is_compiled(project, handler.script.language)
+                        && handler.event != crate::ObjectEvent::Load
                         && (handler.script.source.contains("onClipEvent")
                             || handler.script.source.contains("on(")
                             || handler.script.source.contains("on ("))
@@ -759,6 +781,9 @@ impl AuthoredPlayback {
     }
 
     fn execute_preview_dispatch(&mut self, project: &Project, dispatch: &ScriptDispatch) {
+        if !script_is_compiled(project, dispatch.script.language) {
+            return;
+        }
         let origin = self.describe_origin(project, dispatch);
         let local_fns = collect_local_functions(&dispatch.script.source);
         let prev_lang = self.current_language;
@@ -3480,5 +3505,151 @@ mod tests {
                 ]
             );
         }
+    }
+
+    #[test]
+    fn r102_skipped_foreign_scripts_do_not_execute_or_make_placements_interactive() {
+        let mut project = Project::blank();
+        project.format_version = project.format_version.max(6);
+        project.script_language = Some(crate::ScriptLanguage::ActionScript3);
+        project.also_compile_compatible_scripts = false;
+        let root = project.root.clone();
+
+        let clip_id: Id = "mc_foreign".into();
+        let mut mc_sym = project.symbol(&root).unwrap().clone();
+        mc_sym.id = clip_id.clone();
+        mc_sym.name = "ForeignClip".into();
+        mc_sym.kind = crate::SymbolKind::MovieClip;
+        mc_sym.timeline.frame_count = 1;
+        mc_sym.timeline.layers[0].id = "mc_layer".into();
+        project.symbols.push(mc_sym);
+
+        let foreign_elem_id: Id = "inst_foreign".into();
+        let primary_elem_id: Id = "inst_primary".into();
+        {
+            let root_sym = project.symbol_mut(&root).unwrap();
+            root_sym.timeline.frame_count = 2;
+            root_sym.timeline.scripts = vec![
+                crate::FrameScript {
+                    frame: 0,
+                    script: crate::Script {
+                        language: crate::ScriptLanguage::ActionScript3,
+                        source: r#"trace("AS3_FRAME_RAN");"#.into(),
+                    },
+                },
+                crate::FrameScript {
+                    frame: 0,
+                    script: crate::Script {
+                        language: crate::ScriptLanguage::ActionScript2,
+                        source: r#"trace("SKIPPED_AS2_FRAME");"#.into(),
+                    },
+                },
+                crate::FrameScript {
+                    frame: 0,
+                    script: crate::Script {
+                        language: crate::ScriptLanguage::JavaScript,
+                        source: r#"trace("SKIPPED_JS_FRAME");"#.into(),
+                    },
+                },
+            ];
+            root_sym.timeline.layers[0].keyframes[0].elements = vec![
+                crate::Element {
+                    id: foreign_elem_id.clone(),
+                    name: "foreignMc".into(),
+                    kind: crate::ElementKind::Instance {
+                        symbol_id: clip_id.clone(),
+                        playback: crate::InstancePlayback::Independent,
+                    },
+                    scripts: vec![
+                        crate::ObjectScript {
+                            event: ObjectEvent::Load,
+                            script: crate::Script {
+                                language: crate::ScriptLanguage::ActionScript2,
+                                source: r#"trace("SKIPPED_AS2_LOAD");"#.into(),
+                            },
+                        },
+                        crate::ObjectScript {
+                            event: ObjectEvent::EnterFrame,
+                            script: crate::Script {
+                                language: crate::ScriptLanguage::ActionScript2,
+                                source: r#"onClipEvent(load) { trace("SKIPPED_WRAPPER_LOAD"); } on(release) { trace("SKIPPED_WRAPPER_CLICK"); } trace("SKIPPED_AS2_ENTER");"#.into(),
+                            },
+                        },
+                        crate::ObjectScript {
+                            event: ObjectEvent::Click,
+                            script: crate::Script {
+                                language: crate::ScriptLanguage::JavaScript,
+                                source: r#"trace("SKIPPED_JS_CLICK");"#.into(),
+                            },
+                        },
+                    ],
+                    ..crate::Element::default()
+                },
+                crate::Element {
+                    id: primary_elem_id.clone(),
+                    name: "primaryMc".into(),
+                    kind: crate::ElementKind::Instance {
+                        symbol_id: clip_id,
+                        playback: crate::InstancePlayback::Independent,
+                    },
+                    scripts: vec![crate::ObjectScript {
+                        event: ObjectEvent::Click,
+                        script: crate::Script {
+                            language: crate::ScriptLanguage::ActionScript3,
+                            source: r#"trace("PRIMARY_AS3_CLICK");"#.into(),
+                        },
+                    }],
+                    ..crate::Element::default()
+                },
+            ];
+        }
+        project.validate().unwrap();
+
+        let mut preview = AuthoredPlayback::with_live_scripts(&project, &root, 0, true);
+        assert_eq!(preview.drain_traces(), vec!["AS3_FRAME_RAN".to_owned()]);
+        assert!(
+            !preview.is_interactive_target(&project, std::slice::from_ref(&foreign_elem_id)),
+            "placement with only SkippedForeign scripts must not be clickable"
+        );
+        assert_eq!(
+            preview.interactive_ancestor_path(&project, std::slice::from_ref(&primary_elem_id)),
+            Some(vec![primary_elem_id.clone()]),
+        );
+
+        preview.tick(&project);
+        preview.click(&project, std::slice::from_ref(&foreign_elem_id));
+        assert!(
+            preview.drain_traces().is_empty(),
+            "SkippedForeign EnterFrame/Click handlers must never execute"
+        );
+
+        preview.click(&project, std::slice::from_ref(&primary_elem_id));
+        assert_eq!(preview.drain_traces(), vec!["PRIMARY_AS3_CLICK".to_owned()]);
+
+        // Enabling `also_compile_compatible_scripts` on a JS primary project compiles TS
+        // (`CompiledCompatibleWithWarning`) while still skipping AS2 (`SkippedForeign`).
+        project.script_language = Some(crate::ScriptLanguage::JavaScript);
+        project.also_compile_compatible_scripts = true;
+        project.symbol_mut(&root).unwrap().timeline.scripts = vec![
+            crate::FrameScript {
+                frame: 0,
+                script: crate::Script {
+                    language: crate::ScriptLanguage::TypeScript,
+                    source: r#"trace("COMPAT_TS_FRAME");"#.into(),
+                },
+            },
+            crate::FrameScript {
+                frame: 0,
+                script: crate::Script {
+                    language: crate::ScriptLanguage::ActionScript2,
+                    source: r#"trace("STILL_SKIPPED_AS2");"#.into(),
+                },
+            },
+        ];
+        let mut compat_preview = AuthoredPlayback::with_live_scripts(&project, &root, 0, true);
+        assert_eq!(
+            compat_preview.drain_traces(),
+            vec!["COMPAT_TS_FRAME".to_owned()]
+        );
     }
 }

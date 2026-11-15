@@ -773,7 +773,7 @@
     }
     function netFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Resource callback: ${describeThrown(cause)}`,{cause});
-      if(typeof fail==='function')fail(failure);else {as3MediaEventsHost?.reset();fte3dHost?.reset();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();throw failure;}
+      if(typeof fail==='function')fail(failure);else {as3MediaEventsHost?.reset();fte3dHost?.reset();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();domStageHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();throw failure;}
     }
     function audioFailure(error){
       const cause=unwrapScriptThrow(error),failure=new Error(`Audio callback: ${describeThrown(cause)}`,{cause});
@@ -805,7 +805,7 @@
       display.descriptor(owner);
       const result=Object.create(null),keys=new Set([...(ref.customKeys?.()||[]),...(program?.jsonKeys?.(owner)||[])]);
       for(const name of keys){
-        const value=owner[name];
+        const as2Prop=ref.as2TimelineRef?.(name),value=as2Prop?as2Prop.get():owner[name];
         // Methods and child-display references are not MovieClip form vars.
         // Other non-data values still reach the transport's explicit validator.
         if(typeof value==='function'||(value!==null&&typeof value==='object'&&references.has(value)))continue;
@@ -1107,6 +1107,7 @@
           onError:inputFailure,
           onTextLink:(ownerKey,text)=>{const target=proxyForRef(JSON.parse(ownerKey));if(eventHub&&global.NeoFlashEvents&&display?.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},
           onAsfunction:(ownerKey,spec)=>{const tf=proxyForRef(JSON.parse(ownerKey));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},
+          onNavigateUrl:(url,target)=>{if(netHost){const req=new netHost.URLRequest(url);if(externalHost)netHost.navigateToURL(req,target||null);else{const prepared=netHost.prepareNavigation(req,target||null);if(prepared.target==='_self'||prepared.target==='_parent'||prepared.target==='_top'||/^mailto:/i.test(prepared.url))global.location?.assign?.(prepared.url);else global.open?.(prepared.url,prepared.target,'noopener,noreferrer');}}},
           onActivateObject:(target,authored)=>{if(!display?.alive(target)||!display?.alive(authored))return;if(graphMode&&typeof player.object_click==='function')player.object_click(references.get(authored).key);else{let owner=authored,node=display.descriptor(owner);while(graphMode&&node.authored_path===null){owner=display.parentSpace(owner);if(!owner||owner===stageHost?.stage)break;node=display.descriptor(owner);}const path=graphMode?node.authored_path:node.path;if(path)player.click(JSON.stringify(path));}dispatchScripts(authored);if(typeof context!=='undefined')render();},
           paintCanvasIsland:(islandCanvas,islandDraws,fullSnapshot,stageBox)=>{
             if(typeof context==='undefined'||!global.NeoFlashPaths)return null;
@@ -2239,15 +2240,22 @@
         if(Object.hasOwn(custom,name))return delete custom[name];
         return Reflect.deleteProperty(target,name);
       }
+      const as3OnlyDisplayTraits=new Set(['upState','overState','downState','hitTestState','soundTransform']);
+      function ownsAs2OrdinaryTrait(name){
+        if(ownsTimelineMetadata(name))return true;
+        if(!as3OnlyDisplayTraits.has(name))return false;
+        assertAlive();
+        return !objectRef||['movie_clip','sprite','button'].includes(proxyOwner());
+      }
       // These names are native AS3 traits but remain ordinary AS2 properties.
       // The per-access AS2 reference preserves mixed-dialect instance identity.
       function as2TimelineRef(name){
-        if(!ownsTimelineMetadata(name))return null;
+        if(!ownsAs2OrdinaryTrait(name))return null;
         return {
           get(){assertAlive();return dynamicGet(name);},
           has(){assertAlive();return dynamicHas(name);},
           set(value){assertAlive();if(!dynamicSet(name,value))throw new TypeError(`Cannot write AS2 property ${name}.`);return value;},
-          delete(){assertAlive();return dynamicDelete(name);},
+          delete(){assertAlive();if(!Object.hasOwn(custom,name)&&!Object.hasOwn(target,name))return false;return dynamicDelete(name);},
         };
       }
       const methods = {
@@ -2920,7 +2928,7 @@
       });
     }
     global.addEventListener('pagehide', event => { storageHost?.flushAll();if(!event.persisted){gradients.clear();clippings.clear();disposeFamily();} });
-    stopAsyncOnFailure=()=>{as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();gradients.clear();clippings.clear();filterHost?.renderer.clear();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
+    stopAsyncOnFailure=()=>{as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();gradients.clear();clippings.clear();filterHost?.renderer.clear();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();domStageHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
     await ensureBundleFontsLoaded(typeof document==='undefined'?null:document,bundle?.fonts?.css_rules||'');
     initializeFamily();
     canvas.tabIndex=-1;

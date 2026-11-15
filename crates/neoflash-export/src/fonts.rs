@@ -2252,7 +2252,7 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
             bundle.metrics.insert(family.clone(), val);
         }
 
-        let css_family = family.replace('\\', "\\\\").replace('"', "\\\"");
+        let css_family = escape_css_font_family(&family);
         let style_lower = style.to_ascii_lowercase();
         let css_weight = if style_lower.contains("semi bold") || style_lower.contains("semibold") {
             600
@@ -2266,14 +2266,17 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
         } else {
             "normal"
         };
-        let mime = neoflash_core::sniff_font_media_type(
-            &active_bytes,
-            if res.media_type.trim().is_empty() {
-                "font/ttf"
-            } else {
-                res.media_type.trim()
-            },
-        );
+        let raw_fallback_mime = res.media_type.trim();
+        let fallback_mime = if !raw_fallback_mime.is_empty()
+            && raw_fallback_mime
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'+' | b'.' | b'-'))
+        {
+            raw_fallback_mime
+        } else {
+            "font/ttf"
+        };
+        let mime = neoflash_core::sniff_font_media_type(&active_bytes, fallback_mime);
         bundle.css_rules.push_str(&format!(
             "@font-face {{ font-family: \"{}\"; font-style: {}; font-weight: {}; src: url('data:{};base64,{}'); font-display: block; }}\n",
             css_family, css_style, css_weight, mime, res.data_base64
@@ -2281,6 +2284,23 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
     }
 
     bundle
+}
+
+fn escape_css_font_family(family: &str) -> String {
+    let mut out = String::with_capacity(family.len());
+    for ch in family.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '<' => out.push_str("\\3c "),
+            '>' => out.push_str("\\3e "),
+            '\r' => out.push_str("\\d "),
+            '\n' => out.push_str("\\a "),
+            '\u{000C}' => out.push_str("\\c "),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -2963,6 +2983,38 @@ mod tests {
                 .diagnostic
                 .as_deref()
                 .is_some_and(|d| d.contains("Dynamic/Input"))
+        );
+    }
+
+    #[test]
+    fn css_font_family_escapes_style_closing_angle_brackets_and_quotes() {
+        assert_eq!(
+            escape_css_font_family("Evil</style><script>alert(1)</script>\"\\"),
+            "Evil\\3c /style\\3e \\3c script\\3e alert(1)\\3c /script\\3e \\\"\\\\"
+        );
+
+        let mut project = Project::blank();
+        project.resources.push(
+            ResourceUnit::from_bytes(
+                "evil-font",
+                "fonts/Evil-<style>-alert(1)-\".ttf",
+                "font/ttf",
+                b"not-an-sfnt-so-filename-stem-is-used",
+            )
+            .expect("font resource"),
+        );
+        let bundle = apply_font_policy(&mut project, FontExportPolicy::Embed);
+        assert!(
+            !bundle.css_rules.contains('<') && !bundle.css_rules.contains('>'),
+            "css_rules must never contain raw angle brackets: {}",
+            bundle.css_rules
+        );
+        assert!(
+            bundle
+                .css_rules
+                .contains("Evil-\\3c style\\3e -alert(1)-\\\""),
+            "css_rules should contain CSS-escaped angle brackets and quote: {}",
+            bundle.css_rules
         );
     }
 }

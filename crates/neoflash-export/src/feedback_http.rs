@@ -7,7 +7,11 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json::Value;
-use std::{fmt, time::Duration};
+use std::{
+    fmt,
+    net::{IpAddr, ToSocketAddrs},
+    time::Duration,
+};
 
 /// Default FormSubmit AJAX endpoint delivering directly to `developer@redinger.cc`.
 pub const DEFAULT_BETA_FEEDBACK_URL: &str = "https://formsubmit.co/ajax/developer@redinger.cc";
@@ -29,6 +33,9 @@ pub const MAX_FEEDBACK_ATTACHMENTS: usize = 5;
 
 /// Maximum size of a single attached image in bytes (`10 MB`, `R-103` item 4).
 pub const MAX_FEEDBACK_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024;
+
+/// Maximum size of the feedback `message` text in UTF-8 bytes (`64 KiB`).
+pub const MAX_FEEDBACK_MESSAGE_BYTES: usize = 64 * 1024;
 
 const RESPONSE_SNIPPET_BYTES: usize = 16 * 1024;
 
@@ -183,19 +190,45 @@ fn escape_multipart_filename(raw: &str) -> String {
 }
 
 fn is_loopback_host(host: &str) -> bool {
-    let lower = host.to_ascii_lowercase();
-    lower == "localhost" || lower == "127.0.0.1" || lower == "::1" || lower == "[::1]"
+    let trimmed = host
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(host);
+    trimmed.eq_ignore_ascii_case("localhost")
+        || trimmed.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// Pure helper verifying both the host name and every resolved socket IP address are loopback.
+pub fn validate_feedback_loopback_ips(
+    host: &str,
+    resolved_ips: &[IpAddr],
+) -> Result<(), BetaFeedbackHttpError> {
+    if !is_loopback_host(host) || resolved_ips.is_empty() {
+        return Err(BetaFeedbackHttpError::InvalidUrl(
+            "plain http:// is only allowed for loopback hosts (127.0.0.1, localhost, [::1]); use https:// for remote endpoints".into(),
+        ));
+    }
+    if resolved_ips.iter().any(|ip| !ip.is_loopback()) {
+        return Err(BetaFeedbackHttpError::InvalidUrl(
+            "plain http:// feedback endpoint resolved to a non-loopback address".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Validate a feedback endpoint URL.
 ///
 /// Remote hosts MUST use `https://`. Plain `http://` is permitted strictly on loopback
-/// (`127.0.0.1`, `localhost`, `[::1]`) for local development and deterministic loopback tests.
+/// (`127.0.0.1`, `localhost`, `[::1]`) when every resolved socket IP address is loopback.
 pub fn validate_feedback_url(raw: &str) -> Result<(url::Url, bool), BetaFeedbackHttpError> {
     let trimmed = raw.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty()
+        || trimmed.chars().any(char::is_control)
+        || trimmed.chars().any(char::is_whitespace)
+        || trimmed.contains('\\')
+    {
         return Err(BetaFeedbackHttpError::InvalidUrl(
-            "endpoint URL is empty".into(),
+            "endpoint URL is empty or contains whitespace, control, or backslash characters".into(),
         ));
     }
     let parsed =
@@ -205,7 +238,7 @@ pub fn validate_feedback_url(raw: &str) -> Result<(url::Url, bool), BetaFeedback
             "URL must not contain credentials".into(),
         ));
     }
-    let Some(host) = parsed.host_str() else {
+    let Some(host) = parsed.host_str().filter(|h| !h.is_empty()) else {
         return Err(BetaFeedbackHttpError::InvalidUrl(
             "URL is missing a host".into(),
         ));
@@ -213,7 +246,28 @@ pub fn validate_feedback_url(raw: &str) -> Result<(url::Url, bool), BetaFeedback
     let loopback = is_loopback_host(host);
     match parsed.scheme() {
         "https" => Ok((parsed, loopback)),
-        "http" if loopback => Ok((parsed, true)),
+        "http" if loopback => {
+            let unbracketed_host = match parsed.host() {
+                Some(url::Host::Ipv6(addr)) => addr.to_string(),
+                _ => host.to_owned(),
+            };
+            let effective_port = parsed.port_or_known_default().unwrap_or(80);
+            if let Ok(ip) = unbracketed_host.parse::<IpAddr>() {
+                validate_feedback_loopback_ips(&unbracketed_host, &[ip])?;
+            } else {
+                let addrs: Vec<IpAddr> = (unbracketed_host.as_str(), effective_port)
+                    .to_socket_addrs()
+                    .map_err(|e| {
+                        BetaFeedbackHttpError::InvalidUrl(format!(
+                            "could not resolve loopback host '{unbracketed_host}:{effective_port}': {e}"
+                        ))
+                    })?
+                    .map(|sa| sa.ip())
+                    .collect();
+                validate_feedback_loopback_ips(&unbracketed_host, &addrs)?;
+            }
+            Ok((parsed, true))
+        }
         "http" => Err(BetaFeedbackHttpError::InvalidUrl(format!(
             "remote feedback endpoint '{host}' must use https://"
         ))),
@@ -277,6 +331,12 @@ pub fn build_feedback_multipart_body(
         return Err(BetaFeedbackHttpError::Validation(
             "Feedback text cannot be empty.".into(),
         ));
+    }
+    if message.len() > MAX_FEEDBACK_MESSAGE_BYTES {
+        return Err(BetaFeedbackHttpError::Validation(format!(
+            "Feedback text exceeds the 64 KB limit ({}).",
+            format_attachment_size(message.len())
+        )));
     }
     if attachments.len() > MAX_FEEDBACK_ATTACHMENTS {
         return Err(BetaFeedbackHttpError::Validation(
@@ -735,5 +795,42 @@ mod tests {
                 .to_string()
                 .contains("Upstream mail relay unavailable")
         );
+    }
+
+    #[test]
+    fn message_size_cap_and_loopback_dns_ip_checks_are_enforced() {
+        // Exact 64 KiB message is accepted.
+        let exact_max = "x".repeat(MAX_FEEDBACK_MESSAGE_BYTES);
+        assert!(build_feedback_multipart_body(&exact_max, &[]).is_ok());
+
+        // 64 KiB + 1 byte is rejected before multipart assembly.
+        let over_max = "x".repeat(MAX_FEEDBACK_MESSAGE_BYTES + 1);
+        let err = build_feedback_multipart_body(&over_max, &[])
+            .expect_err("message exceeding 64 KiB must fail validation");
+        assert!(matches!(err, BetaFeedbackHttpError::Validation(_)));
+        assert!(err.to_string().contains("64 KB"));
+
+        // Loopback DNS verification rejects empty or non-loopback resolved IPs.
+        assert!(validate_feedback_loopback_ips("localhost", &[]).is_err());
+        assert!(
+            validate_feedback_loopback_ips(
+                "localhost",
+                &[
+                    "127.0.0.1".parse().unwrap(),
+                    "192.168.1.44".parse().unwrap()
+                ],
+            )
+            .is_err()
+        );
+        assert!(
+            validate_feedback_loopback_ips(
+                "localhost",
+                &["127.0.0.1".parse().unwrap(), "::1".parse().unwrap()],
+            )
+            .is_ok()
+        );
+        // Verified `http://localhost` resolves via `to_socket_addrs()` on loopback.
+        let (_, is_loop) = validate_feedback_url("http://localhost:8123/feedback").unwrap();
+        assert!(is_loop);
     }
 }

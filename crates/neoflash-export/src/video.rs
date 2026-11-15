@@ -384,20 +384,25 @@ fn detect_bundled_media_tool(tool_stem: &str) -> Option<PathBuf> {
     };
 
     let mut search_dirs: Vec<PathBuf> = Vec::new();
-    if let Ok(exe_path) = env::current_exe()
-        && let Some(exe_dir) = exe_path.parent()
-    {
-        // 1. macOS .app bundle (`Contents/MacOS/<exe>` -> `Contents/Resources/media/bin` or `Contents/Helpers/media/bin`)
-        search_dirs.push(exe_dir.join("../Resources/media/bin"));
-        search_dirs.push(exe_dir.join("../Helpers/media/bin"));
-        // 2. Windows / portable bundle (`<exe_dir>/media/bin`)
-        search_dirs.push(exe_dir.join("media/bin"));
-        // 3. Ancestor target/bundled-media/bin (for CLI/dev/test binaries under target/)
-        for ancestor in exe_dir.ancestors().take(6) {
-            search_dirs.push(ancestor.join("bundled-media/bin"));
-            search_dirs.push(ancestor.join("target/bundled-media/bin"));
+    if let Ok(exe_path) = env::current_exe() {
+        let canonical = exe_path.canonicalize().ok();
+        for candidate_exe in std::iter::once(&exe_path).chain(canonical.iter()) {
+            let Some(exe_dir) = candidate_exe.parent() else {
+                continue;
+            };
+            // 1. macOS .app bundle (`Contents/MacOS/<exe>` -> `Contents/Resources/media/bin` or `Contents/Helpers/media/bin`)
+            search_dirs.push(exe_dir.join("../Resources/media/bin"));
+            search_dirs.push(exe_dir.join("../Helpers/media/bin"));
+            // 2. Windows / portable bundle (`<exe_dir>/media/bin`)
+            search_dirs.push(exe_dir.join("media/bin"));
+            // 3. Ancestor target/bundled-media/bin (for CLI/dev/test binaries under target/)
+            for ancestor in exe_dir.ancestors().take(8) {
+                search_dirs.push(ancestor.join("bundled-media/bin"));
+                search_dirs.push(ancestor.join("target/bundled-media/bin"));
+            }
         }
     }
+    #[cfg(debug_assertions)]
     search_dirs.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/bundled-media/bin"));
 
     for dir in search_dirs {

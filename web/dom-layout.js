@@ -6,6 +6,55 @@
   const VALID_SCALE_MODES = new Set(['showAll', 'noBorder', 'exactFit', 'noScale', 'fit']);
   const VALID_CONTROL_KINDS = new Set(['input', 'textarea', 'select', 'button', 'checkbox', 'radio', 'form']);
 
+  function sanitizeDomLinkHref(rawUrl) {
+    if (typeof rawUrl !== 'string') return null;
+    if (/[\u0000-\u0008\u000b\u000e-\u001f\u007f-\u009f]/.test(rawUrl)) return null;
+    const trimmed = rawUrl.trim();
+    if (!trimmed || trimmed.length > 8192 || /[\u0000-\u001f\u007f-\u009f]/.test(trimmed)) {
+      return null;
+    }
+    if (trimmed.startsWith('#')) return trimmed;
+    if (trimmed.startsWith('//') || trimmed.startsWith('\\')) return null;
+    const firstDelim = trimmed.search(/[/?#]/);
+    const beforeDelim = firstDelim === -1 ? trimmed : trimmed.slice(0, firstDelim);
+    if (!beforeDelim.includes(':')) {
+      if (trimmed.includes('\\')) return null;
+      return trimmed;
+    }
+    if (/^mailto:/i.test(trimmed)) {
+      if (!trimmed.slice(7).trim()) return null;
+      try {
+        const parsed = new URL(trimmed);
+        return parsed.protocol === 'mailto:' ? trimmed : null;
+      } catch (_err) {
+        return null;
+      }
+    }
+    if (/^https?:\/\//i.test(trimmed)) {
+      try {
+        const parsed = new URL(trimmed);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+        if (parsed.username || parsed.password) return null;
+        return trimmed;
+      } catch (_err) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  function sanitizeDomLinkTarget(rawTarget) {
+    if (typeof rawTarget !== 'string') return '';
+    const trimmed = rawTarget.trim();
+    if (!trimmed || trimmed.length > 256 || /[\s\u0000-\u001f\u007f-\u009f<>]/.test(trimmed)) {
+      return '';
+    }
+    const lower = trimmed.toLowerCase();
+    if (['_self', '_blank', '_parent', '_top'].includes(lower)) return lower;
+    if (trimmed.startsWith('_')) return '';
+    return trimmed;
+  }
+
   function computeResponsiveLayout(stageWidth, stageHeight, viewportWidth, viewportHeight, options = {}) {
     if (stageWidth && typeof stageWidth === 'object') {
       const cfg = stageWidth;
@@ -176,6 +225,7 @@
       this.container = container;
       this.doc = opts.document || global.document || container?.ownerDocument || null;
       this.onLink = opts.onLink || null;
+      this.onNavigateUrl = typeof opts.onNavigateUrl === 'function' ? opts.onNavigateUrl : null;
       this.nodes = new Map();
       if (this.container) {
         this.container.setAttribute('data-neoflash-dom-text', 'true');
@@ -287,21 +337,33 @@
             const slice = rawText.slice(run.start, run.end);
             if (!slice) continue;
             const fmt = run.format || field.format || {};
-            const node = fmt.url ? this.doc.createElement('a') : this.doc.createElement('span');
+            const safeHref = fmt.url ? sanitizeDomLinkHref(String(fmt.url)) : null;
+            const node = safeHref ? this.doc.createElement('a') : this.doc.createElement('span');
             node.textContent = slice;
             if (fmt.bold) node.style.fontWeight = 'bold';
             if (fmt.italic) node.style.fontStyle = 'italic';
             if (fmt.underline) node.style.textDecoration = 'underline';
             if (fmt.size) node.style.fontSize = `${fmt.size}px`;
             if (fmt.font) node.style.fontFamily = JSON.stringify(fmt.font) + ', sans-serif';
-            if (fmt.url) {
-              node.setAttribute('href', fmt.url);
-              if (fmt.target) node.setAttribute('target', fmt.target);
+            if (safeHref) {
+              const safeTarget = sanitizeDomLinkTarget(fmt.target);
+              node.setAttribute('href', safeHref);
+              node.href = safeHref;
+              if (safeTarget) {
+                node.setAttribute('target', safeTarget);
+                node.target = safeTarget;
+              }
+              node.setAttribute('rel', 'noopener noreferrer');
+              node.rel = 'noopener noreferrer';
               node.style.pointerEvents = 'auto';
               node.addEventListener('click', ev => {
-                if (this.onLink) {
+                if (this.onNavigateUrl) {
                   ev.preventDefault?.();
-                  this.onLink(fmt.url, fmt.target || '', item.owner_ref);
+                  ev.stopPropagation?.();
+                  this.onNavigateUrl(safeHref, safeTarget || '_blank', item.owner_ref);
+                } else if (this.onLink) {
+                  ev.preventDefault?.();
+                  this.onLink(safeHref, safeTarget || '', item.owner_ref);
                 }
               });
             }
@@ -1669,12 +1731,20 @@
       let cursor = 0;
       const appendSegment = (segmentText, fmt) => {
         if (!segmentText) return;
-        const url = String(fmt?.url || '').trim();
-        const node = url ? doc.createElement('a') : doc.createElement('span');
+        const rawUrl = typeof fmt?.url === 'string' ? fmt.url : '';
+        const trimmedUrl = rawUrl.trim();
+        const hasControlChars = /[\u0000-\u001f\u007f-\u009f]/.test(trimmedUrl)
+          || /[\u0000-\u0008\u000b\u000e-\u001f\u007f-\u009f]/.test(rawUrl);
+        const isEventLink = !hasControlChars && /^event:/i.test(trimmedUrl);
+        const isAsfunctionLink = !hasControlChars && /^asfunction:/i.test(trimmedUrl);
+        const safeHref = (isEventLink || isAsfunctionLink)
+          ? '#'
+          : sanitizeDomLinkHref(rawUrl);
+        const node = safeHref ? doc.createElement('a') : doc.createElement('span');
         node.textContent = segmentText;
         if (fmt?.bold) node.style.fontWeight = 'bold';
         if (fmt?.italic) node.style.fontStyle = 'italic';
-        if (fmt?.underline || url) node.style.textDecoration = 'underline';
+        if (fmt?.underline || safeHref) node.style.textDecoration = 'underline';
         if (Number.isInteger(fmt?.color)) node.style.color = rgbIntToCss(fmt.color);
         if (Number(fmt?.size) > 0) node.style.fontSize = `${fmt.size}px`;
         if (fmt?.font) {
@@ -1682,33 +1752,38 @@
             ? global.NeoFlashText.cssFontFamily(fmt.font)
             : `${JSON.stringify(fmt.font)}, sans-serif`;
         }
-        if (url) {
+        if (safeHref) {
           node.style.pointerEvents = 'auto';
           node.style.cursor = 'pointer';
-          if (/^event:/i.test(url)) {
+          if (isEventLink) {
+            node.setAttribute?.('href', '#');
             node.href = '#';
             node.addEventListener('click', ev => {
-              ev.preventDefault();
-              ev.stopPropagation();
-              guardedCall(() => onTextLink?.(ownerKey, url.slice(6)));
+              ev.preventDefault?.();
+              ev.stopPropagation?.();
+              guardedCall(() => onTextLink?.(ownerKey, trimmedUrl.slice(6)));
             });
-          } else if (/^asfunction:/i.test(url)) {
+          } else if (isAsfunctionLink) {
+            node.setAttribute?.('href', '#');
             node.href = '#';
             node.addEventListener('click', ev => {
-              ev.preventDefault();
-              ev.stopPropagation();
-              guardedCall(() => onAsfunction?.(ownerKey, url.slice(11)));
+              ev.preventDefault?.();
+              ev.stopPropagation?.();
+              guardedCall(() => onAsfunction?.(ownerKey, trimmedUrl.slice(11)));
             });
           } else {
-            node.href = url;
-            if (fmt?.target) node.target = fmt.target;
-            else node.target = '_blank';
+            const safeTarget = sanitizeDomLinkTarget(fmt?.target) || '_blank';
+            node.setAttribute?.('href', safeHref);
+            node.href = safeHref;
+            node.setAttribute?.('target', safeTarget);
+            node.target = safeTarget;
+            node.setAttribute?.('rel', 'noopener noreferrer');
             node.rel = 'noopener noreferrer';
             if (typeof onNavigateUrl === 'function') {
               node.addEventListener('click', ev => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                guardedCall(() => onNavigateUrl(url, fmt?.target || '_blank'));
+                ev.preventDefault?.();
+                ev.stopPropagation?.();
+                guardedCall(() => onNavigateUrl(safeHref, safeTarget));
               });
             }
           }
@@ -2598,6 +2673,7 @@
   const api = Object.freeze({
     create,
     createDomStageHost,
+    sanitizeDomLinkHref,
     computeResponsiveLayout,
     evaluateBreakpoint,
     ResponsiveController,

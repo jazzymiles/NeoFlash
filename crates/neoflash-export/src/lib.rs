@@ -526,6 +526,41 @@ pub(crate) fn foreign_script_policy_entries(project: &Project) -> Vec<(String, S
     entries
 }
 
+fn source_unit_defines_class(unit: &neoflash_core::SourceUnit, short: &str) -> bool {
+    if short.is_empty() {
+        return false;
+    }
+    if unit.language.is_actionscript()
+        && unit
+            .path
+            .rsplit(['/', '\\'])
+            .next()
+            .and_then(|file| file.strip_suffix(".as"))
+            .is_some_and(|stem| stem == short)
+    {
+        return true;
+    }
+    let needle = format!("class {short}");
+    let mut rest = unit.source.as_str();
+    while let Some(pos) = rest.find(&needle) {
+        let before_ok = pos == 0
+            || !rest[..pos]
+                .chars()
+                .next_back()
+                .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '$');
+        let after = &rest[pos + needle.len()..];
+        let after_ok = !after
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '$');
+        if before_ok && after_ok {
+            return true;
+        }
+        rest = &rest[pos + 5..];
+    }
+    false
+}
+
 pub(crate) fn strip_skipped_foreign_scripts(project: &Project) -> std::borrow::Cow<'_, Project> {
     let Some(proj_lang) = project.script_language else {
         return std::borrow::Cow::Borrowed(project);
@@ -553,33 +588,39 @@ pub(crate) fn strip_skipped_foreign_scripts(project: &Project) -> std::borrow::C
     if !has_skipped {
         return std::borrow::Cow::Borrowed(project);
     }
-    let skipped_as_stems: BTreeSet<String> = project
+    let skipped_units: Vec<&neoflash_core::SourceUnit> = project
         .sources
         .iter()
-        .filter(|u| is_skipped(u.language) && u.language.is_actionscript())
-        .filter_map(|u| {
-            u.path
-                .rsplit(['/', '\\'])
-                .next()
-                .and_then(|f| f.strip_suffix(".as"))
-                .map(str::to_owned)
-        })
+        .filter(|u| is_skipped(u.language))
         .collect();
     let mut copy = project.clone();
     copy.sources.retain(|u| !is_skipped(u.language));
-    if !skipped_as_stems.is_empty() {
-        if let Some(doc_cls) = &copy.document_class {
-            let short = doc_cls.rsplit('.').next().unwrap_or(doc_cls).trim();
-            if skipped_as_stems.contains(short) {
-                copy.document_class = None;
-            }
+    if !skipped_units.is_empty() {
+        let defined_only_in_skipped = |qname: &str| {
+            let short = qname.rsplit('.').next().unwrap_or(qname).trim();
+            !short.is_empty()
+                && skipped_units
+                    .iter()
+                    .any(|u| source_unit_defines_class(u, short))
+                && !copy
+                    .sources
+                    .iter()
+                    .any(|u| source_unit_defines_class(u, short))
+        };
+        if copy
+            .document_class
+            .as_deref()
+            .is_some_and(defined_only_in_skipped)
+        {
+            copy.document_class = None;
         }
         for sym in &mut copy.symbols {
-            if let Some(cls) = &sym.class_name {
-                let short = cls.rsplit('.').next().unwrap_or(cls).trim();
-                if skipped_as_stems.contains(short) {
-                    sym.class_name = None;
-                }
+            if sym
+                .class_name
+                .as_deref()
+                .is_some_and(defined_only_in_skipped)
+            {
+                sym.class_name = None;
             }
         }
     }
@@ -1503,7 +1544,7 @@ pub(crate) fn assemble_with_config(
     };
     let omitted = if *level == SizeLevel::Compact {
         let sources = HOST_MODULES.iter().copied().collect();
-        publish::omitted_modules(project, &sources)
+        publish::omitted_modules(&prepared.published, &sources)
     } else {
         Default::default()
     };
@@ -1572,7 +1613,7 @@ pub(crate) fn assemble_with_config(
         })
         .collect();
     let (size_report, load_summary) = size_report_from(
-        project,
+        &prepared.published,
         &prepared.program,
         &effective_scripts,
         Some(figures),
@@ -1587,7 +1628,9 @@ pub(crate) fn assemble_with_config(
     warnings.extend(level_tradeoffs(level, &omitted_titles));
     // Without scripts or classes the compiled prelude has nothing to run; the runtime supplies
     // its built-in class lookup instead.
-    let scriptless = publish::script_corpus(project).trim().is_empty()
+    let scriptless = publish::script_corpus(&prepared.published)
+        .trim()
+        .is_empty()
         && prepared.program.class_names.is_empty();
     let ships_program = !(scriptless && level.trims_content());
     let mapped_program_code = (ships_program && config.is_some_and(|config| config.source_maps))
@@ -2518,3 +2561,51 @@ pub(crate) fn xml_escape(input: &str) -> String {
 #[cfg(test)]
 #[path = "export_lib_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod skipped_foreign_export_tests {
+    use super::*;
+    use neoflash_core::{FrameScript, Script, ScriptLanguage, SourceUnit};
+
+    #[test]
+    fn strip_skipped_foreign_scripts_clears_inline_class_declarations_and_omits_unused_modules() {
+        let mut project = Project::blank();
+        project.script_language = Some(ScriptLanguage::JavaScript);
+        project.also_compile_compatible_scripts = false;
+        project.document_class = Some("app.LegacyMain".into());
+
+        // Filename stem `bundle_classes` does NOT match `LegacyMain` or `EnemyClip`,
+        // so `class <short>` matching inside skipped source units is required.
+        project.sources.push(SourceUnit {
+            id: "as3_bundle".into(),
+            path: "src/bundle_classes.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: "package app { public class LegacyMain {} public class EnemyClip {} }".into(),
+        });
+        // Skipped foreign AS2 frame script referencing XML/ExternalInterface must NOT keep
+        // those optional host modules in `SizeLevel::Compact` or count toward `published`.
+        project.symbols[0].class_name = Some("app.EnemyClip".into());
+        project.symbols[0].timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "var doc = new XML('<x/>'); ExternalInterface.call('ping');".into(),
+            },
+        });
+
+        let stripped = strip_skipped_foreign_scripts(&project);
+        assert_eq!(stripped.document_class, None);
+        assert_eq!(stripped.symbols[0].class_name, None);
+        assert!(stripped.sources.is_empty());
+        assert!(stripped.symbols[0].timeline.scripts.is_empty());
+        assert!(publish::script_corpus(&stripped).trim().is_empty());
+
+        let sources = HOST_MODULES.iter().copied().collect();
+        let omitted = publish::omitted_modules(&stripped, &sources);
+        assert!(
+            omitted.contains_key("xml.js") && omitted.contains_key("external.js"),
+            "Compact module pruning on stripped project should omit xml.js and external.js, got: {:?}",
+            omitted.keys().collect::<Vec<_>>()
+        );
+    }
+}

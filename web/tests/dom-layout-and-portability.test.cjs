@@ -112,7 +112,25 @@ function makeFakeElement(tag = 'div') {
     hasAttribute(k) {
       return attrs.has(String(k));
     },
+    get firstElementChild() {
+      return children[0] || null;
+    },
+    get nextElementSibling() {
+      if (!el.parentNode) return null;
+      const sibs = el.parentNode.children;
+      const idx = sibs.indexOf(el);
+      return idx >= 0 && idx + 1 < sibs.length ? sibs[idx + 1] : null;
+    },
+    insertBefore(child, refNode) {
+      if (child.parentNode) child.parentNode.removeChild(child);
+      child.parentNode = el;
+      const idx = refNode ? children.indexOf(refNode) : -1;
+      if (idx >= 0) children.splice(idx, 0, child);
+      else children.push(child);
+      return child;
+    },
     appendChild(child) {
+      if (child.parentNode) child.parentNode.removeChild(child);
       child.parentNode = el;
       children.push(child);
       return child;
@@ -379,6 +397,180 @@ test('DOM layout: responsive breakpoints, SemanticDomTextLayer, DomFormsHost and
 
   formsHost.destroy();
   assert.equal(formsContainer.children.length, 0);
+});
+
+test('DOM link sanitization: blocks unsafe schemes/obfuscation with plain <span> and intercepts safe <a href> clicks', () => {
+  const domLayout = require('../dom-layout.js');
+  assert.equal(typeof domLayout.sanitizeDomLinkHref, 'function');
+
+  // Unsafe schemes, control-char/whitespace obfuscations, protocol-relative, and empty strings -> null
+  for (const unsafeUrl of [
+    '',
+    '   ',
+    'javascript:alert(1)',
+    'JAVASCRIPT:alert(1)',
+    ' \t\r\nJaVaScRiPt:alert(1)',
+    'java\tscript:alert(1)',
+    'java\nscript:alert(1)',
+    'java\u0000script:alert(1)',
+    'javascript :alert(1)',
+    'vbscript:msgbox(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'blob:https://example.com/abc',
+    'file:///etc/passwd',
+    '//evil.example.com/phish',
+    '\\\\evil.example.com/phish',
+    'https://user:pass@example.com/secret',
+    'http:evil.example.com',
+  ]) {
+    assert.equal(
+      domLayout.sanitizeDomLinkHref(unsafeUrl),
+      null,
+      `Expected unsafe URL to be rejected: ${JSON.stringify(unsafeUrl)}`
+    );
+  }
+
+  // Allowed schemes and relative/fragment URLs
+  assert.equal(domLayout.sanitizeDomLinkHref('https://example.com/docs?q=1'), 'https://example.com/docs?q=1');
+  assert.equal(domLayout.sanitizeDomLinkHref('  http://example.com/a  '), 'http://example.com/a');
+  assert.equal(domLayout.sanitizeDomLinkHref('mailto:hello@example.com'), 'mailto:hello@example.com');
+  assert.equal(domLayout.sanitizeDomLinkHref('#section-2'), '#section-2');
+  assert.equal(domLayout.sanitizeDomLinkHref('docs/getting-started.html'), 'docs/getting-started.html');
+  assert.equal(domLayout.sanitizeDomLinkHref('./about?tab=1#top'), './about?tab=1#top');
+
+  // SemanticDomTextLayer renders <span> for unsafe URLs and intercepts <a href> clicks via onNavigateUrl
+  const doc = makeFakeDocument();
+  const container = doc.createElement('div');
+  const navigated = [];
+  const layer = new domLayout.SemanticDomTextLayer(container, {
+    document: doc,
+    onNavigateUrl: (url, target) => navigated.push({ url, target }),
+  });
+  layer.update([
+    {
+      instance_path: ['xss_txt'],
+      transform: [1, 0, 0, 1, 0, 0],
+      text_field: {
+        text: 'Click me',
+        field_type: 'dynamic',
+        selectable: true,
+        format: { font: 'Arial', size: 14, url: ' \tJaVaScRiPt:alert(1)' },
+      },
+    },
+    {
+      instance_path: ['safe_txt'],
+      transform: [1, 0, 0, 1, 0, 30],
+      text_field: {
+        text: 'Safe Docs',
+        field_type: 'dynamic',
+        selectable: true,
+        format: { font: 'Arial', size: 14, url: 'https://example.com/safe', target: '_self' },
+      },
+    },
+  ]);
+
+  assert.equal(container.children[0].children[0].tagName, 'SPAN');
+  assert.equal(container.children[0].children[0].getAttribute('href'), null);
+
+  const safeAnchor = container.children[1].children[0];
+  assert.equal(safeAnchor.tagName, 'A');
+  assert.equal(safeAnchor.getAttribute('href'), 'https://example.com/safe');
+  let prevented = false;
+  safeAnchor.dispatchEvent({
+    type: 'click',
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  assert.equal(prevented, true);
+  assert.deepEqual(navigated, [{ url: 'https://example.com/safe', target: '_self' }]);
+
+  // createDomStageHost also renders plain <span> for unsafe run URLs, intercepts safe <a href> clicks, and resets cleanly
+  const surface = doc.createElement('div');
+  surface.id = 'stage-surface';
+  surface.insertBefore = (node) => surface.appendChild(node);
+  surface.querySelector = () => null;
+  const stageNavigated = [];
+  const domStage = domLayout.createDomStageHost({
+    document: doc,
+    surface,
+    project: { width: 400, height: 300, symbols: [] },
+    onNavigateUrl: (url, target) => stageNavigated.push({ url, target }),
+  });
+  domStage.render({
+    snapshot: {
+      objects: [
+        {
+          object_ref: { id: 1, generation: 1 },
+          parent_ref: null,
+          owner: 'text',
+          name: 'tf1',
+          on_stage: true,
+          effective_visible: true,
+          local_matrix: [1, 0, 0, 1, 0, 0],
+          world: [1, 0, 0, 1, 0, 0],
+          text: {
+            text: 'BadGood',
+            field_type: 'dynamic',
+            selectable: true,
+            format: { font: 'Arial', size: 14 },
+            format_runs: [
+              { begin: 0, end: 3, format: { url: 'data:text/html,<script>alert(1)</script>' } },
+              { begin: 3, end: 7, format: { url: 'mailto:dev@example.com', target: '_blank' } },
+            ],
+          },
+        },
+      ],
+      draws: [
+        {
+          owner_ref: { id: 1, generation: 1 },
+          transform: [1, 0, 0, 1, 0, 0],
+          alpha: 1,
+          kind: {
+            type: 'text_field',
+            field: {
+              text: 'BadGood',
+              field_type: 'dynamic',
+              selectable: true,
+              box: { width: 200, height: 30 },
+              format: { font: 'Arial', size: 14 },
+              format_runs: [
+                { begin: 0, end: 3, format: { url: 'data:text/html,<script>alert(1)</script>' } },
+                { begin: 3, end: 7, format: { url: 'mailto:dev@example.com', target: '_blank' } },
+              ],
+            },
+          },
+        },
+      ],
+      semantics: [],
+      clips: [],
+      filter_groups: [],
+    },
+    width: 400,
+    height: 300,
+    originX: 0,
+    originY: 0,
+  });
+
+  const renderedTextEl = domStage.sceneElement.children[0];
+  assert.ok(renderedTextEl, 'DOM stage host should mount the text leaf');
+  assert.equal(renderedTextEl.children[0].tagName, 'SPAN', 'data: URL run must render as plain <span>');
+  assert.equal(renderedTextEl.children[0].href, undefined);
+  assert.equal(renderedTextEl.children[1].tagName, 'A', 'mailto: URL run must render as <a>');
+  assert.equal(renderedTextEl.children[1].getAttribute('href'), 'mailto:dev@example.com');
+  let stagePrevented = false;
+  renderedTextEl.children[1].dispatchEvent({
+    type: 'click',
+    preventDefault() {
+      stagePrevented = true;
+    },
+    stopPropagation() {},
+  });
+  assert.equal(stagePrevented, true);
+  assert.deepEqual(stageNavigated, [{ url: 'mailto:dev@example.com', target: '_blank' }]);
+
+  domStage.reset();
+  assert.equal(domStage.sceneElement.children.length, 0, 'domStageHost.reset() must clear mounted DOM leaves');
 });
 
 test('AMF & SharedObject: native .sol binary container with typed aliases and BroadcastChannel remote sync', async () => {
