@@ -30,6 +30,7 @@ import { verifyFunctionWorkflow } from './function-workflow.mjs';
 import { verifyImagePipeline } from './image-pipeline.mjs';
 import { verifyClassPackages } from './class-packages.mjs';
 import { verifyVideoPlayback } from './video-playback.mjs';
+import { verifyMediaNetStream } from './media-netstream.mjs';
 import { verifyDragDrop } from './drag-drop.mjs';
 import { verifyLegacyImport } from './legacy-import.mjs';
 import { verifyWebIntegration } from './web-integration.mjs';
@@ -64,6 +65,7 @@ const workflows=[
   ['image-pipeline',verifyImagePipeline],
   ['class-packages',verifyClassPackages],
   ['video-playback',verifyVideoPlayback],
+  ['media-netstream',verifyMediaNetStream],
   ['drag-drop',verifyDragDrop],
   ['web-integration',verifyWebIntegration],
   ['core-surface',verifyCoreSurface],

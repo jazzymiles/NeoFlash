@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "56ed37e759c03a3bb5ef3c9f320e9bed2cb92f2e6543791ae1798e0ebdd402c3",
+  "reviews": [
+    {
+      "id": "AS3-TEXT-GRAPHEMES-20261115",
+      "date": "2026-11-15",
+      "commit": "cb4ffffbaf10538b96627899f2b22c26ace2b2f6",
+      "title": "Grapheme-safe TextField input, TextInteractionMode, rich clipboard and cmap Font.hasGlyphs (T-326)",
+      "summary": "Promotes TextField.textInteractionMode (NORMAL/SELECTION), textInteractionModeChange, TextInteractionMode.SELECTION, TextField.useRichTextClipboard, and SFNT/TTC/WOFF1 cmap Format 4 and Format 12/13 Font.hasGlyphs across AS3 and HTML5 Canvas/DOM, backed by UAX #29 grapheme-safe selection/editing and mixed-run IME preservation.",
+      "tests": [
+        "web/tests/text-graphemes-ime.test.cjs",
+        "crates/neoflash-core/tests/text_field.rs",
+        "web/tests/display-family.test.cjs",
+        "web/tests/as3-fte-3d.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:class:flash/text/TextInteractionMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/text/TextInteractionMode.html#SELECTION",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#textInteractionMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:textInteractionModeChange",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/text/TextField.html#useRichTextClipboard",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#hasGlyphs()",
+          "status": "working"
+        }
+      ]
+    },
+    {
+      "id": "AS3-MEDIANETSTREAM-20261115",
+      "date": "2026-11-15",
+      "commit": "ee156d0dbaaef764b0dabbecf39d9b24ce685220",
+      "title": "Complete non-RTMP NetStream file playback, SoundTransform matrix and CORS Sound access (T-327)",
+      "summary": "Promotes non-RTMP NetStream.play(url, start, len, reset), play2, progressive HTTP Range bytesLoaded/bytesTotal, currentFPS, receiveAudio/receiveVideo/receiveVideoFPS, Web Audio 2x2 SoundTransform matrix routing on NetStream, and Sound.isURLInaccessible CORS enforcement across AS3 and HTML5 Canvas/DOM.",
+      "tests": [
+        "crates/neoflash-script/tests/media-netstream.mjs",
+        "web/tests/media-netstream.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play2()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesLoaded",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesTotal",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#currentFPS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#soundTransform",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#receiveAudio()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#receiveVideo()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#receiveVideoFPS()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/Sound.html#isURLInaccessible",
+          "status": "working"
+        }
+      ]
+    }
+  ]
+}

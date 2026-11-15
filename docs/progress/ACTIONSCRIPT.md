@@ -17,11 +17,11 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | 3. MovieClip and timeline | 37 | 37 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 4. Display, events and basic input | 678 | 663 | 1 | 14 | 0 | 97.8% | 97.9% |
 | 5. Graphics, bitmaps and filters | 313 | 298 | 2 | 13 | 0 | 95.2% | 95.8% |
-| 6. Text and fonts | 174 | 155 | 2 | 17 | 0 | 89.1% | 90.2% |
-| 7. File audio and video playback | 91 | 86 | 4 | 1 | 0 | 94.5% | 98.9% |
-| 8. Services and advanced Player APIs | 2,134 | 1,691 | 442 | 1 | 0 | 79.2% | <100% |
-| **Now: areas 1–6** | 1,939 | 1,877 | 17 | 45 | 0 | 96.8% | 97.7% |
-| **All Flash Player areas** | 4,164 | 3,654 | 463 | 47 | 0 | 87.8% | 98.9% |
+| 6. Text and fonts | 174 | 161 | 0 | 13 | 0 | 92.5% | 92.5% |
+| 7. File audio and video playback | 91 | 91 | 0 | 0 | 0 | 100.0% | 100.0% |
+| 8. Services and advanced Player APIs | 2,134 | 1,696 | 438 | 0 | 0 | 79.5% | 100.0% |
+| **Now: areas 1–6** | 1,939 | 1,883 | 15 | 41 | 0 | 97.1% | 97.9% |
+| **All Flash Player areas** | 4,164 | 3,670 | 453 | 41 | 0 | 88.1% | 99.0% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -59,7 +59,7 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
 | AS3 | language | 124 | 118 | 5 | 1 | 0 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 4,037 | 1,041 | 172 | 0 |
+| AS3 | runtime | 5,250 | 4,053 | 1,031 | 166 | 0 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,8 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-MEDIANETSTREAM-20261115` | 2026-11-15 | `ee156d0dbaae` | 10 → working |
+| `AS3-TEXT-GRAPHEMES-20261115` | 2026-11-15 | `cb4ffffbaf10` | 6 → working |
 | `AS2-DISPLAYGRAPHICS-20261115` | 2026-11-15 | `3524a73f8dc3` | 4 → working |
 | `AS3-DISPLAYGRAPHICS-20261115` | 2026-11-15 | `3524a73f8dc3` | 31 → working |
 | `AS2-AREAS1TO7-AUDIT-20261114` | 2026-11-14 | `5cc195e9b99a` | 10 → missing, 8 → partial |
@@ -12804,21 +12806,6 @@ Partial entries name their missing behavior; working entries are covered by the 
 
 Evidence: [crates/neoflash-script/tests/execute.mjs](../../crates/neoflash-script/tests/execute.mjs), [crates/neoflash-script/src/actionscript.rs](../../crates/neoflash-script/src/actionscript.rs)
 
-### AS3-EVIDENCE-CALIBRATION-20261105 — Correct reflection, media and authored-source mask coverage
-
-Source reflection and volume-only video transforms remain partial; displayed-frame-rate measurement is missing. Cached masks preserve dynamic alpha sources but lose authored gradients or reject authored bitmaps. Positive shared tests and targeted WASM/browser probes distinguish these boundaries.
-
-Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
-
-- `AS3:function:flash/utils/package.html#describeType()` — **partial**: Public ordinary AS3 source classes are described; native-base, interface and rest-signature descriptions remain unsupported.
-- `AS3:function:flash/utils/package.html#getQualifiedClassName()` — **partial**: Source-class and selected primitive/class names work; primitive numeric values and native display instances diagnose instead of returning their qualified names.
-- `AS3:function:flash/utils/package.html#getQualifiedSuperclassName()` — **partial**: Source-class and selected built-in superclass names work; primitive numeric values and native display instances are unsupported.
-- `AS3:property:flash/net/NetStream.html#currentFPS` — **missing**: Displayed-frame-rate measurement is unimplemented; the getter echoes the requested receiveVideoFPS value while playing, including before any frame is decoded.
-- `AS3:property:flash/net/NetStream.html#soundTransform` — **partial**: Volume is connected to playback; nonzero stereo pan is rejected and stereo matrix settings are not applied.
-- `AS3:property:flash/display/DisplayObject.html#mask` — **partial**: Vector and cached dynamic gradient/bitmap masks work; cached authored gradient masks lose their opacity ramp, and authored bitmap sources are rejected.
-
-Evidence: [crates/neoflash-core/src/as3_object.rs](../../crates/neoflash-core/src/as3_object.rs), [web/tests/as3-net-sys.test.cjs](../../web/tests/as3-net-sys.test.cjs), [web/tests/dom-layout-and-portability.test.cjs](../../web/tests/dom-layout-and-portability.test.cjs)
-
 ### AS3-AREAS1TO7-AUDIT-20261114 — Re-verify AS3 Areas 1-7 against current code and shared tests
 
 Executable audit of AS3 Areas 1-7 demotes unimplemented stubs, ignored options, dead setter bags and unsupported throwers to missing or partial, and documents notes on existing partial entries. Array prototype and AS3 lifecycle verification rely on merged T-011 and T-010 commits.
@@ -13006,3 +12993,37 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `as2:MovieClip.html#blendMode` — **working**: Supports string and numeric blend modes 1..14 including subtract, invert, alpha, erase, and layer across native Rust and HTML5 Canvas.
 
 Evidence: [crates/neoflash-core/tests/dynamic_display.rs](../../crates/neoflash-core/tests/dynamic_display.rs), [crates/neoflash-export/tests/publish_correctness_gate.rs](../../crates/neoflash-export/tests/publish_correctness_gate.rs), [crates/neoflash-script/tests/as2-project-input.mjs](../../crates/neoflash-script/tests/as2-project-input.mjs), [crates/neoflash-script/tests/display-transforms.mjs](../../crates/neoflash-script/tests/display-transforms.mjs), [crates/neoflash-script/tests/gradient-graphics.mjs](../../crates/neoflash-script/tests/gradient-graphics.mjs), [crates/neoflash-script/tests/filter-gallery.mjs](../../crates/neoflash-script/tests/filter-gallery.mjs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [scripts/verify-as-publish-gate.mjs](../../scripts/verify-as-publish-gate.mjs)
+
+### AS3-TEXT-GRAPHEMES-20261115 — Grapheme-safe TextField input, TextInteractionMode, rich clipboard and cmap Font.hasGlyphs (T-326)
+
+Promotes TextField.textInteractionMode (NORMAL/SELECTION), textInteractionModeChange, TextInteractionMode.SELECTION, TextField.useRichTextClipboard, and SFNT/TTC/WOFF1 cmap Format 4 and Format 12/13 Font.hasGlyphs across AS3 and HTML5 Canvas/DOM, backed by UAX #29 grapheme-safe selection/editing and mixed-run IME preservation.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:class:flash/text/TextInteractionMode.html#` — **working**: Main contract covered by the listed tests.
+- `AS3:constant:flash/text/TextInteractionMode.html#SELECTION` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#textInteractionMode` — **working**: Main contract covered by the listed tests.
+- `AS3:event:flash/text/TextField.html#event:textInteractionModeChange` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/text/TextField.html#useRichTextClipboard` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/text/Font.html#hasGlyphs()` — **working**: Main contract covered by the listed tests.
+
+Evidence: [web/tests/text-graphemes-ime.test.cjs](../../web/tests/text-graphemes-ime.test.cjs), [crates/neoflash-core/tests/text_field.rs](../../crates/neoflash-core/tests/text_field.rs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [web/tests/as3-fte-3d.test.cjs](../../web/tests/as3-fte-3d.test.cjs)
+
+### AS3-MEDIANETSTREAM-20261115 — Complete non-RTMP NetStream file playback, SoundTransform matrix and CORS Sound access (T-327)
+
+Promotes non-RTMP NetStream.play(url, start, len, reset), play2, progressive HTTP Range bytesLoaded/bytesTotal, currentFPS, receiveAudio/receiveVideo/receiveVideoFPS, Web Audio 2x2 SoundTransform matrix routing on NetStream, and Sound.isURLInaccessible CORS enforcement across AS3 and HTML5 Canvas/DOM.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:method:flash/net/NetStream.html#play()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/net/NetStream.html#play2()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/net/NetStream.html#bytesLoaded` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/net/NetStream.html#bytesTotal` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/net/NetStream.html#currentFPS` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/net/NetStream.html#soundTransform` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/net/NetStream.html#receiveAudio()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/net/NetStream.html#receiveVideo()` — **working**: Main contract covered by the listed tests.
+- `AS3:method:flash/net/NetStream.html#receiveVideoFPS()` — **working**: Main contract covered by the listed tests.
+- `AS3:property:flash/media/Sound.html#isURLInaccessible` — **working**: Main contract covered by the listed tests.
+
+Evidence: [crates/neoflash-script/tests/media-netstream.mjs](../../crates/neoflash-script/tests/media-netstream.mjs), [web/tests/media-netstream.test.cjs](../../web/tests/media-netstream.test.cjs)

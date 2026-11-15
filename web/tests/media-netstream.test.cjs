@@ -933,6 +933,7 @@ test('T-327 Real Headless Chrome Canvas + DOM end-to-end suite: AS2/AS3 Video pi
     public var playStatuses:Array = [];
     public var cues:Array = [];
     public var metas:Array = [];
+    private var pollTicks:int = 0;
 
     public function ChromeMediaMain() {
       stop();
@@ -977,9 +978,19 @@ test('T-327 Real Headless Chrome Canvas + DOM end-to-end suite: AS2/AS3 Video pi
     private function step1SingleFrameAndVideoPixels():void {
       statusCodes = [];
       playStatuses = [];
+      pollTicks = 0;
       // Single-frame load at start=0.8s, len=0!
       ns.play("media/motion.mp4", 0.8, 0, true);
-      setTimeout(checkStep1, 350);
+      setTimeout(pollStep1, 50);
+    }
+
+    private function pollStep1():void {
+      pollTicks++;
+      if (playStatuses.indexOf("NetStream.Play.Complete") < 0 && pollTicks < 120) {
+        setTimeout(pollStep1, 50);
+        return;
+      }
+      checkStep1();
     }
 
     private function checkStep1():void {
@@ -999,6 +1010,7 @@ test('T-327 Real Headless Chrome Canvas + DOM end-to-end suite: AS2/AS3 Video pi
       playStatuses = [];
       cues = [];
       metas = [];
+      pollTicks = 0;
       // Apply stereo pan then 2x2 custom matrix on NetStream + parent Sprite transform!
       holder.soundTransform = new SoundTransform(0.5, 0);
       var st:SoundTransform = new SoundTransform(0.6, -0.4);
@@ -1013,7 +1025,22 @@ test('T-327 Real Headless Chrome Canvas + DOM end-to-end suite: AS2/AS3 Video pi
       // Bounded clip 1 (start=0.05, len=0.30 -> crosses mp4_cue_1 @ 0.20s) + queued clip 2 (audio/cued.wav, reset=false -> crosses chrome_cue @ 0.12s)!
       ns.play("media/motion.mp4", 0.05, 0.30, true);
       ns.play("/media/cued-audio.wav", -2, -1, false);
-      setTimeout(checkStep2, 1350);
+      setTimeout(pollStep2, 60);
+    }
+
+    private function pollStep2():void {
+      pollTicks++;
+      var ready2:Boolean = (statusCodes.indexOf("NetStream.Play.Transition") >= 0)
+        && (playStatuses.indexOf("NetStream.Play.TransitionComplete") >= 0)
+        && (playStatuses.indexOf("NetStream.Play.Complete") >= 0)
+        && (cues.indexOf("mp4_cue_1") >= 0)
+        && (cues.indexOf("chrome_cue") >= 0)
+        && (metas.length >= 2);
+      if (!ready2 && pollTicks < 120) {
+        setTimeout(pollStep2, 60);
+        return;
+      }
+      checkStep2();
     }
 
     private function checkStep2():void {
@@ -1030,17 +1057,39 @@ test('T-327 Real Headless Chrome Canvas + DOM end-to-end suite: AS2/AS3 Video pi
     private function step3RangeRedirectAndSeek():void {
       statusCodes = [];
       metas = [];
+      pollTicks = 0;
       // Progressive HTTP 302 -> 206 Partial Content Range video!
       ns.play("/media/redirect-motion.mp4", 0, -1, true);
-      setTimeout(doSeekChecks, 400);
+      setTimeout(pollStep3Meta, 50);
+    }
+
+    private function pollStep3Meta():void {
+      pollTicks++;
+      if ((metas.length < 1 || ns.bytesTotal <= 0 || ns.bytesLoaded <= 0) && pollTicks < 120) {
+        setTimeout(pollStep3Meta, 50);
+        return;
+      }
+      doSeekChecks();
     }
 
     private function doSeekChecks():void {
+      pollTicks = 0;
       ns.pause();
       ns.seek(1.2);
       ns.seek(-2);
       ns.seek(99);
-      setTimeout(checkStep3, 350);
+      setTimeout(pollStep3Seek, 50);
+    }
+
+    private function pollStep3Seek():void {
+      pollTicks++;
+      var seekDone:Boolean = (statusCodes.indexOf("NetStream.Seek.Notify") >= 0)
+        && (statusCodes.indexOf("NetStream.Seek.InvalidTime") >= 0);
+      if (!seekDone && pollTicks < 120) {
+        setTimeout(pollStep3Seek, 50);
+        return;
+      }
+      checkStep3();
     }
 
     private function checkStep3():void {
@@ -1232,39 +1281,51 @@ trace("AS2_SND_SHARED=" + (as2Tf.ll == 30 && as2Tf.lr == 70 && as2Tf.rl == 40 &&
 
       // Verify real decoded video pixels in BOTH AS3 (attachNetStream) and AS2 (attachVideo) viewports!
       if (mode === 'canvas') {
-        const pixelAudit = await cdp.evalJson(`(() => {
-          const c = document.getElementById('stage');
-          const ctx = c.getContext('2d');
-          function countNonBg(x, y, w, h) {
-            const d = ctx.getImageData(x, y, w, h).data;
-            let lit = 0;
-            for (let i = 0; i < d.length; i += 16) {
-              if (Math.abs(d[i] - 15) > 10 || Math.abs(d[i + 1] - 23) > 10 || Math.abs(d[i + 2] - 42) > 10) lit++;
+        let pixelAudit = { as3Lit: 0, as2Lit: 0 };
+        const pixelDeadline = Date.now() + 5000;
+        while (Date.now() < pixelDeadline) {
+          pixelAudit = await cdp.evalJson(`(() => {
+            const c = document.getElementById('stage');
+            const ctx = c.getContext('2d');
+            function countNonBg(x, y, w, h) {
+              const d = ctx.getImageData(x, y, w, h).data;
+              let lit = 0;
+              for (let i = 0; i < d.length; i += 16) {
+                if (Math.abs(d[i] - 15) > 10 || Math.abs(d[i + 1] - 23) > 10 || Math.abs(d[i + 2] - 42) > 10) lit++;
+              }
+              return lit;
             }
-            return lit;
-          }
-          return {
-            as3Lit: countNonBg(30, 30, 200, 100),
-            as2Lit: countNonBg(330, 30, 200, 100),
-          };
-        })()`);
+            return {
+              as3Lit: countNonBg(30, 30, 200, 100),
+              as2Lit: countNonBg(330, 30, 200, 100),
+            };
+          })()`);
+          if (pixelAudit.as3Lit > 50 && pixelAudit.as2Lit > 50) break;
+          await new Promise((r) => setTimeout(r, 50));
+        }
         assert.ok(pixelAudit.as3Lit > 50, `[canvas] AS3 Video.attachNetStream must paint real decoded MP4 pixels (lit=${pixelAudit.as3Lit})`);
         assert.ok(pixelAudit.as2Lit > 50, `[canvas] AS2 Video.attachVideo must paint real decoded MP4 pixels (lit=${pixelAudit.as2Lit})`);
       } else {
-        const domVideoAudit = await cdp.evalJson(`(() => {
-          const domRoot = document.getElementById('stage-dom-root');
-          const vids = [...(domRoot?.querySelectorAll('canvas.nf-dom-video[data-nf-kind="video"]') || [])];
-          const samples = vids.map((vc) => {
-            const ctx = vc.getContext('2d');
-            const d = ctx.getImageData(0, 0, vc.width, vc.height).data;
-            let lit = 0;
-            for (let i = 0; i < d.length; i += 16) {
-              if (d[i + 3] > 0 && (d[i] > 5 || d[i + 1] > 5 || d[i + 2] > 5)) lit++;
-            }
-            return { width: vc.width, height: vc.height, lit };
-          });
-          return { count: vids.length, samples };
-        })()`);
+        let domVideoAudit = { count: 0, samples: [] };
+        const domDeadline = Date.now() + 5000;
+        while (Date.now() < domDeadline) {
+          domVideoAudit = await cdp.evalJson(`(() => {
+            const domRoot = document.getElementById('stage-dom-root');
+            const vids = [...(domRoot?.querySelectorAll('canvas.nf-dom-video[data-nf-kind="video"]') || [])];
+            const samples = vids.map((vc) => {
+              const ctx = vc.getContext('2d');
+              const d = ctx.getImageData(0, 0, vc.width, vc.height).data;
+              let lit = 0;
+              for (let i = 0; i < d.length; i += 16) {
+                if (d[i + 3] > 0 && (d[i] > 5 || d[i + 1] > 5 || d[i + 2] > 5)) lit++;
+              }
+              return { width: vc.width, height: vc.height, lit };
+            });
+            return { count: vids.length, samples };
+          })()`);
+          if (domVideoAudit.count === 2 && domVideoAudit.samples.every((s) => s.lit > 50)) break;
+          await new Promise((r) => setTimeout(r, 50));
+        }
         assert.equal(domVideoAudit.count, 2, `[dom] Both AS3 and AS2 Video instances must mount .nf-dom-video leaves`);
         assert.ok(
           domVideoAudit.samples.every((s) => s.lit > 50),

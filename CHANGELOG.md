@@ -2,6 +2,56 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Added a permanent Firefox HTML5 compatibility gate (`scripts/verify-firefox-html5-gate.mjs`,
+  `web/tests/firefox-html5-gate.test.cjs`) driving real headless Firefox over native WebDriver BiDi across `Full`,
+  `Balanced`, and `Compact` `file://` packages and `Shared` HTTP packages in both `Canvas` and `DOM` render modes, and
+  hardened standard `ResizeObserver` coalescing, DOM `TextField` selection/replacement syncing, and `pagehide`/`unload`
+  RAF/observer/media teardown (`T-324`).
+- Improved SWF (`FWS`/`CWS`/`ZWS`) import, native AVM1/AVM2 preview playback and standalone SWF export fidelity
+  (`T-325`): reconstructed all eight SWF display filter families, all 14 blend modes, `DefineScalingGrid` (9-slice),
+  `DefineBinaryData`, `DefineButton2` state filters/blends and pure-vector `clipDepth` mask spans into validated
+  `.nflash` projects; added dynamic `MovieClip.setMask` / `DisplayObject.mask` Stage projection, spec-accurate
+  `CLIPACTIONS` event flags, frequent Flash 4–8 AVM1 opcodes (`DefineFunction2` register preloads, OOP/prototype/`With`/
+  `Try`/enumeration/bitwise/dynamic `MovieClip` methods) and ECMA-357 AVM2 equality, type coercions, `lookupswitch`,
+  `hasnext2` and user classes with deterministic step/stack/call bounds; hardened SWF export `is_move` property resets
+  and scaling-grid round-trips; and attached concrete `#tag/symbol/frame/offset` locations to all SWF import and
+  bytecode diagnostics.
+- Made Stage and HTML5 (`Canvas` and `DOM`) text interaction grapheme-safe and mixed-run reliable (`T-326`): added
+  UAX #29 extended grapheme cluster navigation, selection clamping, `Backspace`/`Delete`,
+  `replaceText`/`replaceSelectedText` and `maxChars` across Cyrillic/Japanese combining marks, regional indicators and
+  ZWJ emoji; preserved mixed `TextFormatRun` spans across IME composition preedit/commit/cancel and rich clipboard
+  Copy/Cut/Paste (including `TextField.useRichTextClipboard` and single-Undo Stage text sessions); added
+  `TextInteractionMode` (`NORMAL`/`SELECTION`) with `textInteractionModeChange`, cancelable AS3 `TextEvent.TEXT_INPUT`
+  + `Event.CHANGE` and user-only AS2 `TextField.onChanged`; and backed `Font.hasGlyphs` and `Font.enumerateFonts` with
+  real SFNT/TTC/WOFF1 `cmap` Format 4 and Format 12/13 coverage checks.
+- Completed script-controlled non-RTMP file media playback across AS2 and AS3 (`T-327`): added full
+  `NetStream.play(url, start?, len?, reset?)` clip windowing, single-frame (`len=0`) and queued playlist transitions
+  (`reset=false`), progressive HTTP `206 Range` and `data:` URI `bytesLoaded`/`bytesTotal` tracking, `currentFPS`,
+  `Seek.InvalidTime` diagnostics, MP4/WAV `onCuePoint` delivery, explicit non-RTMP rejection diagnostics, Web Audio
+  `StereoPannerNode` and 2×2 `SoundTransform` channel-matrix routing across `Sound`, `SoundChannel`, `NetStream` and
+  `Sprite`/`MovieClip`, `Sound.isURLInaccessible` CORS enforcement, and leak-free `close()`/`Restart` cleanup across
+  `Canvas` and `DOM` publish modes.
+- Hardened `scripts/notarize-macos-beta.sh` with preflight `SHA256SUMS.txt` verification, JSON `notarytool` status/log
+  inspection, canonicalized DMG mount teardown, and per-artifact same-filesystem two-phase rollback, backed by a
+  hermetic failure-injection suite in `scripts/tests/test_notarize_macos_beta.py` (`T-328`; live Apple Notary Service
+  execution remains an external credential step).
+- Hardened binary FLA and FXG degradation across partial streams and large-document validation limits (`T-329`):
+  preserved complete layers, frames, shapes, group children, media resources and translated AS1 command prefixes before
+  mid-stream stops with located warnings, aligned `Contents` and `Media` reader caps with the 64 MiB CFB stream limit,
+  split >100k-command strokes into subpath chunks, and degraded oversized contours, >16 MiB / >256-bitmap / >128 MiB
+  RGBA stage budgets, folder-row artwork, nested masks, cyclic or >64-deep symbols, >10k symbols and >100k
+  authored/expanded node graphs to located placeholders that pass `Project::validate()` and HTML5 export.
+- Made numbered multi-file image sequences (`Export image`, `Publish ▸ Image sequence`, and `Export video ▸ PNG
+  sequence` + companion `.wav`) transactional as a set via a shared ownership manifest (`.neoflash-sequences.json`):
+  exports preflight case-aware collisions against unowned or externally edited files, stage frames on the destination
+  volume, roll back cleanly on cancellation or late-frame/swap failures, and atomically remove stale owned tail frames
+  on shorter re-exports (including when selecting `stem_0001.<ext>`) without touching sprite-sheet atlases or unrelated
+  files (`T-331`).
+- Hardened Beta feedback FormSubmit transport and validation (`R-103`, `T-332`): omitted `Content-Type` on RFC 7578
+  multipart text fields, scoped `_captcha=false` strictly to `formsubmit.co` endpoints with zero device/document
+  telemetry, enforced FormSubmit's combined 10 MB attachment sum cap across files, normalized bare tokens and non-`/ajax/`
+  FormSubmit URLs in `NEOFLASH_FEEDBACK_URL`, and mapped one-time activation, HTTP `413`, and HTML challenge responses
+  to clean actionable messages.
 - GUI Publish now turns the selected parent into one cross-platform-safe folder named after the project instead of
   `neoflash-export-<timestamp>`; numbered image/PNG-video sequence Save dialogs open inside that folder and retain the
   user-selected portable basename. Explicit configured/headless paths remain exact.
