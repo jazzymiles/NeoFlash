@@ -13,6 +13,11 @@ The product goal includes FLA, XFL and SWF import. They are **not interchangeabl
 | Video & raster/vector assets | Authoring and CLI import for `.mp4`, `.m4v`, `.mov`, `.webm`, `.ogv`, `.avi`, `.png`, `.jpg`, `.webp`, `.gif`, `.bmp`, `.tiff`, `.psd`/`.psb`, `.svg`, `.ai`, `.pdf` and `.fxg` | Pure-Rust RIFF/AVI parser and frame/audio decoder (`MJPG`, `PNG `, 8/24/32-bit `BI_RGB` DIB + PCM WAV / MP3 audio, ffmpeg fallback for compressed streams and automatic H.264 MP4 publish transcoding for HTML5), lossless/alpha raster decoding (`PNG`, `JPEG`, `WebP`, `GIF`, `BMP`, `TIFF`) and layered/vector design imports (`PSD`/`PSB`, `SVG`, `AI`/`PDF`, `FXG`, `ACT`/`CLR`/`ASE`). |
 | SWC / external AS libraries | Bounded catalog/source recovery and topological linking implemented | Linkage, dependencies, reconstructed `.as` sources and conflict/version diagnostics (`crates/neoflash-import/src/swc.rs`). |
 
+Desktop File Import validates a mixed chooser selection of SWC libraries, audio, fonts, palettes and graphics
+against one detached project. Diagnostics, audio source paths, frame-sound attachment and final selection/panel state
+are published only after the complete selection validates. A successful selection is one Undo step; any failure
+leaves the document and session state unchanged.
+
 
 ## Public regression corpus
 

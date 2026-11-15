@@ -30,6 +30,7 @@ fn is_known_unsupported_video_path(path: &std::path::Path) -> bool {
         })
 }
 
+#[derive(Clone)]
 pub(crate) struct PreparedGraphic {
     pub name: String,
     pub width: f64,
@@ -39,12 +40,73 @@ pub(crate) struct PreparedGraphic {
     pub notice: Option<String>,
 }
 
+#[derive(Clone)]
 struct PreparedImportGraphic {
     pub graphic: PreparedGraphic,
     pub timeline_override: Option<Timeline>,
     pub symbol_kind: SymbolKind,
     pub playback: InstancePlayback,
     pub helper_symbols: Vec<Symbol>,
+}
+
+#[derive(Clone)]
+enum PreparedGraphicBatch {
+    None,
+    Symbols(Vec<PreparedImportGraphic>),
+    Keyframes(Box<PreparedImportGraphic>),
+}
+
+impl PreparedGraphicBatch {
+    fn is_empty(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    fn is_keyframes(&self) -> bool {
+        matches!(self, Self::Keyframes(_))
+    }
+}
+
+#[derive(Clone)]
+struct PreparedFileImport {
+    swcs: Vec<(PathBuf, neoflash_import::SwcLibrary)>,
+    fonts: Vec<ResourceUnit>,
+    audio: Vec<(PathBuf, ResourceUnit)>,
+    swatches: Vec<GlobalSwatch>,
+    palette_file_count: usize,
+    graphics: PreparedGraphicBatch,
+}
+
+impl PreparedFileImport {
+    fn category_count(&self) -> usize {
+        usize::from(!self.swcs.is_empty())
+            + usize::from(!self.fonts.is_empty())
+            + usize::from(!self.audio.is_empty())
+            + usize::from(self.palette_file_count != 0)
+            + usize::from(!self.graphics.is_empty())
+    }
+}
+
+struct StagedSwcReport {
+    path: PathBuf,
+    library_name: String,
+    report: neoflash_import::SwcLinkReport,
+}
+
+struct StagedGraphicPlacement {
+    layer: Option<usize>,
+    selection: Option<Selection>,
+    library_selected: Option<Id>,
+    message: String,
+    stops_playback: bool,
+}
+
+struct FileImportPlan {
+    project: Project,
+    swc_reports: Vec<StagedSwcReport>,
+    audio_source_paths: Vec<(Id, PathBuf)>,
+    resource_selected: Option<Id>,
+    audio_attached: bool,
+    graphic_placement: Option<StagedGraphicPlacement>,
 }
 
 impl From<PreparedGraphic> for PreparedImportGraphic {
@@ -483,9 +545,9 @@ impl Editor {
             }
         }
 
-        // Prepare palettes/graphics before the independent font branch commits. This specifically
-        // keeps a valid font + malformed palette/graphic chooser batch atomic; SWC/audio batches
-        // retain their existing transaction boundaries.
+        // Decode every external input before mutating editor or document state. The detached
+        // project plan below applies categories in the historical SWC -> font -> audio -> palette
+        // -> graphic order, but no category is committed until the complete batch validates.
         let mut parsed_swatches = Vec::new();
         for pal_path in &palette_paths {
             let display = pal_path.display().to_string();
@@ -497,8 +559,9 @@ impl Editor {
         let mut remaining = MAX_RESOURCE_TOTAL_BYTES;
         let mut items = Vec::with_capacity(graphic_paths.len());
         let seq_opts = self.workspace.sequence_import_options.clone();
-        let mut keyframe_sequence = None;
-        if !graphic_paths.is_empty() {
+        let prepared_graphics = if graphic_paths.is_empty() {
+            PreparedGraphicBatch::None
+        } else {
             let sequence_request =
                 graphic_paths.len() >= 2 || (graphic_paths.len() == 1 && graphic_paths[0].is_dir());
             let imported_sequence = if sequence_request {
@@ -517,7 +580,11 @@ impl Editor {
                     && seq_opts.placement
                         == neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer
                 {
-                    keyframe_sequence = Some(imported_sequence);
+                    PreparedGraphicBatch::Keyframes(Box::new(prepare_sequence_graphic(
+                        imported_sequence,
+                        neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer,
+                        &mut remaining,
+                    )?))
                 } else {
                     let seq_item = prepare_sequence_graphic(
                         imported_sequence,
@@ -525,6 +592,7 @@ impl Editor {
                         &mut remaining,
                     )?;
                     items.push(seq_item);
+                    PreparedGraphicBatch::Symbols(items)
                 }
             } else {
                 for path in &graphic_paths {
@@ -551,228 +619,382 @@ impl Editor {
                     };
                     items.push(item);
                 }
+                PreparedGraphicBatch::Symbols(items)
             }
+        };
+
+        let mut loaded_swcs = Vec::with_capacity(swc_paths.len());
+        for swc_path in &swc_paths {
+            let library = neoflash_import::import_swc(swc_path)
+                .map_err(|error| format!("{}: {error}", swc_path.display()))?;
+            loaded_swcs.push((swc_path.clone(), library));
         }
 
-        if !swc_paths.is_empty() {
-            let mut loaded_swcs = Vec::with_capacity(swc_paths.len());
-            for swc_path in &swc_paths {
-                let lib = neoflash_import::import_swc(swc_path)
-                    .map_err(|e| format!("{}: {e}", swc_path.display()))?;
-                loaded_swcs.push((swc_path.clone(), lib));
+        let used = self
+            .project
+            .resources
+            .iter()
+            .try_fold(0usize, |total, resource| {
+                total.checked_add(resource.byte_len())
+            })
+            .ok_or("Project resource byte count overflowed.")?;
+        let mut direct_remaining = MAX_RESOURCE_TOTAL_BYTES.saturating_sub(used);
+        let mut fonts = Vec::with_capacity(font_paths.len());
+        for font_path in &font_paths {
+            let unit = crate::resources::read_font_resource(font_path, direct_remaining)?;
+            direct_remaining = direct_remaining.saturating_sub(unit.byte_len());
+            fonts.push(unit);
+        }
+        let mut audio = Vec::with_capacity(audio_paths.len());
+        for audio_path in &audio_paths {
+            let unit = crate::resources::read_audio_resource(audio_path, direct_remaining)?;
+            direct_remaining = direct_remaining.saturating_sub(unit.byte_len());
+            audio.push((audio_path.clone(), unit));
+        }
+
+        let prepared = PreparedFileImport {
+            swcs: loaded_swcs,
+            fonts,
+            audio,
+            swatches: parsed_swatches,
+            palette_file_count: palette_paths.len(),
+            graphics: prepared_graphics,
+        };
+
+        // Validate a complete plan before finishing any in-progress authoring gesture. If finishing
+        // that unrelated gesture changes the document, rebuild from the fresh project rather than
+        // overwriting the just-finished edit with a stale pre-import clone.
+        let baseline = self.project.clone();
+        let mut plan =
+            self.build_file_import_plan(baseline.clone(), &prepared, point, place_on_stage)?;
+        self.finish_edits();
+        if self.project != baseline {
+            drop(plan);
+            plan = self.build_file_import_plan(
+                self.project.clone(),
+                &prepared,
+                point,
+                place_on_stage,
+            )?;
+        }
+
+        let label = self.file_import_history_label(&prepared, place_on_stage);
+        let FileImportPlan {
+            project,
+            swc_reports,
+            audio_source_paths,
+            resource_selected,
+            audio_attached,
+            graphic_placement,
+        } = plan;
+        let (
+            placement_layer,
+            placement_selection,
+            placement_library,
+            placement_message,
+            stops_playback,
+        ) = match graphic_placement {
+            Some(staged) => (
+                staged.layer,
+                staged.selection,
+                staged.library_selected,
+                Some(staged.message),
+                staged.stops_playback,
+            ),
+            None => (None, None, None, None, false),
+        };
+        if stops_playback {
+            self.set_playing(false);
+        }
+        self.transact_named(label, |editor| {
+            editor.project = project;
+            if let Some(layer) = placement_layer {
+                editor.layer = layer;
             }
-            let mut candidate = self.project.clone();
-            let mut reports = Vec::with_capacity(loaded_swcs.len());
-            for (swc_path, lib) in &loaded_swcs {
-                let report = neoflash_import::link_swc_into_project(
-                    &mut candidate,
-                    lib,
-                    neoflash_import::SwcConflictPolicy::PreferNewer,
-                )
-                .map_err(|e| format!("{}: {e}", swc_path.display()))?;
-                reports.push((swc_path.clone(), lib.name.clone(), report));
+            if let Some(selection) = placement_selection {
+                editor.selection = selection;
             }
-            crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
-            candidate.validate().map_err(|e| e.to_string())?;
-            self.finish_edits();
-            self.transact_named("Link SWC", |editor| {
-                editor.project = candidate;
-            });
-            let mut total_symbols = 0usize;
-            let mut total_sources = 0usize;
-            let mut total_resources = 0usize;
-            for (swc_path, lib_name, report) in &reports {
-                total_symbols += report.linked_symbols;
-                total_sources += report.linked_sources;
-                total_resources += report.linked_resources;
-                let file_loc = crate::output_pipeline::OutputLocation::for_file(swc_path.clone());
-                self.push_output_coalesced(
-                    crate::output_pipeline::OutputEvent::new(
-                        crate::output_pipeline::OutputSeverity::Info,
-                        crate::output_pipeline::OutputSource::Import,
-                        format!(
-                            "Linked SWC '{lib_name}': {} symbol(s), {} source(s), {} resource(s), {} definition(s).",
-                            report.linked_symbols,
-                            report.linked_sources,
-                            report.linked_resources,
-                            report.linked_definitions.len()
-                        ),
-                    )
-                    .with_location(file_loc.clone()),
-                );
-                if !report.unresolved_dependencies.is_empty() {
-                    self.push_output_coalesced(
-                        crate::output_pipeline::OutputEvent::new(
-                            crate::output_pipeline::OutputSeverity::Warning,
-                            crate::output_pipeline::OutputSource::Import,
-                            format!(
-                                "SWC '{lib_name}' has {} unresolved external dependency(ies): {}",
-                                report.unresolved_dependencies.len(),
-                                report.unresolved_dependencies.join(", ")
-                            ),
-                        )
-                        .with_location(file_loc.clone()),
-                    );
-                }
-                for conflict in &report.conflicts {
-                    self.push_output_coalesced(
-                        crate::output_pipeline::OutputEvent::new(
-                            crate::output_pipeline::OutputSeverity::Warning,
-                            crate::output_pipeline::OutputSource::Import,
-                            format!(
-                                "SWC conflict on '{}': '{}' vs '{}' (selected '{}').",
-                                conflict.definition,
-                                conflict.existing_library,
-                                conflict.incoming_library,
-                                conflict.winner
-                            ),
-                        )
-                        .with_location(file_loc.clone()),
-                    );
-                }
+            if let Some(symbol) = placement_library {
+                editor.library_selected = Some(symbol);
             }
+        });
+
+        for (id, path) in audio_source_paths {
+            self.timeline_audio.source_paths.insert(id, path);
+        }
+        if resource_selected.is_some() {
+            self.resource_panel.selected = resource_selected;
+            self.resource_panel.baseline = None;
+        }
+
+        self.emit_swc_import_reports(&swc_reports);
+        if !prepared.fonts.is_empty() {
             self.show_panel(crate::workspace::PanelId::Library);
             self.message(format!(
-                "Linked {} SWC library(ies) ({total_symbols} symbol(s), {total_sources} source(s), {total_resources} resource(s)).",
-                reports.len()
+                "Imported {} font file(s) into the Library.",
+                prepared.fonts.len()
             ));
-            if audio_paths.is_empty()
-                && font_paths.is_empty()
-                && palette_paths.is_empty()
-                && graphic_paths.is_empty()
-            {
-                return Ok(());
+        }
+        if !prepared.audio.is_empty() {
+            if audio_attached {
+                if prepared.graphics.is_empty() {
+                    self.show_frame_sound();
+                } else {
+                    // Graphics were placed after the sound in the historical category order, so
+                    // keep their object selection while retaining the Properties panel routing.
+                    self.show_panel(crate::workspace::PanelId::Properties);
+                }
+                self.message(format!(
+                    "Imported {} audio file(s) and attached sound to the active keyframe.",
+                    prepared.audio.len()
+                ));
+            } else {
+                self.show_panel(crate::workspace::PanelId::Library);
+                self.message(format!(
+                    "Imported {} audio file(s) into the Library.",
+                    prepared.audio.len()
+                ));
             }
         }
+        if prepared.graphics.is_empty() && prepared.palette_file_count != 0 {
+            self.message(format!(
+                "Imported {} swatch(es) from {} palette file(s).",
+                prepared.swatches.len(),
+                prepared.palette_file_count
+            ));
+        }
+        if let Some(message) = placement_message {
+            self.message(message);
+        }
+        Ok(())
+    }
 
-        if !font_paths.is_empty() {
-            if font_paths.len() + self.project.resources.len() > neoflash_core::MAX_RESOURCES {
+    fn build_file_import_plan(
+        &self,
+        mut candidate: Project,
+        prepared: &PreparedFileImport,
+        point: Option<[f64; 2]>,
+        place_on_stage: bool,
+    ) -> Result<FileImportPlan, String> {
+        let mut swc_reports = Vec::with_capacity(prepared.swcs.len());
+        for (path, library) in &prepared.swcs {
+            let report = neoflash_import::link_swc_into_project(
+                &mut candidate,
+                library,
+                neoflash_import::SwcConflictPolicy::PreferNewer,
+            )
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+            swc_reports.push(StagedSwcReport {
+                path: path.clone(),
+                library_name: library.name.clone(),
+                report,
+            });
+        }
+
+        let mut resource_selected = None;
+        if !prepared.fonts.is_empty() {
+            if prepared.fonts.len() + candidate.resources.len() > neoflash_core::MAX_RESOURCES {
                 return Err("The project supports at most 1024 resource files.".into());
             }
-            let used: usize = self
-                .project
-                .resources
-                .iter()
-                .map(ResourceUnit::byte_len)
-                .sum();
-            let mut font_remaining = MAX_RESOURCE_TOTAL_BYTES.saturating_sub(used);
-            let mut candidate = self.project.clone();
             candidate.format_version = candidate.format_version.max(3);
-            let mut imported_ids = Vec::with_capacity(font_paths.len());
-            for font_path in &font_paths {
-                let mut unit = crate::resources::read_font_resource(font_path, font_remaining)?;
+            for prepared_unit in &prepared.fonts {
+                let mut unit = prepared_unit.clone();
                 unit.path =
                     crate::resources::unique_font_resource_path(&candidate.resources, &unit.path);
-                font_remaining = font_remaining.saturating_sub(unit.byte_len());
-                imported_ids.push(unit.id.clone());
+                resource_selected = Some(unit.id.clone());
                 candidate.resources.push(unit.clone());
                 crate::resources::upsert_imported_font_embedding_metadata(
                     &mut candidate.resources,
                     &unit,
                 )?;
             }
-            crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
-            candidate.validate().map_err(|e| e.to_string())?;
-            let last_id = imported_ids.last().cloned();
-            self.finish_edits();
-            self.transact_named("Import font", |editor| {
-                editor.project = candidate;
-            });
-            self.resource_panel.selected = last_id;
-            self.resource_panel.baseline = None;
-            self.show_panel(crate::workspace::PanelId::Library);
-            self.message(format!(
-                "Imported {} font file(s) into the Library.",
-                font_paths.len()
-            ));
-            if audio_paths.is_empty() && palette_paths.is_empty() && graphic_paths.is_empty() {
-                return Ok(());
-            }
         }
 
-        if !audio_paths.is_empty() {
-            if audio_paths.len() + self.project.resources.len() > neoflash_core::MAX_RESOURCES {
+        if !prepared.audio.is_empty() {
+            if prepared.audio.len() + candidate.resources.len() > neoflash_core::MAX_RESOURCES {
                 return Err("The project supports at most 1024 resource files.".into());
             }
-            let used: usize = self
-                .project
-                .resources
-                .iter()
-                .map(ResourceUnit::byte_len)
-                .sum();
-            let mut audio_remaining = MAX_RESOURCE_TOTAL_BYTES.saturating_sub(used);
-            let mut audio_units = Vec::with_capacity(audio_paths.len());
-            for audio_path in &audio_paths {
-                let unit = crate::resources::read_audio_resource(audio_path, audio_remaining)?;
-                audio_remaining = audio_remaining.saturating_sub(unit.byte_len());
-                audio_units.push((audio_path.clone(), unit));
-            }
-            let mut candidate = self.project.clone();
             candidate.format_version = candidate.format_version.max(3);
-            for (_, unit) in &audio_units {
+            for (_, unit) in &prepared.audio {
+                resource_selected = Some(unit.id.clone());
                 candidate.resources.push(unit.clone());
             }
-            candidate.validate().map_err(|e| e.to_string())?;
-            let last_id = audio_units.last().map(|(_, u)| u.id.clone());
-            let can_attach = place_on_stage && self.layer_editable();
-            let units_only: Vec<ResourceUnit> =
-                audio_units.iter().map(|(_, u)| u.clone()).collect();
-            self.finish_edits();
-            self.transact_named("Import audio", |editor| {
-                editor.project.format_version = editor.project.format_version.max(3);
-                editor.project.resources.extend(units_only);
-                if can_attach && let Some(ref id) = last_id {
-                    editor.attach_frame_sound(Some(id.clone()));
-                }
-            });
-            for (src_path, unit) in &audio_units {
-                self.timeline_audio
-                    .source_paths
-                    .insert(unit.id.clone(), src_path.clone());
-            }
-            self.resource_panel.selected = last_id;
-            self.resource_panel.baseline = None;
-            if can_attach {
-                self.show_frame_sound();
-                self.message(format!(
-                    "Imported {} audio file(s) and attached sound to the active keyframe.",
-                    audio_units.len()
-                ));
-            } else {
-                self.show_panel(crate::workspace::PanelId::Library);
-                self.message(format!(
-                    "Imported {} audio file(s) into the Library.",
-                    audio_units.len()
-                ));
-            }
-            if palette_paths.is_empty() && graphic_paths.is_empty() {
-                return Ok(());
-            }
         }
 
-        if graphic_paths.is_empty() {
-            let count = parsed_swatches.len();
-            self.finish_edits();
-            self.transact_named("Import colour palette", |editor| {
-                Self::merge_swatches_into_project(&mut editor.project, &parsed_swatches);
-            });
-            self.message(format!(
-                "Imported {count} swatch(es) from {} palette file(s).",
-                palette_paths.len()
-            ));
-            return Ok(());
+        let audio_attached = place_on_stage && !prepared.audio.is_empty() && self.layer_editable();
+        if audio_attached && let Some(resource) = resource_selected.as_ref() {
+            self.attach_frame_sound_to_project(&mut candidate, resource.clone())?;
         }
 
-        if let Some(imported_sequence) = keyframe_sequence {
-            return self.place_sequence_keyframes_on_active_layer(
-                imported_sequence,
-                parsed_swatches,
+        if !prepared.swatches.is_empty() {
+            Self::merge_swatches_into_project(&mut candidate, &prepared.swatches);
+        }
+        let graphic_placement = match &prepared.graphics {
+            PreparedGraphicBatch::None => None,
+            PreparedGraphicBatch::Symbols(items) => Some(self.stage_prepared_import_graphics(
+                &mut candidate,
+                items.clone(),
                 point,
-                &mut remaining,
+                place_on_stage,
+            )?),
+            PreparedGraphicBatch::Keyframes(item) => {
+                Some(self.stage_sequence_keyframes_on_active_layer(
+                    &mut candidate,
+                    item.as_ref().clone(),
+                    point,
+                )?)
+            }
+        };
+
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
+        candidate.validate().map_err(|error| error.to_string())?;
+        let audio_source_paths = prepared
+            .audio
+            .iter()
+            .map(|(path, unit)| (unit.id.clone(), path.clone()))
+            .collect();
+        Ok(FileImportPlan {
+            project: candidate,
+            swc_reports,
+            audio_source_paths,
+            resource_selected,
+            audio_attached,
+            graphic_placement,
+        })
+    }
+
+    fn attach_frame_sound_to_project(
+        &self,
+        project: &mut Project,
+        resource: Id,
+    ) -> Result<(), String> {
+        let symbol_id = self.symbol_id().to_owned();
+        let layer_id = self
+            .symbol()
+            .timeline
+            .layers
+            .get(self.layer)
+            .ok_or("The active layer was removed.")?
+            .id
+            .clone();
+        let has_key = project
+            .symbol(&symbol_id)
+            .and_then(|symbol| symbol.timeline.layers.get(self.layer))
+            .and_then(|layer| layer.key_at(self.frame))
+            .is_some();
+        if !has_key {
+            Self::ensure_key_for_project(
+                project,
+                &symbol_id,
+                &layer_id,
+                self.frame,
+                true,
+                self.workspace.timeline_prefs.auto_keyframe,
             );
         }
+        let key = project
+            .symbol_mut(&symbol_id)
+            .and_then(|symbol| symbol.timeline.layers.get_mut(self.layer))
+            .and_then(|layer| layer.key_at_mut(self.frame))
+            .ok_or("Could not create an audio import keyframe.")?;
+        key.sound = Some(match key.sound.take() {
+            Some(sound) => FrameSound { resource, ..sound },
+            None => FrameSound::new(resource),
+        });
+        Ok(())
+    }
 
-        self.place_prepared_import_graphics(items, parsed_swatches, point, place_on_stage)
+    fn file_import_history_label(
+        &self,
+        prepared: &PreparedFileImport,
+        place_on_stage: bool,
+    ) -> &'static str {
+        if prepared.category_count() > 1 {
+            "Import files"
+        } else if !prepared.swcs.is_empty() {
+            "Link SWC"
+        } else if !prepared.fonts.is_empty() {
+            "Import font"
+        } else if !prepared.audio.is_empty() {
+            "Import audio"
+        } else if prepared.palette_file_count != 0 {
+            "Import colour palette"
+        } else if prepared.graphics.is_keyframes() {
+            "Import Image Sequence"
+        } else if place_on_stage {
+            "Edit"
+        } else {
+            "Import to Library"
+        }
+    }
+
+    fn emit_swc_import_reports(&mut self, reports: &[StagedSwcReport]) {
+        if reports.is_empty() {
+            return;
+        }
+        let mut total_symbols = 0usize;
+        let mut total_sources = 0usize;
+        let mut total_resources = 0usize;
+        for staged in reports {
+            let StagedSwcReport {
+                path,
+                library_name,
+                report,
+            } = staged;
+            total_symbols += report.linked_symbols;
+            total_sources += report.linked_sources;
+            total_resources += report.linked_resources;
+            let file_loc = crate::output_pipeline::OutputLocation::for_file(path.clone());
+            self.push_output_coalesced(
+                crate::output_pipeline::OutputEvent::new(
+                    crate::output_pipeline::OutputSeverity::Info,
+                    crate::output_pipeline::OutputSource::Import,
+                    format!(
+                        "Linked SWC '{library_name}': {} symbol(s), {} source(s), {} resource(s), {} definition(s).",
+                        report.linked_symbols,
+                        report.linked_sources,
+                        report.linked_resources,
+                        report.linked_definitions.len()
+                    ),
+                )
+                .with_location(file_loc.clone()),
+            );
+            if !report.unresolved_dependencies.is_empty() {
+                self.push_output_coalesced(
+                    crate::output_pipeline::OutputEvent::new(
+                        crate::output_pipeline::OutputSeverity::Warning,
+                        crate::output_pipeline::OutputSource::Import,
+                        format!(
+                            "SWC '{library_name}' has {} unresolved external dependency(ies): {}",
+                            report.unresolved_dependencies.len(),
+                            report.unresolved_dependencies.join(", ")
+                        ),
+                    )
+                    .with_location(file_loc.clone()),
+                );
+            }
+            for conflict in &report.conflicts {
+                self.push_output_coalesced(
+                    crate::output_pipeline::OutputEvent::new(
+                        crate::output_pipeline::OutputSeverity::Warning,
+                        crate::output_pipeline::OutputSource::Import,
+                        format!(
+                            "SWC conflict on '{}': '{}' vs '{}' (selected '{}').",
+                            conflict.definition,
+                            conflict.existing_library,
+                            conflict.incoming_library,
+                            conflict.winner
+                        ),
+                    )
+                    .with_location(file_loc.clone()),
+                );
+            }
+        }
+        self.show_panel(crate::workspace::PanelId::Library);
+        self.message(format!(
+            "Linked {} SWC library(ies) ({total_symbols} symbol(s), {total_sources} source(s), {total_resources} resource(s)).",
+            reports.len()
+        ));
     }
 
     pub(crate) fn place_graphic_resource(
@@ -821,6 +1043,49 @@ impl Editor {
         if !swatches.is_empty() {
             Self::merge_swatches_into_project(&mut candidate, &swatches);
         }
+        let staged =
+            self.stage_prepared_import_graphics(&mut candidate, items, point, place_on_stage)?;
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
+        candidate.validate().map_err(|error| error.to_string())?;
+        if staged.stops_playback {
+            self.set_playing(false);
+        }
+        let StagedGraphicPlacement {
+            layer,
+            selection,
+            library_selected,
+            message,
+            ..
+        } = staged;
+        let label = if place_on_stage {
+            "Edit"
+        } else {
+            "Import to Library"
+        };
+        self.transact_named(label, |editor| {
+            editor.project = candidate;
+            if let Some(layer) = layer {
+                editor.layer = layer;
+            }
+            if let Some(selection) = selection {
+                editor.selection = selection;
+            }
+            if let Some(symbol) = library_selected {
+                editor.library_selected = Some(symbol);
+            }
+        });
+        self.message(message);
+        Ok(())
+    }
+
+    fn stage_prepared_import_graphics(
+        &self,
+        candidate: &mut Project,
+        items: Vec<PreparedImportGraphic>,
+        point: Option<[f64; 2]>,
+        place_on_stage: bool,
+    ) -> Result<StagedGraphicPlacement, String> {
+        candidate.format_version = candidate.format_version.max(3);
         let folder = self.library_panel.selected_folder.clone();
         candidate.add_library_folder(&folder)?;
         let mut placed = Vec::with_capacity(items.len());
@@ -830,7 +1095,7 @@ impl Editor {
         let exact_position = point.is_some() || self.editing_in_place();
         let at = point.unwrap_or_else(|| self.paste_center());
         for (index, mut item) in items.into_iter().enumerate() {
-            merge_import_graphic_resources(&mut candidate, &mut item)?;
+            merge_import_graphic_resources(candidate, &mut item)?;
             for mut helper in item.helper_symbols.drain(..) {
                 helper.folder = folder.clone();
                 if let Some(link) = helper.linkage_id.as_deref()
@@ -967,21 +1232,20 @@ impl Editor {
             last_symbol = Some(symbol_id);
         }
         if !place_on_stage {
-            crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
-            candidate.validate().map_err(|e| e.to_string())?;
-            self.transact_named("Import to Library", |editor| {
-                editor.project = candidate;
-                editor.library_selected = last_symbol;
-            });
             let suffix = if notices.is_empty() {
                 String::new()
             } else {
                 format!(" {}", notices.join(" "))
             };
-            self.message(format!("Imported symbol(s) into Library.{suffix}"));
-            return Ok(());
+            return Ok(StagedGraphicPlacement {
+                layer: None,
+                selection: None,
+                library_selected: last_symbol,
+                message: format!("Imported symbol(s) into Library.{suffix}"),
+                stops_playback: false,
+            });
         }
-        self.commit_graphic_placements_with_span(
+        self.stage_graphic_placements_with_span(
             candidate,
             placed,
             last_symbol,
@@ -1089,8 +1353,48 @@ impl Editor {
         notices: Vec<String>,
         min_frame_span: u32,
     ) -> Result<(), String> {
+        let staged = self.stage_graphic_placements_with_span(
+            &mut candidate,
+            placed,
+            last_symbol,
+            notices,
+            min_frame_span,
+        )?;
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
+        candidate.validate().map_err(|error| error.to_string())?;
+        if staged.stops_playback {
+            self.set_playing(false);
+        }
+        let StagedGraphicPlacement {
+            layer,
+            selection,
+            library_selected,
+            message,
+            ..
+        } = staged;
+        self.transact(|editor| {
+            editor.project = candidate;
+            if let Some(layer) = layer {
+                editor.layer = layer;
+            }
+            if let Some(selection) = selection {
+                editor.selection = selection;
+            }
+            editor.library_selected = library_selected;
+        });
+        self.message(message);
+        Ok(())
+    }
+
+    fn stage_graphic_placements_with_span(
+        &self,
+        candidate: &mut Project,
+        placed: Vec<Element>,
+        last_symbol: Option<String>,
+        notices: Vec<String>,
+        min_frame_span: u32,
+    ) -> Result<StagedGraphicPlacement, String> {
         let count = placed.len();
-        self.set_playing(false);
         let symbol_id = self.symbol_id().to_owned();
         let fps = f64::from(candidate.fps);
         let timeline = &mut candidate
@@ -1154,17 +1458,10 @@ impl Editor {
             .ok_or("Could not create an import keyframe.")?
             .elements
             .extend(placed);
-        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
-        candidate.validate().map_err(|e| e.to_string())?;
-        self.transact(|editor| {
-            editor.project = candidate;
-            editor.layer = target_layer;
-            editor.selection = Selection {
-                symbol: symbol_id,
-                targets,
-            };
-            editor.library_selected = last_symbol;
-        });
+        let selection = Selection {
+            symbol: symbol_id,
+            targets,
+        };
         let suffix = if notices.is_empty() {
             String::new()
         } else {
@@ -1175,32 +1472,23 @@ impl Editor {
         } else {
             " Created a visible Imported graphics layer."
         };
-        self.message(format!(
-            "Placed {count} graphic(s) on Stage.{target_note}{suffix}"
-        ));
-        Ok(())
+        Ok(StagedGraphicPlacement {
+            layer: Some(target_layer),
+            selection: Some(selection),
+            library_selected: last_symbol,
+            message: format!("Placed {count} graphic(s) on Stage.{target_note}{suffix}"),
+            stops_playback: true,
+        })
     }
 
-    fn place_sequence_keyframes_on_active_layer(
-        &mut self,
-        imported: neoflash_import::ImportedNumberedImageSequence,
-        swatches: Vec<GlobalSwatch>,
+    fn stage_sequence_keyframes_on_active_layer(
+        &self,
+        candidate: &mut Project,
+        mut seq_item: PreparedImportGraphic,
         point: Option<[f64; 2]>,
-        remaining: &mut usize,
-    ) -> Result<(), String> {
-        let mut seq_item = prepare_sequence_graphic(
-            imported,
-            neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer,
-            remaining,
-        )?;
-        self.finish_edits();
-        self.set_playing(false);
-        let mut candidate = self.project.clone();
+    ) -> Result<StagedGraphicPlacement, String> {
         candidate.format_version = candidate.format_version.max(3);
-        if !swatches.is_empty() {
-            Self::merge_swatches_into_project(&mut candidate, &swatches);
-        }
-        merge_import_graphic_resources(&mut candidate, &mut seq_item)?;
+        merge_import_graphic_resources(candidate, &mut seq_item)?;
 
         let seq_timeline = seq_item
             .timeline_override
@@ -1304,22 +1592,19 @@ impl Editor {
             }
         }
         layer.keyframes.sort_by_key(|k| k.frame);
-        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
-        candidate.validate().map_err(|e| e.to_string())?;
         let notice = seq_item.graphic.notice.take();
-        self.transact_named("Import Image Sequence", |editor| {
-            editor.project = candidate;
-            editor.layer = target_layer;
-            editor.selection = Selection {
-                symbol: symbol_id,
-                targets: first_targets,
-            };
-        });
+        let selection = Selection {
+            symbol: symbol_id,
+            targets: first_targets,
+        };
         let suffix = notice.map(|n| format!(" {n}")).unwrap_or_default();
-        self.message(format!(
-            "Placed {keyframe_count} sequence keyframe(s) on timeline.{suffix}"
-        ));
-        Ok(())
+        Ok(StagedGraphicPlacement {
+            layer: Some(target_layer),
+            selection: Some(selection),
+            library_selected: None,
+            message: format!("Placed {keyframe_count} sequence keyframe(s) on timeline.{suffix}"),
+            stops_playback: true,
+        })
     }
 }
 
@@ -2477,6 +2762,218 @@ mod tests {
     }
 
     #[test]
+    fn mixed_swc_font_palette_graphic_and_invalid_audio_leave_no_partial_state() {
+        let temp = std::env::temp_dir().join(format!(
+            "neoflash-editor-mixed-import-failure-{}-{}",
+            std::process::id(),
+            new_id("test")
+        ));
+        std::fs::create_dir_all(&temp).unwrap();
+        let swc = write_test_swc(&temp);
+        let font = temp.join("Inter-Regular.ttf");
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../neoflash-ui/assets/fonts/Inter-Regular.ttf"),
+            &font,
+        )
+        .unwrap();
+        let palette = temp.join("Theme.ase");
+        std::fs::write(&palette, make_ase_bytes()).unwrap();
+        let graphic = temp.join("poster.png");
+        std::fs::write(&graphic, make_png_bytes(4, 4, [20, 120, 220, 255])).unwrap();
+        let invalid_audio = temp.join("oversized.wav");
+        std::fs::File::create(&invalid_audio)
+            .unwrap()
+            .set_len(MAX_RESOURCE_BYTES as u64 + 1)
+            .unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.history.clear();
+        let project_before = editor.project.to_json().unwrap();
+        let sources_before = editor.timeline_audio.source_paths.clone();
+        let output_before = editor.output.len();
+        let resource_selection_before = editor.resource_panel.selected.clone();
+
+        let error = editor
+            .import_graphics_paths(
+                &[swc, font, invalid_audio, palette, graphic],
+                Some([120.0, 80.0]),
+            )
+            .expect_err("an invalid late category must reject the complete mixed import");
+        assert!(!error.trim().is_empty());
+        assert_eq!(editor.project.to_json().unwrap(), project_before);
+        assert_eq!(editor.history.undo_len(), 0);
+        assert_eq!(editor.timeline_audio.source_paths, sources_before);
+        assert_eq!(editor.output.len(), output_before);
+        assert_eq!(editor.resource_panel.selected, resource_selection_before);
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn late_graphic_capacity_failure_does_not_leak_audio_attachment_or_source_path() {
+        let temp = std::env::temp_dir().join(format!(
+            "neoflash-editor-mixed-import-capacity-{}-{}",
+            std::process::id(),
+            new_id("test")
+        ));
+        std::fs::create_dir_all(&temp).unwrap();
+        let wav = write_test_wav(&temp);
+        let graphic = temp.join("poster.png");
+        std::fs::write(&graphic, make_png_bytes(4, 4, [20, 120, 220, 255])).unwrap();
+
+        let mut project = Project::blank();
+        for index in 0..(MAX_RESOURCES - 1) {
+            project.resources.push(
+                ResourceUnit::from_bytes(
+                    format!("padding-{index}"),
+                    format!("padding/{index:04}.txt"),
+                    "text/plain",
+                    &[],
+                )
+                .unwrap(),
+            );
+        }
+        crate::timeline_commands::upgrade_all_format_versions(&mut project);
+        project.validate().unwrap();
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.history.clear();
+        let project_before = editor.project.to_json().unwrap();
+        let sources_before = editor.timeline_audio.source_paths.clone();
+        let output_before = editor.output.len();
+
+        let error = editor
+            .import_graphics_paths(&[wav, graphic], Some([120.0, 80.0]))
+            .expect_err("the final graphic must exceed the combined resource count");
+        assert!(!error.trim().is_empty());
+        assert_eq!(editor.project.to_json().unwrap(), project_before);
+        assert_eq!(editor.history.undo_len(), 0);
+        assert_eq!(editor.timeline_audio.source_paths, sources_before);
+        assert_eq!(editor.output.len(), output_before);
+        assert!(
+            editor.symbol().timeline.layers[0].keyframes[0]
+                .sound
+                .is_none()
+        );
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn mixed_swc_audio_font_palette_and_graphic_import_is_one_undo() {
+        let temp = std::env::temp_dir().join(format!(
+            "neoflash-editor-mixed-import-success-{}-{}",
+            std::process::id(),
+            new_id("test")
+        ));
+        std::fs::create_dir_all(&temp).unwrap();
+        let swc = write_test_swc(&temp);
+        let wav = write_test_wav(&temp);
+        let font = temp.join("Inter-Regular.ttf");
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../neoflash-ui/assets/fonts/Inter-Regular.ttf"),
+            &font,
+        )
+        .unwrap();
+        let palette = temp.join("Theme.ase");
+        std::fs::write(&palette, make_ase_bytes()).unwrap();
+        let graphic = temp.join("poster.png");
+        std::fs::write(&graphic, make_png_bytes(4, 4, [20, 120, 220, 255])).unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.history.clear();
+        let project_before = editor.project.to_json().unwrap();
+        editor
+            .import_graphics_paths(
+                &[swc, wav.clone(), font, palette, graphic],
+                Some([120.0, 80.0]),
+            )
+            .expect("all mixed categories should commit together");
+
+        assert_eq!(editor.history.undo_len(), 1);
+        assert!(
+            editor
+                .project
+                .sources
+                .iter()
+                .any(|source| source.path.ends_with("com/example/BadgeClip.as"))
+        );
+        assert!(
+            editor
+                .project
+                .resources
+                .iter()
+                .any(|unit| unit.media_type.starts_with("font/"))
+        );
+        assert!(
+            editor
+                .project
+                .resources
+                .iter()
+                .any(|unit| unit.path == "fonts/embedding.json")
+        );
+        let audio_id = editor
+            .project
+            .resources
+            .iter()
+            .find(|unit| unit.path == "click.wav" && unit.media_type == "audio/wav")
+            .unwrap()
+            .id
+            .clone();
+        assert_eq!(
+            editor.timeline_audio.source_paths.get(&audio_id),
+            Some(&wav)
+        );
+        assert_eq!(
+            editor.symbol().timeline.layers[0].keyframes[0]
+                .sound
+                .as_ref()
+                .map(|sound| &sound.resource),
+            Some(&audio_id)
+        );
+        assert!(
+            editor
+                .project
+                .global_swatches()
+                .iter()
+                .any(|swatch| swatch.name == "Gold")
+        );
+        let poster = editor
+            .project
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == "poster")
+            .expect("graphic symbol");
+        assert!(
+            editor.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .iter()
+                .any(|element| matches!(
+                    &element.kind,
+                    ElementKind::Instance { symbol_id, .. } if symbol_id == &poster.id
+                ))
+        );
+        assert!(
+            editor
+                .output
+                .events()
+                .iter()
+                .any(|event| event.message.contains("Linked SWC 'badge_kit'"))
+        );
+        editor.project.validate().unwrap();
+
+        editor.undo();
+        assert_eq!(editor.project.to_json().unwrap(), project_before);
+        assert_eq!(editor.history.undo_len(), 0);
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
     fn figma_swf_tiff_and_avi_imports_preserve_layers_undo_and_export() {
         let temp = std::env::temp_dir().join(format!(
             "neoflash-editor-t247-t249-{}-{}",
@@ -2751,30 +3248,13 @@ mod tests {
         out
     }
 
-    #[test]
-    fn t311_swc_linking_and_audio_import_reachability_undo_and_ffmpeg_diagnostics() {
-        assert!(crate::app::Editor::is_legacy_flash_path(
-            std::path::Path::new("ui_kit.swc")
-        ));
-        assert!(crate::app::Editor::is_legacy_flash_path(
-            std::path::Path::new("Hero.figma.json")
-        ));
-
-        let temp = std::env::temp_dir().join(format!(
-            "neoflash-editor-t311-swc-audio-{}-{}",
-            std::process::id(),
-            new_id("test")
-        ));
-        std::fs::create_dir_all(&temp).unwrap();
-
-        // 1. Build a genuine `.swc` library archive (`catalog.xml` + `library.swf` + `assets/badge.png`).
+    fn write_test_swc(temp: &std::path::Path) -> PathBuf {
         let mut swc_source_project = Project::blank();
-        let sym_id = "sym-badge-mc".to_owned();
-        let mut badge_sym = swc_source_project.symbols[0].clone();
-        badge_sym.id = sym_id;
-        badge_sym.name = "BadgeClip".into();
-        badge_sym.class_name = Some("com.example.BadgeClip".into());
-        badge_sym.timeline.layers[0].keyframes[0]
+        let mut badge_symbol = swc_source_project.symbols[0].clone();
+        badge_symbol.id = "sym-badge-mc".into();
+        badge_symbol.name = "BadgeClip".into();
+        badge_symbol.class_name = Some("com.example.BadgeClip".into());
+        badge_symbol.timeline.layers[0].keyframes[0]
             .elements
             .push(Element {
                 id: "badge-rect".into(),
@@ -2789,11 +3269,11 @@ mod tests {
                 },
                 ..Element::default()
             });
-        swc_source_project.symbols.push(badge_sym);
-        let lib_swf_path = temp.join("library.swf");
+        swc_source_project.symbols.push(badge_symbol);
+        let library_swf = temp.join("library.swf");
         neoflash_export::publish_swf_to_path(
             &swc_source_project,
-            &lib_swf_path,
+            &library_swf,
             &neoflash_export::SwfPublishOptions {
                 profile: neoflash_export::SwfPublishProfile::FlashPlayer10Avm2,
                 scriptless_mode: true,
@@ -2801,9 +3281,9 @@ mod tests {
             },
         )
         .expect("build library.swf for SWC fixture");
-        let lib_swf_bytes = std::fs::read(&lib_swf_path).unwrap();
+        let library_swf_bytes = std::fs::read(&library_swf).unwrap();
         let badge_png = make_png_bytes(4, 4, [40, 160, 240, 255]);
-        let catalog_xml = r#"<?xml version="1.0" encoding="utf-8"?>
+        let catalog_xml = br#"<?xml version="1.0" encoding="utf-8"?>
 <swc xmlns="http://www.adobe.com/flash/swccatalog/9">
   <versions><swc version="1.2"/></versions>
   <features><feature-script-deps/><feature-files/></features>
@@ -2821,11 +3301,56 @@ mod tests {
 </swc>"#;
         let swc_path = temp.join("badge_kit.swc");
         let swc_bytes = build_stored_zip(&[
-            ("catalog.xml", catalog_xml.as_bytes()),
-            ("library.swf", &lib_swf_bytes),
+            ("catalog.xml", catalog_xml),
+            ("library.swf", &library_swf_bytes),
             ("assets/badge.png", &badge_png),
         ]);
-        std::fs::write(&swc_path, &swc_bytes).unwrap();
+        std::fs::write(&swc_path, swc_bytes).unwrap();
+        swc_path
+    }
+
+    fn write_test_wav(temp: &std::path::Path) -> PathBuf {
+        let wav_path = temp.join("click.wav");
+        let pcm_samples: [i16; 8] = [0, 4096, 8192, 4096, 0, -4096, -8192, -4096];
+        let data_len = (pcm_samples.len() * 2) as u32;
+        let mut wav_bytes = Vec::new();
+        wav_bytes.extend_from_slice(b"RIFF");
+        wav_bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        wav_bytes.extend_from_slice(b"WAVEfmt ");
+        wav_bytes.extend_from_slice(&16u32.to_le_bytes());
+        wav_bytes.extend_from_slice(&1u16.to_le_bytes());
+        wav_bytes.extend_from_slice(&1u16.to_le_bytes());
+        wav_bytes.extend_from_slice(&44100u32.to_le_bytes());
+        wav_bytes.extend_from_slice(&88200u32.to_le_bytes());
+        wav_bytes.extend_from_slice(&2u16.to_le_bytes());
+        wav_bytes.extend_from_slice(&16u16.to_le_bytes());
+        wav_bytes.extend_from_slice(b"data");
+        wav_bytes.extend_from_slice(&data_len.to_le_bytes());
+        for sample in pcm_samples {
+            wav_bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+        std::fs::write(&wav_path, wav_bytes).unwrap();
+        wav_path
+    }
+
+    #[test]
+    fn t311_swc_linking_and_audio_import_reachability_undo_and_ffmpeg_diagnostics() {
+        assert!(crate::app::Editor::is_legacy_flash_path(
+            std::path::Path::new("ui_kit.swc")
+        ));
+        assert!(crate::app::Editor::is_legacy_flash_path(
+            std::path::Path::new("Hero.figma.json")
+        ));
+
+        let temp = std::env::temp_dir().join(format!(
+            "neoflash-editor-t311-swc-audio-{}-{}",
+            std::process::id(),
+            new_id("test")
+        ));
+        std::fs::create_dir_all(&temp).unwrap();
+
+        // 1. Build a genuine `.swc` library archive (`catalog.xml` + `library.swf` + `assets/badge.png`).
+        let swc_path = write_test_swc(&temp);
 
         let ctx = egui::Context::default();
         let mut editor = Editor::from_project(&ctx, Project::blank());
@@ -2855,26 +3380,7 @@ mod tests {
         assert_eq!(editor.project, initial);
 
         // 2. Build a minimal 16-bit PCM mono WAV and test Stage + Library import + single Undo.
-        let wav_path = temp.join("click.wav");
-        let pcm_samples: [i16; 8] = [0, 4096, 8192, 4096, 0, -4096, -8192, -4096];
-        let data_len = (pcm_samples.len() * 2) as u32;
-        let mut wav_bytes = Vec::new();
-        wav_bytes.extend_from_slice(b"RIFF");
-        wav_bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
-        wav_bytes.extend_from_slice(b"WAVEfmt ");
-        wav_bytes.extend_from_slice(&16u32.to_le_bytes());
-        wav_bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
-        wav_bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
-        wav_bytes.extend_from_slice(&44100u32.to_le_bytes());
-        wav_bytes.extend_from_slice(&88200u32.to_le_bytes());
-        wav_bytes.extend_from_slice(&2u16.to_le_bytes());
-        wav_bytes.extend_from_slice(&16u16.to_le_bytes());
-        wav_bytes.extend_from_slice(b"data");
-        wav_bytes.extend_from_slice(&data_len.to_le_bytes());
-        for sample in pcm_samples {
-            wav_bytes.extend_from_slice(&sample.to_le_bytes());
-        }
-        std::fs::write(&wav_path, &wav_bytes).unwrap();
+        let wav_path = write_test_wav(&temp);
 
         editor
             .import_graphics_paths(std::slice::from_ref(&wav_path), Some([120.0, 80.0]))

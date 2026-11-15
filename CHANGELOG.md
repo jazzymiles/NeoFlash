@@ -2,6 +2,10 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Made desktop File Import selections spanning SWC libraries, audio, fonts, palettes and graphics one atomic
+  operation. The complete selection and final Stage placement validate before document, history, diagnostics or
+  audio source-path state changes; success creates exactly one Undo step, while failure leaves the project and
+  session state unchanged (`T-334`).
 - Preserved original runtime errors and authored source locations across browser callbacks, ExternalInterface,
   text measurement and asynchronous loading. Cleanup failures remain separately visible, every service gets a
   cleanup attempt, and Restart can recover without old callbacks taking over the new session. Failed child loads
