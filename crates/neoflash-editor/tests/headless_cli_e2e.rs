@@ -1576,6 +1576,9 @@ fn subprocess_export_full_matrix_html5_swf_image_lottie_svg_atlas_aep_fla_xfl() 
     assert_eq!(&fs::read(&img_pdf).unwrap()[..5], b"%PDF-");
 
     let img_jpeg = tmp.path.join("scene.jpeg");
+    let sibling_jpg = tmp.path.join("scene.jpg");
+    fs::write(&sibling_jpg, b"unrelated existing JPG").unwrap();
+    fs::write(&img_jpeg, b"replace this existing JPEG atomically").unwrap();
     let ex_jpeg = run_bin(
         &[
             "--headless",
@@ -1594,6 +1597,24 @@ fn subprocess_export_full_matrix_html5_swf_image_lottie_svg_atlas_aep_fla_xfl() 
     );
     assert_eq!(ex_jpeg.code, 0, "stdout: {}", ex_jpeg.stdout);
     assert!(img_jpeg.is_file(), "exact .jpeg extension preserved");
+    assert_eq!(
+        fs::read(&sibling_jpg).unwrap(),
+        b"unrelated existing JPG",
+        "requesting scene.jpeg must not overwrite sibling scene.jpg"
+    );
+    assert!(
+        fs::read(&img_jpeg)
+            .unwrap()
+            .starts_with(&[0xFF, 0xD8, 0xFF])
+    );
+    assert!(
+        fs::read_dir(&tmp.path).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".neoflash-jpeg-stage-")),
+        "temporary JPEG staging directories must be removed"
+    );
 
     // Re-import exported PSD AND import synthetic vector PDF/AI via `--headless import`.
     let reimp_psd_out = tmp.path.join("from_psd.nflash");

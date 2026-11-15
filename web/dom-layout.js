@@ -1266,9 +1266,19 @@
       };
     }
 
+    function hasExplicitClientCoords(domEvent) {
+      if (!domEvent || !Number.isFinite(domEvent.clientX) || !Number.isFinite(domEvent.clientY)) return false;
+      // A keyboard/programmatic `click()` has the browser sentinel coordinates 0,0/detail 0 and
+      // should activate the control centre. Pointer events legitimately report 0,0 at the top-left
+      // of a fullscreen stage, so never reinterpret those coordinates as missing.
+      return domEvent.type !== 'click'
+        || domEvent.clientX !== 0
+        || domEvent.clientY !== 0
+        || domEvent.detail !== 0;
+    }
+
     function syntheticPointerFromDom(domEvent, element) {
-      if (domEvent && Number.isFinite(domEvent.clientX) && Number.isFinite(domEvent.clientY)
-          && !(domEvent.clientX === 0 && domEvent.clientY === 0 && domEvent.detail === 0)) {
+      if (hasExplicitClientCoords(domEvent)) {
         return domEvent;
       }
       const rect = element?.getBoundingClientRect?.() || canvas?.getBoundingClientRect?.() || { left: 0, top: 0, width: 2, height: 2 };
@@ -1513,12 +1523,7 @@
           return null;
         }
       };
-      const hasExplicitCoords = ev => Boolean(
-        ev
-        && Number.isFinite(ev.clientX)
-        && Number.isFinite(ev.clientY)
-        && !(ev.clientX === 0 && ev.clientY === 0 && !ev.detail),
-      );
+      const hasExplicitCoords = hasExplicitClientCoords;
       const onPointer = (type, ev) => guardedCall(() => {
         if (disposed || btn.disabled) return;
         if (type === 'pointerdown') unlockMediaFromGesture();

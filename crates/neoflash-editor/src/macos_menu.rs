@@ -52,6 +52,10 @@ pub const NATIVE_WINDOW_PANELS: &[(&str, PanelId)] = &[
     ("Filters", PanelId::Filters),
 ];
 
+fn native_detachable_panels() -> impl Iterator<Item = (&'static str, PanelId)> {
+    std::iter::once(("Brushes", PanelId::Brushes)).chain(NATIVE_WINDOW_PANELS.iter().copied())
+}
+
 const TEXT_MENU_SIZES: &[u16] = &[8, 10, 12, 14, 18, 24, 36, 48, 72, 96];
 
 /// Complete cross-platform snapshot of the macOS menu bar derived from [`Editor`] state.
@@ -1913,10 +1917,9 @@ impl NativeMenuSpec {
             })
             .collect();
 
-        let detach_items: Vec<NativeMenuItemSpec> = NATIVE_WINDOW_PANELS
-            .iter()
+        let detach_items: Vec<NativeMenuItemSpec> = native_detachable_panels()
             .filter(|(_, panel)| editor.workspace.placement(*panel) == PanelPlacement::Docked)
-            .map(|&(name, panel)| {
+            .map(|(name, panel)| {
                 custom_item(
                     name,
                     None,
@@ -1926,10 +1929,9 @@ impl NativeMenuSpec {
                 )
             })
             .collect();
-        let dock_items: Vec<NativeMenuItemSpec> = NATIVE_WINDOW_PANELS
-            .iter()
+        let dock_items: Vec<NativeMenuItemSpec> = native_detachable_panels()
             .filter(|(_, panel)| editor.workspace.placement(*panel) == PanelPlacement::Detached)
-            .map(|&(name, panel)| {
+            .map(|(name, panel)| {
                 custom_item(name, None, true, false, NativeMenuAction::DockPanel(panel))
             })
             .collect();

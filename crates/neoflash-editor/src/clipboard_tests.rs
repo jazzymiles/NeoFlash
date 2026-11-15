@@ -1203,6 +1203,7 @@ fn t318_cross_tab_copy_cut_paste_and_paste_in_place_transitively_deduplicate_all
     let mut outer_sym = donor.symbols[0].clone();
     outer_sym.id = "sym-outer".into();
     outer_sym.name = "OuterCard".into();
+    outer_sym.class_name = Some("game.OuterCard".into());
     outer_sym.timeline.layers[0].id = "outer-layer".into();
     outer_sym.timeline.layers[0].properties.groups = vec![AuthoringGroup {
         id: "grp-outer".into(),
@@ -1238,7 +1239,33 @@ fn t318_cross_tab_copy_cut_paste_and_paste_in_place_transitively_deduplicate_all
         }],
         ..Default::default()
     }];
+    let mut outer_pose_2 = outer_sym.timeline.layers[0].keyframes[0].clone();
+    outer_pose_2.frame = 1;
+    outer_pose_2.ik_armatures[0].target_pos = [24.0, 3.0];
+    outer_sym.timeline.frame_count = outer_sym.timeline.frame_count.max(2);
+    outer_sym.timeline.layers[0].keyframes.push(outer_pose_2);
     donor.symbols.push(outer_sym);
+
+    // Program code on `OuterCard` may instantiate this exported definition by
+    // linkage name even though no authored placement references it directly.
+    let mut dynamic_sym = donor.symbols[0].clone();
+    dynamic_sym.id = "sym-dynamic-badge".into();
+    dynamic_sym.name = "DynamicBadge".into();
+    dynamic_sym.linkage_id = Some("DynamicBadgeExport".into());
+    dynamic_sym.timeline.layers[0].id = "dynamic-badge-layer".into();
+    dynamic_sym.timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: "dynamic-badge-shape".into(),
+        name: String::new(),
+        kind: ElementKind::Rectangle {
+            width: 12.0,
+            height: 8.0,
+            fill: [70, 210, 120, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        ..Element::default()
+    }];
+    donor.symbols.push(dynamic_sym);
 
     // Stage elements on Donor root frame 0: nested Instance, Bitmap, bitmap-filled + styled Path,
     // embedded-font Text, and Video with keyframe `TimelineVideoSpan`.
@@ -1507,8 +1534,30 @@ fn t318_cross_tab_copy_cut_paste_and_paste_in_place_transitively_deduplicate_all
     );
     assert_eq!(swatches_after_first, 1);
     assert_eq!(styles_after_first, 1);
-    // Recipient started with root + conflicting `sym-outer` (2 symbols); paste adds disambiguated `OuterCard 2` + `InnerBadge` = 4 symbols.
-    assert_eq!(symbols_after_first, 4);
+    // Recipient started with root + conflicting `sym-outer` (2 symbols); paste adds disambiguated
+    // `OuterCard 2`, `InnerBadge`, and the program-reachable linkage-only `DynamicBadge`.
+    assert_eq!(symbols_after_first, 5);
+    assert!(
+        editor
+            .project
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == "DynamicBadge")
+    );
+    let imported_outer = editor
+        .project
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "OuterCard 2")
+        .expect("disambiguated nested symbol");
+    let imported_armature_ids: Vec<_> = imported_outer.timeline.layers[0]
+        .keyframes
+        .iter()
+        .map(|key| key.ik_armatures[0].id.as_str())
+        .collect();
+    assert_eq!(imported_armature_ids.len(), 2);
+    assert_eq!(imported_armature_ids[0], imported_armature_ids[1]);
+    assert_ne!(imported_armature_ids[0], "ik-outer");
 
     // Second paste in Tab B via `⇧⌘V` (Paste in Place): MUST reuse all imported assets (zero duplicate bloat!)
     // and place elements at their exact authored coordinates!
@@ -1605,6 +1654,7 @@ fn t318_cross_tab_and_cross_scene_copy_cut_paste_frames_preserve_assets_and_side
     let mut badge = donor.symbols[0].clone();
     badge.id = "sym-frame-badge".into();
     badge.name = "FrameBadge".into();
+    badge.class_name = Some("game.FrameBadge".into());
     badge.timeline.layers[0].id = "badge-layer".into();
     badge.timeline.layers[0].keyframes = vec![Keyframe {
         frame: 0,
@@ -1622,6 +1672,24 @@ fn t318_cross_tab_and_cross_scene_copy_cut_paste_frames_preserve_assets_and_side
         ..Default::default()
     }];
     donor.symbols.push(badge);
+    let mut dynamic_frame_symbol = donor.symbols[0].clone();
+    dynamic_frame_symbol.id = "sym-frame-dynamic".into();
+    dynamic_frame_symbol.name = "FrameDynamic".into();
+    dynamic_frame_symbol.linkage_id = Some("FrameDynamicExport".into());
+    dynamic_frame_symbol.timeline.layers[0].id = "frame-dynamic-layer".into();
+    dynamic_frame_symbol.timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: "frame-dynamic-shape".into(),
+        name: String::new(),
+        kind: ElementKind::Rectangle {
+            width: 6.0,
+            height: 6.0,
+            fill: [180, 90, 220, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        ..Element::default()
+    }];
+    donor.symbols.push(dynamic_frame_symbol);
 
     {
         let root_id = donor.root.clone();
@@ -1673,6 +1741,27 @@ fn t318_cross_tab_and_cross_scene_copy_cut_paste_frames_preserve_assets_and_side
             modifiers: Vec::new(),
             text_binding: None,
         });
+        kf.ik_armatures = vec![IkArmature {
+            id: "ik-frames".into(),
+            name: "Frame rig".into(),
+            bones: vec![IkBone {
+                id: "frame-bone".into(),
+                element_id: "f-inst".into(),
+                parent_bone_id: None,
+                length: 20.0,
+                min_angle: None,
+                max_angle: None,
+                stiffness: 1.0,
+            }],
+            effector_bone_id: "frame-bone".into(),
+            target_pos: [20.0, 0.0],
+            pole_pos: None,
+        }];
+        let mut pose_2 = kf.clone();
+        pose_2.frame = 2;
+        pose_2.sound = None;
+        pose_2.ik_armatures[0].target_pos = [24.0, 4.0];
+        tl.layers[0].keyframes.push(pose_2);
     }
     donor.upgrade_format_for_features();
     donor.validate().unwrap();
@@ -1711,6 +1800,14 @@ fn t318_cross_tab_and_cross_scene_copy_cut_paste_frames_preserve_assets_and_side
             .any(|s| s.name == "FrameBadge"),
         "nested symbol must be imported by cross-tab Paste Frames"
     );
+    assert!(
+        editor
+            .project
+            .symbols
+            .iter()
+            .any(|s| s.name == "FrameDynamic"),
+        "linkage-only symbols reachable from copied program code must be imported"
+    );
     assert_eq!(editor.project.global_swatches().len(), 1);
     assert!(
         editor.symbol().timeline.layers[0].keyframes[0]
@@ -1721,6 +1818,15 @@ fn t318_cross_tab_and_cross_scene_copy_cut_paste_frames_preserve_assets_and_side
         editor.symbol().timeline.layers[0].properties.groups.len(),
         1
     );
+    let pasted_armature_ids: Vec<_> = editor.symbol().timeline.layers[0]
+        .keyframes
+        .iter()
+        .filter(|key| matches!(key.frame, 0 | 2))
+        .map(|key| key.ik_armatures[0].id.as_str())
+        .collect();
+    assert_eq!(pasted_armature_ids.len(), 2);
+    assert_eq!(pasted_armature_ids[0], pasted_armature_ids[1]);
+    assert_ne!(pasted_armature_ids[0], "ik-frames");
 
     let sym_count_after_first = editor.project.symbols.len();
     let res_count_after_first = editor.project.resources.len();

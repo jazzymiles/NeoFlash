@@ -3325,11 +3325,7 @@ impl Editor {
         };
 
         let checked = if let Some(panel) = panel_for_window_cmd(cmd) {
-            if panel == PanelId::Brushes {
-                self.workspace.panels.brushes
-            } else {
-                !self.panels_hidden && self.workspace.is_panel_active(panel)
-            }
+            !self.panels_hidden && self.workspace.is_panel_active(panel)
         } else if let Some(tool) = tool_for_cmd(cmd) {
             has_doc && self.tool == tool
         } else {
@@ -3674,10 +3670,8 @@ impl Editor {
             CommandId::PreviousTimelineMarker => {
                 let _ = self.navigate_timeline_marker(false);
             }
-            CommandId::WindowBrushes => {
-                self.set_panel_visible(PanelId::Brushes, !self.workspace.panels.brushes);
-            }
-            CommandId::WindowTimeline
+            CommandId::WindowBrushes
+            | CommandId::WindowTimeline
             | CommandId::WindowTools
             | CommandId::WindowProperties
             | CommandId::WindowLibrary
@@ -3722,6 +3716,7 @@ impl Editor {
                     CommandId::WindowMotionEditor => PanelId::MotionEditor,
                     CommandId::WindowDebugger => PanelId::Debugger,
                     CommandId::WindowProject => PanelId::Project,
+                    CommandId::WindowBrushes => PanelId::Brushes,
                     _ => unreachable!(),
                 };
                 let visible = !self.panels_hidden && self.workspace.is_panel_active(panel);

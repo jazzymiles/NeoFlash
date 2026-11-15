@@ -4,7 +4,7 @@ use super::{
     serialize_json_value, take_flag_value, upgrade_project_format_versions, write_json_error,
 };
 use neoflash_core::{
-    FlFileCapabilities, JsflAuthoringState, JsflDiagnostic, JsflFileSystem, JsflResult,
+    FlFileCapabilities, JsflAuthoringState, JsflDiagnostic, JsflFileSystem, JsflLimits, JsflResult,
     JsflSandbox, JsflValue, Project,
 };
 use serde_json::{Value, json};
@@ -353,6 +353,41 @@ fn jsfl_diag_to_cli_error(diag: JsflDiagnostic) -> CliError {
     )
 }
 
+fn read_jsfl_source<R: Read>(reader: R, label: &str) -> Result<String, CliError> {
+    let max_bytes = JsflLimits::default().max_source_bytes;
+    let mut bytes = Vec::with_capacity(max_bytes.min(64 * 1024));
+    reader
+        .take(max_bytes as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| CliError::runtime("io_error", format!("Failed reading JSFL {label}: {e}")))?;
+    if bytes.len() > max_bytes {
+        return Err(CliError::runtime(
+            "jsfl_error",
+            format!(
+                "JSFL script exceeds maximum source size ({} > {} bytes).",
+                bytes.len(),
+                max_bytes
+            ),
+        ));
+    }
+    String::from_utf8(bytes).map_err(|e| {
+        CliError::runtime(
+            "io_error",
+            format!("Failed reading JSFL {label}: source is not valid UTF-8 ({e})"),
+        )
+    })
+}
+
+pub(crate) fn read_jsfl_source_file(path: &Path) -> Result<String, CliError> {
+    let file = fs::File::open(path).map_err(|e| {
+        CliError::runtime(
+            "io_error",
+            format!("Failed reading JSFL script '{}': {e}", path.display()),
+        )
+    })?;
+    read_jsfl_source(file, &format!("script '{}'", path.display()))
+}
+
 pub(crate) fn cmd_jsfl<R: Read, W1: Write, W2: Write>(
     args: &[String],
     format: OutputFormat,
@@ -482,20 +517,12 @@ fn run_cmd_jsfl<R: Read, W1: Write>(
             .and_then(|s| s.to_str())
             .unwrap_or("script.jsfl")
             .to_owned();
-        let text = fs::read_to_string(sp).map_err(|e| {
-            CliError::runtime(
-                "io_error",
-                format!("Failed to read JSFL script '{}': {e}", sp.display()),
-            )
-        })?;
+        let text = read_jsfl_source_file(sp)?;
         (name, text)
     } else if let Some(code) = eval_code {
         ("eval.jsfl".to_owned(), code)
     } else {
-        let mut buf = String::new();
-        stdin
-            .read_to_string(&mut buf)
-            .map_err(|e| CliError::runtime("io_error", format!("Failed reading stdin: {e}")))?;
+        let buf = read_jsfl_source(&mut *stdin, "stdin")?;
         ("stdin.jsfl".to_owned(), buf)
     };
 

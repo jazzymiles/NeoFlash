@@ -138,6 +138,102 @@ fn package_case_only_asset_rename_never_deletes_the_new_file() {
     assert_eq!(fs::read(dir.join("media/clip.mp4")).unwrap(), b"new");
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn package_commit_rolls_back_files_replaced_before_a_late_rename_failure() {
+    let dir = temp();
+    let first_target = dir.join("first.js");
+    let second_target = dir.join("second.js");
+    let first_temp = dir.join(".first.js.staged");
+    let missing_second_temp = dir.join(".second.js.missing");
+    fs::write(&first_target, b"old first").unwrap();
+    fs::write(&second_target, b"old second").unwrap();
+    fs::write(&first_temp, b"new first").unwrap();
+
+    let err = commit_staged_files_atomically(&[
+        (first_temp, first_target.clone()),
+        (missing_second_temp, second_target.clone()),
+    ])
+    .unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    assert_eq!(fs::read(&first_target).unwrap(), b"old first");
+    assert_eq!(fs::read(&second_target).unwrap(), b"old second");
+    assert!(
+        fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|entry| !entry.file_name().to_string_lossy().contains(".backup")),
+        "rollback must not leak backup files"
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn package_commit_rejects_a_directory_target_before_replacing_any_file() {
+    let dir = temp();
+    let initial = vec![
+        ("app.js".to_owned(), b"old app".to_vec()),
+        ("index.html".to_owned(), b"old index".to_vec()),
+    ];
+    write_package(&dir, &initial, "initial", "project").unwrap();
+    let old_marker = fs::read(dir.join(MARKER)).unwrap();
+    fs::create_dir(dir.join("blocked.js")).unwrap();
+
+    let replacement = vec![
+        ("app.js".to_owned(), b"new app".to_vec()),
+        (
+            "new-assets/clip.js".to_owned(),
+            b"new nested asset".to_vec(),
+        ),
+        ("blocked.js".to_owned(), b"must fail".to_vec()),
+        ("index.html".to_owned(), b"new index".to_vec()),
+    ];
+    assert!(write_package(&dir, &replacement, "replacement", "project").is_err());
+    assert_eq!(fs::read(dir.join("app.js")).unwrap(), b"old app");
+    assert_eq!(fs::read(dir.join("index.html")).unwrap(), b"old index");
+    assert_eq!(fs::read(dir.join(MARKER)).unwrap(), old_marker);
+    assert!(dir.join("blocked.js").is_dir());
+    assert!(
+        !dir.join("new-assets").exists(),
+        "failed commit must remove directories created only for staged files"
+    );
+    assert!(
+        fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                !name.starts_with('.') || !name.contains(".neoflash-")
+            }),
+        "failed package commit must clean staging files"
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn single_file_commit_uses_direct_atomic_replace_without_a_backup_name() {
+    let dir = temp();
+    // Valid on common Unix filesystems, but appending the transaction backup suffix would exceed
+    // NAME_MAX. A successful replacement therefore proves the one-file direct path was used.
+    let target = dir.join("x".repeat(240));
+    let staged = dir.join(".staged");
+    fs::write(&target, b"old").unwrap();
+    fs::write(&staged, b"new").unwrap();
+
+    commit_staged_files_atomically(&[(staged.clone(), target.clone())]).unwrap();
+    assert_eq!(fs::read(&target).unwrap(), b"new");
+    assert!(!staged.exists());
+    assert!(
+        fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|entry| !entry.file_name().to_string_lossy().contains(".backup"))
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn export_escapes_title_and_keeps_sources_external() {
     let dir = temp();

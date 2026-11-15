@@ -4,10 +4,7 @@ use crate::workspace::{PanelId, WorkspacePrefs};
 use eframe::egui::{self, Key, Modifiers, Vec2};
 use neoflash_core::*;
 use std::{
-    fs::OpenOptions,
-    io::Write,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
     time::Instant,
 };
 
@@ -70,39 +67,18 @@ pub enum ScriptTarget {
     Source,
 }
 
-fn atomic_save_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    static TEMP_ID: AtomicU64 = AtomicU64::new(1);
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("document");
-    for _ in 0..64 {
-        let temp = parent.join(format!(
-            ".{name}.neoflash-save-{}-{}.tmp",
-            std::process::id(),
-            TEMP_ID.fetch_add(1, Ordering::Relaxed)
+fn atomic_save_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if !parent.is_dir() {
+        return Err(format!(
+            "save destination directory does not exist: {}",
+            parent.display()
         ));
-        let mut file = match OpenOptions::new().write(true).create_new(true).open(&temp) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error),
-        };
-        let write_result = (|| {
-            file.write_all(bytes)?;
-            file.sync_all()
-        })();
-        drop(file);
-        let result = write_result.and_then(|()| std::fs::rename(&temp, path));
-        if result.is_err() {
-            let _ = std::fs::remove_file(&temp);
-        }
-        return result;
     }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::AlreadyExists,
-        "could not reserve a unique temporary save file",
-    ))
+    crate::windows_platform::atomic_replace_file(path, bytes)
 }
 
 pub struct Editor {
@@ -1454,7 +1430,6 @@ impl Editor {
     }
 
     pub fn request_revert(&mut self) {
-        self.finish_edits();
         if self.can_revert() {
             self.confirm_revert = true;
         }
@@ -1470,9 +1445,9 @@ impl Editor {
         };
         let canonical_path = self.path.clone();
         let preserved_import_source = self.import_source.clone();
-        self.cancel_edits();
         match Self::load_project_from_disk_path(&disk_path) {
             Ok((project, diagnostics)) => {
+                self.cancel_edits();
                 for diagnostic in diagnostics {
                     let _ = self.message_event(
                         crate::output_pipeline::OutputSeverity::Warning,
@@ -1987,9 +1962,7 @@ impl Editor {
                 self.project
                     .to_json()
                     .map_err(|e| e.to_string())
-                    .and_then(|json| {
-                        atomic_save_file(&path, json.as_bytes()).map_err(|e| e.to_string())
-                    })
+                    .and_then(|json| atomic_save_file(&path, json.as_bytes()))
                     .map(|()| None)
             };
         match result {

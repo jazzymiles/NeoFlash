@@ -2396,9 +2396,14 @@ pub(crate) fn write_package(
         .split_last()
         .expect("a package always has an index file");
     let mut staged: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(files.len() + 1);
+    let mut created_dirs = Vec::new();
     let stage_result = (|| -> std::io::Result<()> {
         for (file, bytes) in rest {
             let target = output_dir.join(file);
+            ensure_export_dir_tracked(
+                target.parent().unwrap_or_else(|| Path::new(".")),
+                &mut created_dirs,
+            )?;
             let temp = reserve_temp_file(&target, bytes)?;
             staged.push((temp, target));
         }
@@ -2414,18 +2419,304 @@ pub(crate) fn write_package(
         for (temp, _) in staged {
             let _ = fs::remove_file(temp);
         }
+        cleanup_created_export_dirs(&mut created_dirs);
         return Err(ExportError::Io(err));
     }
-    for (idx, (temp, target)) in staged.iter().enumerate() {
-        if let Err(err) = fs::rename(temp, target) {
-            for (rem_temp, _) in &staged[idx..] {
-                let _ = fs::remove_file(rem_temp);
-            }
-            return Err(ExportError::Io(err));
+    if let Err(err) = commit_staged_files_atomically(&staged) {
+        for (temp, _) in &staged {
+            let _ = fs::remove_file(temp);
         }
+        cleanup_created_export_dirs(&mut created_dirs);
+        return Err(ExportError::Io(err));
     }
     cleanup_stale_package_files(output_dir, &previous_files, &current_names);
     Ok(output_dir.join(&last.0))
+}
+
+fn ensure_export_dir_tracked(dir: &Path, created_dirs: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    if dir.as_os_str().is_empty() || dir.is_dir() {
+        return Ok(());
+    }
+    let mut missing = Vec::new();
+    let mut current = Some(dir);
+    while let Some(path) = current {
+        if path.as_os_str().is_empty() || path.exists() {
+            break;
+        }
+        missing.push(path.to_path_buf());
+        current = path.parent();
+    }
+    for path in missing.into_iter().rev() {
+        match fs::create_dir(&path) {
+            Ok(()) => created_dirs.push(path),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists && path.is_dir() => {}
+            Err(err) => return Err(err),
+        }
+    }
+    if dir.is_dir() {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotADirectory,
+            format!("export parent '{}' is not a directory", dir.display()),
+        ))
+    }
+}
+
+fn cleanup_created_export_dirs(created_dirs: &mut Vec<PathBuf>) {
+    for dir in created_dirs.drain(..).rev() {
+        let _ = fs::remove_dir(dir);
+    }
+}
+
+#[derive(Debug)]
+struct PublishedFileState {
+    target: PathBuf,
+    backup: Option<PathBuf>,
+}
+
+/// Commit a set of sibling-staged files as one rollback-capable transaction.
+///
+/// Renaming a staged file is atomic by itself, but a package contains several files. Backing up
+/// each existing target lets a later rename failure restore every file already replaced. Staged
+/// files that have not moved remain owned by the caller and may be removed normally.
+pub(crate) fn commit_staged_files_atomically(
+    staged_files: &[(PathBuf, PathBuf)],
+) -> std::io::Result<()> {
+    commit_staged_files_atomically_impl(staged_files, true)
+}
+
+fn commit_staged_files_atomically_impl(
+    staged_files: &[(PathBuf, PathBuf)],
+    sync_parent_dirs: bool,
+) -> std::io::Result<()> {
+    // Keep the short backup/replace window invisible to another exporter in this process. This is
+    // especially important on Windows, where replacing an existing destination needs two renames.
+    static COMMIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _commit_guard = COMMIT_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    for (_, target) in staged_files {
+        match fs::symlink_metadata(target) {
+            Ok(metadata) if metadata.file_type().is_dir() => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::IsADirectory,
+                    format!(
+                        "cannot replace export file '{}' because it is a directory",
+                        target.display()
+                    ),
+                ));
+            }
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err),
+        }
+    }
+
+    // A single output needs no package rollback. Use the platform's one-step replacement so an
+    // external reader always sees either the old file or the new file, never an absent target.
+    // The backup transaction below is reserved for sets where a later rename may need to restore
+    // files already published.
+    if let [(temp, target)] = staged_files {
+        replace_staged_file_atomically(temp, target, sync_parent_dirs)?;
+        if sync_parent_dirs
+            && let Some(parent) = target.parent()
+            && !parent.as_os_str().is_empty()
+            && let Ok(dir_file) = fs::File::open(parent)
+        {
+            let _ = dir_file.sync_all();
+        }
+        return Ok(());
+    }
+
+    let mut published = Vec::with_capacity(staged_files.len());
+    for (temp, target) in staged_files {
+        let backup = match fs::symlink_metadata(target) {
+            Ok(metadata) if metadata.file_type().is_dir() => {
+                let err = std::io::Error::new(
+                    std::io::ErrorKind::IsADirectory,
+                    format!(
+                        "cannot replace export file '{}' because it is a directory",
+                        target.display()
+                    ),
+                );
+                return Err(with_rollback_result(err, &mut published));
+            }
+            Ok(_) => {
+                let backup = match reserve_backup_path(target) {
+                    Ok(path) => path,
+                    Err(err) => return Err(with_rollback_result(err, &mut published)),
+                };
+                if let Err(err) = fs::rename(target, &backup) {
+                    return Err(with_rollback_result(err, &mut published));
+                }
+                Some(backup)
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+            Err(err) => return Err(with_rollback_result(err, &mut published)),
+        };
+
+        published.push(PublishedFileState {
+            target: target.clone(),
+            backup,
+        });
+        if let Err(err) = fs::rename(temp, target) {
+            return Err(with_rollback_result(err, &mut published));
+        }
+    }
+
+    let mut touched_parents = BTreeSet::new();
+    for state in &published {
+        if let Some(backup) = &state.backup {
+            let _ = fs::remove_file(backup);
+        }
+        if let Some(parent) = state.target.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            touched_parents.insert(parent.to_path_buf());
+        }
+    }
+    if sync_parent_dirs {
+        for parent in touched_parents {
+            if let Ok(dir_file) = fs::File::open(parent) {
+                let _ = dir_file.sync_all();
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn replace_staged_file_atomically(
+    source: &Path,
+    target: &Path,
+    write_through: bool,
+) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt as _;
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x0000_0001;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x0000_0008;
+    unsafe extern "system" {
+        fn MoveFileExW(
+            existing_file_name: *const u16,
+            new_file_name: *const u16,
+            flags: u32,
+        ) -> i32;
+    }
+
+    // Canonicalizing the existing adjacent parent yields a verbatim (`\\?\`) path on Windows,
+    // retaining Unicode and long-path support even when the final target does not exist yet.
+    let adjacent_absolute = |path: &Path| -> std::io::Result<PathBuf> {
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let name = path.file_name().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("export path '{}' has no file name", path.display()),
+            )
+        })?;
+        Ok(fs::canonicalize(parent)?.join(name))
+    };
+    let source = adjacent_absolute(source)?;
+    let target = adjacent_absolute(target)?;
+    let source_wide: Vec<u16> = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let target_wide: Vec<u16> = target
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let flags = MOVEFILE_REPLACE_EXISTING
+        | if write_through {
+            MOVEFILE_WRITE_THROUGH
+        } else {
+            0
+        };
+
+    // SAFETY: both UTF-16 buffers are NUL-terminated and remain alive for the call. Staging file
+    // handles are closed by `reserve_temp_file` or the caller before this function is entered.
+    if unsafe { MoveFileExW(source_wide.as_ptr(), target_wide.as_ptr(), flags) } != 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn replace_staged_file_atomically(
+    source: &Path,
+    target: &Path,
+    _write_through: bool,
+) -> std::io::Result<()> {
+    fs::rename(source, target)
+}
+
+fn reserve_backup_path(target: &Path) -> std::io::Result<PathBuf> {
+    static BACKUP_ID: AtomicU64 = AtomicU64::new(1);
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    let name = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("output");
+    for _ in 0..32 {
+        let candidate = parent.join(format!(
+            ".{name}.neoflash-{}-{}.backup",
+            std::process::id(),
+            BACKUP_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        match fs::symlink_metadata(&candidate) {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(candidate),
+            Ok(_) => continue,
+            Err(err) => return Err(err),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not reserve a unique export backup file",
+    ))
+}
+
+fn with_rollback_result(
+    original: std::io::Error,
+    published: &mut Vec<PublishedFileState>,
+) -> std::io::Error {
+    let mut rollback_errors = Vec::new();
+    for state in published.drain(..).rev() {
+        match fs::remove_file(&state.target) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => rollback_errors.push(format!(
+                "could not remove replacement '{}': {err}",
+                state.target.display()
+            )),
+        }
+        if let Some(backup) = state.backup
+            && let Err(err) = fs::rename(&backup, &state.target)
+        {
+            rollback_errors.push(format!(
+                "could not restore '{}' from '{}': {err}",
+                state.target.display(),
+                backup.display()
+            ));
+        }
+    }
+    if rollback_errors.is_empty() {
+        original
+    } else {
+        std::io::Error::new(
+            original.kind(),
+            format!(
+                "{original}; rollback also failed: {}",
+                rollback_errors.join("; ")
+            ),
+        )
+    }
 }
 
 fn reserve_temp_file(path: &Path, bytes: &[u8]) -> std::io::Result<PathBuf> {
@@ -2467,7 +2758,9 @@ fn reserve_temp_file(path: &Path, bytes: &[u8]) -> std::io::Result<PathBuf> {
 /// Write `bytes` to `path` atomically by staging in a sibling temp file and renaming.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let temp = reserve_temp_file(path, bytes)?;
-    let result = fs::rename(&temp, path);
+    // Single-file frame/sequence writers may call this thousands of times; the sibling rename is
+    // atomic without forcing a directory fsync for each frame.
+    let result = commit_staged_files_atomically_impl(&[(temp.clone(), path.to_path_buf())], false);
     if result.is_err() {
         let _ = fs::remove_file(&temp);
     }

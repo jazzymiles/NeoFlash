@@ -125,6 +125,22 @@ fn detection_ignores_macos_finder_psn_and_preserves_gui_defaults() {
 }
 
 #[test]
+fn project_loaders_reject_oversized_input_before_lenient_validation_fallback() {
+    let tmp = TempDirGuard::new("oversized-project");
+    let path = tmp.path.join("oversized.nflash");
+    let file = fs::File::create(&path).expect("create sparse oversized project");
+    file.set_len(MAX_PROJECT_JSON_BYTES as u64 + 1)
+        .expect("extend sparse oversized project");
+    drop(file);
+
+    for result in [load_project_lenient(&path), load_project_valid(&path)] {
+        let error = result.expect_err("oversized project must be rejected before JSON parsing");
+        assert_eq!(error.exit_code, 1);
+        assert_eq!(error.code, "resource_limit_exceeded");
+    }
+}
+
+#[test]
 fn help_version_and_capabilities_schema() {
     let (code, stdout, stderr) = run_args(&["--help"], "");
     assert_eq!(code, 0, "stderr: {stderr}");
@@ -635,6 +651,27 @@ fn jsfl_sandbox_mutates_saves_and_enforces_flfile_capabilities() {
     );
     assert_eq!(code, 1);
     assert_eq!(fs::read_to_string(&proj_path).unwrap(), orig_json);
+
+    // 5. File-backed JSFL is bounded before loading the whole source into memory. The VM already
+    // rejects this size; the CLI reader must enforce the same boundary while reading it.
+    let oversized_script = tmp.path.join("oversized.jsfl");
+    let jsfl_limit = neoflash_core::JsflLimits::default().max_source_bytes;
+    fs::write(&oversized_script, vec![b' '; jsfl_limit + 1]).unwrap();
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "jsfl",
+            "--project",
+            proj_path.to_str().unwrap(),
+            "--script",
+            oversized_script.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 1);
+    assert!(stderr.is_empty());
+    let err: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(err["error"]["code"], "jsfl_error");
 }
 
 #[test]

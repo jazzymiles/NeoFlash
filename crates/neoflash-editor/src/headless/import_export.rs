@@ -37,6 +37,9 @@ use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::io::{Read as _, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static JPEG_STAGE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 /// Supported export target identifiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2488,6 +2491,88 @@ fn effective_timeline_frame_count(project: &Project, symbol_id: Option<&str>) ->
     }
 }
 
+/// Export a single JPEG to the exact requested `.jpeg` path without touching the sibling `.jpg`.
+///
+/// `export_project_image` normalizes JPEG paths to `.jpg`. Passing a user-requested `foo.jpeg`
+/// directly would therefore replace `foo.jpg` first, then require a non-portable rename over
+/// `foo.jpeg`. Stage the normalized output in a private sibling directory and atomically publish
+/// only the requested destination instead.
+fn export_single_jpeg_to_exact_path(
+    project: &Project,
+    output: &Path,
+    options: &ImageExportOptions,
+) -> Result<neoflash_export::ImageExportReport, CliError> {
+    let parent = output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent).map_err(|e| {
+        CliError::runtime(
+            "io_error",
+            format!(
+                "Failed creating output directory '{}': {e}",
+                parent.display()
+            ),
+        )
+    })?;
+
+    let stage_dir = (0..64)
+        .find_map(|_| {
+            let sequence = JPEG_STAGE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let candidate = parent.join(format!(
+                ".neoflash-jpeg-stage-{}-{sequence}",
+                std::process::id()
+            ));
+            match fs::create_dir(&candidate) {
+                Ok(()) => Some(Ok(candidate)),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => None,
+                Err(error) => Some(Err(error)),
+            }
+        })
+        .transpose()
+        .map_err(|e| {
+            CliError::runtime(
+                "io_error",
+                format!("Failed creating a temporary JPEG directory: {e}"),
+            )
+        })?
+        .ok_or_else(|| {
+            CliError::runtime(
+                "io_error",
+                "Failed reserving a unique temporary JPEG directory",
+            )
+        })?;
+
+    let staged_request = stage_dir.join("output.jpeg");
+    let result = (|| {
+        let mut report = neoflash_export::export_project_image(project, &staged_request, options)
+            .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
+        let staged_file = report.files.first().ok_or_else(|| {
+            CliError::runtime("export_failed", "JPEG export produced no output file")
+        })?;
+        let bytes = fs::read(staged_file).map_err(|e| {
+            CliError::runtime(
+                "io_error",
+                format!(
+                    "Failed reading staged JPEG '{}': {e}",
+                    staged_file.display()
+                ),
+            )
+        })?;
+        crate::windows_platform::atomic_replace_file(output, &bytes).map_err(|e| {
+            CliError::runtime(
+                "io_error",
+                format!("Failed publishing JPEG '{}': {e}", output.display()),
+            )
+        })?;
+        report.files.clear();
+        report.files.push(output.to_path_buf());
+        Ok(report)
+    })();
+    let _ = fs::remove_dir_all(&stage_dir);
+    result
+}
+
 /// Shared export dispatcher used by both `neoflash-editor --headless export` and `batch` `export` steps.
 pub(crate) fn export_project_with_spec(
     project: &Project,
@@ -2815,26 +2900,14 @@ pub(crate) fn export_project_with_spec(
                 opts.svg_text_as_outlines = true;
                 opts.ai_text_as_outlines = true;
             }
-            let mut report = neoflash_export::export_project_image(project, &spec.out, &opts)
-                .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
-
-            // Preserve exact `.jpeg` extension when `--out foo.jpeg` is requested (`ImageExportFormat::Jpeg` uses `.jpg` by default).
-            if report.files.len() == 1
-                && report.files[0] != spec.out
-                && img_fmt == ImageExportFormat::Jpeg
+            let report = if img_fmt == ImageExportFormat::Jpeg
                 && ext_lower(&spec.out).as_deref() == Some("jpeg")
             {
-                fs::rename(&report.files[0], &spec.out).map_err(|e| {
-                    CliError::runtime(
-                        "io_error",
-                        format!(
-                            "Failed renaming JPEG output to '{}': {e}",
-                            spec.out.display()
-                        ),
-                    )
-                })?;
-                report.files[0] = spec.out.clone();
-            }
+                export_single_jpeg_to_exact_path(project, &spec.out, &opts)?
+            } else {
+                neoflash_export::export_project_image(project, &spec.out, &opts)
+                    .map_err(|e| CliError::runtime("export_failed", e.to_string()))?
+            };
             let primary_path = report
                 .files
                 .first()

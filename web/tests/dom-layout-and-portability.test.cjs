@@ -573,6 +573,59 @@ test('DOM link sanitization: blocks unsafe schemes/obfuscation with plain <span>
   assert.equal(domStage.sceneElement.children.length, 0, 'domStageHost.reset() must clear mounted DOM leaves');
 });
 
+test('DOM stage preserves real pointer coordinates at viewport 0,0 while centring keyboard clicks', () => {
+  const domLayout = require('../dom-layout.js');
+  const doc = makeFakeDocument();
+  const surface = doc.createElement('div');
+  surface.id = 'stage-surface';
+  surface.insertBefore = (node) => surface.appendChild(node);
+  surface.querySelector = () => null;
+  const picked = [];
+  const handled = [];
+  const stage = {};
+  const domStage = domLayout.createDomStageHost({
+    document: doc,
+    surface,
+    project: { width: 400, height: 300, symbols: [] },
+    getDisplay: () => ({
+      pickDetails(x, y) {
+        picked.push([x, y]);
+        return null;
+      },
+    }),
+    getStageHost: () => ({
+      stage,
+      handlePointer(type, event, target) {
+        handled.push([type, event.clientX, event.clientY, target]);
+        return true;
+      },
+    }),
+  });
+
+  domStage.sceneElement.dispatchEvent({
+    type: 'pointermove',
+    target: domStage.sceneElement,
+    clientX: 0,
+    clientY: 0,
+    detail: 0,
+    pointerType: 'mouse',
+    isPrimary: true,
+  });
+  assert.deepEqual(picked.shift(), [0, 0]);
+  assert.deepEqual(handled.shift(), ['pointermove', 0, 0, stage]);
+
+  domStage.sceneElement.dispatchEvent({
+    type: 'click',
+    target: domStage.sceneElement,
+    clientX: 0,
+    clientY: 0,
+    detail: 0,
+  });
+  assert.deepEqual(picked.shift(), [200, 150]);
+  assert.deepEqual(handled.shift(), ['click', 200, 150, stage]);
+  domStage.dispose();
+});
+
 test('AMF & SharedObject: native .sol binary container with typed aliases and BroadcastChannel remote sync', async () => {
   const channels = new Map();
   class FakeBroadcastChannel {

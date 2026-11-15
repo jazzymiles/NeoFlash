@@ -607,7 +607,8 @@ impl Editor {
         // side-tables (`bitmap_fills`, `appearances`, `asset_warps`, `instance_overrides`,
         // `element_parents`, `controller_elements`, `ik_armatures`, `extended_accessibility`,
         // `vector_effects`, `motion_tracks`, `motion_keys`) so `edit_frames` never renames bare
-        // `elements` without their side-tables.
+        // `elements` without their side-tables. One armature identity is shared by all of its
+        // keyed poses, just like one element identity is shared across keyframes.
         let mut occupied_ids = imported_maps
             .as_ref()
             .map(|m| m.occupied_ids.clone())
@@ -653,6 +654,27 @@ impl Editor {
                     }
                 }
             }
+            let mut ik_map = std::collections::HashMap::<String, String>::new();
+            for arm in source_clip
+                .keyframes
+                .iter()
+                .flat_map(|key| &key.ik_armatures)
+            {
+                if ik_map.contains_key(&arm.id) {
+                    continue;
+                }
+                let collides = cross_document
+                    || ik_owners
+                        .get(&arm.id)
+                        .is_some_and(|(os, ol)| os != &symbol_id || ol != dest_layer_id);
+                if collides {
+                    let fresh = crate::clipboard::alloc_unique_id("ik", &mut occupied_ids);
+                    ik_owners.insert(fresh.clone(), (symbol_id.clone(), dest_layer_id.clone()));
+                    ik_map.insert(arm.id.clone(), fresh);
+                } else {
+                    ik_owners.insert(arm.id.clone(), (symbol_id.clone(), dest_layer_id.clone()));
+                }
+            }
             for kf in &mut source_clip.keyframes {
                 kf.remap_all_ids(
                     &elem_map,
@@ -667,18 +689,8 @@ impl Editor {
                     }
                 }
                 for arm in &mut kf.ik_armatures {
-                    let ik_collides = cross_document
-                        || ik_owners
-                            .get(&arm.id)
-                            .is_some_and(|(os, ol)| os != &symbol_id || ol != dest_layer_id);
-                    if ik_collides {
-                        let fresh_ik = crate::clipboard::alloc_unique_id("ik", &mut occupied_ids);
-                        ik_owners
-                            .insert(fresh_ik.clone(), (symbol_id.clone(), dest_layer_id.clone()));
-                        arm.id = fresh_ik;
-                    } else {
-                        ik_owners
-                            .insert(arm.id.clone(), (symbol_id.clone(), dest_layer_id.clone()));
+                    if let Some(new_id) = ik_map.get(&arm.id) {
+                        arm.id = new_id.clone();
                     }
                 }
                 if let Some(maps) = &imported_maps {
@@ -1973,27 +1985,42 @@ fn build_shared_frame_clipboard(
 
     let mut reachable_syms = std::collections::HashSet::<String>::new();
     let mut stack = seeds.symbol_ids.clone();
-    while let Some(sid) = stack.pop() {
-        if project.is_scene(&sid) || !reachable_syms.insert(sid.clone()) {
-            continue;
-        }
-        if let Some(sym) = project.symbol(&sid) {
-            if !sym.timeline.scripts.is_empty()
-                || sym.class_name.is_some()
-                || sym.linkage_id.is_some()
-            {
-                seeds.needs_sources = true;
+    let mut linkage_roots_seeded = false;
+    loop {
+        while let Some(sid) = stack.pop() {
+            if project.is_scene(&sid) || !reachable_syms.insert(sid.clone()) {
+                continue;
             }
-            for layer in &sym.timeline.layers {
-                for kf in &layer.keyframes {
-                    let prev = seeds.symbol_ids.len();
-                    seeds.record_keyframe(kf);
-                    for new_sid in &seeds.symbol_ids[prev..] {
-                        stack.push(new_sid.clone());
+            if let Some(sym) = project.symbol(&sid) {
+                if !sym.timeline.scripts.is_empty()
+                    || sym.class_name.is_some()
+                    || sym.linkage_id.is_some()
+                {
+                    seeds.needs_sources = true;
+                }
+                for layer in &sym.timeline.layers {
+                    for kf in &layer.keyframes {
+                        let prev = seeds.symbol_ids.len();
+                        seeds.record_keyframe(kf);
+                        for new_sid in &seeds.symbol_ids[prev..] {
+                            stack.push(new_sid.clone());
+                        }
                     }
                 }
             }
         }
+        if seeds.needs_sources && !linkage_roots_seeded {
+            linkage_roots_seeded = true;
+            stack.extend(
+                project
+                    .symbols
+                    .iter()
+                    .filter(|symbol| symbol.linkage_id.is_some() && !project.is_scene(&symbol.id))
+                    .map(|symbol| symbol.id.clone()),
+            );
+            continue;
+        }
+        break;
     }
 
     let needed_res: std::collections::HashSet<&str> =

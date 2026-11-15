@@ -40,12 +40,18 @@ fn clamp_utf8_bytes(mut text: String, max_bytes: usize) -> String {
     if text.len() <= max_bytes {
         return text;
     }
-    let mut end = max_bytes;
+    const ELLIPSIS: &str = "…";
+    let suffix = if max_bytes >= ELLIPSIS.len() {
+        ELLIPSIS
+    } else {
+        ""
+    };
+    let mut end = max_bytes.saturating_sub(suffix.len());
     while end > 0 && !text.is_char_boundary(end) {
         end -= 1;
     }
     text.truncate(end);
-    text.push('…');
+    text.push_str(suffix);
     text
 }
 
@@ -772,7 +778,15 @@ impl OutputPipeline {
                 if event.document.is_empty() || event.document.starts_with("output-session-") {
                     event.document = self.document.clone();
                 }
+                if let Some(location) = &mut event.location
+                    && location.document_id.as_deref().is_none_or(|document_id| {
+                        document_id.is_empty() || document_id.starts_with("output-session-")
+                    })
+                {
+                    location.document_id = Some(event.document.clone());
+                }
             }
+            self.bump_revision();
         }
     }
 

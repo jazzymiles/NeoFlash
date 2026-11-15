@@ -2014,3 +2014,55 @@ fn t318_multi_tab_switch_close_stops_audio_resets_transients_and_zero_tab_comman
     );
     assert!(!editor.has_document());
 }
+
+#[test]
+fn t322_failed_revert_preserves_an_uncommitted_path_draft_and_history() {
+    use crate::{
+        stage_mapping::StageMapping,
+        vector::{Anchor, PathDraft},
+    };
+
+    let (mut editor, ctx, dir) = setup("failed-revert-draft");
+    let path = dir.join("draft.nflash");
+    assert!(editor.save_to_path(path.clone()));
+    editor.transact_named("Dirty document", |ed| ed.project.name = "Unsaved".into());
+    let before = editor.project.clone();
+    let undo_label = editor.history.undo_label().map(str::to_owned);
+    let layer_id = editor.symbol().timeline.layers[editor.layer].id.clone();
+    editor.vector.draft = Some(PathDraft {
+        anchors: vec![
+            Anchor {
+                point: egui::pos2(10.0, 20.0),
+                tangent: egui::Vec2::ZERO,
+            },
+            Anchor {
+                point: egui::pos2(30.0, 40.0),
+                tangent: egui::Vec2::ZERO,
+            },
+        ],
+        pencil: false,
+        dragging: false,
+        closing: false,
+        limit_reached: false,
+        symbol: editor.symbol_id().to_owned(),
+        frame: editor.frame,
+        layer: editor.layer,
+        layer_id,
+        pointer_origin: egui::Pos2::ZERO,
+        pointer_zoom: editor.zoom,
+        pointer_mapping: StageMapping::default(),
+    });
+
+    std::fs::write(&path, b"not a NeoFlash project").unwrap();
+    editor.request_revert();
+    assert!(editor.confirm_revert);
+    assert_eq!(editor.project, before);
+    assert_eq!(editor.history.undo_label(), undo_label.as_deref());
+    assert!(editor.vector.draft.is_some());
+
+    assert!(!editor.revert_to_saved(&ctx));
+    assert!(!editor.confirm_revert);
+    assert_eq!(editor.project, before);
+    assert_eq!(editor.history.undo_label(), undo_label.as_deref());
+    assert!(editor.vector.draft.is_some());
+}

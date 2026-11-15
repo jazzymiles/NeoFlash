@@ -1523,7 +1523,9 @@ impl Editor {
             PanelId::CompilerErrors => self.compiler_errors_panel_ui(ui),
             PanelId::CodeSnippets => self.code_snippets_panel_ui(ui),
             PanelId::MovieExplorer => self.movie_explorer_panel_ui(ui),
-            _ => self.bottom_contents(ui, panel),
+            PanelId::Properties | PanelId::Actions | PanelId::Accessibility | PanelId::Output => {
+                self.bottom_contents(ui, panel)
+            }
         }
         self.detached.content_header = None;
     }

@@ -2,6 +2,13 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Completed the post-polish safety and wiring pass (`T-322`): failed `Revert` keeps the live Path draft and Undo
+  history; cross-tab object/frame paste preserves keyed IK identity and program-reachable linkage exports; scene
+  changes discard departed child state without losing root variables; Brushes now follows the same Hide/Detach/Dock
+  routes as every other panel; headless project/JSFL inputs are bounded before full allocation and exact `.jpeg`
+  export no longer touches a sibling `.jpg`; preview media and HTTP ranges stream from disk; HTML5/Lottie package
+  commits roll back as a set while single files retain one-step replacement; and DOM pointer input at viewport `(0,0)`
+  is no longer mistaken for a keyboard click.
 - Completed deep Beta 1 polishing across desktop authoring journeys, NF2 interactive behavior, publishing parity and
   `--headless` automation (`T-318`–`T-321`):
   - **User journeys & document safety (`T-318`):** routed `File ▸ Open…` and session reloading across all converted
@@ -17,8 +24,9 @@
     across all modal dialogs and popovers; unified cross-scene, nested-symbol and soloed-layer click-to-jump navigation
     across `Actions`, `Compiler errors`, `Output`, `Movie Explorer` and `Find and Replace`; and verified all `6 × 3 × 4
     × 2` workspace/density/theme/resolution combinations (`1920×1080` and `1024×720`).
-  - **Publishing atomicity & runtime parity (`T-320`):** staged HTML5, Native Banner, SVG, image, audio, GIF, Lottie and
-    After Effects exports atomically so failed builds never corrupt existing outputs; served `Test Movie` (`⌘Return`) and
+  - **Publishing atomicity & runtime parity (`T-320`):** staged HTML5 and Lottie packages with whole-set rollback, and
+    Native Banner, SVG/image sequences, image, audio, GIF and After Effects outputs with per-file atomic replacement,
+    so a failed write never leaves a partially written file; served `Test Movie` (`⌘Return`) and
     `Test Scene` (`⌘⌥Return`) over a reusable loopback `127.0.0.1` HTTP server with `Cache-Control: no-store`; aligned
     Camera layer poses, multi-scene rollovers, dialect-aware 2-argument `gotoAndPlay`/`gotoAndStop`, Hit-only and
     empty-Hit `Button` bounds, `scrollRect`, `Alpha`/`Luminance` masks, `BlendMode.LAYER`/`ERASE`, HiDPI resize and full

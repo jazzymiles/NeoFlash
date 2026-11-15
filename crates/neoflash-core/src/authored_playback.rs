@@ -334,6 +334,7 @@ impl AuthoredPlayback {
                 }
             }
         }
+        self.vars.retain(|(path, _), _| path.is_empty());
         self.initialized_wrapper_placements.clear();
         self.executed_load_blocks.clear();
     }
@@ -4023,10 +4024,23 @@ mod tests {
         pb.tick(&project);
         assert_eq!(pb.symbol(), s1_id);
         assert_eq!(pb.frame(), 1);
+        pb.vars.insert(
+            (Vec::new(), "root_state".into()),
+            PreviewValue::String("keep".into()),
+        );
+        pb.vars.insert(
+            (vec!["departed-child".into()], "child_state".into()),
+            PreviewValue::String("discard".into()),
+        );
 
         pb.tick(&project);
         assert_eq!(pb.symbol(), s2_id);
         assert_eq!(pb.frame(), 0);
+        assert!(pb.vars.contains_key(&(Vec::new(), "root_state".into())));
+        assert!(
+            !pb.vars
+                .contains_key(&(vec!["departed-child".into()], "child_state".into()))
+        );
         assert_eq!(pb.drain_traces(), vec!["S2_F1".to_owned()]);
 
         pb.tick(&project);

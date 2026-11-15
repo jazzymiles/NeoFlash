@@ -1161,6 +1161,20 @@ pub(crate) fn remap_timeline_internal_ids_complete(
                 .collect()
         })
         .collect();
+    // An armature keeps one identity across its keyed poses so evaluation can
+    // interpolate the rig. Allocate once per authored identity rather than once
+    // per keyframe.
+    let mut armature_map = std::collections::HashMap::<neoflash_core::Id, neoflash_core::Id>::new();
+    for arm in tl
+        .layers
+        .iter()
+        .flat_map(|layer| &layer.keyframes)
+        .flat_map(|key| &key.ik_armatures)
+    {
+        armature_map
+            .entry(arm.id.clone())
+            .or_insert_with(|| alloc("ik"));
+    }
     tl.remap_internal_ids(&mut alloc, symbol_map, resource_map);
     for (layer, old_kfs) in tl.layers.iter_mut().zip(old_layer_elem_ids.iter()) {
         let mut elem_map = std::collections::HashMap::<neoflash_core::Id, neoflash_core::Id>::new();
@@ -1178,7 +1192,9 @@ pub(crate) fn remap_timeline_internal_ids_complete(
                 }
             }
             for arm in &mut kf.ik_armatures {
-                arm.id = alloc("ik");
+                if let Some(new_id) = armature_map.get(&arm.id) {
+                    arm.id = new_id.clone();
+                }
             }
         }
     }
@@ -1332,26 +1348,43 @@ fn build_capture_project(
 
     let mut reachable_syms = HashSet::<Id>::new();
     let mut stack: Vec<Id> = seeds.symbol_ids.clone();
-    while let Some(sid) = stack.pop() {
-        if project.is_scene(&sid) || !reachable_syms.insert(sid.clone()) {
-            continue;
-        }
-        let Some(sym) = project.symbol(&sid) else {
-            continue;
-        };
-        if !sym.timeline.scripts.is_empty() || sym.class_name.is_some() || sym.linkage_id.is_some()
-        {
-            seeds.needs_sources = true;
-        }
-        for layer in &sym.timeline.layers {
-            for kf in &layer.keyframes {
-                let prev_len = seeds.symbol_ids.len();
-                seeds.record_keyframe(kf);
-                for new_sid in &seeds.symbol_ids[prev_len..] {
-                    stack.push(new_sid.clone());
+    let mut linkage_roots_seeded = false;
+    loop {
+        while let Some(sid) = stack.pop() {
+            if project.is_scene(&sid) || !reachable_syms.insert(sid.clone()) {
+                continue;
+            }
+            let Some(sym) = project.symbol(&sid) else {
+                continue;
+            };
+            if !sym.timeline.scripts.is_empty()
+                || sym.class_name.is_some()
+                || sym.linkage_id.is_some()
+            {
+                seeds.needs_sources = true;
+            }
+            for layer in &sym.timeline.layers {
+                for kf in &layer.keyframes {
+                    let prev_len = seeds.symbol_ids.len();
+                    seeds.record_keyframe(kf);
+                    for new_sid in &seeds.symbol_ids[prev_len..] {
+                        stack.push(new_sid.clone());
+                    }
                 }
             }
         }
+        if seeds.needs_sources && !linkage_roots_seeded {
+            linkage_roots_seeded = true;
+            stack.extend(
+                project
+                    .symbols
+                    .iter()
+                    .filter(|symbol| symbol.linkage_id.is_some() && !project.is_scene(&symbol.id))
+                    .map(|symbol| symbol.id.clone()),
+            );
+            continue;
+        }
+        break;
     }
 
     let donor_font_entries = read_embedded_font_entries(&project.resources);
@@ -1597,6 +1630,24 @@ pub(crate) fn import_cross_document_assets(
             &mut post_order,
             &mut seeds,
         )?;
+    }
+    if seeds.needs_sources {
+        let linkage_roots: Vec<_> = donor_symbols
+            .iter()
+            .filter(|symbol| symbol.linkage_id.is_some())
+            .map(|symbol| symbol.id.clone())
+            .collect();
+        for root_sid in linkage_roots {
+            visit_symbol(
+                &root_sid,
+                &donor_sym_by_id,
+                donor_scene_ids,
+                &mut visited,
+                &mut visiting,
+                &mut post_order,
+                &mut seeds,
+            )?;
+        }
     }
 
     // Match embedded font resources for any referenced text families.

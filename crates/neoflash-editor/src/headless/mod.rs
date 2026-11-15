@@ -14,9 +14,9 @@ use crate::build_info::BuildIdentity;
 use crate::panels::compiler_errors::{LocatedScriptDiagnostic, collect_located_script_diagnostics};
 use neoflash_core::{
     AuthoredDraw, AuthoredPlayback, Color, Easing, Element, ElementKind, FrameScript, Layer,
-    LayerRole, ObjectEvent, PathCommand, Project, ResourceUnit, Script, ScriptLanguage, Symbol,
-    SymbolKind, TweenKind, flatten_scenes_cow, layer_effectively_visible, sample_layer_in_at_fps,
-    scene_ranges, validate as validate_project_model,
+    LayerRole, MAX_PROJECT_JSON_BYTES, ObjectEvent, PathCommand, Project, ResourceUnit, Script,
+    ScriptLanguage, Symbol, SymbolKind, TweenKind, flatten_scenes_cow, layer_effectively_visible,
+    sample_layer_in_at_fps, scene_ranges, validate as validate_project_model,
 };
 use neoflash_export::{embedded_font_families, load_profiles_from_project};
 use neoflash_script::DiagnosticSeverity;
@@ -515,12 +515,7 @@ pub(crate) fn write_json_error<W1: Write, W2: Write>(
 /// Load a `.nflash` file into a `Project`, tolerating validation issues so `inspect`/`validate`
 /// can report every `ValidationIssue` cleanly.
 pub(crate) fn load_project_lenient(path: &Path) -> Result<Project, CliError> {
-    let raw = fs::read_to_string(path).map_err(|e| {
-        CliError::runtime(
-            "io_error",
-            format!("Failed to read project '{}': {e}", path.display()),
-        )
-    })?;
+    let raw = read_utf8_file_limited(path, MAX_PROJECT_JSON_BYTES, "project")?;
     match Project::from_json(&raw) {
         Ok(project) => Ok(project),
         Err(neoflash_core::ProjectError::Invalid(_)) => serde_json::from_str::<Project>(&raw)
@@ -539,18 +534,68 @@ pub(crate) fn load_project_lenient(path: &Path) -> Result<Project, CliError> {
 
 /// Load and strictly validate a `.nflash` project before mutating, compiling, evaluating, or exporting.
 pub(crate) fn load_project_valid(path: &Path) -> Result<Project, CliError> {
-    let raw = fs::read_to_string(path).map_err(|e| {
-        CliError::runtime(
-            "io_error",
-            format!("Failed to read project '{}': {e}", path.display()),
-        )
-    })?;
+    let raw = read_utf8_file_limited(path, MAX_PROJECT_JSON_BYTES, "project")?;
     Project::from_json(&raw).map_err(|e| {
         CliError::runtime(
             "invalid_project",
             format!("Failed loading '{}': {e}", path.display()),
         )
     })
+}
+
+/// Read a UTF-8 CLI input without allocating beyond its established encoded-size boundary.
+/// Metadata rejects ordinary oversized files before reading, while `take(max + 1)` also handles
+/// files that grow between the metadata check and the read.
+fn read_utf8_file_limited(path: &Path, max_bytes: usize, label: &str) -> Result<String, CliError> {
+    let file = fs::File::open(path).map_err(|e| {
+        CliError::runtime(
+            "io_error",
+            format!("Failed to read {label} '{}': {e}", path.display()),
+        )
+    })?;
+    let declared_len = file.metadata().map_err(|e| {
+        CliError::runtime(
+            "io_error",
+            format!("Failed to inspect {label} '{}': {e}", path.display()),
+        )
+    })?;
+    if declared_len.len() > max_bytes as u64 {
+        return Err(CliError::runtime(
+            "resource_limit_exceeded",
+            format!(
+                "{} '{}' exceeds the {} MiB encoded input limit",
+                label.to_ascii_uppercase(),
+                path.display(),
+                max_bytes / (1024 * 1024)
+            ),
+        ));
+    }
+
+    let mut raw = String::with_capacity(
+        usize::try_from(declared_len.len())
+            .unwrap_or(max_bytes)
+            .min(max_bytes),
+    );
+    file.take(max_bytes as u64 + 1)
+        .read_to_string(&mut raw)
+        .map_err(|e| {
+            CliError::runtime(
+                "io_error",
+                format!("Failed to read {label} '{}': {e}", path.display()),
+            )
+        })?;
+    if raw.len() > max_bytes {
+        return Err(CliError::runtime(
+            "resource_limit_exceeded",
+            format!(
+                "{} '{}' exceeds the {} MiB encoded input limit",
+                label.to_ascii_uppercase(),
+                path.display(),
+                max_bytes / (1024 * 1024)
+            ),
+        ));
+    }
+    Ok(raw)
 }
 
 /// Upgrade document `format_version` across all v2..=v12 feature gates enforced by `validation.rs`.
@@ -1005,7 +1050,7 @@ fn subcommand_help_text(topic: &str) -> Option<&'static str> {
             "Usage: neoflash-editor --headless import --input <path...> [--into <project.nflash>] (--out <project.nflash> | --in-place) [--library-only] [--symbol ID|NAME] [--layer ID|NAME] [--frame N] [--folder STR] [--swc-conflict prefer-newer|prefer-existing|error] [--sequence-placement single-layer|separate-layers|graphic|movieclip] [--frame-step N]",
         ),
         "export" => Some(
-            "Usage: neoflash-editor --headless export --project <file.nflash> --target html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop --out <path> [--profile NAME|ID] [--render-mode canvas|dom] [--swf-target fp8|fp9|fp10|fp10-scriptless] [--image-format png|jpeg|webp|gif|bmp|psd|pdf|ai|svg] [--frame 1-based] [--scale F] [--symbol ID|NAME] ...",
+            "Usage: neoflash-editor --headless export --project <file.nflash> --target html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop --out <path> [--profile NAME|ID] [--render-mode canvas|dom] [--swf-target fp8|fp9|fp10|fp10-scriptless] [--image-format png|jpeg|webp|gif|bmp|psd|pdf|ai|svg] [--frame N (image: 1-based; sequence/svg/lottie: 0-based)] [--scale F] [--symbol ID|NAME] ...",
         ),
         "help" => Some("Usage: neoflash-editor --headless help [<subcommand>]"),
         "version" => {

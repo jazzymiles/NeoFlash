@@ -5244,7 +5244,9 @@ fn encode_with_ffmpeg(
         }
     }
 
-    if let Err(err) = fs::rename(&staged_output, output_path) {
+    if let Err(err) =
+        crate::commit_staged_files_atomically(&[(staged_output.clone(), output_path.to_path_buf())])
+    {
         let _ = fs::remove_file(&staged_output);
         return Err(ExportError::Io(err));
     }

@@ -759,6 +759,47 @@ fn macos_menu_workspace_density_appearance_and_panel_actions_roundtrip() {
 }
 
 #[test]
+fn t322_brushes_uses_common_visibility_and_native_detach_dock_routes() {
+    let (mut editor, ctx, _dir) = setup("brushes-panel-routes");
+    editor.set_panel_visible(PanelId::Brushes, true);
+    editor.set_panels_hidden(true);
+
+    assert!(
+        !editor
+            .command_menu_state(Some(&ctx), CommandId::WindowBrushes)
+            .checked
+    );
+    assert!(editor.execute_menu_command(&ctx, CommandId::WindowBrushes));
+    assert!(!editor.panels_hidden);
+    assert!(editor.workspace.is_panel_active(PanelId::Brushes));
+
+    let spec = NativeMenuSpec::build(&editor, Some(&ctx));
+    let window = spec.menu("Window").expect("Window menu");
+    let detach = find_submenu(&window.items, "Detach panel").expect("Detach panel submenu");
+    assert!(detach.iter().any(|item| matches!(
+        item,
+        NativeMenuItemSpec::Action {
+            label,
+            action: NativeMenuAction::DetachPanel(PanelId::Brushes),
+            ..
+        } if label == "Brushes"
+    )));
+
+    editor.execute_native_menu_action(&ctx, NativeMenuAction::DetachPanel(PanelId::Brushes));
+    let spec = NativeMenuSpec::build(&editor, Some(&ctx));
+    let window = spec.menu("Window").expect("Window menu");
+    let dock = find_submenu(&window.items, "Dock panel").expect("Dock panel submenu");
+    assert!(dock.iter().any(|item| matches!(
+        item,
+        NativeMenuItemSpec::Action {
+            label,
+            action: NativeMenuAction::DockPanel(PanelId::Brushes),
+            ..
+        } if label == "Brushes"
+    )));
+}
+
+#[test]
 fn t311_zero_document_queued_commands_shortcuts_and_function_search_execute_cleanly() {
     let (mut editor, ctx, _dir) = setup("zero-doc-wiring");
     editor.sessions.clear();

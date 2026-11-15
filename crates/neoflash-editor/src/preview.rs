@@ -1621,27 +1621,32 @@ fn handle_preview_http_connection(
         return write_preview_error(&mut stream, 404, "Not Found", send_body, &[]);
     }
 
-    let bytes = match std::fs::read(&canonical_target) {
-        Ok(b) => b,
+    let mut file = match std::fs::File::open(&canonical_target) {
+        Ok(file) => file,
         Err(_) => return write_preview_error(&mut stream, 404, "Not Found", send_body, &[]),
     };
+    let total_len = match file.metadata() {
+        Ok(metadata) if metadata.is_file() => metadata.len(),
+        _ => return write_preview_error(&mut stream, 404, "Not Found", send_body, &[]),
+    };
     let mime = preview_mime_type(&canonical_target);
-    let total_len = bytes.len();
 
     if let Some(raw_range) = range_header
-        && let Some(spec) = raw_range.strip_prefix("bytes=")
+        && let Some((unit, spec)) = raw_range.split_once('=')
+        && unit.trim().eq_ignore_ascii_case("bytes")
         && !spec.contains(',')
     {
         match parse_http_byte_range(spec, total_len) {
             Some((start, end_inclusive)) => {
-                let slice = &bytes[start..=end_inclusive];
                 let content_range = format!("bytes {start}-{end_inclusive}/{total_len}");
-                return write_preview_response(
+                return write_preview_file_response(
                     &mut stream,
                     206,
                     "Partial Content",
                     mime,
-                    slice,
+                    &mut file,
+                    start,
+                    end_inclusive - start + 1,
                     send_body,
                     &[("Content-Range", content_range.as_str())],
                 );
@@ -1659,11 +1664,21 @@ fn handle_preview_http_connection(
         }
     }
 
-    write_preview_response(&mut stream, 200, "OK", mime, &bytes, send_body, &[])
+    write_preview_file_response(
+        &mut stream,
+        200,
+        "OK",
+        mime,
+        &mut file,
+        0,
+        total_len,
+        send_body,
+        &[],
+    )
 }
 
 #[allow(dead_code)]
-fn parse_http_byte_range(spec: &str, total_len: usize) -> Option<(usize, usize)> {
+fn parse_http_byte_range(spec: &str, total_len: u64) -> Option<(u64, u64)> {
     if total_len == 0 {
         return None;
     }
@@ -1671,21 +1686,21 @@ fn parse_http_byte_range(spec: &str, total_len: usize) -> Option<(usize, usize)>
     let start_str = start_str.trim();
     let end_str = end_str.trim();
     if start_str.is_empty() {
-        let suffix_len: usize = end_str.parse().ok()?;
+        let suffix_len: u64 = end_str.parse().ok()?;
         if suffix_len == 0 {
             return None;
         }
         let start = total_len.saturating_sub(suffix_len);
         Some((start, total_len - 1))
     } else {
-        let start: usize = start_str.parse().ok()?;
+        let start: u64 = start_str.parse().ok()?;
         if start >= total_len {
             return None;
         }
         let end = if end_str.is_empty() {
             total_len - 1
         } else {
-            let parsed_end: usize = end_str.parse().ok()?;
+            let parsed_end: u64 = end_str.parse().ok()?;
             if parsed_end < start {
                 return None;
             }
@@ -1727,17 +1742,73 @@ fn write_preview_response(
 ) -> std::io::Result<()> {
     use std::io::Write as _;
 
+    write_preview_response_header(
+        stream,
+        status,
+        reason,
+        content_type,
+        body.len() as u64,
+        extra_headers,
+    )?;
+    if send_body && !body.is_empty() {
+        stream.write_all(body)?;
+    }
+    stream.flush()
+}
+
+#[allow(dead_code)]
+// Keep the streamed-file response parallel to `write_preview_response`; grouping these protocol
+// fields would obscure the only additional inputs (file offset and length).
+#[allow(clippy::too_many_arguments)]
+fn write_preview_file_response(
+    stream: &mut std::net::TcpStream,
+    status: u16,
+    reason: &str,
+    content_type: &str,
+    file: &mut std::fs::File,
+    offset: u64,
+    content_len: u64,
+    send_body: bool,
+    extra_headers: &[(&str, &str)],
+) -> std::io::Result<()> {
+    use std::io::{Read as _, Seek as _, Write as _};
+
+    write_preview_response_header(
+        stream,
+        status,
+        reason,
+        content_type,
+        content_len,
+        extra_headers,
+    )?;
+    if send_body && content_len != 0 {
+        file.seek(std::io::SeekFrom::Start(offset))?;
+        std::io::copy(&mut file.take(content_len), stream)?;
+    }
+    stream.flush()
+}
+
+#[allow(dead_code)]
+fn write_preview_response_header(
+    stream: &mut std::net::TcpStream,
+    status: u16,
+    reason: &str,
+    content_type: &str,
+    content_len: u64,
+    extra_headers: &[(&str, &str)],
+) -> std::io::Result<()> {
+    use std::io::Write as _;
+
     let mut header = format!(
         "HTTP/1.1 {status} {reason}\r\n\
 Content-Type: {content_type}\r\n\
-Content-Length: {}\r\n\
+Content-Length: {content_len}\r\n\
 Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n\
 Pragma: no-cache\r\n\
 Expires: 0\r\n\
 Accept-Ranges: bytes\r\n\
 X-Content-Type-Options: nosniff\r\n\
 Connection: close\r\n",
-        body.len()
     );
     for (k, v) in extra_headers {
         header.push_str(k);
@@ -1746,11 +1817,7 @@ Connection: close\r\n",
         header.push_str("\r\n");
     }
     header.push_str("\r\n");
-    stream.write_all(header.as_bytes())?;
-    if send_body && !body.is_empty() {
-        stream.write_all(body)?;
-    }
-    stream.flush()
+    stream.write_all(header.as_bytes())
 }
 
 #[allow(dead_code)]
@@ -2152,6 +2219,21 @@ mod timeline_video_preview_tests {
         assert!(range_hdr.starts_with("HTTP/1.1 206 Partial Content"));
         assert!(range_hdr.contains("Content-Range: bytes 2-5/10"));
         assert_eq!(range_body, b"2345");
+
+        let (suffix_range_hdr, suffix_range_body) = raw_http_request(
+            addr,
+            &format!(
+                "GET /{mount_slug}/assets/{encoded_unicode} HTTP/1.1\r\nHost: {host_port}\r\nRange: BYTES=-3\r\n\r\n"
+            ),
+        );
+        assert!(suffix_range_hdr.starts_with("HTTP/1.1 206 Partial Content"));
+        assert!(suffix_range_hdr.contains("Content-Range: bytes 7-9/10"));
+        assert_eq!(suffix_range_body, b"789");
+        assert_eq!(
+            parse_http_byte_range("4294967296-4294967299", 4_294_967_301),
+            Some((4_294_967_296, 4_294_967_299)),
+            "large media ranges must not be limited by in-memory buffer indexes"
+        );
 
         let (bad_range_hdr, _) = raw_http_request(
             addr,

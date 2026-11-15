@@ -117,6 +117,20 @@ pub(crate) fn record_end_of_frame_focus(ctx: &egui::Context) {
         d.insert_temp(egui::Id::new("nf2-prev-inline-edit"), inline_edit);
         d.insert_temp(egui::Id::new("nf2-prev-wants-kb"), wants_kb);
         d.insert_temp(egui::Id::new("nf2-prev-popup-open"), popup_open);
+
+        // Controls register their stable popup ID every frame while they are painted. Retaining
+        // closed IDs forever makes the context grow with every document/object/filter ever
+        // inspected. Keep only popovers which must still gate shortcuts on the next frame; a
+        // closed control registers itself again before it can reopen.
+        let key = egui::Id::new(TRACKED_RGBA_POPUPS_ID);
+        if let Some(mut list) = d.get_temp::<Vec<egui::Id>>(key) {
+            list.retain(|open_id| d.get_temp::<bool>(*open_id).unwrap_or(false));
+            if list.is_empty() {
+                d.remove::<Vec<egui::Id>>(key);
+            } else {
+                d.insert_temp(key, list);
+            }
+        }
     });
 }
 
@@ -195,4 +209,38 @@ pub(super) fn preview_box(ui: &mut Ui, width: f32, height: f32, label: &str) {
         egui::Stroke::new(1.0_f32, nf.border_subtle),
         egui::StrokeKind::Inside,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tracked_count(ctx: &egui::Context) -> usize {
+        ctx.data(|d| {
+            d.get_temp::<Vec<egui::Id>>(egui::Id::new(TRACKED_RGBA_POPUPS_ID))
+                .map_or(0, |ids| ids.len())
+        })
+    }
+
+    #[test]
+    fn t322_closed_rgba_popup_ids_are_pruned_but_open_popup_survives() {
+        let ctx = egui::Context::default();
+        let closed = egui::Id::new("closed-colour");
+        let open = egui::Id::new("open-colour");
+        track_rgba_popup(&ctx, closed);
+        track_rgba_popup(&ctx, open);
+        ctx.data_mut(|d| {
+            d.insert_temp(closed.with("nf2-rgba-popup-open"), false);
+            d.insert_temp(open.with("nf2-rgba-popup-open"), true);
+        });
+
+        record_end_of_frame_focus(&ctx);
+        assert_eq!(tracked_count(&ctx), 1);
+        assert!(is_any_tracked_rgba_popup_open(&ctx));
+
+        ctx.data_mut(|d| d.insert_temp(open.with("nf2-rgba-popup-open"), false));
+        record_end_of_frame_focus(&ctx);
+        assert_eq!(tracked_count(&ctx), 0);
+        assert!(!is_any_tracked_rgba_popup_open(&ctx));
+    }
 }

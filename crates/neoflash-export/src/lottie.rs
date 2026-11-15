@@ -5514,26 +5514,7 @@ impl StagedFileBatch {
     }
 
     fn ensure_dir_tracked(&mut self, dir: &Path) -> Result<(), ExportError> {
-        if dir.as_os_str().is_empty() || dir.exists() {
-            return Ok(());
-        }
-        let mut missing = Vec::new();
-        let mut cur = Some(dir);
-        while let Some(p) = cur {
-            if p.as_os_str().is_empty() || p.exists() {
-                break;
-            }
-            missing.push(p.to_path_buf());
-            cur = p.parent();
-        }
-        for p in missing.into_iter().rev() {
-            match fs::create_dir(&p) {
-                Ok(()) => self.created_dirs.push(p),
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(e) => return Err(ExportError::Io(e)),
-            }
-        }
-        Ok(())
+        crate::ensure_export_dir_tracked(dir, &mut self.created_dirs).map_err(ExportError::Io)
     }
 
     fn stage_file(
@@ -5585,20 +5566,7 @@ impl StagedFileBatch {
 
     fn commit(mut self, cancel: Option<&AtomicBool>) -> Result<(), ExportError> {
         check_cancel_flag(cancel)?;
-        let mut touched_parents = BTreeSet::new();
-        for (tmp_path, final_path) in &self.staged_files {
-            fs::rename(tmp_path, final_path)?;
-            if let Some(parent) = final_path.parent()
-                && !parent.as_os_str().is_empty()
-            {
-                touched_parents.insert(parent.to_path_buf());
-            }
-        }
-        for parent in touched_parents {
-            if let Ok(dir_file) = fs::File::open(parent) {
-                let _ = dir_file.sync_all();
-            }
-        }
+        crate::commit_staged_files_atomically(&self.staged_files)?;
         self.committed = true;
         Ok(())
     }
@@ -5612,9 +5580,7 @@ impl Drop for StagedFileBatch {
         for (tmp_path, _) in self.staged_files.drain(..).rev() {
             let _ = fs::remove_file(tmp_path);
         }
-        for dir in self.created_dirs.drain(..).rev() {
-            let _ = fs::remove_dir(dir);
-        }
+        crate::cleanup_created_export_dirs(&mut self.created_dirs);
     }
 }
 

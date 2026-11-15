@@ -26,8 +26,8 @@ use crate::debugger_protocol::{
 };
 use crate::debugger_sources::ScriptOrigin;
 use crate::output_pipeline::{
-    MAX_OUTPUT_EVENTS, OutputEvent, OutputFilter, OutputLocation, OutputPipeline, OutputSeverity,
-    OutputSource,
+    MAX_OUTPUT_EVENT_BYTES, MAX_OUTPUT_EVENTS, OutputEvent, OutputFilter, OutputLocation,
+    OutputPipeline, OutputSeverity, OutputSource,
 };
 use crate::panels::timeline::output::OUTPUT_VIRTUALIZATION_THRESHOLD;
 use crate::updater::{UpdateState, UpdaterConfig};
@@ -247,6 +247,68 @@ fn t310_high_volume_25k_burst_ring_eviction_and_monotonic_revision() {
     pipeline.clear();
     assert!(pipeline.is_empty());
     assert!(pipeline.revision() > rev_before_clear);
+}
+
+#[test]
+fn t322_output_message_budget_includes_unicode_truncation_marker() {
+    let ascii = OutputEvent::info(OutputSource::System, "a".repeat(MAX_OUTPUT_EVENT_BYTES + 1));
+    assert_eq!(ascii.message.len(), MAX_OUTPUT_EVENT_BYTES);
+    assert!(ascii.message.ends_with('…'));
+
+    let unicode = OutputEvent::info(
+        OutputSource::System,
+        "é".repeat(MAX_OUTPUT_EVENT_BYTES / 2 + 16),
+    );
+    assert!(unicode.message.len() <= MAX_OUTPUT_EVENT_BYTES);
+    assert!(unicode.message.ends_with('…'));
+    assert!(unicode.message.is_char_boundary(unicode.message.len()));
+}
+
+#[test]
+fn t322_document_identity_sync_updates_auto_stamped_locations_only() {
+    let mut pipeline = OutputPipeline::new();
+    let placeholder = pipeline.document_id().to_owned();
+    pipeline.push_event(
+        OutputEvent::info(OutputSource::System, "owned")
+            .with_location(OutputLocation::for_file("owned.nflash")),
+    );
+    pipeline.push_event(
+        OutputEvent::info(OutputSource::System, "foreign")
+            .with_document("foreign-event")
+            .with_location(OutputLocation::for_file("foreign.nflash").with_document("foreign")),
+    );
+    assert_eq!(
+        pipeline.events()[0]
+            .location
+            .as_ref()
+            .and_then(|location| location.document_id.as_deref()),
+        Some(placeholder.as_str())
+    );
+
+    let revision = pipeline.revision();
+    pipeline.set_document_id("document-real");
+
+    assert!(pipeline.revision() > revision);
+    assert_eq!(pipeline.events()[0].document, "document-real");
+    assert_eq!(
+        pipeline.events()[0]
+            .location
+            .as_ref()
+            .and_then(|location| location.document_id.as_deref()),
+        Some("document-real")
+    );
+    assert_eq!(pipeline.events()[1].document, "foreign-event");
+    assert_eq!(
+        pipeline.events()[1]
+            .location
+            .as_ref()
+            .and_then(|location| location.document_id.as_deref()),
+        Some("foreign")
+    );
+
+    let unchanged_revision = pipeline.revision();
+    pipeline.set_document_id("document-real");
+    assert_eq!(pipeline.revision(), unchanged_revision);
 }
 
 #[test]

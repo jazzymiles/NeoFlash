@@ -43,6 +43,11 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 22] = [
     ("Filters", "", PanelId::Filters),
 ];
 
+fn window_detachable_panels() -> impl Iterator<Item = (&'static str, PanelId)> {
+    std::iter::once(("Brushes", PanelId::Brushes))
+        .chain(WINDOW_PANELS.iter().map(|(name, _, panel)| (*name, *panel)))
+}
+
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConvertedTrigger {
@@ -1251,7 +1256,7 @@ impl Editor {
     /// All panel visibility rows live in one submenu so Window remains compact.
     fn panels_menu(&mut self, ui: &mut egui::Ui) {
         use crate::commands::CommandId as C;
-        let mut brushes = self.workspace.panels.brushes;
+        let mut brushes = !self.panels_hidden && self.workspace.is_panel_active(PanelId::Brushes);
         if menu_toggle(ui, &mut brushes, "Brushes", "").changed() {
             self.set_panel_visible(PanelId::Brushes, brushes);
             ui.close();
@@ -1335,12 +1340,11 @@ impl Editor {
                 PanelPlacement::Docked,
             ),
         ] {
-            let any = WINDOW_PANELS
-                .iter()
-                .any(|(_, _, panel)| self.workspace.placement(*panel) == placement);
+            let any = window_detachable_panels()
+                .any(|(_, panel)| self.workspace.placement(panel) == placement);
             ui.add_enabled_ui_semantic(any, |ui| {
                 menu_popup(ui, label, "Accessibility", "", |ui| {
-                    for (name, _, panel) in WINDOW_PANELS {
+                    for (name, panel) in window_detachable_panels() {
                         if self.workspace.placement(panel) == placement
                             && menu_item(ui, name, "").clicked()
                         {
@@ -1406,6 +1410,13 @@ mod tests {
             WINDOW_PANELS
                 .iter()
                 .any(|(label, _, panel)| *label == "Debugger" && *panel == PanelId::Debugger)
+        );
+        let detachable: std::collections::HashSet<_> =
+            window_detachable_panels().map(|(_, panel)| panel).collect();
+        assert_eq!(
+            detachable,
+            PanelId::DETACHABLE.into_iter().collect(),
+            "Window detach/dock routes must cover every detachable panel"
         );
     }
 

@@ -2,7 +2,9 @@
 //! (`neoflash-editor --headless batch`). Explicit export/save/JSFL filesystem side effects are
 //! immediate and intentionally outside that final replacement boundary.
 use super::import_export::{ExportSpec, export_project_with_spec, parse_library_folder_flag};
-use super::jsfl_fs::{JsflExecRequest, execute_jsfl_on_project, jsfl_value_to_json};
+use super::jsfl_fs::{
+    JsflExecRequest, execute_jsfl_on_project, jsfl_value_to_json, read_jsfl_source_file,
+};
 use super::{
     CliError, EvalOptions, InspectOptions, OutputFormat, build_inspect_value, build_new_project,
     collect_compile_summary, evaluate_project, load_project_valid, parse_color, parse_easing,
@@ -1494,12 +1496,7 @@ fn execute_batch_op(
                         .and_then(|s| s.to_str())
                         .unwrap_or("batch.jsfl")
                         .to_owned();
-                    let text = fs::read_to_string(&path).map_err(|e| {
-                        CliError::runtime(
-                            "io_error",
-                            format!("Failed reading JSFL script '{}': {e}", path.display()),
-                        )
-                    })?;
+                    let text = read_jsfl_source_file(&path)?;
                     (name, text)
                 }
                 _ => {
