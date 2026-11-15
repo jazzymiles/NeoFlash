@@ -1573,6 +1573,16 @@ pub fn preflight_swf_publish(
                             .to_owned(),
                     );
                 }
+                for fill in &kf.bitmap_fills {
+                    report.push(
+                        "swf_bitmap_fill_unsupported",
+                        FlaCompatibilityCategory::ShapesAndPaints,
+                        FlaCompatibilityStatus::Blocking,
+                        format!("{kf_loc}:element:{}", fill.element_id),
+                        "Authored bitmap fills are not represented by the SWF shape publisher. Use a bitmap instance or replace the fill before publishing."
+                            .to_owned(),
+                    );
+                }
                 if kf.camera.is_some() {
                     report.push(
                         "swf_camera_unsupported",
@@ -3817,6 +3827,10 @@ enum SwfExpr {
     Str(String),
     Ident(String),
     ArrayLit(Vec<SwfExpr>),
+    Function {
+        params: Vec<String>,
+        body: Vec<SwfStmt>,
+    },
     Member(Box<SwfExpr>, String),
     Index(Box<SwfExpr>, Box<SwfExpr>),
     Unary {
@@ -4165,6 +4179,8 @@ struct SwfParser {
     tokens: Vec<SwfToken>,
     pos: usize,
     is_avm2: bool,
+    function_depth: usize,
+    in_function_expression: bool,
 }
 
 impl SwfParser {
@@ -4173,6 +4189,8 @@ impl SwfParser {
             tokens,
             pos: 0,
             is_avm2,
+            function_depth: 0,
+            in_function_expression: false,
         }
     }
 
@@ -4443,6 +4461,12 @@ impl SwfParser {
                     Ok(())
                 }
                 "function" => {
+                    if self.in_function_expression {
+                        return Err(
+                            "nested function declarations inside function expressions require unsupported lexical closure support"
+                                .to_owned(),
+                        );
+                    }
                     self.pos += 1;
                     let name = self.expect_ident()?;
                     self.expect(&SwfToken::LParen)?;
@@ -4464,7 +4488,9 @@ impl SwfParser {
                     }
                     self.skip_type_annotation()?;
                     self.expect(&SwfToken::LBrace)?;
+                    self.function_depth += 1;
                     let body = self.parse_stmt_list(true)?;
+                    self.function_depth -= 1;
                     self.expect(&SwfToken::RBrace)?;
                     out.push(SwfStmt::FunctionDecl { name, params, body });
                     Ok(())
@@ -4845,6 +4871,54 @@ impl SwfParser {
                 "false" => Ok(SwfExpr::Bool(false)),
                 "null" => Ok(SwfExpr::Null),
                 "undefined" => Ok(SwfExpr::Undefined),
+                "function" => {
+                    if self.is_avm2 {
+                        return Err(
+                            "AS3 function expressions are not supported by the bounded SWF compiler"
+                                .to_owned(),
+                        );
+                    }
+                    if self.function_depth != 0 {
+                        return Err(
+                            "nested function expressions requiring lexical closure support are not supported by the bounded SWF compiler"
+                                .to_owned(),
+                        );
+                    }
+                    if matches!(self.peek(), Some(SwfToken::Ident(_))) {
+                        return Err(
+                            "named function expressions are not supported by the bounded SWF compiler"
+                                .to_owned(),
+                        );
+                    }
+                    self.expect(&SwfToken::LParen)?;
+                    let mut params = Vec::new();
+                    if !self.eat(&SwfToken::RParen) {
+                        loop {
+                            params.push(self.expect_ident()?);
+                            self.skip_type_annotation()?;
+                            if self.eat(&SwfToken::Comma) {
+                                continue;
+                            }
+                            self.expect(&SwfToken::RParen)?;
+                            break;
+                        }
+                    }
+                    self.skip_type_annotation()?;
+                    self.expect(&SwfToken::LBrace)?;
+                    self.function_depth += 1;
+                    self.in_function_expression = true;
+                    let body = self.parse_stmt_list(true)?;
+                    self.in_function_expression = false;
+                    self.function_depth -= 1;
+                    self.expect(&SwfToken::RBrace)?;
+                    if find_event_handler_in_stmts(&body).is_some() {
+                        return Err(
+                            "AVM1 object event handler syntax is not allowed inside a function expression"
+                                .to_owned(),
+                        );
+                    }
+                    Ok(SwfExpr::Function { params, body })
+                }
                 _ => Ok(SwfExpr::Ident(s)),
             },
             Some(SwfToken::LParen) => {
@@ -5009,6 +5083,11 @@ fn avm1_compile_expr(out: &mut Vec<u8>, expr: &SwfExpr) -> Result<(), String> {
             }
             avm1_push_int(out, elems.len() as i32);
             out.push(0x42); // ActionInitArray
+        }
+        SwfExpr::Function { params, body } => {
+            // An unnamed ActionDefineFunction pushes the function value. Assignment then
+            // stores that value; its body runs only when called or dispatched as a handler.
+            avm1_compile_function(out, "", params, body)?;
         }
         SwfExpr::Member(obj, prop) => {
             if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "this")
@@ -5359,6 +5438,36 @@ where
     Ok(())
 }
 
+fn avm1_compile_function(
+    out: &mut Vec<u8>,
+    name: &str,
+    params: &[String],
+    body: &[SwfStmt],
+) -> Result<(), String> {
+    let mut body_bytes = Vec::new();
+    avm1_compile_stmt_list(&mut body_bytes, body, true)?;
+    let code_size = u16::try_from(body_bytes.len())
+        .map_err(|_| "AVM1 function body exceeds 65535 bytes".to_owned())?;
+    let mut header = Vec::new();
+    header.extend(name.bytes().filter(|&b| b != 0));
+    header.push(0);
+    let num_params = u16::try_from(params.len())
+        .map_err(|_| "AVM1 function has too many parameters".to_owned())?;
+    header.extend_from_slice(&num_params.to_le_bytes());
+    for param in params {
+        header.extend(param.bytes().filter(|&b| b != 0));
+        header.push(0);
+    }
+    header.extend_from_slice(&code_size.to_le_bytes());
+    let header_len = u16::try_from(header.len())
+        .map_err(|_| "AVM1 function header exceeds 65535 bytes".to_owned())?;
+    out.push(0x9b); // ActionDefineFunction
+    out.extend_from_slice(&header_len.to_le_bytes());
+    out.extend_from_slice(&header);
+    out.extend_from_slice(&body_bytes);
+    Ok(())
+}
+
 fn avm1_compile_stmt_list(
     out: &mut Vec<u8>,
     stmts: &[SwfStmt],
@@ -5499,27 +5608,7 @@ fn avm1_compile_stmt(out: &mut Vec<u8>, stmt: &SwfStmt, in_function: bool) -> Re
             avm1_compile_stmt(out, &while_stmt, in_function)?;
         }
         SwfStmt::FunctionDecl { name, params, body } => {
-            let mut body_bytes = Vec::new();
-            avm1_compile_stmt_list(&mut body_bytes, body, true)?;
-            let code_size = u16::try_from(body_bytes.len())
-                .map_err(|_| "AVM1 function body exceeds 65535 bytes".to_owned())?;
-            let mut header = Vec::new();
-            header.extend(name.bytes().filter(|&b| b != 0));
-            header.push(0);
-            let num_params = u16::try_from(params.len())
-                .map_err(|_| "AVM1 function has too many parameters".to_owned())?;
-            header.extend_from_slice(&num_params.to_le_bytes());
-            for p in params {
-                header.extend(p.bytes().filter(|&b| b != 0));
-                header.push(0);
-            }
-            header.extend_from_slice(&code_size.to_le_bytes());
-            let header_len = u16::try_from(header.len())
-                .map_err(|_| "AVM1 function header exceeds 65535 bytes".to_owned())?;
-            out.push(0x9b); // ActionDefineFunction
-            out.extend_from_slice(&header_len.to_le_bytes());
-            out.extend_from_slice(&header);
-            out.extend_from_slice(&body_bytes);
+            avm1_compile_function(out, name, params, body)?;
         }
         SwfStmt::Return(expr_opt) => {
             if let Some(expr) = expr_opt {
@@ -6439,6 +6528,11 @@ fn compile_avm2_expr(
     local_regs: &HashMap<String, u32>,
 ) -> Result<(), String> {
     match expr {
+        SwfExpr::Function { .. } => {
+            return Err(
+                "AS3 function expressions are not supported by the bounded SWF compiler".to_owned(),
+            );
+        }
         SwfExpr::Null => code.u8(0x20),        // pushnull
         SwfExpr::Undefined => code.u8(0x21),   // pushundefined
         SwfExpr::Bool(true) => code.u8(0x26),  // pushtrue

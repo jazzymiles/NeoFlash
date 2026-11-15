@@ -2,6 +2,10 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Preserved SWF input/dynamic text settings and supported initial HTML and static text styles during import.
+  Fixed AVM1 SWF publishing so assigned anonymous handlers execute when called instead of during assignment;
+  unsupported closure forms and authored bitmap fills now block export with actionable diagnostics.
+
 - Fixed stale Stage text formatting after another clipboard write containing the same words on macOS Apple
   Silicon. Rich formatting now belongs to the specific clipboard write; a replacement or unavailable ownership
   metadata uses the ordinary text fallback. Copy/Paste across tabs and one-step Undo remain supported.

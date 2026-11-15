@@ -7,8 +7,9 @@ use super::bits::SwfSlice;
 use super::shape::read_pure_shape_commands;
 use crate::ImportReport;
 use neoflash_core::{
-    Color, Element, ElementKind, FillRule, MAX_PATH_COMMANDS, MAX_TEXT_BYTES, PathCommand,
-    TextAlign, TextBoxSize, TextFieldState, TextFormat, Transform, validate_path_commands,
+    AuthoredTextFieldOptions, Color, Element, ElementKind, FillRule, MAX_PATH_COMMANDS,
+    MAX_TEXT_BYTES, PathCommand, TextAlign, TextBoxSize, TextFieldState, TextFieldType, TextFormat,
+    TextFormatRun, Transform, normalize_text_and_runs, validate_path_commands,
 };
 use std::collections::HashMap;
 
@@ -260,8 +261,10 @@ pub(crate) fn decode_define_text(
     let mut prev_line_y: Option<i32> = None;
 
     let mut first_style: Option<(u16, Color, u16)> = None;
-    let mut mixed_styles = false;
+    let mut mixed_alpha = false;
     let mut text_buf = String::new();
+    let mut format_runs: Vec<TextFormatRun> = Vec::new();
+    let mut text_truncated = false;
     let mut mapped_count = 0usize;
     let mut unmapped_count = 0usize;
 
@@ -293,8 +296,11 @@ pub(crate) fn decode_define_text(
                 && (new_y - py).abs() > i32::from(cur_height_twips) / 3
                 && !text_buf.is_empty()
                 && !text_buf.ends_with('\n')
+                && !text_truncated
+                && let Some(style) = format_runs.last().map(|run| run.format.clone())
             {
-                text_buf.push('\n');
+                text_truncated |=
+                    !append_styled_character(&mut text_buf, &mut format_runs, '\n', &style);
             }
             cur_y_twips = new_y;
             prev_line_y = Some(new_y);
@@ -308,8 +314,8 @@ pub(crate) fn decode_define_text(
         let glyph_count = usize::from(r.u8()?);
         let fid = cur_font_id.unwrap_or(0);
         if let Some(first) = first_style {
-            if first != (fid, cur_color, cur_height_twips) && glyph_count > 0 {
-                mixed_styles = true;
+            if first.1[3] != cur_color[3] && glyph_count > 0 {
+                mixed_alpha = true;
             }
         } else if glyph_count > 0 {
             first_style = Some((fid, cur_color, cur_height_twips));
@@ -318,6 +324,7 @@ pub(crate) fn decode_define_text(
         r.align();
         let font = fonts.get(&fid);
         let size_px = (f64::from(cur_height_twips) / 20.0).clamp(1.0, 10_000.0);
+        let style = static_text_format(font, cur_color, cur_height_twips);
         for _ in 0..glyph_count {
             let glyph_idx = r.ub(glyph_bits)? as usize;
             let advance = r.sb(advance_bits)?;
@@ -330,11 +337,20 @@ pub(crate) fn decode_define_text(
                 .and_then(|f| f.code_table.get(glyph_idx))
                 .and_then(|c| *c)
             {
-                if text_buf.len() + ch.len_utf8() <= MAX_TEXT_BYTES {
-                    text_buf.push(ch);
+                if !text_truncated {
+                    text_truncated =
+                        !append_styled_character(&mut text_buf, &mut format_runs, ch, &style);
                 }
                 mapped_count += 1;
             } else {
+                if !text_truncated {
+                    text_truncated = !append_styled_character(
+                        &mut text_buf,
+                        &mut format_runs,
+                        '\u{fffd}',
+                        &style,
+                    );
+                }
                 unmapped_count += 1;
             }
         }
@@ -360,6 +376,8 @@ pub(crate) fn decode_define_text(
         }
     }
 
+    let (text_buf, format_runs) = normalize_text_and_runs(&text_buf, &format_runs);
+
     let (fid, color, height_twips) = first_style.unwrap_or((0, [0, 0, 0, 255], 240));
     let font_def = fonts.get(&fid);
     let font_name = font_def
@@ -371,11 +389,11 @@ pub(crate) fn decode_define_text(
     let italic = font_def.is_some_and(|f| f.italic);
     let size_px = (f64::from(height_twips) / 20.0).clamp(1.0, 1000.0);
 
-    if mixed_styles || unmapped_count > 0 {
+    if mixed_alpha || unmapped_count > 0 || text_truncated {
         report.warning(
             "swf_text_approximated",
             format!("{location}#text:{text_id}"),
-            "Multi-run static text uses the first run's font style.",
+            "Static text contains unmapped glyphs, differing run alpha or text beyond the byte limit; replacement characters, first-run alpha or a bounded text prefix are used. Font, size, style and RGB runs are retained.",
         );
     }
     if !*metrics_warned {
@@ -387,7 +405,7 @@ pub(crate) fn decode_define_text(
         );
     }
 
-    let elem = build_textbox_element(
+    let mut elem = build_textbox_element(
         format!("swf-text-{text_id}-el-0"),
         String::new(),
         bounds,
@@ -406,12 +424,61 @@ pub(crate) fn decode_define_text(
         false,
     )?;
 
+    if format_runs.len() > 1
+        && let ElementKind::TextBox { format, .. } = &mut elem.kind
+    {
+        format.set_field_options(Some(AuthoredTextFieldOptions {
+            format_runs,
+            ..AuthoredTextFieldOptions::default()
+        }));
+    }
+
     Some((
         text_id,
         DecodedSwfText {
             elements: vec![elem],
         },
     ))
+}
+
+fn static_text_format(font: Option<&SwfFontDef>, color: Color, height_twips: u16) -> TextFormat {
+    TextFormat {
+        font: font
+            .map(|font| clean_font_name(&font.name))
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| "sans-serif".into()),
+        size: (f64::from(height_twips) / 20.).clamp(1., 1000.),
+        color: (u32::from(color[0]) << 16) | (u32::from(color[1]) << 8) | u32::from(color[2]),
+        bold: font.is_some_and(|font| font.bold),
+        italic: font.is_some_and(|font| font.italic),
+        ..TextFormat::default()
+    }
+}
+
+fn append_styled_character(
+    text: &mut String,
+    runs: &mut Vec<TextFormatRun>,
+    ch: char,
+    format: &TextFormat,
+) -> bool {
+    if text.len() + ch.len_utf8() > MAX_TEXT_BYTES {
+        return false;
+    }
+    let start = runs.last().map_or(0, |run| run.end);
+    text.push(ch);
+    let end = start + ch.len_utf16() as u32;
+    if let Some(last) = runs.last_mut()
+        && last.format == *format
+    {
+        last.end = end;
+    } else {
+        runs.push(TextFormatRun {
+            start,
+            end,
+            format: format.clone(),
+        });
+    }
+    true
 }
 
 /// Decode `DefineEditText` (tag 37) into an `ElementKind::TextBox`.
@@ -440,8 +507,12 @@ pub(crate) fn decode_define_edit_text(
     let has_font = (flags0 & 0x01) != 0;
 
     let has_font_class = (flags1 & 0x80) != 0;
+    let auto_size = (flags1 & 0x40) != 0;
     let has_layout = (flags1 & 0x20) != 0;
+    let selectable = (flags1 & 0x10) == 0;
+    let border = (flags1 & 0x08) != 0;
     let was_static = (flags1 & 0x04) != 0;
+    let use_outlines = (flags1 & 0x01) != 0;
     let is_html = (flags1 & 0x02) != 0;
 
     let font_id = if has_font { Some(r.u16()?) } else { None };
@@ -458,13 +529,20 @@ pub(crate) fn decode_define_edit_text(
     } else {
         [0, 0, 0, 255]
     };
-    if has_max_length {
-        let _max_len = r.u16()?;
-    }
+    let max_chars = if has_max_length {
+        u32::from(r.u16()?)
+    } else {
+        0
+    };
+    let mut justify = false;
     let (align, left_margin, right_margin, indent, leading) = if has_layout {
         let al = match r.u8()? {
             1 => TextAlign::Right,
             2 => TextAlign::Center,
+            3 => {
+                justify = true;
+                TextAlign::Left
+            }
             _ => TextAlign::Left,
         };
         let lm = (f64::from(r.u16()?) / 20.0).clamp(0.0, 2000.0);
@@ -489,23 +567,9 @@ pub(crate) fn decode_define_edit_text(
     let plain_text = if is_html {
         strip_flash_html(&raw_text)
     } else {
-        raw_text
+        raw_text.clone()
     };
 
-    if !was_static || !read_only || password || is_html || !variable_name.is_empty() {
-        report.warning(
-            "swf_text_approximated",
-            format!("{location}#edittext:{text_id}"),
-            format!(
-                "SWF DefineEditText imported as authored text box{}.",
-                if variable_name.is_empty() {
-                    String::new()
-                } else {
-                    format!(" (variable \"{variable_name}\")")
-                }
-            ),
-        );
-    }
     if !*metrics_warned {
         *metrics_warned = true;
         report.warning(
@@ -546,8 +610,69 @@ pub(crate) fn decode_define_edit_text(
     )?;
 
     let mut elem = elem;
-    if multiline && let ElementKind::TextBox { multiline: ml, .. } = &mut elem.kind {
-        *ml = true;
+    let mut approximations = Vec::new();
+    if was_static {
+        approximations.push("the legacy static-field interaction flag is not represented");
+    }
+    if raw_text.len() > MAX_TEXT_BYTES {
+        approximations.push("initial text exceeds the text byte limit");
+    }
+    if let ElementKind::TextBox {
+        text,
+        format,
+        multiline: ml,
+        ..
+    } = &mut elem.kind
+    {
+        *ml = multiline;
+        if justify {
+            format.set_align_mode(Some("justify".into()));
+        }
+        let mut runs = Vec::new();
+        if is_html {
+            match TextFieldState::parse_html(&raw_text, format, None, false) {
+                Ok(parsed) if parsed.validate().is_ok() => {
+                    let parsed_runs =
+                        parsed.materialized_runs(parsed.text.encode_utf16().count() as u32);
+                    let (normalized, normalized_runs) =
+                        normalize_text_and_runs(&parsed.text, &parsed_runs);
+                    runs = normalized_runs;
+                    *text = normalized;
+                }
+                _ => {
+                    approximations.push("initial HTML could not be represented as valid rich text")
+                }
+            }
+            if unsupported_html_markup(&raw_text) {
+                approximations.push(
+                    "HTML contains markup, attributes or entities outside the supported subset",
+                );
+            }
+        }
+        let opts = AuthoredTextFieldOptions {
+            field_type: if read_only {
+                TextFieldType::Dynamic
+            } else {
+                TextFieldType::Input
+            },
+            selectable,
+            display_as_password: password,
+            max_chars,
+            variable: (!variable_name.is_empty()).then_some(variable_name),
+            // DefineEditText stores a boolean AutoSize flag, not an anchor mode.
+            auto_size: if auto_size { "left" } else { "none" }.into(),
+            border,
+            background: border,
+            html: is_html,
+            embed_fonts: use_outlines,
+            format_runs: runs,
+            ..AuthoredTextFieldOptions::default()
+        };
+        format.set_field_options(Some(opts));
+    }
+    if !approximations.is_empty() {
+        report.warning("swf_text_approximated", format!("{location}#edittext:{text_id}"),
+            format!("SWF editable text retains its field settings with approximations: {}. Original data remains in the source SWF.", approximations.join("; ")));
     }
 
     Some((
@@ -837,4 +962,79 @@ fn strip_flash_html(input: &str) -> String {
         }
     }
     out
+}
+
+// Detect information the shared HTML parser does not represent. This is only a
+// preservation diagnostic; parsing/layout stay in the shared Rust text engine.
+fn unsupported_html_markup(source: &str) -> bool {
+    let mut remaining = source;
+    while let Some((_, after_open)) = remaining.split_once('<') {
+        let Some((body, tail)) = after_open.split_once('>') else {
+            return true;
+        };
+        remaining = tail;
+        let body = body.trim();
+        let closing = body.starts_with('/');
+        let body = body.trim_start_matches('/').trim_end_matches('/').trim();
+        let mut parts = body.splitn(2, char::is_whitespace);
+        let name = parts.next().unwrap_or("").to_ascii_lowercase();
+        let allowed: &[&str] = match name.as_str() {
+            "b" | "strong" | "i" | "em" | "u" | "br" | "li" => &[],
+            "p" | "div" => &["align"],
+            "font" => &["face", "size", "color", "letterspacing"],
+            "a" => &["href", "target"],
+            _ => return true,
+        };
+        let mut attrs = parts.next().unwrap_or("").trim();
+        if closing && !attrs.is_empty() {
+            return true;
+        }
+        while !attrs.is_empty() {
+            let Some((attr, rest)) = attrs.split_once('=') else {
+                return true;
+            };
+            let attr = attr.trim().to_ascii_lowercase();
+            if !allowed.contains(&attr.as_str()) {
+                return true;
+            }
+            let rest = rest.trim_start();
+            let Some(quote) = rest.chars().next().filter(|c| matches!(c, '\'' | '"')) else {
+                return true;
+            };
+            let Some((value, tail)) = rest[1..].split_once(quote) else {
+                return true;
+            };
+            if attr == "size"
+                && value
+                    .parse::<f64>()
+                    .map_or(true, |v| !(1. ..=127.).contains(&v))
+            {
+                return true;
+            }
+            attrs = tail.trim_start();
+        }
+    }
+    let mut remaining = source;
+    while let Some((_, after_amp)) = remaining.split_once('&') {
+        let Some((entity, tail)) = after_amp.split_once(';') else {
+            return true;
+        };
+        remaining = tail;
+        let supported = matches!(entity, "amp" | "lt" | "gt" | "quot" | "apos" | "nbsp")
+            || entity
+                .strip_prefix("#x")
+                .or_else(|| entity.strip_prefix("#X"))
+                .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+                .and_then(char::from_u32)
+                .is_some()
+            || entity
+                .strip_prefix('#')
+                .and_then(|n| n.parse::<u32>().ok())
+                .and_then(char::from_u32)
+                .is_some();
+        if !supported {
+            return true;
+        }
+    }
+    false
 }

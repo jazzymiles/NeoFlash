@@ -2,14 +2,14 @@
 //! and HTML5 bundle verification for `T-325`.
 
 use neoflash_core::{
-    BlendMode, ColorTransform, Element, ElementKind, FillRule, FilterSpec, FrameScript,
-    InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MaskMode, ObjectEvent,
-    ObjectScript, PathCommand, Project, Script, ScriptLanguage, Symbol, SymbolKind, Timeline,
-    Transform,
+    AuthoredBitmapFill, BlendMode, ColorTransform, Element, ElementKind, FillRule, FilterSpec,
+    FrameScript, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MaskMode,
+    ObjectEvent, ObjectScript, PathCommand, Project, ResourceUnit, Script, ScriptLanguage, Symbol,
+    SymbolKind, Timeline, Transform,
 };
 use neoflash_export::{
-    SwfCompression, SwfPublishOptions, SwfPublishProfile, export_project, import_swf_bytes,
-    play_swf_bytes, publish_swf_bytes,
+    FlaFeatureDisposition, SwfCompression, SwfPublishOptions, SwfPublishProfile, export_project,
+    import_swf_bytes, play_swf_bytes, preflight_swf_publish, publish_swf_bytes,
 };
 use neoflash_import::{Severity, SwfBytecodePlayer, import_project, inspect};
 use std::fs;
@@ -864,8 +864,30 @@ fn reconstructed_as1_as2_as3_and_corpus_swfs_export_valid_html5_bundles_and_roun
     )
     .expect("re-publish reconstructed corpus project to SWF");
     assert!(re_rep.can_proceed());
-    let re_play = play_swf_bytes(&re_swf, 2).expect("play re-published corpus SWF");
-    assert!(!re_play.frames_executed.is_empty());
+    let original_play =
+        play_swf_bytes(&fs::read(&corpus_path).unwrap(), 12).expect("play original corpus SWF");
+    let re_play = play_swf_bytes(&re_swf, 12).expect("play re-published corpus SWF");
+    assert_eq!(
+        re_play
+            .frames_executed
+            .iter()
+            .map(|frame| (frame.frame, &frame.traces))
+            .collect::<Vec<_>>(),
+        original_play
+            .frames_executed
+            .iter()
+            .map(|frame| (frame.frame, &frame.traces))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        re_play.trace_output, original_play.trace_output,
+        "Assigned event function bodies must run at their event, preserving the entire trace"
+    );
+    let trace_position = |line| re_play.trace_output.iter().position(|s| s == line).unwrap();
+    assert!(trace_position("clip enterFrame") < trace_position("clip onEnterFrame"));
+    assert!(trace_position("frame 3") < trace_position("clip onUnload"));
+    assert!(trace_position("clip unload") < trace_position("clip onUnload"));
+    assert!(trace_position("clip onUnload") < trace_position("frame 4"));
 
     // 2. Reconstructed AS2 and AS3 SWFs (with filters, blends, static masks, scaling grids, scripts)
     //    -> `.nflash` -> HTML5 export bundle!
@@ -910,5 +932,136 @@ fn reconstructed_as1_as2_as3_and_corpus_swfs_export_valid_html5_bundles_and_roun
         assert!(html.contains("bundle.js"));
         let bundle = fs::read_to_string(html_out.join("bundle.js")).expect("read bundle.js");
         assert!(bundle.contains("heroPanel"));
+    }
+}
+
+#[test]
+fn avm1_function_values_run_on_call_and_unsupported_closures_block() {
+    let mut project = Project::blank();
+    project.script_language = Some(ScriptLanguage::ActionScript2);
+    let root = &mut project.symbols[0];
+    root.timeline.frame_count = 1;
+    root.timeline.scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: r#"
+                var base = 40;
+                var twice = function(value) { var result = value * 2; return result; };
+                this.adjust = function(value) { return base + value; };
+                trace("assigned");
+                trace(twice(3));
+                trace(this.adjust(2));
+                stop();
+            "#
+            .to_owned(),
+        },
+    }];
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+    let avm1_options = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1);
+    let (bytes, report) = publish_swf_bytes(&project, &avm1_options).unwrap();
+    assert!(report.can_proceed());
+    assert_eq!(
+        play_swf_bytes(&bytes, 2).unwrap().trace_output,
+        ["assigned", "6", "42"]
+    );
+
+    for (language, profile, source, issue) in [
+        (
+            ScriptLanguage::ActionScript2,
+            SwfPublishProfile::FlashPlayer8Avm1,
+            "var f = function named() { trace('deferred'); };",
+            "named function expressions",
+        ),
+        (
+            ScriptLanguage::ActionScript2,
+            SwfPublishProfile::FlashPlayer8Avm1,
+            "function make(x) { return function() { return x; }; } var f = make(7);",
+            "nested function expressions",
+        ),
+        (
+            ScriptLanguage::ActionScript2,
+            SwfPublishProfile::FlashPlayer8Avm1,
+            "var f = function() { var x = 7; function g() { return x; } return g; };",
+            "nested function declarations",
+        ),
+        (
+            ScriptLanguage::ActionScript2,
+            SwfPublishProfile::FlashPlayer8Avm1,
+            "var f = function() { onClipEvent(load) { trace('invalid'); } };",
+            "object event handler syntax",
+        ),
+        (
+            ScriptLanguage::ActionScript3,
+            SwfPublishProfile::FlashPlayer10Avm2,
+            "var f = function() { trace('deferred'); };",
+            "AS3 function expressions",
+        ),
+    ] {
+        project.script_language = Some(language);
+        project.symbols[0].timeline.scripts[0].script = Script {
+            language,
+            source: source.to_owned(),
+        };
+        let options = SwfPublishOptions::for_profile(profile);
+        let report = preflight_swf_publish(&project, &options);
+        assert!(
+            report.items.iter().any(|item| {
+                item.disposition == FlaFeatureDisposition::Blocking
+                    && item.location.ends_with("frame[0].script")
+                    && item.message.contains(issue)
+            }),
+            "missing located block for {source}: {report:?}"
+        );
+        assert!(publish_swf_bytes(&project, &options).is_err());
+    }
+}
+
+#[test]
+fn authored_bitmap_fills_block_swf_publish_including_scriptless_mode() {
+    let mut project = Project::blank();
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(1, 1, image::Rgba([40, 90, 150, 255]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    project
+        .resources
+        .push(ResourceUnit::from_bytes("paint", "paint.png", "image/png", png.get_ref()).unwrap());
+    let key = &mut project.symbols[0].timeline.layers[0].keyframes[0];
+    key.elements.push(Element {
+        id: "painted-shape".to_owned(),
+        kind: ElementKind::Rectangle {
+            width: 20.0,
+            height: 20.0,
+            fill: [255, 0, 0, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        ..Element::default()
+    });
+    key.bitmap_fills.push(AuthoredBitmapFill {
+        element_id: "painted-shape".to_owned(),
+        resource_id: "paint".to_owned(),
+        matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        repeat: true,
+        smoothing: false,
+    });
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+    for scriptless_mode in [false, true] {
+        let options = SwfPublishOptions {
+            scriptless_mode,
+            ..SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1)
+        };
+        let report = preflight_swf_publish(&project, &options);
+        let item = report
+            .items
+            .iter()
+            .find(|item| item.code == "swf_bitmap_fill_unsupported")
+            .expect("bitmap fill must not silently become its solid fallback");
+        assert_eq!(item.disposition, FlaFeatureDisposition::Blocking);
+        assert!(item.location.ends_with("frame[0]:element:painted-shape"));
+        assert!(publish_swf_bytes(&project, &options).is_err());
     }
 }

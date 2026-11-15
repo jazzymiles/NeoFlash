@@ -2409,3 +2409,215 @@ fn swf_player_seek_step_restart_determinism_and_located_diagnostics() {
         st_diag2.unsupported_diagnostics
     );
 }
+
+// Original synthetic SWF with editable field flags and multi-run static text.
+// This helper also supplies the delivery's HTML5 browser fixture.
+fn t345_text_fields_swf() -> Vec<u8> {
+    fn rect_bytes() -> Vec<u8> {
+        let mut bits = BitWriter::new();
+        bits.push(16, 5);
+        for value in [0, 6000, 0, 600] {
+            bits.push(value, 16);
+        }
+        bits.finish()
+    }
+    fn edit(id: u16, flags0: u8, flags1: u8, align: u8, variable: &str, text: &str) -> Vec<u8> {
+        let mut bytes = id.to_le_bytes().to_vec();
+        bytes.extend(rect_bytes());
+        bytes.extend([flags0, flags1]);
+        bytes.extend(2u16.to_le_bytes()); // HasFont: plain italic base, independent of bold HTML spans
+        bytes.extend(240u16.to_le_bytes());
+        bytes.extend([20, 40, 60, 128]); // HasTextColor
+        if flags0 & 2 != 0 {
+            bytes.extend(5u16.to_le_bytes());
+        }
+        bytes.push(align); // HasLayout
+        for value in [20i16, 40, 60, 80] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.extend(variable.as_bytes());
+        bytes.push(0);
+        bytes.extend(text.as_bytes());
+        bytes.push(0);
+        bytes
+    }
+    fn static_record(bytes: &mut Vec<u8>, font: u16, rgba: [u8; 4], height: u16, glyphs: &[u64]) {
+        bytes.push(0x8c); // font + color, existing baseline/position
+        bytes.extend(font.to_le_bytes());
+        bytes.extend(rgba);
+        bytes.extend(height.to_le_bytes());
+        bytes.push(glyphs.len() as u8);
+        let mut bits = BitWriter::new();
+        for &glyph in glyphs {
+            bits.push(glyph, 3);
+            bits.push(200, 10);
+        }
+        bytes.extend(bits.finish());
+    }
+    let mut tags = Vec::new();
+    for (id, name, flags, codes) in [
+        (1u16, "Synthetic Serif", 3, vec![65u16, 0x0416, 13]),
+        (2u16, "Synthetic Sans", 5, vec![66u16, 10]),
+    ] {
+        let mut font = id.to_le_bytes().to_vec();
+        font.push(name.len() as u8);
+        font.extend(name.as_bytes());
+        font.push(flags);
+        for code in codes {
+            font.extend(code.to_le_bytes());
+        }
+        swf_tag(&mut tags, 13, &font);
+    }
+    for (id, f0, f1, align, variable, text) in [
+        (10, 0xb7, 0x69, 1, "form.value", "A😀B"),
+        (
+            11,
+            0xed,
+            0x32,
+            3,
+            "",
+            "<P ALIGN=\"JUSTIFY\"><FONT FACE=\"Synthetic Sans\" SIZE=\"18\" COLOR=\"#204060\"><B>A😀</B>Ж</FONT></P>",
+        ),
+        (12, 0x8d, 0x60, 2, "", "center"),
+        (
+            13,
+            0x8d,
+            0x22,
+            0,
+            "",
+            "<P>kept<IMG SRC=\"missing.png\" /></P>",
+        ),
+    ] {
+        swf_tag(&mut tags, 37, &edit(id, f0, f1, align, variable, text));
+    }
+    let mut static_text = 20u16.to_le_bytes().to_vec();
+    static_text.extend(rect_bytes());
+    static_text.extend(swf_matrix_bytes(None, None, 0., 0.));
+    static_text.extend([3, 10]);
+    static_record(&mut static_text, 1, [200, 20, 30, 255], 240, &[0, 1, 2]);
+    static_record(&mut static_text, 2, [30, 40, 210, 255], 400, &[1, 0]);
+    static_text.push(0);
+    swf_tag(&mut tags, 33, &static_text);
+    let mut unmapped = 21u16.to_le_bytes().to_vec();
+    unmapped.extend(rect_bytes());
+    unmapped.extend(swf_matrix_bytes(None, None, 0., 0.));
+    unmapped.extend([3, 10]);
+    static_record(&mut unmapped, 1, [0, 0, 0, 255], 240, &[0, 7]);
+    unmapped.push(0);
+    swf_tag(&mut tags, 33, &unmapped);
+    for (depth, id) in [10u16, 11, 12, 13, 20, 21].into_iter().enumerate() {
+        let mut place = vec![0x26];
+        place.extend((depth as u16 + 1).to_le_bytes());
+        place.extend(id.to_le_bytes());
+        place.extend(swf_matrix_bytes(None, None, 10., depth as f64 * 42.));
+        place.extend(format!("field{id}\0").as_bytes());
+        swf_tag(&mut tags, 26, &place);
+    }
+    swf_tag(&mut tags, 1, &[]);
+    wrap_swf(SwfCompression::Uncompressed, 8, 1, &tags)
+}
+
+#[test]
+fn swf_editable_fields_and_static_utf16_style_runs_preserve_authored_semantics() {
+    use neoflash_core::{ElementKind, TextFieldState, TextFieldType};
+    let temp = TempDir::new("text-fields");
+    let path = temp.0.join("text-fields.swf");
+    fs::write(&path, t345_text_fields_swf()).unwrap();
+    let report = inspect(&path).unwrap();
+    assert!(report.can_import, "{:?}", report.diagnostics);
+    let project = import_project(&path).unwrap();
+    project.validate().unwrap();
+    assert_eq!(
+        Project::from_json(&project.to_json().unwrap()).unwrap(),
+        project
+    );
+    let field = |id: u16| {
+        let symbol = project.symbol(&format!("swf-sym-{id}")).unwrap();
+        TextFieldState::from_kind(&symbol.timeline.layers[0].keyframes[0].elements[0].kind).unwrap()
+    };
+    let input = field(10);
+    assert_eq!(input.text, "A😀B");
+    assert_eq!(input.field_type, TextFieldType::Input);
+    assert_eq!(input.max_chars, 5);
+    assert_eq!(input.variable.as_deref(), Some("form.value"));
+    assert!(input.display_as_password && input.selectable && input.multiline);
+    assert!(!input.word_wrap);
+    assert!(input.embed_fonts && input.as2_viewport.border && input.as2_viewport.background);
+    assert_eq!(input.as2_viewport.auto_size, "left");
+    assert_eq!(input.format.align, neoflash_core::TextAlign::Right);
+    assert_eq!(input.format.left_margin, 1.);
+    assert_eq!(input.format.right_margin, 2.);
+    assert_eq!(input.format.indent, 3.);
+    assert_eq!(input.format.leading, 4.);
+    let input_element =
+        &project.symbol("swf-sym-10").unwrap().timeline.layers[0].keyframes[0].elements[0];
+    assert_eq!(input_element.transform.alpha, 128. / 255.);
+
+    let html = field(11);
+    assert_eq!(html.field_type, TextFieldType::Dynamic);
+    assert!(!html.selectable && !html.embed_fonts);
+    assert!(html.html && html.word_wrap && html.multiline);
+    assert_eq!(html.text, "A😀Ж");
+    assert_eq!(html.format.align_mode(), Some("justify"));
+    assert_eq!(html.format_runs.len(), 2);
+    assert_eq!((html.format_runs[0].start, html.format_runs[0].end), (0, 3));
+    assert_eq!((html.format_runs[1].start, html.format_runs[1].end), (3, 4));
+    assert!(html.format_runs[0].format.bold);
+    assert!(!html.format_runs[1].format.bold);
+    assert_eq!(html.format_runs[0].format.font, "Synthetic Sans");
+    assert_eq!(html.format_runs[0].format.size, 18.);
+    assert_eq!(html.format_runs[0].format.color, 0x204060);
+    assert_eq!(field(12).as2_viewport.auto_size, "left");
+    assert_eq!(field(12).format.align, neoflash_core::TextAlign::Center);
+    assert!(!field(12).multiline);
+    assert_eq!(field(13).text, "kept");
+
+    let static_text = field(20);
+    assert_eq!(static_text.text, "AЖ\nB");
+    assert_eq!(static_text.format_runs.len(), 2);
+    assert_eq!(
+        (
+            static_text.format_runs[0].start,
+            static_text.format_runs[0].end
+        ),
+        (0, 2)
+    );
+    assert_eq!(
+        (
+            static_text.format_runs[1].start,
+            static_text.format_runs[1].end
+        ),
+        (2, 4)
+    );
+    assert_eq!(static_text.format_runs[0].format.font, "Synthetic Serif");
+    assert!(static_text.format_runs[0].format.bold);
+    assert_eq!(static_text.format_runs[0].format.color, 0xc8141e);
+    assert_eq!(static_text.format_runs[1].format.font, "Synthetic Sans");
+    assert!(static_text.format_runs[1].format.italic);
+    assert_eq!(static_text.format_runs[1].format.size, 20.);
+    assert_eq!(static_text.format_runs[1].format.color, 0x1e28d2);
+    assert_eq!(field(21).text, "A�");
+    let approximations: Vec<_> = report
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "swf_text_approximated")
+        .collect();
+    assert_eq!(approximations.len(), 2, "{approximations:?}");
+    assert!(
+        approximations
+            .iter()
+            .any(|d| d.location.ends_with("#edittext:13"))
+    );
+    assert!(
+        approximations
+            .iter()
+            .any(|d| d.location.ends_with("#text:21"))
+    );
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "swf_text_metrics")
+    );
+    assert!(matches!(input_element.kind, ElementKind::TextBox { .. }));
+}
