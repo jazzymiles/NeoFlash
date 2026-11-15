@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "b07dda37cfe96f9850cf2757e9f99a4e481f46ad4bd9ee1f6562737545f18d77",
+  "reviews": [
+    {
+      "id": "AS3-LIFECYCLE-MASK-20261115",
+      "date": "2026-11-15",
+      "commit": "5bb0e9278d322c3a7576edba45bb6b80060a6aeb",
+      "title": "Display lifecycle and the painted-mask boundary",
+      "summary": "Lifecycle regressions cover frame visits, late initialization, reentrant retirement and Restart. Mask coverage remains Partial: the review restores tested gradient, bitmap and PNG alpha support while retaining the unsupported source-graph and cache boundaries. No declaration counts change.",
+      "tests": [
+        "crates/neoflash-core/tests/runtime_lifecycle.rs",
+        "crates/neoflash-core/tests/runtime_masks.rs",
+        "crates/neoflash-core/tests/dynamic_display.rs",
+        "web/tests/as3-frame-lifecycle.test.cjs",
+        "web/tests/display-family.test.cjs",
+        "web/tests/publish-parity-polish.test.cjs",
+        "crates/neoflash-script/tests/clipped-scene.mjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "partial",
+          "note": "Live vector and animated masks support geometric fills; cached target and mask preserve authored/dynamic gradient, BitmapData-backed bitmap and PNG alpha. Retirement clears stale links. Text/video sources, scripted masked-source graphs and external BitmapData.draw mask dependencies remain unsupported; filter-only cache downgrade remains limited."
+        }
+      ]
+    }
+  ]
+}

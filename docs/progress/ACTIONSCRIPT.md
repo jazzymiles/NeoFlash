@@ -67,6 +67,7 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-LIFECYCLE-MASK-20261115` | 2026-11-15 | `5bb0e9278d32` |  |
 | `AS3-LOADER-RECOVERY-20261115` | 2026-11-15 | `e48ea02adf62` | 2 → partial |
 | `AS3-T333-CONTRACT-CORRECTIONS-20261115` | 2026-11-15 | `5a5987d4f53b` | 7 → partial |
 | `AS3-MEDIANETSTREAM-20261115` | 2026-11-15 | `ee156d0dbaae` | 10 → working |
@@ -13056,3 +13057,13 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:method:flash/display/Loader.html#loadBytes()` — **partial**: Supported images and NeoFlash child bundles load with cancellation and callback recovery. Raw SWF yields a diagnosed header container without movie display, timeline or bytecode execution; application and security-domain behavior remains bounded.
 
 Evidence: [web/tests/load-publish-and-media.test.cjs](../../web/tests/load-publish-and-media.test.cjs), [web/tests/loader-publish-order.test.cjs](../../web/tests/loader-publish-order.test.cjs)
+
+### AS3-LIFECYCLE-MASK-20261115 — Display lifecycle and the painted-mask boundary
+
+Lifecycle regressions cover frame visits, late initialization, reentrant retirement and Restart. Mask coverage remains Partial: the review restores tested gradient, bitmap and PNG alpha support while retaining the unsupported source-graph and cache boundaries. No declaration counts change.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:property:flash/display/DisplayObject.html#mask` — **partial**: Live vector and animated masks support geometric fills; cached target and mask preserve authored/dynamic gradient, BitmapData-backed bitmap and PNG alpha. Retirement clears stale links. Text/video sources, scripted masked-source graphs and external BitmapData.draw mask dependencies remain unsupported; filter-only cache downgrade remains limited.
+
+Evidence: [crates/neoflash-core/tests/runtime_lifecycle.rs](../../crates/neoflash-core/tests/runtime_lifecycle.rs), [crates/neoflash-core/tests/runtime_masks.rs](../../crates/neoflash-core/tests/runtime_masks.rs), [crates/neoflash-core/tests/dynamic_display.rs](../../crates/neoflash-core/tests/dynamic_display.rs), [web/tests/as3-frame-lifecycle.test.cjs](../../web/tests/as3-frame-lifecycle.test.cjs), [web/tests/display-family.test.cjs](../../web/tests/display-family.test.cjs), [web/tests/publish-parity-polish.test.cjs](../../web/tests/publish-parity-polish.test.cjs), [crates/neoflash-script/tests/clipped-scene.mjs](../../crates/neoflash-script/tests/clipped-scene.mjs)

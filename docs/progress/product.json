@@ -1729,10 +1729,10 @@
     {
       "id": "animation-lifecycle",
       "category": "animation",
-      "title": "Complete Flash timeline lifecycle",
+      "title": "Timeline lifecycle and scene playback",
       "status": "implemented",
-      "scope": "Phased Rust/WASM and HTML5 lifecycle ordering (ENTER_FRAME -> timeline step -> Construct / deepest-child-first REMOVED & REMOVED_FROM_STAGE -> FRAME_CONSTRUCTED -> Event.FRAME_LABEL / FrameScripts -> EXIT_FRAME -> RENDER): parent super() constructs timeline children, assigns typed slots and fires child ADDED before post-super() statements; synchronous AS3 goto*/nextFrame/prevFrame/*Scene supersede stale pending scripts via visit_id while preserving deferred AS2 goto semantics and detached-clip lifecycle events. Removing and recreating an instance starts a new lifetime; same-path symbol replacement resets subtree overrides, custom fields and clocks, invalidates old proxies and preserves siblings; accepted in Chrome/in-app HTML5. Scenes flatten in play order for Test Movie and HTML5 export (preserving scene-local timing for synchronized layers), while Control ▸ Test scene (⌥⌘↵) publishes and previews only the currently edited scene. Native Play all scenes with Loop off plays through the final scene before stopping.",
-      "limitations": "Re-entrant AS3 inner-goto execution is bounded (MAX_LIFECYCLE_DEPTH = 128, MAX_LIFECYCLE_STEPS = 4096), and complete Flash Player edge-case conformance outside the verified lifecycle suites still needs conformance work.",
+      "scope": "Phased Rust/WASM and HTML5 lifecycle ordering (ENTER_FRAME -> timeline step -> Construct / deepest-child-first REMOVED & REMOVED_FROM_STAGE -> FRAME_CONSTRUCTED -> Event.FRAME_LABEL / FrameScripts -> EXIT_FRAME -> RENDER): parent super() constructs timeline children, assigns typed slots and fires child ADDED before post-super() statements; synchronous AS3 goto*/nextFrame/prevFrame/*Scene supersede stale pending scripts via visit_id while preserving deferred AS2 goto semantics and detached-clip lifecycle events. Removing and recreating an instance starts a new lifetime; same-path symbol replacement resets subtree overrides, custom fields and clocks, invalidates old proxies and preserves siblings; accepted in Chrome/in-app HTML5. Scenes flatten in play order for Test Movie and HTML5 export (preserving scene-local timing for synchronized layers), while Control ▸ Test scene (⌥⌘↵) publishes and previews only the currently edited scene. Native Play all scenes with Loop off plays through the final scene before stopping. One-frame clips retain their initial visit while child clocks and EnterFrame continue. Late EXIT_FRAME initialization survives scope completion. Reentrant constructors and removal handlers preserve pending sibling callbacks and last frame metadata; direct Stage children retain captured event routes.",
+      "limitations": "Reentrant AS3 navigation is bounded to 128 nested scopes and 4,096 lifecycle steps. Bulk removal notifications follow an atomic graph change; native per-child callback timing and complete historical Flash edge-case conformance remain outside the verified profile.",
       "items": [
         {
           "id": "instance-lifetimes",
@@ -1756,7 +1756,7 @@
         },
         {
           "id": "construction-order",
-          "title": "Flash construction and re-entry order",
+          "title": "Construction, frame phases and reentrant navigation",
           "status": "working"
         },
         {
@@ -1781,7 +1781,10 @@
         "crates/neoflash-core/tests/frame_labels.rs",
         "crates/neoflash-core/src/runtime_lifecycle.rs",
         "crates/neoflash-core/tests/runtime_lifecycle.rs",
-        "web/tests/as3-frame-lifecycle.test.cjs"
+        "web/tests/as3-frame-lifecycle.test.cjs",
+        "crates/neoflash-core/tests/display_family.rs",
+        "web/tests/display-family.test.cjs",
+        "web/tests/publish-parity-polish.test.cjs"
       ]
     },
     {

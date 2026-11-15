@@ -2,6 +2,11 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Fixed repeated scripts on one-frame MovieClips and lost initialization queued from `EXIT_FRAME`.
+  Reentrant navigation now preserves pending removal callbacks and the removed object's last frame data, rejects
+  stale frame reads after delivery, and safely handles constructors that remove their ancestors. Direct Stage
+  children retain correct event routes; detached clips keep their identity and clocks through reattachment.
+
 - Preserved SWF input/dynamic text settings and supported initial HTML and static text styles during import.
   Fixed AVM1 SWF publishing so assigned anonymous handlers execute when called instead of during assignment;
   unsupported closure forms and authored bitmap fills now block export with actionable diagnostics.

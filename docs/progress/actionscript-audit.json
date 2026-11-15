@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "b07dda37cfe96f9850cf2757e9f99a4e481f46ad4bd9ee1f6562737545f18d77",
+  "catalogSha256": "73aa8ee2d892926e5ef42fa78a6692ac4dd7ff9fd8c67822ddefb29208b74b9e",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -35765,6 +35765,14 @@
         "reviewIds": [
           "AS3-LOADER-RECOVERY-20261115"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-15-as3-lifecycle-mask.json",
+        "sha256": "849866b0fe29b2ddee17ca3b1e9d2ba76fd3f2e6ea9a28a19ff7565a957df804",
+        "baseCatalogSha256": "b07dda37cfe96f9850cf2757e9f99a4e481f46ad4bd9ee1f6562737545f18d77",
+        "reviewIds": [
+          "AS3-LIFECYCLE-MASK-20261115"
+        ]
       }
     ],
     "statusReviews": [
@@ -36128,6 +36136,13 @@
         "changes": {
           "partial": 2
         }
+      },
+      {
+        "id": "AS3-LIFECYCLE-MASK-20261115",
+        "date": "2026-11-15",
+        "commit": "5bb0e9278d322c3a7576edba45bb6b80060a6aeb",
+        "path": "docs/progress/reviews/2026-11-15-as3-lifecycle-mask.json",
+        "changes": {}
       }
     ]
   },
@@ -176213,6 +176228,57 @@
           "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
           "status": "implemented_subset",
           "ruleId": "AS3-WAVE6-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-LIFECYCLE-MASK-20261115",
+      "title": "Display lifecycle and the painted-mask boundary",
+      "reason": "Lifecycle regressions cover frame visits, late initialization, reentrant retirement and Restart. Mask coverage remains Partial: the review restores tested gradient, bitmap and PNG alpha support while retaining the unsupported source-graph and cache boundaries. No declaration counts change.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/tests/runtime_lifecycle.rs",
+          "sha256": "7e049a04bf12e731c8b11562377f61d0f09fa463e1bfcd85e62d9f6555c56600"
+        },
+        {
+          "path": "crates/neoflash-core/tests/runtime_masks.rs",
+          "sha256": "d2e1f879ff8b5f9d0f14fe6a67453e3c3e9dfae223ddec2e22ec56424de3c095"
+        },
+        {
+          "path": "crates/neoflash-core/tests/dynamic_display.rs",
+          "sha256": "cf20259cd7182d741d1cd341006e0045da3418d073f2ecd30e1140cacef89254"
+        },
+        {
+          "path": "web/tests/as3-frame-lifecycle.test.cjs",
+          "sha256": "3b6256131b4440dab979243c4ccd4a8d2f672131f42a27299150e9811378d119"
+        },
+        {
+          "path": "web/tests/display-family.test.cjs",
+          "sha256": "a7a9e82d43de4ea32f0f9a46b46a6e43404c00436eaf68a9ac6f80b43f8d1273"
+        },
+        {
+          "path": "web/tests/publish-parity-polish.test.cjs",
+          "sha256": "0d7f200131cc0d5fca60252f5309113d3353fa57554fb7ef1b4f6a69775974b7"
+        },
+        {
+          "path": "crates/neoflash-script/tests/clipped-scene.mjs",
+          "sha256": "a3d2c78a29ca4840172286c0b5d9afd12ccd109f7c03d3365beac1793e780d77"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "partial",
+          "scopeNote": "Live vector and animated masks support geometric fills; cached target and mask preserve authored/dynamic gradient, BitmapData-backed bitmap and PNG alpha. Retirement clears stale links. Text/video sources, scripted masked-source graphs and external BitmapData.draw mask dependencies remain unsupported; filter-only cache downgrade remains limited."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:property:flash/display/DisplayObject.html#mask",
+          "status": "partial",
+          "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
           "evidenceKind": "test_backed_review"
         }
       ]
