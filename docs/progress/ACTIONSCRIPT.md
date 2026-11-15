@@ -17,11 +17,11 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | 3. MovieClip and timeline | 37 | 37 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 4. Display, events and basic input | 678 | 663 | 1 | 14 | 0 | 97.8% | 97.9% |
 | 5. Graphics, bitmaps and filters | 313 | 298 | 2 | 13 | 0 | 95.2% | 95.8% |
-| 6. Text and fonts | 174 | 161 | 0 | 13 | 0 | 92.5% | 92.5% |
-| 7. File audio and video playback | 91 | 91 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 8. Services and advanced Player APIs | 2,134 | 1,696 | 438 | 0 | 0 | 79.5% | 100.0% |
-| **Now: areas 1–6** | 1,939 | 1,883 | 15 | 41 | 0 | 97.1% | 97.9% |
-| **All Flash Player areas** | 4,164 | 3,670 | 453 | 41 | 0 | 88.1% | 99.0% |
+| 6. Text and fonts | 174 | 159 | 2 | 13 | 0 | 91.4% | 92.5% |
+| 7. File audio and video playback | 91 | 89 | 2 | 0 | 0 | 97.8% | 100.0% |
+| 8. Services and advanced Player APIs | 2,134 | 1,693 | 441 | 0 | 0 | 79.3% | 100.0% |
+| **Now: areas 1–6** | 1,939 | 1,881 | 17 | 41 | 0 | 97.0% | 97.9% |
+| **All Flash Player areas** | 4,164 | 3,663 | 460 | 41 | 0 | 88.0% | 99.0% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -59,7 +59,7 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
 | AS3 | language | 124 | 118 | 5 | 1 | 0 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 4,053 | 1,031 | 166 | 0 |
+| AS3 | runtime | 5,250 | 4,046 | 1,038 | 166 | 0 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,7 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-T333-CONTRACT-CORRECTIONS-20261115` | 2026-11-15 | `5a5987d4f53b` | 7 → partial |
 | `AS3-MEDIANETSTREAM-20261115` | 2026-11-15 | `ee156d0dbaae` | 10 → working |
 | `AS3-TEXT-GRAPHEMES-20261115` | 2026-11-15 | `cb4ffffbaf10` | 6 → working |
 | `AS2-DISPLAYGRAPHICS-20261115` | 2026-11-15 | `3524a73f8dc3` | 4 → working |
@@ -13027,3 +13028,19 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:property:flash/media/Sound.html#isURLInaccessible` — **working**: Main contract covered by the listed tests.
 
 Evidence: [crates/neoflash-script/tests/media-netstream.mjs](../../crates/neoflash-script/tests/media-netstream.mjs), [web/tests/media-netstream.test.cjs](../../web/tests/media-netstream.test.cjs)
+
+### AS3-T333-CONTRACT-CORRECTIONS-20261115 — Correct TextField, Font and NetStream conformance boundaries (T-333)
+
+Demotes declarations whose tests prove a useful subset rather than full Adobe behavior: TextField event sourcing, device-font glyph inspection, NetStream live/adaptive playback, reset-message aggregation, progressive transfer bytes, exact FPS and positive receiveVideoFPS throttling. Other tested text/media declarations remain Working.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:event:flash/text/TextField.html#event:textInteractionModeChange` — **partial**: The non-bubbling host/user transition helper is tested; no real mobile or context-menu user route currently changes the interaction mode.
+- `AS3:method:flash/text/Font.html#hasGlyphs()` — **partial**: Embedded SFNT/TTC/WOFF1 cmap paths are exact; device or unresolved fonts use a printable-scalar fallback instead of inspecting installed glyph coverage.
+- `AS3:method:flash/net/NetStream.html#play()` — **partial**: Local file/progressive clips and reset 0–3 playlist behavior are tested; reset 2/3 message aggregation and live/FMS streaming are missing.
+- `AS3:method:flash/net/NetStream.html#play2()` — **partial**: Local NetStreamPlayOptions start/length/transition mapping is tested; FMS/RTMP adaptive stream and bitrate switching are missing.
+- `AS3:property:flash/net/NetStream.html#bytesLoaded` — **partial**: Embedded byte counts are exact; progressive browser playback estimates loaded bytes from buffered time/ready state rather than observed transfer bytes.
+- `AS3:property:flash/net/NetStream.html#currentFPS` — **partial**: Measured/fallback zero and nonzero behavior is tested; exact numeric delivered-frame-rate conformance is not established.
+- `AS3:method:flash/net/NetStream.html#receiveVideoFPS()` — **partial**: Zero retains the last frame and gates delivery, and positive values resume; positive-rate decoded-frame throttling is missing.
+
+Evidence: [web/tests/text-graphemes-ime.test.cjs](../../web/tests/text-graphemes-ime.test.cjs), [crates/neoflash-core/tests/text_field.rs](../../crates/neoflash-core/tests/text_field.rs), [crates/neoflash-core/src/as3_sound_media.rs](../../crates/neoflash-core/src/as3_sound_media.rs), [web/tests/media-netstream.test.cjs](../../web/tests/media-netstream.test.cjs), [crates/neoflash-script/tests/media-netstream.mjs](../../crates/neoflash-script/tests/media-netstream.mjs)

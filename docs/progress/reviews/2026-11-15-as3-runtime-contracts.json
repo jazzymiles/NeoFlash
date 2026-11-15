@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "444c1b563400fe253c19ee239aa3f1110313d84e576b312abe60bfe1011bb8af",
+  "reviews": [
+    {
+      "id": "AS3-T333-CONTRACT-CORRECTIONS-20261115",
+      "date": "2026-11-15",
+      "commit": "5a5987d4f53b21126ab42e12808567e5cb81e7ec",
+      "title": "Correct TextField, Font and NetStream conformance boundaries (T-333)",
+      "summary": "Demotes declarations whose tests prove a useful subset rather than full Adobe behavior: TextField event sourcing, device-font glyph inspection, NetStream live/adaptive playback, reset-message aggregation, progressive transfer bytes, exact FPS and positive receiveVideoFPS throttling. Other tested text/media declarations remain Working.",
+      "tests": [
+        "web/tests/text-graphemes-ime.test.cjs",
+        "crates/neoflash-core/tests/text_field.rs",
+        "crates/neoflash-core/src/as3_sound_media.rs",
+        "web/tests/media-netstream.test.cjs",
+        "crates/neoflash-script/tests/media-netstream.mjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:textInteractionModeChange",
+          "status": "partial",
+          "note": "The non-bubbling host/user transition helper is tested; no real mobile or context-menu user route currently changes the interaction mode."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#hasGlyphs()",
+          "status": "partial",
+          "note": "Embedded SFNT/TTC/WOFF1 cmap paths are exact; device or unresolved fonts use a printable-scalar fallback instead of inspecting installed glyph coverage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play()",
+          "status": "partial",
+          "note": "Local file/progressive clips and reset 0–3 playlist behavior are tested; reset 2/3 message aggregation and live/FMS streaming are missing."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play2()",
+          "status": "partial",
+          "note": "Local NetStreamPlayOptions start/length/transition mapping is tested; FMS/RTMP adaptive stream and bitrate switching are missing."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesLoaded",
+          "status": "partial",
+          "note": "Embedded byte counts are exact; progressive browser playback estimates loaded bytes from buffered time/ready state rather than observed transfer bytes."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#currentFPS",
+          "status": "partial",
+          "note": "Measured/fallback zero and nonzero behavior is tested; exact numeric delivered-frame-rate conformance is not established."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#receiveVideoFPS()",
+          "status": "partial",
+          "note": "Zero retains the last frame and gates delivery, and positive values resume; positive-rate decoded-frame throttling is missing."
+        }
+      ]
+    }
+  ]
+}

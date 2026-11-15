@@ -2,6 +2,18 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Completed the post-Wave-1 correctness audit (`T-333`) without changing the locked NF2 design: replaced the
+  hand-maintained grapheme table with the maintained UAX #29 implementation; restored Adobe's read-only desktop
+  `TextField.textInteractionMode` contract; corrected local `NetStream` reset `0`–`3`, playlist `Switch`/cumulative
+  `time`, `dispose()` quota release and honest partial boundaries for `play2`, progressive `bytesLoaded`, `currentFPS`
+  and positive `receiveVideoFPS`; preserved class-correct isolated scene/symbol roots for HTML5/Desktop (including
+  `SimpleButton` wrappers) and shared isolated timeline selection with scriptless Native Banner headless exports;
+  rejected malformed font metadata, retained same-named fonts in one import, and kept a valid font uncommitted when a
+  peer palette/graphic is malformed. Sequence ownership is now scoped by stem and format, cross-process commits share
+  a stable directory lock, and reserved-key collisions fail closed. SWF `CLIPACTIONS` preserves comma, quote and raw
+  `key#` key codes. Beta feedback uses bounded digest-derived multipart boundaries and rejects malformed,
+  truncated or unreadable success responses. The notarization transaction uses validated absolute production tool
+  paths and validates removal/restoration during rollback instead of trusting `PATH` or unchecked moves.
 - Fixed macOS Finder / `Open With` cold-launch `kAEOpenDocuments` (`odoc`) routing before `[NSApplication finishLaunching]`
   so double-clicking associated documents opens them directly without Winit's default `NSAlert` modal or an extra Start
   tab; ensured AS1/AS2 `on(...)` and `onClipEvent(...)` object wrappers attached under `Click`/`EnterFrame` register
@@ -22,21 +34,25 @@
   `hasnext2` and user classes with deterministic step/stack/call bounds; hardened SWF export `is_move` property resets
   and scaling-grid round-trips; and attached concrete `#tag/symbol/frame/offset` locations to all SWF import and
   bytecode diagnostics.
-- Made Stage and HTML5 (`Canvas` and `DOM`) text interaction grapheme-safe and mixed-run reliable (`T-326`): added
-  UAX #29 extended grapheme cluster navigation, selection clamping, `Backspace`/`Delete`,
+- Made Stage and HTML5 (`Canvas` and `DOM`) text interaction grapheme-safe and mixed-run reliable (`T-326`, corrected
+  by `T-333`): added maintained UAX #29 extended grapheme cluster navigation, selection clamping, `Backspace`/`Delete`,
   `replaceText`/`replaceSelectedText` and `maxChars` across Cyrillic/Japanese combining marks, regional indicators and
   ZWJ emoji; preserved mixed `TextFormatRun` spans across IME composition preedit/commit/cancel and rich clipboard
-  Copy/Cut/Paste (including `TextField.useRichTextClipboard` and single-Undo Stage text sessions); added
-  `TextInteractionMode` (`NORMAL`/`SELECTION`) with `textInteractionModeChange`, cancelable AS3 `TextEvent.TEXT_INPUT`
+  Copy/Cut/Paste (including `TextField.useRichTextClipboard` and single-Undo Stage text sessions); made
+  `TextField.textInteractionMode` a read-only desktop host state with a non-bubbling user-transition event contract,
+  cancelable AS3 `TextEvent.TEXT_INPUT`
   + `Event.CHANGE` and user-only AS2 `TextField.onChanged`; and backed `Font.hasGlyphs` and `Font.enumerateFonts` with
   real SFNT/TTC/WOFF1 `cmap` Format 4 and Format 12/13 coverage checks.
-- Completed script-controlled non-RTMP file media playback across AS2 and AS3 (`T-327`): added full
+- Completed the main script-controlled non-RTMP file media playback path across AS2 and AS3 (`T-327`, corrected by
+  `T-333`): added
   `NetStream.play(url, start?, len?, reset?)` clip windowing, single-frame (`len=0`) and queued playlist transitions
-  (`reset=false`), progressive HTTP `206 Range` and `data:` URI `bytesLoaded`/`bytesTotal` tracking, `currentFPS`,
+  (`reset=false`/`0`/`2` append; `true`/`1`/`3` reset), ordinary `NetStream.Play.Switch` notifications, cumulative
+  playlist `time`, progressive HTTP `206 Range` and `data:` URI byte tracking, measured/fallback `currentFPS`,
   `Seek.InvalidTime` diagnostics, MP4/WAV `onCuePoint` delivery, explicit non-RTMP rejection diagnostics, Web Audio
   `StereoPannerNode` and 2×2 `SoundTransform` channel-matrix routing across `Sound`, `SoundChannel`, `NetStream` and
   `Sprite`/`MovieClip`, `Sound.isURLInaccessible` CORS enforcement, and leak-free `close()`/`Restart` cleanup across
-  `Canvas` and `DOM` publish modes.
+  `Canvas` and `DOM` publish modes. FMS/RTMP adaptive `play2`, reset-mode message aggregation, exact progressive
+  transfer-byte accounting, positive-rate frame throttling and numeric delivered-FPS conformance remain partial.
 - Hardened `scripts/notarize-macos-beta.sh` with preflight `SHA256SUMS.txt` verification, JSON `notarytool` status/log
   inspection, canonicalized DMG mount teardown, and per-artifact same-filesystem two-phase rollback, backed by a
   hermetic failure-injection suite in `scripts/tests/test_notarize_macos_beta.py` (`T-328`; live Apple Notary Service

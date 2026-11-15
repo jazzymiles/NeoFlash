@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "444c1b563400fe253c19ee239aa3f1110313d84e576b312abe60bfe1011bb8af",
+  "catalogSha256": "f9d81ffedfa09e70d2b14781ceaed2b67642af227d8b2962cd13468901f3fafd",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -35749,6 +35749,14 @@
           "AS3-TEXT-GRAPHEMES-20261115",
           "AS3-MEDIANETSTREAM-20261115"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-15-as3-runtime-contracts.json",
+        "sha256": "bdd5f4b67c5d66b55bf04bf4eb121a3e39a82bd14db3fe1a2eaf82116349fdbf",
+        "baseCatalogSha256": "444c1b563400fe253c19ee239aa3f1110313d84e576b312abe60bfe1011bb8af",
+        "reviewIds": [
+          "AS3-T333-CONTRACT-CORRECTIONS-20261115"
+        ]
       }
     ],
     "statusReviews": [
@@ -36094,13 +36102,22 @@
         "changes": {
           "working": 10
         }
+      },
+      {
+        "id": "AS3-T333-CONTRACT-CORRECTIONS-20261115",
+        "date": "2026-11-15",
+        "commit": "5a5987d4f53b21126ab42e12808567e5cb81e7ec",
+        "path": "docs/progress/reviews/2026-11-15-as3-runtime-contracts.json",
+        "changes": {
+          "partial": 7
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 5732,
-      "partial": 1634,
+      "implemented_subset": 5725,
+      "partial": 1641,
       "missing": 38681,
       "needs_review": 0,
       "total": 46047
@@ -36114,8 +36131,8 @@
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 4543,
-        "partial": 1164,
+        "implemented_subset": 4536,
+        "partial": 1171,
         "missing": 38033,
         "needs_review": 0,
         "total": 43740
@@ -36158,8 +36175,8 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 4915,
-        "partial": 1068,
+        "implemented_subset": 4908,
+        "partial": 1075,
         "missing": 175,
         "needs_review": 0,
         "total": 6158
@@ -36247,8 +36264,8 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 4053,
-          "partial": 1031,
+          "implemented_subset": 4046,
+          "partial": 1038,
           "missing": 166,
           "needs_review": 0,
           "total": 5250
@@ -176028,6 +176045,115 @@
           "catalogId": "AS3:property:flash/media/Sound.html#isURLInaccessible",
           "status": "missing",
           "ruleId": "AS3-AREAS1TO7-AUDIT-20261114",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-T333-CONTRACT-CORRECTIONS-20261115",
+      "title": "Correct TextField, Font and NetStream conformance boundaries (T-333)",
+      "reason": "Demotes declarations whose tests prove a useful subset rather than full Adobe behavior: TextField event sourcing, device-font glyph inspection, NetStream live/adaptive playback, reset-message aggregation, progressive transfer bytes, exact FPS and positive receiveVideoFPS throttling. Other tested text/media declarations remain Working.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "web/tests/text-graphemes-ime.test.cjs",
+          "sha256": "01e8caa5117618fa56de427465c78553fbc7ef8294cc51feb7da14a85831f3da"
+        },
+        {
+          "path": "crates/neoflash-core/tests/text_field.rs",
+          "sha256": "e9ca02d829c7ed7e2a19c53d41edf3f2d444848d660cf21c1e35dee5ddd70ffb"
+        },
+        {
+          "path": "crates/neoflash-core/src/as3_sound_media.rs",
+          "sha256": "e575dc21ad2fe4ab22a8b9da47734547a62d8e735fd10b6a7249f5fa3eba67b8"
+        },
+        {
+          "path": "web/tests/media-netstream.test.cjs",
+          "sha256": "bf945ee990183629e788079a6563757cf380f6d82f40e5e4d5f054eba4b67a01"
+        },
+        {
+          "path": "crates/neoflash-script/tests/media-netstream.mjs",
+          "sha256": "e6678dea1e6a5b2b15427d4903fc6316a43e9bbd18df8ba298026a6527a227dc"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:textInteractionModeChange",
+          "status": "partial",
+          "scopeNote": "The non-bubbling host/user transition helper is tested; no real mobile or context-menu user route currently changes the interaction mode."
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#hasGlyphs()",
+          "status": "partial",
+          "scopeNote": "Embedded SFNT/TTC/WOFF1 cmap paths are exact; device or unresolved fonts use a printable-scalar fallback instead of inspecting installed glyph coverage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play()",
+          "status": "partial",
+          "scopeNote": "Local file/progressive clips and reset 0–3 playlist behavior are tested; reset 2/3 message aggregation and live/FMS streaming are missing."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play2()",
+          "status": "partial",
+          "scopeNote": "Local NetStreamPlayOptions start/length/transition mapping is tested; FMS/RTMP adaptive stream and bitrate switching are missing."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesLoaded",
+          "status": "partial",
+          "scopeNote": "Embedded byte counts are exact; progressive browser playback estimates loaded bytes from buffered time/ready state rather than observed transfer bytes."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#currentFPS",
+          "status": "partial",
+          "scopeNote": "Measured/fallback zero and nonzero behavior is tested; exact numeric delivered-frame-rate conformance is not established."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#receiveVideoFPS()",
+          "status": "partial",
+          "scopeNote": "Zero retains the last frame and gates delivery, and positive values resume; positive-rate decoded-frame throttling is missing."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:event:flash/text/TextField.html#event:textInteractionModeChange",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-GRAPHEMES-20261115",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/text/Font.html#hasGlyphs()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-TEXT-GRAPHEMES-20261115",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-MEDIANETSTREAM-20261115",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play2()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-MEDIANETSTREAM-20261115",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#bytesLoaded",
+          "status": "implemented_subset",
+          "ruleId": "AS3-MEDIANETSTREAM-20261115",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#currentFPS",
+          "status": "implemented_subset",
+          "ruleId": "AS3-MEDIANETSTREAM-20261115",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#receiveVideoFPS()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-MEDIANETSTREAM-20261115",
           "evidenceKind": "test_backed_review"
         }
       ]
