@@ -1802,3 +1802,121 @@ fn tools_undocks_from_dots_keeps_two_column_title_and_redocks_by_drag() {
         "dragging detached Tools back to the main window rail (including top-left corner) must dock it"
     );
 }
+
+#[test]
+fn t319_ctx_data_modal_disables_dock_grid_and_detached_viewports_and_records_child_focus() {
+    let ctx = egui::Context::default();
+    ctx.set_embed_viewports(false);
+    let child_prev_focus_recorded = Rc::new(RefCell::new(false));
+    let focus_child = child_prev_focus_recorded.clone();
+
+    egui::Context::set_immediate_viewport_renderer(move |ctx, mut viewport| {
+        let id = viewport.ids.this;
+        let mut input = egui::RawInput {
+            viewport_id: id,
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(420., 520.),
+            )),
+            ..Default::default()
+        };
+        input.viewports.insert(
+            id,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                outer_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(120., 120.),
+                    egui::vec2(420., 520.),
+                )),
+                inner_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(120., 120.),
+                    egui::vec2(420., 520.),
+                )),
+                ..Default::default()
+            },
+        );
+        let _ = ctx.run(input, |ctx| {
+            // Focus a synthetic widget inside the child viewport to confirm `record_end_of_frame_focus` snapshots it.
+            let focus_id = egui::Id::new("t319-child-focused-input");
+            egui::Area::new(egui::Id::new("t319-child-focus-probe"))
+                .fixed_pos(egui::pos2(4.0, 4.0))
+                .show(ctx, |ui| {
+                    let mut txt = String::from("abc");
+                    let r = ui.add(egui::TextEdit::singleline(&mut txt).id(focus_id));
+                    r.request_focus();
+                });
+            (viewport.viewport_ui_cb)(ctx);
+            *focus_child.borrow_mut() =
+                crate::panels::dialog_helpers::prev_wants_keyboard_input(ctx);
+        });
+    });
+
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.set_panel_placement(&ctx, PanelId::Properties, PanelPlacement::Detached);
+
+    let render = |editor: &mut Editor, events| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1440., 900.),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                editor.shortcuts(ctx);
+                editor.prepare_docked_panel_focus(ctx);
+                editor.dock_grid(ctx);
+                editor.stage(ctx);
+                editor.draw_dialogs(ctx);
+                editor.detached_panels(ctx);
+                crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
+            },
+        )
+    };
+
+    render(&mut editor, vec![]);
+    assert!(
+        *child_prev_focus_recorded.borrow(),
+        "detached viewport must record end-of-frame focus snapshot for Escape isolation"
+    );
+
+    // Locate an inactive bottom-dock tab (e.g. Output while Timeline is active).
+    let output_tab_center = editor
+        .detached
+        .dock_groups
+        .iter()
+        .find_map(|g| {
+            g.tabs
+                .iter()
+                .find(|(id, _)| *id == PanelId::Output)
+                .map(|(_, r)| r.center())
+        })
+        .expect("Output tab exists in Classic bottom dock");
+    assert!(editor.workspace.is_panel_active(PanelId::Timeline));
+
+    // Open a `ctx.data`-backed modal (`Layer properties`): `has_modal_dialog()` is false, `has_modal_dialog_in(&ctx)` is true!
+    editor.open_layer_properties(&ctx, 0);
+    assert!(!editor.has_modal_dialog());
+    assert!(editor.has_modal_dialog_in(&ctx));
+    render(&mut editor, vec![]);
+
+    // Clicking the inactive Output dock tab while Layer properties is open MUST be blocked by `has_modal_dialog_in`.
+    render(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(output_tab_center),
+            crate::tests::primary_button(output_tab_center, true),
+            crate::tests::primary_button(output_tab_center, false),
+        ],
+    );
+    render(&mut editor, vec![]);
+    assert!(
+        editor.workspace.is_panel_active(PanelId::Timeline),
+        "dock_grid tab clicks must be blocked when a ctx.data modal (Layer properties) is open"
+    );
+
+    editor.cancel_layer_properties(&ctx);
+    assert!(!editor.has_modal_dialog_in(&ctx));
+}

@@ -1069,7 +1069,11 @@ impl Editor {
                     else if height != old_height { width = (height * old_width / old_height).round().clamp(1., 8192.); }
                 }
                 document.width = width.round() as u32; document.height = height.round() as u32;
-                changes.note(color_row(ui, "background", "", "Background", &mut document.background));
+                let bg_resp = color_row(ui, "background", "", "Background", &mut document.background);
+                if !bg_resp.changed() {
+                    super::dialog_helpers::track_rgba_popup(ui.ctx(), bg_resp.id);
+                }
+                changes.note(bg_resp);
                 });
                 }
                 let mut fps = document.fps;
@@ -1659,6 +1663,9 @@ impl Editor {
                 changes.note(s_resp);
                 changes.note(f_resp);
                 let c_resp = color_row(ui, "mc-tint-color", "", "Tint color", &mut tint_rgba);
+                if !c_resp.changed() {
+                    super::dialog_helpers::track_rgba_popup(ui.ctx(), c_resp.id);
+                }
                 if c_resp.changed() {
                     tint_pct = (f64::from(tint_rgba[3]) / 255.0 * 100.0).clamp(0.0, 100.0);
                     apply_tint(

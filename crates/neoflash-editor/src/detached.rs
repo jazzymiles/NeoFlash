@@ -499,7 +499,7 @@ impl Editor {
         let Some(mut drag) = self.detached.drag else {
             return;
         };
-        if self.has_modal_dialog()
+        if self.has_modal_dialog_in(ctx)
             || ctx.input(|i| i.key_pressed(egui::Key::Escape))
             || !self.workspace.is_panel_visible(drag.panel)
             || surface_viewport(self.workspace.panel_surface(drag.panel)) != drag.source
@@ -1358,6 +1358,7 @@ impl Editor {
                         );
                     }
                 }
+                crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
             });
         }
         self.docking_overlay(ctx, DockSurface::Main);

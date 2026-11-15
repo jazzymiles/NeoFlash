@@ -10877,3 +10877,1532 @@ fn t300_preserves_text_input_modified_chords_escape_pen_enter_and_unfocused_stag
             > before_count
     );
 }
+
+// ============================================================================
+// T-319: NF2 Interface Behavior, Focus Isolation, Two-Step Escape & Jump Suite
+// ============================================================================
+
+fn t319_full_frame(
+    editor: &mut Editor,
+    ctx: &egui::Context,
+    time: f64,
+    events: Vec<Event>,
+) -> egui::FullOutput {
+    ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1920., 1080.))),
+            time: Some(time),
+            events,
+            ..Default::default()
+        },
+        |ctx| {
+            editor.shortcuts(ctx);
+            editor.normalize_selection();
+            editor.menu(ctx);
+            editor.status_bar(ctx);
+            editor.bitmap_textures.begin_frame(&editor.project);
+            editor.prepare_docked_panel_focus(ctx);
+            if editor.has_document() {
+                if !editor.panels_hidden {
+                    editor.dock_grid(ctx);
+                }
+                editor.document_bar(ctx);
+                editor.stage(ctx);
+            } else {
+                editor.no_document_view(ctx);
+            }
+            editor.draw_dialogs(ctx);
+            crate::panels::productivity_tools::show_productivity_modals(editor, ctx);
+            editor.workspace_dialog(ctx);
+            editor.customize_tools_dialog(ctx);
+            editor.trace_bitmap_dialog(ctx);
+            editor.symbol_creation_dialog(ctx);
+            if editor.has_document() {
+                editor.detached_panels(ctx);
+            }
+            if editor.property_edit.is_some() {
+                editor.end_property_interaction(ctx);
+            }
+            editor.test_movie_preview_window(ctx);
+            crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
+        },
+    )
+}
+
+struct T319Driver {
+    ctx: egui::Context,
+    editor: Editor,
+    time: f64,
+    out: egui::FullOutput,
+    nodes: std::collections::HashMap<
+        egui::accesskit::NodeId,
+        (Option<String>, egui::accesskit::Role, Option<Rect>),
+    >,
+}
+
+impl T319Driver {
+    fn new(project: Project) -> Self {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, project);
+        let out = t319_full_frame(&mut editor, &ctx, 0.1, vec![]);
+        let mut d = Self {
+            ctx,
+            editor,
+            time: 0.1,
+            out,
+            nodes: Default::default(),
+        };
+        d.record_ax();
+        d.settle();
+        d
+    }
+
+    fn record_ax(&mut self) {
+        if let Some(u) = &self.out.platform_output.accesskit_update {
+            for (id, node) in &u.nodes {
+                let bounds = node.bounds().map(|r| {
+                    Rect::from_min_max(
+                        Pos2::new(r.x0 as f32, r.y0 as f32),
+                        Pos2::new(r.x1 as f32, r.y1 as f32),
+                    )
+                });
+                self.nodes
+                    .insert(*id, (node.label().map(str::to_owned), node.role(), bounds));
+            }
+        }
+    }
+
+    fn step_dt(&mut self, dt: f64, events: Vec<Event>) {
+        self.time += dt;
+        self.out = t319_full_frame(&mut self.editor, &self.ctx, self.time, events);
+        self.record_ax();
+    }
+
+    fn step(&mut self, events: Vec<Event>) {
+        self.step_dt(0.1, events);
+    }
+
+    fn settle(&mut self) {
+        self.step(vec![]);
+        self.step(vec![]);
+    }
+
+    fn find(&self, label: &str) -> Option<Rect> {
+        let to_rect = |r: egui::accesskit::Rect| {
+            Rect::from_min_max(
+                Pos2::new(r.x0 as f32, r.y0 as f32),
+                Pos2::new(r.x1 as f32, r.y1 as f32),
+            )
+        };
+        if let Some(update) = &self.out.platform_output.accesskit_update
+            && let Some(rect) = update
+                .nodes
+                .iter()
+                .find_map(|(_, node)| {
+                    (node.label() == Some(label)
+                        && node.role() != egui::accesskit::Role::Tab
+                        && node.toggled().is_none())
+                    .then(|| node.bounds())
+                    .flatten()
+                    .map(to_rect)
+                })
+                .or_else(|| {
+                    update.nodes.iter().find_map(|(_, node)| {
+                        (node.label() == Some(label) && node.role() != egui::accesskit::Role::Tab)
+                            .then(|| node.bounds())
+                            .flatten()
+                            .map(to_rect)
+                    })
+                })
+        {
+            return Some(rect);
+        }
+        self.nodes.values().find_map(|(n_label, role, bounds)| {
+            (n_label.as_deref() == Some(label) && *role != egui::accesskit::Role::Tab)
+                .then_some(*bounds)
+                .flatten()
+        })
+    }
+
+    fn find_current(&self, label: &str) -> Option<Rect> {
+        let nodes = &self.out.platform_output.accesskit_update.as_ref()?.nodes;
+        nodes.iter().find_map(|(_, node)| {
+            (node.label() == Some(label) && node.role() != egui::accesskit::Role::Tab)
+                .then(|| node.bounds())
+                .flatten()
+                .map(|r| {
+                    Rect::from_min_max(
+                        Pos2::new(r.x0 as f32, r.y0 as f32),
+                        Pos2::new(r.x1 as f32, r.y1 as f32),
+                    )
+                })
+        })
+    }
+
+    fn labels(&self) -> Vec<String> {
+        let mut labels: Vec<String> = self
+            .out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .map(|u| {
+                u.nodes
+                    .iter()
+                    .filter_map(|(_, n)| n.label().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        labels.sort();
+        labels.dedup();
+        labels
+    }
+
+    fn texts(&self) -> Vec<String> {
+        let mut texts: Vec<String> = self
+            .out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .map(|u| {
+                u.nodes
+                    .iter()
+                    .flat_map(|(_, n)| [n.label(), n.value()])
+                    .flatten()
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        texts.sort();
+        texts.dedup();
+        texts
+    }
+
+    fn click_at(&mut self, at: Pos2) {
+        let event = |pressed| Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        self.step(vec![Event::PointerMoved(at), event(true)]);
+        self.step(vec![event(false)]);
+        self.settle();
+    }
+
+    fn click(&mut self, label: &str) {
+        let at = self
+            .find(label)
+            .unwrap_or_else(|| panic!("{label:?} is not shown; visible: {:?}", self.labels()))
+            .center();
+        self.click_at(at);
+    }
+
+    fn double_click_at(&mut self, at: Pos2) {
+        let event = |pressed| Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        self.step_dt(0.02, vec![Event::PointerMoved(at), event(true)]);
+        self.step_dt(0.02, vec![event(false)]);
+        self.step_dt(0.02, vec![event(true)]);
+        self.step_dt(0.02, vec![event(false)]);
+        self.settle();
+    }
+
+    fn panel_rect(&self, panel: PanelId) -> Rect {
+        self.editor
+            .detached
+            .dock_groups
+            .iter()
+            .find(|g| g.tabs.iter().any(|(p, _)| *p == panel))
+            .unwrap_or_else(|| panic!("dock group for {panel:?} not found"))
+            .rect
+    }
+
+    fn find_in(&self, label: &str, container: Rect) -> Option<Rect> {
+        let to_rect = |r: egui::accesskit::Rect| {
+            Rect::from_min_max(
+                Pos2::new(r.x0 as f32, r.y0 as f32),
+                Pos2::new(r.x1 as f32, r.y1 as f32),
+            )
+        };
+        if let Some(update) = &self.out.platform_output.accesskit_update
+            && let Some(rect) = update.nodes.iter().find_map(|(_, node)| {
+                (node.label() == Some(label) && node.role() != egui::accesskit::Role::Tab)
+                    .then(|| node.bounds())
+                    .flatten()
+                    .map(to_rect)
+                    .filter(|rect| container.contains(rect.center()))
+            })
+        {
+            return Some(rect);
+        }
+        self.nodes.values().find_map(|(n_label, role, bounds)| {
+            (n_label.as_deref() == Some(label) && *role != egui::accesskit::Role::Tab)
+                .then_some(*bounds)
+                .flatten()
+                .filter(|rect| container.contains(rect.center()))
+        })
+    }
+
+    fn double_click_in_panel(&mut self, panel: PanelId, label: &str) {
+        let container = self.panel_rect(panel);
+        let at = self
+            .find_in(label, container)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{label:?} not found inside {panel:?} ({container:?}); visible: {:?}",
+                    self.labels()
+                )
+            })
+            .center();
+        self.double_click_at(at);
+    }
+
+    fn key_tap(&mut self, key: egui::Key, modifiers: egui::Modifiers) {
+        self.step(vec![Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }]);
+        self.step(vec![Event::Key {
+            key,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers,
+        }]);
+    }
+
+    fn replace_focused_text(&mut self, text: &str) {
+        self.step(vec![
+            Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::COMMAND,
+            },
+            Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::COMMAND,
+            },
+            Event::Key {
+                key: egui::Key::Backspace,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+            Event::Key {
+                key: egui::Key::Backspace,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+            Event::Text(text.to_owned()),
+        ]);
+        self.settle();
+    }
+
+    fn space_drag_stage(&mut self) {
+        let center = self.editor.stage_view.canvas.center();
+        self.step(vec![Event::Key {
+            key: egui::Key::Space,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+        self.step(vec![
+            Event::PointerMoved(center),
+            Event::PointerButton {
+                pos: center,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+        self.step(vec![Event::PointerMoved(center + Vec2::new(50.0, 30.0))]);
+        self.step(vec![
+            Event::PointerButton {
+                pos: center + Vec2::new(50.0, 30.0),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+            Event::Key {
+                key: egui::Key::Space,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+        self.settle();
+    }
+}
+
+#[test]
+fn t319_focus_isolation_across_panels_blocks_all_tool_timeline_and_stage_shortcuts() {
+    use crate::app::Tool;
+
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 8;
+    project.sources.push(SourceUnit {
+        id: "src_main".to_owned(),
+        path: "Main.as".to_owned(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package { public class Main {} }\n".to_owned(),
+    });
+    let mut d = T319Driver::new(project);
+    d.editor.add_element(
+        ElementKind::Rectangle {
+            width: 90.0,
+            height: 60.0,
+            fill: [91, 140, 255, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        40.0,
+        50.0,
+    );
+    let rect_id = d.editor.symbol().timeline.layers[0]
+        .key_at(0)
+        .unwrap()
+        .elements[0]
+        .id
+        .clone();
+    d.editor.select_single_id(rect_id.clone());
+    d.editor.set_tool(Tool::Select);
+    d.editor.authoring_tools.brush_size = 10.0;
+    d.editor.message("Initial log row for Output filter test");
+    d.settle();
+
+    let all_tool_keys = [
+        egui::Key::V,
+        egui::Key::A,
+        egui::Key::N,
+        egui::Key::Y,
+        egui::Key::B,
+        egui::Key::O,
+        egui::Key::R,
+        egui::Key::T,
+        egui::Key::P,
+        egui::Key::I,
+        egui::Key::K,
+        egui::Key::S,
+        egui::Key::E,
+        egui::Key::Q,
+        egui::Key::F,
+        egui::Key::W,
+        egui::Key::M,
+        egui::Key::H,
+        egui::Key::Z,
+        egui::Key::J,
+    ];
+
+    let assert_isolated = |d: &mut T319Driver, ctx_name: &str, test_enter: bool| {
+        assert!(
+            d.ctx.wants_keyboard_input() || d.editor.has_modal_dialog_in(&d.ctx),
+            "{ctx_name}: focused input must claim keyboard input"
+        );
+        let frames_before = d.editor.symbol().timeline.frame_count;
+        let keys_before = d.editor.symbol().timeline.layers[0].keyframes.len();
+        let elems_before = d.editor.symbol().timeline.layers[0]
+            .key_at(0)
+            .unwrap()
+            .elements
+            .len();
+
+        // Batch all 20 single-key tool shortcuts + timeline/stage command keys while focused.
+        for key in all_tool_keys {
+            d.key_tap(key, egui::Modifiers::NONE);
+        }
+        for key in [
+            egui::Key::Backspace,
+            egui::Key::Delete,
+            egui::Key::F5,
+            egui::Key::F6,
+            egui::Key::F7,
+            egui::Key::F8,
+            egui::Key::OpenBracket,
+            egui::Key::CloseBracket,
+        ] {
+            d.key_tap(key, egui::Modifiers::NONE);
+        }
+        if test_enter {
+            d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+        }
+        // Re-verify Space + Stage drag only when no modal blocks background pointer events.
+        if !d.editor.has_modal_dialog_in(&d.ctx) && d.ctx.wants_keyboard_input() {
+            d.space_drag_stage();
+        }
+
+        assert_eq!(
+            d.editor.tool,
+            Tool::Select,
+            "{ctx_name}: tool must stay Select"
+        );
+        assert!(!d.editor.playing, "{ctx_name}: playback must stay stopped");
+        assert_eq!(
+            d.editor.pan,
+            Vec2::ZERO,
+            "{ctx_name}: Stage pan must stay ZERO"
+        );
+        assert_eq!(
+            d.editor.symbol().timeline.frame_count,
+            frames_before,
+            "{ctx_name}: F5 must not insert timeline frames"
+        );
+        assert_eq!(
+            d.editor.symbol().timeline.layers[0].keyframes.len(),
+            keys_before,
+            "{ctx_name}: F6/F7 must not insert keyframes"
+        );
+        assert_eq!(
+            d.editor.symbol().timeline.layers[0]
+                .key_at(0)
+                .unwrap()
+                .elements
+                .len(),
+            elems_before,
+            "{ctx_name}: Backspace/Delete must not delete Stage elements"
+        );
+        assert!(
+            d.editor.symbol_conversion.is_none(),
+            "{ctx_name}: F8 must not open Convert to Symbol"
+        );
+        assert!(
+            (d.editor.authoring_tools.brush_size - 10.0).abs() < 1e-6,
+            "{ctx_name}: [/] must not resize brush"
+        );
+    };
+
+    // 1. Properties numeric field ("Position X (px)")
+    d.editor.set_panel_visible(PanelId::Properties, true);
+    d.editor.select_single_id(rect_id.clone());
+    d.settle();
+    d.click("Position X (px)");
+    assert_isolated(&mut d, "Properties Position X", true);
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+
+    // 2. Library search ("Search library")
+    d.editor.set_panel_visible(PanelId::Library, true);
+    d.editor.select_single_id(rect_id.clone());
+    d.settle();
+    d.click("Search library");
+    assert_isolated(&mut d, "Library Search", true);
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+
+    // 3. Actions code editor (`actions_editor_id()`)
+    d.editor.open_actions();
+    d.editor.select_single_id(rect_id.clone());
+    d.settle();
+    let code_id = d.editor.actions_editor_id();
+    d.ctx.memory_mut(|m| m.request_focus(code_id));
+    d.settle();
+    assert_isolated(&mut d, "Actions Code Editor", true);
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+
+    // 4. Movie Explorer search ("Find in movie")
+    d.editor.set_panel_visible(PanelId::MovieExplorer, true);
+    d.editor.select_single_id(rect_id.clone());
+    d.settle();
+    d.click("Find in movie");
+    assert_isolated(&mut d, "Movie Explorer Search", true);
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+
+    // 5. Output filter ("Filter output")
+    d.editor.set_panel_visible(PanelId::Output, true);
+    d.editor.select_single_id(rect_id.clone());
+    d.settle();
+    d.click("Filter output");
+    assert_isolated(&mut d, "Output Filter", true);
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+
+    // 6. Scene search ("Find scene")
+    d.editor.set_panel_visible(PanelId::Scene, true);
+    d.editor.select_single_id(rect_id.clone());
+    d.settle();
+    d.click("Find scene");
+    assert_isolated(&mut d, "Scene Search", true);
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+
+    // 7. Project search ("Find file")
+    d.editor.set_panel_visible(PanelId::Project, true);
+    d.editor.select_single_id(rect_id.clone());
+    d.settle();
+    d.click("Find file");
+    assert_isolated(&mut d, "Project Search", true);
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+
+    // 8. Document settings modal ("Stage width")
+    d.editor.select_single_id(rect_id.clone());
+    d.editor.open_document_settings();
+    d.settle();
+    d.click("Stage width");
+    assert_isolated(&mut d, "Document Settings Stage width", false);
+    d.editor.document_settings = None;
+    d.settle();
+
+    // 9. Preferences modal ("Font size" on Code editor page)
+    d.editor.select_single_id(rect_id.clone());
+    d.editor.open_preferences(1);
+    d.settle();
+    d.click("Font size");
+    assert_isolated(&mut d, "Preferences Font size", false);
+    d.editor.preferences = None;
+    d.settle();
+
+    // 10. Layer properties modal ("Name")
+    d.editor.select_single_id(rect_id.clone());
+    d.editor.open_layer_properties(&d.ctx, 0);
+    d.settle();
+    d.click("Name");
+    assert_isolated(&mut d, "Layer properties Name", false);
+    d.editor.cancel_layer_properties(&d.ctx);
+    d.settle();
+
+    // 11. Beta feedback modal ("Beta feedback" TextArea)
+    d.editor.select_single_id(rect_id);
+    d.editor.open_beta_feedback();
+    d.settle();
+    assert_isolated(&mut d, "Beta feedback TextArea", true);
+    d.editor.beta_feedback.open = false;
+    d.settle();
+}
+
+#[test]
+fn t319_inline_renames_library_timeline_scene_and_project_commit_cancel_and_validate() {
+    let mut project = Project::blank();
+    let mut hero_timeline = Project::blank().symbols.remove(0).timeline;
+    hero_timeline.layers[0].id = "layer_hero_0".to_owned();
+    project.symbols.push(Symbol {
+        id: "sym_hero".to_owned(),
+        name: "HeroClip".to_owned(),
+        kind: SymbolKind::MovieClip,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: hero_timeline,
+    });
+    let mut enemy_timeline = Project::blank().symbols.remove(0).timeline;
+    enemy_timeline.layers[0].id = "layer_enemy_0".to_owned();
+    project.symbols.push(Symbol {
+        id: "sym_enemy".to_owned(),
+        name: "EnemyClip".to_owned(),
+        kind: SymbolKind::MovieClip,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: enemy_timeline,
+    });
+    project.sources.push(SourceUnit {
+        id: "src_main".to_owned(),
+        path: "Main.as".to_owned(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package { public class Main {} }\n".to_owned(),
+    });
+    project.sources.push(SourceUnit {
+        id: "src_helper".to_owned(),
+        path: "Helper.as".to_owned(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package { public class Helper {} }\n".to_owned(),
+    });
+    project.format_version = project.format_version.max(4);
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    let mut d = T319Driver::new(project);
+    d.editor.add_element(
+        ElementKind::Rectangle {
+            width: 50.0,
+            height: 50.0,
+            fill: [91, 140, 255, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        20.0,
+        20.0,
+    );
+    let rect_id = d.editor.symbol().timeline.layers[0]
+        .key_at(0)
+        .unwrap()
+        .elements[0]
+        .id
+        .clone();
+    d.editor.select_single_id(rect_id.clone());
+    let expected_selection = d.editor.selection.clone();
+    assert!(!expected_selection.is_empty());
+
+    // ── 1. Library inline rename (`library_edit_form`) ──
+    d.editor.set_panel_visible(PanelId::Properties, false);
+    d.editor.set_panel_visible(PanelId::Library, true);
+    d.editor.library_selected = Some("sym_hero".to_owned());
+    d.settle();
+    let undo_before = d.editor.history.undo_len();
+
+    // Open inline edit form via "Item properties", open "Folder" Select ("Library root"), verify 2-step Escape!
+    d.click("Item properties");
+    assert!(d.find_current("Save").is_some(), "Library edit form opened");
+    d.click("Library root");
+    assert!(
+        d.editor.has_open_popup(&d.ctx),
+        "Folder Select popup inside Library edit form must be open"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(
+        !d.editor.has_open_popup(&d.ctx),
+        "1st Escape closes Type Select popup"
+    );
+    assert!(
+        d.find_current("Save").is_some(),
+        "1st Escape must NOT cancel Library edit form while Select popup was open"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(
+        d.find_current("Save").is_none(),
+        "2nd Escape cancels Library edit form even after focus left Name"
+    );
+    assert!(
+        d.editor.workspace.is_panel_visible(PanelId::Library),
+        "Escape in Library rename must not hide Library panel"
+    );
+    assert_eq!(
+        d.editor.selection, expected_selection,
+        "Escape in Library rename must preserve Stage selection"
+    );
+
+    // Also verify Escape after clicking a checkbox inside Library edit form (when Name lost focus) preserves Stage selection!
+    d.click("Item properties");
+    d.click("Enable guides for 9-slice scaling");
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(
+        d.find_current("Save").is_none(),
+        "Escape after clicking 9-slice checkbox must cancel Library edit form"
+    );
+    assert_eq!(
+        d.editor.selection, expected_selection,
+        "Escape cancelling Library edit form after checkbox click must NOT clear Stage selection"
+    );
+
+    // Re-open Library edit form: reject whitespace & duplicate symbol name (keeping focus on Name!),
+    // then commit valid name on Enter.
+    d.click("Item properties");
+    d.replace_focused_text("   ");
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert!(
+        d.find_current("Save").is_some(),
+        "Whitespace symbol name must keep edit form open with validation error"
+    );
+    assert_eq!(d.editor.history.undo_len(), undo_before);
+
+    // Focus must remain on Name after validation failure so immediate correction never leaks to Stage!
+    d.replace_focused_text("EnemyClip");
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert!(
+        d.find_current("Save").is_some(),
+        "Duplicate symbol name in same folder must be rejected"
+    );
+    assert!(
+        d.texts()
+            .iter()
+            .any(|t| t.contains("already exists in this folder")),
+        "Duplicate symbol error message must be shown; visible: {:?}",
+        d.texts()
+    );
+    assert_eq!(d.editor.history.undo_len(), undo_before);
+
+    d.replace_focused_text("HeroRenamed");
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert!(
+        d.find_current("Save").is_none(),
+        "Valid Enter commits Library symbol rename"
+    );
+    assert_eq!(
+        d.editor.project.symbol("sym_hero").unwrap().name,
+        "HeroRenamed"
+    );
+    assert_eq!(d.editor.history.undo_len(), undo_before + 1);
+    d.editor.project.validate().unwrap();
+    d.editor.set_panel_visible(PanelId::Properties, true);
+
+    // ── 2. Timeline inline layer rename ──
+    d.editor.set_panel_visible(PanelId::Timeline, true);
+    d.settle();
+    let undo_before = d.editor.history.undo_len();
+    let layer_rect = d
+        .find("Layer 1 (Layer)")
+        .expect("Layer 1 (Layer) row in Timeline");
+    let rename_spot = Pos2::new(
+        layer_rect.left() + layer_rect.width() * 0.45,
+        layer_rect.center().y,
+    );
+
+    // Double-click layer name, re-select Stage element, press Escape -> cancels cleanly preserving selection.
+    d.double_click_at(rename_spot);
+    d.editor.select_single_id(rect_id.clone());
+    d.settle();
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert_eq!(d.editor.symbol().timeline.layers[0].name, "Layer 1");
+    assert_eq!(
+        d.editor.selection, expected_selection,
+        "Escape in Timeline layer rename must preserve Stage selection"
+    );
+    assert!(d.editor.workspace.is_panel_visible(PanelId::Timeline));
+
+    // Reject whitespace & control-character names, then commit valid layer name on Enter.
+    d.double_click_at(rename_spot);
+    d.replace_focused_text("   ");
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert_eq!(d.editor.symbol().timeline.layers[0].name, "Layer 1");
+    assert_eq!(d.editor.history.undo_len(), undo_before);
+
+    d.double_click_at(rename_spot);
+    d.replace_focused_text("Bad\u{0007}Layer");
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert_eq!(d.editor.symbol().timeline.layers[0].name, "Layer 1");
+    assert_eq!(d.editor.history.undo_len(), undo_before);
+
+    d.double_click_at(rename_spot);
+    d.replace_focused_text("Main Art");
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert_eq!(d.editor.symbol().timeline.layers[0].name, "Main Art");
+    assert_eq!(d.editor.history.undo_len(), undo_before + 1);
+    d.editor.project.validate().unwrap();
+
+    // ── 3. Scene inline rename (Enter, Escape, validation, and click-away blur via `edit_id`) ──
+    d.editor.new_scene(); // adds and switches to "Scene 2"
+    let scene2_id = d.editor.current_scene().to_owned();
+    d.editor.add_element(
+        ElementKind::Rectangle {
+            width: 40.0,
+            height: 40.0,
+            fill: [200, 90, 90, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        15.0,
+        15.0,
+    );
+    let s2_rect_id = d.editor.symbol().timeline.layers[0]
+        .key_at(0)
+        .unwrap()
+        .elements[0]
+        .id
+        .clone();
+    d.editor.select_single_id(s2_rect_id);
+    let s2_sel = d.editor.selection.clone();
+    d.editor.set_panel_visible(PanelId::Scene, true);
+    d.settle();
+    let undo_before = d.editor.history.undo_len();
+
+    // Escape cancels preserving Scene selection, panel visibility, and Stage selection.
+    d.double_click_in_panel(PanelId::Scene, "Scene 2");
+    d.replace_focused_text("Discarded");
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert_eq!(d.editor.project.symbol(&scene2_id).unwrap().name, "Scene 2");
+    assert_eq!(d.editor.selection, s2_sel);
+    assert!(d.editor.workspace.is_panel_visible(PanelId::Scene));
+
+    // Duplicate ("Scene 1"), whitespace, and control-char names are rejected with 0 Undo steps.
+    for bad in ["Scene 1", "   ", "Scene\u{0007}2"] {
+        d.double_click_in_panel(PanelId::Scene, "Scene 2");
+        d.replace_focused_text(bad);
+        d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+        assert_eq!(d.editor.project.symbol(&scene2_id).unwrap().name, "Scene 2");
+        assert_eq!(d.editor.history.undo_len(), undo_before);
+    }
+
+    // Valid Enter commits in 1 Undo step.
+    d.double_click_in_panel(PanelId::Scene, "Scene 2");
+    d.replace_focused_text("Gameplay");
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert_eq!(
+        d.editor.project.symbol(&scene2_id).unwrap().name,
+        "Gameplay"
+    );
+    assert_eq!(d.editor.history.undo_len(), undo_before + 1);
+
+    // Click-away blur (`response.lost_focus()` via `c::TextField::edit_id`) commits in 1 Undo step!
+    d.double_click_in_panel(PanelId::Scene, "Gameplay");
+    d.replace_focused_text("BossFight");
+    d.click("Find scene");
+    assert_eq!(
+        d.editor.project.symbol(&scene2_id).unwrap().name,
+        "BossFight",
+        "Clicking away from Scene rename must commit via TextField::edit_id lost_focus()"
+    );
+    assert_eq!(d.editor.history.undo_len(), undo_before + 2);
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    d.editor.project.validate().unwrap();
+
+    // ── 4. Project source file inline rename ──
+    d.editor.set_panel_visible(PanelId::Project, true);
+    d.settle();
+    let undo_before = d.editor.history.undo_len();
+
+    d.double_click_in_panel(PanelId::Project, "Main.as");
+    d.replace_focused_text("Discarded.as");
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert_eq!(d.editor.project.sources[0].path, "Main.as");
+    assert_eq!(d.editor.selection, s2_sel);
+    assert!(d.editor.workspace.is_panel_visible(PanelId::Project));
+
+    // Duplicate & invalid paths are rejected.
+    for bad in ["Helper.as", "   "] {
+        d.double_click_in_panel(PanelId::Project, "Main.as");
+        d.replace_focused_text(bad);
+        d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+        assert_eq!(d.editor.project.sources[0].path, "Main.as");
+        assert_eq!(d.editor.history.undo_len(), undo_before);
+    }
+
+    // Valid Enter commits in 1 Undo step.
+    d.double_click_in_panel(PanelId::Project, "Main.as");
+    d.replace_focused_text("Core.as");
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert_eq!(d.editor.project.sources[0].path, "Core.as");
+    assert_eq!(d.editor.history.undo_len(), undo_before + 1);
+    d.editor.project.validate().unwrap();
+}
+
+#[test]
+fn t319_two_step_escape_across_modals_popups_and_tracked_rgba_popovers() {
+    let mut project = Project::blank();
+    project.format_version = project.format_version.max(6);
+    // Minimal valid 44-byte RIFF PCM WAV for Sound properties & Edit envelope modals.
+    let wav_bytes: [u8; 46] = [
+        b'R', b'I', b'F', b'F', 38, 0, 0, 0, b'W', b'A', b'V', b'E', b'f', b'm', b't', b' ', 16, 0,
+        0, 0, 1, 0, 1, 0, 0x44, 0xAC, 0, 0, 0x88, 0x58, 0x01, 0, 2, 0, 16, 0, b'd', b'a', b't',
+        b'a', 2, 0, 0, 0, 0, 0,
+    ];
+    project.resources.push(
+        ResourceUnit::from_bytes("snd_click", "assets/click.wav", "audio/wav", &wav_bytes).unwrap(),
+    );
+    project.symbols[0].timeline.layers[0].keyframes[0].sound = Some(FrameSound {
+        resource: "snd_click".to_owned(),
+        sync: SoundSync::Event,
+        loops: 1,
+        loop_forever: false,
+        effect: SoundEffect::Custom,
+        envelope: Some(vec![[0.0, 1.0, 1.0], [0.25, 0.6, 0.6], [0.5, 0.2, 0.2]]),
+        in_point: None,
+        out_point: None,
+    });
+    let mut btn_timeline = Project::blank().symbols.remove(0).timeline;
+    btn_timeline.layers[0].id = "layer_btn_0".to_owned();
+    btn_timeline.frame_count = 4;
+    project.symbols.push(Symbol {
+        id: "sym_btn".to_owned(),
+        name: "ActionBtn".to_owned(),
+        kind: SymbolKind::Button,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: btn_timeline,
+    });
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    let mut d = T319Driver::new(project);
+    d.editor.add_element(
+        ElementKind::Text {
+            text: "ScoreLabel".to_owned(),
+            font_size: 20.0,
+            font_family: "Inter".to_owned(),
+            color: [255, 255, 255, 255],
+        },
+        40.0,
+        40.0,
+    );
+    d.settle();
+
+    // 1. Document settings: tracked RGBA Background colour popover -> 1st Esc closes popover, 2nd closes modal.
+    d.editor.open_document_settings();
+    d.settle();
+    let bg_rect = d
+        .find_current("Background")
+        .expect("Document settings Background ColorField");
+    d.click_at(Pos2::new(bg_rect.left() + 12.0, bg_rect.center().y));
+    assert!(
+        crate::panels::dialog_helpers::is_any_tracked_rgba_popup_open(&d.ctx),
+        "Background swatch click must open tracked RGBA colour popover"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(
+        !crate::panels::dialog_helpers::is_any_tracked_rgba_popup_open(&d.ctx),
+        "1st Escape must close the Background RGBA popover"
+    );
+    assert!(
+        d.editor.document_settings.is_some(),
+        "1st Escape must NOT close Document settings while RGBA popover was open"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(
+        d.editor.document_settings.is_none(),
+        "2nd Escape closes Document settings"
+    );
+
+    // 2. Layer properties: Select popup -> 1st Esc closes popup, 2nd closes modal.
+    d.editor.open_layer_properties(&d.ctx, 0);
+    d.settle();
+    d.click("Layer height: 100 %");
+    assert!(d.editor.has_open_popup(&d.ctx));
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!d.editor.has_open_popup(&d.ctx));
+    assert!(
+        crate::panels::layer_properties::has_layer_properties_dialog(&d.ctx),
+        "1st Escape must keep Layer properties open when closing Select popup"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!crate::panels::layer_properties::has_layer_properties_dialog(&d.ctx));
+
+    // 3. Font embedding (`DL-11`): Select popup -> 1st Esc closes popup, 2nd closes modal.
+    d.editor.open_font_embedding(&d.ctx);
+    d.settle();
+    d.click("Add font");
+    d.click("Style: Regular");
+    assert!(d.editor.has_open_popup(&d.ctx));
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!d.editor.has_open_popup(&d.ctx));
+    assert!(
+        crate::panels::font_embedding::has_font_embedding_dialog(&d.ctx),
+        "1st Escape must NOT close Font embedding when Style Select popup was open"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!crate::panels::font_embedding::has_font_embedding_dialog(
+        &d.ctx
+    ));
+
+    // 4. Stroke style (`PR-03`): Select popup -> 1st Esc closes popup, 2nd closes modal.
+    d.editor.open_stroke_style(&d.ctx);
+    d.settle();
+    d.click("Type: Solid");
+    assert!(d.editor.has_open_popup(&d.ctx));
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!d.editor.has_open_popup(&d.ctx));
+    assert!(
+        crate::panels::stroke_style::has_stroke_style_dialog(&d.ctx),
+        "1st Escape must NOT close Stroke style when Type Select popup was open"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!crate::panels::stroke_style::has_stroke_style_dialog(
+        &d.ctx
+    ));
+
+    // 5. Sound properties: Compression Select popup -> 1st Esc closes popup, 2nd closes modal.
+    d.editor
+        .open_sound_properties(&d.ctx, Some("snd_click".to_owned()));
+    d.settle();
+    let comp_label = d
+        .labels()
+        .into_iter()
+        .find(|l| l.starts_with("Compression: "))
+        .expect("Sound properties Compression Select");
+    d.click(&comp_label);
+    assert!(d.editor.has_open_popup(&d.ctx));
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!d.editor.has_open_popup(&d.ctx));
+    assert!(
+        crate::panels::sound_properties::has_sound_properties_dialog(&d.ctx),
+        "1st Escape must keep Sound properties open when closing Compression Select"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!crate::panels::sound_properties::has_sound_properties_dialog(&d.ctx));
+
+    // 6. Edit envelope: Delete/Backspace blocked while Select popup open + 2-step Escape.
+    d.editor.open_edit_envelope();
+    d.editor.edit_envelope.as_mut().unwrap().selected_left = Some(1);
+    d.settle();
+    assert_eq!(d.editor.edit_envelope.as_ref().unwrap().left.len(), 3);
+    d.click("Effect: Custom");
+    assert!(d.editor.has_open_popup(&d.ctx));
+    d.key_tap(egui::Key::Delete, egui::Modifiers::NONE);
+    d.key_tap(egui::Key::Backspace, egui::Modifiers::NONE);
+    assert_eq!(
+        d.editor.edit_envelope.as_ref().unwrap().left.len(),
+        3,
+        "Delete/Backspace while Effect Select popup is open must not delete envelope points"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!d.editor.has_open_popup(&d.ctx));
+    assert!(
+        d.editor.edit_envelope.is_some(),
+        "1st Escape must keep Edit envelope open when closing Effect Select"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(d.editor.edit_envelope.is_none());
+
+    // 7. Productivity tools (`Batch rename`): focused Prefix -> 1st Esc unfocuses, 2nd closes modal.
+    d.editor.open_batch_rename_library_modal(&d.ctx);
+    d.settle();
+    d.click("Prefix");
+    assert!(d.ctx.wants_keyboard_input());
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(
+        crate::panels::productivity_tools::has_productivity_modal(&d.ctx),
+        "1st Escape must unfocus Prefix without closing Batch rename modal"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!crate::panels::productivity_tools::has_productivity_modal(
+        &d.ctx
+    ));
+
+    // 8. Beta feedback (`R-103`): open popup -> 1st Esc closes popup keeping modal open, 2nd Esc closes modal preserving draft.
+    d.editor.open_beta_feedback();
+    d.editor.beta_feedback.text = "Draft preserved across two-step Escape".to_owned();
+    d.settle();
+    let bf_popup_id = egui::Id::new("t319-beta-feedback-popup");
+    let bf_rgba_open_id = bf_popup_id.with("nf2-rgba-popup-open");
+    crate::panels::dialog_helpers::track_rgba_popup(&d.ctx, bf_popup_id);
+    d.ctx
+        .data_mut(|data| data.insert_temp(bf_rgba_open_id, true));
+    d.settle();
+    assert!(crate::panels::dialog_helpers::is_any_tracked_rgba_popup_open(&d.ctx));
+    // Simulate popover closing on Escape while `prev_popup_open` / `was_popup_open` guards modal close.
+    d.ctx
+        .data_mut(|data| data.insert_temp(bf_rgba_open_id, false));
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(
+        d.editor.beta_feedback.open,
+        "1st Escape while popup was open must NOT close Beta feedback"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!d.editor.beta_feedback.open);
+    assert_eq!(
+        d.editor.beta_feedback.text,
+        "Draft preserved across two-step Escape"
+    );
+
+    // 9. Find & Replace: Enter inside Find runs Find all (via TextField::edit_id) + 2-step Escape!
+    d.editor.find_replace = Some(Default::default());
+    d.settle();
+    assert!(
+        d.ctx.wants_keyboard_input(),
+        "Find field auto-focused on open"
+    );
+    d.replace_focused_text("Score");
+    d.key_tap(egui::Key::Enter, egui::Modifiers::NONE);
+    assert!(
+        d.editor.find_replace.is_some(),
+        "Enter inside Find must NOT close Find & Replace"
+    );
+    assert!(
+        !d.editor.playing,
+        "Enter inside Find must NOT trigger timeline playback"
+    );
+    assert!(
+        !d.editor.find_replace.as_ref().unwrap().results.is_empty(),
+        "Enter inside Find must run Find all and populate results"
+    );
+    d.click("Find");
+    assert!(d.ctx.wants_keyboard_input());
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(
+        d.editor.find_replace.is_some(),
+        "1st Escape must unfocus Find without closing Find & Replace"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(d.editor.find_replace.is_none());
+
+    // 10. Help manual: focused search -> 1st Esc unfocuses, 2nd closes modal.
+    d.editor.open_help_manual(&d.ctx);
+    d.settle();
+    assert!(crate::panels::help_manual::is_help_manual_open(&d.ctx));
+    d.click("Filter topics, tools, modes or shortcuts…");
+    assert!(d.ctx.wants_keyboard_input());
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(
+        crate::panels::help_manual::is_help_manual_open(&d.ctx),
+        "1st Escape must unfocus Help search without closing Help manual"
+    );
+    d.key_tap(egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(!crate::panels::help_manual::is_help_manual_open(&d.ctx));
+}
+
+#[test]
+fn t319_click_to_jump_compiler_errors_movie_explorer_find_replace_and_actions_scenes() {
+    use crate::app::ScriptTarget;
+    use crate::panels::actions_sidebar::ScriptLocation;
+    use crate::panels::find_replace::MatchTarget;
+    use crate::panels::movie_explorer::MovieTarget;
+
+    let mut project = Project::blank();
+    project.format_version = project.format_version.max(6);
+    project.script_language = Some(ScriptLanguage::ActionScript2);
+    let scene1_id = project.root.clone();
+    let scene2_id = "scene_2".to_owned();
+    let sym_nested_id = "sym_nested".to_owned();
+    let sym_isolated_id = "sym_isolated".to_owned();
+    project.scenes = vec![scene1_id.clone(), scene2_id.clone()];
+
+    // Nested MovieClip placed on Scene 1, containing an instance `btn_nested` on Layer 1 frame 1 with an Object script.
+    project.symbols.push(Symbol {
+        id: sym_nested_id.clone(),
+        name: "NestedPanel".to_owned(),
+        kind: SymbolKind::MovieClip,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 4,
+            guides: vec![],
+            scripts: vec![],
+            layers: vec![
+                Layer {
+                    id: "nested_l0".to_owned(),
+                    name: "Bg".to_owned(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        ..Default::default()
+                    }],
+                },
+                Layer {
+                    id: "nested_l1".to_owned(),
+                    name: "Controls".to_owned(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![
+                        Keyframe {
+                            frame: 0,
+                            ..Default::default()
+                        },
+                        Keyframe {
+                            frame: 1,
+                            elements: vec![Element {
+                                id: "btn_nested".to_owned(),
+                                name: "nestedBtn".to_owned(),
+                                transform: Transform::default(),
+                                kind: ElementKind::Instance {
+                                    symbol_id: sym_isolated_id.clone(),
+                                    playback: InstancePlayback::Loop,
+                                },
+                                scripts: vec![ObjectScript {
+                                    event: ObjectEvent::Click,
+                                    script: Script {
+                                        language: ScriptLanguage::ActionScript2,
+                                        source: "var brokenNested = ;\n".to_owned(),
+                                    },
+                                }],
+                                ..Element::default()
+                            }],
+                            ..Default::default()
+                        },
+                    ],
+                },
+            ],
+        },
+    });
+    let mut isolated_timeline = Project::blank().symbols.remove(0).timeline;
+    isolated_timeline.layers[0].id = "layer_isolated_0".to_owned();
+    project.symbols.push(Symbol {
+        id: sym_isolated_id.clone(),
+        name: "DetachedLeaf".to_owned(),
+        kind: SymbolKind::MovieClip,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: isolated_timeline,
+    });
+    // Place `sym_nested` on Scene 1 Layer 0 frame 0.
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "inst_nested_root".to_owned(),
+            name: "panel_mc".to_owned(),
+            transform: Transform::default(),
+            kind: ElementKind::Instance {
+                symbol_id: sym_nested_id.clone(),
+                playback: InstancePlayback::Loop,
+            },
+            ..Element::default()
+        });
+
+    // Scene 2: Layer 0 (Bg) + Layer 1 (Actions/Interactive) with frame 2 script + `mc_s2` Object script.
+    project.symbols.push(Symbol {
+        id: scene2_id.clone(),
+        name: "Scene 2".to_owned(),
+        kind: SymbolKind::MovieClip,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 5,
+            guides: vec![],
+            scripts: vec![FrameScript {
+                frame: 2,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "var brokenScene2Frame = ;\n".to_owned(),
+                },
+            }],
+            layers: vec![
+                Layer {
+                    id: "s2_l0".to_owned(),
+                    name: "Background".to_owned(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        ..Default::default()
+                    }],
+                },
+                Layer {
+                    id: "s2_l1".to_owned(),
+                    name: "GameplayLayer".to_owned(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![
+                        Keyframe {
+                            frame: 0,
+                            ..Default::default()
+                        },
+                        Keyframe {
+                            frame: 2,
+                            elements: vec![Element {
+                                id: "mc_s2".to_owned(),
+                                name: "hero_s2".to_owned(),
+                                transform: Transform::default(),
+                                kind: ElementKind::Instance {
+                                    symbol_id: sym_isolated_id.clone(),
+                                    playback: InstancePlayback::Loop,
+                                },
+                                scripts: vec![ObjectScript {
+                                    event: ObjectEvent::Load,
+                                    script: Script {
+                                        language: ScriptLanguage::ActionScript2,
+                                        source: "var brokenScene2Obj = ;\n".to_owned(),
+                                    },
+                                }],
+                                ..Element::default()
+                            }],
+                            ..Default::default()
+                        },
+                    ],
+                },
+            ],
+        },
+    });
+
+    project.sources.push(SourceUnit {
+        id: "src_hud".to_owned(),
+        path: "Hud.as".to_owned(),
+        language: ScriptLanguage::ActionScript2,
+        source: "class Hud {\n  function bad() { var x = ; }\n}\n".to_owned(),
+    });
+    project.validate().unwrap();
+
+    let mut d = T319Driver::new(project);
+
+    // 1. Actions sidebar lists BOTH Scene 1 and Scene 2 as scenes (not misclassified as Symbol definitions).
+    d.editor.open_actions();
+    d.settle();
+    let texts = d.texts();
+    assert!(
+        texts.iter().any(|t| t == "Scene 2"),
+        "Actions navigator must list Scene 2; visible: {texts:?}"
+    );
+
+    // 2. Compiler errors (`jump_to_compiler_diagnostic`) across non-active Scene 2 frame script,
+    //    solo-blocked Scene 2 Object script, nested symbol Object script, and external `.as` file.
+    d.editor.refresh_compiler_diagnostics();
+    let s2_frame_idx = d
+        .editor
+        .compiler_errors
+        .items
+        .iter()
+        .position(|i| {
+            i.script
+                == Some(ScriptLocation::Frame {
+                    symbol: scene2_id.clone(),
+                    frame: 2,
+                })
+        })
+        .expect("Compiler diagnostic for Scene 2 frame 2 script");
+    assert!(d.editor.jump_to_compiler_diagnostic(&d.ctx, s2_frame_idx));
+    assert_eq!(d.editor.current_scene(), scene2_id);
+    assert_eq!(d.editor.symbol_id(), scene2_id);
+    assert_eq!(d.editor.frame, 2);
+    assert_eq!(
+        d.editor.layer, 1,
+        "Frame script jump must select action_layer_for_frame(2)"
+    );
+    assert!(d.editor.script_target == ScriptTarget::Frame);
+    assert!(d.editor.workspace.is_panel_visible(PanelId::Actions));
+
+    // Solo Layer 0 (`s2_l0`) and switch back to Scene 1; jumping to `mc_s2` Object script on Layer 1
+    // must switch to Scene 2, clear blocking `solo_layers`, select `mc_s2`, and preserve `ScriptTarget::Object`!
+    d.editor.solo_layers.insert(
+        scene2_id.clone(),
+        std::collections::BTreeSet::from(["s2_l0".to_owned()]),
+    );
+    d.editor.switch_scene(&scene1_id);
+    let s2_obj_idx = d
+        .editor
+        .compiler_errors
+        .items
+        .iter()
+        .position(|i| {
+            i.script
+                == Some(ScriptLocation::Object {
+                    symbol: scene2_id.clone(),
+                    frame: 2,
+                    element: "mc_s2".to_owned(),
+                    event: ObjectEvent::Load,
+                })
+        })
+        .expect("Compiler diagnostic for mc_s2 Object script");
+    assert!(d.editor.jump_to_compiler_diagnostic(&d.ctx, s2_obj_idx));
+    assert_eq!(d.editor.current_scene(), scene2_id);
+    assert_eq!(d.editor.symbol_id(), scene2_id);
+    assert_eq!(d.editor.frame, 2);
+    assert_eq!(d.editor.layer, 1);
+    assert!(
+        d.editor
+            .solo_layers
+            .get(&scene2_id)
+            .is_none_or(std::collections::BTreeSet::is_empty),
+        "Blocking solo_layers on Scene 2 must be cleared so mc_s2 is selectable"
+    );
+    assert_eq!(
+        d.editor.selection.single().map(|t| t.element.as_str()),
+        Some("mc_s2")
+    );
+    assert!(d.editor.script_target == ScriptTarget::Object);
+    assert_eq!(d.editor.script_event, ObjectEvent::Load);
+
+    let src_diag_idx = d
+        .editor
+        .compiler_errors
+        .items
+        .iter()
+        .position(|i| i.script == Some(ScriptLocation::Source("src_hud".to_owned())))
+        .expect("Compiler diagnostic for Hud.as");
+    assert!(d.editor.jump_to_compiler_diagnostic(&d.ctx, src_diag_idx));
+    assert!(d.editor.script_target == ScriptTarget::Source);
+    assert_eq!(d.editor.selected_source.as_deref(), Some("src_hud"));
+
+    // 3. Movie Explorer (`navigate_movie_explorer_target_in`): nested symbol Object script + isolated double-click fallback.
+    d.editor.solo_layers.insert(
+        sym_nested_id.clone(),
+        std::collections::BTreeSet::from(["nested_l0".to_owned()]),
+    );
+    d.editor.navigate_movie_explorer_target_in(
+        Some(&d.ctx),
+        &MovieTarget::Script(ScriptLocation::Object {
+            symbol: sym_nested_id.clone(),
+            frame: 1,
+            element: "btn_nested".to_owned(),
+            event: ObjectEvent::Click,
+        }),
+        false,
+    );
+    assert_eq!(d.editor.symbol_id(), sym_nested_id);
+    assert_eq!(d.editor.frame, 1);
+    assert_eq!(d.editor.layer, 1);
+    assert_eq!(
+        d.editor.selection.single().map(|t| t.element.as_str()),
+        Some("btn_nested")
+    );
+    assert!(d.editor.script_target == ScriptTarget::Object);
+    assert_eq!(d.editor.script_event, ObjectEvent::Click);
+
+    // Lock `nested_l1` so `enter_selected_symbol_in_place()` returns false, and double-click `btn_nested`
+    // in Movie Explorer: must fall back cleanly to `enter_symbol_isolated(sym_isolated_id)`!
+    d.editor
+        .project
+        .symbol_mut(&sym_nested_id)
+        .unwrap()
+        .timeline
+        .layers[1]
+        .locked = true;
+    d.editor.clear_selection();
+    d.editor.navigate_movie_explorer_target_in(
+        Some(&d.ctx),
+        &MovieTarget::Element {
+            symbol: sym_nested_id.clone(),
+            layer_index: 1,
+            frame: 1,
+            element_id: "btn_nested".to_owned(),
+            instance_symbol: Some(sym_isolated_id.clone()),
+        },
+        true,
+    );
+    assert_eq!(
+        d.editor.symbol_id(),
+        sym_isolated_id,
+        "Movie Explorer double-click must fall back to enter_symbol_isolated when locked/unselectable"
+    );
+    d.editor
+        .project
+        .symbol_mut(&sym_nested_id)
+        .unwrap()
+        .timeline
+        .layers[1]
+        .locked = false;
+
+    // 4. Find & Replace (`jump_to_find_target`): non-active Scene 2 soloed element + nested ObjectScript.
+    d.editor.switch_scene(&scene1_id);
+    d.editor.solo_layers.insert(
+        scene2_id.clone(),
+        std::collections::BTreeSet::from(["s2_l0".to_owned()]),
+    );
+    d.editor.jump_to_find_target(
+        &MatchTarget::InstanceName {
+            symbol: scene2_id.clone(),
+            layer_index: 1,
+            frame: 2,
+            element_id: "mc_s2".to_owned(),
+            range: (0, 7),
+        },
+        Some(&d.ctx),
+    );
+    assert_eq!(d.editor.current_scene(), scene2_id);
+    assert_eq!(d.editor.symbol_id(), scene2_id);
+    assert_eq!(d.editor.layer, 1);
+    assert_eq!(d.editor.frame, 2);
+    assert_eq!(
+        d.editor.selection.single().map(|t| t.element.as_str()),
+        Some("mc_s2")
+    );
+
+    d.editor.solo_layers.insert(
+        sym_nested_id.clone(),
+        std::collections::BTreeSet::from(["nested_l0".to_owned()]),
+    );
+    d.editor.jump_to_find_target(
+        &MatchTarget::ObjectScript {
+            symbol: sym_nested_id.clone(),
+            layer_index: 1,
+            frame: 1,
+            element_id: "btn_nested".to_owned(),
+            event: ObjectEvent::Click,
+            line: 1,
+            column: 5,
+            range: (4, 16),
+        },
+        Some(&d.ctx),
+    );
+    assert_eq!(d.editor.symbol_id(), sym_nested_id);
+    assert_eq!(d.editor.frame, 1);
+    assert_eq!(d.editor.layer, 1);
+    assert!(d.editor.script_target == ScriptTarget::Object);
+    assert_eq!(d.editor.script_event, ObjectEvent::Click);
+}

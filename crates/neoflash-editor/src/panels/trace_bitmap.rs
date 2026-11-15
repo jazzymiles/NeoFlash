@@ -24,6 +24,7 @@ impl Editor {
         let live_before = dialog.live_preview;
         let mut cancel = false;
         let mut trace = false;
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let p = palette(ctx);
         let modal = egui::Modal::new(egui::Id::new("trace-bitmap-dialog"))
             .frame(c::Surface::Dialog.frame(ctx))
@@ -103,19 +104,12 @@ impl Editor {
                         });
                     });
             });
-        let popup = super::dialog_helpers::is_any_popup_open(ctx);
-        if !popup && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
-            cancel = true;
-        }
-        if !popup
-            && !ctx.wants_keyboard_input()
-            && !dialog.tracing
-            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
-        {
-            trace = true;
-        }
-        if modal.should_close() {
-            cancel = true;
+        if !cancel && !trace {
+            match kb.resolve(ctx, &modal, !dialog.tracing) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => cancel = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => trace = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
+            }
         }
         let changed = dialog.options != before;
         let preview = dialog.live_preview && (changed || !live_before);

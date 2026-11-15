@@ -1026,6 +1026,9 @@ impl Editor {
 
                     let resp =
                         crate::paint_controls::color_row(ui, &row_id, "#", &label, &mut edited);
+                    if !resp.changed() {
+                        super::dialog_helpers::track_rgba_popup(ui.ctx(), resp.id);
+                    }
                     if resp.changed() && edited != entry.color {
                         let existing_drag = ctx
                             .data(|d| d.get_temp::<(usize, Color, Color, Project)>(live_state_id));
@@ -1135,6 +1138,9 @@ impl Editor {
                 "From colour",
                 &mut jsfl_from,
             );
+            if !from_resp.changed() {
+                super::dialog_helpers::track_rgba_popup(ui.ctx(), from_resp.id);
+            }
             let to_resp = crate::paint_controls::color_row(
                 ui,
                 "jsfl-change-color-to",
@@ -1142,6 +1148,9 @@ impl Editor {
                 "To colour",
                 &mut jsfl_to,
             );
+            if !to_resp.changed() {
+                super::dialog_helpers::track_rgba_popup(ui.ctx(), to_resp.id);
+            }
             if from_resp.changed() || to_resp.changed() {
                 ctx.data_mut(|d| d.insert_temp(jsfl_pair_id, (jsfl_from, jsfl_to)));
             }

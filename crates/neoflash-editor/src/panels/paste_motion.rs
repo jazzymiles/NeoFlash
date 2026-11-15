@@ -11,6 +11,7 @@ impl Editor {
         let mut options = self.timeline_motion.paste_options.clone();
         let mut cancel = false;
         let mut paste = false;
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let nf = neoflash_ui::palette(ctx);
         let modal = egui::Modal::new(egui::Id::new("paste-motion-special"))
             .frame(c::Surface::Dialog.frame(ctx))
@@ -85,12 +86,15 @@ impl Editor {
                     options.properties.fill(false);
                 }
             });
-        paste |= !super::dialog_helpers::blocks_local_dialog_enter(ctx)
-            && options.any()
-            && self.can_paste_motion()
-            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        if !cancel && !paste {
+            match kb.resolve(ctx, &modal, options.any() && self.can_paste_motion()) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => cancel = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => paste = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
+            }
+        }
         self.timeline_motion.paste_options = options.clone();
-        if cancel || modal.should_close() {
+        if cancel {
             self.timeline_motion.paste_special_open = false;
         } else if paste {
             self.timeline_motion.paste_special_open = false;

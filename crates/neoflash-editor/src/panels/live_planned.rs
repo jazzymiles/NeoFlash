@@ -838,6 +838,7 @@ impl Editor {
                 "Edit fill colour",
                 None,
             );
+            super::dialog_helpers::track_rgba_popup(ui.ctx(), fill_resp.id);
             if show_rgba_color_popup(
                 ui,
                 &fill_resp,
@@ -856,6 +857,7 @@ impl Editor {
                 "Edit stroke colour",
                 None,
             );
+            super::dialog_helpers::track_rgba_popup(ui.ctx(), stroke_resp.id);
             if show_rgba_color_popup(
                 ui,
                 &stroke_resp,

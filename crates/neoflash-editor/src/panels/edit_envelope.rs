@@ -310,6 +310,7 @@ impl Editor {
         let mut stop_preview = false;
         let mut over_limit = false;
 
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let modal = egui::Modal::new(egui::Id::new("edit-envelope"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(nf.overlay)
@@ -516,8 +517,8 @@ impl Editor {
         }
 
         if !close_cancel && !close_ok {
-            let typing = ctx.wants_keyboard_input();
-            let popup_open = super::dialog_helpers::is_any_popup_open(ctx);
+            let typing = kb.was_typing || ctx.wants_keyboard_input();
+            let popup_open = kb.was_popup_open || super::dialog_helpers::is_any_popup_open(ctx);
             if !typing
                 && !popup_open
                 && ctx.input_mut(|i| {
@@ -541,17 +542,10 @@ impl Editor {
                     draft.effect = SoundEffect::Custom;
                 }
             }
-            if !popup_open
-                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
-            {
-                close_cancel = true;
-            } else if !typing
-                && !popup_open
-                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
-            {
-                close_ok = true;
-            } else if modal.should_close() {
-                close_cancel = true;
+            match kb.resolve(ctx, &modal, true) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => close_ok = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
             }
         }
 

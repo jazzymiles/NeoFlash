@@ -815,6 +815,9 @@ pub(crate) fn build_movie_explorer_rows(editor: &Editor) -> Vec<MovieRow> {
 
 impl Editor {
     pub(crate) fn enter_explorer_timeline(&mut self, symbol_id: &str) {
+        if self.project.symbol(symbol_id).is_none() {
+            return;
+        }
         self.finish_edits();
         if self.symbol_id() == symbol_id {
             if self.editing_in_place() {
@@ -832,8 +835,18 @@ impl Editor {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn navigate_movie_explorer_target(
         &mut self,
+        target: &MovieTarget,
+        double_click: bool,
+    ) {
+        self.navigate_movie_explorer_target_in(None, target, double_click);
+    }
+
+    pub(crate) fn navigate_movie_explorer_target_in(
+        &mut self,
+        ctx: Option<&egui::Context>,
         target: &MovieTarget,
         double_click: bool,
     ) {
@@ -841,6 +854,7 @@ impl Editor {
             MovieTarget::Document | MovieTarget::Folder => {}
             MovieTarget::Timeline { symbol } => {
                 self.enter_explorer_timeline(symbol);
+                self.normalize_selection();
             }
             MovieTarget::Layer {
                 symbol,
@@ -864,7 +878,8 @@ impl Editor {
                     self.layer = *li;
                 }
                 self.set_playing(false);
-                self.frame = *frame;
+                let max_frame = self.symbol().timeline.frame_count.saturating_sub(1);
+                self.frame = (*frame).min(max_frame);
                 self.normalize_selection();
             }
             MovieTarget::Element {
@@ -876,21 +891,32 @@ impl Editor {
             } => {
                 self.enter_explorer_timeline(symbol);
                 if *layer_index < self.symbol().timeline.layers.len() {
+                    let layer_id = self.symbol().timeline.layers[*layer_index].id.clone();
+                    if !self.is_layer_id_effectively_soloed(&layer_id) {
+                        self.clear_all_solo_layers();
+                    }
                     self.layer = *layer_index;
                 }
                 self.set_playing(false);
-                self.frame = *frame;
+                let max_frame = self.symbol().timeline.frame_count.saturating_sub(1);
+                self.frame = (*frame).min(max_frame);
                 self.select_single_id(element_id.clone());
+                self.normalize_selection();
                 if double_click
                     && let Some(inst_sym) = instance_symbol
                     && self.project.symbol(inst_sym).is_some()
+                    && !self.enter_selected_symbol_in_place()
                 {
-                    self.enter_selected_symbol_in_place();
+                    self.enter_symbol_isolated(inst_sym.clone());
                 }
             }
             MovieTarget::Script(loc) => {
+                let src = self.script_source_for(loc).unwrap_or_default();
                 self.open_script_location(loc.clone());
                 self.open_actions();
+                if let Some(ctx) = ctx {
+                    crate::sources::jump_to(ctx, self.actions_editor_id(), &src, 1, 1);
+                }
             }
         }
     }
@@ -1222,7 +1248,7 @@ impl Editor {
         if let Some((key, bc, target, dbl)) = clicked_nav {
             self.movie_explorer.selected_key = Some(key);
             self.movie_explorer.selected_breadcrumb = Some(bc);
-            self.navigate_movie_explorer_target(&target, dbl);
+            self.navigate_movie_explorer_target_in(Some(ui.ctx()), &target, dbl);
         }
         if let Some(sym_id) = find_in_lib {
             self.find_symbol_in_library(&sym_id);

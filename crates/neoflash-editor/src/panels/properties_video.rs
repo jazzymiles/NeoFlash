@@ -384,27 +384,38 @@ impl Editor {
                                         ui.spacing_mut().item_spacing.x = space::S1;
                                         let name_w = (w * columns[1] - space::S1).max(60.0);
                                         let time_w = (w - name_w - space::S1).max(60.0);
-                                        let name_resp = ui.add(
+                                        let mut name_resp = ui.add(
                                             c::TextField::new(&mut cue.name, "Cue name")
                                                 .width(name_w),
                                         );
-                                        let time_resp = ui.add(
+                                        name_resp.id = c::TextField::edit_id(name_resp.id);
+                                        let mut time_resp = ui.add(
                                             c::Field::new(&mut t_ms, "Cue time")
                                                 .unit("ms")
                                                 .range(0.0..=600_000.0)
                                                 .decimals(0)
                                                 .width(time_w),
                                         );
+                                        time_resp.id = time_resp.id.with("edit");
                                         if time_resp.changed() {
                                             cue.time_ms = t_ms.round().max(0.0) as u32;
                                         }
-                                        if ui.input(|i| {
-                                            i.key_pressed(egui::Key::Enter)
-                                                || i.key_pressed(egui::Key::Escape)
-                                        }) || (name_resp.lost_focus() && !time_resp.has_focus())
-                                            || (time_resp.lost_focus() && !name_resp.has_focus())
-                                        {
+                                        let blurred_row = (name_resp.lost_focus()
+                                            && !time_resp.has_focus())
+                                            || (time_resp.lost_focus() && !name_resp.has_focus());
+                                        let close_key = ui.input_mut(|i| {
+                                            i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                                                || i.consume_key(
+                                                    egui::Modifiers::NONE,
+                                                    egui::Key::Escape,
+                                                )
+                                        });
+                                        if close_key || blurred_row {
                                             editing_cue = None;
+                                        } else {
+                                            super::dialog_helpers::mark_inline_edit_active(
+                                                ui.ctx(),
+                                            );
                                         }
                                     });
                                 });

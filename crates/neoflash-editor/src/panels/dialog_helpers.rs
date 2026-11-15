@@ -35,27 +35,67 @@ pub(crate) fn prev_popup_open(ctx: &egui::Context) -> bool {
         .unwrap_or(false)
 }
 
-/// Returns `true` when `Escape` on this pass is dismissing a focused text/number field or open popup
-/// from the previous frame (`egui::Focus::begin_pass` clears focus on `Escape` before widgets run).
+pub(crate) fn mark_inline_edit_active(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("nf2-inline-edit-this-frame"), true));
+}
+
+pub(crate) fn prev_inline_edit_active(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(egui::Id::new("nf2-prev-inline-edit")))
+        .unwrap_or(false)
+}
+
+/// Returns `true` when `Escape` on this pass is dismissing a focused text/number field, open popup,
+/// or active inline panel rename/edit form from the previous frame (`egui::Focus::begin_pass` clears
+/// focus on `Escape` before widgets run, and `Editor::shortcuts` runs before docked panels).
 pub(crate) fn escape_dismissed_focus_or_popup(ctx: &egui::Context) -> bool {
     ctx.input(|i| i.key_pressed(egui::Key::Escape))
-        && (prev_wants_keyboard_input(ctx) || prev_popup_open(ctx))
+        && (prev_wants_keyboard_input(ctx) || prev_popup_open(ctx) || prev_inline_edit_active(ctx))
+}
+
+const TRACKED_RGBA_POPUPS_ID: &str = "nf2-tracked-rgba-popups";
+
+/// Registers an RGBA colour popover (`paint_controls::show_color32_field_popup` or
+/// `show_rgba_color_popup`) so [`is_any_popup_open`] and [`DialogKeyboardState`] treat an open
+/// colour popover as a first-step `Escape` target and block unmodified Stage shortcuts.
+pub(crate) fn track_rgba_popup(ctx: &egui::Context, response_id: egui::Id) {
+    let open_id = response_id.with("nf2-rgba-popup-open");
+    ctx.data_mut(|d| {
+        let key = egui::Id::new(TRACKED_RGBA_POPUPS_ID);
+        let mut list = d.get_temp::<Vec<egui::Id>>(key).unwrap_or_default();
+        if !list.contains(&open_id) {
+            list.push(open_id);
+            d.insert_temp(key, list);
+        }
+    });
+}
+
+pub(crate) fn is_any_tracked_rgba_popup_open(ctx: &egui::Context) -> bool {
+    ctx.data(|d| {
+        d.get_temp::<Vec<egui::Id>>(egui::Id::new(TRACKED_RGBA_POPUPS_ID))
+            .is_some_and(|list| {
+                list.into_iter()
+                    .any(|open_id| d.get_temp::<bool>(open_id).unwrap_or(false))
+            })
+    })
 }
 
 /// Whether any `egui::Popup` (Select, MenuBar, context menu, Timeline menu) or editor popover
-/// (`Tools` flyout/popover, `Color` popover, `Symbols & scenes`, `Help search`) is open.
+/// (`Tools` flyout/popover, `Color` popover, RGBA colour popover, `Symbols & scenes`, `Help search`) is open.
 pub(crate) fn is_any_popup_open(ctx: &egui::Context) -> bool {
     egui::Popup::is_any_open(ctx)
         || super::tools::is_rail_popover_open(ctx)
         || crate::authoring_modify::is_color_popover_open(ctx)
         || super::symbols_popover::is_symbols_popover_open(ctx)
         || super::function_search::is_function_search_open(ctx)
+        || is_any_tracked_rgba_popup_open(ctx)
 }
 
 /// Editor-aware popup check used by global shortcut and Stage input gating. This includes custom
 /// document-scoped areas which cannot be discovered through `egui::Popup::is_any_open`.
 pub(crate) fn is_any_editor_popup_open(editor: &Editor, ctx: &egui::Context) -> bool {
-    is_any_popup_open(ctx) || editor.is_layer_outline_color_popover_open(ctx)
+    is_any_popup_open(ctx)
+        || editor.is_layer_outline_color_popover_open(ctx)
+        || editor.timeline_shape_hints.context_menu.is_some()
 }
 
 /// Whether unmodified `Enter` inside a local modal should be ignored because a control holds
@@ -70,6 +110,11 @@ pub(crate) fn record_end_of_frame_focus(ctx: &egui::Context) {
     let wants_kb = ctx.wants_keyboard_input();
     let popup_open = is_any_popup_open(ctx);
     ctx.data_mut(|d| {
+        let inline_edit = d
+            .get_temp::<bool>(egui::Id::new("nf2-inline-edit-this-frame"))
+            .unwrap_or(false);
+        d.insert_temp(egui::Id::new("nf2-inline-edit-this-frame"), false);
+        d.insert_temp(egui::Id::new("nf2-prev-inline-edit"), inline_edit);
         d.insert_temp(egui::Id::new("nf2-prev-wants-kb"), wants_kb);
         d.insert_temp(egui::Id::new("nf2-prev-popup-open"), popup_open);
     });
@@ -92,6 +137,7 @@ impl DialogKeyboardState {
     ) -> DialogKeyboardOutcome {
         let popup_open = self.was_popup_open || is_any_popup_open(ctx);
         if popup_open {
+            let _ = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
             return DialogKeyboardOutcome::None;
         }
         if self.was_typing {

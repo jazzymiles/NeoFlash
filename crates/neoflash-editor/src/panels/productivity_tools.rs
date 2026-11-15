@@ -68,6 +68,7 @@ impl<'a> NeoModal<'a> {
         let width = self.width;
         let title = self.title;
 
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let modal = egui::Modal::new(self.id)
             .frame(Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
@@ -109,20 +110,10 @@ impl<'a> NeoModal<'a> {
             });
 
         if !close_cancel && !close_ok {
-            let typing = ctx.wants_keyboard_input();
-            let popup_open = super::dialog_helpers::is_any_popup_open(ctx);
-            if !popup_open
-                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
-            {
-                close_cancel = true;
-            } else if !typing
-                && !popup_open
-                && can_confirm
-                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
-            {
-                close_ok = true;
-            } else if modal.should_close() {
-                close_cancel = true;
+            match kb.resolve(ctx, &modal, can_confirm) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => close_ok = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
             }
         }
 

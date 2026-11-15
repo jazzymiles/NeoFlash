@@ -673,15 +673,18 @@ impl Editor {
                                                 state.store(ui.ctx(), field.id);
                                             }
                                             draft.focus = false;
-                                        }
-                                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                        } else if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
                                             cancel_rename = true;
                                             field.surrender_focus();
                                         } else if field.lost_focus()
-                                            || ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                            || ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
                                         {
+                                            let _ = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
                                             commit_rename = Some((draft.layer.clone(), draft.text.trim().to_owned()));
                                             field.surrender_focus();
+                                        }
+                                        if !cancel_rename && commit_rename.is_none() {
+                                            super::dialog_helpers::mark_inline_edit_active(ui.ctx());
                                         }
                                         continue;
                                     }
@@ -1365,6 +1368,7 @@ impl Editor {
             rename = None;
         } else if let Some((layer_id, name)) = commit_rename {
             if !name.is_empty()
+                && !name.chars().any(char::is_control)
                 && let Some(index) = self
                     .symbol()
                     .timeline

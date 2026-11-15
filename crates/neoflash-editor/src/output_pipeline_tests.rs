@@ -1272,3 +1272,434 @@ fn t310_notifications_updater_and_ai_producer_hooks() {
     assert_eq!(updater_events[0].severity, OutputSeverity::Info);
     assert!(updater_events[0].message.contains("99.1.0"));
 }
+
+#[test]
+fn t319_output_click_to_jump_switches_scenes_nested_symbols_and_soloed_object_scripts() {
+    use crate::panels::actions_sidebar::ScriptLocation;
+
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    let scene1_id = project.root.clone();
+
+    // Button definition for attached Object scripts.
+    let btn_sym_id = "sym-jump-btn".to_owned();
+    let mut btn_tl = Project::blank().symbols.remove(0).timeline;
+    btn_tl.frame_count = 4;
+    btn_tl.layers[0].id = new_id("layer");
+    project.symbols.push(Symbol {
+        id: btn_sym_id.clone(),
+        name: "JumpButton".into(),
+        kind: SymbolKind::Button,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: btn_tl,
+    });
+
+    // Nested MovieClip symbol with: Layer 0 (Artwork), Layer 1 (Interactive Button at frame 2), Layer 2 (Actions, empty keyframes).
+    let nested_id = "sym-jump-nested".to_owned();
+    let nested_art_layer_id = new_id("layer");
+    let nested_btn_layer_id = new_id("layer");
+    let nested_act_layer_id = new_id("layer");
+    let nested_btn_el_id = "el-nested-btn".to_owned();
+    project.symbols.push(Symbol {
+        id: nested_id.clone(),
+        name: "NestedDialog".into(),
+        kind: SymbolKind::MovieClip,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 6,
+            guides: vec![],
+            scripts: vec![FrameScript {
+                frame: 1,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "// nested frame 2\ntrace('nested');\n".into(),
+                },
+            }],
+            layers: vec![
+                Layer {
+                    id: nested_art_layer_id.clone(),
+                    name: "Art".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: new_id("rect"),
+                            name: String::new(),
+                            transform: Transform::default(),
+                            kind: ElementKind::Rectangle {
+                                width: 40.0,
+                                height: 40.0,
+                                fill: [120, 120, 200, 255],
+                                stroke: [0, 0, 0, 0],
+                                stroke_width: 0.0,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Default::default()
+                    }],
+                },
+                Layer {
+                    id: nested_btn_layer_id,
+                    name: "Buttons".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 2,
+                        elements: vec![Element {
+                            id: nested_btn_el_id.clone(),
+                            name: "nested_btn".into(),
+                            transform: Transform::default(),
+                            kind: ElementKind::Instance {
+                                symbol_id: btn_sym_id.clone(),
+                                playback: InstancePlayback::SingleFrame(0),
+                            },
+                            scripts: vec![ObjectScript {
+                                event: ObjectEvent::Click,
+                                script: Script {
+                                    language: ScriptLanguage::ActionScript2,
+                                    source: "trace('nested press');\ngotoAndStop(1);\n".into(),
+                                },
+                            }],
+                            ..Element::default()
+                        }],
+                        ..Default::default()
+                    }],
+                },
+                Layer {
+                    id: nested_act_layer_id,
+                    name: "Actions".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![
+                        Keyframe {
+                            frame: 0,
+                            ..Default::default()
+                        },
+                        Keyframe {
+                            frame: 1,
+                            ..Default::default()
+                        },
+                    ],
+                },
+            ],
+        },
+    });
+
+    // Configure Scene 1: Layer 0 (Artwork), Layer 1 (Button + Nested clip), Layer 2 (Actions).
+    let scene1_art_layer_id = project.symbol(&scene1_id).unwrap().timeline.layers[0]
+        .id
+        .clone();
+    let scene1_btn_el_id = "el-scene1-btn".to_owned();
+    let scene1_nested_inst_id = "el-scene1-nested".to_owned();
+    {
+        let s1 = project.symbol_mut(&scene1_id).unwrap();
+        s1.timeline.frame_count = 6;
+        s1.timeline.layers[0].keyframes[0].elements.push(Element {
+            id: new_id("bg"),
+            name: String::new(),
+            transform: Transform::default(),
+            kind: ElementKind::Rectangle {
+                width: 100.0,
+                height: 80.0,
+                fill: [40, 50, 60, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+        s1.timeline.layers.push(Layer {
+            id: new_id("layer"),
+            name: "Interactive".into(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties::default(),
+            keyframes: vec![Keyframe {
+                frame: 3,
+                elements: vec![
+                    Element {
+                        id: scene1_btn_el_id.clone(),
+                        name: "hero_btn".into(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Instance {
+                            symbol_id: btn_sym_id,
+                            playback: InstancePlayback::SingleFrame(0),
+                        },
+                        scripts: vec![ObjectScript {
+                            event: ObjectEvent::Load,
+                            script: Script {
+                                language: ScriptLanguage::ActionScript2,
+                                source: "// hero release\ntrace('clicked');\n".into(),
+                            },
+                        }],
+                        ..Element::default()
+                    },
+                    Element {
+                        id: scene1_nested_inst_id.clone(),
+                        name: "dialog_mc".into(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Instance {
+                            symbol_id: nested_id.clone(),
+                            playback: InstancePlayback::Independent,
+                        },
+                        ..Element::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+        });
+        s1.timeline.layers.push(Layer {
+            id: new_id("layer"),
+            name: "Actions".into(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties::default(),
+            keyframes: vec![Keyframe {
+                frame: 0,
+                ..Default::default()
+            }],
+        });
+        s1.timeline.scripts.push(FrameScript {
+            frame: 4,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "stop();\n".into(),
+            },
+        });
+    }
+
+    // Scene 2: Layer 0 (Bg with element), Layer 1 (Actions with frame script at frame 2).
+    let scene2_id = "scene-jump-2".to_owned();
+    let scene2_bg_layer_id = new_id("layer");
+    let scene2_el_id = "el-scene2-prop".to_owned();
+    project.symbols.push(Symbol {
+        id: scene2_id.clone(),
+        name: "Scene 2".into(),
+        kind: SymbolKind::MovieClip,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 5,
+            guides: vec![],
+            scripts: vec![FrameScript {
+                frame: 2,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "// scene 2 script\nplay();\n".into(),
+                },
+            }],
+            layers: vec![
+                Layer {
+                    id: scene2_bg_layer_id.clone(),
+                    name: "Bg".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: new_id("rect"),
+                            name: String::new(),
+                            transform: Transform::default(),
+                            kind: ElementKind::Rectangle {
+                                width: 50.0,
+                                height: 50.0,
+                                fill: [80, 90, 100, 255],
+                                stroke: [0, 0, 0, 0],
+                                stroke_width: 0.0,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Default::default()
+                    }],
+                },
+                Layer {
+                    id: new_id("layer"),
+                    name: "Actions".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![
+                        Keyframe {
+                            frame: 0,
+                            ..Default::default()
+                        },
+                        Keyframe {
+                            frame: 2,
+                            ..Default::default()
+                        },
+                    ],
+                },
+                Layer {
+                    id: new_id("layer"),
+                    name: "Props".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 1,
+                        elements: vec![Element {
+                            id: scene2_el_id.clone(),
+                            name: "banner_box".into(),
+                            transform: Transform::default(),
+                            kind: ElementKind::Rectangle {
+                                width: 30.0,
+                                height: 20.0,
+                                fill: [200, 80, 80, 255],
+                                stroke: [0, 0, 0, 0],
+                                stroke_width: 0.0,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Default::default()
+                    }],
+                },
+            ],
+        },
+    });
+    project.scenes = vec![scene1_id.clone(), scene2_id.clone()];
+    project.sources.push(SourceUnit {
+        id: "src-jump-ctrl".into(),
+        path: "src/Controller.as".into(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package {\n  public class Controller {}\n}\n".into(),
+    });
+    project.format_version = project.format_version.max(6);
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&ctx, project);
+
+    // (a) Enter Edit-in-Place on `dialog_mc` inside Scene 1, then jump via OutputLocation to Scene 2 Frame 2 script.
+    editor.frame = 3;
+    editor.select_single_id(scene1_nested_inst_id);
+    assert!(editor.enter_selected_symbol_in_place());
+    assert_eq!(editor.symbol_id(), nested_id);
+
+    let scene2_frame_loc = editor.output_location_from_script(
+        &ScriptLocation::Frame {
+            symbol: scene2_id.clone(),
+            frame: 2,
+        },
+        Some(2),
+        Some(1),
+    );
+    assert_eq!(
+        scene2_frame_loc.layer_index,
+        Some(1),
+        "output_location_from_script must resolve dedicated Actions layer (index 1), not layer 0"
+    );
+    assert!(editor.navigate_to_output_location(&ctx, &scene2_frame_loc));
+    assert_eq!(editor.current_scene(), scene2_id);
+    assert_eq!(editor.symbol_id(), scene2_id);
+    assert!(!editor.editing_in_place());
+    assert_eq!(editor.frame, 2);
+    assert_eq!(editor.layer, 1);
+    assert!(editor.script_target == ScriptTarget::Frame);
+    assert!(editor.workspace.is_panel_visible(PanelId::Actions));
+
+    // Non-script element OutputLocation in Scene 2 while Bg layer (0) is soloed -> clears solo and selects `banner_box`.
+    editor.solo_layers.insert(
+        scene2_id.clone(),
+        std::collections::BTreeSet::from([scene2_bg_layer_id]),
+    );
+    let el_loc = OutputLocation {
+        symbol_id: Some(scene2_id.clone()),
+        frame_index: Some(1),
+        layer_index: Some(2),
+        element_id: Some(scene2_el_id.clone()),
+        ..OutputLocation::default()
+    };
+    assert!(editor.navigate_to_output_location(&ctx, &el_loc));
+    assert_eq!(
+        editor.selection.single().map(|t| t.element.as_str()),
+        Some(scene2_el_id.as_str())
+    );
+
+    // (b) Jump to nested symbol `NestedDialog` Frame 1 script -> enters symbol editing and selects Actions layer (index 2).
+    let nested_frame_loc = editor.output_location_from_script(
+        &ScriptLocation::Frame {
+            symbol: nested_id.clone(),
+            frame: 1,
+        },
+        Some(2),
+        Some(1),
+    );
+    assert_eq!(nested_frame_loc.layer_index, Some(2));
+    assert!(editor.navigate_to_output_location(&ctx, &nested_frame_loc));
+    assert_eq!(editor.symbol_id(), nested_id);
+    assert_eq!(editor.frame, 1);
+    assert_eq!(editor.layer, 2);
+    assert!(editor.script_target == ScriptTarget::Frame);
+
+    // (c) Jump to attached Object script on `hero_btn` in Scene 1 AND `nested_btn` in `NestedDialog` while Layer 0 is soloed!
+    editor.solo_layers.insert(
+        scene1_id.clone(),
+        std::collections::BTreeSet::from([scene1_art_layer_id]),
+    );
+    let s1_obj_loc = editor.output_location_from_script(
+        &ScriptLocation::Object {
+            symbol: scene1_id.clone(),
+            frame: 3,
+            element: scene1_btn_el_id.clone(),
+            event: ObjectEvent::Load,
+        },
+        Some(2),
+        Some(1),
+    );
+    assert!(editor.navigate_to_output_location(&ctx, &s1_obj_loc));
+    assert_eq!(editor.symbol_id(), scene1_id);
+    assert_eq!(editor.frame, 3);
+    assert_eq!(editor.layer, 1);
+    assert_eq!(
+        editor.selection.single().map(|t| t.element.as_str()),
+        Some(scene1_btn_el_id.as_str())
+    );
+    assert!(
+        editor.script_target == ScriptTarget::Object,
+        "Object script jump must NOT be clobbered to Frame when another layer was soloed"
+    );
+    assert_eq!(editor.script_event, ObjectEvent::Load);
+
+    editor.solo_layers.insert(
+        nested_id.clone(),
+        std::collections::BTreeSet::from([nested_art_layer_id]),
+    );
+    let nested_obj_loc = editor.output_location_from_script(
+        &ScriptLocation::Object {
+            symbol: nested_id.clone(),
+            frame: 2,
+            element: nested_btn_el_id.clone(),
+            event: ObjectEvent::Click,
+        },
+        Some(2),
+        Some(1),
+    );
+    assert!(editor.navigate_to_output_location(&ctx, &nested_obj_loc));
+    assert_eq!(editor.symbol_id(), nested_id);
+    assert_eq!(editor.frame, 2);
+    assert_eq!(editor.layer, 1);
+    assert_eq!(
+        editor.selection.single().map(|t| t.element.as_str()),
+        Some(nested_btn_el_id.as_str())
+    );
+    assert!(editor.script_target == ScriptTarget::Object);
+    assert_eq!(editor.script_event, ObjectEvent::Click);
+
+    // (d) Jump to external project SourceUnit `src/Controller.as`.
+    let src_loc = editor.output_location_from_script(
+        &ScriptLocation::Source("src-jump-ctrl".into()),
+        Some(2),
+        Some(3),
+    );
+    assert!(editor.navigate_to_output_location(&ctx, &src_loc));
+    assert!(editor.script_target == ScriptTarget::Source);
+    assert_eq!(editor.selected_source.as_deref(), Some("src-jump-ctrl"));
+}

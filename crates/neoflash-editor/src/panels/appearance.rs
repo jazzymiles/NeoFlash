@@ -1189,6 +1189,7 @@ impl Editor {
             let cf = nf::ColorField::new(&mut edit_c32, color_label)
                 .width(ui.available_width())
                 .show(ui);
+            crate::panels::dialog_helpers::track_rgba_popup(ui.ctx(), cf.response.id);
             let popup_changed = show_color32_field_popup(
                 ui,
                 &cf.response,

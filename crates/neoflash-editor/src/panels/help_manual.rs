@@ -727,6 +727,7 @@ impl crate::app::Editor {
         let dialog_width = DIALOG_WIDTH.min(available.x.max(1.0));
         let dialog_height = DIALOG_HEIGHT.min(available.y.max(1.0));
         let sidebar_width = SIDEBAR_WIDTH.min((dialog_width * 0.30).max(176.0));
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let modal_id = egui::Id::new("neoflash-help-manual-modal");
         let modal = egui::Modal::new(modal_id)
             .area(
@@ -1036,9 +1037,15 @@ impl crate::app::Editor {
                 );
             });
 
-        let esc = !ctx.wants_keyboard_input()
-            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-        if should_close || esc || modal.should_close() {
+        if !should_close
+            && matches!(
+                kb.resolve(ctx, &modal, false),
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel
+            )
+        {
+            should_close = true;
+        }
+        if should_close {
             state.open = false;
         }
         let open_mode = state.mode;

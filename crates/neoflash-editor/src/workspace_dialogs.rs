@@ -180,6 +180,7 @@ impl Editor {
         let mut submit = false;
         let title = draft.title();
         let mut name_edit_id = None;
+        let kb = crate::panels::dialog_helpers::DialogKeyboardState::capture(ctx);
         let modal = egui::Modal::new(egui::Id::new("workspace-management"))
             .frame(nf::Surface::Dialog.frame(ctx))
             .backdrop_color(neoflash_ui::palette(ctx).overlay)
@@ -243,14 +244,27 @@ impl Editor {
                     },
                 );
             });
-        close |= modal.should_close();
         let allow_enter = !close
+            && !kb.was_popup_open
             && !crate::panels::dialog_helpers::is_any_popup_open(ctx)
             && (!ctx.wants_keyboard_input()
                 || name_edit_id.is_some_and(|id| ctx.memory(|m| m.has_focus(id))));
         let enter = allow_enter
             && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
         submit |= enter && draft.validation(&self.workspace).is_ok();
+        if enter
+            && !submit
+            && let WorkspaceDialog::Save { focus, .. } | WorkspaceDialog::Rename { focus, .. } =
+                &mut draft
+        {
+            *focus = true;
+        }
+        if !close && !submit {
+            close |= matches!(
+                kb.resolve(ctx, &modal, false),
+                crate::panels::dialog_helpers::DialogKeyboardOutcome::Cancel
+            );
+        }
         if !close && submit && self.commit_workspace_dialog(&draft).is_ok() {
             return;
         }

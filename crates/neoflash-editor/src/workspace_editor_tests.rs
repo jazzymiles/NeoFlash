@@ -1347,3 +1347,506 @@ fn workspace_management_dialogs_validate_replace_cancel_and_keep_document_drafts
         assert!(!editor.history.can_undo());
     }
 }
+
+#[test]
+fn t319_workspace_dialogs_two_step_escape_shortcut_isolation_and_multiframe_enter() {
+    use crate::workspace_dialogs::WorkspaceDialog;
+
+    fn run_frame(
+        editor: &mut Editor,
+        ctx: &egui::Context,
+        time: f64,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280., 800.),
+                )),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                editor.shortcuts(ctx);
+                editor.normalize_selection();
+                editor.menu(ctx);
+                editor.status_bar(ctx);
+                editor.bitmap_textures.begin_frame(&editor.project);
+                editor.prepare_docked_panel_focus(ctx);
+                editor.dock_grid(ctx);
+                editor.document_bar(ctx);
+                editor.stage(ctx);
+                editor.draw_dialogs(ctx);
+                editor.workspace_dialog(ctx);
+                crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
+            },
+        )
+    }
+
+    let key_tap = |key: egui::Key| {
+        vec![
+            egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]
+    };
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.select_all();
+    editor.set_tool(Tool::Select);
+    let initial_sel = editor.selection.clone();
+    let initial_project = editor.project.clone();
+    let mut t = 0.1;
+
+    // 1. Save dialog with focused Workspace name: single-key shortcuts do not leak, and Escape is 2-step.
+    editor.workspace_dialog = Some(WorkspaceDialog::Save {
+        name: "My Layout".into(),
+        focus: true,
+    });
+    t += 0.1;
+    run_frame(&mut editor, &ctx, t, vec![]);
+    t += 0.1;
+    run_frame(&mut editor, &ctx, t, vec![]);
+    assert!(
+        ctx.wants_keyboard_input(),
+        "Workspace name field must hold keyboard focus"
+    );
+    assert!(editor.has_modal_dialog_in(&ctx));
+
+    for k in [
+        egui::Key::V,
+        egui::Key::B,
+        egui::Key::Space,
+        egui::Key::Backspace,
+        egui::Key::Delete,
+        egui::Key::F5,
+        egui::Key::F6,
+        egui::Key::F8,
+    ] {
+        t += 0.1;
+        run_frame(&mut editor, &ctx, t, key_tap(k));
+    }
+    assert_eq!(editor.tool, Tool::Select);
+    assert!(!editor.playing);
+    assert_eq!(editor.selection, initial_sel);
+    assert_eq!(editor.project, initial_project);
+    assert!(editor.symbol_conversion.is_none());
+
+    // First Escape surrenders focus from Workspace name without closing the modal.
+    t += 0.1;
+    run_frame(&mut editor, &ctx, t, key_tap(egui::Key::Escape));
+    assert!(
+        editor.workspace_dialog.is_some(),
+        "1st Escape while Workspace name is focused must only unfocus the field"
+    );
+    assert!(
+        !ctx.wants_keyboard_input(),
+        "Workspace name field must surrender focus on 1st Escape"
+    );
+    assert_eq!(
+        editor.selection, initial_sel,
+        "1st Escape must preserve Stage selection"
+    );
+
+    // Second Escape closes the modal without clearing Stage selection.
+    t += 0.1;
+    run_frame(&mut editor, &ctx, t, key_tap(egui::Key::Escape));
+    assert!(
+        editor.workspace_dialog.is_none(),
+        "2nd Escape must close the Workspace Save modal"
+    );
+    assert_eq!(
+        editor.selection, initial_sel,
+        "Closing Workspace modal with Escape must not clear Stage selection"
+    );
+
+    // 2. Multi-frame typing + Enter submits cleanly (even after `focus` was cleared on frame 1).
+    editor.workspace_dialog = Some(WorkspaceDialog::Save {
+        name: String::new(),
+        focus: true,
+    });
+    t += 0.1;
+    run_frame(&mut editor, &ctx, t, vec![]);
+    t += 0.1;
+    run_frame(
+        &mut editor,
+        &ctx,
+        t,
+        vec![egui::Event::Text("Polish Preset".into())],
+    );
+    t += 0.1;
+    run_frame(&mut editor, &ctx, t, key_tap(egui::Key::Enter));
+    assert!(
+        editor.workspace_dialog.is_none(),
+        "Enter after multi-frame typing must commit and close Workspace Save dialog"
+    );
+    assert_eq!(editor.workspace.active_workspace_label(), "Polish Preset");
+
+    // 3. Rename dialog also honors two-step Escape.
+    editor.workspace_dialog = Some(WorkspaceDialog::Rename {
+        original: "Polish Preset".into(),
+        name: "Renamed Preset".into(),
+        focus: true,
+    });
+    t += 0.1;
+    run_frame(&mut editor, &ctx, t, vec![]);
+    t += 0.1;
+    run_frame(&mut editor, &ctx, t, vec![]);
+    assert!(ctx.wants_keyboard_input());
+    t += 0.1;
+    run_frame(&mut editor, &ctx, t, key_tap(egui::Key::Escape));
+    assert!(
+        editor.workspace_dialog.is_some(),
+        "1st Escape in Workspace Rename must unfocus field only"
+    );
+    t += 0.1;
+    run_frame(&mut editor, &ctx, t, key_tap(egui::Key::Escape));
+    assert!(
+        editor.workspace_dialog.is_none(),
+        "2nd Escape in Workspace Rename must close modal"
+    );
+    assert_eq!(editor.workspace.active_workspace_label(), "Polish Preset");
+}
+
+#[test]
+fn t319_all_6_workspaces_3_densities_4_themes_2_resolutions_matrix() {
+    use crate::workspace::{
+        DensityPref, PanelPlacement, ScreenRect, WindowGeometry, WorkspaceTemplate,
+        recover_geometry,
+    };
+    use neoflash_core::*;
+
+    fn assert_rect_valid(r: egui::Rect, label: &str) {
+        assert!(
+            r.min.x.is_finite()
+                && r.min.y.is_finite()
+                && r.max.x.is_finite()
+                && r.max.y.is_finite(),
+            "{label}: non-finite rect {r:?}"
+        );
+        assert!(
+            r.width() >= 0.0 && r.height() >= 0.0,
+            "{label}: negative dimensions in {r:?}"
+        );
+    }
+
+    fn assert_shape_valid(shape: &egui::Shape, context: &str, idx: usize) {
+        match shape {
+            egui::Shape::Text(t) => {
+                assert!(
+                    t.pos.x.is_finite() && t.pos.y.is_finite() && t.angle.is_finite(),
+                    "{context} shape[{idx}] Text pos/angle non-finite: pos={:?} angle={}",
+                    t.pos,
+                    t.angle
+                );
+                assert_rect_valid(
+                    t.galley.rect,
+                    &format!("{context} shape[{idx}] Text galley"),
+                );
+            }
+            egui::Shape::Vec(children) => {
+                for child in children {
+                    assert_shape_valid(child, context, idx);
+                }
+            }
+            other => {
+                let bounds = other.visual_bounding_rect();
+                if bounds != egui::Rect::NOTHING {
+                    assert!(
+                        bounds.min.x.is_finite()
+                            && bounds.min.y.is_finite()
+                            && bounds.max.x.is_finite()
+                            && bounds.max.y.is_finite(),
+                        "{context} shape[{idx}] non-finite bounding rect: {bounds:?}, shape={other:?}"
+                    );
+                    // Note: egui 0.33's dormant floating ScrollArea track subtracts `bar_outer_margin` (3.0)
+                    // from `floating_allocated_width` (0.0), yielding a -3.0 culled RectShape; any larger
+                    // inversion indicates broken layout math.
+                    assert!(
+                        bounds.width() >= -4.0 && bounds.height() >= -4.0,
+                        "{context} shape[{idx}] inverted bounding rect: {bounds:?}, shape={other:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    fn assert_output_rects_valid(out: &egui::FullOutput, context: &str) {
+        for (idx, clipped) in out.shapes.iter().enumerate() {
+            // Unbounded clip_rect in egui uses +/-INF (`Rect::EVERYTHING`), and widgets scrolled outside a
+            // `ScrollArea` produce an empty intersection (`min > max`) culled by epaint; NaN is never valid.
+            assert!(
+                !clipped.clip_rect.min.x.is_nan()
+                    && !clipped.clip_rect.min.y.is_nan()
+                    && !clipped.clip_rect.max.x.is_nan()
+                    && !clipped.clip_rect.max.y.is_nan(),
+                "{context} shape[{idx}] clip_rect has NaN: {:?}",
+                clipped.clip_rect
+            );
+            assert_shape_valid(&clipped.shape, context, idx);
+        }
+    }
+
+    fn build_multi_scene_symbol_project() -> Project {
+        let mut p = Project::demo();
+        let nested_id = "sym-matrix-nested".to_owned();
+        p.symbols.push(Symbol {
+            id: nested_id.clone(),
+            name: "MatrixNestedClip".into(),
+            kind: SymbolKind::MovieClip,
+            folder: "Components".into(),
+            class_name: None,
+            linkage_id: Some("MatrixNested".into()),
+            timeline: Timeline {
+                frame_count: 8,
+                guides: vec![],
+                scripts: vec![FrameScript {
+                    frame: 0,
+                    script: Script {
+                        language: ScriptLanguage::ActionScript3,
+                        source: "trace('nested');".into(),
+                    },
+                }],
+                layers: vec![Layer {
+                    id: new_id("layer"),
+                    name: "Art".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: new_id("el"),
+                            name: "nested_box".into(),
+                            transform: Transform::default(),
+                            kind: ElementKind::Rectangle {
+                                width: 64.0,
+                                height: 48.0,
+                                fill: [80, 160, 240, 255],
+                                stroke: [20, 40, 60, 255],
+                                stroke_width: 2.0,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Default::default()
+                    }],
+                }],
+            },
+        });
+        let root_id = p.root.clone();
+        p.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: new_id("inst"),
+                name: "nested_inst".into(),
+                transform: Transform {
+                    x: 120.0,
+                    y: 90.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Instance {
+                    symbol_id: nested_id,
+                    playback: InstancePlayback::Independent,
+                },
+                ..Element::default()
+            });
+        let scene2_id = "scene-matrix-2".to_owned();
+        let mut scene2_timeline = Project::blank().symbols.remove(0).timeline;
+        scene2_timeline.layers[0].id = new_id("layer");
+        p.symbols.push(Symbol {
+            id: scene2_id.clone(),
+            name: "Scene 2".into(),
+            kind: SymbolKind::MovieClip,
+            folder: String::new(),
+            class_name: None,
+            linkage_id: None,
+            timeline: scene2_timeline,
+        });
+        p.scenes = vec![root_id, scene2_id];
+        p.sources.push(SourceUnit {
+            id: "src-matrix-main".into(),
+            path: "src/Main.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: "package { public class Main {} }\n".into(),
+        });
+        p.format_version = p.format_version.max(6);
+        p.validate().expect("valid matrix fixture project");
+        p
+    }
+
+    let render_step = |editor: &mut Editor,
+                       ctx: &egui::Context,
+                       res: egui::Vec2,
+                       time: f64|
+     -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, res)),
+                time: Some(time),
+                ..Default::default()
+            },
+            |ctx| {
+                editor.apply_density(ctx);
+                editor.shortcuts(ctx);
+                editor.normalize_selection();
+                editor.menu(ctx);
+                editor.status_bar(ctx);
+                editor.bitmap_textures.begin_frame(&editor.project);
+                editor.prepare_docked_panel_focus(ctx);
+                if editor.has_document() {
+                    if !editor.panels_hidden {
+                        editor.dock_grid(ctx);
+                    }
+                    editor.document_bar(ctx);
+                    editor.stage(ctx);
+                } else {
+                    editor.no_document_view(ctx);
+                }
+                editor.draw_dialogs(ctx);
+                crate::panels::productivity_tools::show_productivity_modals(editor, ctx);
+                editor.workspace_dialog(ctx);
+                editor.customize_tools_dialog(ctx);
+                editor.trace_bitmap_dialog(ctx);
+                editor.symbol_creation_dialog(ctx);
+                if editor.has_document() {
+                    editor.detached_panels(ctx);
+                }
+                crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
+            },
+        )
+    };
+
+    assert_eq!(WorkspaceTemplate::ALL.len(), 6);
+    assert_eq!(DensityPref::ALL.len(), 3);
+    assert_eq!(ThemeMode::ALL.len(), 4);
+
+    let project = build_multi_scene_symbol_project();
+    let mut time = 0.1;
+    let mut combinations_run = 0usize;
+
+    for resolution in [egui::vec2(1920.0, 1080.0), egui::vec2(1024.0, 720.0)] {
+        let ctx = egui::Context::default();
+        ctx.all_styles_mut(|s| s.animation_time = 0.0);
+        let mut editor = Editor::from_project(&ctx, project.clone());
+        let work_area = ScreenRect {
+            origin: [0.0, 0.0],
+            size: [resolution.x, resolution.y],
+        };
+        for template in WorkspaceTemplate::ALL {
+            for density in DensityPref::ALL {
+                for theme in ThemeMode::ALL {
+                    combinations_run += 1;
+                    let tag = format!(
+                        "{:?}/{:?}/{:?}/{}x{}",
+                        template, density, theme, resolution.x as u32, resolution.y as u32
+                    );
+                    if !editor.has_document() {
+                        editor.open_new_session_tab(&ctx, project.clone(), None);
+                    }
+                    editor.apply_workspace_template(&ctx, template);
+                    editor.set_density(&ctx, density);
+                    editor.set_theme(&ctx, theme);
+
+                    time += 0.05;
+                    let out = render_step(&mut editor, &ctx, resolution, time);
+                    assert!(
+                        !out.shapes.is_empty(),
+                        "{tag}: open-document frame painted zero shapes"
+                    );
+                    assert_output_rects_valid(&out, &format!("{tag} [open-doc]"));
+                    assert_rect_valid(editor.stage_view.canvas, &format!("{tag} stage_canvas"));
+                    assert!(
+                        editor.stage_view.canvas.width() > 0.0
+                            && editor.stage_view.canvas.height() > 0.0,
+                        "{tag}: stage canvas collapsed: {:?}",
+                        editor.stage_view.canvas
+                    );
+                    for group in &editor.detached.dock_groups {
+                        assert_rect_valid(
+                            group.rect,
+                            &format!("{tag} dock_group {:?}", group.group),
+                        );
+                        for (pid, tab_rect) in &group.tabs {
+                            assert_rect_valid(*tab_rect, &format!("{tag} tab {pid:?}"));
+                        }
+                    }
+
+                    // Verify offscreen floating window clamping + Reset Workspace once per (template, density, resolution) on Dark theme.
+                    if theme == ThemeMode::Dark {
+                        editor.set_panel_placement(&ctx, PanelId::Color, PanelPlacement::Detached);
+                        editor.workspace.remember_geometry(
+                            PanelId::Color,
+                            WindowGeometry {
+                                outer_position: [-4500.0, 9200.0],
+                                inner_size: [4000.0, 3000.0],
+                            },
+                        );
+                        let clamped = recover_geometry(
+                            PanelId::Color,
+                            editor.workspace.detached_geometry(PanelId::Color),
+                            &[work_area],
+                            work_area,
+                        );
+                        assert!(
+                            clamped.outer_position[0] >= work_area.origin[0]
+                                && clamped.outer_position[1] >= work_area.origin[1]
+                                && clamped.outer_position[0] < resolution.x
+                                && clamped.outer_position[1] < resolution.y,
+                            "{tag}: offscreen floating window was not clamped into viewport: {clamped:?}"
+                        );
+                        assert!(
+                            clamped.inner_size[0] <= resolution.x
+                                && clamped.inner_size[1] <= resolution.y,
+                            "{tag}: oversized floating window exceeded viewport: {clamped:?}"
+                        );
+                        time += 0.05;
+                        let out_float = render_step(&mut editor, &ctx, resolution, time);
+                        assert_output_rects_valid(&out_float, &format!("{tag} [floating]"));
+
+                        // Mutate layout and verify Reset Workspace restores template cleanly.
+                        editor.set_panel_visible(PanelId::History, true);
+                        editor.reset_active_workspace(&ctx);
+                        assert_eq!(editor.workspace.template, template);
+                        assert_eq!(
+                            editor.workspace.placement(PanelId::Color),
+                            PanelPlacement::Docked
+                        );
+                        time += 0.05;
+                        let out_reset = render_step(&mut editor, &ctx, resolution, time);
+                        assert_output_rects_valid(&out_reset, &format!("{tag} [reset]"));
+                    }
+
+                    // Also render zero-open-documents state (`no_document_view`) across all 144 combinations.
+                    editor.finish_session_close(&ctx, editor.active_session);
+                    assert!(!editor.has_document());
+                    time += 0.05;
+                    let out_empty = render_step(&mut editor, &ctx, resolution, time);
+                    assert!(
+                        !out_empty.shapes.is_empty(),
+                        "{tag}: zero-document frame painted zero shapes"
+                    );
+                    assert_output_rects_valid(&out_empty, &format!("{tag} [zero-doc]"));
+                }
+            }
+        }
+    }
+
+    // Restore default NF2 density so process-global metrics remain at default.
+    neoflash_ui::metrics::set_density(DensityPref::Comfortable.ui());
+    assert_eq!(combinations_run, 144);
+}

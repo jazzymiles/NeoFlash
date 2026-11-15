@@ -530,16 +530,25 @@ impl Editor {
                                 if draft.focus {
                                     ui.ctx().memory_mut(|m| m.request_focus(edit_id));
                                     draft.focus = false;
+                                    draft.had_focus = true;
+                                } else {
+                                    let enter = ui.input_mut(|i| {
+                                        i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                                    });
+                                    let esc = ui.input_mut(|i| {
+                                        i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                                    });
+                                    let has_focus = ui.ctx().memory(|m| m.has_focus(edit_id));
+                                    let lost = draft.had_focus && !has_focus;
+                                    draft.had_focus = has_focus;
+                                    if esc {
+                                        cancel_rename = true;
+                                    } else if enter || lost {
+                                        commit_rename = Some((unit.id.clone(), draft.text.clone()));
+                                    }
                                 }
-                                let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                                let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
-                                let has_focus = ui.ctx().memory(|m| m.has_focus(edit_id));
-                                let lost = draft.had_focus && !has_focus;
-                                draft.had_focus = has_focus;
-                                if esc {
-                                    cancel_rename = true;
-                                } else if enter || lost {
-                                    commit_rename = Some((unit.id.clone(), draft.text.clone()));
+                                if !cancel_rename && commit_rename.is_none() {
+                                    super::dialog_helpers::mark_inline_edit_active(ui.ctx());
                                 }
                                 continue;
                             }

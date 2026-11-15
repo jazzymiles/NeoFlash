@@ -2728,6 +2728,9 @@ impl Editor {
         let mut accept = false;
         let mut cancel = false;
         let mut pick_source_file = false;
+        let mut url_response = None;
+        let was_popup_open = super::dialog_helpers::is_any_popup_open(ui.ctx())
+            || super::dialog_helpers::prev_popup_open(ui.ctx());
         let p = neoflash_ui::palette(ui.ctx());
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = space::S2;
@@ -2846,7 +2849,11 @@ impl Editor {
                             &mut edit.shared_import,
                             "Import for runtime sharing",
                         ));
-                        crate::paint_controls::text_row(ui, "URL", &mut edit.shared_url);
+                        url_response = Some(crate::paint_controls::text_row(
+                            ui,
+                            "URL",
+                            &mut edit.shared_url,
+                        ));
                         if edit.shared_import {
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = space::S2;
@@ -2870,10 +2877,24 @@ impl Editor {
                 accept = ui.add(nf::Button::primary("Save")).clicked();
                 cancel = ui.add(nf::Button::new("Cancel")).clicked();
             });
-            if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+            if (response.lost_focus()
+                || url_response
+                    .as_ref()
+                    .is_some_and(egui::Response::lost_focus))
+                && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+            {
                 accept = true;
             }
-            if response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+            if was_popup_open {
+                if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+                    response.request_focus();
+                    let _ = ui.input_mut(|input| {
+                        input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                    });
+                }
+            } else if ui
+                .input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+            {
                 cancel = true;
             }
             nf::divider(ui, false);
@@ -2931,6 +2952,16 @@ impl Editor {
                     EditTarget::NewFolder => candidate.add_library_folder(&destination),
                     EditTarget::Folder(from) => {
                         candidate.relocate_library_folder(from, &destination)
+                    }
+                    EditTarget::Symbol(id)
+                        if candidate.symbols.iter().any(|s| {
+                            s.id != *id
+                                && !candidate.is_scene(&s.id)
+                                && s.folder == edit.parent
+                                && s.name == name
+                        }) =>
+                    {
+                        Err("A symbol with that name already exists in this folder.".into())
                     }
                     EditTarget::Symbol(id) => {
                         candidate.move_library_symbol(id, &edit.parent).and_then(|()| {
@@ -3015,9 +3046,13 @@ impl Editor {
                     });
                     return;
                 }
-                Err(error) => edit.error = Some(error),
+                Err(error) => {
+                    edit.error = Some(error);
+                    edit.focus = true;
+                }
             }
         }
+        super::dialog_helpers::mark_inline_edit_active(ui.ctx());
         self.library_panel.editing = Some(edit);
     }
 

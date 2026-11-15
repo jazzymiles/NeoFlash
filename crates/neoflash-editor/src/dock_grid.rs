@@ -683,7 +683,7 @@ impl Editor {
         // event remains authoritative after egui clears pointer.press_origin.
         if let Some(origin) = press.filter(|origin| {
             ui.is_enabled()
-                && !self.has_modal_dialog()
+                && !self.has_modal_dialog_in(ui.ctx())
                 && grip.contains(*origin)
                 && ui.clip_rect().contains(*origin)
                 && ui.ctx().layer_id_at(*origin) == Some(ui.layer_id())
@@ -706,7 +706,7 @@ impl Editor {
             pointer = Some(global / ui.ctx().zoom_factor() - inner.min.to_vec2());
             released = !down;
         }
-        if escape || self.has_modal_dialog() {
+        if escape || self.has_modal_dialog_in(ui.ctx()) {
             if let Some(saved) = saved {
                 self.workspace.dock.area_mut(edge).size = saved.preference;
             }
@@ -877,7 +877,7 @@ impl Editor {
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
         header_ui.set_clip_rect(parent.clip_rect().intersect(tabs_rect));
-        if self.has_modal_dialog() {
+        if self.has_modal_dialog_in(&ctx) {
             header_ui.disable_semantic();
         }
         let nf = neoflash_ui::palette(&ctx);
@@ -1041,7 +1041,7 @@ impl Editor {
                     .max_rect(blank),
             );
             blank_ui.set_clip_rect(parent.clip_rect().intersect(blank));
-            if self.has_modal_dialog() {
+            if self.has_modal_dialog_in(&ctx) {
                 blank_ui.disable_semantic();
             }
             let response = blank_ui.interact(
@@ -1089,7 +1089,7 @@ impl Editor {
                 .max_rect(grip),
         );
         grip_ui.set_clip_rect(parent.clip_rect().intersect(grip));
-        if self.has_modal_dialog() {
+        if self.has_modal_dialog_in(&ctx) {
             grip_ui.disable_semantic();
         }
         let response = grip_ui.interact(
@@ -1117,7 +1117,7 @@ impl Editor {
                     .max_rect(expand_rect),
             );
             expand_ui.set_clip_rect(parent.clip_rect().intersect(expand_rect));
-            if self.has_modal_dialog() {
+            if self.has_modal_dialog_in(&ctx) {
                 expand_ui.disable_semantic();
             }
             let tip = format!("Expand {}", group.active.title());
@@ -1133,7 +1133,7 @@ impl Editor {
                 .max_rect(menu_rect),
         );
         menu_ui.set_clip_rect(parent.clip_rect().intersect(menu_rect));
-        if self.has_modal_dialog() {
+        if self.has_modal_dialog_in(&ctx) {
             menu_ui.disable_semantic();
         }
         let more = menu_ui.add(
@@ -1497,7 +1497,7 @@ impl Editor {
     }
 
     pub(crate) fn dock_panel_contents(&mut self, ui: &mut egui::Ui, panel: PanelId) {
-        if self.has_modal_dialog() {
+        if self.has_modal_dialog_in(ui.ctx()) {
             ui.disable_semantic();
         }
         self.detached.content_header = Some(panel);

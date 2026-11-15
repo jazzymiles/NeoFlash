@@ -307,16 +307,22 @@ impl Editor {
                 .selected(true)
                 .show(ui);
         }
-        let root = self.project.root.clone();
-        let root_name = self
-            .project
-            .symbol(&root)
-            .map_or("Scene", |s| s.name.as_str())
-            .to_owned();
         let mut chosen = None;
-        if self.folder_row(ui, "nav:root", &root_name, i16::SCENE, 0) {
-            for entry in self.navigator_entries(&root) {
-                chosen = chosen.or(self.navigator_leaf(ui, &entry, 1));
+        for (idx, scene_id) in self.project.scene_ids().into_iter().enumerate() {
+            let scene_name = self
+                .project
+                .symbol(&scene_id)
+                .map_or("Scene", |s| s.name.as_str())
+                .to_owned();
+            let folder_key = if idx == 0 {
+                "nav:root".to_owned()
+            } else {
+                format!("nav:scene:{scene_id}")
+            };
+            if self.folder_row(ui, &folder_key, &scene_name, i16::SCENE, 0) {
+                for entry in self.navigator_entries(&scene_id) {
+                    chosen = chosen.or(self.navigator_leaf(ui, &entry, 1));
+                }
             }
         }
         if self.folder_row(ui, "nav:symbols", "Symbol definitions", i16::SYMBOL, 0) {
@@ -324,7 +330,7 @@ impl Editor {
                 .project
                 .symbols
                 .iter()
-                .filter(|s| s.id != root)
+                .filter(|s| !self.project.is_scene(&s.id))
                 .map(|s| s.id.clone())
                 .collect();
             for symbol in symbols {
@@ -457,16 +463,15 @@ impl Editor {
     /// Open a script in the Actions editor: enter its timeline, move to its frame, select its object.
     pub(crate) fn open_script_location(&mut self, location: ScriptLocation) {
         self.finish_edits();
-        let enter = |editor: &mut Editor, symbol: &str, frame: u32| {
+        let enter = |editor: &mut Editor, symbol: &str, frame: u32| -> bool {
+            if editor.project.symbol(symbol).is_none() {
+                return false;
+            }
             if editor.symbol_id() == symbol {
                 if editor.editing_in_place() {
                     editor.enter_symbol_isolated(symbol.to_owned());
                 }
-                editor.set_playing(false);
-                editor.frame = frame;
-                return;
-            }
-            if editor.project.is_scene(symbol) {
+            } else if editor.project.is_scene(symbol) {
                 editor.switch_scene(symbol);
             } else {
                 editor.leave_to_level(0);
@@ -475,12 +480,22 @@ impl Editor {
                 }
             }
             editor.set_playing(false);
-            editor.frame = frame;
+            let max_frame = editor.symbol().timeline.frame_count.saturating_sub(1);
+            editor.frame = frame.min(max_frame);
+            true
         };
         match location {
             ScriptLocation::Frame { symbol, frame } => {
-                enter(self, &symbol, frame);
+                if !enter(self, &symbol, frame) {
+                    return;
+                }
+                if let Some(action_layer) =
+                    self.symbol().timeline.action_layer_for_frame(self.frame)
+                {
+                    self.layer = action_layer;
+                }
                 self.script_target = ScriptTarget::Frame;
+                self.normalize_selection();
             }
             ScriptLocation::Object {
                 symbol,
@@ -488,14 +503,54 @@ impl Editor {
                 element,
                 event,
             } => {
-                enter(self, &symbol, frame);
+                if !enter(self, &symbol, frame) {
+                    return;
+                }
+                let found_on_frame =
+                    self.symbol()
+                        .timeline
+                        .layers
+                        .iter()
+                        .enumerate()
+                        .find_map(|(idx, layer)| {
+                            let count = self.symbol().timeline.frame_count;
+                            let end = layer.properties.end_frame.unwrap_or(count).min(count);
+                            (self.frame < end
+                                && layer
+                                    .key_at(self.frame)
+                                    .is_some_and(|k| k.elements.iter().any(|e| e.id == element)))
+                            .then(|| (idx, layer.id.clone(), self.frame))
+                        })
+                        .or_else(|| {
+                            self.symbol().timeline.layers.iter().enumerate().find_map(
+                                |(idx, layer)| {
+                                    layer
+                                        .keyframes
+                                        .iter()
+                                        .find(|k| k.elements.iter().any(|e| e.id == element))
+                                        .map(|k| (idx, layer.id.clone(), k.frame))
+                                },
+                            )
+                        });
+                if let Some((layer_idx, layer_id, resolved_frame)) = found_on_frame {
+                    let max_frame = self.symbol().timeline.frame_count.saturating_sub(1);
+                    self.frame = resolved_frame.min(max_frame);
+                    if !self.is_layer_id_effectively_soloed(&layer_id) {
+                        self.clear_all_solo_layers();
+                    }
+                    self.layer = layer_idx;
+                }
                 self.select_single_id(element);
                 self.script_target = ScriptTarget::Object;
                 self.script_event = event;
+                self.normalize_selection();
             }
             ScriptLocation::Source(id) => {
-                self.script_target = ScriptTarget::Source;
-                self.selected_source = Some(id);
+                if self.project.sources.iter().any(|u| u.id == id) {
+                    self.set_playing(false);
+                    self.script_target = ScriptTarget::Source;
+                    self.selected_source = Some(id);
+                }
             }
         }
     }

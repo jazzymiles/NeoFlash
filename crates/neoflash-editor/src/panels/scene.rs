@@ -89,7 +89,11 @@ impl Editor {
         let Some(symbol) = self.project.symbol(id) else {
             return false;
         };
-        if !self.project.is_scene(id) || name.is_empty() || symbol.name == name {
+        if !self.project.is_scene(id)
+            || name.is_empty()
+            || name.chars().any(char::is_control)
+            || symbol.name == name
+        {
             return false;
         }
         if self
@@ -158,17 +162,25 @@ impl Editor {
                 continue;
             }
             if let Some(draft) = state.rename.as_mut().filter(|draft| draft.id == *id) {
-                let response = ui.add(
+                let mut response = ui.add(
                     c::TextField::new(&mut draft.text, "Scene name").width(ui.available_width()),
                 );
-                let edit = c::TextField::edit_id(response.id);
+                response.id = c::TextField::edit_id(response.id);
                 if draft.focus {
-                    ui.memory_mut(|m| m.request_focus(edit));
+                    response.request_focus();
                     draft.focus = false;
-                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                } else if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+                {
                     state.rename = None;
-                } else if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                } else if response.lost_focus()
+                    || ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+                {
+                    let _ =
+                        ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
                     commit_rename = Some((id.clone(), draft.text.clone()));
+                }
+                if state.rename.is_some() {
+                    super::dialog_helpers::mark_inline_edit_active(&ctx);
                 }
                 continue;
             }

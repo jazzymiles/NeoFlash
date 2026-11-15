@@ -547,6 +547,7 @@ impl Editor {
             send_requested = true;
         }
 
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let p = palette(ctx);
         let modal = egui::Modal::new(egui::Id::new("beta-feedback"))
             .frame(c::Surface::Dialog.frame(ctx))
@@ -695,10 +696,15 @@ impl Editor {
                 );
             });
 
-        if !close_cancel && !send_requested && !super::dialog_helpers::is_any_popup_open(ctx) {
-            let esc = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-            if esc || modal.backdrop_response.clicked() {
-                close_cancel = true;
+        if !close_cancel && !send_requested {
+            if kb.was_popup_open || super::dialog_helpers::is_any_popup_open(ctx) {
+                let _ = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+            } else {
+                let esc =
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+                if esc || modal.backdrop_response.clicked() {
+                    close_cancel = true;
+                }
             }
         }
 

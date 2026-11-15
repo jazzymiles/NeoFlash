@@ -503,6 +503,7 @@ impl Editor {
         let Some(mut draft) = ctx.data(|d| d.get_temp::<StrokeStyleDraft>(draft_id())) else {
             return;
         };
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let p = neoflash_ui::palette(ctx);
         let mut close_cancel = false;
         let mut do_apply = false;
@@ -532,8 +533,12 @@ impl Editor {
                     });
             });
 
-        if modal.should_close() || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            close_cancel = true;
+        if !close_cancel && !do_apply {
+            match kb.resolve(ctx, &modal, true) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => do_apply = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
+            }
         }
 
         ctx.data_mut(|d| d.insert_temp(draft_id(), draft));

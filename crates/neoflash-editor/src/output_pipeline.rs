@@ -1386,12 +1386,10 @@ impl Editor {
             }
             ScriptLocation::Frame { symbol, frame } => {
                 let sym_name = self.project.symbol(symbol).map(|s| s.name.clone());
-                let layer_idx = self.project.symbol(symbol).and_then(|sym| {
-                    sym.timeline
-                        .layers
-                        .iter()
-                        .position(|l| l.name.eq_ignore_ascii_case("actions"))
-                });
+                let layer_idx = self
+                    .project
+                    .symbol(symbol)
+                    .and_then(|sym| sym.timeline.action_layer_for_frame(*frame));
                 OutputLocation::for_frame(symbol.clone(), sym_name, layer_idx, *frame)
             }
             ScriptLocation::Object {
@@ -1505,6 +1503,9 @@ impl Editor {
         // 2. Object event handler script match.
         if let (Some(element_id), Some(event)) = (loc.element_id.clone(), loc.object_event) {
             let symbol = resolved_symbol_id.unwrap_or_else(|| self.symbol_id().to_owned());
+            if self.project.symbol(&symbol).is_none() {
+                return false;
+            }
             let frame = loc.frame_index.unwrap_or(self.frame);
             let script_loc = ScriptLocation::Object {
                 symbol: symbol.clone(),
@@ -1554,6 +1555,25 @@ impl Editor {
                 && layer_idx < self.symbol().timeline.layers.len()
             {
                 self.layer = layer_idx;
+            }
+            if let Some(el_id) = loc.element_id.as_ref() {
+                if let Some(layer_id) = self
+                    .symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .find(|layer| {
+                        layer
+                            .key_at(self.frame)
+                            .is_some_and(|k| k.elements.iter().any(|e| &e.id == el_id))
+                    })
+                    .map(|l| l.id.clone())
+                    && !self.is_layer_id_effectively_soloed(&layer_id)
+                {
+                    self.clear_all_solo_layers();
+                }
+                self.select_single_id(el_id.clone());
+                self.normalize_selection();
             }
             if loc.line.is_some() || frame_source.is_some() {
                 let source = frame_source.unwrap_or_default();

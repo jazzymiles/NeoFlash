@@ -1828,13 +1828,16 @@ impl Editor {
         target: &MatchTarget,
         ctx: Option<&egui::Context>,
     ) {
-        let enter_sym = |editor: &mut Editor, symbol: &str| {
+        let enter_sym = |editor: &mut Editor, symbol: &str| -> bool {
+            if editor.project.symbol(symbol).is_none() {
+                return false;
+            }
             editor.finish_edits();
             if editor.symbol_id() == symbol {
                 if editor.editing_in_place() {
                     editor.enter_symbol_isolated(symbol.to_owned());
                 }
-                return;
+                return true;
             }
             if editor.project.is_scene(symbol) {
                 editor.switch_scene(symbol);
@@ -1844,17 +1847,22 @@ impl Editor {
                     editor.enter_symbol_isolated(symbol.to_owned());
                 }
             }
+            true
         };
         match target {
             MatchTarget::SymbolName { symbol, .. } => {
-                enter_sym(self, symbol);
+                if enter_sym(self, symbol) {
+                    self.normalize_selection();
+                }
             }
             MatchTarget::LayerName {
                 symbol,
                 layer_index,
                 ..
             } => {
-                enter_sym(self, symbol);
+                if !enter_sym(self, symbol) {
+                    return;
+                }
                 if *layer_index < self.symbol().timeline.layers.len() {
                     self.layer = *layer_index;
                 }
@@ -1872,12 +1880,15 @@ impl Editor {
                 frame,
                 ..
             } => {
-                enter_sym(self, symbol);
+                if !enter_sym(self, symbol) {
+                    return;
+                }
                 if *layer_index < self.symbol().timeline.layers.len() {
                     self.layer = *layer_index;
                 }
                 self.set_playing(false);
-                self.frame = *frame;
+                let max_frame = self.symbol().timeline.frame_count.saturating_sub(1);
+                self.frame = (*frame).min(max_frame);
                 self.normalize_selection();
             }
             MatchTarget::TextElement {
@@ -1925,13 +1936,21 @@ impl Editor {
                 frame,
                 element_id,
             } => {
-                enter_sym(self, symbol);
+                if !enter_sym(self, symbol) {
+                    return;
+                }
                 if *layer_index < self.symbol().timeline.layers.len() {
+                    let layer_id = self.symbol().timeline.layers[*layer_index].id.clone();
+                    if !self.is_layer_id_effectively_soloed(&layer_id) {
+                        self.clear_all_solo_layers();
+                    }
                     self.layer = *layer_index;
                 }
                 self.set_playing(false);
-                self.frame = *frame;
+                let max_frame = self.symbol().timeline.frame_count.saturating_sub(1);
+                self.frame = (*frame).min(max_frame);
                 self.select_single_id(element_id.clone());
+                self.normalize_selection();
             }
             MatchTarget::FrameScript {
                 symbol,
@@ -2072,6 +2091,7 @@ impl Editor {
         let mut do_replace_all = false;
         let mut clicked_row: Option<usize> = None;
 
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let modal = egui::Modal::new(egui::Id::new("find-replace"))
             .frame(c::Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
@@ -2103,13 +2123,13 @@ impl Editor {
                     });
             });
 
-        if !close {
-            let popup_open = super::dialog_helpers::is_any_popup_open(ctx);
-            let esc = !popup_open
-                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-            if esc || modal.should_close() {
-                close = true;
-            }
+        if !close
+            && matches!(
+                kb.resolve(ctx, &modal, false),
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel
+            )
+        {
+            close = true;
         }
 
         if close {
@@ -2223,23 +2243,28 @@ fn find_replace_body(
         FindKind::Bitmap => ("Bitmap path (empty = all)", "Replacement image path"),
     };
     let w = ui.available_width();
-    let find_resp = ui.add(
+    let mut find_resp = ui.add(
         c::TextField::new(&mut state.find, "Find")
             .prefix("Find")
             .hint(find_hint)
             .width(w),
     );
+    find_resp.id = c::TextField::edit_id(find_resp.id);
     if state.focus_find {
-        ui.memory_mut(|m| m.request_focus(c::TextField::edit_id(find_resp.id)));
+        find_resp.request_focus();
         state.focus_find = false;
     }
-    let replace_resp = ui.add(
+    let mut replace_resp = ui.add(
         c::TextField::new(&mut state.replace, "Replace")
             .prefix("Replace")
             .hint(replace_hint)
             .width(w),
     );
-    if (find_resp.has_focus() || replace_resp.has_focus())
+    replace_resp.id = c::TextField::edit_id(replace_resp.id);
+    if (find_resp.has_focus()
+        || find_resp.lost_focus()
+        || replace_resp.has_focus()
+        || replace_resp.lost_focus())
         && ui.input(|i| i.key_pressed(egui::Key::Enter))
     {
         *do_find_all = true;

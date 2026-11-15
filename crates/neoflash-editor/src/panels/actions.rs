@@ -904,19 +904,25 @@ impl Editor {
                 .selected(true)
                 .show(ui);
         }
-        let root = self.project.root.clone();
-        let root_name = self
-            .project
-            .symbol(&root)
-            .map_or("Scene", |s| s.name.as_str())
-            .to_owned();
         let mut chosen = None;
-        if self
-            .js_ts_folder_row(ui, "nav:root", &root_name, i16::SCENE, 0)
-            .0
-        {
-            for (label, icon, location) in self.js_ts_navigator_entries(&root) {
-                chosen = chosen.or(self.js_ts_navigator_leaf(ui, &label, icon, &location, 1));
+        for (idx, scene_id) in self.project.scene_ids().into_iter().enumerate() {
+            let scene_name = self
+                .project
+                .symbol(&scene_id)
+                .map_or("Scene", |s| s.name.as_str())
+                .to_owned();
+            let folder_key = if idx == 0 {
+                "nav:root".to_owned()
+            } else {
+                format!("nav:scene:{scene_id}")
+            };
+            if self
+                .js_ts_folder_row(ui, &folder_key, &scene_name, i16::SCENE, 0)
+                .0
+            {
+                for (label, icon, location) in self.js_ts_navigator_entries(&scene_id) {
+                    chosen = chosen.or(self.js_ts_navigator_leaf(ui, &label, icon, &location, 1));
+                }
             }
         }
         if self
@@ -927,7 +933,7 @@ impl Editor {
                 .project
                 .symbols
                 .iter()
-                .filter(|s| s.id != root)
+                .filter(|s| !self.project.is_scene(&s.id))
                 .map(|s| s.id.clone())
                 .collect();
             for symbol in symbols {

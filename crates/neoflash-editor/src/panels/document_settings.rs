@@ -367,6 +367,7 @@ impl Editor {
                             let cf = c::ColorField::new(&mut draft.background, "Background")
                                 .width(200.0)
                                 .show(ui);
+                            super::dialog_helpers::track_rgba_popup(ui.ctx(), cf.response.id);
                             crate::paint_controls::show_color32_field_popup(
                                 ui,
                                 &cf.response,

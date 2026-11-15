@@ -1562,6 +1562,12 @@ impl Editor {
                                             "Shadow",
                                             &mut rgba,
                                         );
+                                        if !rc.changed() {
+                                            super::dialog_helpers::track_rgba_popup(
+                                                ui.ctx(),
+                                                rc.id,
+                                            );
+                                        }
                                         if rc.changed() {
                                             (*color, *alpha) = color_to_rgb_u32_and_alpha(rgba);
                                             changed_id = Some(rc.id);
@@ -1602,6 +1608,12 @@ impl Editor {
                                             "Glow",
                                             &mut rgba,
                                         );
+                                        if !rc.changed() {
+                                            super::dialog_helpers::track_rgba_popup(
+                                                ui.ctx(),
+                                                rc.id,
+                                            );
+                                        }
                                         if rc.changed() {
                                             (*color, *alpha) = color_to_rgb_u32_and_alpha(rgba);
                                             changed_id = Some(rc.id);
@@ -1672,6 +1684,12 @@ impl Editor {
                                             "Shadow",
                                             &mut shadow_rgba,
                                         );
+                                        if !r_sh.changed() {
+                                            super::dialog_helpers::track_rgba_popup(
+                                                ui.ctx(),
+                                                r_sh.id,
+                                            );
+                                        }
                                         if r_sh.changed() {
                                             (*shadow_color, *shadow_alpha) =
                                                 color_to_rgb_u32_and_alpha(shadow_rgba);
@@ -1688,6 +1706,12 @@ impl Editor {
                                             "Highlight",
                                             &mut hi_rgba,
                                         );
+                                        if !r_hi.changed() {
+                                            super::dialog_helpers::track_rgba_popup(
+                                                ui.ctx(),
+                                                r_hi.id,
+                                            );
+                                        }
                                         if r_hi.changed() {
                                             (*highlight_color, *highlight_alpha) =
                                                 color_to_rgb_u32_and_alpha(hi_rgba);
@@ -1793,6 +1817,12 @@ impl Editor {
                                                 "Gradient stop",
                                                 &mut stop_rgba,
                                             );
+                                            if !r_sc.changed() {
+                                                super::dialog_helpers::track_rgba_popup(
+                                                    ui.ctx(),
+                                                    r_sc.id,
+                                                );
+                                            }
                                             if r_sc.changed() {
                                                 let (rgb, a) =
                                                     color_to_rgb_u32_and_alpha(stop_rgba);

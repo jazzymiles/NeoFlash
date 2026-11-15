@@ -243,6 +243,7 @@ impl Editor {
         let catalogue = tool_catalogue();
         let mut cancel = false;
         let mut apply = false;
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let response = egui::Modal::new(egui::Id::new("nf2-customize-tools"))
             .frame(nf::Surface::Dialog.frame(ctx))
             .backdrop_color(neoflash_ui::palette(ctx).overlay)
@@ -309,6 +310,13 @@ impl Editor {
                     });
                 }
             });
+        if !apply && !cancel {
+            match kb.resolve(ctx, &response, true) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => cancel = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => apply = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
+            }
+        }
         if apply {
             draft.apply(&mut self.workspace.tools);
             ctx.data_mut(|d| {
@@ -317,7 +325,7 @@ impl Editor {
                 }
                 d.remove::<CustomizeToolsDraft>(draft_id());
             });
-        } else if cancel || response.should_close() {
+        } else if cancel {
             ctx.data_mut(|d| d.remove::<CustomizeToolsDraft>(draft_id()));
         } else {
             if ctx.input(|i| i.pointer.any_released()) {
