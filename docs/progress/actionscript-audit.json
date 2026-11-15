@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "f9d81ffedfa09e70d2b14781ceaed2b67642af227d8b2962cd13468901f3fafd",
+  "catalogSha256": "b07dda37cfe96f9850cf2757e9f99a4e481f46ad4bd9ee1f6562737545f18d77",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -35757,6 +35757,14 @@
         "reviewIds": [
           "AS3-T333-CONTRACT-CORRECTIONS-20261115"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-15-as3-loader-recovery.json",
+        "sha256": "5f06e54eb6cabce37625abb8452bb52a2b337108744130405440170268c0b817",
+        "baseCatalogSha256": "f9d81ffedfa09e70d2b14781ceaed2b67642af227d8b2962cd13468901f3fafd",
+        "reviewIds": [
+          "AS3-LOADER-RECOVERY-20261115"
+        ]
       }
     ],
     "statusReviews": [
@@ -36111,13 +36119,22 @@
         "changes": {
           "partial": 7
         }
+      },
+      {
+        "id": "AS3-LOADER-RECOVERY-20261115",
+        "date": "2026-11-15",
+        "commit": "e48ea02adf6232a701be88eb3320f185763755aa",
+        "path": "docs/progress/reviews/2026-11-15-as3-loader-recovery.json",
+        "changes": {
+          "partial": 2
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 5725,
-      "partial": 1641,
+      "implemented_subset": 5723,
+      "partial": 1643,
       "missing": 38681,
       "needs_review": 0,
       "total": 46047
@@ -36131,8 +36148,8 @@
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 4536,
-        "partial": 1171,
+        "implemented_subset": 4534,
+        "partial": 1173,
         "missing": 38033,
         "needs_review": 0,
         "total": 43740
@@ -36175,8 +36192,8 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 4908,
-        "partial": 1075,
+        "implemented_subset": 4906,
+        "partial": 1077,
         "missing": 175,
         "needs_review": 0,
         "total": 6158
@@ -36264,8 +36281,8 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 4046,
-          "partial": 1038,
+          "implemented_subset": 4044,
+          "partial": 1040,
           "missing": 166,
           "needs_review": 0,
           "total": 5250
@@ -176154,6 +176171,48 @@
           "catalogId": "AS3:method:flash/net/NetStream.html#receiveVideoFPS()",
           "status": "implemented_subset",
           "ruleId": "AS3-MEDIANETSTREAM-20261115",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-LOADER-RECOVERY-20261115",
+      "title": "Loader recovery and the raw SWF execution boundary",
+      "reason": "Images and NeoFlash child bundles retain useful loading, cancellation and callback recovery. Raw SWF loading exposes a diagnosed header container without executing the movie display list, timeline or bytecode, so load and loadBytes are Partial. Other declarations retain their existing classification.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "web/tests/load-publish-and-media.test.cjs",
+          "sha256": "053f004e302fd69be5aca8cd41b363fab0cefaf6cc9bbb280647560b13b0d0da"
+        },
+        {
+          "path": "web/tests/loader-publish-order.test.cjs",
+          "sha256": "cb14491b3a48f1a3a16070feb08a1c5c9daad4a58b6beeac32e740505f9cb3ec"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "status": "partial",
+          "scopeNote": "Supported images and NeoFlash child bundles load with cancellation and callback recovery. Raw SWF yields a diagnosed header container without movie display, timeline or bytecode execution; application and security-domain behavior remains bounded."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "status": "partial",
+          "scopeNote": "Supported images and NeoFlash child bundles load with cancellation and callback recovery. Raw SWF yields a diagnosed header container without movie display, timeline or bytecode execution; application and security-domain behavior remains bounded."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-WAVE6-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-WAVE6-GENUINE-CONFORMANCE-20261102",
           "evidenceKind": "test_backed_review"
         }
       ]

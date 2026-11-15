@@ -31,7 +31,7 @@ Each capability group lists its user-visible functions; a group is closed only w
 
 | Language | Now (areas 1–6 working) | All Flash Player areas working | Partial / missing | Outside target (never in %) |
 | --- | ---: | ---: | ---: | --- |
-| ActionScript 3 — Flash Player | 1,881 of 1,939 (97.0%) | 3,663 of 4,164 (88.0%) | 460 / 41 | AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138 |
+| ActionScript 3 — Flash Player | 1,881 of 1,939 (97.0%) | 3,661 of 4,164 (87.9%) | 462 / 41 | AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138 |
 | ActionScript 2 — Flash Player | 915 of 925 (98.9%) | 1,189 of 1,238 (96.0%) | 39 / 10 | AS2 UI components 1,044 · Other libraries and extensions 25 |
 
 Test-backed declaration statuses only (not an overall Flash compatibility score); last status review: 2026-11-15. Full eight-area breakdown and per-declaration provenance: [ActionScript declaration audit](docs/progress/ACTIONSCRIPT.md).

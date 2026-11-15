@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "f9d81ffedfa09e70d2b14781ceaed2b67642af227d8b2962cd13468901f3fafd",
+  "reviews": [
+    {
+      "id": "AS3-LOADER-RECOVERY-20261115",
+      "date": "2026-11-15",
+      "commit": "e48ea02adf6232a701be88eb3320f185763755aa",
+      "title": "Loader recovery and the raw SWF execution boundary",
+      "summary": "Images and NeoFlash child bundles retain useful loading, cancellation and callback recovery. Raw SWF loading exposes a diagnosed header container without executing the movie display list, timeline or bytecode, so load and loadBytes are Partial. Other declarations retain their existing classification.",
+      "tests": [
+        "web/tests/load-publish-and-media.test.cjs",
+        "web/tests/loader-publish-order.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "status": "partial",
+          "note": "Supported images and NeoFlash child bundles load with cancellation and callback recovery. Raw SWF yields a diagnosed header container without movie display, timeline or bytecode execution; application and security-domain behavior remains bounded."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "status": "partial",
+          "note": "Supported images and NeoFlash child bundles load with cancellation and callback recovery. Raw SWF yields a diagnosed header container without movie display, timeline or bytecode execution; application and security-domain behavior remains bounded."
+        }
+      ]
+    }
+  ]
+}

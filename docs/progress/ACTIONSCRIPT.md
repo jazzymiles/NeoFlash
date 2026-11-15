@@ -19,9 +19,9 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | 5. Graphics, bitmaps and filters | 313 | 298 | 2 | 13 | 0 | 95.2% | 95.8% |
 | 6. Text and fonts | 174 | 159 | 2 | 13 | 0 | 91.4% | 92.5% |
 | 7. File audio and video playback | 91 | 89 | 2 | 0 | 0 | 97.8% | 100.0% |
-| 8. Services and advanced Player APIs | 2,134 | 1,693 | 441 | 0 | 0 | 79.3% | 100.0% |
+| 8. Services and advanced Player APIs | 2,134 | 1,691 | 443 | 0 | 0 | 79.2% | 100.0% |
 | **Now: areas 1–6** | 1,939 | 1,881 | 17 | 41 | 0 | 97.0% | 97.9% |
-| **All Flash Player areas** | 4,164 | 3,663 | 460 | 41 | 0 | 88.0% | 99.0% |
+| **All Flash Player areas** | 4,164 | 3,661 | 462 | 41 | 0 | 87.9% | 99.0% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -59,7 +59,7 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
 | AS3 | language | 124 | 118 | 5 | 1 | 0 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 4,046 | 1,038 | 166 | 0 |
+| AS3 | runtime | 5,250 | 4,044 | 1,040 | 166 | 0 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,7 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-LOADER-RECOVERY-20261115` | 2026-11-15 | `e48ea02adf62` | 2 → partial |
 | `AS3-T333-CONTRACT-CORRECTIONS-20261115` | 2026-11-15 | `5a5987d4f53b` | 7 → partial |
 | `AS3-MEDIANETSTREAM-20261115` | 2026-11-15 | `ee156d0dbaae` | 10 → working |
 | `AS3-TEXT-GRAPHEMES-20261115` | 2026-11-15 | `cb4ffffbaf10` | 6 → working |
@@ -13044,3 +13045,14 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:method:flash/net/NetStream.html#receiveVideoFPS()` — **partial**: Zero retains the last frame and gates delivery, and positive values resume; positive-rate decoded-frame throttling is missing.
 
 Evidence: [web/tests/text-graphemes-ime.test.cjs](../../web/tests/text-graphemes-ime.test.cjs), [crates/neoflash-core/tests/text_field.rs](../../crates/neoflash-core/tests/text_field.rs), [crates/neoflash-core/src/as3_sound_media.rs](../../crates/neoflash-core/src/as3_sound_media.rs), [web/tests/media-netstream.test.cjs](../../web/tests/media-netstream.test.cjs), [crates/neoflash-script/tests/media-netstream.mjs](../../crates/neoflash-script/tests/media-netstream.mjs)
+
+### AS3-LOADER-RECOVERY-20261115 — Loader recovery and the raw SWF execution boundary
+
+Images and NeoFlash child bundles retain useful loading, cancellation and callback recovery. Raw SWF loading exposes a diagnosed header container without executing the movie display list, timeline or bytecode, so load and loadBytes are Partial. Other declarations retain their existing classification.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:method:flash/display/Loader.html#load()` — **partial**: Supported images and NeoFlash child bundles load with cancellation and callback recovery. Raw SWF yields a diagnosed header container without movie display, timeline or bytecode execution; application and security-domain behavior remains bounded.
+- `AS3:method:flash/display/Loader.html#loadBytes()` — **partial**: Supported images and NeoFlash child bundles load with cancellation and callback recovery. Raw SWF yields a diagnosed header container without movie display, timeline or bytecode execution; application and security-domain behavior remains bounded.
+
+Evidence: [web/tests/load-publish-and-media.test.cjs](../../web/tests/load-publish-and-media.test.cjs), [web/tests/loader-publish-order.test.cjs](../../web/tests/loader-publish-order.test.cjs)

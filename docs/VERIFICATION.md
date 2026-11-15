@@ -131,6 +131,14 @@ Other recorded gaps include AS2 defaults/Number/owner-aware behavior, the first 
 
 Real HTML buttons called AS3/AS2 callbacks, Canvas controls called receiver-preserving page functions, and native GET/form POST plus response-free sends produced actual local HTTP receipts. Restart recreated callbacks and the page controls without duplicate activation. Automated actual-WASM checks separately covered returned records, callback replacement/removal and stale wrappers.
 
+The existing `publish-parity-polish` browser family checks an authored startup Error in real Chrome Canvas and DOM
+exports while a host reset also fails: the error retains its original identity and authored frame/line, emits one
+primary diagnostic, and Restart resumes repeated frame execution. The same Canvas flow checks an ExternalInterface
+callback error alongside a renderer failure. Controlled host/WASM families cover hostile thrown values, original
+text-measurement exceptions, failed child-mount promises, multiple-resource cleanup, stale callbacks and pending
+audio decode reservations. The Firefox publication gate verifies repeated pagehide/unload teardown without a
+second flush of disposed storage. These checks establish bounded recovery behavior, not full Flash exceptions.
+
 Cross-origin policy, popup defaults, other engines, native authoring and complete exception/coercion behavior were not verified. See [ADR 0033](decisions/0033-web-container-integration.md).
 
 <a id="independent-pointer-verification-of-01f2261"></a>

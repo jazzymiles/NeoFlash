@@ -14,7 +14,7 @@
   cleanup attempt, and Restart can recover without old callbacks taking over the new session. Failed child loads
   settle their promises, timer retirement survives cancellation failures, and pending timeline audio decoding keeps
   correct memory reservations across Restart and resource replacement. Raw SWF Loader loading remains partial:
-  it creates header-derived containers without executing the loaded movie's display list, timeline or bytecode.
+  it warns and creates header-derived containers without executing the loaded movie's display list, timeline or bytecode.
 
 - Fixed binary FLA classic tweens that were held when a single MovieClip changed its instance name or endpoint
   library symbol. Symbol replacements restart child time during both playback and scrubbing; blank-frame
