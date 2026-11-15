@@ -185,6 +185,12 @@ impl AuthoringToolsState {
             self.brush_size = size;
         }
     }
+    pub fn reset_document_transient(&mut self) {
+        self.cancel();
+        self.brush_inside_seed = None;
+        self.magic_wand_dialog = None;
+        self.polystar_dialog = None;
+    }
     pub fn is_drawing(&self) -> bool {
         self.gesture.is_some() || !self.lasso_polygon.is_empty()
     }
@@ -3407,7 +3413,7 @@ impl Editor {
                 }
             }
         }
-        candidate.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         if candidate.validate().is_err() {
             return Vec::new();
         }

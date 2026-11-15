@@ -1642,3 +1642,375 @@ fn t291_document_sessions_isolate_output_actions_test_movie_and_breakpoints() {
     assert_eq!(editor.debugger.breakpoints[0].source, "Main.as");
     assert_eq!(editor.debugger.breakpoints[0].line, 9);
 }
+
+#[test]
+fn t318_non_native_open_save_revert_recent_and_recovery_never_overwrite_source_files() {
+    let (mut editor, ctx, dir) = setup("t318-non-native-safety");
+
+    // Minimal valid synthetic non-native fixtures across all converted document formats.
+    let svg_bytes = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80"><rect width="60" height="40" fill="#3366ff"/></svg>"##;
+    let svg_path = dir.join("poster.svg");
+    std::fs::write(&svg_path, svg_bytes).unwrap();
+
+    let mut psd_bytes = Vec::new();
+    psd_bytes.extend_from_slice(b"8BPS");
+    psd_bytes.extend_from_slice(&1u16.to_be_bytes());
+    psd_bytes.extend_from_slice(&[0u8; 6]);
+    psd_bytes.extend_from_slice(&3u16.to_be_bytes()); // channels
+    psd_bytes.extend_from_slice(&2u32.to_be_bytes()); // height
+    psd_bytes.extend_from_slice(&2u32.to_be_bytes()); // width
+    psd_bytes.extend_from_slice(&8u16.to_be_bytes()); // depth
+    psd_bytes.extend_from_slice(&3u16.to_be_bytes()); // RGB
+    psd_bytes.extend_from_slice(&0u32.to_be_bytes()); // color mode data
+    psd_bytes.extend_from_slice(&0u32.to_be_bytes()); // resources
+    psd_bytes.extend_from_slice(&0u32.to_be_bytes()); // layer/mask
+    psd_bytes.extend_from_slice(&0u16.to_be_bytes()); // raw compression
+    psd_bytes.extend_from_slice(&[200u8; 12]); // 3 * 2 * 2 RGB
+    let psd_path = dir.join("mockup.psd");
+    std::fs::write(&psd_path, &psd_bytes).unwrap();
+
+    let pdf_bytes = b"%PDF-1.4\n1 0 obj\n<< /Type /Page /MediaBox [0 0 200 100] >>\nendobj\n2 0 obj\n<< /Length 31 >>\nstream\n0.2 0.5 0.9 rg 10 10 50 30 re f\nendstream\nendobj\n%%EOF\n";
+    let pdf_path = dir.join("sheet.pdf");
+    std::fs::write(&pdf_path, pdf_bytes).unwrap();
+
+    let fxg_bytes = br##"<?xml version="1.0" encoding="utf-8"?><Graphic version="2.0" viewWidth="160" viewHeight="90" xmlns="http://ns.adobe.com/fxg/2008"><Group id="Main"><Rect x="0" y="0" width="40" height="30"><fill><SolidColor color="#22aa66"/></fill></Rect></Group></Graphic>"##;
+    let fxg_path = dir.join("badge.fxg");
+    std::fs::write(&fxg_path, fxg_bytes).unwrap();
+
+    let figma_bytes = br#"{"name":"HeroBoard","document":{"id":"0:0","name":"Doc","type":"DOCUMENT","children":[{"id":"0:1","name":"Page","type":"CANVAS","children":[{"id":"1:1","name":"Card","type":"FRAME","absoluteBoundingBox":{"x":0,"y":0,"width":240,"height":120},"children":[{"id":"1:2","name":"Box","type":"RECTANGLE","absoluteBoundingBox":{"x":10,"y":10,"width":80,"height":40},"fills":[{"type":"SOLID","color":{"r":0.2,"g":0.4,"b":0.9,"a":1.0}}]}]}]}]}}"#;
+    let figma_path = dir.join("hero.figma.json");
+    std::fs::write(&figma_path, figma_bytes).unwrap();
+
+    // Minimal valid uncompressed FWS v8 1-frame SWF (RECT 0..2000 twips = 100x100 px, ShowFrame + End).
+    let mut swf_body = vec![
+        0x60, 0x00, 0x1F, 0x40, 0x00, 0x07, 0xD0, 0x00, // RECT (nbits=12: 0, 2000, 0, 2000)
+        0x00, 24, // 24.0 fps
+        0x01, 0x00, // 1 frame
+        0x40, 0x00, // ShowFrame (tag 1, len 0)
+        0x00, 0x00, // End (tag 0, len 0)
+    ];
+    let swf_len = (8 + swf_body.len()) as u32;
+    let mut swf_bytes = b"FWS\x08".to_vec();
+    swf_bytes.extend_from_slice(&swf_len.to_le_bytes());
+    swf_bytes.append(&mut swf_body);
+    let swf_path = dir.join("banner.swf");
+    std::fs::write(&swf_path, &swf_bytes).unwrap();
+
+    let xfl_dir = dir.join("clip-xfl");
+    std::fs::create_dir_all(&xfl_dir).unwrap();
+    let xfl_doc = xfl_dir.join("DOMDocument.xml");
+    let xfl_bytes = br#"<DOMDocument width="120" height="80" frameRate="24"><timelines><DOMTimeline name="Scene 1"><layers><DOMLayer name="Layer 1"><frames><DOMFrame index="0" duration="1"><elements><DOMRectangleObject objectWidth="20" objectHeight="20"/></elements></DOMFrame></frames></DOMLayer></layers></DOMTimeline></timelines></DOMDocument>"#;
+    std::fs::write(&xfl_doc, xfl_bytes).unwrap();
+
+    let canonical_dir = dir.canonicalize().unwrap();
+    for (idx, (src_path, expected_default_name, raw_bytes)) in [
+        (&svg_path, "poster.nflash", &svg_bytes[..]),
+        (&psd_path, "mockup.nflash", &psd_bytes[..]),
+        (&pdf_path, "sheet.nflash", &pdf_bytes[..]),
+        (&fxg_path, "badge.nflash", &fxg_bytes[..]),
+        (&figma_path, "hero.nflash", &figma_bytes[..]),
+        (&swf_path, "banner.nflash", &swf_bytes[..]),
+        (&xfl_doc, "clip-xfl.nflash", &xfl_bytes[..]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let opened = if idx % 2 == 0 {
+            editor.try_open_path(src_path.clone(), &ctx)
+        } else {
+            editor.open_path_in_session(&ctx, src_path.clone())
+        };
+        assert!(opened, "must open non-native source {}", src_path.display());
+        editor
+            .project
+            .validate()
+            .expect("converted document must validate");
+        assert!(
+            editor.path.is_none(),
+            "converted import {} must never set canonical .nflash path",
+            src_path.display()
+        );
+        assert!(
+            editor.import_source.is_some(),
+            "converted import {} must record import_source",
+            src_path.display()
+        );
+        assert!(
+            editor.dirty(),
+            "converted import {} starts dirty until saved as .nflash",
+            src_path.display()
+        );
+        assert!(
+            !editor.can_revert(),
+            "freshly imported {} has no local history edits to revert yet",
+            src_path.display()
+        );
+        let (save_dir, save_name) = editor.default_save_dialog_target();
+        assert_eq!(save_name, expected_default_name);
+        if src_path != &xfl_doc {
+            assert_eq!(
+                save_dir.and_then(|d| d.canonicalize().ok()),
+                Some(canonical_dir.clone())
+            );
+        }
+
+        // Attempting to save directly onto the non-native source file MUST fail safely and leave bytes untouched!
+        if src_path != &xfl_doc {
+            assert!(
+                !editor.save_to_path(src_path.clone()),
+                "save_to_path must refuse overwriting non-native {}",
+                src_path.display()
+            );
+            assert_eq!(
+                std::fs::read(src_path).unwrap(),
+                raw_bytes,
+                "source bytes on disk must remain 100% untouched for {}",
+                src_path.display()
+            );
+            assert!(editor.path.is_none());
+            assert!(editor.dirty());
+        }
+    }
+
+    // Re-focus the SVG tab via `open_path_in_session`: deduplicates instead of opening a duplicate tab.
+    let tab_count_before = editor.session_count();
+    assert!(editor.open_path_in_session(&ctx, svg_path.clone()));
+    assert_eq!(editor.session_count(), tab_count_before);
+    let imported_svg_project = editor.project.clone();
+    let svg_session_id = editor.clipboard.session.clone();
+
+    // Edit the converted SVG document -> `can_revert()` becomes true; `revert_to_saved` re-imports from SVG cleanly.
+    editor.transact_named("Edit converted SVG", |ed| {
+        ed.project.name = "Edited SVG Working Copy".into();
+    });
+    assert!(editor.can_revert());
+    editor.revert_to_saved(&ctx);
+    assert_eq!(editor.project.width, imported_svg_project.width);
+    assert_ne!(editor.project.name, "Edited SVG Working Copy");
+    assert!(editor.path.is_none());
+    assert!(
+        editor.dirty(),
+        "unsaved converted import stays dirty after Revert"
+    );
+    assert_eq!(editor.clipboard.session, svg_session_id);
+
+    // Crash recovery on unsaved converted SVG: restores `path == None` and `import_source == Some(...)`.
+    editor.transact_named("Pre-crash SVG edit", |ed| {
+        ed.project.name = "Crash Recovered SVG".into();
+    });
+    editor.tick_autosave(0.0, 2_000_000);
+    editor.tick_autosave(120.0, 2_000_120);
+    assert!(recovery_files(&dir) >= 1);
+
+    let mut crashed_relaunch = Editor::from_project(&ctx, Project::blank());
+    crashed_relaunch
+        .recovery
+        .set_dir(Some(dir.join("Recovery")));
+    crashed_relaunch.check_recovery_on_launch();
+    assert!(crashed_relaunch.recovery.has_prompt());
+    crashed_relaunch.restore_recovery_prompt(&ctx);
+    let recovered_svg_idx = (0..crashed_relaunch.session_count())
+        .find(|&idx| {
+            crashed_relaunch.switch_session_tab(&ctx, idx);
+            crashed_relaunch.project.name == "Crash Recovered SVG"
+        })
+        .expect("recovered converted SVG tab must be present");
+    crashed_relaunch.switch_session_tab(&ctx, recovered_svg_idx);
+    assert!(
+        crashed_relaunch.path.is_none(),
+        "restoring crash recovery of converted SVG must NOT set self.path to poster.svg"
+    );
+    assert_eq!(
+        crashed_relaunch.import_source,
+        Some(svg_path.canonicalize().unwrap())
+    );
+    assert!(crashed_relaunch.dirty());
+    assert_eq!(std::fs::read(&svg_path).unwrap(), svg_bytes);
+
+    // Save As without extension appends `.nflash`, clears dirty, updates Open Recent, and preserves import_source.
+    let extensionless_save = dir.join("poster-converted");
+    let expected_nflash = dir.join("poster-converted.nflash");
+    assert!(crashed_relaunch.save_to_path(extensionless_save));
+    assert_eq!(
+        crashed_relaunch.path.as_deref(),
+        Some(expected_nflash.as_path())
+    );
+    assert!(!crashed_relaunch.dirty());
+    assert!(expected_nflash.is_file());
+    let expected_nflash_canonical = expected_nflash.canonicalize().unwrap();
+    assert_eq!(
+        crashed_relaunch
+            .workspace
+            .general
+            .existing_recent_files()
+            .first(),
+        Some(&expected_nflash_canonical),
+        "Save As .nflash must push to Open Recent"
+    );
+    assert_eq!(
+        crashed_relaunch.import_source,
+        Some(svg_path.canonicalize().unwrap()),
+        "import_source stays linked so reopening poster.svg focuses the converted tab"
+    );
+
+    // Revert on saved `.nflash` reloads clean `.nflash` state and keeps `dirty() == false`.
+    let clean_session = crashed_relaunch.clipboard.session.clone();
+    crashed_relaunch.transact_named("Post-save edit", |ed| {
+        ed.project.name = "Unsaved Post-Save Edit".into();
+    });
+    assert!(crashed_relaunch.can_revert());
+    crashed_relaunch.revert_to_saved(&ctx);
+    assert!(!crashed_relaunch.dirty());
+    assert_eq!(crashed_relaunch.project.name, "Crash Recovered SVG");
+    assert_eq!(crashed_relaunch.clipboard.session, clean_session);
+
+    // Saving with `format_on_save == false` when `format_version` is under-versioned upgrades `format_version`
+    // cleanly before `to_json()`.
+    crashed_relaunch.workspace.code_editor.format_on_save = false;
+    crashed_relaunch.project.format_version = 1;
+    let unformatted_save = dir.join("under-versioned-save.nflash");
+    assert!(crashed_relaunch.save_to_path(unformatted_save.clone()));
+    assert!(crashed_relaunch.project.format_version >= 3);
+    Project::from_json(&std::fs::read_to_string(&unformatted_save).unwrap())
+        .expect("saved .nflash with format_on_save=false must validate on reload");
+}
+
+#[test]
+fn t318_multi_tab_switch_close_stops_audio_resets_transients_and_zero_tab_commands_are_safe() {
+    use crate::output_pipeline::OutputSource;
+    use crate::workspace::{PanelId, PublishProfilePreset};
+    use neoflash_core::{FrameSound, ResourceUnit, Script, ScriptLanguage};
+
+    let (mut editor, ctx, dir) = setup("t318-multitab-zero-tab");
+
+    // Attach a short valid WAV resource and start both timeline playback and headless Sound audition.
+    let pcm_samples: Vec<u8> = (0..1600usize)
+        .flat_map(|i| (((i % 16) as i16 - 8) * 512).to_le_bytes())
+        .collect();
+    let mut wav = b"RIFF".to_vec();
+    wav.extend_from_slice(&(36 + pcm_samples.len() as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    for v in [16u32, 1 | (1 << 16), 8000, 16000, 2 | (16 << 16)] {
+        wav.extend_from_slice(&v.to_le_bytes());
+    }
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(pcm_samples.len() as u32).to_le_bytes());
+    wav.extend_from_slice(&pcm_samples);
+
+    editor.transact_named("Add beep resource", |ed| {
+        ed.project
+            .resources
+            .push(ResourceUnit::from_bytes("beep", "audio/beep.wav", "audio/wav", &wav).unwrap());
+    });
+    editor.set_playing(true);
+    editor
+        .timeline_audio
+        .audition(&editor.project, &FrameSound::new("beep"));
+    assert!(editor.playing);
+    assert!(
+        editor.timeline_audio.has_active_preview(),
+        "headless sound audition should be active before tab switch"
+    );
+
+    // Seed transient Stage/tool/dialog state on Tab 0.
+    editor.authoring_tools.lasso_polygon = vec![egui::pos2(10.0, 10.0), egui::pos2(30.0, 20.0)];
+    editor.authoring_modify.scale_and_rotate_dialog = Some(Default::default());
+    editor.timeline_motion.paste_special_open = true;
+
+    // Open Tab 1 -> switching away MUST stop playback & audition audio and clear all Stage transients.
+    editor.open_new_session_tab(&ctx, Project::blank(), None);
+    assert!(
+        !editor.playing,
+        "switching tabs must pause timeline playback"
+    );
+    assert!(
+        !editor.timeline_audio.has_active_preview(),
+        "switching tabs must silence timeline/audition audio"
+    );
+    assert!(editor.authoring_tools.lasso_polygon.is_empty());
+    assert!(editor.authoring_modify.scale_and_rotate_dialog.is_none());
+    assert!(!editor.timeline_motion.paste_special_open);
+
+    // Verify surgical publish polish (#25):
+    // (a) Banner preflight failure does NOT create an empty output directory on disk.
+    editor.transact_named("Add syntax-error script", |ed| {
+        ed.symbol_mut()
+            .timeline
+            .scripts
+            .push(neoflash_core::FrameScript {
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::JavaScript,
+                    source: "function broken( {".into(),
+                },
+            });
+    });
+    let mut banner_prefs = editor.workspace.publish.clone();
+    banner_prefs.profile = PublishProfilePreset::WebBannerNative;
+    banner_prefs.banner_max_gzip_kb = 0; // force preflight budget failure
+    let nonexistent_banner_dir = dir.join("banner-preflight-must-not-exist");
+    assert!(!editor.publish_html5_with_settings(
+        &nonexistent_banner_dir,
+        &Editor::runtime_dir(),
+        &banner_prefs,
+    ));
+    assert!(
+        !nonexistent_banner_dir.exists(),
+        "failing WebBannerNative preflight must not leave an empty output directory on disk"
+    );
+
+    // (b) Standard HTML5 publish & Test Scene on `ExportError::Scripts(_)` open BOTH `Output` and
+    // `CompilerErrors` and emit jumpable per-item `OutputSource::Compiler` events.
+    let html5_out_dir = dir.join("script-error-html5");
+    let std_prefs = editor.workspace.publish.clone();
+    assert!(!editor.publish_html5_with_settings(
+        &html5_out_dir,
+        &Editor::runtime_dir(),
+        &std_prefs,
+    ));
+    assert!(editor.workspace.is_panel_visible(PanelId::Output));
+    assert!(editor.workspace.is_panel_visible(PanelId::CompilerErrors));
+    assert!(editor.workspace.is_panel_active(PanelId::CompilerErrors));
+    assert!(
+        editor.output.events().iter().any(|ev| {
+            ev.source == OutputSource::Compiler
+                && ev.location.as_ref().is_some_and(|loc| loc.is_navigable())
+        }),
+        "script export failure must emit navigable Compiler events in Output: {:?}",
+        editor.output.events()
+    );
+
+    // Close all tabs cleanly (discarding dirty prompts via saved_project sync for deterministic headless close)
+    // down to 0 open documents (`!editor.has_document()`).
+    while editor.has_document() {
+        editor.saved_project = Some(editor.project.clone());
+        assert!(editor.close_session_tab(&ctx, editor.active_session));
+    }
+    assert!(!editor.has_document());
+    assert_eq!(editor.session_count(), 0);
+    assert_eq!(
+        recovery_files(&dir),
+        0,
+        "closing all tabs removes transient recovery files"
+    );
+
+    // Every command/shortcut entrypoint must be a safe no-op when 0 tabs are open.
+    editor.undo();
+    editor.redo();
+    assert!(!editor.can_revert());
+    editor.revert_to_saved(&ctx);
+    assert!(!editor.save(false));
+    assert!(!editor.save(true));
+    assert!(!editor.save_to_path(dir.join("zero-tab.nflash")));
+    editor.copy_selection(&ctx, false);
+    editor.copy_selection(&ctx, true);
+    editor.export(true);
+    editor.export(false);
+    editor.test_scene();
+    assert!(
+        editor
+            .run_jsfl_script("noop.jsfl", "fl.trace('hi');")
+            .is_err()
+    );
+    assert!(!editor.has_document());
+}

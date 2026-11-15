@@ -54,6 +54,9 @@ macro_rules! document_state {
                 stage_prefs: crate::stage_view::ViewPrefs,
             ) -> Self {
                 let mut session = Self::new(project, path, undo_levels, recovery);
+                if session.path.is_none() {
+                    session.saved_project = None;
+                }
                 session.import_source = import_source;
                 session.onion_before = onion_before;
                 session.onion_after = onion_after;
@@ -194,6 +197,14 @@ impl Editor {
         self.last_video_report = None;
         self.debugger.reset_document();
         self.finish_edits();
+        self.authoring_tools.reset_document_transient();
+        self.exit_stage_text_edit();
+        self.authoring_modify.distort_session = None;
+        self.authoring_modify.envelope_session = None;
+        self.authoring_modify.scale_and_rotate_dialog = None;
+        self.library_panel.drag = None;
+        self.timeline_edit.cancel_gesture();
+        self.timeline_motion.paste_special_open = false;
         // Keep document-scoped widget IDs, but never replay delayed clipboard input after a switch.
         let identity = self.clipboard.session.clone();
         self.clipboard = Default::default();
@@ -201,6 +212,8 @@ impl Editor {
         self.scale9_guide_drag = None;
         self.cancel_guide_drag();
         self.set_playing(false);
+        self.timeline_audio.stop_all();
+        self.timeline_video.follow_preview(None);
         self.timeline_key_drag = None;
         self.document_settings = None;
         self.edit_envelope = None;
@@ -208,7 +221,11 @@ impl Editor {
         self.confirm_revert = false;
         self.symbol_conversion = None;
         self.graphic_drop_position = None;
+        self.stage_cursor = None;
+        self.shown_stage_cursor = None;
         self.clear_simple_button_state();
+        self.clear_live_preview_pointer_state();
+        self.cancel_bitmap_properties(ctx);
         self.cancel_export_audio(ctx);
         self.cancel_export_image(ctx);
         self.cancel_import_video(ctx);
@@ -250,7 +267,7 @@ impl Editor {
         project.background = defaults.background;
         project.script_language = Some(defaults.script_language);
         project.also_compile_compatible_scripts = defaults.also_compile_compatible_scripts;
-        project.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut project);
         let previous_count = self.session_count();
         let index = self.open_new_session_tab(ctx, project, None);
         if self.session_count() > previous_count
@@ -310,9 +327,12 @@ impl Editor {
         if self.confirm.is_some() || self.close_origin.is_some() || self.timeline_edit.dragging() {
             return false;
         }
-        if let Some(index) = self.session_for_path(&path) {
+        if let Some(index) = self.session_for_open_path(&path) {
             self.switch_session_tab(ctx, index);
             return true;
+        }
+        if Self::is_non_native_graphic_document_path(&path) || Self::is_legacy_flash_path(&path) {
+            return self.try_import_legacy(path, ctx);
         }
         // Parse and validate first. Failure cannot consume a draft, history or recovery.
         match std::fs::read_to_string(&path)
@@ -330,6 +350,16 @@ impl Editor {
                 true
             }
             Err(error) => {
+                let is_json_ext = path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
+                if is_json_ext
+                    && let Ok(report) = neoflash_import::inspect(&path)
+                    && report.format == neoflash_import::ImportFormat::Figma
+                {
+                    return self.try_import_legacy(path, ctx);
+                }
                 self.message(format!("Open failed: {error}"));
                 false
             }

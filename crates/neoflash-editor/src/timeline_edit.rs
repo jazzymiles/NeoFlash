@@ -66,6 +66,22 @@ impl TimelineSelection {
     pub fn dragging(&self) -> bool {
         self.gesture.is_some()
     }
+
+    pub(crate) fn cancel_gesture(&mut self) {
+        self.gesture = None;
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct SharedFrameClipboard {
+    pub(crate) clip: FrameClipboard,
+    pub(crate) marker: Option<String>,
+    pub(crate) source_session: String,
+    pub(crate) donor_symbols: Vec<Symbol>,
+    pub(crate) donor_scene_ids: std::collections::HashSet<String>,
+    pub(crate) donor_resources: Vec<neoflash_core::ResourceUnit>,
+    pub(crate) donor_sources: Vec<neoflash_core::SourceUnit>,
+    pub(crate) layer_groups: Vec<Vec<neoflash_core::AuthoringGroup>>,
 }
 
 impl Editor {
@@ -320,13 +336,24 @@ impl Editor {
     }
 
     pub(crate) fn apply_frame_edit(&mut self, edit: TimelineEdit) -> bool {
+        self.apply_frame_edit_named("Edit", edit)
+    }
+
+    pub(crate) fn apply_frame_edit_named(
+        &mut self,
+        label: &'static str,
+        edit: TimelineEdit,
+    ) -> bool {
+        if !self.has_document() {
+            return false;
+        }
         self.finish_edits();
         let old_count = self.symbol().timeline.frame_count;
         let symbol_id = self.symbol_id().to_owned();
         let mut candidate_symbol = self.symbol().clone();
         match self.apply_timeline_edit_to_symbol(&symbol_id, &mut candidate_symbol, edit) {
             Ok(()) => {
-                self.transact(|editor| {
+                self.transact_named(label, |editor| {
                     if let Some(sym) = editor.project.symbol_mut(&symbol_id) {
                         *sym = candidate_symbol;
                     }
@@ -355,17 +382,29 @@ impl Editor {
     }
 
     pub(crate) fn copy_frame_range(&mut self, cut: bool) -> bool {
+        if !self.has_document() {
+            return false;
+        }
         let Some(range) = self.frame_range() else {
             return false;
         };
         let include_scripts = self.timeline_edit.include_scripts;
         match copy_frames(&self.project, self.symbol_id(), &range, include_scripts) {
             Ok(clip) => {
+                let shared = build_shared_frame_clipboard(
+                    &self.project,
+                    self.symbol_id(),
+                    &clip,
+                    &self.clipboard.session,
+                );
                 if !cut
-                    || self.apply_frame_edit(TimelineEdit::Clear {
-                        range,
-                        include_scripts,
-                    })
+                    || self.apply_frame_edit_named(
+                        "Cut frames",
+                        TimelineEdit::Clear {
+                            range,
+                            include_scripts,
+                        },
+                    )
                 {
                     self.message(format!(
                         "{} {} frames on {} layers",
@@ -375,6 +414,7 @@ impl Editor {
                     ));
                     self.timeline_edit.clipboard = Some(clip);
                     self.timeline_edit.clipboard_marker = None;
+                    self.shared_frame_clipboard = Some(shared);
                     true
                 } else {
                     false
@@ -390,18 +430,24 @@ impl Editor {
     pub(crate) fn copy_frames_to_system_clipboard(&mut self, ctx: &egui::Context, cut: bool) {
         if self.copy_frame_range(cut) {
             // Native Paste emits a payload only when the system clipboard has
-            // text. The actual frame data remains scoped to this live document.
+            // text. SharedFrameClipboard keeps the frame data live across open tabs.
             let marker = format!(
                 "NeoFlash Timeline frames: {}:{}",
                 self.clipboard.session,
                 neoflash_core::new_id("frames")
             );
             self.timeline_edit.clipboard_marker = Some(marker.clone());
+            if let Some(shared) = &mut self.shared_frame_clipboard {
+                shared.marker = Some(marker.clone());
+            }
             ctx.copy_text(marker);
         }
     }
 
     pub(crate) fn paste_frames_from_system_clipboard(&mut self, payload: Option<String>) {
+        if !self.has_document() {
+            return;
+        }
         let text = match payload.map(Ok).unwrap_or_else(|| {
             arboard::Clipboard::new()
                 .and_then(|mut clipboard| clipboard.get_text())
@@ -413,17 +459,36 @@ impl Editor {
                 return;
             }
         };
-        if self.timeline_edit.clipboard_marker.as_deref() != Some(text.as_str()) {
+        let local_matches = self.timeline_edit.clipboard_marker.as_deref() == Some(text.as_str());
+        let shared_matches = self
+            .shared_frame_clipboard
+            .as_ref()
+            .and_then(|s| s.marker.as_deref())
+            == Some(text.as_str());
+        if !local_matches && !shared_matches {
             self.timeline_edit.clipboard = None;
             self.timeline_edit.clipboard_marker = None;
-            self.message("The clipboard no longer contains frames from this document. Copy frames in the Timeline again.");
+            self.shared_frame_clipboard = None;
+            self.message("The clipboard no longer contains Timeline frames. Copy frames in the Timeline again.");
             return;
         }
         self.paste_frame_range();
     }
 
     pub(crate) fn paste_frame_range(&mut self) {
-        let Some(clip) = self.timeline_edit.clipboard.clone() else {
+        if !self.has_document() {
+            return;
+        }
+        let (mut clip, shared_opt) = if let Some(local_clip) = self.timeline_edit.clipboard.clone()
+        {
+            let matching_shared = self
+                .shared_frame_clipboard
+                .clone()
+                .filter(|s| s.source_session == self.clipboard.session);
+            (local_clip, matching_shared)
+        } else if let Some(shared) = self.shared_frame_clipboard.clone() {
+            (shared.clip.clone(), Some(shared))
+        } else {
             self.message("Copy frames in the Timeline before pasting them.");
             return;
         };
@@ -438,26 +503,39 @@ impl Editor {
         else {
             return;
         };
-        let layers: Vec<_> = rows[first..]
+        let mut layers: Vec<_> = rows[first..]
             .iter()
             .map(|&index| &timeline.layers[index])
             .filter(|l| l.properties.role != LayerRole::Folder)
             .take(clip.layers.len())
             .map(|l| l.id.clone())
             .collect();
-        let mut layers = layers;
         let missing = clip.layers.len().saturating_sub(layers.len());
         let end = range
             .start
             .saturating_add(clip.frame_count.saturating_sub(1));
+        let symbol_id = self.symbol_id().to_owned();
+        if self.project.symbol(&symbol_id).is_none() {
+            return;
+        }
+
+        let cross_document = shared_opt
+            .as_ref()
+            .is_some_and(|s| s.source_session != self.clipboard.session);
+        let include_scripts = self.timeline_edit.include_scripts;
+        let mut candidate_project = self.project.clone();
+
         if missing > 0 {
-            let symbol_id = self.symbol_id().to_owned();
-            let Some(orig_symbol) = self.project.symbol(&symbol_id) else {
-                return;
-            };
-            let mut candidate_symbol = orig_symbol.clone();
-            {
-                let timeline = &mut candidate_symbol.timeline;
+            let mut occupied_layer_ids: std::collections::HashSet<String> = candidate_project
+                .symbols
+                .iter()
+                .flat_map(|s| {
+                    std::iter::once(s.id.clone())
+                        .chain(s.timeline.layers.iter().map(|l| l.id.clone()))
+                })
+                .collect();
+            if let Some(cand_sym) = candidate_project.symbol_mut(&symbol_id) {
+                let timeline = &mut cand_sym.timeline;
                 let parent = range
                     .layers
                     .first()
@@ -467,7 +545,7 @@ impl Editor {
                     let mut idx = timeline.layers.len() + 1;
                     let id = loop {
                         let cand_id = format!("layer-{idx}");
-                        if !timeline.layers.iter().any(|l| l.id == cand_id) {
+                        if occupied_layer_ids.insert(cand_id.clone()) {
                             break cand_id;
                         }
                         idx += 1;
@@ -490,56 +568,256 @@ impl Editor {
                     layers.push(id);
                 }
             }
-            if let Err(err) = self.apply_timeline_edit_to_symbol(
-                &symbol_id,
-                &mut candidate_symbol,
-                TimelineEdit::Paste {
-                    clip,
-                    layers: layers.clone(),
-                    at: range.start,
-                    include_scripts: self.timeline_edit.include_scripts,
-                },
+        }
+
+        let imported_maps = if cross_document {
+            let shared = shared_opt
+                .as_ref()
+                .expect("cross-document shared clipboard");
+            let mut seeds = crate::clipboard::SeedAssetRefs::default();
+            if include_scripts && !clip.scripts.is_empty() {
+                seeds.needs_sources = true;
+            }
+            for layer_clip in &clip.layers {
+                for kf in &layer_clip.keyframes {
+                    seeds.record_keyframe(kf);
+                }
+            }
+            let donor_scenes: std::collections::HashSet<&str> =
+                shared.donor_scene_ids.iter().map(String::as_str).collect();
+            match crate::clipboard::import_cross_document_assets(
+                &mut candidate_project,
+                &shared.donor_symbols,
+                &donor_scenes,
+                &shared.donor_resources,
+                &shared.donor_sources,
+                seeds,
             ) {
+                Ok(maps) => Some(maps),
+                Err(err) => {
+                    self.message(format!("Timeline edit failed: {err}"));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        // Pre-remap colliding (or cross-tab) element IDs and IK armature IDs across all keyframe
+        // side-tables (`bitmap_fills`, `appearances`, `asset_warps`, `instance_overrides`,
+        // `element_parents`, `controller_elements`, `ik_armatures`, `extended_accessibility`,
+        // `vector_effects`, `motion_tracks`, `motion_keys`) so `edit_frames` never renames bare
+        // `elements` without their side-tables.
+        let mut occupied_ids = imported_maps
+            .as_ref()
+            .map(|m| m.occupied_ids.clone())
+            .unwrap_or_else(|| crate::clipboard::collect_occupied_project_ids(&candidate_project));
+        let mut elem_owners = std::collections::HashMap::<String, (String, String)>::new();
+        let mut ik_owners = std::collections::HashMap::<String, (String, String)>::new();
+        for s in &candidate_project.symbols {
+            for l in &s.timeline.layers {
+                for kf in &l.keyframes {
+                    for arm in &kf.ik_armatures {
+                        ik_owners.insert(arm.id.clone(), (s.id.clone(), l.id.clone()));
+                    }
+                    for el in &kf.elements {
+                        elem_owners.insert(el.id.clone(), (s.id.clone(), l.id.clone()));
+                    }
+                }
+            }
+        }
+
+        let mut pasted_layer_groups: Vec<(String, Vec<(usize, neoflash_core::AuthoringGroup)>)> =
+            Vec::new();
+        for (row_idx, (source_clip, dest_layer_id)) in
+            clip.layers.iter_mut().zip(&layers).enumerate()
+        {
+            let mut elem_map = std::collections::HashMap::<String, String>::new();
+            for kf in &source_clip.keyframes {
+                for el in &kf.elements {
+                    if elem_map.contains_key(&el.id) {
+                        continue;
+                    }
+                    let collides = cross_document
+                        || elem_owners
+                            .get(&el.id)
+                            .is_some_and(|(os, ol)| os != &symbol_id || ol != dest_layer_id);
+                    if collides {
+                        let fresh = crate::clipboard::alloc_unique_id("object", &mut occupied_ids);
+                        elem_owners
+                            .insert(fresh.clone(), (symbol_id.clone(), dest_layer_id.clone()));
+                        elem_map.insert(el.id.clone(), fresh);
+                    } else {
+                        elem_owners
+                            .insert(el.id.clone(), (symbol_id.clone(), dest_layer_id.clone()));
+                    }
+                }
+            }
+            for kf in &mut source_clip.keyframes {
+                kf.remap_all_ids(
+                    &elem_map,
+                    imported_maps.as_ref().map(|m| &m.sym_map),
+                    imported_maps.as_ref().map(|m| &m.res_map),
+                );
+                for fx in &mut kf.vector_effects {
+                    if let Some(blend) = &mut fx.vector_blend
+                        && let Some(tid) = elem_map.get(&blend.target_element_id)
+                    {
+                        blend.target_element_id = tid.clone();
+                    }
+                }
+                for arm in &mut kf.ik_armatures {
+                    let ik_collides = cross_document
+                        || ik_owners
+                            .get(&arm.id)
+                            .is_some_and(|(os, ol)| os != &symbol_id || ol != dest_layer_id);
+                    if ik_collides {
+                        let fresh_ik = crate::clipboard::alloc_unique_id("ik", &mut occupied_ids);
+                        ik_owners
+                            .insert(fresh_ik.clone(), (symbol_id.clone(), dest_layer_id.clone()));
+                        arm.id = fresh_ik;
+                    } else {
+                        ik_owners
+                            .insert(arm.id.clone(), (symbol_id.clone(), dest_layer_id.clone()));
+                    }
+                }
+                if let Some(maps) = &imported_maps {
+                    for app in &mut kf.appearances {
+                        crate::clipboard::remap_appearance_refs(
+                            app,
+                            &maps.swatch_map,
+                            &maps.style_map,
+                        );
+                    }
+                }
+            }
+            if let Some(shared) = &shared_opt
+                && let Some(src_groups) = shared.layer_groups.get(row_idx)
+                && !src_groups.is_empty()
+            {
+                let present_ids: std::collections::HashSet<&str> = source_clip
+                    .keyframes
+                    .iter()
+                    .flat_map(|kf| kf.elements.iter().map(|e| e.id.as_str()))
+                    .collect();
+                let mut remapped_groups = Vec::new();
+                for grp in src_groups {
+                    let orig_len = grp.members.len();
+                    let mut seen_members = std::collections::HashSet::new();
+                    let members: Vec<String> = grp
+                        .members
+                        .iter()
+                        .map(|m| elem_map.get(m).cloned().unwrap_or_else(|| m.clone()))
+                        .filter(|m| {
+                            present_ids.contains(m.as_str()) && seen_members.insert(m.clone())
+                        })
+                        .collect();
+                    if !members.is_empty() && !(orig_len > 1 && members.len() == 1) {
+                        remapped_groups.push((
+                            orig_len,
+                            neoflash_core::AuthoringGroup {
+                                id: crate::clipboard::alloc_unique_id("group", &mut occupied_ids),
+                                name: grp.name.clone(),
+                                members,
+                            },
+                        ));
+                    }
+                }
+                if !remapped_groups.is_empty() {
+                    pasted_layer_groups.push((dest_layer_id.clone(), remapped_groups));
+                }
+            }
+        }
+
+        if let Err(err) = edit_frames(
+            &mut candidate_project,
+            &symbol_id,
+            TimelineEdit::Paste {
+                clip,
+                layers: layers.clone(),
+                at: range.start,
+                include_scripts,
+            },
+        ) {
+            self.message(format!("Timeline edit failed: {err}"));
+            return;
+        }
+
+        // Prune any existing layer groups invalidated by overwritten frames before merging pasted groups.
+        candidate_project.prune_authoring_groups();
+        if let Some(cand_sym) = candidate_project.symbol_mut(&symbol_id) {
+            for (dest_lid, groups) in pasted_layer_groups {
+                if let Some(dest_layer) = cand_sym
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == dest_lid)
+                {
+                    let present_on_layer: std::collections::HashSet<String> = dest_layer
+                        .keyframes
+                        .iter()
+                        .flat_map(|k| k.elements.iter().map(|e| e.id.clone()))
+                        .collect();
+                    let mut already_grouped: std::collections::HashSet<String> = dest_layer
+                        .properties
+                        .groups
+                        .iter()
+                        .flat_map(|g| g.members.iter().cloned())
+                        .collect();
+                    for (orig_len, mut grp) in groups {
+                        let filtered: Vec<String> = grp
+                            .members
+                            .into_iter()
+                            .filter(|m| {
+                                present_on_layer.contains(m) && !already_grouped.contains(m)
+                            })
+                            .collect();
+                        if filtered.is_empty() || (orig_len > 1 && filtered.len() == 1) {
+                            continue;
+                        }
+                        for m in &filtered {
+                            already_grouped.insert(m.clone());
+                        }
+                        grp.members = filtered;
+                        dest_layer.properties.groups.push(grp);
+                    }
+                }
+            }
+            for layer in &mut cand_sym.timeline.layers {
+                layer.normalize_motion_keys();
+            }
+            if let Err(err) = validate_symbol_timeline_invariants(cand_sym) {
                 self.message(format!("Timeline edit failed: {err}"));
                 return;
             }
-            self.finish_edits();
-            self.playing = false;
-            let selected_layers = layers.clone();
-            self.transact(|editor| {
-                if let Some(sym) = editor.project.symbol_mut(&symbol_id) {
-                    *sym = candidate_symbol;
-                }
-                editor.project.format_version = editor.project.format_version.max(5);
-                editor.project.upgrade_format_for_features();
-                editor.project.prune_authoring_groups();
-                editor.layer = editor
-                    .layer
-                    .min(editor.symbol().timeline.layers.len().saturating_sub(1));
-                editor.frame = editor
-                    .frame
-                    .min(editor.symbol().timeline.frame_count.saturating_sub(1));
-                editor.normalize_selection();
-            });
-            self.select_frame_range(FrameRange {
-                layers: selected_layers,
-                start: range.start,
-                end,
-            });
+        }
+        candidate_project.prune_authoring_groups();
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate_project);
+        if let Err(err) = candidate_project.validate() {
+            self.message(format!("Timeline edit failed: {err}"));
             return;
         }
-        if self.apply_frame_edit(TimelineEdit::Paste {
-            clip,
-            layers: layers.clone(),
-            at: range.start,
-            include_scripts: self.timeline_edit.include_scripts,
-        }) {
-            self.select_frame_range(FrameRange {
-                layers,
-                start: range.start,
-                end,
-            });
-        }
+
+        self.finish_edits();
+        self.set_playing(false);
+        let selected_layers = layers.clone();
+        self.transact_named("Paste frames", |editor| {
+            editor.project = candidate_project;
+            editor.layer = editor
+                .layer
+                .min(editor.symbol().timeline.layers.len().saturating_sub(1));
+            editor.frame = editor
+                .frame
+                .min(editor.symbol().timeline.frame_count.saturating_sub(1));
+            editor.normalize_selection();
+        });
+        self.reset_authored_preview();
+        self.clear_selection();
+        self.select_frame_range(FrameRange {
+            layers: selected_layers,
+            start: range.start,
+            end,
+        });
     }
 
     pub(crate) fn expand_with_linked_layers(&self, layers: &[String]) -> Vec<String> {
@@ -1675,4 +1953,114 @@ fn validate_symbol_timeline_invariants(symbol: &Symbol) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn build_shared_frame_clipboard(
+    project: &neoflash_core::Project,
+    symbol_id: &str,
+    clip: &FrameClipboard,
+    source_session: &str,
+) -> SharedFrameClipboard {
+    let mut seeds = crate::clipboard::SeedAssetRefs::default();
+    if !clip.scripts.is_empty() {
+        seeds.needs_sources = true;
+    }
+    for layer_clip in &clip.layers {
+        for kf in &layer_clip.keyframes {
+            seeds.record_keyframe(kf);
+        }
+    }
+
+    let mut reachable_syms = std::collections::HashSet::<String>::new();
+    let mut stack = seeds.symbol_ids.clone();
+    while let Some(sid) = stack.pop() {
+        if project.is_scene(&sid) || !reachable_syms.insert(sid.clone()) {
+            continue;
+        }
+        if let Some(sym) = project.symbol(&sid) {
+            if !sym.timeline.scripts.is_empty()
+                || sym.class_name.is_some()
+                || sym.linkage_id.is_some()
+            {
+                seeds.needs_sources = true;
+            }
+            for layer in &sym.timeline.layers {
+                for kf in &layer.keyframes {
+                    let prev = seeds.symbol_ids.len();
+                    seeds.record_keyframe(kf);
+                    for new_sid in &seeds.symbol_ids[prev..] {
+                        stack.push(new_sid.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    let needed_res: std::collections::HashSet<&str> =
+        seeds.resource_ids.iter().map(String::as_str).collect();
+    let donor_resources: Vec<neoflash_core::ResourceUnit> = project
+        .resources
+        .iter()
+        .filter(|r| {
+            needed_res.contains(r.id.as_str())
+                || (!seeds.font_families.is_empty()
+                    && (neoflash_core::is_font_resource_unit(r)
+                        || r.path.eq_ignore_ascii_case("fonts/embedding.json")))
+                || (!seeds.swatch_ids.is_empty()
+                    && r.path.eq_ignore_ascii_case(
+                        neoflash_core::Project::GLOBAL_SWATCHES_RESOURCE_PATH,
+                    ))
+                || (!seeds.style_ids.is_empty()
+                    && r.path
+                        .eq_ignore_ascii_case(neoflash_core::Project::VECTOR_STYLES_RESOURCE_PATH))
+                || (!reachable_syms.is_empty()
+                    && r.path.eq_ignore_ascii_case(
+                        neoflash_core::Project::SHARED_LIBRARIES_RESOURCE_PATH,
+                    ))
+        })
+        .cloned()
+        .collect();
+
+    let mut donor_scene_ids = std::collections::HashSet::<String>::new();
+    donor_scene_ids.insert(project.root.clone());
+    donor_scene_ids.extend(project.scenes.iter().cloned());
+
+    let donor_symbols: Vec<Symbol> = project
+        .symbols
+        .iter()
+        .filter(|s| reachable_syms.contains(&s.id))
+        .cloned()
+        .collect();
+
+    let layer_groups: Vec<Vec<neoflash_core::AuthoringGroup>> =
+        if let Some(sym) = project.symbol(symbol_id) {
+            clip.layers
+                .iter()
+                .map(|lc| {
+                    sym.timeline
+                        .layers
+                        .iter()
+                        .find(|l| l.id == lc.source_layer)
+                        .map(|l| l.properties.groups.clone())
+                        .unwrap_or_default()
+                })
+                .collect()
+        } else {
+            vec![Vec::new(); clip.layers.len()]
+        };
+
+    SharedFrameClipboard {
+        clip: clip.clone(),
+        marker: None,
+        source_session: source_session.to_owned(),
+        donor_symbols,
+        donor_scene_ids,
+        donor_resources,
+        donor_sources: if seeds.needs_sources {
+            project.sources.clone()
+        } else {
+            Vec::new()
+        },
+        layer_groups,
+    }
 }

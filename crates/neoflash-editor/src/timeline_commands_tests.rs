@@ -7015,3 +7015,180 @@ fn t259_montage_locked_folder_unlink_and_delete_cleanup_preserve_valid_linked_la
         .validate()
         .expect("deleting linked partner must clear dangling linked_layer");
 }
+
+#[test]
+fn t318_undo_new_edit_clears_redo_and_element_deletion_prunes_keyframe_side_tables() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.format_version = 10;
+
+    // Add a child symbol so we can attach an InstancePropertyOverride to a placed instance.
+    let mut child = project.symbols[0].clone();
+    child.id = "sym-card".into();
+    child.name = "Card".into();
+    child.timeline.layers[0].id = "card-layer".into();
+    child.timeline.layers[0].keyframes = vec![Keyframe {
+        frame: 0,
+        elements: vec![Element {
+            id: "card-label".into(),
+            name: "title_txt".into(),
+            kind: ElementKind::Text {
+                text: "Hello".into(),
+                font_family: "Inter".into(),
+                font_size: 16.0,
+                color: [255, 255, 255, 255],
+            },
+            ..Element::default()
+        }],
+        ..Default::default()
+    }];
+    project.symbols.push(child);
+
+    let root_id = project.root.clone();
+    let layer_id = project.symbol(&root_id).unwrap().timeline.layers[0]
+        .id
+        .clone();
+    {
+        let tl = &mut project.symbol_mut(&root_id).unwrap().timeline;
+        tl.frame_count = 10;
+        tl.layers[0].properties.groups = vec![AuthoringGroup {
+            id: "grp-ab".into(),
+            name: "Pair".into(),
+            members: vec!["el-victim".into(), "el-partner".into()],
+        }];
+        let kf = &mut tl.layers[0].keyframes[0];
+        kf.tween = Some(Easing::Linear);
+        kf.tween_kind = TweenKind::Motion;
+        kf.elements = vec![
+            Element {
+                id: "el-victim".into(),
+                name: "victim_mc".into(),
+                kind: ElementKind::Instance {
+                    symbol_id: "sym-card".into(),
+                    playback: InstancePlayback::Independent,
+                },
+                ..Element::default()
+            },
+            Element {
+                id: "el-partner".into(),
+                name: "partner_rect".into(),
+                kind: ElementKind::Rectangle {
+                    width: 20.0,
+                    height: 20.0,
+                    fill: [200, 90, 90, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            },
+            Element {
+                id: "el-survivor".into(),
+                name: "survivor_shape".into(),
+                kind: ElementKind::Path {
+                    commands: rectangle_path_commands(30.0, 30.0, RectangleOptions::default()),
+                    fill: [80, 140, 240, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                    fill_rule: FillRule::NonZero,
+                },
+                ..Element::default()
+            },
+        ];
+        kf.instance_overrides.push(InstancePropertyOverride {
+            instance_id: "el-victim".into(),
+            target_name: "title_txt".into(),
+            text: Some("Override".into()),
+            color: None,
+            visible: None,
+            frame: None,
+        });
+        kf.asset_warps.push(AssetWarpRig {
+            element_id: "el-victim".into(),
+            pins: vec![WarpPin {
+                id: "pin-0".into(),
+                kind: WarpPinKind::default(),
+                rest_pos: [5.0, 5.0],
+                pos: [8.0, 6.0],
+                rotation: 0.0,
+                stiffness: 1.0,
+            }],
+            envelop_subdivisions: 4,
+        });
+        kf.element_parents.push(ElementParentLink {
+            child_id: "el-survivor".into(),
+            parent_id: "el-victim".into(),
+        });
+        kf.vector_effects.push(ElementVectorEffects {
+            element_id: "el-survivor".into(),
+            envelope_warp: None,
+            procedural_effects: Vec::new(),
+            vector_blend: Some(VectorBlendSpec {
+                target_element_id: "el-victim".into(),
+                spacing: VectorBlendSpacing::SpecifiedSteps(4),
+                align_to_path: false,
+                spine: None,
+            }),
+            freeform_gradient: None,
+            gradient_mesh: None,
+        });
+    }
+    project.upgrade_format_for_features();
+    project
+        .validate()
+        .expect("initial side-table fixture must validate");
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.set_selection(vec![crate::selection::SelectionTarget {
+        layer: layer_id,
+        element: "el-victim".into(),
+    }]);
+    editor.delete_selected();
+    editor
+        .project
+        .validate()
+        .expect("deleting element must prune orphan side-table refs and keep project valid");
+
+    let kf_after = &editor.symbol().timeline.layers[0].keyframes[0];
+    assert_eq!(kf_after.elements.len(), 1);
+    assert_eq!(kf_after.elements[0].id, "el-survivor");
+    assert!(kf_after.instance_overrides.is_empty());
+    assert!(kf_after.asset_warps.is_empty());
+    assert!(kf_after.element_parents.is_empty());
+    assert!(
+        kf_after.vector_effects.is_empty(),
+        "empty ElementVectorEffects after clearing dangling blend target must be pruned"
+    );
+    assert!(
+        editor.symbol().timeline.layers[0]
+            .properties
+            .groups
+            .is_empty(),
+        "deleting grouped members must prune empty AuthoringGroup"
+    );
+
+    // Undo restores everything cleanly (`can_redo() == true`), then a new edit clears the Redo stack!
+    assert!(editor.history.can_undo());
+    editor.undo();
+    editor.project.validate().unwrap();
+    assert!(editor.history.can_redo());
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        3
+    );
+
+    editor.transact_named("Branching edit clears Redo", |ed| {
+        ed.project.name = "Branched History".into();
+    });
+    assert!(
+        !editor.history.can_redo(),
+        "committing a new edit after Undo must clear the Redo stack"
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    editor.project.validate().unwrap();
+    editor.redo();
+    editor.project.validate().unwrap();
+    assert_eq!(editor.project.name, "Branched History");
+}

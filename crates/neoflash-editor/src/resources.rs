@@ -524,7 +524,7 @@ impl Editor {
             }
         }
         candidate.symbols.push(sym);
-        candidate.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|e| e.to_string())?;
 
         self.finish_edits();

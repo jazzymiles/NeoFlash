@@ -37,6 +37,12 @@ pub struct ClipboardPayload {
     elements: Vec<Element>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     groups: Vec<AuthoringGroup>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    bitmap_fills: Vec<AuthoredBitmapFill>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    appearances: Vec<ElementAppearance>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    video: Option<TimelineVideoSpan>,
     symbols: Vec<Symbol>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sources: Vec<SourceUnit>,
@@ -57,6 +63,35 @@ impl ClipboardPayload {
     /// roots. Library order and frame indices survive.
     pub fn capture(
         project: &Project,
+        elements: Vec<Element>,
+        source_session: &str,
+        anchor: [f64; 2],
+    ) -> Result<Self, ClipboardError> {
+        Self::capture_internal(project, None, elements, source_session, anchor)
+    }
+
+    /// Capture placements together with the exact keyframe-scoped `bitmap_fills` and
+    /// `appearances` active on `(symbol_id, frame)`.
+    pub fn capture_at_frame(
+        project: &Project,
+        symbol_id: &str,
+        frame: u32,
+        elements: Vec<Element>,
+        source_session: &str,
+        anchor: [f64; 2],
+    ) -> Result<Self, ClipboardError> {
+        Self::capture_internal(
+            project,
+            Some((symbol_id, frame)),
+            elements,
+            source_session,
+            anchor,
+        )
+    }
+
+    fn capture_internal(
+        project: &Project,
+        active_keyframe: Option<(&str, u32)>,
         elements: Vec<Element>,
         source_session: &str,
         anchor: [f64; 2],
@@ -90,6 +125,77 @@ impl ClipboardPayload {
                 })
             })
             .collect();
+        let mut bitmap_fills = Vec::new();
+        let mut seen_bf = HashSet::new();
+        let mut appearances = Vec::new();
+        let mut seen_app = HashSet::new();
+        let has_video_element = elements
+            .iter()
+            .any(|el| matches!(el.kind, ElementKind::Video { .. }));
+        let mut video = None;
+        if let Some((sym_id, frame)) = active_keyframe
+            && let Some(sym) = project.symbol(sym_id)
+        {
+            for layer in &sym.timeline.layers {
+                if let Some(kf) = layer.key_at(frame) {
+                    if has_video_element
+                        && video.is_none()
+                        && kf.video.is_some()
+                        && kf.elements.iter().any(|el| {
+                            selected.contains(el.id.as_str())
+                                && matches!(el.kind, ElementKind::Video { .. })
+                        })
+                    {
+                        video = kf.video.clone();
+                    }
+                    for bf in &kf.bitmap_fills {
+                        if selected.contains(bf.element_id.as_str())
+                            && seen_bf.insert(bf.element_id.clone())
+                        {
+                            bitmap_fills.push(bf.clone());
+                        }
+                    }
+                    for app in &kf.appearances {
+                        if selected.contains(app.element_id.as_str())
+                            && seen_app.insert(app.element_id.clone())
+                        {
+                            appearances.push(app.clone());
+                        }
+                    }
+                }
+            }
+        } else {
+            for sym in &project.symbols {
+                for layer in &sym.timeline.layers {
+                    for kf in &layer.keyframes {
+                        if has_video_element
+                            && video.is_none()
+                            && kf.video.is_some()
+                            && kf.elements.iter().any(|el| {
+                                selected.contains(el.id.as_str())
+                                    && matches!(el.kind, ElementKind::Video { .. })
+                            })
+                        {
+                            video = kf.video.clone();
+                        }
+                        for bf in &kf.bitmap_fills {
+                            if selected.contains(bf.element_id.as_str())
+                                && seen_bf.insert(bf.element_id.clone())
+                            {
+                                bitmap_fills.push(bf.clone());
+                            }
+                        }
+                        for app in &kf.appearances {
+                            if selected.contains(app.element_id.as_str())
+                                && seen_app.insert(app.element_id.clone())
+                            {
+                                appearances.push(app.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let payload = Self {
             format_version: VERSION,
             source_session: source_session.to_owned(),
@@ -100,6 +206,9 @@ impl ClipboardPayload {
             resources: project.resources.clone(),
             elements,
             groups,
+            bitmap_fills,
+            appearances,
+            video,
             symbols: project
                 .symbols
                 .iter()
@@ -142,6 +251,42 @@ impl ClipboardPayload {
 
     pub fn anchor(&self) -> [f64; 2] {
         self.anchor
+    }
+
+    pub fn source_session(&self) -> &str {
+        &self.source_session
+    }
+
+    pub fn elements(&self) -> &[Element] {
+        &self.elements
+    }
+
+    pub fn groups(&self) -> &[AuthoringGroup] {
+        &self.groups
+    }
+
+    pub fn bitmap_fills(&self) -> &[AuthoredBitmapFill] {
+        &self.bitmap_fills
+    }
+
+    pub fn appearances(&self) -> &[ElementAppearance] {
+        &self.appearances
+    }
+
+    pub fn video(&self) -> Option<&TimelineVideoSpan> {
+        self.video.as_ref()
+    }
+
+    pub fn symbols(&self) -> &[Symbol] {
+        &self.symbols
+    }
+
+    pub fn sources(&self) -> &[SourceUnit] {
+        &self.sources
+    }
+
+    pub fn resources(&self) -> &[ResourceUnit] {
+        &self.resources
     }
 
     /// The wrapper selection and every imported definition share one document
@@ -288,7 +433,10 @@ impl ClipboardPayload {
         let Some(layer) = symbol.timeline.layers.iter().find(|l| l.id == layer_id) else {
             return invalid("destination layer does not exist in the target symbol");
         };
-        if layer.locked || !layer.visible {
+        if layer.properties.role == LayerRole::Folder
+            || crate::layer_effectively_locked(&symbol.timeline, layer)
+            || !crate::layer_effectively_visible(&symbol.timeline, layer)
+        {
             return invalid("destination layer is locked or hidden");
         }
 
@@ -386,15 +534,37 @@ impl ClipboardPayload {
                     &mut occupied,
                     &forbidden,
                 );
-                for element in layer.keyframes.iter().flat_map(|k| &k.elements) {
+                for group in &layer.properties.groups {
                     allocate_identity(
-                        &element.id,
-                        "object",
+                        &group.id,
+                        "group",
                         same_session,
                         &mut identities,
                         &mut occupied,
                         &forbidden,
                     );
+                }
+                for key in &layer.keyframes {
+                    for arm in &key.ik_armatures {
+                        allocate_identity(
+                            &arm.id,
+                            "ik",
+                            same_session,
+                            &mut identities,
+                            &mut occupied,
+                            &forbidden,
+                        );
+                    }
+                    for element in &key.elements {
+                        allocate_identity(
+                            &element.id,
+                            "object",
+                            same_session,
+                            &mut identities,
+                            &mut occupied,
+                            &forbidden,
+                        );
+                    }
                 }
             }
         }
@@ -408,9 +578,10 @@ impl ClipboardPayload {
             {
                 // Both documents were validated above, so canonical base64
                 // equality is byte equality without another decoded allocation.
-                if existing.path != resource.path
-                    || existing.media_type != resource.media_type
-                    || existing.data_base64 != resource.data_base64
+                if existing.media_type != resource.media_type
+                    || (!same_session
+                        && (existing.path != resource.path
+                            || existing.data_base64 != resource.data_base64))
                 {
                     return invalid(
                         "a resource path conflicts with different destination spelling, media type or bytes; resolve the resource conflict before pasting",
@@ -463,20 +634,21 @@ impl ClipboardPayload {
                     .motion_guide
                     .as_ref()
                     .map(|id| identities[id].clone());
+                layer.properties.linked_layer = layer
+                    .properties
+                    .linked_layer
+                    .as_ref()
+                    .map(|id| identities[id].clone());
                 for group in &mut layer.properties.groups {
+                    if let Some(gid) = identities.get(&group.id) {
+                        group.id = gid.clone();
+                    }
                     for member in &mut group.members {
                         *member = identities[member].clone();
                     }
                 }
                 for key in &mut layer.keyframes {
-                    if let Some(sound) = &mut key.sound {
-                        sound.resource = identities[&sound.resource].clone();
-                    }
-                    remap_motion_element_references(key, &identities);
-                    for element in &mut key.elements {
-                        element.id = identities[&element.id].clone();
-                        remap_reference(element, &identities);
-                    }
+                    remap_symbol_keyframe_references(key, &identities);
                 }
             }
             candidate
@@ -550,17 +722,43 @@ impl ClipboardPayload {
             layer.keyframes.sort_by_key(|k| k.frame);
         }
         let layer = &mut timeline.layers[layer_idx];
-        layer
+        let dest_key = layer
             .keyframes
             .iter_mut()
             .find(|k| k.frame == frame)
-            .unwrap()
-            .elements
-            .extend(pasted);
+            .unwrap();
+        dest_key.elements.extend(pasted);
+        for original_bf in &self.bitmap_fills {
+            if let Some(new_eid) = placement_ids.get(&original_bf.element_id) {
+                let mut bf = original_bf.clone();
+                bf.element_id = new_eid.clone();
+                if let Some(new_rid) = identities.get(&bf.resource_id) {
+                    bf.resource_id = new_rid.clone();
+                }
+                dest_key.set_bitmap_fill(bf);
+            }
+        }
+        for original_app in &self.appearances {
+            if let Some(new_eid) = placement_ids.get(&original_app.element_id) {
+                let mut app = original_app.clone();
+                app.element_id = new_eid.clone();
+                dest_key.set_appearance(app);
+            }
+        }
+        if let Some(original_video) = &self.video
+            && dest_key.video.is_none()
+            && dest_key.keyed_properties.is_none()
+        {
+            let mut video = original_video.clone();
+            if let Some(new_rid) = identities.get(&video.resource) {
+                video.resource = new_rid.clone();
+            }
+            dest_key.video = Some(video);
+        }
         layer.normalize_motion_keys();
         for original in &self.groups {
             let mut group = original.clone();
-            group.id = new_id("group");
+            group.id = fresh_id("group", &mut occupied, &forbidden);
             for member in &mut group.members {
                 *member = placement_ids[member].clone();
             }
@@ -569,6 +767,26 @@ impl ClipboardPayload {
         if !self.groups.is_empty() {
             candidate.format_version = candidate.format_version.max(4);
         }
+        let uses_v5 = candidate.symbols.iter().any(|s| {
+            s.timeline.layers.iter().any(|l| {
+                l.properties.end_frame.is_some()
+                    || l.keyframes.iter().any(|k| {
+                        matches!(k.tween, Some(Easing::Flash { .. }))
+                            || k.property_eases
+                                .iter()
+                                .any(|(_, ease)| matches!(ease, Easing::Flash { .. }))
+                            || k.elements.iter().any(|e| {
+                                e.transform.skew != 0.0
+                                    || !e.transform.color_transform.is_identity()
+                                    || matches!(e.kind, ElementKind::PaintedPath { .. })
+                            })
+                    })
+            })
+        });
+        if uses_v5 {
+            candidate.format_version = candidate.format_version.max(5);
+        }
+        candidate.upgrade_format_for_features();
         validate_project(&candidate, "pasted document")?;
         crate::model::reserve_ids(&candidate);
         Ok(PasteResult {
@@ -617,6 +835,9 @@ impl ClipboardPayload {
                     keyframes: vec![Keyframe {
                         frame: 0,
                         elements: self.elements.clone(),
+                        bitmap_fills: self.bitmap_fills.clone(),
+                        appearances: self.appearances.clone(),
+                        video: self.video.clone(),
                         tween: None,
                         label: String::new(),
                         ..Default::default()
@@ -624,33 +845,32 @@ impl ClipboardPayload {
                 }],
             },
         });
-        validate_project(
-            &Project {
-                library_folders: self
-                    .symbols
-                    .iter()
-                    .map(|symbol| symbol.folder.clone())
-                    .filter(|folder| !folder.is_empty())
-                    .collect::<std::collections::BTreeSet<_>>()
-                    .into_iter()
-                    .collect(),
-                sources: self.sources.clone(),
-                resources: self.resources.clone(),
-                document_class: None,
-                scenes: vec![],
-                script_language: None,
-                also_compile_compatible_scripts: true,
-                format_version: self.document_version(),
-                name: "Clipboard validation".into(),
-                width: 1,
-                height: 1,
-                fps: 1,
-                background: [0; 4],
-                root: wrapper_id,
-                symbols,
-            },
-            "captured content",
-        )
+        let mut synthetic = Project {
+            library_folders: self
+                .symbols
+                .iter()
+                .map(|symbol| symbol.folder.clone())
+                .filter(|folder| !folder.is_empty())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+            sources: self.sources.clone(),
+            resources: self.resources.clone(),
+            document_class: None,
+            scenes: vec![],
+            script_language: None,
+            also_compile_compatible_scripts: true,
+            format_version: self.document_version(),
+            name: "Clipboard validation".into(),
+            width: 1,
+            height: 1,
+            fps: 1,
+            background: [0; 4],
+            root: wrapper_id,
+            symbols,
+        };
+        synthetic.upgrade_format_for_features();
+        validate_project(&synthetic, "captured content")
     }
 
     fn encode(&self) -> Result<String, ClipboardError> {
@@ -746,6 +966,14 @@ fn canonical_symbol_closure(
     for symbol in &ordered {
         for id in std::iter::once(&symbol.id)
             .chain(symbol.timeline.layers.iter().map(|l| &l.id))
+            .chain(
+                symbol
+                    .timeline
+                    .layers
+                    .iter()
+                    .flat_map(|l| &l.keyframes)
+                    .flat_map(|k| k.ik_armatures.iter().map(|a| &a.id)),
+            )
             .chain(symbol_elements(symbol).map(|e| &e.id))
         {
             let next = identities.len();
@@ -786,15 +1014,13 @@ fn canonical_symbol_closure(
                         .motion_guide
                         .as_ref()
                         .map(|id| identities[id].clone());
+                    layer.properties.linked_layer = layer
+                        .properties
+                        .linked_layer
+                        .as_ref()
+                        .map(|id| identities[id].clone());
                     for key in &mut layer.keyframes {
-                        if let Some(sound) = &mut key.sound {
-                            sound.resource = identities[&sound.resource].clone();
-                        }
-                        remap_motion_element_references(key, &identities);
-                        for element in &mut key.elements {
-                            element.id = identities[&element.id].clone();
-                            remap_reference(element, &identities);
-                        }
+                        remap_symbol_keyframe_references(key, &identities);
                     }
                 }
                 result
@@ -878,12 +1104,11 @@ fn symbol_ids(symbol: &Symbol, ids: &mut HashSet<Id>) {
     ids.insert(symbol.id.clone());
     for layer in &symbol.timeline.layers {
         ids.insert(layer.id.clone());
-        ids.extend(
-            layer
-                .keyframes
-                .iter()
-                .flat_map(|k| k.elements.iter().map(|e| e.id.clone())),
-        );
+        ids.extend(layer.properties.groups.iter().map(|g| g.id.clone()));
+        for key in &layer.keyframes {
+            ids.extend(key.ik_armatures.iter().map(|a| a.id.clone()));
+            ids.extend(key.elements.iter().map(|e| e.id.clone()));
+        }
     }
 }
 fn project_ids(project: &Project) -> HashSet<Id> {
@@ -900,6 +1125,7 @@ fn project_ids(project: &Project) -> HashSet<Id> {
 }
 fn payload_ids(payload: &ClipboardPayload) -> HashSet<Id> {
     let mut ids: HashSet<_> = payload.elements.iter().map(|e| e.id.clone()).collect();
+    ids.extend(payload.groups.iter().map(|g| g.id.clone()));
     ids.extend(payload.sources.iter().map(|source| source.id.clone()));
     ids.extend(payload.resources.iter().map(|resource| resource.id.clone()));
     for symbol in &payload.symbols {
@@ -948,16 +1174,103 @@ fn remap_reference(element: &mut Element, map: &HashMap<Id, Id>) {
         ElementKind::Bitmap { resource_id, .. } => resource_id,
         _ => return,
     };
-    *id = map[id].clone();
+    if let Some(mapped) = map.get(id) {
+        *id = mapped.clone();
+    }
+}
+
+fn remap_symbol_keyframe_references(key: &mut Keyframe, map: &HashMap<Id, Id>) {
+    if let Some(sound) = &mut key.sound
+        && let Some(rid) = map.get(&sound.resource)
+    {
+        sound.resource = rid.clone();
+    }
+    if let Some(video) = &mut key.video
+        && let Some(rid) = map.get(&video.resource)
+    {
+        video.resource = rid.clone();
+    }
+    remap_motion_element_references(key, map);
+    for ov in &mut key.instance_overrides {
+        if let Some(eid) = map.get(&ov.instance_id) {
+            ov.instance_id = eid.clone();
+        }
+    }
+    for bf in &mut key.bitmap_fills {
+        if let Some(eid) = map.get(&bf.element_id) {
+            bf.element_id = eid.clone();
+        }
+        if let Some(rid) = map.get(&bf.resource_id) {
+            bf.resource_id = rid.clone();
+        }
+    }
+    for warp in &mut key.asset_warps {
+        if let Some(eid) = map.get(&warp.element_id) {
+            warp.element_id = eid.clone();
+        }
+    }
+    for pl in &mut key.element_parents {
+        if let Some(eid) = map.get(&pl.child_id) {
+            pl.child_id = eid.clone();
+        }
+        if let Some(pid) = map.get(&pl.parent_id) {
+            pl.parent_id = pid.clone();
+        }
+    }
+    for cid in &mut key.controller_elements {
+        if let Some(eid) = map.get(cid) {
+            *cid = eid.clone();
+        }
+    }
+    for arm in &mut key.ik_armatures {
+        if let Some(aid) = map.get(&arm.id) {
+            arm.id = aid.clone();
+        }
+        for bone in &mut arm.bones {
+            if let Some(eid) = map.get(&bone.element_id) {
+                bone.element_id = eid.clone();
+            }
+        }
+    }
+    for app in &mut key.appearances {
+        if let Some(eid) = map.get(&app.element_id) {
+            app.element_id = eid.clone();
+        }
+    }
+    for acc in &mut key.extended_accessibility {
+        if let Some(eid) = map.get(&acc.element_id) {
+            acc.element_id = eid.clone();
+        }
+    }
+    for fx in &mut key.vector_effects {
+        if let Some(eid) = map.get(&fx.element_id) {
+            fx.element_id = eid.clone();
+        }
+        if let Some(blend) = &mut fx.vector_blend
+            && let Some(tid) = map.get(&blend.target_element_id)
+        {
+            blend.target_element_id = tid.clone();
+        }
+    }
+    for element in &mut key.elements {
+        if let Some(eid) = map.get(&element.id) {
+            element.id = eid.clone();
+        }
+        remap_reference(element, map);
+    }
 }
 
 fn remap_motion_element_references(key: &mut Keyframe, map: &HashMap<Id, Id>) {
     for track in &mut key.motion_tracks {
-        track.element_id = map[&track.element_id].clone();
+        if let Some(eid) = map.get(&track.element_id) {
+            track.element_id = eid.clone();
+        }
     }
     if let Some(object_keys) = &mut key.motion_keys {
         for object_key in object_keys {
-            object_key.element_id = map[&object_key.element_id].clone();
+            if let Some(eid) = map.get(&object_key.element_id) {
+                object_key.element_id = eid.clone();
+            }
         }
     }
 }
@@ -1009,5 +1322,303 @@ impl Write for BoundedText {
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tiny_png() -> Vec<u8> {
+        let img = image::RgbaImage::from_pixel(2, 2, image::Rgba([220, 40, 60, 255]));
+        let mut bytes = Vec::new();
+        img.write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+        bytes
+    }
+
+    #[test]
+    fn capture_and_cross_session_paste_remap_format_9_side_tables_and_stage_bitmap_fills() {
+        let mut src = Project::blank();
+        let png = tiny_png();
+        src.resources.push(
+            ResourceUnit::from_bytes("bmp-res-a", "bitmaps/tile.png", "image/png", &png).unwrap(),
+        );
+        src.resources.push(
+            ResourceUnit::from_bytes("vid-res-a", "video/clip.mp4", "video/mp4", b"fake-mp4-data")
+                .unwrap(),
+        );
+
+        let shape_a = Element {
+            id: "inner-shape".into(),
+            name: "TileShape".into(),
+            kind: ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    PathCommand::LineTo { x: 20.0, y: 0.0 },
+                    PathCommand::LineTo { x: 20.0, y: 20.0 },
+                    PathCommand::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+                fill: [255, 255, 255, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        let shape_b = Element {
+            id: "inner-child".into(),
+            name: "ChildShape".into(),
+            kind: ElementKind::Rectangle {
+                width: 10.0,
+                height: 10.0,
+                fill: [20, 120, 220, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        let inner_kf = Keyframe {
+            frame: 0,
+            elements: vec![shape_a, shape_b],
+            video: Some(TimelineVideoSpan {
+                resource: "vid-res-a".into(),
+                ..TimelineVideoSpan::default()
+            }),
+            bitmap_fills: vec![AuthoredBitmapFill {
+                element_id: "inner-shape".into(),
+                resource_id: "bmp-res-a".into(),
+                matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                repeat: true,
+                smoothing: true,
+            }],
+            asset_warps: vec![AssetWarpRig {
+                element_id: "inner-shape".into(),
+                pins: vec![WarpPin {
+                    id: "pin-1".into(),
+                    kind: WarpPinKind::Open,
+                    rest_pos: [5.0, 5.0],
+                    pos: [6.0, 7.0],
+                    rotation: 0.0,
+                    stiffness: 1.0,
+                }],
+                envelop_subdivisions: 4,
+            }],
+            element_parents: vec![ElementParentLink {
+                child_id: "inner-child".into(),
+                parent_id: "inner-shape".into(),
+            }],
+            appearances: vec![ElementAppearance {
+                element_id: "inner-shape".into(),
+                style_id: Some("style-1".into()),
+                ..ElementAppearance::default()
+            }],
+            vector_effects: vec![ElementVectorEffects {
+                element_id: "inner-shape".into(),
+                vector_blend: Some(VectorBlendSpec {
+                    target_element_id: "inner-child".into(),
+                    spacing: VectorBlendSpacing::SpecifiedSteps(4),
+                    align_to_path: false,
+                    spine: None,
+                }),
+                ..ElementVectorEffects::default()
+            }],
+            ..Keyframe::default()
+        };
+        src.symbols.push(Symbol {
+            id: "sym-rich".into(),
+            name: "RichClip".into(),
+            folder: "UI".into(),
+            kind: SymbolKind::MovieClip,
+            class_name: None,
+            linkage_id: None,
+            timeline: Timeline {
+                frame_count: 4,
+                layers: vec![Layer {
+                    id: "layer-rich".into(),
+                    name: "Art".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties {
+                        scale9_grid: Some([2.0, 2.0, 16.0, 16.0]),
+                        ..LayerProperties::default()
+                    },
+                    keyframes: vec![inner_kf],
+                }],
+                scripts: vec![],
+                guides: vec![],
+            },
+        });
+        src.library_folders.push("UI".into());
+
+        let stage_shape = Element {
+            id: "stage-filled".into(),
+            name: "StageFilled".into(),
+            kind: ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    PathCommand::LineTo { x: 30.0, y: 0.0 },
+                    PathCommand::LineTo { x: 30.0, y: 30.0 },
+                    PathCommand::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+                fill: [255, 255, 255, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        let stage_inst = Element {
+            id: "stage-inst".into(),
+            name: "PlacedRich".into(),
+            kind: ElementKind::Instance {
+                symbol_id: "sym-rich".into(),
+                playback: InstancePlayback::Independent,
+            },
+            ..Element::default()
+        };
+        let root_kf = &mut src.symbols[0].timeline.layers[0].keyframes[0];
+        root_kf.elements = vec![stage_shape.clone(), stage_inst.clone()];
+        root_kf.bitmap_fills.push(AuthoredBitmapFill {
+            element_id: "stage-filled".into(),
+            resource_id: "bmp-res-a".into(),
+            matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            repeat: false,
+            smoothing: true,
+        });
+        root_kf.appearances.push(ElementAppearance {
+            element_id: "stage-filled".into(),
+            style_id: Some("style-stage".into()),
+            ..ElementAppearance::default()
+        });
+        src.upgrade_format_for_features();
+        src.validate().unwrap();
+
+        let root_id = src.root.clone();
+        let payload = ClipboardPayload::capture_at_frame(
+            &src,
+            &root_id,
+            0,
+            vec![stage_shape, stage_inst],
+            "tab-a",
+            [0.0, 0.0],
+        )
+        .unwrap();
+        let roundtripped = ClipboardPayload::from_text(&payload.to_text().unwrap())
+            .unwrap()
+            .unwrap();
+
+        let dst = Project::blank();
+        let dst_root = dst.root.clone();
+        let dst_layer = dst.symbols[0].timeline.layers[0].id.clone();
+        let res = roundtripped
+            .paste_into(&dst, "tab-b", &dst_root, &dst_layer, 0, [12.0, 8.0])
+            .unwrap();
+        res.project.validate().unwrap();
+
+        let dst_kf = &res.project.symbols[0].timeline.layers[0].keyframes[0];
+        assert_eq!(dst_kf.bitmap_fills.len(), 1);
+        assert_eq!(dst_kf.bitmap_fills[0].element_id, res.element_ids[0]);
+        assert_ne!(dst_kf.bitmap_fills[0].resource_id, "bmp-res-a");
+        assert_eq!(dst_kf.appearances.len(), 1);
+        assert_eq!(dst_kf.appearances[0].element_id, res.element_ids[0]);
+
+        let imported_sym = res
+            .project
+            .symbols
+            .iter()
+            .find(|s| s.name == "RichClip")
+            .unwrap();
+        assert_eq!(
+            imported_sym.timeline.layers[0].properties.scale9_grid,
+            Some([2.0, 2.0, 16.0, 16.0])
+        );
+        let ikf = &imported_sym.timeline.layers[0].keyframes[0];
+        assert_ne!(ikf.video.as_ref().unwrap().resource, "vid-res-a");
+        assert_eq!(ikf.bitmap_fills[0].element_id, ikf.elements[0].id);
+        assert_eq!(ikf.asset_warps[0].element_id, ikf.elements[0].id);
+        assert_eq!(ikf.element_parents[0].child_id, ikf.elements[1].id);
+        assert_eq!(ikf.element_parents[0].parent_id, ikf.elements[0].id);
+        assert_eq!(ikf.vector_effects[0].element_id, ikf.elements[0].id);
+        assert_eq!(
+            ikf.vector_effects[0]
+                .vector_blend
+                .as_ref()
+                .unwrap()
+                .target_element_id,
+            ikf.elements[1].id
+        );
+
+        // Folder layer and child layer under a locked Folder must be rejected by `paste_into`.
+        let mut locked_folder_dst = res.project.clone();
+        locked_folder_dst.format_version = locked_folder_dst.format_version.max(4);
+        let mut folder_layer = Layer {
+            id: "folder-locked".into(),
+            name: "Folder".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![],
+            properties: LayerProperties {
+                role: LayerRole::Folder,
+                ..LayerProperties::default()
+            },
+        };
+        let child_under_locked = Layer {
+            id: "child-unlocked".into(),
+            name: "Child".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe::default()],
+            properties: LayerProperties {
+                parent: Some("folder-locked".into()),
+                ..LayerProperties::default()
+            },
+        };
+        let mut unlocked_folder_dst = locked_folder_dst.clone();
+        unlocked_folder_dst.symbols[0]
+            .timeline
+            .layers
+            .push(folder_layer.clone());
+        unlocked_folder_dst.validate().unwrap();
+        assert!(
+            roundtripped
+                .paste_into(
+                    &unlocked_folder_dst,
+                    "tab-b",
+                    &dst_root,
+                    "folder-locked",
+                    0,
+                    [0.0, 0.0],
+                )
+                .is_err(),
+            "paste_into must reject pasting directly onto a Folder layer"
+        );
+
+        folder_layer.locked = true;
+        locked_folder_dst.symbols[0]
+            .timeline
+            .layers
+            .push(folder_layer);
+        locked_folder_dst.symbols[0]
+            .timeline
+            .layers
+            .push(child_under_locked);
+        locked_folder_dst.validate().unwrap();
+        assert!(
+            roundtripped
+                .paste_into(
+                    &locked_folder_dst,
+                    "tab-b",
+                    &dst_root,
+                    "child-unlocked",
+                    0,
+                    [0.0, 0.0],
+                )
+                .is_err(),
+            "paste_into must reject child layer whose ancestor Folder is locked"
+        );
     }
 }

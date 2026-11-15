@@ -229,6 +229,7 @@ pub struct Editor {
     pub(crate) ai_manager: crate::ai_connections::AiConnectionManager,
     pub(crate) ai_connection_modal: Option<crate::panels::ai_dialogs::AiConnectionModal>,
     pub(crate) ai_session: crate::panels::ai_dialogs::AiDocumentSession,
+    pub(crate) shared_frame_clipboard: Option<crate::timeline_edit::SharedFrameClipboard>,
     pub(crate) persist_workspace_requested: bool,
 }
 
@@ -645,6 +646,7 @@ impl Editor {
             ai_connection_modal: None,
             ai_session: Default::default(),
             beta_feedback: Default::default(),
+            shared_frame_clipboard: None,
             persist_workspace_requested: false,
         };
         crate::panels::publish_settings::sync_publish_profile_with_render_mode(
@@ -1048,7 +1050,15 @@ impl Editor {
         }
     }
     pub fn undo(&mut self) {
+        if !self.has_document() {
+            return;
+        }
         self.finish_edits();
+        self.exit_stage_text_edit();
+        self.scale9_guide_drag = None;
+        self.authoring_modify.distort_session = None;
+        self.authoring_modify.envelope_session = None;
+        self.timeline_edit.cancel_gesture();
         self.timeline_key_drag = None;
         self.vector = Default::default();
         self.history.undo(&mut self.project);
@@ -1056,7 +1066,15 @@ impl Editor {
         self.clamp_playhead_to_timeline();
     }
     pub fn redo(&mut self) {
+        if !self.has_document() {
+            return;
+        }
         self.finish_edits();
+        self.exit_stage_text_edit();
+        self.scale9_guide_drag = None;
+        self.authoring_modify.distort_session = None;
+        self.authoring_modify.envelope_session = None;
+        self.timeline_edit.cancel_gesture();
         self.timeline_key_drag = None;
         self.vector = Default::default();
         self.history.redo(&mut self.project);
@@ -1064,7 +1082,15 @@ impl Editor {
         self.clamp_playhead_to_timeline();
     }
     pub fn step_history_to(&mut self, index: usize) -> bool {
+        if !self.has_document() {
+            return false;
+        }
         self.finish_edits();
+        self.exit_stage_text_edit();
+        self.scale9_guide_drag = None;
+        self.authoring_modify.distort_session = None;
+        self.authoring_modify.envelope_session = None;
+        self.timeline_edit.cancel_gesture();
         self.timeline_key_drag = None;
         self.vector = Default::default();
         let moved = self.history.step_to(&mut self.project, index);
@@ -1073,6 +1099,9 @@ impl Editor {
         moved
     }
     pub fn clear_history(&mut self) {
+        if !self.has_document() {
+            return;
+        }
         self.finish_edits();
         self.timeline_key_drag = None;
         self.vector = Default::default();
@@ -1315,9 +1344,10 @@ impl Editor {
             Pending::Open | Pending::Import => {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter(
-                        "NeoFlash, Flash or Figma project",
+                        "NeoFlash, Flash, Figma or Vector/PSD document",
                         &[
                             "nflash", "json", "fla", "xfl", "xml", "swf", "swc", "fig", "figma",
+                            "svg", "psd", "psb", "pdf", "ai", "fxg",
                         ],
                     )
                     .add_filter("NeoFlash project", &["nflash", "json"])
@@ -1326,6 +1356,10 @@ impl Editor {
                         &["fla", "xfl", "xml", "swf", "swc"],
                     )
                     .add_filter("Figma design", &["fig", "figma", "json"])
+                    .add_filter(
+                        "Vector & Photoshop documents",
+                        &["svg", "psd", "psb", "pdf", "ai", "fxg"],
+                    )
                     .pick_file()
                 {
                     self.open_path(path, ctx)
@@ -1335,6 +1369,14 @@ impl Editor {
             Pending::CloseSession(index) => self.finish_session_close(ctx, index),
             Pending::Close | Pending::CloseSessions => self.approve_quit_document(ctx),
         }
+    }
+
+    pub(crate) fn is_native_nflash_path(path: &std::path::Path) -> bool {
+        !path.is_dir()
+            && path
+                .extension()
+                .and_then(|s| s.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("nflash"))
     }
 
     pub(crate) fn is_legacy_flash_path(path: &std::path::Path) -> bool {
@@ -1387,11 +1429,13 @@ impl Editor {
             self.switch_session_tab(ctx, index);
             return true;
         }
-        if Self::is_legacy_flash_path(&path) {
+        if Self::is_non_native_graphic_document_path(&path) || Self::is_legacy_flash_path(&path) {
             return self.try_import_legacy(path, ctx);
         }
         if self.open_path_in_session(ctx, path) {
-            self.message("Project opened.");
+            if self.path.is_some() {
+                self.message("Project opened.");
+            }
             true
         } else {
             false
@@ -1399,7 +1443,14 @@ impl Editor {
     }
 
     pub fn can_revert(&self) -> bool {
-        self.tracked_disk_path().is_some() && self.dirty()
+        if !self.has_document() || self.tracked_disk_path().is_none() {
+            return false;
+        }
+        if self.path.is_some() {
+            self.dirty()
+        } else {
+            self.history.can_undo() || self.recovery.external_change().is_some()
+        }
     }
 
     pub fn request_revert(&mut self) {
@@ -1411,6 +1462,9 @@ impl Editor {
 
     pub fn revert_to_saved(&mut self, ctx: &egui::Context) -> bool {
         self.confirm_revert = false;
+        if !self.has_document() {
+            return false;
+        }
         let Some(disk_path) = self.tracked_disk_path().map(PathBuf::from) else {
             return false;
         };
@@ -1429,8 +1483,16 @@ impl Editor {
                         )),
                     );
                 }
+                self.set_playing(false);
+                self.timeline_audio.stop_all();
+                self.timeline_video.follow_preview(None);
+                self.exit_stage_text_edit();
+                self.authoring_tools.reset_document_transient();
+                self.authoring_modify = Default::default();
                 self.project = project;
+                let identity = self.clipboard.session.clone();
                 self.clipboard = Default::default();
+                self.clipboard.session = identity;
                 self.resource_panel = Default::default();
                 self.library_panel = Default::default();
                 self.project_panel = Default::default();
@@ -1443,6 +1505,8 @@ impl Editor {
                 self.find_replace = None;
                 self.edit_envelope = None;
                 self.clear_simple_button_state();
+                self.clear_live_preview_pointer_state();
+                self.cancel_bitmap_properties(ctx);
                 self.cancel_sound_properties(ctx);
                 self.cancel_layer_properties(ctx);
                 self.close_symbols_popover(ctx);
@@ -1467,8 +1531,13 @@ impl Editor {
                 self.clear_and_retarget_recovery();
                 self.sync_disk_mtime();
                 self.history = History::new(self.workspace.undo_levels as usize);
-                self.saved_project = Some(self.project.clone());
+                self.saved_project = if self.path.is_some() {
+                    Some(self.project.clone())
+                } else {
+                    None
+                };
                 self.playing = false;
+                self.sync_session_tabs_to_prefs();
                 self.load_project_fonts(ctx);
                 self.message("Project reverted to saved version.");
                 true
@@ -1490,7 +1559,7 @@ impl Editor {
         let _ = self.try_import_legacy(path, ctx);
     }
 
-    fn try_import_legacy(&mut self, path: PathBuf, ctx: &egui::Context) -> bool {
+    pub(crate) fn try_import_legacy(&mut self, path: PathBuf, ctx: &egui::Context) -> bool {
         use crate::output_pipeline::{OutputEvent, OutputLocation, OutputSeverity, OutputSource};
 
         if self.confirm.is_some() || self.close_origin.is_some() || self.timeline_edit.dragging() {
@@ -1502,100 +1571,131 @@ impl Editor {
         }
         let mut imported = false;
         let mut messages: Vec<(OutputSeverity, String)> = Vec::new();
-        match neoflash_import::inspect(&path) {
-            Ok(report) => {
-                messages.push((
-                    OutputSeverity::Info,
-                    format!("Legacy source: {:?} · {}", report.format, path.display()),
-                ));
-                for d in &report.diagnostics {
-                    let severity = match d.severity {
-                        neoflash_import::Severity::Info => OutputSeverity::Info,
-                        neoflash_import::Severity::Warning => OutputSeverity::Warning,
-                        neoflash_import::Severity::Error => OutputSeverity::Error,
-                    };
-                    messages.push((severity, format!("{}: {}", d.location, d.message)));
+        if Self::is_non_native_graphic_document_path(&path) {
+            match Self::import_non_native_graphic_document(&path) {
+                Ok((project, label, diags)) => {
+                    messages.push((
+                        OutputSeverity::Info,
+                        format!("Imported source: {label} · {}", path.display()),
+                    ));
+                    messages.extend(diags);
+                    self.workspace.general.push_recent(&path);
+                    self.open_new_session_tab(ctx, project, None);
+                    self.import_source =
+                        Some(std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone()));
+                    self.saved_project = None;
+                    self.sync_disk_mtime();
+                    self.sync_session_tabs_to_prefs();
+                    messages.push((
+                        OutputSeverity::Info,
+                        format!(
+                            "Imported {label}. Save as a NeoFlash project (.nflash) or Flash FLA (.fla)."
+                        ),
+                    ));
+                    imported = true;
                 }
-                if report.can_import {
-                    match neoflash_import::import_project(&path) {
-                        Ok(project) => {
-                            self.workspace.general.push_recent(&path);
-                            self.open_new_session_tab(ctx, project, None);
-                            self.import_source =
-                                Some(std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone()));
-                            self.saved_project = None;
-                            self.sync_disk_mtime();
-                            let label = match report.format {
-                                neoflash_import::ImportFormat::Swf => "SWF movie",
-                                neoflash_import::ImportFormat::Swc => "SWC library",
-                                neoflash_import::ImportFormat::LegacyBinaryFla => {
-                                    "binary FLA document"
+                Err(e) => messages.push((OutputSeverity::Error, format!("Import failed: {e}"))),
+            }
+        } else {
+            match neoflash_import::inspect(&path) {
+                Ok(report) => {
+                    messages.push((
+                        OutputSeverity::Info,
+                        format!("Legacy source: {:?} · {}", report.format, path.display()),
+                    ));
+                    for d in &report.diagnostics {
+                        let severity = match d.severity {
+                            neoflash_import::Severity::Info => OutputSeverity::Info,
+                            neoflash_import::Severity::Warning => OutputSeverity::Warning,
+                            neoflash_import::Severity::Error => OutputSeverity::Error,
+                        };
+                        messages.push((severity, format!("{}: {}", d.location, d.message)));
+                    }
+                    if report.can_import {
+                        match neoflash_import::import_project(&path) {
+                            Ok(project) => {
+                                self.workspace.general.push_recent(&path);
+                                self.open_new_session_tab(ctx, project, None);
+                                self.import_source = Some(
+                                    std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone()),
+                                );
+                                self.saved_project = None;
+                                self.sync_disk_mtime();
+                                self.sync_session_tabs_to_prefs();
+                                let label = match report.format {
+                                    neoflash_import::ImportFormat::Swf => "SWF movie",
+                                    neoflash_import::ImportFormat::Swc => "SWC library",
+                                    neoflash_import::ImportFormat::LegacyBinaryFla => {
+                                        "binary FLA document"
+                                    }
+                                    neoflash_import::ImportFormat::XflArchive
+                                    | neoflash_import::ImportFormat::XflDirectory => "XFL document",
+                                    neoflash_import::ImportFormat::Figma => "Figma composition",
+                                    neoflash_import::ImportFormat::Unknown => "Flash document",
+                                };
+                                messages.push((
+                                    OutputSeverity::Info,
+                                    format!(
+                                        "Imported {label}. Save as a NeoFlash project (.nflash) or Flash FLA (.fla)."
+                                    ),
+                                ));
+                                if report.format == neoflash_import::ImportFormat::Swf
+                                    && let Ok(swf_bytes) = std::fs::read(&path)
+                                {
+                                    let previous_frame = self.frame;
+                                    let previous_playing = self.playing;
+                                    if let Ok(play_res) =
+                                        self.play_swf_bytes_in_editor(&swf_bytes, 1)
+                                    {
+                                        self.frame = previous_frame;
+                                        self.playing = previous_playing;
+                                        messages.push((
+                                            OutputSeverity::Info,
+                                            format!(
+                                                "SWF bytecode inspected headlessly ({:?} VM, SWF v{}, {} frames). Imported artwork is shown on Stage; live display-list states are not projected yet.",
+                                                play_res.vm_kind,
+                                                play_res.swf_version,
+                                                play_res.total_frames
+                                            ),
+                                        ));
+                                    }
                                 }
-                                neoflash_import::ImportFormat::XflArchive
-                                | neoflash_import::ImportFormat::XflDirectory => "XFL document",
-                                neoflash_import::ImportFormat::Figma => "Figma composition",
-                                neoflash_import::ImportFormat::Unknown => "Flash document",
-                            };
+                                imported = true;
+                            }
+                            Err(e) => messages.push((OutputSeverity::Error, e.to_string())),
+                        }
+                    } else if report.format == neoflash_import::ImportFormat::Swf
+                        && let Ok(swf_bytes) = std::fs::read(&path)
+                    {
+                        let previous_frame = self.frame;
+                        let previous_playing = self.playing;
+                        if let Ok(play_res) = self.play_swf_bytes_in_editor(&swf_bytes, 60) {
+                            self.frame = previous_frame;
+                            self.playing = previous_playing;
                             messages.push((
-                                OutputSeverity::Info,
+                                OutputSeverity::Warning,
                                 format!(
-                                    "Imported {label}. Save as a NeoFlash project (.nflash) or Flash FLA (.fla)."
+                                    "Inspected SWF bytecode headlessly ({:?} VM, {} frames executed). The display list could not be imported, so Stage preview is unavailable and the current document was left unchanged.",
+                                    play_res.vm_kind,
+                                    play_res.frames_executed.len()
                                 ),
                             ));
-                            if report.format == neoflash_import::ImportFormat::Swf
-                                && let Ok(swf_bytes) = std::fs::read(&path)
-                            {
-                                let previous_frame = self.frame;
-                                let previous_playing = self.playing;
-                                if let Ok(play_res) = self.play_swf_bytes_in_editor(&swf_bytes, 1) {
-                                    self.frame = previous_frame;
-                                    self.playing = previous_playing;
-                                    messages.push((
-                                        OutputSeverity::Info,
-                                        format!(
-                                            "SWF bytecode inspected headlessly ({:?} VM, SWF v{}, {} frames). Imported artwork is shown on Stage; live display-list states are not projected yet.",
-                                            play_res.vm_kind,
-                                            play_res.swf_version,
-                                            play_res.total_frames
-                                        ),
-                                    ));
-                                }
-                            }
-                            imported = true;
+                        } else {
+                            messages.push((
+                                OutputSeverity::Error,
+                                "Import stopped: this SWF could not be represented or executed safely."
+                                    .into(),
+                            ));
                         }
-                        Err(e) => messages.push((OutputSeverity::Error, e.to_string())),
-                    }
-                } else if report.format == neoflash_import::ImportFormat::Swf
-                    && let Ok(swf_bytes) = std::fs::read(&path)
-                {
-                    let previous_frame = self.frame;
-                    let previous_playing = self.playing;
-                    if let Ok(play_res) = self.play_swf_bytes_in_editor(&swf_bytes, 60) {
-                        self.frame = previous_frame;
-                        self.playing = previous_playing;
-                        messages.push((
-                            OutputSeverity::Warning,
-                            format!(
-                                "Inspected SWF bytecode headlessly ({:?} VM, {} frames executed). The display list could not be imported, so Stage preview is unavailable and the current document was left unchanged.",
-                                play_res.vm_kind,
-                                play_res.frames_executed.len()
-                            ),
-                        ));
                     } else {
                         messages.push((
                             OutputSeverity::Error,
-                            "Import stopped: this SWF could not be represented or executed safely."
-                                .into(),
+                            "Import stopped: this source contains features the current importer cannot preserve.".into(),
                         ));
                     }
-                } else {
-                    messages.push((
-                        OutputSeverity::Error,
-                        "Import stopped: this source contains features the current importer cannot preserve.".into(),
-                    ));
                 }
+                Err(e) => messages.push((OutputSeverity::Error, format!("Import failed: {e}"))),
             }
-            Err(e) => messages.push((OutputSeverity::Error, format!("Import failed: {e}"))),
         }
         // Successful imports own their diagnostics. A failed import stays on the current tab.
         let file_loc = OutputLocation::for_file(path);
@@ -1613,42 +1713,99 @@ impl Editor {
         imported
     }
 
+    pub(crate) fn default_save_dialog_target(&self) -> (Option<PathBuf>, String) {
+        fn clean_stem(raw: &str) -> String {
+            let filtered: String = raw
+                .chars()
+                .filter(|c| !matches!(c, '/' | '\\' | ':' | '\0'))
+                .collect();
+            let trimmed = filtered.trim();
+            if trimmed.is_empty() {
+                "Untitled".into()
+            } else {
+                trimmed.to_owned()
+            }
+        }
+
+        if let Some(path) = &self.path {
+            let dir = path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(std::path::Path::to_path_buf);
+            if Self::is_native_nflash_path(path)
+                && let Some(name) = path.file_name().map(|s| s.to_string_lossy().into_owned())
+            {
+                return (dir, name);
+            }
+            let stem = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| self.project.name.clone());
+            return (dir, format!("{}.nflash", clean_stem(&stem)));
+        }
+
+        if let Some(src) = &self.import_source {
+            let anchor = if src
+                .file_name()
+                .and_then(|s| s.to_str())
+                .is_some_and(|n| n.eq_ignore_ascii_case("DOMDocument.xml"))
+                && let Some(parent) = src.parent()
+            {
+                parent
+            } else {
+                src.as_path()
+            };
+            let dir = anchor
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(std::path::Path::to_path_buf);
+            let raw_name = anchor
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let stem = if raw_name.len() > ".figma.json".len()
+                && raw_name
+                    .get(raw_name.len() - ".figma.json".len()..)
+                    .is_some_and(|suf| suf.eq_ignore_ascii_case(".figma.json"))
+            {
+                raw_name[..raw_name.len() - ".figma.json".len()].to_owned()
+            } else {
+                anchor
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| self.project.name.clone())
+            };
+            return (dir, format!("{}.nflash", clean_stem(&stem)));
+        }
+
+        (None, format!("{}.nflash", clean_stem(&self.project.name)))
+    }
+
     pub fn save(&mut self, save_as: bool) -> bool {
         if !self.has_document() {
             return false;
         }
         let current_path = self.path.clone();
-        if !save_as && !self.guard_save_on_external_conflict(current_path.as_deref()) {
+        let needs_save_as = save_as
+            || !current_path
+                .as_deref()
+                .is_some_and(Self::is_native_nflash_path);
+        if !needs_save_as && !self.guard_save_on_external_conflict(current_path.as_deref()) {
             return false;
         }
-        let default_name = self
-            .path
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| {
-                let stem: String = self
-                    .project
-                    .name
-                    .chars()
-                    .filter(|c| !matches!(c, '/' | '\\' | ':' | '\0'))
-                    .collect();
-                let stem = stem.trim();
-                if stem.is_empty() {
-                    "Untitled.nflash".into()
-                } else {
-                    format!("{stem}.nflash")
-                }
-            });
-        let path = if save_as || self.path.is_none() {
-            rfd::FileDialog::new()
+        let path = if needs_save_as {
+            let (default_dir, default_name) = self.default_save_dialog_target();
+            let mut dialog = rfd::FileDialog::new()
                 .add_filter("NeoFlash project", &["nflash"])
                 .add_filter("Flash FLA (Animate CC / CS6–CS4 / Flash 8)", &["fla"])
                 .add_filter("Uncompressed XFL directory", &["xfl"])
-                .set_file_name(&default_name)
-                .save_file()
+                .set_file_name(&default_name);
+            if let Some(dir) = default_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            dialog.save_file()
         } else {
-            self.path.clone()
+            current_path
         };
         let Some(path) = path else {
             return false;
@@ -1762,6 +1919,29 @@ impl Editor {
         path: PathBuf,
         runtime_dir: &std::path::Path,
     ) -> bool {
+        if !self.has_document() {
+            return false;
+        }
+        let path = if !path.is_dir() && path.extension().is_none() {
+            path.with_extension("nflash")
+        } else {
+            path
+        };
+        let fla_profile = self.resolve_fla_target_profile_for_path(&path);
+        if fla_profile.is_none() && !Self::is_native_nflash_path(&path) {
+            let bad_name = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| path.display().to_string());
+            self.notify_with_output(
+                neoflash_ui::components::ToastType::Error,
+                format!(
+                    "Save failed: cannot overwrite non-native file “{bad_name}” with a NeoFlash project. Save As “.nflash” (or export via File ▸ Export)."
+                ),
+            );
+            return false;
+        }
         if self
             .session_for_path(&path)
             .is_some_and(|index| index != self.active_session)
@@ -1773,7 +1953,6 @@ impl Editor {
             return false;
         }
         self.finish_edits();
-        let fla_profile = self.resolve_fla_target_profile_for_path(&path);
         let is_fla = fla_profile.is_some();
         let format_on_save = self.workspace.code_editor.format_on_save;
         let tab_size = self.workspace.code_editor.tab_size;
@@ -1804,6 +1983,7 @@ impl Editor {
                 .map(Some)
                 .map_err(|e| e.to_string())
             } else {
+                crate::timeline_commands::upgrade_all_format_versions(&mut self.project);
                 self.project
                     .to_json()
                     .map_err(|e| e.to_string())
@@ -2001,6 +2181,41 @@ impl Editor {
         }
     }
 
+    fn emit_script_export_diagnostics(&mut self) {
+        use crate::output_pipeline::{OutputEvent, OutputSeverity, OutputSource};
+
+        self.refresh_compiler_diagnostics();
+        let batch: Vec<OutputEvent> = self
+            .compiler_errors
+            .items
+            .iter()
+            .map(|item| {
+                let severity = if item.is_error {
+                    OutputSeverity::Error
+                } else {
+                    OutputSeverity::Warning
+                };
+                let location = item.script.as_ref().map(|script| {
+                    self.output_location_from_script(
+                        script,
+                        (item.line > 0).then_some(item.line),
+                        (item.column > 0).then_some(item.column),
+                    )
+                });
+                let msg = if item.location_label.is_empty() {
+                    item.message.clone()
+                } else {
+                    format!("{}: {}", item.location_label, item.message)
+                };
+                OutputEvent::new(severity, OutputSource::Compiler, msg)
+                    .with_optional_location(location)
+            })
+            .collect();
+        if !batch.is_empty() {
+            self.push_output_batch_coalesced(batch);
+        }
+    }
+
     /// Publish the same draft used by the estimate without committing workspace defaults.
     pub(crate) fn publish_html5_with_settings(
         &mut self,
@@ -2014,16 +2229,6 @@ impl Editor {
         let mut resolved_project = self.project.with_resolved_script_language().into_owned();
         resolved_project.set_html_render_mode(settings.render_mode);
         if settings.profile == crate::workspace::PublishProfilePreset::WebBannerNative {
-            if let Err(err) = std::fs::create_dir_all(output) {
-                let _ = self.message_event(
-                    OutputSeverity::Error,
-                    OutputSource::Publish,
-                    format!("Banner publish failed: {err}"),
-                    Some(OutputLocation::for_file(output.to_path_buf())),
-                );
-                self.show_panel(PanelId::Output);
-                return false;
-            }
             let out_html = output.join("index.html");
             let banner_opts = neoflash_export::BannerOptions {
                 max_gzip_bytes: Some(settings.banner_max_gzip_kb as usize * 1024),
@@ -2107,7 +2312,14 @@ impl Editor {
                     format!("Export failed: {e}"),
                     Some(OutputLocation::for_file(output.to_path_buf())),
                 );
-                self.show_panel(PanelId::Output);
+                if matches!(e, neoflash_export::ExportError::Scripts(_)) {
+                    self.emit_script_export_diagnostics();
+                    self.show_panel(PanelId::Output);
+                    self.show_panel(PanelId::CompilerErrors);
+                } else {
+                    self.refresh_compiler_diagnostics();
+                    self.show_panel(PanelId::Output);
+                }
                 false
             }
         }
@@ -2179,7 +2391,14 @@ impl Editor {
                     format!("Desktop app export failed: {e}"),
                     Some(OutputLocation::for_file(target_dir)),
                 );
-                self.show_panel(PanelId::Output);
+                if matches!(e, neoflash_export::ExportError::Scripts(_)) {
+                    self.emit_script_export_diagnostics();
+                    self.show_panel(PanelId::Output);
+                    self.show_panel(PanelId::CompilerErrors);
+                } else {
+                    self.refresh_compiler_diagnostics();
+                    self.show_panel(PanelId::Output);
+                }
                 false
             }
         }
@@ -2525,10 +2744,12 @@ impl Editor {
                         format!("Export failed: {e}"),
                         Some(OutputLocation::for_file(output)),
                     );
-                    self.refresh_compiler_diagnostics();
                     if matches!(e, neoflash_export::ExportError::Scripts(_)) {
+                        self.emit_script_export_diagnostics();
+                        self.show_panel(PanelId::Output);
                         self.show_panel(PanelId::CompilerErrors);
                     } else {
+                        self.refresh_compiler_diagnostics();
                         self.show_panel(PanelId::Output);
                     }
                 }
@@ -2957,6 +3178,9 @@ impl Editor {
         script_name: &str,
         source: &str,
     ) -> Result<neoflash_core::JsflResult, String> {
+        if !self.has_document() {
+            return Err("No open document.".into());
+        }
         self.finish_edits();
         let mut state = neoflash_core::JsflAuthoringState::for_project(&self.project);
         state.active_symbol = self.symbol_id().to_owned();
@@ -3082,12 +3306,15 @@ impl Editor {
                 root_sym.class_name = None;
             }
         }
-        cloned.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut cloned);
         cloned
     }
 
     /// `Control ▸ Test scene` (`⌥⌘↵`): export and open only the currently edited scene in the browser.
     pub fn test_scene(&mut self) {
+        if !self.has_document() {
+            return;
+        }
         self.finish_edits();
         let project = self.test_scene_project();
         let output = std::env::temp_dir()
@@ -3141,10 +3368,12 @@ impl Editor {
                     format!("Export failed: {e}"),
                     Some(crate::output_pipeline::OutputLocation::for_file(output)),
                 );
-                self.refresh_compiler_diagnostics();
                 if matches!(e, neoflash_export::ExportError::Scripts(_)) {
+                    self.emit_script_export_diagnostics();
+                    self.show_panel(PanelId::Output);
                     self.show_panel(PanelId::CompilerErrors);
                 } else {
+                    self.refresh_compiler_diagnostics();
                     self.show_panel(PanelId::Output);
                 }
             }
@@ -4275,6 +4504,9 @@ impl eframe::App for Editor {
     }
 
     fn on_exit(&mut self) {
+        self.set_playing(false);
+        self.timeline_audio.stop_all();
+        self.timeline_video.follow_preview(None);
         if self.allow_close {
             self.clear_all_session_recovery();
         } else {

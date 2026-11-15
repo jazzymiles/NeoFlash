@@ -690,9 +690,24 @@ impl TimelineAudio {
 
     /// Properties ▸ Sound ▸ Play / Edit envelope ▸ Play: hear the sound once with its envelope.
     pub(crate) fn audition(&mut self, project: &Project, sound: &FrameSound) {
-        self.voices
-            .retain(|v| v.channel.as_deref() != Some(AUDITION));
+        self.stop_audition();
         let envelope = sound.envelope_points();
+        if !self.muted && !self.native {
+            if let Ok(decoded) = self.decoded(project, &sound.resource)
+                && VoiceSource::new(
+                    decoded,
+                    0.,
+                    1,
+                    false,
+                    (sound.in_point, sound.out_point),
+                    envelope,
+                )
+                .is_some()
+            {
+                self.auditioning_headless = true;
+            }
+            return;
+        }
         self.start(
             project,
             sound.resource.clone(),
@@ -733,8 +748,30 @@ impl TimelineAudio {
 
     pub(crate) fn stop_audition(&mut self) {
         self.auditioning_headless = false;
-        self.voices
-            .retain(|v| v.channel.as_deref() != Some(AUDITION));
+        self.voices.retain(|v| {
+            if v.channel.as_deref() == Some(AUDITION) {
+                v.sink.stop();
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    /// Silence all timeline playback and audition voices when switching/closing tabs or exiting.
+    pub(crate) fn stop_all(&mut self) {
+        self.auditioning_headless = false;
+        for voice in self.voices.drain(..) {
+            voice.sink.stop();
+        }
+        self.preview = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_active_preview(&self) -> bool {
+        self.auditioning_headless
+            || self.preview.is_some()
+            || self.voices.iter().any(|voice| !voice.sink.empty())
     }
 
     pub(crate) fn is_auditioning(&mut self) -> bool {

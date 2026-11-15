@@ -475,7 +475,7 @@ impl crate::app::Editor {
                     }
                 }
             }
-            candidate.upgrade_format_for_features();
+            crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
             candidate.validate().map_err(|e| e.to_string())?;
             self.transact_named("Bitmap properties", |s| {
                 s.project = candidate;
@@ -521,7 +521,7 @@ impl crate::app::Editor {
         let mut candidate = self.project.clone();
         candidate.format_version = candidate.format_version.max(3);
         candidate.resources[index] = unit;
-        candidate.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|e| e.to_string())?;
         self.transact_named("Bitmap properties", |s| {
             s.project = candidate;
@@ -564,7 +564,7 @@ impl crate::app::Editor {
                 smoothing,
             },
         )?;
-        candidate.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|e| e.to_string())?;
         if candidate == self.project {
             return Ok(());
@@ -591,7 +591,7 @@ impl crate::app::Editor {
             return Err(format!("Symbol {symbol_id} not found."));
         };
         sym.set_scale9_grid(grid);
-        candidate.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|e| e.to_string())?;
         self.transact_named("9-slice scaling", |s| {
             s.project = candidate;

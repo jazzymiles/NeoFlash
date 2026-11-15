@@ -599,3 +599,239 @@ fn structural_parent_mask_survives_an_empty_current_child_branch() {
     assert_eq!(clips.len(), 1, "the target relationship is structural");
     assert!(scene.clips.iter().any(|clip| clip.id == clips[0]));
 }
+
+#[test]
+fn t318_nested_edit_in_place_library_mutations_scene_delete_and_undo_never_dangle() {
+    use neoflash_core::{AuthoringGroup, IkArmature, IkBone};
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    add_empty_symbol(&mut editor, "outer-sym");
+    add_empty_symbol(&mut editor, "inner-sym");
+    add_empty_symbol(&mut editor, "alt-sym");
+
+    // Populate `inner-sym` with a shape, an AuthoringGroup, and an IkArmature so symbol duplication
+    // also exercises group + IK armature ID freshening.
+    {
+        let inner = editor.project.symbol_mut("inner-sym").unwrap();
+        inner.timeline.layers[0].properties.groups = vec![AuthoringGroup {
+            id: "grp-inner".into(),
+            name: "InnerGrp".into(),
+            members: vec!["inner-rect".into()],
+        }];
+        inner.timeline.layers[0].keyframes[0].elements =
+            vec![rectangle("inner-rect", [220, 80, 40, 255])];
+        inner.timeline.layers[0].keyframes[0].ik_armatures = vec![IkArmature {
+            id: "ik-inner".into(),
+            name: "InnerRig".into(),
+            bones: vec![IkBone {
+                id: "bone-inner".into(),
+                element_id: "inner-rect".into(),
+                parent_bone_id: None,
+                length: 15.0,
+                min_angle: None,
+                max_angle: None,
+                stiffness: 1.0,
+            }],
+            effector_bone_id: "bone-inner".into(),
+            target_pos: [15.0, 0.0],
+            pole_pos: None,
+        }];
+    }
+    editor.project.upgrade_format_for_features();
+    editor.project.validate().unwrap();
+
+    // 1. Duplicate `inner-sym`: must freshen internal element, group, and IK armature IDs cleanly.
+    let dup_id = editor
+        .duplicate_symbol("inner-sym")
+        .expect("duplicate_symbol must succeed");
+    editor
+        .project
+        .validate()
+        .expect("project must validate after duplicating symbol with groups and IK");
+    let dup_sym = editor.project.symbol(&dup_id).unwrap();
+    assert_ne!(
+        dup_sym.timeline.layers[0].properties.groups[0].id,
+        "grp-inner"
+    );
+    assert_ne!(
+        dup_sym.timeline.layers[0].keyframes[0].ik_armatures[0].id,
+        "ik-inner"
+    );
+
+    // 2. Place `outer-sym` on root, enter `Edit in Place` (level 1), place `inner-sym` inside `outer-sym`,
+    // and enter 2-level nested `Edit in Place` (`Scene 1 -> outer-sym -> inner-sym`, depth 3).
+    let outer_tf = Transform {
+        x: 60.0,
+        y: 80.0,
+        scale_x: 1.5,
+        scale_y: 0.75,
+        rotation: 18.0,
+        ..Default::default()
+    };
+    let _outer_target = place(&mut editor, "outer-sym", outer_tf);
+    assert!(editor.enter_selected_symbol_in_place());
+    assert_eq!(editor.edit_depth(), 2);
+    assert_eq!(editor.symbol_id(), "outer-sym");
+
+    let inner_tf = Transform {
+        x: 20.0,
+        y: -15.0,
+        rotation: -10.0,
+        ..Default::default()
+    };
+    let _inner_target = place(&mut editor, "inner-sym", inner_tf);
+    assert!(editor.enter_selected_symbol_in_place());
+    assert_eq!(editor.edit_depth(), 3);
+    assert_eq!(editor.symbol_id(), "inner-sym");
+    assert_matrix_close(
+        editor.edit_local_to_context_matrix().unwrap(),
+        affine_multiply(transform_matrix(outer_tf), transform_matrix(inner_tf)),
+    );
+
+    // 3. Delete `inner-sym` in Library while editing it in place -> safely unwinds to `outer-sym`
+    // while preserving `outer-sym`'s exact affine placement!
+    assert!(editor.delete_symbol("inner-sym"));
+    editor.project.validate().unwrap();
+    assert_eq!(editor.edit_depth(), 2);
+    assert_eq!(editor.symbol_id(), "outer-sym");
+    assert!(editor.editing_in_place());
+    assert_matrix_close(
+        editor.edit_local_to_context_matrix().unwrap(),
+        transform_matrix(outer_tf),
+    );
+
+    // 4. Undo deletion -> `inner-sym` returns; re-enter `inner-sym`, then delete ancestor `outer-sym`!
+    editor.undo();
+    editor.project.validate().unwrap();
+    assert!(editor.project.symbol("inner-sym").is_some());
+    assert!(editor.enter_symbol_in_place_by_id("inner-sym"));
+    assert_eq!(editor.edit_depth(), 3);
+
+    assert!(editor.delete_symbol("outer-sym"));
+    editor.project.validate().unwrap();
+    assert_eq!(editor.edit_depth(), 1);
+    assert!(editor.editing_scene());
+    assert!(
+        editor.selection.is_empty(),
+        "deleting ancestor symbol must clear stale selection targets"
+    );
+
+    // 5. Undo `outer-sym` deletion, swap instance symbol, Break Apart, and Convert to Symbol.
+    editor.undo();
+    editor.project.validate().unwrap();
+    let root_id = editor.project.root.clone();
+    let restored_outer_elem =
+        editor.project.symbol(&root_id).unwrap().timeline.layers[0].keyframes[0].elements[0]
+            .id
+            .clone();
+    let root_layer_id = editor.project.symbol(&root_id).unwrap().timeline.layers[0]
+        .id
+        .clone();
+    editor.set_selection(vec![crate::selection::SelectionTarget {
+        layer: root_layer_id,
+        element: restored_outer_elem,
+    }]);
+    assert!(editor.swap_selected_instance_to_symbol("alt-sym"));
+    editor.project.validate().unwrap();
+
+    // Populate `alt-sym` with a rectangle so Break Apart has concrete child geometry, then Break Apart
+    // and Convert to Symbol (`F8`).
+    editor.transact_named("Add rect to alt-sym", |ed| {
+        ed.project.symbol_mut("alt-sym").unwrap().timeline.layers[0].keyframes[0].elements =
+            vec![rectangle("alt-rect", [40, 120, 220, 255])];
+    });
+    editor.break_apart_selection();
+    editor.project.validate().unwrap();
+    assert!(!editor.selection.is_empty());
+
+    editor.begin_symbol_conversion();
+    let mut draft = editor.symbol_conversion_draft().unwrap().clone();
+    draft.name = "RewrappedSymbol".into();
+    editor
+        .commit_symbol_conversion(
+            &draft,
+            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(20.0, 20.0)),
+        )
+        .expect("Convert to Symbol must succeed");
+    editor.project.validate().unwrap();
+
+    // 6. Add Scene 2, place `alt-sym` inside Scene 2, enter Edit in Place inside Scene 2, then delete Scene 2!
+    editor.new_scene();
+    assert_eq!(editor.scene_list().len(), 2);
+    let scene2_id = editor.current_scene().to_owned();
+    let _scene2_inst = place(&mut editor, "alt-sym", Transform::default());
+    assert!(editor.enter_selected_symbol_in_place());
+    assert_eq!(editor.edit_depth(), 2);
+    assert_eq!(editor.symbol_id(), "alt-sym");
+
+    editor.delete_scene();
+    editor.project.validate().unwrap();
+    assert!(editor.project.symbol(&scene2_id).is_none());
+    assert_eq!(editor.edit_depth(), 1);
+    assert_eq!(editor.symbol_id(), root_id);
+    assert!(editor.editing_scene());
+
+    // Undo + Redo across scene deletion remain 100% valid with zero dangling SymbolIds.
+    editor.undo();
+    editor.project.validate().unwrap();
+    editor.redo();
+    editor.project.validate().unwrap();
+
+    // 7. Composed cumulative matrix underflow across 2+ nested `InPlace` levels (`1e-4 * 1e-4` -> `det = 1e-16 < 1e-12`,
+    // while each level individually has `det = 1e-8 >= 1e-12`): `normalize_symbol_edit_session` via `commit_history`
+    // must unwind cleanly to `outer-sym` so `current_matrix` never fails with `SingularPlacement`.
+    add_empty_symbol(&mut editor, "tiny-outer");
+    add_empty_symbol(&mut editor, "tiny-inner");
+    let _tiny_outer_on_root = place(
+        &mut editor,
+        "tiny-outer",
+        Transform {
+            scale_x: 1.0,
+            scale_y: 1.0,
+            ..Default::default()
+        },
+    );
+    assert!(editor.enter_selected_symbol_in_place());
+    assert_eq!(editor.symbol_id(), "tiny-outer");
+    let _tiny_inner_on_outer = place(
+        &mut editor,
+        "tiny-inner",
+        Transform {
+            scale_x: 1e-4,
+            scale_y: 1e-4,
+            ..Default::default()
+        },
+    );
+    assert!(editor.enter_selected_symbol_in_place());
+    assert_eq!(editor.edit_depth(), 3);
+    assert_eq!(editor.symbol_id(), "tiny-inner");
+
+    // Shrink `tiny-outer` on root to `1e-4` in one transaction: `tiny-outer` alone has `det = 1e-8` (valid),
+    // `tiny-inner` alone has `det = 1e-8` (valid), but composed `cumulative` has `det = 1e-16` (singular!).
+    editor.transact_named("Shrink outer placement", |ed| {
+        let root_sym = ed.project.symbol_mut(&root_id).unwrap();
+        let outer_el = root_sym.timeline.layers[0].keyframes[0]
+            .elements
+            .iter_mut()
+            .find(|el| {
+                matches!(
+                    &el.kind,
+                    neoflash_core::ElementKind::Instance { symbol_id, .. } if symbol_id == "tiny-outer"
+                )
+            })
+            .unwrap();
+        outer_el.transform.scale_x = 1e-4;
+        outer_el.transform.scale_y = 1e-4;
+    });
+    assert_eq!(
+        editor.edit_depth(),
+        2,
+        "composed singular InPlace depth must unwind cleanly to nearest invertible ancestor"
+    );
+    assert_eq!(editor.symbol_id(), "tiny-outer");
+    assert!(
+        editor.edit_session.current_matrix(&editor.project).is_ok(),
+        "current_matrix must remain invertible after normalization"
+    );
+}

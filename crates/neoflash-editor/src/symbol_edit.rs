@@ -216,6 +216,7 @@ impl SymbolEditSession {
     }
 
     fn valid_prefix_len(&self, project: &Project) -> usize {
+        let mut cumulative = IDENTITY;
         for index in 0..self.levels.len() {
             let level = &self.levels[index];
             if project.symbol(&level.symbol).is_none() {
@@ -226,14 +227,20 @@ impl SymbolEditSession {
                     if index != 0 || !project.is_scene(&level.symbol) {
                         return index;
                     }
+                    cumulative = IDENTITY;
                 }
                 SymbolEditEntry::Isolated => {
                     if index == 0 {
                         return index;
                     }
+                    cumulative = IDENTITY;
                 }
                 SymbolEditEntry::InPlace { .. } => {
-                    if self.placement_matrix(project, index).is_err() {
+                    let Ok(placement) = self.placement_matrix(project, index) else {
+                        return index;
+                    };
+                    cumulative = affine_multiply(cumulative, placement);
+                    if invert_affine_matrix(cumulative).is_none() {
                         return index;
                     }
                 }
@@ -386,10 +393,16 @@ impl Editor {
 
     fn prepare_symbol_edit_transition(&mut self) {
         self.finish_edits();
+        self.exit_stage_text_edit();
+        self.scale9_guide_drag = None;
+        self.authoring_modify.distort_session = None;
+        self.authoring_modify.envelope_session = None;
+        self.timeline_edit.cancel_gesture();
         self.timeline_key_drag = None;
         self.vector = Default::default();
         self.graphic_drop_position = None;
         self.clear_simple_button_state();
+        self.clear_live_preview_pointer_state();
         self.reset_authored_preview();
         self.playing = false;
         self.accumulator = 0.;
@@ -608,10 +621,18 @@ impl Editor {
         self.object_gesture = None;
         self.vector = Default::default();
         self.authoring_tools.cancel();
+        self.exit_stage_text_edit();
+        self.scale9_guide_drag = None;
+        self.cancel_guide_drag();
+        self.authoring_modify.distort_session = None;
+        self.authoring_modify.envelope_session = None;
+        self.symbol_conversion = None;
         self.shape_draft = None;
+        self.timeline_edit.cancel_gesture();
         self.timeline_key_drag = None;
         self.graphic_drop_position = None;
         self.clear_simple_button_state();
+        self.clear_live_preview_pointer_state();
 
         if valid == 0 {
             let revision = self.edit_session.revision.wrapping_add(1);
@@ -633,6 +654,15 @@ impl Editor {
             self.edit_session.revision = self.edit_session.revision.wrapping_add(1);
         }
         self.sync_editing_mirror();
+        let layer_count = self.symbol().timeline.layers.len();
+        if layer_count > 0 {
+            self.layer = self.layer.min(layer_count - 1);
+        } else {
+            self.layer = 0;
+        }
+        let last_frame = self.symbol().timeline.frame_count.saturating_sub(1);
+        self.frame = self.frame.min(last_frame);
+        self.normalize_targets();
         self.reset_authored_preview();
         self.playing = false;
         true

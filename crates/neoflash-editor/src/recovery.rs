@@ -18,6 +18,12 @@ const EXTERNAL_FILE_POLL_INTERVAL_SECS: f64 = 1.0;
 const MAX_DISK_SCAN_ENTRIES: usize = 1_000_000;
 const MAX_DISK_SCAN_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 
+pub(crate) type ImportedGraphicDocument = (
+    Project,
+    &'static str,
+    Vec<(crate::output_pipeline::OutputSeverity, String)>,
+);
+
 /// Kind of external on-disk change detected for an open document tab (`T-200`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExternalFileChange {
@@ -843,9 +849,10 @@ impl Editor {
         let enabled = self.workspace.general.autosave;
         let interval = f64::from(self.workspace.general.autosave_minutes.clamp(1, 120)) * 60.;
         let dirty = self.dirty();
+        let active_tracked = self.tracked_disk_path().map(Path::to_path_buf);
         let mut results = vec![self.recovery.tick(
             &self.project,
-            self.path.as_deref(),
+            active_tracked.as_deref(),
             enabled && dirty,
             interval,
             now_secs,
@@ -853,9 +860,10 @@ impl Editor {
         )];
         for session in self.sessions.iter_mut().flatten() {
             let dirty = session.dirty();
+            let session_tracked = session.path.as_deref().or(session.import_source.as_deref());
             results.push(session.recovery.tick(
                 &session.project,
-                session.path.as_deref(),
+                session_tracked,
                 enabled && dirty,
                 interval,
                 now_secs,
@@ -915,16 +923,17 @@ impl Editor {
         let Some(cand) = self.recovery.prompts.front().cloned() else {
             return;
         };
-        let mut path = cand.original_path.clone();
+        let original = cand.original_path.clone();
         // An already open original keeps its identity, even when clean. Its recovery becomes
         // an independent tab so the existing history, selection and view are never replaced.
-        let conflict = path
+        let conflict = original
             .as_deref()
-            .and_then(|p| self.session_for_path(p))
+            .and_then(|p| self.session_for_open_path(p))
             .is_some();
+        let mut path = None;
+        let mut restored_import_source = None;
         let mut independent_recovery = None;
         if conflict {
-            path = None;
             // Copy first under a new identity. The original open document owns the old ID;
             // either document may autosave, Save As or close without deleting the other's copy.
             let mut recovery = self.recovery.for_document(None);
@@ -938,6 +947,12 @@ impl Editor {
                 return;
             }
             independent_recovery = Some(recovery);
+        } else if let Some(orig) = original {
+            if Self::is_native_nflash_path(&orig) {
+                path = Some(orig);
+            } else {
+                restored_import_source = Some(std::fs::canonicalize(&orig).unwrap_or(orig));
+            }
         }
         self.recovery.pop_prompt();
         if self.has_document() {
@@ -950,17 +965,23 @@ impl Editor {
             self.recovery = fresh;
             self.install_document(ctx, cand.project, path, false);
         }
+        if let Some(import_src) = restored_import_source {
+            self.import_source = Some(import_src);
+            self.saved_project = None;
+        }
+        let tracked = self.tracked_disk_path().map(Path::to_path_buf);
         if let Some(mut recovery) = independent_recovery {
             self.recovery.move_prompts_to(&mut recovery);
             self.recovery = recovery;
         } else {
-            self.recovery.adopt_restored(&cand.id, self.path.as_deref());
+            self.recovery.adopt_restored(&cand.id, tracked.as_deref());
         }
-        if let Some(path) = &self.path
-            && path.exists()
+        if let Some(tracked) = &tracked
+            && tracked.exists()
         {
-            self.workspace.general.push_recent(path);
+            self.workspace.general.push_recent(tracked);
         }
+        self.sync_session_tabs_to_prefs();
         self.message(format!("Recovered “{}”.", cand.document_name));
     }
 
@@ -1208,6 +1229,144 @@ impl Editor {
         self.save_to_path(path)
     }
 
+    pub(crate) fn is_non_native_graphic_document_path(path: &Path) -> bool {
+        if path.is_dir() {
+            return false;
+        }
+        if path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| {
+                matches!(
+                    ext.to_ascii_lowercase().as_str(),
+                    "svg" | "psd" | "psb" | "pdf" | "ai" | "fxg"
+                )
+            })
+        {
+            return true;
+        }
+        let mut magic = [0u8; 8];
+        if let Ok(mut file) = std::fs::File::open(path)
+            && let Ok(n) = std::io::Read::read(&mut file, &mut magic)
+        {
+            if n >= 4 && &magic[..4] == b"8BPS" {
+                return true;
+            }
+            if n >= 5 && &magic[..5] == b"%PDF-" {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub(crate) fn import_non_native_graphic_document(
+        path: &Path,
+    ) -> Result<ImportedGraphicDocument, String> {
+        use crate::output_pipeline::OutputSeverity;
+
+        let map_report = |report: &neoflash_import::ImportReport| {
+            report
+                .diagnostics
+                .iter()
+                .map(|d| {
+                    let sev = match d.severity {
+                        neoflash_import::Severity::Info => OutputSeverity::Info,
+                        neoflash_import::Severity::Warning => OutputSeverity::Warning,
+                        neoflash_import::Severity::Error => OutputSeverity::Error,
+                    };
+                    (sev, format!("{}: {}", d.location, d.message))
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_default();
+        let mut magic = [0u8; 8];
+        let magic_len = std::fs::File::open(path)
+            .and_then(|mut f| std::io::Read::read(&mut f, &mut magic))
+            .unwrap_or(0);
+        let is_psd_magic = magic_len >= 4 && &magic[..4] == b"8BPS";
+        let is_pdf_magic = magic_len >= 5 && &magic[..5] == b"%PDF-";
+
+        if matches!(ext.as_str(), "psd" | "psb") || is_psd_magic {
+            let (mut project, report) = neoflash_import::import_psd_path(
+                path,
+                &neoflash_import::PsdImportOptions::default(),
+            )
+            .map_err(|e| format!("{} [psd-import]: {e}", path.display()))?;
+            crate::timeline_commands::upgrade_all_format_versions(&mut project);
+            project.validate().map_err(|e| e.to_string())?;
+            return Ok((project, "Photoshop document", map_report(&report)));
+        }
+        if matches!(ext.as_str(), "pdf" | "ai") || is_pdf_magic {
+            let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("Vector")
+                .to_owned();
+            let (mut project, report) = neoflash_import::import_pdf_ai_with_options(
+                &bytes,
+                &name,
+                &neoflash_import::VectorImportOptions::default(),
+            )
+            .map_err(|e| format!("{} [pdf-import]: {e}", path.display()))?;
+            if report.statistics.elements == 0 {
+                return Err(format!(
+                    "{} [pdf-no-vector-content]: PDF/AI file contains no importable vector or text operators.",
+                    path.display()
+                ));
+            }
+            crate::timeline_commands::upgrade_all_format_versions(&mut project);
+            project.validate().map_err(|e| e.to_string())?;
+            return Ok((project, "PDF/AI vector document", map_report(&report)));
+        }
+        if ext == "fxg" {
+            let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let xml = std::str::from_utf8(&bytes).map_err(|_| {
+                format!(
+                    "{} [fxg-utf8]: FXG file must be valid UTF-8 XML",
+                    path.display()
+                )
+            })?;
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("FXG")
+                .to_owned();
+            let (mut project, report) = neoflash_import::import_fxg_str(xml, &name)
+                .map_err(|e| format!("{} [fxg-import]: {e}", path.display()))?;
+            if report.statistics.elements == 0 && project.symbols.len() <= 1 {
+                return Err(format!(
+                    "{} [fxg-empty]: FXG document contains no graphic elements or library definitions.",
+                    path.display()
+                ));
+            }
+            crate::timeline_commands::upgrade_all_format_versions(&mut project);
+            project.validate().map_err(|e| e.to_string())?;
+            return Ok((project, "FXG document", map_report(&report)));
+        }
+        if ext == "svg" {
+            let (project, notices) = crate::graphic_import::import_svg_project_from_path(path)?;
+            let diags = notices
+                .into_iter()
+                .map(|msg| (OutputSeverity::Info, msg))
+                .collect();
+            return Ok((project, "SVG document", diags));
+        }
+        Err(format!(
+            "unsupported non-native graphic document format ({})",
+            path.display()
+        ))
+    }
+
     pub(crate) fn load_project_from_disk_path(
         path: &Path,
     ) -> Result<(Project, Vec<String>), String> {
@@ -1218,7 +1377,11 @@ impl Editor {
             ));
         }
         let mut diagnostics = Vec::new();
-        let project = if Self::is_legacy_flash_path(path) {
+        let project = if Self::is_non_native_graphic_document_path(path) {
+            let (project, _label, diags) = Self::import_non_native_graphic_document(path)?;
+            diagnostics = diags.into_iter().map(|(_, msg)| msg).collect();
+            project
+        } else if Self::is_legacy_flash_path(path) {
             let report = neoflash_import::inspect(path).map_err(|error| error.to_string())?;
             diagnostics = report
                 .diagnostics
@@ -1239,7 +1402,39 @@ impl Editor {
             neoflash_import::import_project(path).map_err(|error| error.to_string())?
         } else {
             let raw = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-            Project::from_json(&raw).map_err(|error| error.to_string())?
+            match Project::from_json(&raw) {
+                Ok(project) => project,
+                Err(json_err) => {
+                    let is_json_ext = path
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
+                    if is_json_ext
+                        && let Ok(report) = neoflash_import::inspect(path)
+                        && report.format == neoflash_import::ImportFormat::Figma
+                    {
+                        diagnostics = report
+                            .diagnostics
+                            .iter()
+                            .map(|diagnostic| {
+                                format!(
+                                    "{} [{}]: {}",
+                                    diagnostic.location, diagnostic.code, diagnostic.message
+                                )
+                            })
+                            .collect();
+                        if !report.can_import {
+                            return Err(format!(
+                                "source cannot be imported safely ({})",
+                                path.display()
+                            ));
+                        }
+                        neoflash_import::import_project(path).map_err(|error| error.to_string())?
+                    } else {
+                        return Err(json_err.to_string());
+                    }
+                }
+            }
         };
         project.validate().map_err(|error| error.to_string())?;
         Ok((project, diagnostics))
@@ -1261,13 +1456,15 @@ impl Editor {
         };
         let canonical_path = self.path.clone();
         let preserved_import_source = self.import_source.clone();
+        let saved = canonical_path.is_some();
         // Explicit Reload reads disk; ordinary Open of this path only activates the existing tab.
         // Validate first so a read/parse failure cannot consume selection, drafts, history or recovery.
         match Self::load_project_from_disk_path(&disk_path) {
             Ok((project, diagnostics)) => {
-                self.install_document(ctx, project, canonical_path, true);
+                self.install_document(ctx, project, canonical_path, saved);
                 self.import_source = preserved_import_source;
                 self.sync_disk_mtime();
+                self.sync_session_tabs_to_prefs();
                 for diagnostic in diagnostics {
                     self.message(diagnostic);
                 }

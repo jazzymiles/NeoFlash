@@ -139,16 +139,147 @@ pub(crate) fn record_motion_property_keys(before: &Project, project: &mut Projec
     }
 }
 
+/// Prune keyframe side-table entries referencing elements that were deleted from `key.elements`.
+pub(crate) fn prune_keyframe_orphan_element_refs(key: &mut Keyframe) {
+    let present: std::collections::HashSet<&str> =
+        key.elements.iter().map(|e| e.id.as_str()).collect();
+    key.instance_overrides
+        .retain(|ov| present.contains(ov.instance_id.as_str()));
+    key.bitmap_fills
+        .retain(|bf| present.contains(bf.element_id.as_str()));
+    key.asset_warps
+        .retain(|aw| present.contains(aw.element_id.as_str()));
+    key.element_parents.retain(|ep| {
+        present.contains(ep.child_id.as_str()) && present.contains(ep.parent_id.as_str())
+    });
+    key.controller_elements
+        .retain(|id| present.contains(id.as_str()));
+    key.ik_armatures.retain_mut(|arm| {
+        arm.bones
+            .retain(|b| present.contains(b.element_id.as_str()));
+        if arm.bones.is_empty() {
+            return false;
+        }
+        let bone_ids: std::collections::HashSet<Id> =
+            arm.bones.iter().map(|b| b.id.clone()).collect();
+        for bone in &mut arm.bones {
+            if let Some(pid) = &bone.parent_bone_id
+                && !bone_ids.contains(pid)
+            {
+                bone.parent_bone_id = None;
+            }
+        }
+        if !bone_ids.contains(&arm.effector_bone_id)
+            && let Some(last) = arm.bones.last()
+        {
+            arm.effector_bone_id = last.id.clone();
+        }
+        true
+    });
+    key.appearances
+        .retain(|ap| present.contains(ap.element_id.as_str()));
+    key.extended_accessibility
+        .retain(|acc| present.contains(acc.element_id.as_str()));
+    key.vector_effects.retain_mut(|fx| {
+        if !present.contains(fx.element_id.as_str()) {
+            return false;
+        }
+        if fx
+            .vector_blend
+            .as_ref()
+            .is_some_and(|vb| !present.contains(vb.target_element_id.as_str()))
+        {
+            fx.vector_blend = None;
+        }
+        !fx.is_empty()
+    });
+}
+
+fn prune_modified_timeline_side_tables(before: &Project, project: &mut Project) {
+    for symbol in &mut project.symbols {
+        let old_symbol = before.symbol(&symbol.id);
+        if old_symbol == Some(symbol) {
+            continue;
+        }
+        for layer in &mut symbol.timeline.layers {
+            let old_layer =
+                old_symbol.and_then(|s| s.timeline.layers.iter().find(|l| l.id == layer.id));
+            if old_layer == Some(layer) {
+                continue;
+            }
+            for key in &mut layer.keyframes {
+                let old_key =
+                    old_layer.and_then(|l| l.keyframes.iter().find(|k| k.frame == key.frame));
+                if old_key.map(|k| &k.elements) != Some(&key.elements) {
+                    prune_keyframe_orphan_element_refs(key);
+                }
+            }
+            layer.normalize_motion_keys();
+        }
+    }
+}
+
+/// Upgrade `project.format_version` across all format gates (v2..=v12) whenever corresponding
+/// document features are present, while preserving `format_version == 1` for plain v1 documents.
+pub(crate) fn upgrade_all_format_versions(project: &mut Project) {
+    if project.has_program() {
+        project.format_version = project.format_version.max(2);
+    }
+    if !project.resources.is_empty() {
+        project.format_version = project.format_version.max(3);
+    }
+    if !project.library_folders.is_empty()
+        || project.symbols.iter().any(|s| {
+            !s.folder.is_empty() || s.timeline.layers.iter().any(|l| !l.properties.is_default())
+        })
+    {
+        project.format_version = project.format_version.max(4);
+    }
+    if project.symbols.iter().any(|s| {
+        s.timeline.layers.iter().any(|l| {
+            l.properties.end_frame.is_some()
+                || l.keyframes.iter().any(|k| {
+                    matches!(k.tween, Some(Easing::Flash { .. }))
+                        || k.property_eases
+                            .iter()
+                            .any(|(_, ease)| matches!(ease, Easing::Flash { .. }))
+                        || k.elements.iter().any(|e| {
+                            e.transform.skew != 0.0
+                                || !e.transform.color_transform.is_identity()
+                                || matches!(e.kind, ElementKind::PaintedPath { .. })
+                        })
+                })
+        })
+    }) {
+        project.format_version = project.format_version.max(5);
+    }
+    if project
+        .symbols
+        .iter()
+        .any(|s| !s.timeline.guides.is_empty())
+    {
+        project.format_version = project.format_version.max(6);
+    }
+    project.upgrade_format_for_features();
+}
+
 impl Editor {
     /// Commit the open Undo step after document housekeeping that depends on what changed.
     pub(crate) fn commit_history(&mut self) -> bool {
-        self.history
+        let committed = self
+            .history
             .commit_with(&mut self.project, |before, project| {
+                prune_modified_timeline_side_tables(before, project);
                 crate::timeline_motion_curve::rebase_motion_paths(before, project);
                 record_motion_property_keys(before, project);
+                project.prune_authoring_groups();
                 project.prune_motion_guides();
-                project.upgrade_format_for_features();
-            })
+                upgrade_all_format_versions(project);
+            });
+        if committed && self.normalize_symbol_edit_session() {
+            self.normalize_selection();
+        }
+        committed
     }
 
     /// Collect `(layer_index, span_start_frames)` for all editable spans intersecting the active
@@ -1035,6 +1166,7 @@ impl Editor {
                 s.project.scenes.clear();
             }
         });
+        self.solo_layers.remove(&current);
         let scenes = self.project.scene_ids();
         let next = scenes[index.min(scenes.len() - 1)].clone();
         self.switch_scene(&next);
@@ -2092,7 +2224,7 @@ impl Editor {
         }
         key.video = video;
         layer.normalize_motion_keys();
-        candidate.upgrade_format_for_features();
+        upgrade_all_format_versions(&mut candidate);
         if let Err(error) = candidate.validate() {
             self.message(format!("Could not set timeline video span: {error}"));
             return false;

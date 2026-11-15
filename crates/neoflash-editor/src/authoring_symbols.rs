@@ -404,8 +404,8 @@ impl Editor {
         copy.name = name;
         copy.class_name = None;
         copy.linkage_id = None;
-        crate::panels::scene::refresh_timeline_ids(&mut copy.timeline);
-        self.transact_named("Duplicate symbol", |s| {
+        freshen_duplicated_symbol(&mut copy);
+        self.transact_named("Duplicate symbol", move |s| {
             s.project.symbols.push(copy);
         });
         self.library_selected = Some(id.clone());
@@ -444,9 +444,11 @@ impl Editor {
                     layer.normalize_motion_keys();
                 }
             }
+            s.project.set_shared_library(symbol_id, None);
             s.project.symbols.retain(|symbol| symbol.id != symbol_id);
         });
 
+        self.solo_layers.remove(symbol_id);
         if self.library_selected.as_deref() == Some(symbol_id) {
             self.library_selected = None;
         }
@@ -916,7 +918,7 @@ impl Editor {
         copy.name = name.clone();
         copy.class_name = None;
         copy.linkage_id = None;
-        crate::panels::scene::refresh_timeline_ids(&mut copy.timeline);
+        freshen_duplicated_symbol(&mut copy);
         let new_id_for_tx = new_sym_id.clone();
         self.transact_named("Duplicate symbol", move |s| {
             s.project.symbols.push(copy);
@@ -954,7 +956,7 @@ impl Editor {
             self.message(error);
             return false;
         }
-        candidate.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         if let Err(error) = candidate.validate() {
             self.message(format!("Could not move symbol: {error}"));
             return false;
@@ -994,7 +996,7 @@ impl Editor {
             self.message(error);
             return false;
         }
-        candidate.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         if let Err(error) = candidate.validate() {
             self.message(format!("Could not move folder: {error}"));
             return false;
@@ -1029,7 +1031,7 @@ impl Editor {
         }
         let mut candidate = self.project.clone();
         candidate.set_shared_library(symbol_id, shared);
-        candidate.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         if let Err(error) = candidate.validate() {
             self.message(format!("Could not update shared library linkage: {error}"));
             return false;
@@ -1047,7 +1049,7 @@ impl Editor {
         if count == 0 {
             return 0;
         }
-        candidate.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         if let Err(error) = candidate.validate() {
             self.message(format!("Could not synchronize shared library: {error}"));
             return 0;
@@ -1101,4 +1103,8 @@ fn adapt_swapped_playback(
             other => clamp(other),
         },
     }
+}
+
+fn freshen_duplicated_symbol(copy: &mut neoflash_core::Symbol) {
+    crate::clipboard::remap_timeline_internal_ids_complete(&mut copy.timeline, new_id, None, None);
 }

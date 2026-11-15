@@ -498,7 +498,7 @@ impl Editor {
                 .map_err(|e| format!("{}: {e}", swc_path.display()))?;
                 reports.push((swc_path.clone(), lib.name.clone(), report));
             }
-            candidate.upgrade_format_for_features();
+            crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
             candidate.validate().map_err(|e| e.to_string())?;
             self.finish_edits();
             self.transact_named("Link SWC", |editor| {
@@ -901,7 +901,7 @@ impl Editor {
             last_symbol = Some(symbol_id);
         }
         if !place_on_stage {
-            candidate.upgrade_format_for_features();
+            crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
             candidate.validate().map_err(|e| e.to_string())?;
             self.transact_named("Import to Library", |editor| {
                 editor.project = candidate;
@@ -1088,7 +1088,7 @@ impl Editor {
             .ok_or("Could not create an import keyframe.")?
             .elements
             .extend(placed);
-        candidate.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|e| e.to_string())?;
         self.transact(|editor| {
             editor.project = candidate;
@@ -1238,7 +1238,7 @@ impl Editor {
             }
         }
         layer.keyframes.sort_by_key(|k| k.frame);
-        candidate.upgrade_format_for_features();
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|e| e.to_string())?;
         let notice = seq_item.graphic.notice.take();
         self.transact_named("Import Image Sequence", |editor| {
@@ -1714,6 +1714,45 @@ fn prepare_graphic(unit: ResourceUnit, name: String) -> Result<PreparedGraphic, 
     };
     graphic.name = name;
     Ok(graphic)
+}
+
+pub(crate) fn import_svg_project_from_path(
+    path: &std::path::Path,
+) -> Result<(Project, Vec<String>), String> {
+    let mut unit = crate::resources::read_resource(path, MAX_RESOURCE_TOTAL_BYTES)?;
+    if unit.media_type != "image/svg+xml" {
+        unit.media_type = "image/svg+xml".into();
+    }
+    let mut graphic = crate::svg_graphics::prepare_svg(unit)?;
+    let name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("SVG")
+        .to_owned();
+    let mut project = Project::blank();
+    project.name = name;
+    project.width = graphic.width.round().clamp(1.0, 65_535.0) as u32;
+    project.height = graphic.height.round().clamp(1.0, 65_535.0) as u32;
+    project.format_version = project.format_version.max(3);
+    merge_graphic_resources(&mut project, &mut graphic)?;
+    let root_id = project.root.clone();
+    if let Some(root_sym) = project.symbol_mut(&root_id)
+        && let Some(layer) = root_sym.timeline.layers.first_mut()
+    {
+        layer.name = "SVG".into();
+        if let Some(kf) = layer.keyframes.first_mut() {
+            kf.elements = graphic.elements;
+        }
+    }
+    crate::timeline_commands::upgrade_all_format_versions(&mut project);
+    project.validate().map_err(|e| e.to_string())?;
+    let mut notices = Vec::new();
+    if let Some(notice) = graphic.notice {
+        notices.push(notice);
+    }
+    Ok((project, notices))
 }
 
 fn stage_window_is_front(ctx: &egui::Context, local: Pos2) -> bool {
