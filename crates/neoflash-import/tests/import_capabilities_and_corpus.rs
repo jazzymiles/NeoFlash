@@ -674,7 +674,7 @@ fn swf_bytecode_player_executes_avm1_avm2_button_events_and_corpus_swfs() {
     swf_tag(&mut tags, 34, &btn3);
 
     // Place sprite 2 at depth 1 ("box") with spec-accurate ClipEvent flags for
-    // Load (0x80), EnterFrame (0x40), Unload (0x20), and Press (0x2000).
+    // Load (0x01), EnterFrame (0x02), Unload (0x04), and Press (0x0400).
     let mut po2_box = Vec::new();
     po2_box.push(0xA6); // HasClipActions (0x80) | HasName (0x20) | HasMatrix (0x04) | HasCharacter (0x02)
     po2_box.extend_from_slice(&1_u16.to_le_bytes()); // depth 1
@@ -682,7 +682,7 @@ fn swf_bytecode_player_executes_avm1_avm2_button_events_and_corpus_swfs() {
     po2_box.extend_from_slice(&swf_matrix_bytes(None, None, 25.0, 40.0));
     po2_box.extend_from_slice(b"box\0");
     po2_box.extend_from_slice(&0_u16.to_le_bytes());
-    po2_box.extend_from_slice(&(0x80_u32 | 0x40 | 0x20 | 0x2000).to_le_bytes());
+    po2_box.extend_from_slice(&(0x01_u32 | 0x02 | 0x04 | 0x0400).to_le_bytes());
     let clip_trace_action = |message: &str| {
         let mut action = vec![0x96];
         let mut push = vec![0x00];
@@ -695,10 +695,10 @@ fn swf_bytecode_player_executes_avm1_avm2_button_events_and_corpus_swfs() {
         action
     };
     for (event_flag, message) in [
-        (0x80_u32, "box_load"),
-        (0x40_u32, "box_enter"),
-        (0x20_u32, "box_unload"),
-        (0x2000_u32, "box_press"),
+        (0x01_u32, "box_load"),
+        (0x02_u32, "box_enter"),
+        (0x04_u32, "box_unload"),
+        (0x0400_u32, "box_press"),
     ] {
         let action = clip_trace_action(message);
         po2_box.extend_from_slice(&event_flag.to_le_bytes());
@@ -1625,13 +1625,13 @@ fn t208_nested_clip_events_and_frame_scripts_keep_instance_context() {
     place_inner.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
     place_inner.extend_from_slice(b"inner\0");
     place_inner.extend_from_slice(&0_u16.to_le_bytes());
-    let all_flags = 0x80_u32 | 0x40 | 0x20 | 0x1000;
+    let all_flags = 0x01_u32 | 0x02 | 0x04 | 0x0800;
     place_inner.extend_from_slice(&all_flags.to_le_bytes());
     for (flag, action) in [
-        (0x80_u32, property_action(1, 11, "nested_load", false)),
-        (0x40_u32, property_action(6, 22, "nested_enter", false)),
-        (0x1000_u32, property_action(0, 33, "nested_click", false)),
-        (0x20_u32, detached_unload_action()),
+        (0x01_u32, property_action(1, 11, "nested_load", false)),
+        (0x02_u32, property_action(6, 22, "nested_enter", false)),
+        (0x0800_u32, property_action(0, 33, "nested_click", false)),
+        (0x04_u32, detached_unload_action()),
     ] {
         place_inner.extend_from_slice(&flag.to_le_bytes());
         place_inner.extend_from_slice(&(action.len() as u32).to_le_bytes());
@@ -1807,7 +1807,7 @@ fn t208_clip_event_identity_survives_duplicate_names_and_rename() {
     swf_tag(
         &mut tags,
         26,
-        &place_with_handlers(2, "depth2", vec![(0x80, this_identity_action())]),
+        &place_with_handlers(2, "depth2", vec![(0x01, this_identity_action())]),
     );
     swf_tag(
         &mut tags,
@@ -1816,8 +1816,8 @@ fn t208_clip_event_identity_survives_duplicate_names_and_rename() {
             1,
             "depth2",
             vec![
-                (0x80, rename("renamed", "renamed_first")),
-                (0x80, set_numeric(0, 11, "queued_after_rename")),
+                (0x01, rename("renamed", "renamed_first")),
+                (0x01, set_numeric(0, 11, "queued_after_rename")),
             ],
         ),
     );
@@ -1887,9 +1887,9 @@ fn t208_avm1_timeline_opcodes_keep_exact_this_identity_through_depth_name_collis
         place.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
         place.extend_from_slice(b"depth2\0");
         place.extend_from_slice(&0_u16.to_le_bytes());
-        place.extend_from_slice(&0x80_u32.to_le_bytes());
+        place.extend_from_slice(&0x01_u32.to_le_bytes());
         for action in handlers {
-            place.extend_from_slice(&0x80_u32.to_le_bytes());
+            place.extend_from_slice(&0x01_u32.to_le_bytes());
             place.extend_from_slice(&(action.len() as u32).to_le_bytes());
             place.extend_from_slice(&action);
         }
@@ -2010,9 +2010,9 @@ fn t208_swf_replacement_and_rewind_dispatch_complete_lifecycle() {
     clip_records(
         &mut old_place,
         vec![
-            (0x80, rename_and_trace("mutated", "old_load")),
-            (0x40, trace_action("old_enter")),
-            (0x20, trace_action("old_unload")),
+            (0x01, rename_and_trace("mutated", "old_load")),
+            (0x02, trace_action("old_enter")),
+            (0x04, trace_action("old_unload")),
         ],
     );
     swf_tag(&mut tags, 26, &old_place);
@@ -2025,8 +2025,8 @@ fn t208_swf_replacement_and_rewind_dispatch_complete_lifecycle() {
     clip_records(
         &mut move_replace,
         vec![
-            (0x80, trace_action("move_load")),
-            (0x20, trace_action("move_unload")),
+            (0x01, trace_action("move_load")),
+            (0x04, trace_action("move_unload")),
         ],
     );
     swf_tag(&mut tags, 26, &move_replace);
@@ -2039,8 +2039,8 @@ fn t208_swf_replacement_and_rewind_dispatch_complete_lifecycle() {
     clip_records(
         &mut occupied_replace,
         vec![
-            (0x80, trace_action("occupied_load")),
-            (0x20, trace_action("occupied_unload")),
+            (0x01, trace_action("occupied_load")),
+            (0x04, trace_action("occupied_unload")),
         ],
     );
     swf_tag(&mut tags, 26, &occupied_replace);
@@ -2161,10 +2161,10 @@ fn t208_natural_root_loop_rebuilds_display_list_once() {
     transient.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
     transient.extend_from_slice(b"transient\0");
     transient.extend_from_slice(&0_u16.to_le_bytes());
-    transient.extend_from_slice(&(0x80_u32 | 0x20).to_le_bytes());
+    transient.extend_from_slice(&(0x01_u32 | 0x04).to_le_bytes());
     for (flag, action) in [
-        (0x80_u32, trace_action("natural_load")),
-        (0x20_u32, trace_action("natural_unload")),
+        (0x01_u32, trace_action("natural_load")),
+        (0x04_u32, trace_action("natural_unload")),
     ] {
         transient.extend_from_slice(&flag.to_le_bytes());
         transient.extend_from_slice(&(action.len() as u32).to_le_bytes());
@@ -2272,7 +2272,7 @@ fn t208_natural_loop_honors_pointer_and_unload_root_goto_overrides() {
         build_uncompressed_swf(8, 3, &tags)
     };
 
-    for (event_flag, playing) in [(0x1000_u32, false), (0x20, true)] {
+    for (event_flag, playing) in [(0x0800_u32, false), (0x04, true)] {
         let bytes = build(event_flag, playing);
         let mut player = SwfBytecodePlayer::from_bytes(&bytes).unwrap();
         let _ = player.step_frame();
@@ -2280,7 +2280,7 @@ fn t208_natural_loop_honors_pointer_and_unload_root_goto_overrides() {
         let last = player.step_frame();
         assert_eq!(last.frame, 2);
         assert_eq!(last.display_list.len(), 2);
-        if event_flag == 0x1000 {
+        if event_flag == 0x0800 {
             player.trigger_pointer_click();
         }
         let redirected = player.step_frame();
@@ -2684,4 +2684,44 @@ fn t241_avm1_and_avm2_decompiler_and_player_opcode_conformance() {
         all_src.contains("-42") && (all_src.contains("< 0") || all_src.contains(">= 0")),
         "decompiled AVM2 source must preserve signed -42 and comparison direction: {all_src}"
     );
+}
+
+#[test]
+fn t325_real_corpus_avm1_clip_events_execute_spec_flags() {
+    let corpus_swf = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/fla-corpus/upstream/ruffle/avm1-clip-events/test.swf");
+    assert!(corpus_swf.exists(), "missing corpus SWF: {corpus_swf:?}");
+    let report = inspect(&corpus_swf).unwrap();
+    assert!(
+        report.can_import
+            && !report
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == neoflash_import::Severity::Error),
+        "unexpected import errors: {:?}",
+        report.diagnostics
+    );
+    let project = import_project(&corpus_swf).unwrap();
+    project.validate().unwrap();
+
+    let mut player = SwfBytecodePlayer::from_path(&corpus_swf).unwrap();
+    let playback = player.run_frames(4);
+    for expected in [
+        "frame 1",
+        "clip initialize1",
+        "clip initialize2",
+        "clip construct",
+        "clip load",
+        "clip enterFrame",
+        "clip onEnterFrame",
+        "clip unload",
+        "clip onUnload",
+        "frame 4",
+    ] {
+        assert!(
+            playback.trace_output.iter().any(|line| line == expected),
+            "expected '{expected}' in corpus clip-event traces, got: {:?}",
+            playback.trace_output
+        );
+    }
 }

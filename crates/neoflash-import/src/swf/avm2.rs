@@ -26,21 +26,25 @@ pub(crate) struct RecoveredAs3Class {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DecompiledAbcBundle {
+    pub abc_name: String,
     pub classes: Vec<RecoveredAs3Class>,
     pub unrecognized_opcodes: usize,
+    pub unrecognized_sites: Vec<(String, usize, usize, u8)>,
 }
 
 pub(crate) fn decompile_do_abc_tag(tag_code: u16, payload: &[u8]) -> Option<DecompiledAbcBundle> {
-    let abc_bytes = if tag_code == 82 {
+    let (abc_name, abc_bytes) = if tag_code == 82 {
         let mut r = SwfSlice::new(payload);
         let _flags = r.u32()?;
-        let _name = r.c_string(9)?;
-        r.rest()
+        let (name, _) = r.c_string(9)?;
+        (name, r.rest())
     } else {
-        payload
+        (String::new(), payload)
     };
     let abc = parse_abc_file(abc_bytes)?;
-    Some(reconstruct_classes(&abc))
+    let mut bundle = reconstruct_classes(&abc);
+    bundle.abc_name = abc_name;
+    Some(bundle)
 }
 
 pub(crate) struct AbcReader<'a> {
@@ -663,6 +667,7 @@ fn sanitize_source_segment(raw: &str) -> String {
 
 fn reconstruct_classes(abc: &AbcFile) -> DecompiledAbcBundle {
     let mut bundle = DecompiledAbcBundle::default();
+    let mut visited_methods = BTreeSet::new();
 
     for (idx, inst) in abc.instances.iter().enumerate() {
         let cls = &abc.classes[idx];
@@ -727,6 +732,7 @@ fn reconstruct_classes(abc: &AbcFile) -> DecompiledAbcBundle {
         }
         // Static initializer (`cinit`) if non-trivial
         if let Some(body) = abc.bodies_by_method.get(&cls.cinit) {
+            visited_methods.insert(cls.cinit);
             let mut cinit_calls = Vec::new();
             let cinit_lines = decompile_method_body(
                 abc,
@@ -737,6 +743,8 @@ fn reconstruct_classes(abc: &AbcFile) -> DecompiledAbcBundle {
                 &mut imports,
                 &mut cinit_calls,
                 &mut bundle.unrecognized_opcodes,
+                &mut bundle.unrecognized_sites,
+                &mut visited_methods,
                 0,
             );
             if !cinit_lines.is_empty() {
@@ -763,6 +771,7 @@ fn reconstruct_classes(abc: &AbcFile) -> DecompiledAbcBundle {
         let mut ctor_lines = Vec::new();
         if !is_interface {
             if let Some(body) = abc.bodies_by_method.get(&inst.iinit) {
+                visited_methods.insert(inst.iinit);
                 ctor_lines = decompile_method_body(
                     abc,
                     inst.iinit,
@@ -772,6 +781,8 @@ fn reconstruct_classes(abc: &AbcFile) -> DecompiledAbcBundle {
                     &mut imports,
                     &mut frame_script_bindings,
                     &mut bundle.unrecognized_opcodes,
+                    &mut bundle.unrecognized_sites,
+                    &mut visited_methods,
                     0,
                 );
             }
@@ -836,6 +847,7 @@ fn reconstruct_classes(abc: &AbcFile) -> DecompiledAbcBundle {
                     continue;
                 }
                 let mlines = if let Some(body) = abc.bodies_by_method.get(&midx) {
+                    visited_methods.insert(midx);
                     let mut dummy = Vec::new();
                     decompile_method_body(
                         abc,
@@ -846,6 +858,8 @@ fn reconstruct_classes(abc: &AbcFile) -> DecompiledAbcBundle {
                         &mut imports,
                         &mut dummy,
                         &mut bundle.unrecognized_opcodes,
+                        &mut bundle.unrecognized_sites,
+                        &mut visited_methods,
                         0,
                     )
                 } else {
@@ -963,6 +977,27 @@ fn reconstruct_classes(abc: &AbcFile) -> DecompiledAbcBundle {
         });
     }
 
+    // Also scan any script-init or standalone method bodies not attached to class traits
+    // so unrecognized ABC instructions are never silently dropped.
+    let mut remaining: Vec<usize> = abc
+        .bodies_by_method
+        .keys()
+        .copied()
+        .filter(|m| !visited_methods.contains(m))
+        .collect();
+    remaining.sort_unstable();
+    for midx in remaining {
+        if let Some(body) = abc.bodies_by_method.get(&midx) {
+            let _ = decode_abc_instructions(
+                &body.code,
+                "<script>",
+                midx,
+                &mut bundle.unrecognized_opcodes,
+                &mut bundle.unrecognized_sites,
+            );
+        }
+    }
+
     bundle
 }
 
@@ -1069,7 +1104,13 @@ struct AbcInsn {
     iarg: i32,
 }
 
-fn decode_abc_instructions(code: &[u8], unrecognized: &mut usize) -> Vec<AbcInsn> {
+fn decode_abc_instructions(
+    code: &[u8],
+    owner: &str,
+    method_idx: usize,
+    unrecognized: &mut usize,
+    unrecognized_sites: &mut Vec<(String, usize, usize, u8)>,
+) -> Vec<AbcInsn> {
     let mut r = AbcReader::new(code);
     let mut out = Vec::new();
     while r.pos < code.len() && out.len() < MAX_ABC_INSNS {
@@ -1096,10 +1137,8 @@ fn decode_abc_instructions(code: &[u8], unrecognized: &mut usize) -> Vec<AbcInsn
                 | 0x57
                 | 0x64
                 | 0x70..=0x7B
-                | 0x82
-                | 0x85
-                | 0x87
-                | 0x89
+                | 0x81..=0x85
+                | 0x87..=0x89
                 | 0x90
                 | 0x91
                 | 0x93
@@ -1150,8 +1189,7 @@ fn decode_abc_instructions(code: &[u8], unrecognized: &mut usize) -> Vec<AbcInsn
                 | 0x53
                 | 0x55
                 | 0x56
-                | 0x58..=0x5A
-                | 0x5D..=0x63
+                | 0x58..=0x63
                 | 0x66..=0x68
                 | 0x6A
                 | 0x6C..=0x6F
@@ -1186,6 +1224,9 @@ fn decode_abc_instructions(code: &[u8], unrecognized: &mut usize) -> Vec<AbcInsn
 
                 _ => {
                     *unrecognized += 1;
+                    if unrecognized_sites.len() < 64 {
+                        unrecognized_sites.push((owner.to_owned(), method_idx, offset, op));
+                    }
                     return None;
                 }
             }
@@ -1255,6 +1296,8 @@ struct BodyContext<'a> {
     imports: &'a mut BTreeSet<String>,
     frame_scripts: &'a mut Vec<(u32, String)>,
     unrecognized: &'a mut usize,
+    unrecognized_sites: &'a mut Vec<(String, usize, usize, u8)>,
+    visited_methods: &'a mut BTreeSet<usize>,
     depth: usize,
 }
 
@@ -1280,12 +1323,20 @@ fn decompile_method_body(
     imports: &mut BTreeSet<String>,
     frame_scripts: &mut Vec<(u32, String)>,
     unrecognized: &mut usize,
+    unrecognized_sites: &mut Vec<(String, usize, usize, u8)>,
+    visited_methods: &mut BTreeSet<usize>,
     depth: usize,
 ) -> Vec<String> {
     if depth > MAX_ABC_DEPTH {
         return Vec::new();
     }
-    let insns = decode_abc_instructions(&body.code, unrecognized);
+    let insns = decode_abc_instructions(
+        &body.code,
+        class_name,
+        method_idx,
+        unrecognized,
+        unrecognized_sites,
+    );
     if insns.is_empty() {
         return Vec::new();
     }
@@ -1346,6 +1397,8 @@ fn decompile_method_body(
         imports,
         frame_scripts,
         unrecognized,
+        unrecognized_sites,
+        visited_methods,
         depth,
     };
 
@@ -1817,7 +1870,7 @@ fn step_abc_insn(
             let cur = pop_val(stack);
             let obj = pop_val(stack);
             stack.push(AbcVal::expr(format!(
-                "/* hasnext({}, {}) */",
+                "false /* hasnext({}, {}) */",
                 obj.code, cur.code
             )));
         }
@@ -1874,6 +1927,7 @@ fn step_abc_insn(
                 .replacen("function ()", "function()", 1)
                 .replacen("function (", "function(", 1);
             let closure_lines = if let Some(cbody) = ctx.abc.bodies_by_method.get(&midx) {
+                ctx.visited_methods.insert(midx);
                 let mut dummy = Vec::new();
                 decompile_method_body(
                     ctx.abc,
@@ -1884,6 +1938,8 @@ fn step_abc_insn(
                     ctx.imports,
                     &mut dummy,
                     ctx.unrecognized,
+                    ctx.unrecognized_sites,
+                    ctx.visited_methods,
                     ctx.depth + 1,
                 )
             } else {
@@ -2008,7 +2064,7 @@ fn step_abc_insn(
             // newactivation: push activation marker so activation slot accesses resolve directly to variable names.
             stack.push(AbcVal::find_target());
         }
-        0x5D..=0x5F => {
+        0x5B..=0x5F => {
             let (has_ns, has_name) = ctx.abc.runtime_multiname_parts(insn.arg1);
             if has_name {
                 let _ = pop_val(stack);
@@ -2101,7 +2157,7 @@ fn step_abc_insn(
         0x70 | 0x85 => {
             // convert_s / coerce_s: keep clean string expression unless non-obvious
         }
-        0x73 | 0x74 | 0x75 | 0x76 | 0x77 | 0x82 | 0x89 => {
+        0x73 | 0x74 | 0x75 | 0x76 | 0x77 | 0x81..=0x84 | 0x88 | 0x89 => {
             // implicit numeric/boolean/any coercion produced by ASC around operators/locals
         }
         0x80 => {

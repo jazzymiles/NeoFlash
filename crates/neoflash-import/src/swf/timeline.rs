@@ -32,6 +32,7 @@ use std::path::Path;
 
 const MAX_AUTHORED_ELEMENTS: usize = 95_000;
 const MAX_AUTHORED_BITMAPS: usize = 250;
+const MAX_CATEGORY_WARNINGS: usize = 64;
 
 #[derive(Clone, Debug)]
 enum SwfCharacter {
@@ -46,6 +47,8 @@ enum SwfCharacter {
     },
     Button {
         symbol_id: Id,
+        tag_code: u16,
+        tag_offset: usize,
         instance_scripts: Vec<DecompiledObjectHandler>,
         is_pure_vector: bool,
     },
@@ -69,6 +72,8 @@ struct ButtonRecord {
 
 struct PendingButton {
     button_id: u16,
+    tag_code: u16,
+    tag_offset: usize,
     records: Vec<ButtonRecord>,
     handlers: Vec<DecompiledObjectHandler>,
 }
@@ -134,17 +139,20 @@ struct SwfBuilder<'a> {
     symbol_classes: Vec<(u16, String)>,
     abc_classes: Vec<RecoveredAs3Class>,
     scenes_meta: Vec<(u32, String)>,
+    scaling_grids: Vec<(u16, usize, usize, Option<[f64; 4]>)>,
+    binary_data_ids: HashSet<u16>,
     symbols: Vec<Symbol>,
     resources: Vec<ResourceUnit>,
     resource_bytes_total: usize,
     total_elements: usize,
     text_metrics_warned: bool,
     legacy_cp_warned: bool,
-    filter_warned: bool,
-    blend_warned: bool,
-    clip_event_warned: bool,
-    unrecognized_avm1: usize,
-    unrecognized_avm2: usize,
+    filter_warnings: usize,
+    blend_warnings: usize,
+    clip_event_warnings: usize,
+    avm1_warnings: usize,
+    avm2_warnings: usize,
+    unsupported_tag_warnings: usize,
 }
 
 pub(crate) fn build_project_from_swf(
@@ -216,22 +224,27 @@ pub(crate) fn build_project_from_swf(
         symbol_classes: Vec::new(),
         abc_classes: Vec::new(),
         scenes_meta: Vec::new(),
+        scaling_grids: Vec::new(),
+        binary_data_ids: HashSet::new(),
         symbols: Vec::new(),
         resources: Vec::new(),
         resource_bytes_total: 0,
         total_elements: 0,
         text_metrics_warned: false,
         legacy_cp_warned: false,
-        filter_warned: false,
-        blend_warned: false,
-        clip_event_warned: false,
-        unrecognized_avm1: 0,
-        unrecognized_avm2: 0,
+        filter_warnings: 0,
+        blend_warnings: 0,
+        clip_event_warnings: 0,
+        avm1_warnings: 0,
+        avm2_warnings: 0,
+        unsupported_tag_warnings: 0,
     };
 
     let tag_bytes = body.get(tags_offset..)?;
-    let root_snapshots = builder.process_timeline_tags(tag_bytes, "root", (stage_dx, stage_dy));
+    let root_snapshots =
+        builder.process_timeline_tags(tag_bytes, tags_offset, "root", (stage_dx, stage_dy));
     builder.finalize_pending_buttons();
+    builder.apply_scaling_grids();
 
     // Attach `DoInitAction` scripts to target sprites (or root frame 0 if target isn't a sprite).
     let mut root_extra_frame0_actions = Vec::new();
@@ -322,26 +335,6 @@ pub(crate) fn build_project_from_swf(
             "swf_legacy_codepage",
             location,
             "SWF <= 5 non-UTF-8 strings were decoded using legacy Windows-1251/1252 heuristic.",
-        );
-    }
-    if builder.unrecognized_avm1 > 0 {
-        builder.report.warning(
-            "swf_avm1_partial",
-            location,
-            format!(
-                "{} unrecognized AVM1 action opcode(s) were preserved as diagnostic comments.",
-                builder.unrecognized_avm1
-            ),
-        );
-    }
-    if builder.unrecognized_avm2 > 0 {
-        builder.report.warning(
-            "swf_avm2_partial",
-            location,
-            format!(
-                "{} unrecognized AVM2 bytecode instruction(s) stopped method body decoding early.",
-                builder.unrecognized_avm2
-            ),
         );
     }
 
@@ -461,6 +454,7 @@ impl SwfBuilder<'_> {
     fn process_timeline_tags(
         &mut self,
         bytes: &[u8],
+        base_tag_offset: usize,
         scope_uid: &str,
         root_offset: (f64, f64),
     ) -> Vec<FrameSnapshot> {
@@ -476,6 +470,8 @@ impl SwfBuilder<'_> {
 
         let mut pos = 0usize;
         while pos + 2 <= bytes.len() {
+            let tag_offset = base_tag_offset.saturating_add(pos);
+            let cur_frame = snapshots.len();
             let raw_hdr = u16::from_le_bytes([bytes[pos], bytes[pos + 1]]);
             pos += 2;
             let tag_code = raw_hdr >> 6;
@@ -490,6 +486,7 @@ impl SwfBuilder<'_> {
             } else {
                 short_len
             };
+            let payload_start = base_tag_offset.saturating_add(pos);
             let end = pos.saturating_add(tag_len).min(bytes.len());
             let payload = &bytes[pos..end];
             pos = end;
@@ -733,7 +730,7 @@ impl SwfBuilder<'_> {
                 }
                 // DefineButton / DefineButton2
                 7 | 34 if scope_uid == "root" => {
-                    self.decode_define_button(tag_code, payload);
+                    self.decode_define_button(tag_code, tag_offset, cur_frame, payload);
                 }
                 // DefineButtonCxform
                 23 if scope_uid == "root" => {
@@ -747,8 +744,12 @@ impl SwfBuilder<'_> {
                 39 if scope_uid == "root" && payload.len() >= 4 => {
                     let sprite_id = u16::from_le_bytes([payload[0], payload[1]]);
                     let sym_uid = format!("swf-sym-{sprite_id}");
-                    let child_snaps =
-                        self.process_timeline_tags(&payload[4..], &sym_uid, (0.0, 0.0));
+                    let child_snaps = self.process_timeline_tags(
+                        &payload[4..],
+                        payload_start.saturating_add(4),
+                        &sym_uid,
+                        (0.0, 0.0),
+                    );
                     let snaps = if child_snaps.is_empty() {
                         vec![FrameSnapshot::default()]
                     } else {
@@ -775,6 +776,9 @@ impl SwfBuilder<'_> {
                 4 | 26 | 70 => {
                     self.apply_place_object(
                         tag_code,
+                        tag_offset,
+                        scope_uid,
+                        cur_frame,
                         payload,
                         root_offset,
                         &mut active_slots,
@@ -811,9 +815,9 @@ impl SwfBuilder<'_> {
                 }
                 // DoAction
                 12 => {
-                    let (src, unrec) =
+                    let (src, unrec, sites) =
                         decompile_actions(payload, self.swf_version, &mut self.legacy_cp_warned);
-                    self.unrecognized_avm1 += unrec;
+                    self.warn_avm1_sites(tag_code, tag_offset, scope_uid, cur_frame, unrec, &sites);
                     if !src.trim().is_empty() {
                         pending_actions.push(src);
                         saw_pending_frame_mutation = true;
@@ -822,12 +826,16 @@ impl SwfBuilder<'_> {
                 // DoInitAction
                 59 if scope_uid == "root" && payload.len() >= 2 => {
                     let sprite_id = u16::from_le_bytes([payload[0], payload[1]]);
-                    let (src, unrec) = decompile_actions(
+                    let init_sym = format!("swf-sym-{sprite_id}");
+                    let (src, unrec, mut sites) = decompile_actions(
                         &payload[2..],
                         self.swf_version,
                         &mut self.legacy_cp_warned,
                     );
-                    self.unrecognized_avm1 += unrec;
+                    for (off, _) in &mut sites {
+                        *off = off.saturating_add(2);
+                    }
+                    self.warn_avm1_sites(tag_code, tag_offset, &init_sym, cur_frame, unrec, &sites);
                     if !src.trim().is_empty() {
                         self.init_actions.entry(sprite_id).or_default().push(src);
                     }
@@ -847,6 +855,17 @@ impl SwfBuilder<'_> {
                         }
                     }
                 }
+                // ImportAssets (57) / ImportAssets2 (71)
+                57 | 71 => {
+                    self.warn_unsupported_tag(
+                        "swf_import_assets_unsupported",
+                        tag_code,
+                        tag_offset,
+                        scope_uid,
+                        cur_frame,
+                        "External runtime SWF asset import (ImportAssets) cannot be resolved into local library symbols.",
+                    );
+                }
                 // SymbolClass
                 76 if scope_uid == "root" => {
                     let mut r = SwfSlice::new(payload);
@@ -861,15 +880,43 @@ impl SwfBuilder<'_> {
                         }
                     }
                 }
+                // DefineScalingGrid
+                78 if scope_uid == "root" => {
+                    let mut r = SwfSlice::new(payload);
+                    let cid = r.u16().unwrap_or(0);
+                    let grid = r.rect_twips().and_then(|[xmin, xmax, ymin, ymax]| {
+                        let w = f64::from(xmax - xmin) / 20.0;
+                        let h = f64::from(ymax - ymin) / 20.0;
+                        (w > 0.0 && h > 0.0).then_some([
+                            f64::from(xmin) / 20.0,
+                            f64::from(ymin) / 20.0,
+                            w,
+                            h,
+                        ])
+                    });
+                    self.scaling_grids.push((cid, tag_offset, cur_frame, grid));
+                }
                 // DoABC / DoABC2
                 72 | 82 if scope_uid == "root" => {
                     if let Some(bundle) = decompile_do_abc_tag(tag_code, payload) {
-                        self.unrecognized_avm2 += bundle.unrecognized_opcodes;
+                        self.warn_avm2_sites(
+                            tag_code,
+                            tag_offset,
+                            cur_frame,
+                            &bundle.abc_name,
+                            bundle.unrecognized_opcodes,
+                            &bundle.unrecognized_sites,
+                        );
                         self.abc_classes.extend(bundle.classes);
-                    } else {
+                    } else if self.avm2_warnings < MAX_CATEGORY_WARNINGS {
+                        self.avm2_warnings += 1;
+                        let loc = format!(
+                            "{}#tag={tag_code}@{tag_offset}:symbol={scope_uid}:frame={cur_frame}",
+                            self.location
+                        );
                         self.report.warning(
                             "swf_avm2_partial",
-                            self.location,
+                            loc,
                             "An AVM2 DoABC bytecode block could not be parsed cleanly.",
                         );
                     }
@@ -887,7 +934,60 @@ impl SwfBuilder<'_> {
                         }
                     }
                 }
-                // DefineVideoStream (60) / VideoFrame (61)
+                // DefineBinaryData
+                87 if scope_uid == "root" => {
+                    if payload.len() >= 6 {
+                        let bin_id = u16::from_le_bytes([payload[0], payload[1]]);
+                        let raw_bin = &payload[6..];
+                        if self.binary_data_ids.insert(bin_id)
+                            && raw_bin.len() <= MAX_RESOURCE_BYTES
+                            && self.resources.len() < MAX_RESOURCES
+                            && self.resource_bytes_total + raw_bin.len() <= MAX_RESOURCE_TOTAL_BYTES
+                            && let Ok(unit) = ResourceUnit::from_bytes(
+                                format!("swf-binary-{bin_id}"),
+                                format!("legacy/binary-{bin_id}.bin"),
+                                "application/octet-stream",
+                                raw_bin,
+                            )
+                        {
+                            self.resource_bytes_total += raw_bin.len();
+                            self.resources.push(unit);
+                        } else {
+                            self.warn_unsupported_tag(
+                                "swf_binary_data_skipped",
+                                tag_code,
+                                tag_offset,
+                                scope_uid,
+                                cur_frame,
+                                &format!(
+                                    "DefineBinaryData character {bin_id} ({} bytes) exceeded resource budgets or duplicated an ID.",
+                                    raw_bin.len()
+                                ),
+                            );
+                        }
+                    } else {
+                        self.warn_unsupported_tag(
+                            "swf_binary_data_skipped",
+                            tag_code,
+                            tag_offset,
+                            scope_uid,
+                            cur_frame,
+                            "Truncated DefineBinaryData tag skipped.",
+                        );
+                    }
+                }
+                // StartSound2
+                89 => {
+                    self.warn_unsupported_tag(
+                        "swf_sound_approximated",
+                        tag_code,
+                        tag_offset,
+                        scope_uid,
+                        cur_frame,
+                        "StartSound2 class-name sound trigger is not modeled on authored timeline keyframes.",
+                    );
+                }
+                // DefineVideoStream (60)
                 60 if scope_uid == "root" && payload.len() >= 8 => {
                     let vid = u16::from_le_bytes([payload[0], payload[1]]);
                     let vw = f64::from(u16::from_le_bytes([payload[4], payload[5]])).max(16.0);
@@ -919,11 +1019,29 @@ impl SwfBuilder<'_> {
                     );
                     self.report.warning(
                         "swf_video_viewport",
-                        format!("{}#video:{vid}", self.location),
+                        format!(
+                            "{}#tag=60@{tag_offset}:symbol=swf-sym-{vid}:frame={cur_frame}",
+                            self.location
+                        ),
                         "Embedded SWF video stream imported as a Video viewport placeholder; raw codec frames remain in the source SWF.",
                     );
                 }
-                _ => {}
+                // Non-drawable metadata, debugger, telemetry, font-hint, and video-frame stream tags
+                9 | 24 | 41 | 49 | 51 | 58 | 61 | 63 | 64 | 65 | 66 | 69 | 73 | 74 | 77 | 92
+                | 93 => {}
+                _ => {
+                    self.warn_unsupported_tag(
+                        "swf_tag_unsupported",
+                        tag_code,
+                        tag_offset,
+                        scope_uid,
+                        cur_frame,
+                        &format!(
+                            "SWF tag {tag_code} ({} bytes) is not reconstructed into editable authoring elements.",
+                            payload.len()
+                        ),
+                    );
+                }
             }
         }
 
@@ -1041,9 +1159,16 @@ impl SwfBuilder<'_> {
         }
     }
 
-    fn decode_define_button(&mut self, tag_code: u16, payload: &[u8]) {
+    fn decode_define_button(
+        &mut self,
+        tag_code: u16,
+        tag_offset: usize,
+        cur_frame: usize,
+        payload: &[u8],
+    ) {
         let mut r = SwfSlice::new(payload);
         let Some(button_id) = r.u16() else { return };
+        let sym_uid = format!("swf-sym-{button_id}");
         let is_button2 = tag_code == 34;
         let action_abs_offset = if is_button2 {
             let _flags = r.u8().unwrap_or(0);
@@ -1075,7 +1200,7 @@ impl SwfBuilder<'_> {
                 let (parsed, unmodeled) = parse_swf_filter_list(&mut r);
                 filters = parsed;
                 if unmodeled {
-                    self.warn_filter_once();
+                    self.warn_filter(tag_code, tag_offset, &sym_uid, cur_frame);
                 }
             }
             if is_button2 && (flags & 0x20) != 0 {
@@ -1083,7 +1208,7 @@ impl SwfBuilder<'_> {
                 if let Some(bm) = parse_swf_blend_mode(blend) {
                     blend_mode = bm;
                 } else if blend > 1 {
-                    self.warn_blend_once();
+                    self.warn_blend(tag_code, tag_offset, &sym_uid, cur_frame, blend);
                 }
             }
             records.push(ButtonRecord {
@@ -1102,26 +1227,40 @@ impl SwfBuilder<'_> {
             if let Some(off) = action_abs_offset
                 && off < payload.len()
             {
-                let hs = parse_and_decompile_button2_actions(
+                let mut hs = parse_and_decompile_button2_actions(
                     &payload[off..],
                     self.swf_version,
                     &mut self.legacy_cp_warned,
                 );
-                for h in &hs {
-                    self.unrecognized_avm1 += h.unrecognized_opcodes;
+                for h in &mut hs {
+                    for (bc_off, _) in &mut h.unrecognized_sites {
+                        *bc_off = bc_off.saturating_add(off);
+                    }
+                    self.warn_avm1_sites(
+                        tag_code,
+                        tag_offset,
+                        &sym_uid,
+                        cur_frame,
+                        h.unrecognized_opcodes,
+                        &h.unrecognized_sites,
+                    );
                 }
                 hs
             } else {
                 Vec::new()
             }
         } else {
+            let rest_off = r.pos();
             let rest = r.rest();
             if rest.is_empty() {
                 Vec::new()
             } else {
-                let (src, unrec) =
+                let (src, unrec, mut sites) =
                     decompile_actions(rest, self.swf_version, &mut self.legacy_cp_warned);
-                self.unrecognized_avm1 += unrec;
+                for (bc_off, _) in &mut sites {
+                    *bc_off = bc_off.saturating_add(rest_off);
+                }
+                self.warn_avm1_sites(tag_code, tag_offset, &sym_uid, cur_frame, unrec, &sites);
                 if src.trim().is_empty() {
                     Vec::new()
                 } else {
@@ -1135,6 +1274,7 @@ impl SwfBuilder<'_> {
                         },
                         approximated_event: false,
                         unrecognized_opcodes: unrec,
+                        unrecognized_sites: sites,
                     }]
                 }
             }
@@ -1144,6 +1284,8 @@ impl SwfBuilder<'_> {
             button_id,
             PendingButton {
                 button_id,
+                tag_code,
+                tag_offset,
                 records,
                 handlers,
             },
@@ -1253,6 +1395,8 @@ impl SwfBuilder<'_> {
                 btn.button_id,
                 SwfCharacter::Button {
                     symbol_id: sym_id,
+                    tag_code: btn.tag_code,
+                    tag_offset: btn.tag_offset,
                     instance_scripts: btn.handlers,
                     is_pure_vector,
                 },
@@ -1260,9 +1404,40 @@ impl SwfBuilder<'_> {
         }
     }
 
+    fn apply_scaling_grids(&mut self) {
+        let grids = std::mem::take(&mut self.scaling_grids);
+        for (cid, tag_offset, cur_frame, grid_opt) in grids {
+            let sym_uid = format!("swf-sym-{cid}");
+            let applied = if let Some(grid) = grid_opt
+                && grid.iter().all(|v| v.is_finite() && v.abs() <= 1e6)
+                && let Some(SwfCharacter::Sprite { symbol_id, .. }) = self.characters.get(&cid)
+                && let Some(sym) = self.symbols.iter_mut().find(|s| &s.id == symbol_id)
+            {
+                sym.set_scale9_grid(Some(grid));
+                true
+            } else {
+                false
+            };
+            if !applied {
+                self.warn_unsupported_tag(
+                    "swf_scaling_grid_approximated",
+                    78,
+                    tag_offset,
+                    &sym_uid,
+                    cur_frame,
+                    "DefineScalingGrid targeted a non-MovieClip character or degenerate rectangle and was skipped.",
+                );
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn apply_place_object(
         &mut self,
         tag_code: u16,
+        tag_offset: usize,
+        scope_uid: &str,
+        cur_frame: usize,
         payload: &[u8],
         root_offset: (f64, f64),
         active_slots: &mut BTreeMap<u16, ActiveSlot>,
@@ -1357,7 +1532,7 @@ impl SwfBuilder<'_> {
                 let (parsed, unmodeled) = parse_swf_filter_list(&mut r);
                 new_filters = Some(parsed);
                 if unmodeled {
-                    self.warn_filter_once();
+                    self.warn_filter(tag_code, tag_offset, scope_uid, cur_frame);
                 }
             }
             if (flags2 & 0x02) != 0 {
@@ -1365,7 +1540,7 @@ impl SwfBuilder<'_> {
                 if let Some(bm) = parse_swf_blend_mode(blend) {
                     new_blend_mode = Some(bm);
                 } else if blend > 1 {
-                    self.warn_blend_once();
+                    self.warn_blend(tag_code, tag_offset, scope_uid, cur_frame, blend);
                 }
             }
             if (flags2 & 0x04) != 0 {
@@ -1386,12 +1561,22 @@ impl SwfBuilder<'_> {
                 &mut self.legacy_cp_warned,
             );
             for h in &hs {
-                self.unrecognized_avm1 += h.unrecognized_opcodes;
-                if h.approximated_event && !self.clip_event_warned {
-                    self.clip_event_warned = true;
+                self.warn_avm1_sites(
+                    tag_code,
+                    tag_offset,
+                    scope_uid,
+                    cur_frame,
+                    h.unrecognized_opcodes,
+                    &h.unrecognized_sites,
+                );
+                if h.approximated_event && self.clip_event_warnings < MAX_CATEGORY_WARNINGS {
+                    self.clip_event_warnings += 1;
                     self.report.warning(
                         "swf_clip_event_approximated",
-                        self.location,
+                        format!(
+                            "{}#tag={tag_code}@{tag_offset}:symbol={scope_uid}:frame={cur_frame}:depth={depth}",
+                            self.location
+                        ),
                         "Non-core AVM1 clip/button events (e.g. rollOver, keyPress, mouseMove) were preserved with event-header comments on ObjectScript.",
                     );
                 }
@@ -1630,11 +1815,17 @@ impl SwfBuilder<'_> {
                     })
                     .collect();
                 if masked_indices.is_empty() {
+                    self.report.warning(
+                        "swf_mask_approximated",
+                        format!("{}#{sym_uid}:depth-{mask_depth}", self.location),
+                        format!(
+                            "Empty SWF clip_depth range ({mask_depth}..={clip_end}) matched no unmasked layers and was imported as a normal layer."
+                        ),
+                    );
                     continue;
                 }
                 let mask_id = layers[mask_lidx].id.clone();
                 layers[mask_lidx].properties.role = LayerRole::Mask;
-                all_layers_pure_vector = false;
                 for idx in masked_indices {
                     layers[idx].properties.mask = Some(mask_id.clone());
                 }
@@ -1762,7 +1953,7 @@ impl SwfBuilder<'_> {
         sym_uid: &str,
         depth: u16,
         slot: &ActiveSlot,
-        is_button: bool,
+        _is_button: bool,
     ) -> Option<(Element, bool)> {
         let mut transform = Transform::from_matrix(slot.matrix)?;
         transform.color_transform = slot.color_transform;
@@ -1774,12 +1965,7 @@ impl SwfBuilder<'_> {
         let elem_id = format!("swf-el-{sym_uid}-d{depth}-s{}", slot.span_id);
         let mut scripts: Vec<ObjectScript> =
             slot.handlers.iter().map(|h| h.script.clone()).collect();
-        let filters = if is_button {
-            Vec::new()
-        } else {
-            slot.filters.clone()
-        };
-        let has_filters = !filters.is_empty();
+        let filters = slot.filters.clone();
         let blend_mode = slot.blend_mode;
         let cache_as_bitmap = slot.cache_as_bitmap;
 
@@ -1864,22 +2050,30 @@ impl SwfBuilder<'_> {
                         filters,
                         ..Element::default()
                     },
-                    *is_pure_vector
-                        && !has_filters
-                        && blend_mode == neoflash_core::BlendMode::Normal,
+                    *is_pure_vector,
                 ))
             }
             SwfCharacter::Button {
                 symbol_id,
+                tag_code,
+                tag_offset,
                 instance_scripts,
                 is_pure_vector,
             } => {
-                for h in instance_scripts {
-                    if h.approximated_event && !self.clip_event_warned {
-                        self.clip_event_warned = true;
+                let btn_tag = *tag_code;
+                let btn_off = *tag_offset;
+                let btn_sym = symbol_id.clone();
+                let btn_pure = *is_pure_vector;
+                let btn_handlers = instance_scripts.clone();
+                for h in &btn_handlers {
+                    if h.approximated_event && self.clip_event_warnings < MAX_CATEGORY_WARNINGS {
+                        self.clip_event_warnings += 1;
                         self.report.warning(
                             "swf_clip_event_approximated",
-                            self.location,
+                            format!(
+                                "{}#tag={btn_tag}@{btn_off}:symbol={sym_uid}:depth={depth}",
+                                self.location
+                            ),
                             "Non-core AVM1 clip/button events (e.g. rollOver, keyPress, mouseMove) were preserved with event-header comments on ObjectScript.",
                         );
                     }
@@ -1891,7 +2085,7 @@ impl SwfBuilder<'_> {
                         name: slot.name.clone(),
                         transform,
                         kind: ElementKind::Instance {
-                            symbol_id: symbol_id.clone(),
+                            symbol_id: btn_sym,
                             playback: InstancePlayback::Independent,
                         },
                         scripts,
@@ -1901,9 +2095,7 @@ impl SwfBuilder<'_> {
                         filters,
                         ..Element::default()
                     },
-                    *is_pure_vector
-                        && !has_filters
-                        && blend_mode == neoflash_core::BlendMode::Normal,
+                    btn_pure,
                 ))
             }
             SwfCharacter::Sprite {
@@ -1925,29 +2117,161 @@ impl SwfBuilder<'_> {
                     filters,
                     ..Element::default()
                 },
-                *is_pure_vector && !has_filters && blend_mode == neoflash_core::BlendMode::Normal,
+                *is_pure_vector,
             )),
         }
     }
 
-    fn warn_filter_once(&mut self) {
-        if !self.filter_warned {
-            self.filter_warned = true;
+    fn warn_filter(&mut self, tag_code: u16, tag_offset: usize, scope_uid: &str, cur_frame: usize) {
+        if self.filter_warnings < MAX_CATEGORY_WARNINGS {
+            self.filter_warnings += 1;
             self.report.warning(
                 "swf_filter_approximated",
-                self.location,
-                "SWF bitmap filters (DropShadow/Blur/Glow/Bevel/ColorMatrix) are not modeled in the authoring document; unfiltered artwork is preserved.",
+                format!(
+                    "{}#tag={tag_code}@{tag_offset}:symbol={scope_uid}:frame={cur_frame}",
+                    self.location
+                ),
+                "Unrecognized, truncated, or over-budget (>16) SWF filter entry skipped; recognized filters were preserved.",
             );
         }
     }
 
-    fn warn_blend_once(&mut self) {
-        if !self.blend_warned {
-            self.blend_warned = true;
+    fn warn_blend(
+        &mut self,
+        tag_code: u16,
+        tag_offset: usize,
+        scope_uid: &str,
+        cur_frame: usize,
+        blend: u8,
+    ) {
+        if self.blend_warnings < MAX_CATEGORY_WARNINGS {
+            self.blend_warnings += 1;
             self.report.warning(
                 "swf_blend_mode_approximated",
-                self.location,
-                "SWF non-normal blend modes are rendered with standard normal compositing.",
+                format!(
+                    "{}#tag={tag_code}@{tag_offset}:symbol={scope_uid}:frame={cur_frame}",
+                    self.location
+                ),
+                format!("Unrecognized SWF blend mode code {blend} approximated as Normal."),
+            );
+        }
+    }
+
+    fn warn_avm1_sites(
+        &mut self,
+        tag_code: u16,
+        tag_offset: usize,
+        scope_uid: &str,
+        cur_frame: usize,
+        unrec_count: usize,
+        sites: &[(usize, u8)],
+    ) {
+        if unrec_count == 0 {
+            return;
+        }
+        if sites.is_empty() {
+            if self.avm1_warnings < MAX_CATEGORY_WARNINGS {
+                self.avm1_warnings += 1;
+                self.report.warning(
+                    "swf_avm1_partial",
+                    format!(
+                        "{}#tag={tag_code}@{tag_offset}:symbol={scope_uid}:frame={cur_frame}",
+                        self.location
+                    ),
+                    format!(
+                        "{unrec_count} unrecognized AVM1 action opcode(s) were preserved as diagnostic comments."
+                    ),
+                );
+            }
+            return;
+        }
+        for &(bc_off, op) in sites {
+            if self.avm1_warnings >= MAX_CATEGORY_WARNINGS {
+                break;
+            }
+            self.avm1_warnings += 1;
+            self.report.warning(
+                "swf_avm1_partial",
+                format!(
+                    "{}#tag={tag_code}@{tag_offset}:symbol={scope_uid}:frame={cur_frame}:offset=0x{bc_off:x}",
+                    self.location
+                ),
+                format!(
+                    "Unrecognized AVM1 action opcode 0x{op:02x} at offset 0x{bc_off:x} preserved as diagnostic comment."
+                ),
+            );
+        }
+    }
+
+    fn warn_avm2_sites(
+        &mut self,
+        tag_code: u16,
+        tag_offset: usize,
+        cur_frame: usize,
+        abc_name: &str,
+        unrec_count: usize,
+        sites: &[(String, usize, usize, u8)],
+    ) {
+        if unrec_count == 0 {
+            return;
+        }
+        if sites.is_empty() {
+            if self.avm2_warnings < MAX_CATEGORY_WARNINGS {
+                self.avm2_warnings += 1;
+                let sym = if abc_name.is_empty() {
+                    "root"
+                } else {
+                    abc_name
+                };
+                self.report.warning(
+                    "swf_avm2_partial",
+                    format!(
+                        "{}#tag={tag_code}@{tag_offset}:symbol={sym}:frame={cur_frame}",
+                        self.location
+                    ),
+                    format!(
+                        "{unrec_count} unrecognized AVM2 bytecode instruction(s) stopped method body decoding early."
+                    ),
+                );
+            }
+            return;
+        }
+        for (owner, midx, bc_off, op) in sites {
+            if self.avm2_warnings >= MAX_CATEGORY_WARNINGS {
+                break;
+            }
+            self.avm2_warnings += 1;
+            self.report.warning(
+                "swf_avm2_partial",
+                format!(
+                    "{}#tag={tag_code}@{tag_offset}:symbol={owner}:method={midx}:frame={cur_frame}:offset=0x{bc_off:x}",
+                    self.location
+                ),
+                format!(
+                    "Unrecognized AVM2 ABC opcode 0x{op:02x} in {owner} (method #{midx}, offset 0x{bc_off:x}) stopped method body decoding early."
+                ),
+            );
+        }
+    }
+
+    fn warn_unsupported_tag(
+        &mut self,
+        code: &str,
+        tag_code: u16,
+        tag_offset: usize,
+        scope_uid: &str,
+        cur_frame: usize,
+        message: &str,
+    ) {
+        if self.unsupported_tag_warnings < MAX_CATEGORY_WARNINGS {
+            self.unsupported_tag_warnings += 1;
+            self.report.warning(
+                code,
+                format!(
+                    "{}#tag={tag_code}@{tag_offset}:symbol={scope_uid}:frame={cur_frame}",
+                    self.location
+                ),
+                message.to_owned(),
             );
         }
     }
@@ -2016,13 +2340,12 @@ fn morph_shape_timeline(
 }
 
 fn element_is_pure_vector(el: &Element) -> bool {
-    matches!(
-        el.kind,
-        ElementKind::Path { .. }
-            | ElementKind::PaintedPath { .. }
-            | ElementKind::Rectangle { .. }
-            | ElementKind::Ellipse { .. }
-    )
+    match &el.kind {
+        ElementKind::Path { .. } | ElementKind::PaintedPath { .. } => true,
+        ElementKind::Rectangle { width, height, .. }
+        | ElementKind::Ellipse { width, height, .. } => *width > 0.0 && *height > 0.0,
+        _ => false,
+    }
 }
 
 fn transform_to_matrix(t: Transform) -> [f64; 6] {
@@ -2195,6 +2518,9 @@ pub(super) fn parse_swf_filter_list(
                 let alpha = (f64::from(rgba[3]) / 255.0).clamp(0.0, 1.0);
                 let inner = (flags & 0x80) != 0;
                 let knockout = (flags & 0x40) != 0;
+                if (flags & 0x20) == 0 {
+                    unmodeled = true;
+                }
                 let quality = (flags & 0x1F).clamp(1, 15);
                 Some(FilterSpec::Glow {
                     color,
@@ -2254,6 +2580,9 @@ pub(super) fn parse_swf_filter_list(
                 let highlight_alpha = (f64::from(h_rgba[3]) / 255.0).clamp(0.0, 1.0);
                 let inner = (flags & 0x80) != 0;
                 let knockout = (flags & 0x40) != 0;
+                if (flags & 0x20) == 0 {
+                    unmodeled = true;
+                }
                 let on_top = (flags & 0x10) != 0;
                 let placement = if on_top {
                     "full".to_owned()
@@ -2336,6 +2665,9 @@ pub(super) fn parse_swf_filter_list(
                 };
                 let inner = (flags & 0x80) != 0;
                 let knockout = (flags & 0x40) != 0;
+                if (flags & 0x20) == 0 {
+                    unmodeled = true;
+                }
                 let on_top = (flags & 0x10) != 0;
                 let placement = if on_top {
                     "full".to_owned()
@@ -2358,8 +2690,12 @@ pub(super) fn parse_swf_filter_list(
                     })
                     .collect();
                 stops.sort_by_key(|s| s.2);
-                stops.truncate(16);
+                if stops.len() > 16 {
+                    unmodeled = true;
+                    stops.truncate(16);
+                }
                 if stops.is_empty() {
+                    unmodeled = true;
                     stops.push((0x000000, 0.0, 0));
                     stops.push((0xFFFFFF, 1.0, 255));
                 }
@@ -2424,7 +2760,15 @@ pub(super) fn parse_swf_filter_list(
                         break;
                     };
                     let val = f64::from(f32::from_le_bytes(mb.try_into().unwrap()));
-                    matrix.push(if val.is_finite() { val } else { 0.0 });
+                    if val.is_finite() {
+                        if !(-65_536.0..=65_536.0).contains(&val) {
+                            unmodeled = true;
+                        }
+                        matrix.push(val.clamp(-65_536.0, 65_536.0));
+                    } else {
+                        unmodeled = true;
+                        matrix.push(0.0);
+                    }
                 }
                 if matrix.len() != cell_count {
                     break;
@@ -2443,16 +2787,30 @@ pub(super) fn parse_swf_filter_list(
                 let clamp = (flags & 0x02) != 0;
                 let preserve_alpha = (flags & 0x01) != 0;
                 if (1..=15).contains(&mx) && (1..=15).contains(&my) {
+                    let safe_divisor = if divisor.is_finite() && divisor != 0.0 {
+                        if !(-65_536.0..=65_536.0).contains(&divisor) {
+                            unmodeled = true;
+                        }
+                        divisor.clamp(-65_536.0, 65_536.0)
+                    } else {
+                        unmodeled = true;
+                        1.0
+                    };
+                    let safe_bias = if bias.is_finite() {
+                        if !(-65_536.0..=65_536.0).contains(&bias) {
+                            unmodeled = true;
+                        }
+                        bias.clamp(-65_536.0, 65_536.0)
+                    } else {
+                        unmodeled = true;
+                        0.0
+                    };
                     Some(FilterSpec::Convolution {
                         matrix_x: mx,
                         matrix_y: my,
                         matrix,
-                        divisor: if divisor.is_finite() && divisor != 0.0 {
-                            divisor
-                        } else {
-                            1.0
-                        },
-                        bias: if bias.is_finite() { bias } else { 0.0 },
+                        divisor: safe_divisor,
+                        bias: safe_bias,
                         preserve_alpha,
                         clamp,
                         color,
@@ -2473,8 +2831,12 @@ pub(super) fn parse_swf_filter_list(
                 for (i, chunk) in raw.as_chunks::<4>().0.iter().enumerate() {
                     let val = f64::from(f32::from_le_bytes(*chunk));
                     matrix[i] = if val.is_finite() {
+                        if !(-10_000.0..=10_000.0).contains(&val) {
+                            unmodeled = true;
+                        }
                         val.clamp(-10_000.0, 10_000.0)
                     } else {
+                        unmodeled = true;
                         0.0
                     };
                 }

@@ -14,6 +14,7 @@ pub(crate) struct DecompiledObjectHandler {
     pub script: ObjectScript,
     pub approximated_event: bool,
     pub unrecognized_opcodes: usize,
+    pub unrecognized_sites: Vec<(usize, u8)>,
 }
 
 pub(crate) fn script_language_for_swf(swf_version: u8) -> ScriptLanguage {
@@ -25,29 +26,36 @@ pub(crate) fn script_language_for_swf(swf_version: u8) -> ScriptLanguage {
 }
 
 /// Decompile a raw AVM1 action block (`DoAction`, `DoInitAction`, or `DefineButton` actions),
-/// returning `(source, unrecognized_opcode_count)`.
+/// returning `(source, unrecognized_opcode_count, unrecognized_sites)`.
 pub(crate) fn decompile_actions(
     bytes: &[u8],
     swf_version: u8,
     legacy_cp_warned: &mut bool,
-) -> (String, usize) {
+) -> (String, usize, Vec<(usize, u8)>) {
     let mut ctx = Avm1Context {
         swf_version,
         constants: Vec::new(),
         reg_names: HashMap::new(),
         unrecognized: 0,
+        unrecognized_sites: Vec::new(),
         legacy_cp_warned,
     };
     let insns = decode_action_stream(
         bytes,
+        0,
         swf_version,
         ctx.legacy_cp_warned,
         &mut ctx.unrecognized,
+        &mut ctx.unrecognized_sites,
         0,
     );
     let mut stack = Vec::new();
     let lines = decompile_range(&insns, 0, insns.len(), &mut ctx, &mut stack, 0);
-    (join_lines(&lines, 0), ctx.unrecognized)
+    (
+        join_lines(&lines, 0),
+        ctx.unrecognized,
+        ctx.unrecognized_sites,
+    )
 }
 
 /// Parse and decompile `DefineButton2` (tag 34) chained `BUTTONCONDACTION` records.
@@ -77,9 +85,14 @@ pub(crate) fn parse_and_decompile_button2_actions(
             pos = end;
             continue;
         }
-        let action_slice = &bytes[pos + 4..end];
-        let (body, unrecognized) = decompile_actions(action_slice, swf_version, legacy_cp_warned);
-        if !body.trim().is_empty() {
+        let action_base = pos + 4;
+        let action_slice = &bytes[action_base..end];
+        let (body, unrecognized, mut sites) =
+            decompile_actions(action_slice, swf_version, legacy_cp_warned);
+        for (off, _) in &mut sites {
+            *off = off.saturating_add(action_base);
+        }
+        if !body.trim().is_empty() || unrecognized > 0 {
             let conds = describe_button_conditions(cond_b0, cond_b1);
             let is_direct_click =
                 !conds.is_empty() && conds.iter().all(|c| c == "release" || c == "press");
@@ -103,6 +116,7 @@ pub(crate) fn parse_and_decompile_button2_actions(
                 },
                 approximated_event: !is_direct_click,
                 unrecognized_opcodes: unrecognized,
+                unrecognized_sites: sites,
             });
         }
         if cond_size == 0 || end >= bytes.len() {
@@ -139,21 +153,26 @@ pub(crate) fn parse_and_decompile_clip_actions(
         let Some(record_size) = r.u32().map(|v| v as usize) else {
             break;
         };
+        let record_start = r.pos();
         let Some(record_bytes) = r.take(record_size) else {
             break;
         };
         // `ClipEventKeyPress` (`b2 & 0x02`, i.e., `0x0002_0000` in LE u32) prefixes a 1-byte KeyCode.
         let has_key_press = (flags & 0x0002_0000) != 0;
-        let (key_code, action_bytes) = if has_key_press {
+        let (key_code, action_base, action_bytes) = if has_key_press {
             if record_bytes.is_empty() {
                 continue;
             }
-            (Some(record_bytes[0]), &record_bytes[1..])
+            (Some(record_bytes[0]), record_start + 1, &record_bytes[1..])
         } else {
-            (None, record_bytes)
+            (None, record_start, record_bytes)
         };
-        let (body, unrecognized) = decompile_actions(action_bytes, swf_version, legacy_cp_warned);
-        if body.trim().is_empty() {
+        let (body, unrecognized, mut sites) =
+            decompile_actions(action_bytes, swf_version, legacy_cp_warned);
+        for (off, _) in &mut sites {
+            *off = off.saturating_add(action_base);
+        }
+        if body.trim().is_empty() && unrecognized == 0 {
             continue;
         }
         let (event, approx, label) = classify_clip_event_flags(flags, key_code);
@@ -172,6 +191,7 @@ pub(crate) fn parse_and_decompile_clip_actions(
             },
             approximated_event: approx,
             unrecognized_opcodes: unrecognized,
+            unrecognized_sites: sites,
         });
     }
     out
@@ -364,9 +384,11 @@ enum Avm1Op {
 
 fn decode_action_stream(
     bytes: &[u8],
+    base_offset: usize,
     swf_version: u8,
     legacy_cp_warned: &mut bool,
     unrecognized: &mut usize,
+    unrecognized_sites: &mut Vec<(usize, u8)>,
     depth: usize,
 ) -> Vec<Avm1Insn> {
     let mut out = Vec::new();
@@ -385,6 +407,9 @@ fn decode_action_stream(
             let known = is_known_simple_op(code);
             if !known {
                 *unrecognized += 1;
+                if unrecognized_sites.len() < 64 {
+                    unrecognized_sites.push((base_offset.saturating_add(offset), code));
+                }
             }
             out.push(Avm1Insn {
                 offset,
@@ -465,8 +490,9 @@ fn decode_action_stream(
                     params.push((reg, pname));
                 }
                 let code_size = usize::from(pr.u16().unwrap_or(0));
+                let body_start = pos;
                 let body_end = pos.saturating_add(code_size).min(bytes.len());
-                let body_bytes = &bytes[pos..body_end];
+                let body_bytes = &bytes[body_start..body_end];
                 pos = body_end;
 
                 // Implicit preload registers starting at register 1 in SWF19 specification order.
@@ -487,9 +513,11 @@ fn decode_action_stream(
                 }
                 let body = decode_action_stream(
                     body_bytes,
+                    base_offset.saturating_add(body_start),
                     swf_version,
                     legacy_cp_warned,
                     unrecognized,
+                    unrecognized_sites,
                     depth + 1,
                 );
                 Avm1Op::DefineFunction {
@@ -516,21 +544,24 @@ fn decode_action_stream(
                     *legacy_cp_warned |= cp;
                     (Some(cname), None)
                 };
+                let try_start = pos;
                 let try_end = pos.saturating_add(try_size).min(bytes.len());
-                let try_bytes = &bytes[pos..try_end];
+                let try_bytes = &bytes[try_start..try_end];
                 pos = try_end;
+                let catch_start = pos;
                 let catch_bytes = if has_catch {
                     let c_end = pos.saturating_add(catch_size).min(bytes.len());
-                    let s = &bytes[pos..c_end];
+                    let s = &bytes[catch_start..c_end];
                     pos = c_end;
                     Some(s)
                 } else {
                     pos = pos.saturating_add(catch_size).min(bytes.len());
                     None
                 };
+                let finally_start = pos;
                 let finally_bytes = if has_finally {
                     let f_end = pos.saturating_add(finally_size).min(bytes.len());
-                    let s = &bytes[pos..f_end];
+                    let s = &bytes[finally_start..f_end];
                     pos = f_end;
                     Some(s)
                 } else {
@@ -542,26 +573,32 @@ fn decode_action_stream(
                     catch_reg,
                     try_body: decode_action_stream(
                         try_bytes,
+                        base_offset.saturating_add(try_start),
                         swf_version,
                         legacy_cp_warned,
                         unrecognized,
+                        unrecognized_sites,
                         depth + 1,
                     ),
                     catch_body: catch_bytes.map(|b| {
                         decode_action_stream(
                             b,
+                            base_offset.saturating_add(catch_start),
                             swf_version,
                             legacy_cp_warned,
                             unrecognized,
+                            unrecognized_sites,
                             depth + 1,
                         )
                     }),
                     finally_body: finally_bytes.map(|b| {
                         decode_action_stream(
                             b,
+                            base_offset.saturating_add(finally_start),
                             swf_version,
                             legacy_cp_warned,
                             unrecognized,
+                            unrecognized_sites,
                             depth + 1,
                         )
                     }),
@@ -569,15 +606,18 @@ fn decode_action_stream(
             }
             0x94 if payload.len() >= 2 => {
                 let with_size = usize::from(u16::from_le_bytes([payload[0], payload[1]]));
+                let body_start = pos;
                 let body_end = pos.saturating_add(with_size).min(bytes.len());
-                let body_bytes = &bytes[pos..body_end];
+                let body_bytes = &bytes[body_start..body_end];
                 pos = body_end;
                 Avm1Op::With {
                     body: decode_action_stream(
                         body_bytes,
+                        base_offset.saturating_add(body_start),
                         swf_version,
                         legacy_cp_warned,
                         unrecognized,
+                        unrecognized_sites,
                         depth + 1,
                     ),
                 }
@@ -600,14 +640,17 @@ fn decode_action_stream(
                     params.push((0, pname));
                 }
                 let code_size = usize::from(pr.u16().unwrap_or(0));
+                let body_start = pos;
                 let body_end = pos.saturating_add(code_size).min(bytes.len());
-                let body_bytes = &bytes[pos..body_end];
+                let body_bytes = &bytes[body_start..body_end];
                 pos = body_end;
                 let body = decode_action_stream(
                     body_bytes,
+                    base_offset.saturating_add(body_start),
                     swf_version,
                     legacy_cp_warned,
                     unrecognized,
+                    unrecognized_sites,
                     depth + 1,
                 );
                 Avm1Op::DefineFunction {
@@ -631,6 +674,9 @@ fn decode_action_stream(
             }
             _ => {
                 *unrecognized += 1;
+                if unrecognized_sites.len() < 64 {
+                    unrecognized_sites.push((base_offset.saturating_add(offset), code));
+                }
                 Avm1Op::Unknown { code, len }
             }
         };
@@ -717,6 +763,7 @@ struct Avm1Context<'a> {
     constants: Vec<String>,
     reg_names: HashMap<u8, String>,
     unrecognized: usize,
+    unrecognized_sites: Vec<(usize, u8)>,
     legacy_cp_warned: &'a mut bool,
 }
 
@@ -1545,7 +1592,7 @@ fn step_simple_op(code: u8, _swf_version: u8, stack: &mut Vec<Expr>, lines: &mut
         0x46 | 0x55 => {
             let obj = pop_expr(stack);
             stack.push(Expr::atom("null"));
-            stack.push(Expr::atom(format!("/* enumerate {} */", obj.code)));
+            stack.push(Expr::atom(format!("null /* enumerate {} */", obj.code)));
         }
         0x4A => {
             let v = pop_expr(stack);
@@ -1697,7 +1744,7 @@ fn avm1_property_name(idx_expr: &Expr) -> String {
         19 => "_quality".into(),
         20 => "_xmouse".into(),
         21 => "_ymouse".into(),
-        _ => format!("/*prop {}*/", idx_expr.code),
+        _ => "_prop_unknown".into(),
     }
 }
 

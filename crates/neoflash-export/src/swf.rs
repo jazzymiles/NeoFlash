@@ -5742,6 +5742,73 @@ fn encode_button2_cond_actions(
 }
 
 /// Encode `CLIPACTIONS` for a `PlaceObject2` (tag 26) or `PlaceObject3` (tag 70) in SWF 6+.
+fn parse_clip_event_header_override(source: &str) -> Option<(u32, Option<u8>)> {
+    let first_line = source.lines().next()?.trim();
+    let inner = first_line
+        .strip_prefix("// onClipEvent(")?
+        .strip_suffix(')')?
+        .trim();
+    if inner.is_empty() {
+        return None;
+    }
+    let mut flags = 0u32;
+    let mut key_code = None;
+    for part in inner.split(',') {
+        let tok = part.trim();
+        if let Some(rest) = tok.strip_prefix("keyPress") {
+            let quoted = rest.trim().trim_matches('"');
+            let kc = match quoted {
+                "<Left>" => 1,
+                "<Right>" => 2,
+                "<Home>" => 3,
+                "<End>" => 4,
+                "<Insert>" => 5,
+                "<Delete>" => 6,
+                "<Backspace>" => 8,
+                "<Enter>" => 13,
+                "<Up>" => 14,
+                "<Down>" => 15,
+                "<PageUp>" => 16,
+                "<PageDown>" => 17,
+                "<Tab>" => 18,
+                "<Escape>" => 19,
+                "<Space>" => 32,
+                s if s.chars().count() == 1 => {
+                    let ch = s.chars().next().unwrap();
+                    u8::try_from(u32::from(ch)).unwrap_or(0)
+                }
+                _ => 0,
+            };
+            flags |= 0x0002_0000;
+            key_code = Some(kc);
+            continue;
+        }
+        let bit = match tok {
+            "load" => 0x0000_0001,
+            "enterFrame" => 0x0000_0002,
+            "unload" => 0x0000_0004,
+            "mouseMove" => 0x0000_0008,
+            "mouseDown" => 0x0000_0010,
+            "mouseUp" => 0x0000_0020,
+            "keyDown" => 0x0000_0040,
+            "keyUp" => 0x0000_0080,
+            "data" => 0x0000_0100,
+            "initialize" => 0x0000_0200,
+            "press" => 0x0000_0400,
+            "release" => 0x0000_0800,
+            "releaseOutside" => 0x0000_1000,
+            "rollOver" => 0x0000_2000,
+            "rollOut" => 0x0000_4000,
+            "dragOver" => 0x0000_8000,
+            "dragOut" => 0x0001_0000,
+            "construct" => 0x0004_0000,
+            _ => return None,
+        };
+        flags |= bit;
+    }
+    (flags != 0).then_some((flags, key_code))
+}
+
 fn encode_clip_actions(
     project: &Project,
     scripts: &[ObjectScript],
@@ -5760,13 +5827,18 @@ fn encode_clip_actions(
         if actions.len() <= 1 {
             continue;
         }
-        let (flag, key): (u32, Option<u8>) = match os.event {
-            ObjectEvent::Load => (0x0000_0080, None), // ClipEventLoad
-            ObjectEvent::EnterFrame => (0x0000_0040, None), // ClipEventEnterFrame
-            // NeoFlash's Click event is dispatched after a completed pointer activation, which
-            // corresponds to ClipEventRelease rather than Press/RollOver in SWF CLIPACTIONS.
-            ObjectEvent::Click => (0x0000_1000, None), // ClipEventRelease
-        };
+        let (flag, key): (u32, Option<u8>) =
+            if let Some(parsed) = parse_clip_event_header_override(&os.script.source) {
+                parsed
+            } else {
+                match os.event {
+                    ObjectEvent::Load => (0x0000_0001, None), // ClipEventLoad
+                    ObjectEvent::EnterFrame => (0x0000_0002, None), // ClipEventEnterFrame
+                    // NeoFlash's Click event is dispatched after a completed pointer activation, which
+                    // corresponds to ClipEventRelease rather than Press/RollOver in SWF CLIPACTIONS.
+                    ObjectEvent::Click => (0x0000_0800, None), // ClipEventRelease
+                }
+            };
         all_flags |= flag;
         records.push((flag, key, actions));
     }
@@ -7748,17 +7820,26 @@ fn write_place_object_tag(
     out_tags: &mut SwfBitWriter,
     depth: u16,
     slot: &SlotPlacement,
-    is_move: bool,
+    prev: Option<&SlotPlacement>,
 ) {
-    let has_cxform = !slot.color_transform.is_identity() || (slot.alpha - 1.0).abs() > 1e-5;
+    let is_move = prev.is_some();
+    let prev_had_cxform =
+        prev.is_some_and(|p| !p.color_transform.is_identity() || (p.alpha - 1.0).abs() > 1e-5);
+    let prev_had_filters = prev.is_some_and(|p| p.filters.iter().any(FilterSpec::is_enabled));
+    let prev_had_blend = prev.is_some_and(|p| p.blend_mode != BlendMode::Normal);
+    let prev_had_cache = prev.is_some_and(|p| p.cache_as_bitmap);
+    let prev_had_vis = prev.is_some_and(|p| !p.visible);
+
+    let has_cxform =
+        !slot.color_transform.is_identity() || (slot.alpha - 1.0).abs() > 1e-5 || prev_had_cxform;
     let has_ratio = slot.ratio.is_some();
     let has_name = !slot.name.is_empty() && !is_move;
     let has_clip_depth = slot.clip_depth.is_some() && !is_move;
     let has_clip_actions = slot.clip_actions.is_some() && !is_move;
-    let has_filters = slot.filters.iter().any(FilterSpec::is_enabled);
-    let has_blend = slot.blend_mode != BlendMode::Normal;
-    let has_cache = slot.cache_as_bitmap;
-    let has_vis = !slot.visible;
+    let has_filters = slot.filters.iter().any(FilterSpec::is_enabled) || prev_had_filters;
+    let has_blend = slot.blend_mode != BlendMode::Normal || prev_had_blend;
+    let has_cache = slot.cache_as_bitmap || prev_had_cache;
+    let has_vis = !slot.visible || prev_had_vis;
 
     let use_place3 = has_filters || has_blend || has_cache || has_vis;
     let tag_code: u16 = if use_place3 { 70 } else { 26 };
@@ -7809,7 +7890,7 @@ fn write_place_object_tag(
             w.u8(encode_swf_blend_mode(slot.blend_mode));
         }
         if has_cache {
-            w.u8(1);
+            w.u8(u8::from(slot.cache_as_bitmap));
         }
         if has_vis {
             w.u8(u8::from(slot.visible));
@@ -8533,18 +8614,19 @@ impl<'a> SwfDictionaryCompiler<'a> {
             for (&depth, slot) in &next_slots {
                 match active_slots.get(&depth) {
                     None => {
-                        write_place_object_tag(&mut stream_tags, depth, slot, false);
+                        write_place_object_tag(&mut stream_tags, depth, slot, None);
                     }
                     Some(prev) if !prev.same_state(slot) => {
                         let is_move = prev.character_id == slot.character_id
                             && prev.name == slot.name
                             && prev.clip_depth == slot.clip_depth
-                            && prev.clip_actions == slot.clip_actions;
+                            && prev.clip_actions == slot.clip_actions
+                            && !(prev.ratio.is_some() && slot.ratio.is_none());
                         if is_move {
-                            write_place_object_tag(&mut stream_tags, depth, slot, true);
+                            write_place_object_tag(&mut stream_tags, depth, slot, Some(prev));
                         } else {
                             stream_tags.write_tag(28, &depth.to_le_bytes());
-                            write_place_object_tag(&mut stream_tags, depth, slot, false);
+                            write_place_object_tag(&mut stream_tags, depth, slot, None);
                         }
                     }
                     Some(_) => {}
@@ -8663,6 +8745,25 @@ impl<'a> SwfDictionaryCompiler<'a> {
             w.u16(frame_count);
             w.bytes(&sprite_tags);
             self.root_tags.write_tag(39, &w.buf); // DefineSprite
+            if sym.kind == SymbolKind::MovieClip
+                && let Some([gx, gy, gw, gh]) = sym.scale9_grid()
+                && gw > 0.0
+                && gh > 0.0
+                && [gx, gy, gw, gh]
+                    .iter()
+                    .all(|v| v.is_finite() && v.abs() <= 1e6)
+            {
+                let xmin = (gx * 20.0).round() as i32;
+                let ymin = (gy * 20.0).round() as i32;
+                let xmax = ((gx + gw) * 20.0).round() as i32;
+                let ymax = ((gy + gh) * 20.0).round() as i32;
+                if xmax > xmin && ymax > ymin {
+                    let mut gw_buf = SwfBitWriter::new();
+                    gw_buf.u16(sid);
+                    gw_buf.rect_twips([xmin, xmax, ymin, ymax]);
+                    self.root_tags.write_tag(78, &gw_buf.buf); // DefineScalingGrid
+                }
+            }
             sid
         };
 
@@ -9539,10 +9640,10 @@ mod dictionary_capacity_tests {
         let encoded = encode_clip_actions(&project, &scripts).unwrap().unwrap();
         assert_eq!(
             u32::from_le_bytes(encoded[2..6].try_into().unwrap()),
-            0x10C0
+            0x0803
         );
         let mut offset = 6;
-        for expected in [0x80_u32, 0x40, 0x1000] {
+        for expected in [0x01_u32, 0x02, 0x0800] {
             assert_eq!(
                 u32::from_le_bytes(encoded[offset..offset + 4].try_into().unwrap()),
                 expected
