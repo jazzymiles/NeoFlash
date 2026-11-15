@@ -2193,7 +2193,7 @@ pub fn guide_polyline(guide: &Layer, frame: u32) -> Option<GuidePath> {
 
 /// Earliest key in the current continuous placement span (stable IDs survive keys, and
 /// `sync_symbols` motion spans chain continuously across consecutive keyframes of the same
-/// graphic symbol).
+/// graphic symbol). Replacing the symbol starts a new age even when the element ID stays.
 pub fn placement_start(layer: &Layer, frame: u32, id: &str) -> u32 {
     let mut keys: Vec<_> = layer
         .keyframes
@@ -2221,7 +2221,13 @@ pub fn placement_start(layer: &Layer, frame: u32, id: &str) -> u32 {
     let mut seen_current = false;
     let mut start = frame;
     for key in keys {
-        if key.elements.iter().any(|e| e.id == current_id) {
+        if let Some(element) = key.elements.iter().find(|e| e.id == current_id) {
+            if let Some((symbol, _)) = target
+                && !matches!(&element.kind, ElementKind::Instance { symbol_id, .. }
+                    if symbol_id == symbol)
+            {
+                break;
+            }
             seen_current = true;
             start = key.frame;
             continue;

@@ -9,6 +9,10 @@
   correct memory reservations across Restart and resource replacement. Raw SWF Loader loading remains partial:
   it creates header-derived containers without executing the loaded movie's display list, timeline or bytecode.
 
+- Fixed binary FLA classic tweens that were held when a single MovieClip changed its instance name or endpoint
+  library symbol. Symbol replacements restart child time during both playback and scrubbing; blank-frame
+  re-entry remains a fresh placement. Empty zero-duration lead records no longer report lost content merely
+  because they contain empty shape/label envelopes; actual discarded content still produces a located warning.
 - Completed the post-Wave-1 correctness audit (`T-333`) without changing the locked NF2 design: replaced the
   hand-maintained grapheme table with the maintained UAX #29 implementation; restored Adobe's read-only desktop
   `TextField.textInteractionMode` contract; corrected local `NetStream` reset `0`–`3`, playlist `Switch`/cumulative

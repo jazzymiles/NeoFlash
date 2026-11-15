@@ -125,7 +125,7 @@ fn convert_timeline_reporting(
     let mut report = report();
     let mut context = Context {
         report: &mut report,
-        library: BTreeMap::from([(100, "graphic".into())]),
+        library: BTreeMap::from([(100, "graphic".into()), (101, "replacement".into())]),
         bitmaps: BTreeMap::new(),
         sounds: BTreeMap::new(),
         skipped_bitmaps: std::collections::BTreeSet::new(),
@@ -188,9 +188,8 @@ fn synthetic_timeline_preserves_tween_identity_and_ends_lifetimes_at_blanks() {
     assert!(sample_layer(short, 3).is_empty());
     assert!(sample_layer(short, 13).is_empty());
 
-    // A tween whose endpoint is a different placement cannot interpolate; the
-    // span holds its poses and the report says so. A final tween without an
-    // endpoint holds too, as in Flash.
+    // An unresolved endpoint cannot establish a tween; the span holds and warns.
+    // A final tween without an endpoint holds too.
     let mut mismatch = source.clone();
     if let Some(TimelinePayload::Instance(instance)) = &mut mismatch
         .objects
@@ -199,13 +198,8 @@ fn synthetic_timeline_preserves_tween_identity_and_ends_lifetimes_at_blanks() {
         .unwrap()
         .payload
     {
-        instance.instance_name = Some(TimelineString {
-            encoded: TimelineByteSpan { start: 0, end: 1 },
-            data: TimelineByteSpan { start: 0, end: 1 },
-            utf16: false,
-        });
+        instance.library_id = Some(999);
     }
-    mismatch.original_bytes.push(b'x');
     let (held, report) = convert_timeline_reporting(&mismatch).unwrap();
     assert_eq!(held.layers[0].keyframes[0].tween, None);
     assert!(
@@ -226,6 +220,171 @@ fn synthetic_timeline_preserves_tween_identity_and_ends_lifetimes_at_blanks() {
     }
     let held = convert_timeline(&unfinished).unwrap();
     assert!(held.layers[0].keyframes.last().unwrap().tween.is_none());
+}
+
+#[test]
+fn explicit_classic_spans_allow_library_swaps_and_renames_but_not_ambiguous_endpoints() {
+    for (library_id, rename) in [(100, true), (101, false), (101, true)] {
+        let mut source = timeline_fixture();
+        source.original_bytes = b"new-name".to_vec();
+        let Some(TimelinePayload::Instance(instance)) = &mut source
+            .objects
+            .iter_mut()
+            .find(|object| object.object_id == 21)
+            .unwrap()
+            .payload
+        else {
+            panic!()
+        };
+        instance.library_id = Some(library_id);
+        if rename {
+            instance.instance_name = Some(TimelineString {
+                encoded: TimelineByteSpan { start: 0, end: 8 },
+                data: TimelineByteSpan { start: 0, end: 8 },
+                utf16: false,
+            });
+        }
+        let (timeline, report) = convert_timeline_reporting(&source).unwrap();
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "fla_tween_dropped")
+        );
+        let layer = &timeline.layers[0];
+        let start = &layer.keyframes[0].elements[0];
+        let end = &layer.keyframes[1].elements[0];
+        assert_eq!(start.id, end.id);
+        let between = &sample_layer(layer, 2)[0];
+        assert_eq!(between.transform.x, 20.); // original Flash -100 acceleration
+        assert_eq!(between.kind, start.kind);
+        assert_eq!(between.name, start.name);
+        assert_eq!(sample_layer(layer, 4)[0], *end);
+        assert_eq!(end.name, if rename { "new-name" } else { "" });
+        assert!(matches!(&end.kind, ElementKind::Instance { symbol_id, .. }
+            if symbol_id == if library_id == 100 { "graphic" } else { "replacement" }));
+
+        // Without an authored tween, neither the changed name nor symbol implies
+        // one placement. Keep existing replacement/gap semantics.
+        let Some(TimelinePayload::Frame(frame)) = &mut source
+            .objects
+            .iter_mut()
+            .find(|object| object.object_id == 10)
+            .unwrap()
+            .payload
+        else {
+            panic!()
+        };
+        frame.key_mode = Some(0);
+        let ordinary = convert_timeline(&source).unwrap();
+        let keys = &ordinary.layers[0].keyframes;
+        assert_ne!(keys[0].elements[0].id, keys[1].elements[0].id);
+    }
+    let mut multiple = timeline_fixture();
+    multiple
+        .objects
+        .iter_mut()
+        .find(|o| o.object_id == 11)
+        .unwrap()
+        .children
+        .push(24);
+    let (held, report) = convert_timeline_reporting(&multiple).unwrap();
+    assert!(held.layers[0].keyframes[0].tween.is_none());
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "fla_tween_dropped" && !d.location.is_empty())
+    );
+}
+
+#[test]
+fn zero_duration_markers_are_silent_only_when_their_decoded_content_is_empty() {
+    let mut source = timeline_fixture();
+    let expected = convert_timeline(&source).unwrap();
+    source.original_bytes = vec![b'x'];
+    source.shapes.push(LocatedBinaryShape {
+        offset: 0,
+        record: BinaryShapeRecord {
+            shape_revision: 2,
+            matrix_words: [65536, 0, 0, 65536, 0, 0],
+            data_revision: 2,
+            metadata: 0,
+            fills: vec![],
+            strokes: vec![],
+            edges: vec![],
+            auxiliary: vec![],
+            original_bytes: vec![],
+        },
+    });
+    let mut marker = record(
+        9,
+        TimelineClass::Frame,
+        TimelinePayload::Frame(Box::new(TimelineFrame {
+            duration: Some(0),
+            label: Some(TimelineString {
+                encoded: TimelineByteSpan { start: 0, end: 1 },
+                data: TimelineByteSpan { start: 0, end: 0 },
+                utf16: false,
+            }),
+            ..Default::default()
+        })),
+        &[],
+    );
+    marker.shape_index = Some(0);
+    source.objects.push(marker);
+    source.objects.sort_by_key(|o| o.object_id);
+    source
+        .objects
+        .iter_mut()
+        .find(|o| o.object_id == 2)
+        .unwrap()
+        .children
+        .insert(0, 9);
+    for content in [
+        "empty", "object", "shape", "label", "sound", "motion", "morph",
+    ] {
+        let mut candidate = source.clone();
+        let marker = candidate
+            .objects
+            .iter_mut()
+            .find(|o| o.object_id == 9)
+            .unwrap();
+        let Some(TimelinePayload::Frame(frame)) = &mut marker.payload else {
+            panic!()
+        };
+        match content {
+            "object" => marker.children.push(20),
+            "shape" => candidate.shapes[0]
+                .record
+                .edges
+                .push(edge([0, 0], [10, 0], 0, 0, 1, None)),
+            "label" => frame.label.as_mut().unwrap().data.end = 1,
+            "sound" => frame.sound_media_id = Some(42),
+            "motion" => {
+                frame.motion_xml = Some(TimelineString {
+                    encoded: TimelineByteSpan { start: 0, end: 1 },
+                    data: TimelineByteSpan { start: 0, end: 1 },
+                    utf16: false,
+                })
+            }
+            "morph" => frame.morph_shape = Some(99),
+            _ => {}
+        }
+        let (actual, report) = convert_timeline_reporting(&candidate).unwrap();
+        assert_eq!(
+            serde_json::to_value(actual).unwrap(),
+            serde_json::to_value(&expected).unwrap(),
+            "{content}"
+        );
+        let warnings: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == "fla_frame_duration")
+            .collect();
+        assert_eq!(warnings.len(), usize::from(content != "empty"), "{content}");
+        assert!(warnings.iter().all(|d| d.location.contains("frame 1")));
+    }
 }
 
 fn edge(

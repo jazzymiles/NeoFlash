@@ -2,7 +2,7 @@
 //! before an undecoded record and bounded large-document degradation with
 //! located warnings and visible placeholders. Contains only synthetic bytes.
 
-use neoflash_core::{ElementKind, LayerRole, MaskMode, Player, Project, SoundSync};
+use neoflash_core::{ElementKind, LayerRole, MaskMode, Player, Project, SoundSync, sample_layer};
 use neoflash_import::{ImportFormat, ImportReport, import_fxg_str, import_project, inspect};
 use std::{
     collections::BTreeMap,
@@ -159,6 +159,19 @@ impl MfcWriter {
         u16b(&mut self.bytes, 0); // first_frame = 0
         u32b(&mut self.bytes, library_id);
     }
+    fn sprite_instance_child(&mut self, library_id: u32, name: &str, x_twips: i32) {
+        self.begin("CPicSprite");
+        self.base_start();
+        self.base_end();
+        self.bytes.push(1); // CPicSymbol base rev 1
+        for v in [65536_i32, 0, 0, 65536, x_twips, 0] {
+            i32b(&mut self.bytes, v);
+        }
+        u16b(&mut self.bytes, 0); // first_frame = 0
+        u32b(&mut self.bytes, library_id);
+        self.bytes.push(1); // CPicSprite rev 1: instance name only
+        string(&mut self.bytes, name);
+    }
     fn bitmap_instance_child(&mut self, media_id: u16, x_twips: i32, y_twips: i32) {
         self.begin("CPicBitmap");
         self.base_start();
@@ -192,9 +205,19 @@ impl MfcWriter {
         label: &str,
         source: Option<&str>,
     ) {
+        self.frame_tail_with_key_mode(duration, 0, sound_media_id, label, source);
+    }
+    fn frame_tail_with_key_mode(
+        &mut self,
+        duration: u16,
+        key_mode: u16,
+        sound_media_id: u16,
+        label: &str,
+        source: Option<&str>,
+    ) {
         self.bytes.push(21); // CPicFrame rev 21
         u16b(&mut self.bytes, duration);
-        u16b(&mut self.bytes, 0); // key_mode
+        u16b(&mut self.bytes, key_mode);
         u16b(&mut self.bytes, 0); // acceleration
         u16b(&mut self.bytes, sound_media_id);
         u16b(&mut self.bytes, 0); // 0 envelope points
@@ -534,6 +557,162 @@ fn assert_valid_and_roundtrips_nflash(project: &Project) {
     let player = Player::new(&reopened);
     let _ = player.evaluate(&reopened);
     maybe_verify_html5_export(&json);
+}
+
+#[test]
+fn binary_classic_symbol_swap_keeps_motion_and_resets_child_lifetimes() {
+    let dir = TempDir::new();
+    let child = |rgba| {
+        let mut stream = MfcWriter::new();
+        stream.begin("CPicPage");
+        stream.base_start();
+        stream.begin("CPicLayer");
+        stream.base_start();
+        stream.begin("CPicFrame");
+        stream.base_start();
+        stream.base_end();
+        stream.filled_rect_shape_record(0, 0, 20, 20, rgba);
+        stream.frame_tail_source(8, 0, "", None);
+        stream.base_end();
+        stream.layer_tail("Artwork");
+        stream.base_end();
+        stream.page_tail();
+        stream.bytes
+    };
+    let red = child(0xff0000ff);
+    let blue = child(0xffff0000);
+    let symbols = [
+        SymbolSpec {
+            stream_name: "Symbol 1",
+            item_name: "Red clip",
+            library_id: 10,
+            symbol_type: 2,
+            bytes: &red,
+        },
+        SymbolSpec {
+            stream_name: "Symbol 2",
+            item_name: "Blue clip",
+            library_id: 11,
+            symbol_type: 2,
+            bytes: &blue,
+        },
+    ];
+    let mut page = MfcWriter::new();
+    page.begin("CPicPage");
+    page.base_start();
+    page.begin("CPicLayer");
+    page.base_start();
+    // Flash may encode a zero-duration lead record with an empty shape, label
+    // and absent actions. Those envelopes do not constitute lost content.
+    for (duration, mode, placement) in [
+        (0, 0, None),
+        (4, 1, Some((10, "beforeSwap", 0))),
+        (3, 0, Some((11, "afterSwap", 1600))),
+        (1, 0, None),
+        (2, 0, Some((11, "afterSwap", 1600))),
+    ] {
+        page.begin("CPicFrame");
+        page.base_start();
+        if let Some((library, name, x)) = placement {
+            page.sprite_instance_child(library, name, x);
+        }
+        page.base_end();
+        page.empty_shape_record();
+        page.frame_tail_with_key_mode(duration, mode, 0, "", None);
+    }
+    page.base_end();
+    page.layer_tail("Classic swap");
+    page.base_end();
+    page.page_tail();
+    let contents = build_contents_bytes("Page 1", &symbols, &[], &[]);
+    let bytes = build_cfb("Contents", &contents, "Page 1", &page.bytes, &symbols, &[]);
+    let path = dir.write("classic-symbol-swap.fla", &bytes);
+    let (project, report) = import_fla_checked(&path);
+    assert_valid_and_roundtrips_nflash(&project);
+    assert_eq!(
+        import_project(&path).unwrap(),
+        project,
+        "stable imported IDs"
+    );
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .all(|d| { d.code != "fla_tween_dropped" && d.code != "fla_frame_duration" }),
+        "{:?}",
+        report.diagnostics
+    );
+
+    let timeline = &project.symbol(&project.root).unwrap().timeline;
+    assert_eq!(timeline.frame_count, 10);
+    let layer = &timeline.layers[0];
+    assert_eq!(
+        layer.keyframes.iter().map(|k| k.frame).collect::<Vec<_>>(),
+        [0, 4, 7, 8]
+    );
+    let start = &layer.keyframes[0].elements[0];
+    let end = &layer.keyframes[1].elements[0];
+    let later = &layer.keyframes[3].elements[0];
+    let symbol_id = |element: &neoflash_core::Element| match &element.kind {
+        ElementKind::Instance { symbol_id, .. } => symbol_id.clone(),
+        _ => panic!("expected imported library instance"),
+    };
+    let red_id = symbol_id(start);
+    let blue_id = symbol_id(end);
+    assert_ne!(red_id, blue_id);
+    assert_eq!(project.symbol(&red_id).unwrap().name, "Red clip");
+    assert_eq!(project.symbol(&blue_id).unwrap().name, "Blue clip");
+    assert_eq!((&*start.name, &*end.name), ("beforeSwap", "afterSwap"));
+    assert_eq!(
+        start.id, end.id,
+        "explicit tween connects the placement pose"
+    );
+    assert_ne!(end.id, later.id, "a blank breaks placement continuity");
+    assert!(layer.keyframes[0].tween.is_some());
+    let middle = sample_layer(layer, 2);
+    assert_eq!(symbol_id(&middle[0]), red_id);
+    assert_eq!(middle[0].name, "beforeSwap");
+    assert!((middle[0].transform.x - 40.0).abs() < 1e-8);
+    assert_eq!(symbol_id(&sample_layer(layer, 4)[0]), blue_id);
+
+    let placement = vec![start.id.clone()];
+    let reentry = vec![later.id.clone()];
+    let node = |player: &Player, path: &[String]| {
+        player
+            .display_nodes(&project)
+            .into_iter()
+            .find(|n| n.path == path)
+            .unwrap()
+    };
+    let mut player = Player::new(&project);
+    let first_lifetime = player.lifetime_id(&placement).unwrap();
+    player.tick(&project);
+    player.tick(&project);
+    assert_eq!(player.frame(), 2);
+    assert_eq!(node(&player, &placement).frame, 2);
+    assert_eq!(player.lifetime_id(&placement), Some(first_lifetime));
+    player.tick(&project);
+    player.tick(&project);
+    let swapped = node(&player, &placement);
+    assert_eq!(player.frame(), 4);
+    assert_eq!(swapped.symbol_id.as_deref(), Some(blue_id.as_str()));
+    assert_eq!(swapped.name, "afterSwap");
+    assert_eq!(
+        swapped.frame, 0,
+        "replacement symbol begins with a fresh child clock"
+    );
+    let swapped_lifetime = player.lifetime_id(&placement).unwrap();
+    assert_ne!(swapped_lifetime, first_lifetime);
+    player.tick(&project);
+    assert_eq!(node(&player, &placement).frame, 1);
+    player.tick(&project);
+    player.tick(&project);
+    assert_eq!(player.frame(), 7);
+    assert_eq!(player.lifetime_id(&placement), None);
+    player.tick(&project);
+    assert_eq!(player.frame(), 8);
+    assert_eq!(node(&player, &reentry).frame, 0);
+    assert_ne!(player.lifetime_id(&reentry), Some(swapped_lifetime));
 }
 
 #[test]

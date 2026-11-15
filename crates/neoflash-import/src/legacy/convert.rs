@@ -1496,9 +1496,21 @@ impl Context<'_> {
                 if f.duration == Some(0) {
                     // Flash writes empty zero-length keys at the start of some
                     // layers; they occupy no frame, so the next key starts here too.
-                    if !frame.children.is_empty()
-                        || frame.shape_index.is_some()
-                        || f.label.is_some()
+                    if !frame.complete
+                        || !frame.children.is_empty()
+                        || frame.shape_index.is_some_and(|index| {
+                            s.shapes
+                                .get(index)
+                                .is_none_or(|shape| !shape.record.edges.is_empty())
+                        })
+                        || f.label
+                            .as_ref()
+                            .is_some_and(|label| label.data.start != label.data.end)
+                        || f.sound_media_id.unwrap_or(0) != 0
+                        || f.morph_shape.is_some()
+                        || f.motion_xml
+                            .as_ref()
+                            .is_some_and(|xml| xml.data.start != xml.data.end)
                         || f.actions
                             .as_ref()
                             .is_some_and(|a| a.presence != TimelineActionPresence::Empty)
@@ -1613,8 +1625,34 @@ impl Context<'_> {
                     (ClassicRotateDirection::Auto, 0)
                 };
                 if let Some(previous) = layer.keyframes.last_mut() {
+                    // An explicit classic tween may end on a different library symbol
+                    // or instance name. The shared evaluator keeps the starting artwork
+                    // while interpolating its pose, then uses the endpoint as authored;
+                    // the player resets child state when the symbol changes. Do not
+                    // infer this continuity for ordinary keys, parent-clock Graphics,
+                    // generated groups or unresolved placeholders. Graphics need a
+                    // separate first-frame/lifetime rule; groups may bake transforms.
+                    let classic_library_pair = previous.tween.is_some()
+                        && previous.tween_kind == TweenKind::Classic
+                        && previous.elements.len() == 1
+                        && elements.len() == 1
+                        && !placement_matches(&previous.elements[0], &elements[0])
+                        && matches!(
+                            (&previous.elements[0].kind, &elements[0].kind),
+                            (
+                                ElementKind::Instance {
+                                    symbol_id: a,
+                                    playback: InstancePlayback::Independent,
+                                },
+                                ElementKind::Instance {
+                                    symbol_id: b,
+                                    playback: InstancePlayback::Independent,
+                                }
+                            ) if self.library.values().any(|id| id == a)
+                                && self.library.values().any(|id| id == b)
+                        );
                     for (a, b) in previous.elements.iter().zip(elements.iter_mut()) {
-                        if placement_matches(a, b) {
+                        if placement_matches(a, b) || classic_library_pair {
                             let source_id = std::mem::replace(&mut b.id, a.id.clone());
                             for mapping in &mut self.provenance[provenance_start..] {
                                 if mapping["target"].as_str() == Some(source_id.as_str()) {
@@ -1635,7 +1673,7 @@ impl Context<'_> {
                         previous.snap_to_guide = false;
                         previous.classic_rotate_dir = ClassicRotateDirection::Auto;
                         previous.classic_rotate_turns = 0;
-                        self.report.warning("fla_tween_dropped",&at,"This classic motion tween does not connect one stable symbol placement, so the frames hold their keyframe poses.");
+                        self.report.warning("fla_tween_dropped",&at,"This classic motion tween has empty, multiple or unsupported placement endpoints, so the frames hold their keyframe poses.");
                     }
                 }
                 if let Some(script) = self.actions(s, f.actions.as_ref())? {

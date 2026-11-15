@@ -728,6 +728,98 @@ fn object_scoped_motion_sync_continues_only_the_enabled_graphic() {
 }
 
 #[test]
+fn classic_symbol_replacements_restart_pure_child_age_without_resetting_ordinary_keys() {
+    use neoflash_core::{InstancePlayback, Symbol, SymbolKind};
+
+    // A classic span keeps one placement ID to interpolate its transform. At the
+    // endpoint its new symbol must start at its own first frame during scrubbing,
+    // just as an independent Player clock does during playback.
+    for (playback, kind, expected_frames) in [
+        (
+            InstancePlayback::Independent,
+            SymbolKind::MovieClip,
+            [3, 0, 1, 2, 3],
+        ),
+        (InstancePlayback::Loop, SymbolKind::Graphic, [3, 0, 1, 2, 3]),
+        (
+            InstancePlayback::LoopFrom(2),
+            SymbolKind::Graphic,
+            [5, 2, 3, 4, 5],
+        ),
+        (
+            InstancePlayback::PlayOnceFrom(6),
+            SymbolKind::Graphic,
+            [7, 6, 7, 7, 7],
+        ),
+    ] {
+        let instance = |symbol: &str, x: f64| Element {
+            kind: ElementKind::Instance {
+                symbol_id: symbol.into(),
+                playback,
+            },
+            ..rect("placement", x, 0.)
+        };
+        let keys = [(0, "before"), (2, "before"), (4, "after"), (6, "after")]
+            .into_iter()
+            .map(|(frame, symbol)| {
+                let mut key = key(frame, vec![instance(symbol, f64::from(frame) * 10.)]);
+                if frame < 6 {
+                    key.tween = Some(Easing::Linear);
+                }
+                key
+            })
+            .collect();
+        let mut project = project(8, vec![layer("classic", keys)]);
+        for (id, base_x) in [("before", 0.), ("after", 1000.)] {
+            project.symbols.push(Symbol {
+                id: id.into(),
+                name: id.into(),
+                folder: String::new(),
+                kind,
+                timeline: Timeline {
+                    frame_count: 8,
+                    layers: vec![layer(
+                        &format!("{id}-layer"),
+                        (0..8)
+                            .map(|frame| {
+                                key(
+                                    frame,
+                                    vec![rect(
+                                        &format!("{id}-dot"),
+                                        base_x + f64::from(frame) * 10.,
+                                        0.,
+                                    )],
+                                )
+                            })
+                            .collect(),
+                    )],
+                    scripts: vec![],
+                    guides: vec![],
+                },
+                class_name: None,
+                linkage_id: None,
+            });
+        }
+        project.validate().unwrap();
+        for (frame, child_frame) in (3..8).zip(expected_frames) {
+            let items = evaluate(&project, &project.root, frame);
+            assert_eq!(items.len(), 1);
+            let (id, base_x) = if frame < 4 {
+                ("before-dot", 0.)
+            } else {
+                ("after-dot", 1000.)
+            };
+            assert_eq!(items[0].element_id, id);
+            assert_eq!(
+                items[0].transform[4],
+                base_x + f64::from(child_frame) * 10. + f64::from(frame.min(6)) * 10.,
+                "{playback:?} at parent frame {frame}",
+            );
+        }
+    }
+}
+
+#[test]
 fn property_keys_outside_a_motion_tween_are_rejected() {
     let mut stray = key(5, vec![rect("box", 0., 0.)]);
     stray.keyed_properties = Some(vec![TweenProperty::X]);

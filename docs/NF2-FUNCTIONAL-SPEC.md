@@ -184,6 +184,8 @@ groups.
   keyframe without shapes produces an explanation instead of a jump.
 
 **TL-05 · Motion tween** — `timeline_frame_tools` (tween group, item 3) · done
+- Shared placement lifetime: a library-symbol replacement restarts child age during pure scrubbing/export even when
+  the placement ID is retained for interpolation; ordinary keys with the same symbol retain continuous age.
 - Done: `tween_kind = Motion`; every object on a non-empty layer keeps independent stable-ID property keys, easing,
   roving state, path and Orient/Snap/Sync settings. Editing inside the span records only the changed properties for
   each changed object; F6 keys all properties for every object in the span. Motion Editor, Ease, Properties — Motion tween
