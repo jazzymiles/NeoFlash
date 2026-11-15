@@ -40,8 +40,8 @@
     },
     {
       "path": "authored/frame-scripts-as3/frame-scripts-as3.nflash",
-      "sha256": "0f495d7a95cfdf19c7f79e12c5a76c72a5d04a6defb44e01317b393dc26f6729",
-      "bytes": 8543
+      "sha256": "666035e6e79b03037200e72b34e6b2d3160567594e044dabd6ae53fee60a369f",
+      "bytes": 8582
     },
     {
       "path": "authored/frame-scripts-as3/xfl/DOMDocument.xml",
@@ -65,8 +65,8 @@
     },
     {
       "path": "authored/nested-playback-as2/nested-playback-as2.nflash",
-      "sha256": "bdcf8f2891195f69de7e3b7c0af0a7b5918582e67e251426684e1471db901073",
-      "bytes": 17746
+      "sha256": "779d3aba8e997d0c7fad0bf0be784b411d65fbf278734b374220f03539a3ce62",
+      "bytes": 17785
     },
     {
       "path": "authored/nested-playback-as2/xfl/DOMDocument.xml",
@@ -100,8 +100,8 @@
     },
     {
       "path": "authored/primitives-and-holds/primitives-and-holds.nflash",
-      "sha256": "9dd3522fa48f9422ea323249893c2b874e5fd9751583cef1d536606586922b97",
-      "bytes": 10184
+      "sha256": "44c70d6691d05d994245fbc4859230f34c9e9b7ed2caf77660e0c2e0bd5ec651",
+      "bytes": 10223
     },
     {
       "path": "authored/primitives-and-holds/xfl/DOMDocument.xml",
@@ -115,22 +115,22 @@
     },
     {
       "path": "imported/ruffle-avm1-frame-labels.nflash",
-      "sha256": "33414d6ba31fb85fe52115ed831af43e8d59f24f84a08e8f5f08f4a4faa36bbb",
-      "bytes": 9456,
+      "sha256": "15b60cc728b07a13f28458987dba618619d2971e472db3b08e2fffb5353c865a",
+      "bytes": 9495,
       "derived_from": "upstream/ruffle/avm1-frame-labels/test.fla",
       "license": "MIT OR Apache-2.0"
     },
     {
       "path": "imported/ruffle-mx-button.nflash",
-      "sha256": "cc6f269400c6abc56ebff65383623afad08664c1a359bd15850f54756dd7ed96",
-      "bytes": 34215,
+      "sha256": "b901610e86a07c45aa1d7022daa859fa5e870233ba3c0e03004b7f369c73d9cb",
+      "bytes": 34254,
       "derived_from": "upstream/ruffle/mx-button/DefineButton-MX.fla",
       "license": "MIT OR Apache-2.0"
     },
     {
       "path": "imported/ruffle-mx-static-text.nflash",
-      "sha256": "0b2437e032aed480c70983899891202463affb8c07adafd25e2dbd1c91cf38c6",
-      "bytes": 22131,
+      "sha256": "c791a0b9f70b2f6585962c72ddd3eeb5dce94b098dd920247f166bffa20e5ae3",
+      "bytes": 22170,
       "derived_from": "upstream/ruffle/mx-static-text/DefineText2-MX.fla",
       "license": "MIT OR Apache-2.0"
     },
@@ -509,85 +509,85 @@
       "path": "imported/ruffle-mx-shape-tween.nflash",
       "derived_from": "upstream/ruffle/mx-shape-tween/DefineMorphShape-MX.fla",
       "license": "MIT OR Apache-2.0",
-      "sha256": "4567ec695c08eb3bc1efc66e84b21b023fa366b5b72be4e4ecffd79762fdd5d0",
-      "bytes": 66619
+      "sha256": "2add8da78a0ba7f9667364e4f3ea68fe66180e90488752d2948592909a1704ba",
+      "bytes": 66658
     },
     {
       "path": "imported/ruffle-avm1-nested-button-text.nflash",
       "derived_from": "upstream/ruffle/avm1-nested-button-text/test.fla",
       "license": "MIT OR Apache-2.0",
-      "sha256": "bee0e4c6b3939ec2c325d5274c13e4f24a583f2f2ee4f2ed52bd646a42579db6",
-      "bytes": 79767
+      "sha256": "1b77c75528323f11ceff402ed809df728d7b6616b1baa167082fc8cbbbf3c326",
+      "bytes": 79806
     },
     {
       "path": "imported/flacomdoc-flash5-shapes.nflash",
       "derived_from": "upstream/flacomdoc/flash5-shapes/0002_shapes.fla",
       "license": "LGPL-2.1",
-      "sha256": "079d8f7492698759862837c330448e632cd56fb1367f572221a9a7d24bc00358",
-      "bytes": 37789
+      "sha256": "5a115c886c96726d0e4caaed90eb49e3f8c478fc7484ce1883a195eb15503ebe",
+      "bytes": 37828
     },
     {
       "path": "imported/flacomdoc-mx-layers.nflash",
       "derived_from": "upstream/flacomdoc/mx-layers/0008_nested_layers.fla",
       "license": "LGPL-2.1",
-      "sha256": "d8dc4fca66342083d607862424c86891b56673d5aef3cd0a6760708a27de1728",
-      "bytes": 56084
+      "sha256": "becda3b6262b9a8e300213c2a5febe32aa5aaf2ef1a63115e91731db9a5a2279",
+      "bytes": 56123
     },
     {
       "path": "imported/flacomdoc-flash8-scripts.nflash",
       "derived_from": "upstream/flacomdoc/flash8-scripts/0018_scripts_as2.fla",
       "license": "LGPL-2.1",
-      "sha256": "83da457aef7575319d635b3c59d592e2dfb2c8285a2c37ff329ea9f9de93a589",
-      "bytes": 54742
+      "sha256": "f684b25cace01bf200161cf5c80a31b70cd01be21ea62c75552bb5933837c7d3",
+      "bytes": 54781
     },
     {
       "path": "imported/flacomdoc-cs4-motion-tween.nflash",
       "derived_from": "upstream/flacomdoc/cs4-motion-tween/0022_motiontween-cs4.fla",
       "license": "LGPL-2.1",
-      "sha256": "648ee91b15cc2e01c7ea8fa7172bf04930ff9ecdb251bbace269d23ff9397b5c",
-      "bytes": 81642
+      "sha256": "f3ff7895eddf77c2838e9f47f0e1b5a555b4a577c5d1debc38455c13b61fb5a7",
+      "bytes": 81681
     },
     {
       "path": "imported/ruffle-avm1-clip-events.nflash",
       "derived_from": "upstream/ruffle/avm1-clip-events/test.fla",
       "license": "MIT OR Apache-2.0",
-      "sha256": "f7b36db0665f11943fa44654041e049ef094cb29d6018c34f6307f8788c60f4d",
-      "bytes": 11023
+      "sha256": "21f9cdab76e6372087b6a1d0c1ecfd6820faa96b89dbe88c739b3da27696dd89",
+      "bytes": 11062
     },
     {
       "path": "imported/ruffle-avm2-button-frame-scripts.nflash",
       "derived_from": "upstream/ruffle/avm2-button-frame-scripts/test.fla",
       "license": "MIT OR Apache-2.0",
-      "sha256": "3122e65caa248f7bd0e7019ae61c18c819b2a4e2c974ca2914e7406b446a4dc3",
-      "bytes": 25002
+      "sha256": "4c726d52a3369815d5a3d88962759650d9a980720628ff63f5cb35d9262823d8",
+      "bytes": 25041
     },
     {
       "path": "imported/ruffle-avm2-nested-construction.nflash",
       "derived_from": "upstream/ruffle/avm2-nested-construction/test.fla",
       "license": "MIT OR Apache-2.0",
-      "sha256": "883b023327076fd3b85678e487abf82d65cf4f53084af7a799f5e089f361fc38",
-      "bytes": 34269
+      "sha256": "6f781fa65ed3c78dae27d86844399eb8e5ccb4d146279259981555d6bf0b92de",
+      "bytes": 34308
     },
     {
       "path": "imported/flump-rotate-test2.nflash",
       "derived_from": "upstream/flump/rotate_test2/rotate_test2.fla",
       "license": "MIT",
-      "sha256": "75e30727cb1ec3dec0e9f82063bdb4ba382e3a9f940639446523c2d60e8fa3e9",
-      "bytes": 13291
+      "sha256": "7ba0dd61bb4598c5f6fad0c9bffc12dcc91ccacf940fe9e66b1112b7b324a175",
+      "bytes": 13330
     },
     {
       "path": "imported/flump-potion-simple.nflash",
       "derived_from": "upstream/flump/potion_simple/potion_simple.fla",
       "license": "MIT",
-      "sha256": "1e548ed85e54c2ba772730c5ba9738234af3456f4f511d9f44678519e4478177",
-      "bytes": 69144
+      "sha256": "6feb1bf13e9488574ebb69346281e107d9776800a3343379ae2cf492e878f32d",
+      "bytes": 69183
     },
     {
       "path": "imported/flump-flump.nflash",
       "derived_from": "upstream/flump/flump/flump.fla",
       "license": "MIT",
-      "sha256": "389263af0b25cc7aaf392070446728b578f7fe945193184740e173aeb09ebac7",
-      "bytes": 695490
+      "sha256": "40234082f5e9672df8f6c60c5f5e8aeb120ca0da247d9491da17bff066308f3f",
+      "bytes": 695529
     }
   ],
   "cases": [
