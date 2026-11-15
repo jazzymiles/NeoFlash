@@ -107,6 +107,41 @@ pub fn as3_sound_compute_spectrum(
     )
 }
 #[wasm_bindgen]
+pub fn as3_sound_transform_plan_json(
+    channel_tf_json: &str,
+    target_tf_json: &str,
+    mixer_tf_json: &str,
+) -> Result<String, JsValue> {
+    if channel_tf_json.len() > 2048 || target_tf_json.len() > 2048 || mixer_tf_json.len() > 2048 {
+        return Err(JsValue::from_str("SoundTransform JSON exceeds 2 KiB"));
+    }
+    let ch: neoflash_core::as3_sound_media::JsSoundTransformWire =
+        serde_json::from_str(channel_tf_json).map_err(display_error)?;
+    let tgt = if target_tf_json.is_empty() || target_tf_json == "null" {
+        None
+    } else {
+        Some(
+            serde_json::from_str::<neoflash_core::as3_sound_media::JsSoundTransformWire>(
+                target_tf_json,
+            )
+            .map_err(display_error)?,
+        )
+    };
+    let mx = if mixer_tf_json.is_empty() || mixer_tf_json == "null" {
+        None
+    } else {
+        Some(
+            serde_json::from_str::<neoflash_core::as3_sound_media::JsSoundTransformWire>(
+                mixer_tf_json,
+            )
+            .map_err(display_error)?,
+        )
+    };
+    let plan = neoflash_core::as3_sound_media::plan_web_sound_transform(ch, tgt, mx);
+    serde_json::to_string(&plan).map_err(display_error)
+}
+
+#[wasm_bindgen]
 impl WebPlayer {
     pub fn as2_sound_resource(&self, id: &str) -> Result<String, JsValue> {
         serde_json::to_string(

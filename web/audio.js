@@ -25,8 +25,8 @@
     if(!events?.create||!net?.URLLoader||!binary?.toBytes||!formats?.inspect)throw new TypeError('Sound requires the shared Event, resource, ByteArray and audio-format services.');
     const maxDecodedBytes=options.maxDecodedBytes??128*1024*1024,maxChannels=options.maxChannels??32,maxSounds=options.maxSounds??256;
     if(!Number.isSafeInteger(maxDecodedBytes)||maxDecodedBytes<1||maxDecodedBytes>128*1024*1024||!Number.isInteger(maxChannels)||maxChannels<1||maxChannels>32||!Number.isInteger(maxSounds)||maxSounds<1||maxSounds>256)throw new RangeError('Audio budgets exceed the supported 128 MiB PCM, 32 channels and 256 Sound objects.');
-    const sounds=new WeakMap(),channels=new WeakMap(),transforms=new WeakMap(),legacy=new WeakMap(),id3Infos=new WeakSet(),loaderContexts=new WeakMap();
-    const soundRecords=new Set(),playing=new Set(),decodes=new Set();
+    const sounds=new WeakMap(),channels=new WeakMap(),transforms=new WeakMap(),legacy=new WeakMap(),targetStates=new WeakMap(),id3Infos=new WeakSet(),loaderContexts=new WeakMap();
+    const soundRecords=new Set(),playing=new Set(),decodes=new Set(),mixerSubscribers=new Set();
     let generation=1,disposed=false,context=null,master=null,unlocked=false,muted=false,resuming=null,decodedBytes=0,used=false,lastError='',mixerBufferTime=0,mixerTransform={volume:1,pan:0,leftToLeft:1,leftToRight:0,rightToLeft:0,rightToRight:1};
     class ID3Info {
       constructor(){
@@ -106,26 +106,87 @@
         const leftOut=r.leftToLeft+r.rightToLeft,rightOut=r.leftToRight+r.rightToRight;
         r.volume=Math.max(0,Math.min(1,Math.max(leftOut,rightOut)));
         if(r.leftToRight===0&&r.rightToLeft===0&&r.volume>0)r.pan=Math.max(-1,Math.min(1,(r.rightToRight-r.leftToLeft)/r.volume));
+        else r.pan=0;
       }
+    });
+    function matMul(a,b){
+      return [
+        a[0]*b[0]+a[2]*b[1],
+        a[1]*b[0]+a[3]*b[1],
+        a[0]*b[2]+a[2]*b[3],
+        a[1]*b[2]+a[3]*b[3],
+      ];
+    }
+    function computeTransformPlan(channelTf,targetTf=null,mixerTf=mixerTransform){
+      if(typeof wasm?.as3_sound_transform_plan_json==='function'){
+        const res=JSON.parse(wasm.as3_sound_transform_plan_json(JSON.stringify(channelTf),targetTf?JSON.stringify(targetTf):'',mixerTf?JSON.stringify(mixerTf):''));
+        res.is_matrix=Boolean(res.isMatrix??res.is_matrix);
+        return res;
+      }
+      const ch=channelTf||{volume:1,pan:0,leftToLeft:1,leftToRight:0,rightToLeft:0,rightToRight:1};
+      let m=[ch.leftToLeft,ch.rightToLeft,ch.leftToRight,ch.rightToRight];
+      for(const next of [targetTf,mixerTf]){
+        if(next)m=matMul(m,[next.leftToLeft,next.rightToLeft,next.leftToRight,next.rightToRight]);
+      }
+      const gains=m.map(v=>Math.max(0,Math.min(10,Number(v)||0)));
+      const [ll,rl,lr,rr]=gains;
+      const outVol=Math.max(ll,rr);
+      const isPurePan=Math.abs(rl)<=1e-6&&Math.abs(lr)<=1e-6&&(outVol<=1e-6||Math.abs(ll-outVol)<=1e-5||Math.abs(rr-outVol)<=1e-5);
+      if(isPurePan&&outVol<=1+1e-6){
+        const pan=outVol<=1e-6?0:(Math.abs(ll-rr)<=1e-6?0:(ll>=rr?-(1-rr/outVol):(1-ll/outVol)));
+        return {is_matrix:false,volume:Math.max(0,Math.min(1,outVol)),pan:Math.max(-1,Math.min(1,pan)),gains};
+      }
+      return {is_matrix:true,volume:Math.max(0,Math.min(1,Math.max(ll+rl,lr+rr))),pan:0,gains};
+    }
+    Object.defineProperties(SoundTransform,{
+      __nfToWire:{value:value=>transformCopy(value)},
+      __nfFromWire:{value(wire){
+        const st=new SoundTransform(Math.max(0,Math.min(1,Number(wire?.volume??1))),Math.max(-1,Math.min(1,Number(wire?.pan||0))));
+        const rec=transforms.get(st);
+        if(wire&&typeof wire==='object'){
+          for(const k of ['leftToLeft','leftToRight','rightToLeft','rightToRight'])if(typeof wire[k]==='number'&&Number.isFinite(wire[k]))rec[k]=Math.max(0,Math.min(1,wire[k]));
+        }
+        return st;
+      }},
+      __nfPlan:{value:(ch,target=null,includeMixer=true)=>computeTransformPlan(ch,target,includeMixer?mixerTransform:null)},
+      __nfStreamBus:{value(){
+        if(disposed)return null;
+        try{
+          const ctx=ensureContext();
+          return {context:ctx,destination:master,unlocked,muted,generation,resume:()=>(!unlocked||ctx.state!=='running')&&isUserGesture()?resumeFromGesture():Promise.resolve(unlocked)};
+        }catch(_){return null;}
+      }},
+      __nfSubscribeMixer:{value(fn){if(typeof fn!=='function')return ()=>{};mixerSubscribers.add(fn);return ()=>mixerSubscribers.delete(fn);}},
     });
     function position(record){
       if(!record.started)return record.position;
+      if(record.mediaElement)return (Number(record.mediaElement.currentTime)||0)*1000;
       const elapsed=Math.max(0,context.currentTime-record.startedAt),segment=record.sound.buffer.duration-record.offset;
       return elapsed>=record.duration?record.sound.buffer.duration*1000:(record.offset+(segment?elapsed%segment:0))*1000;
     }
-    function disconnect(record){for(const node of [record.source,record.gain,record.panner,...(record.matrixNodes||[])])try{node?.disconnect();}catch(_){}record.source=record.gain=record.panner=null;record.matrixNodes=null;record.matrixGains=null;}
+    function disconnect(record){
+      if(record.mediaElement){
+        for(const [t,fn] of record.mediaListeners||[])try{record.mediaElement.removeEventListener(t,fn);}catch(_){}
+        try{record.mediaElement.pause();record.mediaElement.muted=true;record.mediaElement.removeAttribute('src');record.mediaElement.load?.();}catch(_){}
+        record.mediaElement=null;record.mediaListeners=null;
+      }
+      for(const node of [record.source,record.gain,record.panner,...(record.matrixNodes||[])])try{node?.disconnect();}catch(_){}
+      record.source=record.gain=record.panner=null;record.matrixNodes=null;record.matrixGains=null;
+    }
     function stop(record){
       if(record.stopped)return;record.position=position(record);record.stopped=true;playing.delete(record);
       const source=record.source;if(source){source.onended=null;try{source.stop();}catch(_){}}
       record.started=false;disconnect(record);changed();
     }
     function completed(record,source){
-      if(disposed||record.generation!==generation||record.stopped||record.source!==source)return;
-      record.position=record.sound.buffer.duration*1000;record.started=false;record.stopped=true;playing.delete(record);disconnect(record);changed();
+      if(disposed||record.generation!==generation||record.stopped||(source&&record.source!==source))return;
+      const dur=record.sound.buffer?record.sound.buffer.duration:(record.sound.opaqueDuration||0);
+      record.position=dur*1000;record.started=false;record.stopped=true;playing.delete(record);disconnect(record);changed();
       try{emit(record.receiver,new events.Event('soundComplete'));}catch(error){if(!disposed&&record.generation===generation)report(error);}
     }
     function connectMatrix(record,gain,result){
-      if(typeof context.createChannelSplitter!=='function'||typeof context.createChannelMerger!=='function')throw new Error('AS2 Sound.setTransform requires Web Audio channel splitter/merger support.');
+      if(typeof context.createChannelSplitter!=='function'||typeof context.createChannelMerger!=='function')throw new Error('SoundTransform channel matrix requires Web Audio channel splitter/merger support.');
+      for(const node of record.matrixNodes||[])try{node.disconnect();}catch(_){}
       const splitter=context.createChannelSplitter(2),merger=context.createChannelMerger(2),gains=result.gains.map(value=>{const node=context.createGain();node.gain.value=value;return node;});
       // Only graph wiring lives here; Rust computes all matrix coefficients.
       // Web Audio duplicates mono into two logical inputs before the matrix.
@@ -134,23 +195,98 @@
       for(const [i,input,output] of [[0,0,0],[1,1,0],[2,0,1],[3,1,1]]){splitter.connect(gains[i],input);gains[i].connect(merger,0,output);}
       merger.connect(master);record.matrixNodes=[splitter,merger,...gains];record.matrixGains=gains;
     }
+    function applyLiveChannelTransform(record){
+      if(!record.started)return;
+      if(record.mediaElement){
+        const plan=computeTransformPlan(record.transform,record.targetTransform,mixerTransform);
+        record.mediaElement.muted=!unlocked||muted||plan.volume===0;
+        record.mediaElement.volume=Math.max(0,Math.min(1,plan.volume));
+        return;
+      }
+      if(!record.gain||!context)return;
+      if(record.matrix){
+        const scaledGains=matMul(record.matrix.gains,[mixerTransform.leftToLeft,mixerTransform.rightToLeft,mixerTransform.leftToRight,mixerTransform.rightToRight]);
+        if(!record.matrixGains)connectMatrix(record,record.gain,{gains:scaledGains});
+        else for(let i=0;i<4;i++)record.matrixGains[i].gain.value=scaledGains[i];
+        return;
+      }
+      const plan=computeTransformPlan(record.transform,record.targetTransform,mixerTransform);
+      const canMatrix=typeof context.createChannelSplitter==='function'&&typeof context.createChannelMerger==='function';
+      if(plan.is_matrix&&canMatrix){
+        if(!record.matrixGains)connectMatrix(record,record.gain,plan);
+        else for(let i=0;i<4;i++)record.matrixGains[i].gain.value=plan.gains[i];
+      }else{
+        if(record.matrixNodes){
+          for(const node of record.matrixNodes)try{node.disconnect();}catch(_){}
+          record.matrixNodes=null;record.matrixGains=null;
+          record.gain.disconnect();
+          record.panner=context.createStereoPanner();
+          record.gain.gain.value=plan.volume;
+          record.panner.pan.value=plan.pan;
+          record.gain.connect(record.panner);
+          record.panner.connect(master);
+        }else{
+          record.gain.gain.value=plan.volume;
+          if(record.panner)record.panner.pan.value=plan.pan;
+        }
+      }
+    }
+    function makeAudioElement(){return options.createAudio?options.createAudio():(typeof global.document?.createElement==='function'?global.document.createElement('audio'):null);}
+    function startOpaqueChannel(record){
+      if(record.stopped||record.started||!record.sound.opaqueAudioUrl||!unlocked)return;
+      const dur=record.sound.opaqueDuration||0;
+      if(dur>0&&record.offset>dur){stop(record);throw new RangeError('Sound startTime is beyond the decoded duration.');}
+      const el=makeAudioElement();
+      if(!el)return;
+      const plan=computeTransformPlan(record.transform,record.targetTransform,mixerTransform);
+      el.muted=!unlocked||muted||plan.volume===0;
+      el.volume=Math.max(0,Math.min(1,plan.volume));
+      el.preload='auto';
+      let loopsLeft=record.loops;
+      const listeners=[];
+      const onEnded=()=>{
+        if(disposed||record.generation!==generation||record.stopped||record.mediaElement!==el)return;
+        if(loopsLeft>0){
+          loopsLeft--;
+          try{el.currentTime=record.offset;Promise.resolve(el.play()).catch(()=>{});}catch(_){}
+          return;
+        }
+        completed(record,null);
+      };
+      el.addEventListener('ended',onEnded);listeners.push(['ended',onEnded]);
+      el.src=record.sound.opaqueAudioUrl;
+      if(record.offset>0){try{el.currentTime=record.offset;}catch(_){}}
+      record.mediaElement=el;record.mediaListeners=listeners;record.started=true;
+      try{Promise.resolve(el.play()).catch(()=>{});}catch(error){stop(record);throw error;}
+    }
     function startChannel(record){
-      if(record.stopped||record.started||!record.sound.buffer||!unlocked||context?.state!=='running')return;
+      if(record.stopped||record.started)return;
+      if(record.sound.opaqueAudioUrl&&!record.sound.buffer){startOpaqueChannel(record);return;}
+      if(!record.sound.buffer||!unlocked||context?.state!=='running')return;
       const buffer=record.sound.buffer;
       if(record.offset>buffer.duration){stop(record);throw new RangeError('Sound startTime is beyond the decoded duration.');}
-      const source=context.createBufferSource(),gain=context.createGain(),panner=record.matrix?null:context.createStereoPanner();
-      gain.gain.value=record.matrix?1:record.transform.volume;if(panner)panner.pan.value=record.transform.pan;
+      const plan=record.matrix?null:computeTransformPlan(record.transform,record.targetTransform,mixerTransform);
+      const canMatrix=typeof context.createChannelSplitter==='function'&&typeof context.createChannelMerger==='function';
+      const useMatrix=Boolean(record.matrix||(plan?.is_matrix&&canMatrix));
+      const source=context.createBufferSource(),gain=context.createGain(),panner=useMatrix?null:context.createStereoPanner();
+      gain.gain.value=useMatrix?1:plan.volume;if(panner)panner.pan.value=plan.pan;
       // Set every level before any source is connected. QA uses volume zero or
       // a permanently silent injected destination; no OS volume changes occur.
-      if(record.matrix)connectMatrix(record,gain,record.matrix);
-      else{gain.connect(panner);panner.connect(master);}
+      if(useMatrix){
+        const matrixResult=record.matrix?{gains:matMul(record.matrix.gains,[mixerTransform.leftToLeft,mixerTransform.rightToLeft,mixerTransform.leftToRight,mixerTransform.rightToRight])}:plan;
+        connectMatrix(record,gain,matrixResult);
+      }else{gain.connect(panner);panner.connect(master);}
       source.buffer=buffer;source.loop=record.loops>0;source.loopStart=record.offset;source.loopEnd=buffer.duration;source.connect(gain);
       record.source=source;record.gain=gain;record.panner=panner;record.startedAt=context.currentTime;record.started=true;record.duration=(buffer.duration-record.offset)*(record.loops+1);
       source.onended=()=>completed(record,source);
       try{source.start(record.startedAt,record.offset);source.stop(record.startedAt+record.duration);}
       catch(error){stop(record);throw error;}
     }
-    function flush(){blockedEvents=0;flushVoices();for(const record of [...playing]){if(disposed||record.generation!==generation)break;startChannel(record);}changed();}
+    function notifyMixerChanged(){
+      for(const record of playing)applyLiveChannelTransform(record);
+      for(const fn of mixerSubscribers){try{fn(mixerTransform);}catch(_){}}
+    }
+    function flush(){blockedEvents=0;flushVoices();for(const record of [...playing]){if(disposed||record.generation!==generation)break;startChannel(record);}notifyMixerChanged();changed();}
     function resumeFromGesture(){
       open();if(!isUserGesture())return Promise.reject(new Error('Audio needs an actual user gesture. Use Enable audio or an authored Play control.'));
       const ctx=ensureContext(),epoch=generation;used=true;lastError='';
@@ -164,7 +300,7 @@
     }
     // Private AS2 capture transport into the existing publication mute/output bus.
     function captureBus(){open();if(!isUserGesture())throw new Error('Microphone playback needs an actual user gesture.');const ctx=ensureContext();return {context:ctx,destination:master,ready:resumeFromGesture()};}
-    function setMuted(value){open();if(typeof value!=='boolean')throw new TypeError('Audio mute requires a Boolean.');if(!value)return resumeFromGesture();muted=true;if(master)master.gain.value=0;changed();return Promise.resolve(true);}
+    function setMuted(value){open();if(typeof value!=='boolean')throw new TypeError('Audio mute requires a Boolean.');if(!value)return resumeFromGesture();muted=true;if(master)master.gain.value=0;notifyMixerChanged();changed();return Promise.resolve(true);}
     function unpackCompressed(packed){
       const view=new DataView(packed.buffer,packed.byteOffset,packed.byteLength);
       const metaLen=view.getUint32(0,true);
@@ -196,23 +332,25 @@
       constructor(){super();fail('direct SoundChannel construction; use Sound.play()');}
       get position(){return position(state(this,channels));}
       get soundTransform(){const value=state(this,channels).transform,st=new SoundTransform(value.volume,value.pan);Object.assign(transforms.get(st),value);return st;}
-      set soundTransform(value){const record=state(this,channels);record.transform=transformCopy(value);if(record.gain)record.gain.gain.value=record.transform.volume;if(record.panner)record.panner.pan.value=record.transform.pan;}
+      set soundTransform(value){const record=state(this,channels);record.transform=transformCopy(value);applyLiveChannelTransform(record);}
       stop(){stop(state(this,channels));}
       get leftPeak(){
         const r=state(this,channels),t=r.transform;
         if(r.stopped)return 0;
-        if(r.sound.pcmBytes&&typeof wasm?.as3_sound_channel_peaks_json==='function'){
+        if(!r.sound.inaccessible&&r.sound.pcmBytes&&typeof wasm?.as3_sound_channel_peaks_json==='function'){
           return JSON.parse(wasm.as3_sound_channel_peaks_json(r.sound.pcmBytes,position(r),JSON.stringify(t),JSON.stringify(mixerTransform))).leftPeak;
         }
-        return Math.max(0,Math.min(1,t.leftToLeft+t.rightToLeft));
+        const plan=computeTransformPlan(t,r.targetTransform,mixerTransform);
+        return Math.max(0,Math.min(1,plan.gains[0]+plan.gains[1]));
       }
       get rightPeak(){
         const r=state(this,channels),t=r.transform;
         if(r.stopped)return 0;
-        if(r.sound.pcmBytes&&typeof wasm?.as3_sound_channel_peaks_json==='function'){
+        if(!r.sound.inaccessible&&r.sound.pcmBytes&&typeof wasm?.as3_sound_channel_peaks_json==='function'){
           return JSON.parse(wasm.as3_sound_channel_peaks_json(r.sound.pcmBytes,position(r),JSON.stringify(t),JSON.stringify(mixerTransform))).rightPeak;
         }
-        return Math.max(0,Math.min(1,t.rightToRight+t.leftToRight));
+        const plan=computeTransformPlan(t,r.targetTransform,mixerTransform);
+        return Math.max(0,Math.min(1,plan.gains[2]+plan.gains[3]));
       }
     }
     function pumpSampleData(sound,startSample=0,maxIterations=8){
@@ -250,10 +388,10 @@
       }
       return false;
     }
-    function play(sound,startTime=0,loops=0,soundTransform=null,matrix=null){
+    function play(sound,startTime=0,loops=0,soundTransform=null,matrix=null,targetTransform=null){
       number(startTime,'Sound startTime',0,2147483647);if(!Number.isInteger(loops)||loops<0||loops>10000)throw new RangeError('Sound loops requires an integer from 0 through 10000.');
       const value=soundTransform===null?{volume:1,pan:0,leftToLeft:1,leftToRight:0,rightToLeft:0,rightToRight:1}:transformCopy(soundTransform);
-      if(!sound.buffer&&!sound.load){
+      if(!sound.buffer&&!sound.opaqueAudioUrl&&!sound.load){
         if(sound.receiver?.hasEventListener?.('sampleData')){
           const startSample=Math.max(0,Math.round((startTime/1000)*44100));
           if(!pumpSampleData(sound,startSample)){
@@ -264,10 +402,11 @@
           throw new Error('Load a Sound before calling play().');
         }
       }
-      if(sound.buffer&&startTime>sound.buffer.duration*1000)throw new RangeError('Sound startTime is beyond the decoded duration.');
+      const knownDur=sound.buffer?sound.buffer.duration:(sound.opaqueAudioUrl?sound.opaqueDuration:null);
+      if(knownDur!==null&&knownDur>0&&startTime>knownDur*1000)throw new RangeError('Sound startTime is beyond the decoded duration.');
       if(playing.size>=maxChannels)throw new RangeError(`This publication supports at most ${maxChannels} active or pending sound channels.`);
       ensureContext();used=true;
-      const receiver=Object.create(SoundChannel.prototype),record={receiver,generation,sound,offset:startTime/1000,loops,transform:value,matrix,position:startTime,started:false,stopped:false,source:null,gain:null,panner:null};
+      const receiver=Object.create(SoundChannel.prototype),record={receiver,generation,sound,offset:startTime/1000,loops,transform:value,targetTransform,matrix,position:startTime,started:false,stopped:false,source:null,gain:null,panner:null,mediaElement:null,mediaListeners:null};
       channels.set(receiver,record);Object.assign(receiver,hub.methods(receiver));Object.seal(receiver);playing.add(record);
       startChannel(record);changed();
       if((!unlocked||context.state!=='running')&&isUserGesture())resumeFromGesture().catch(error=>{if(!disposed&&record.generation===generation)report(error);});
@@ -275,9 +414,9 @@
     }
     function releaseReservation(token){if(token.reserved){decodedBytes-=token.reserved;token.reserved=0;}}
     const current=token=>!disposed&&token.generation===generation&&token.sound.load===token;
-    function cancelLoad(record){const token=record.load;if(!token)return;record.load=null;token.loader.close();if(!token.decoding)releaseReservation(token);for(const channel of [...playing])if(channel.sound===record&&!record.buffer)stop(channel);changed();}
+    function cancelLoad(record){const token=record.load;if(!token)return;record.load=null;token.opaqueProbe?.cleanup?.();token.opaqueProbe=null;token.loader.close();if(!token.decoding)releaseReservation(token);for(const channel of [...playing])if(channel.sound===record&&!record.buffer&&!record.opaqueAudioUrl)stop(channel);changed();}
     function ioFailure(record,message){
-      for(const channel of [...playing])if(channel.sound===record&&!record.buffer)stop(channel);
+      for(const channel of [...playing])if(channel.sound===record&&!record.buffer&&!record.opaqueAudioUrl)stop(channel);
       lastError=message;changed();
       return emit(record.receiver,new net.IOErrorEvent('ioError',false,false,message));
     }
@@ -285,12 +424,20 @@
       try{
         const bytes=binary.toBytes(token.loader.data);token.loader.data.clear();
         if(!current(token))return;
+        const inaccessible=Boolean(token.sound.inaccessible);
         const ctx=ensureContext(),profile=formats.inspect(bytes,ctx.sampleRate);
-        const metadata=token.sound.legacyOwner&&typeof wasm?.as2_sound_metadata==='function'?JSON.parse(wasm.as2_sound_metadata(bytes)):null;
-        if(typeof wasm?.as3_sound_inspect_id3_json==='function'){
-          try{const id3=JSON.parse(wasm.as3_sound_inspect_id3_json(bytes));if(id3)token.sound.id3Info=createId3Info(id3);}catch(_){}
+        const metadata=!inaccessible&&token.sound.legacyOwner&&typeof wasm?.as2_sound_metadata==='function'?JSON.parse(wasm.as2_sound_metadata(bytes)):null;
+        let emitId3=false;
+        if(!inaccessible&&typeof wasm?.as3_sound_inspect_id3_json==='function'){
+          try{
+            const id3=JSON.parse(wasm.as3_sound_inspect_id3_json(bytes));
+            if(id3){
+              token.sound.id3Info=createId3Info(id3);
+              emitId3=[id3.album,id3.artist,id3.comment,id3.genre,id3.songName,id3.track,id3.year].some(v=>v!==null&&v!==undefined);
+            }
+          }catch(_){}
         }
-        if(typeof wasm?.as3_sound_decode_compressed==='function'){
+        if(!inaccessible&&typeof wasm?.as3_sound_decode_compressed==='function'){
           try{token.sound.pcmBytes=unpackCompressed(wasm.as3_sound_decode_compressed(bytes)).pcm;}catch(_){}
         }
         if(!Number.isSafeInteger(profile.decodedBytes)||profile.decodedBytes<1||profile.decodedBytes>maxDecodedBytes-decodedBytes)throw new RangeError('Decoded audio would exceed the publication PCM budget.');
@@ -300,13 +447,19 @@
         const actual=buffer.length*buffer.numberOfChannels*4;
         if(!Number.isSafeInteger(actual)||actual<1||actual>token.reserved||!Number.isFinite(buffer.duration)||buffer.duration<=0)throw new RangeError('Decoded audio exceeds its preflight PCM reservation.');
         decodedBytes-=token.reserved-actual;token.reserved=0;token.sound.buffer=buffer;token.sound.bytes=actual;token.sound.load=null;token.committed=true;
-        if(!token.sound.pcmBytes&&typeof buffer.getChannelData==='function'){
+        if(inaccessible){
+          token.sound.pcmBytes=null;
+          token.sound.id3Info=createId3Info();
+        }else if(!token.sound.pcmBytes&&typeof buffer.getChannelData==='function'){
           const len=buffer.length>>>0,c0=buffer.getChannelData(0),c1=buffer.numberOfChannels>1?buffer.getChannelData(1):c0;
           const pcm=new Uint8Array(len*8),dv=new DataView(pcm.buffer);
           for(let i=0;i<len;i++){dv.setFloat32(i*8,c0[i]||0,true);dv.setFloat32(i*8+4,c1[i]||0,true);}
           token.sound.pcmBytes=pcm;
         }
         changed();
+        if(emitId3&&!disposed&&token.generation===generation&&token.sound.loadEpoch===token.loadEpoch){
+          emit(token.sound.receiver,new events.Event('id3'));
+        }
         if(metadata){
           for(const warning of metadata.warnings)console.warn('NeoFlash AS2 Sound:',warning);
           const owner=token.sound.legacyOwner;
@@ -326,19 +479,85 @@
         try{ioFailure(token.sound,message(error));}catch(callbackError){if(!disposed&&token.generation===generation)report(callbackError);}
       }finally{decodes.delete(token);token.decoding=false;releaseReservation(token);}
     }
+    function resolveCrossOriginHttpUrl(rawUrl){
+      if(typeof rawUrl!=='string'||!rawUrl||/^data:/i.test(rawUrl))return null;
+      if(typeof net.mediaSource!=='function')return null;
+      let src;try{src=net.mediaSource(rawUrl);}catch(_){return null;}
+      if(!src||src.kind!=='http'||typeof src.url!=='string')return null;
+      let parsed;try{parsed=new URL(src.url);}catch(_){return null;}
+      if(!['http:','https:'].includes(parsed.protocol))return null;
+      const pubOrigin=typeof net.publicationOrigin==='function'?net.publicationOrigin():(typeof global.location?.origin==='string'?global.location.origin:null);
+      if(!pubOrigin)return null;
+      return pubOrigin==='null'||parsed.origin!==pubOrigin?parsed.href:null;
+    }
+    function loadOpaqueAudio(token,httpUrl,fallbackText){
+      const record=token.sound;
+      const el=makeAudioElement();
+      if(!el){record.load=null;changed();ioFailure(record,fallbackText);return;}
+      el.muted=true;el.volume=0;el.preload='metadata';
+      let cleaned=false;
+      const onLoaded=()=>{
+        if(cleaned)return;
+        const dur=Number.isFinite(el.duration)&&el.duration>0?el.duration:0;
+        cleanup();
+        if(!current(token))return;
+        record.inaccessible=true;record.opaqueAudioUrl=httpUrl;record.opaqueDuration=dur;
+        record.id3Info=createId3Info();record.pcmBytes=null;record.url=httpUrl;record.load=null;
+        changed();
+        if(emit(record.receiver,new events.Event('complete'))&&token.generation===generation)flush();
+      };
+      const onError=()=>{
+        if(cleaned)return;
+        cleanup();
+        if(!current(token))return;
+        record.load=null;changed();
+        ioFailure(record,fallbackText);
+      };
+      const cleanup=()=>{
+        if(cleaned)return;
+        cleaned=true;
+        token.opaqueProbe=null;
+        el.removeEventListener('loadedmetadata',onLoaded);
+        el.removeEventListener('error',onError);
+        try{el.pause();el.removeAttribute('src');el.load?.();}catch(_){}
+      };
+      token.opaqueProbe={el,cleanup};
+      el.addEventListener('loadedmetadata',onLoaded);
+      el.addEventListener('error',onError);
+      el.src=httpUrl;
+      el.load?.();
+    }
     function load(record,request,loaderContext){
       if(loaderContext!==null&&loaderContext!==undefined&&!loaderContexts.has(loaderContext))throw new TypeError('Sound.load loaderContext requires SoundLoaderContext or null.');
       if(!net.URLRequest.__nfIs(request))throw new TypeError('Sound.load requires URLRequest.');
       if(request.method!=='GET'||request.data!==null)fail('Sound loading methods other than GET without request data');
-      if(record.buffer)throw new Error('This Sound already contains decoded audio. Create a new Sound for another resource.');
+      if(record.buffer||record.opaqueAudioUrl)throw new Error('This Sound already contains decoded audio. Create a new Sound for another resource.');
       const lc=loaderContext?loaderContexts.get(loaderContext):null;
       record.bufferTime=lc?lc.bufferTime:mixerBufferTime;
       record.checkPolicyFile=lc?Boolean(lc.checkPolicyFile):false;
       cancelLoad(record);used=true;lastError='';
+      record.inaccessible=false;record.opaqueAudioUrl=null;record.opaqueDuration=0;
       const loader=new net.URLLoader();loader.dataFormat='binary';record.url=request.url;
-      const token={sound:record,loader,generation,reserved:0,loadEpoch:record.loadEpoch=(record.loadEpoch||0)+1};record.load=token;
-      for(const name of ['open','progress','httpStatus'])loader.addEventListener(name,event=>{if(!current(token))return;record.loadedBytes=loader.bytesLoaded;record.total=loader.bytesTotal;emit(record.receiver,event.clone());});
-      loader.addEventListener('ioError',event=>{if(!current(token))return;record.loadedBytes=loader.bytesLoaded;record.total=loader.bytesTotal;record.load=null;changed();ioFailure(record,event.text);});
+      const token={sound:record,loader,generation,reserved:0,opaqueProbe:null,loadEpoch:record.loadEpoch=(record.loadEpoch||0)+1};record.load=token;
+      for(const name of ['open','progress','httpStatus'])loader.addEventListener(name,event=>{
+        if(!current(token))return;
+        record.loadedBytes=loader.bytesLoaded;record.total=loader.bytesTotal;
+        if(name==='httpStatus'){
+          if(typeof event.responseURL==='string'&&event.responseURL)record.url=event.responseURL;
+          if(event.__nfCorsAccessible===false)record.inaccessible=true;
+        }
+        emit(record.receiver,event.clone());
+      });
+      loader.addEventListener('ioError',event=>{
+        if(!current(token))return;
+        record.loadedBytes=loader.bytesLoaded;record.total=loader.bytesTotal;
+        const crossUrl=(typeof options.createAudio==='function'||typeof global.document?.createElement==='function')?resolveCrossOriginHttpUrl(request.url):null;
+        if(crossUrl){
+          loadOpaqueAudio(token,crossUrl,event.text);
+          return;
+        }
+        record.load=null;changed();ioFailure(record,event.text);
+      });
       loader.addEventListener('complete',()=>{if(!current(token))return;record.loadedBytes=loader.bytesLoaded;record.total=loader.bytesTotal;void decode(token);});
       try{loader.load(request);}catch(error){record.load=null;throw error;}changed();
     }
@@ -346,20 +565,24 @@
       constructor(request=null,loaderContext=null){
         super();open();if(soundRecords.size>=maxSounds)throw new RangeError(`This publication supports at most ${maxSounds} Sound objects before Restart.`);
         if(loaderContext!==null&&loaderContext!==undefined&&!loaderContexts.has(loaderContext))throw new TypeError('Sound constructor loaderContext requires SoundLoaderContext or null.');
-        const record={receiver:this,generation,load:null,buffer:null,pcmBytes:null,extractPosition:0,id3Info:createId3Info(),bytes:0,loadedBytes:0,total:0,url:null};sounds.set(this,record);soundRecords.add(record);Object.assign(this,hub.methods(this));Object.seal(this);
+        const record={receiver:this,generation,load:null,buffer:null,pcmBytes:null,extractPosition:0,id3Info:createId3Info(),bytes:0,loadedBytes:0,total:0,url:null,inaccessible:false,opaqueAudioUrl:null,opaqueDuration:0};sounds.set(this,record);soundRecords.add(record);Object.assign(this,hub.methods(this));Object.seal(this);
         if(request!==null)load(record,request,loaderContext);
       }
       load(request,loaderContext=null){load(state(this,sounds),request,loaderContext);}
       close(){cancelLoad(state(this,sounds));}
       play(startTime=0,loops=0,soundTransform=null){return play(state(this,sounds),startTime,loops,soundTransform);}
-      get length(){return (state(this,sounds).buffer?.duration||0)*1000;}
+      get length(){const r=state(this,sounds);return ((r.buffer?.duration??r.opaqueDuration)||0)*1000;}
       get bytesLoaded(){return state(this,sounds).loadedBytes;}get bytesTotal(){return state(this,sounds).total;}get url(){return state(this,sounds).url;}
       get isBuffering(){return !!state(this,sounds).load;}
       get id3(){return state(this,sounds).id3Info;}
-      get isURLInaccessible(){state(this,sounds);return false;}
+      get isURLInaccessible(){return Boolean(state(this,sounds).inaccessible);}
       extract(target,length,startPosition=-1){
         const record=state(this,sounds);
         binary.toBytes(target);
+        if(record.inaccessible){
+          const err=new Error(`SecurityError: Error #2122: Security sandbox violation: Sound.extract cannot access ${record.url||'inaccessible media'}. A policy file is required, but the checkPolicyFile flag was not set when this media was loaded.`);
+          err.name='SecurityError';err.errorID=2122;throw err;
+        }
         const requested=Math.floor(Number(length));
         if(!Number.isFinite(requested)||requested<0)throw new RangeError('Sound.extract length must be nonnegative.');
         if(record.pcmBytes&&typeof wasm?.as3_sound_extract_f32==='function'){
@@ -390,6 +613,7 @@
         let unpacked;try{unpacked=unpackCompressed(wasm.as3_sound_decode_compressed(slice));}catch(err){const e=new Error(message(err));e.name='IOError';throw e;}
         const pcm=unpacked.pcm,sampleCount=pcm.byteLength>>>3;
         cancelLoad(record);
+        record.inaccessible=false;record.opaqueAudioUrl=null;record.opaqueDuration=0;
         record.pcmBytes=pcm;record.extractPosition=0;record.bytes=pcm.byteLength;record.loadedBytes=len;record.total=len;
         record.buffer=createPcmAudioBuffer(pcm,sampleCount,44100);
         if(unpacked.meta?.id3){
@@ -413,6 +637,7 @@
         let pcm;try{pcm=wasm.as3_sound_decode_pcm(slice,count,fmt,stereo,Number(sampleRate),bytes.endian==='littleEndian');}catch(err){const e=new RangeError(message(err));e.name='ArgumentError';throw e;}
         const sampleCount=pcm.byteLength>>>3;
         cancelLoad(record);
+        record.inaccessible=false;record.opaqueAudioUrl=null;record.opaqueDuration=0;
         record.pcmBytes=pcm;record.extractPosition=0;record.bytes=pcm.byteLength;record.loadedBytes=byteLen;record.total=byteLen;
         record.buffer=createPcmAudioBuffer(pcm,sampleCount,44100);
       }
@@ -422,17 +647,34 @@
       const fn=record.receiver[name];if(disposed||record.generation!==generation)return;
       if(typeof fn==='function')Reflect.apply(fn,record.receiver,args);
     }
-    function legacyMatrix(record,patch={}){
+    function legacyStateOf(record){
+      if(!record.target||(typeof record.target!=='object'&&typeof record.target!=='function'))return record;
+      let st=targetStates.get(record.target);
+      if(!st||st.generation!==generation){
+        st={generation,volume:100,pan:0,matrix:null,owners:new Set()};
+        targetStates.set(record.target,st);
+      }
+      st.owners.add(record);
+      return st;
+    }
+    function legacyOwnersOf(st,record){
+      return st===record?[record]:[...st.owners].filter(item=>item.generation===generation);
+    }
+    function legacyMatrix(st,patch={}){
       if(typeof wasm?.as2_sound_transform!=='function')throw new Error('AS2 Sound transforms require the current Rust runtime; re-export this publication.');
-      const base=record.matrix?{state:record.matrix.state}:{pan:record.pan,volume:record.volume};
+      const base=st.matrix?{state:st.matrix.state}:{pan:st.pan,volume:st.volume};
       return JSON.parse(wasm.as2_sound_transform(JSON.stringify({...base,...patch})));
     }
     function applyLegacyMatrix(record,result){
+      const st=legacyStateOf(record);
+      st.matrix=result;st.volume=result.state.volume;st.pan=result.pan;
       record.matrix=result;record.volume=result.state.volume;record.pan=result.pan;
-      for(const channel of record.owned){
-        const value=state(channel,channels);value.matrix=result;
-        if(value.started&&!value.matrixGains)connectMatrix(value,value.gain,result);
-        if(value.matrixGains)for(let i=0;i<4;i++)value.matrixGains[i].gain.value=result.gains[i];
+      for(const owner of legacyOwnersOf(st,record)){
+        owner.matrix=result;owner.volume=result.state.volume;owner.pan=result.pan;
+        for(const channel of owner.owned){
+          const value=state(channel,channels);value.matrix=result;
+          applyLiveChannelTransform(value);
+        }
       }
     }
     class LegacySound {
@@ -440,13 +682,15 @@
         open();if(args.length>1)throw new TypeError('AS2 Sound accepts at most one optional target MovieClip.');
         const target=args.length===0?null:(typeof options.resolveSoundTarget==='function'?options.resolveSoundTarget(args[0]):(args[0]??null));
         const sound=new Sound(),record={receiver:this,target,generation,sound,volume:100,pan:0,matrix:null,id3:undefined,channel:null,owned:new Set(),checkPolicyFile:false,streaming:false,attachedId:null};legacy.set(this,record);sounds.get(sound).legacyOwner=record;
+        if(target!==null){const st=legacyStateOf(record);record.volume=st.volume;record.pan=st.pan;record.matrix=st.matrix;}
         sound.addEventListener('complete',()=>{if(record.streaming){try{this.start(0,1);}catch(_){}}legacyCallback(record,'onLoad',[true]);});sound.addEventListener('ioError',()=>legacyCallback(record,'onLoad',[false]));
       }
-      loadSound(url,isStreaming=false){const record=state(this,legacy);if(typeof isStreaming!=='boolean')throw new TypeError('AS2 Sound.loadSound isStreaming requires a Boolean.');stopLegacy(record);const sound=state(record.sound,sounds);cancelLoad(sound);decodedBytes-=sound.bytes;sound.bytes=0;sound.buffer=null;record.id3=undefined;record.channel=null;record.attachedId=null;record.streaming=isStreaming;record.sound.load(new net.URLRequest(url));}
+      loadSound(url,isStreaming=false){const record=state(this,legacy);if(typeof isStreaming!=='boolean')throw new TypeError('AS2 Sound.loadSound isStreaming requires a Boolean.');stopLegacy(record);const sound=state(record.sound,sounds);cancelLoad(sound);decodedBytes-=sound.bytes;sound.bytes=0;sound.buffer=null;sound.opaqueAudioUrl=null;sound.opaqueDuration=0;sound.inaccessible=false;record.id3=undefined;record.channel=null;record.attachedId=null;record.streaming=isStreaming;record.sound.load(new net.URLRequest(url),new SoundLoaderContext(1000,record.checkPolicyFile));}
       start(offset=0,loops=1){
         const record=state(this,legacy);number(offset,'AS2 Sound secondOffset',0,2147483.647);if(!Number.isInteger(loops)||loops<1||loops>10001)throw new RangeError('AS2 Sound loops requires a total play count from 1 through 10001.');
-        const sound=state(record.sound,sounds);if(!sound.buffer&&!sound.load)return;
-        const channel=play(sound,offset*1000,loops-1,new SoundTransform(record.volume/100,record.pan/100),record.matrix);record.channel=channel;record.owned.add(channel);
+        const sound=state(record.sound,sounds);if(!sound.buffer&&!sound.opaqueAudioUrl&&!sound.load)return;
+        const st=legacyStateOf(record);
+        const channel=play(sound,offset*1000,loops-1,new SoundTransform(st.volume/100,st.pan/100),st.matrix);record.channel=channel;record.owned.add(channel);
         channel.addEventListener('soundComplete',()=>{record.owned.delete(channel);legacyCallback(record,'onSoundComplete',[]);});
       }
       stop(...args){
@@ -455,16 +699,41 @@
         if(args.length===1&&args[0]!==undefined){
           if(typeof args[0]!=='string')throw new TypeError('AS2 Sound.stop linkage id requires a String.');
           const wanted=args[0];
-          if(record.target!==null){if(record.attachedId===wanted)stopLegacy(record);}
-          else{for(const item of soundRecords)if(item.legacyOwner&&item.legacyOwner.generation===generation&&item.legacyOwner.attachedId===wanted)stopLegacy(item.legacyOwner);}
+          if(record.target!==null){
+            const st=legacyStateOf(record);
+            for(const owner of legacyOwnersOf(st,record))if(owner.attachedId===wanted)stopLegacy(owner);
+          }else{for(const item of soundRecords)if(item.legacyOwner&&item.legacyOwner.generation===generation&&item.legacyOwner.attachedId===wanted)stopLegacy(item.legacyOwner);}
+          return;
+        }
+        if(record.target!==null){
+          const st=legacyStateOf(record);
+          for(const owner of legacyOwnersOf(st,record))stopLegacy(owner);
           return;
         }
         stopLegacy(record);
       }
-      getVolume(){return state(this,legacy).volume;}
-      setVolume(value){const record=state(this,legacy);number(value,'AS2 Sound volume',0,100);if(record.matrix){applyLegacyMatrix(record,legacyMatrix(record,{volume:value}));return;}record.volume=value;for(const channel of record.owned)channel.soundTransform=new SoundTransform(record.volume/100,record.pan/100);}
-      getPan(){return state(this,legacy).pan;}
-      setPan(value){const record=state(this,legacy);number(value,'AS2 Sound pan',-100,100);if(record.matrix){applyLegacyMatrix(record,legacyMatrix(record,{pan:value}));return;}record.pan=value;for(const channel of record.owned)channel.soundTransform=new SoundTransform(record.volume/100,record.pan/100);}
+      getVolume(){return legacyStateOf(state(this,legacy)).volume;}
+      setVolume(value){
+        const record=state(this,legacy);number(value,'AS2 Sound volume',0,100);
+        const st=legacyStateOf(record);
+        if(st.matrix){applyLegacyMatrix(record,legacyMatrix(st,{volume:value}));return;}
+        st.volume=value;record.volume=value;
+        for(const owner of legacyOwnersOf(st,record)){
+          owner.volume=value;
+          for(const channel of owner.owned)channel.soundTransform=new SoundTransform(st.volume/100,st.pan/100);
+        }
+      }
+      getPan(){return legacyStateOf(state(this,legacy)).pan;}
+      setPan(value){
+        const record=state(this,legacy);number(value,'AS2 Sound pan',-100,100);
+        const st=legacyStateOf(record);
+        if(st.matrix){applyLegacyMatrix(record,legacyMatrix(st,{pan:value}));return;}
+        st.pan=value;record.pan=value;
+        for(const owner of legacyOwnersOf(st,record)){
+          owner.pan=value;
+          for(const channel of owner.owned)channel.soundTransform=new SoundTransform(st.volume/100,st.pan/100);
+        }
+      }
       get position(){const record=state(this,legacy);return record.channel?record.channel.position:0;}
       get duration(){return state(this,legacy).sound.length;}
       getBytesLoaded(){return state(this,legacy).sound.bytesLoaded;}getBytesTotal(){return state(this,legacy).sound.bytesTotal;}
@@ -472,12 +741,12 @@
         const record=state(this,legacy);if(typeof id!=='string')throw new TypeError('AS2 attachSound requires a bundled audio resource ID.');
         if(typeof player?.as2_sound_resource!=='function')throw new Error('AS2 attachSound requires the current Rust runtime; re-export this publication.');
         const path=JSON.parse(player.as2_sound_resource(id));
-        stopLegacy(record);const sound=state(record.sound,sounds);cancelLoad(sound);decodedBytes-=sound.bytes;sound.bytes=0;sound.buffer=null;record.id3=undefined;record.channel=null;record.attachedId=path===null?null:id;record.streaming=false;
+        stopLegacy(record);const sound=state(record.sound,sounds);cancelLoad(sound);decodedBytes-=sound.bytes;sound.bytes=0;sound.buffer=null;sound.opaqueAudioUrl=null;sound.opaqueDuration=0;sound.inaccessible=false;record.id3=undefined;record.channel=null;record.attachedId=path===null?null:id;record.streaming=false;
         if(path===null)return;
         record.sound.load(new net.URLRequest(path));
       }
-      getTransform(){const record=state(this,legacy),value=(record.matrix||legacyMatrix(record)).state;return {ll:value.ll,lr:value.lr,rl:value.rl,rr:value.rr};}
-      setTransform(value){const record=state(this,legacy);if(value===null||typeof value!=='object')throw new TypeError('AS2 Sound.setTransform requires an object.');const patch={};for(const key of ['ll','lr','rl','rr'])if(Object.prototype.hasOwnProperty.call(value,key)){patch[key]=value[key];if(typeof patch[key]!=='number'||!Number.isFinite(patch[key]))throw new TypeError('AS2 Sound transform coefficients must be finite numbers.');}applyLegacyMatrix(record,legacyMatrix(record,{patch}));}
+      getTransform(){const record=state(this,legacy),st=legacyStateOf(record),value=(st.matrix||legacyMatrix(st)).state;return {ll:value.ll,lr:value.lr,rl:value.rl,rr:value.rr};}
+      setTransform(value){const record=state(this,legacy),st=legacyStateOf(record);if(value===null||typeof value!=='object')throw new TypeError('AS2 Sound.setTransform requires an object.');const patch={};for(const key of ['ll','lr','rl','rr'])if(Object.prototype.hasOwnProperty.call(value,key)){patch[key]=value[key];if(typeof patch[key]!=='number'||!Number.isFinite(patch[key]))throw new TypeError('AS2 Sound transform coefficients must be finite numbers.');}applyLegacyMatrix(record,legacyMatrix(st,{patch}));}
       get id3(){return state(this,legacy).id3;}
       get checkPolicyFile(){return state(this,legacy).checkPolicyFile;}set checkPolicyFile(value){const record=state(this,legacy);if(typeof value!=='boolean')throw new TypeError('AS2 Sound.checkPolicyFile requires a Boolean.');record.checkPolicyFile=value;}
     }
@@ -491,13 +760,17 @@
     class SoundMixer {
       constructor(){throw new TypeError('SoundMixer cannot be instantiated.');}
       static stopAll(){stopAllChannels();options.onStopAll?.();}
-      static areSoundsInaccessible(){open();return false;}
+      static areSoundsInaccessible(){open();for(const ch of playing)if(!ch.stopped&&ch.sound?.inaccessible)return true;return false;}
       static get bufferTime(){open();return mixerBufferTime;}
       static set bufferTime(value){open();mixerBufferTime=Math.trunc(Number(value))||0;}
       static get soundTransform(){open();const st=new SoundTransform(mixerTransform.volume,mixerTransform.pan);Object.assign(transforms.get(st),mixerTransform);return st;}
-      static set soundTransform(value){open();mixerTransform=transformCopy(value);}
+      static set soundTransform(value){open();mixerTransform=transformCopy(value);notifyMixerChanged();}
       static computeSpectrum(outputArray,FFTMode=false,stretchFactor=0){
         open();binary.toBytes(outputArray);
+        if(SoundMixer.areSoundsInaccessible()){
+          const err=new Error('SecurityError: Error #2121: Security sandbox violation: SoundMixer.computeSpectrum cannot access inaccessible sound media.');
+          err.name='SecurityError';err.errorID=2121;throw err;
+        }
         const windowFrames=Math.max(512,Math.min(4096,256*(Math.max(1,Math.trunc(Number(stretchFactor))||1))));
         const mixed=new Uint8Array(windowFrames*8),mixedView=new DataView(mixed.buffer);
         let hasMixed=false;
@@ -665,11 +938,11 @@
       open();if(master)master.gain.value=0;
       for(const voice of [...voices])stopVoice(voice);buffers.clear();blockedEvents=0;
       for(const record of [...playing])stop(record);
-      for(const record of soundRecords){cancelLoad(record);record.buffer=null;record.pcmBytes=null;record.bytes=0;}
+      for(const record of soundRecords){cancelLoad(record);record.buffer=null;record.pcmBytes=null;record.bytes=0;record.opaqueAudioUrl=null;record.opaqueDuration=0;record.inaccessible=false;}
       const old=context;context=null;if(master){try{master.disconnect();}catch(_){}}master=null;
       // decodeAudioData has no abort API. Keep reservations for unsettled native
       // decodes across Restart so a new session cannot overlap unbudgeted PCM.
-      generation++;hub.clear();soundRecords.clear();playing.clear();decodedBytes=[...decodes].reduce((sum,token)=>sum+token.reserved,0);unlocked=false;muted=false;used=false;lastError='';resuming=null;mixerBufferTime=0;mixerTransform={volume:1,pan:0,leftToLeft:1,leftToRight:0,rightToLeft:0,rightToRight:1};
+      generation++;hub.clear();soundRecords.clear();playing.clear();mixerSubscribers.clear();decodedBytes=[...decodes].reduce((sum,token)=>sum+token.reserved,0);unlocked=false;muted=false;used=false;lastError='';resuming=null;mixerBufferTime=0;mixerTransform={volume:1,pan:0,leftToLeft:1,leftToRight:0,rightToLeft:0,rightToRight:1};
       try{old?.close()?.catch(()=>{});}catch(_){}changed();
     }
     function dispose(){if(disposed)return;reset();disposed=true;}

@@ -68,8 +68,33 @@
     const assetUrls=new Map(Object.entries(options.assetUrls||{}));
     const resourceAliases=new Map(Object.entries(options.resourceAliases||{}));
     const requests=new WeakSet(),headers=new WeakSet(),variables=new WeakSet(),loaders=new WeakMap(),legacy=new WeakMap();
-    const active=new Set(),resources=new Map(),resourceCache=new Map();
+    const active=new Set(),probes=new Set(),resources=new Map(),resourceCache=new Map();
     let generation=1,disposed=false,activeBytes=0;
+    function publicationOrigin(){
+      if(!baseURL)return null;
+      try{const u=new URL(baseURL);return ['http:','https:'].includes(u.protocol)?u.origin:null;}catch(_){return null;}
+    }
+    function decodeDataURI(source){
+      if(!/^data:/i.test(source))return null;
+      const comma=source.indexOf(',');
+      if(comma<5)throw new TypeError('Malformed data: URI.');
+      const meta=source.slice(5,comma),payload=source.slice(comma+1);
+      const parts=meta.split(';'),mediaType=(parts[0]||'application/octet-stream').trim()||'application/octet-stream';
+      const isBase64=parts.slice(1).some(p=>p.trim().toLowerCase()==='base64');
+      let bytes;
+      if(isBase64){
+        const cleaned=payload.replace(/[\r\n\s]+/g,'');
+        if(cleaned.length/4*3>MAX_BYTES+4)throw new RangeError('Data URI exceeds 16 MiB.');
+        let raw;try{raw=global.atob(cleaned);}catch(_){throw new TypeError('Malformed base64 in data: URI.');}
+        if(raw.length>MAX_BYTES)throw new RangeError('Data URI exceeds 16 MiB.');
+        bytes=Uint8Array.from(raw,ch=>ch.charCodeAt(0));
+      }else{
+        let decodedText;try{decodedText=decodeURIComponent(payload);}catch(_){throw new TypeError('Malformed percent-encoding in data: URI.');}
+        bytes=encoder.encode(decodedText);
+        if(bytes.byteLength>MAX_BYTES)throw new RangeError('Data URI exceeds 16 MiB.');
+      }
+      return {bytes,mediaType,length:bytes.byteLength};
+    }
     let resourceBytes=0;
     if((options.resources||[]).length>1024)throw new RangeError('A publication supports at most 1024 portable resources.');
     for(const resource of options.resources||[]){
@@ -298,7 +323,12 @@
       const bytes=Uint8Array.from(raw,char=>char.charCodeAt(0));resourceCache.set(resource.path,bytes);return bytes;
     }
     function mediaSource(value){
-      open();const source=text(value,'Media URL');if(!source||source.length>8192)throw new RangeError('Media URL must contain 1 through 8192 characters.');
+      open();const source=text(value,'Media URL');if(!source||source.length>MAX_BYTES*2)throw new RangeError('Media URL exceeds maximum permitted length.');
+      if(/^data:/i.test(source)){
+        const dataRes=decodeDataURI(source);
+        return {kind:'resource',bytes:dataRes.bytes,mediaType:dataRes.mediaType,length:dataRes.length};
+      }
+      if(source.length>8192)throw new RangeError('Media URL must contain 1 through 8192 characters.');
       const resource=resourceFor(source);
       if(resource){
         const extRel=assetUrls.get(resource.path)||null;
@@ -315,8 +345,62 @@
       // Its bytes are not fetched or falsely charged as a complete URLLoader file.
       return {kind:'http',url:url.href};
     }
+    function probeMediaBytes(url,onMeta){
+      open();
+      if(!fetchTransport||typeof onMeta!=='function')return {abort(){}};
+      let parsed;try{parsed=new URL(url,baseURL||undefined);}catch(_){return {abort(){}};}
+      if(!['http:','https:'].includes(parsed.protocol))return {abort(){}};
+      const born=generation,controller=new AbortController(),entry={controller,generation:born};
+      probes.add(entry);
+      const finish=()=>{probes.delete(entry);};
+      void (async()=>{
+        try{
+          const MAX_PROBE_BYTES=262144;
+          const resp=await fetchTransport(parsed.href,{method:'GET',headers:[['Range',`bytes=0-${MAX_PROBE_BYTES-1}`]],redirect:'follow',credentials:'same-origin',mode:'cors',signal:controller.signal});
+          if(disposed||generation!==born||controller.signal.aborted)return;
+          let total=null;
+          const cr=resp.headers?.get?.('content-range');
+          if(cr){
+            const m=/\/(\d+)\s*$/.exec(cr);
+            if(m)total=Number(m[1]);
+          }
+          if(total===null&&resp.status===200){
+            const cl=resp.headers?.get?.('content-length'),ce=resp.headers?.get?.('content-encoding');
+            if(!ce&&cl&&/^\d+$/.test(cl))total=Number(cl);
+          }
+          const finalUrl=resp.url||parsed.href;
+          const acceptRanges=resp.status===206||String(resp.headers?.get?.('accept-ranges')||'').toLowerCase()==='bytes';
+          const cleanTotal=Number.isSafeInteger(total)&&total>=0?total:null;
+          const baseMeta={total:cleanTotal,totalBytes:cleanTotal,responseURL:finalUrl,finalUrl,status:resp.status,redirected:Boolean(resp.redirected),acceptRanges};
+          onMeta(baseMeta);
+          if((resp.status===206||(resp.status===200&&cleanTotal!==null&&cleanTotal>0&&cleanTotal<=MAX_PROBE_BYTES))&&typeof resp.arrayBuffer==='function'){
+            const ab=await resp.arrayBuffer();
+            if(!disposed&&generation===born&&!controller.signal.aborted&&ab&&ab.byteLength>0){
+              onMeta({...baseMeta,probeBytes:new Uint8Array(ab)});
+            }
+          }else{
+            try{await resp.body?.cancel();}catch(_){}
+          }
+        }catch(_){
+          // Non-CORS or offline URL: native <video>/<audio> continues progressive playback on its own.
+        }finally{
+          finish();
+        }
+      })();
+      return Object.freeze({abort(){finish();try{controller.abort();}catch(_){}}});
+    }
     async function read(operation,request){
-      const resource=resourceFor(request.url),record=operation.record;
+      const record=operation.record;
+      if(/^data:/i.test(request.url)){
+        if(request.method!=='GET')throw new TypeError('data: URIs are immutable and support GET only.');
+        const dataRes=decodeDataURI(request.url);
+        retained(operation,dataRes.length);record.total=dataRes.length;
+        if(!operation.legacy&&!notify(operation,new events.Event('open')))return null;
+        record.loadedBytes=dataRes.length;
+        if(!operation.legacy&&!notify(operation,new ProgressEvent('progress',false,false,dataRes.length,dataRes.length)))return null;
+        return dataRes.bytes;
+      }
+      const resource=resourceFor(request.url);
       const extRel=(resource&&resource.byteLength===0)?(assetUrls.get(resource.path)||null):null;
       if(resource&&!extRel){
         if(request.method!=='GET')throw new TypeError('Bundled resources are immutable and support GET only; POST requires an HTTP(S) endpoint.');
@@ -337,15 +421,28 @@
       const response=await fetchTransport(url.href,{method:request.method,headers:request.headers,body:request.body,signal:operation.controller.signal,credentials:'same-origin',mode:'cors'});
       if(!current(operation))return null;
       if(response.type==='opaque')throw new Error('The browser did not expose this response; configure ordinary HTTP CORS access.');
+      const finalUrl=response.url||url.href;
+      const pubOrigin=publicationOrigin();
+      let crossOrigin=false;
+      if(pubOrigin){try{crossOrigin=new URL(finalUrl).origin!==pubOrigin;}catch(_){crossOrigin=false;}}
+      const acao=response.headers?.get?.('access-control-allow-origin')||null;
+      // Browser fetch with mode:'cors' sets response.type === 'cors' only after validating ACAO
+      // (and hides the ACAO header itself from JS), whereas Node fetch returns 'basic'/'default'
+      // and exposes raw headers directly.
+      const corsAccessible=!crossOrigin||response.type==='cors'||acao==='*'||acao===pubOrigin;
       if(operation.legacy){if(!callback(operation,'onHTTPStatus',[response.status]))return null;}
       else {
-        const event=new HTTPStatusEvent('httpStatus',false,false,response.status,response.redirected);event.responseURL=response.url||url.href;
+        const event=new HTTPStatusEvent('httpStatus',false,false,response.status,response.redirected);event.responseURL=finalUrl;
+        Object.defineProperty(event,'__nfCorsAccessible',{value:corsAccessible,enumerable:false});
+        Object.defineProperty(event,'__nfCrossOrigin',{value:crossOrigin,enumerable:false});
         response.headers?.forEach?.((value,name)=>event.responseHeaders.push(new URLRequestHeader(name,value)));
         if(!notify(operation,event))return null;
       }
       if(!response.ok&&record.raw?.acceptHttpError!==true)throw new Error(`HTTP ${response.status} while loading ${url.href}.`);
-      const declared=response.headers?.get?.('content-length'),compressed=response.headers?.get?.('content-encoding');
-      record.total=!compressed&&declared&&/^\d+$/.test(declared)?Number(declared):0;
+      const declared=response.headers?.get?.('content-length'),compressed=response.headers?.get?.('content-encoding'),cr=response.headers?.get?.('content-range');
+      let total=!compressed&&declared&&/^\d+$/.test(declared)?Number(declared):0;
+      if(!total&&cr){const m=/\/(\d+)\s*$/.exec(cr);if(m)total=Number(m[1]);}
+      record.total=total;
       if(!Number.isSafeInteger(record.total)||record.total>MAX_BYTES)throw new RangeError('Declared response size exceeds 16 MiB.');
       if(!operation.legacy&&!notify(operation,new events.Event('open')))return null;
       const chunks=[];
@@ -459,9 +556,9 @@
       }
     }
     noBase(LoadVars,'LoadVars',value=>legacy.has(value));
-    function reset(){open();for(const operation of [...active])cancel(operation.record);generation++;hub.clear();resourceCache.clear();}
+    function reset(){open();for(const operation of [...active])cancel(operation.record);for(const p of [...probes]){probes.delete(p);try{p.controller.abort();}catch(_){}}generation++;hub.clear();resourceCache.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({URLRequest,URLRequestHeader,URLRequestMethod,URLVariables,URLLoader,URLLoaderDataFormat,ProgressEvent,IOErrorEvent,HTTPStatusEvent,LoadVars,legacyRequestHeaders,loadBytes,mediaSource,registerResources,unregisterResources,prepareNavigation,navigateToURL,sendToURL,getURL,reset,dispose});
+    return Object.freeze({URLRequest,URLRequestHeader,URLRequestMethod,URLVariables,URLLoader,URLLoaderDataFormat,ProgressEvent,IOErrorEvent,HTTPStatusEvent,LoadVars,legacyRequestHeaders,loadBytes,mediaSource,probeMediaBytes,publicationOrigin,registerResources,unregisterResources,prepareNavigation,navigateToURL,sendToURL,getURL,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashNet=api;
 })(globalThis);

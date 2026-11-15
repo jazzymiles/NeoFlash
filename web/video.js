@@ -28,7 +28,7 @@
     const connections=new WeakMap(),streams=new WeakMap(),connectionRecords=new Set(),streamRecords=new Set(),bindings=new Map(),timelineControllers=new Map(),frames=new Set(),derived=new Map();
     const statusTypes=new WeakSet(),schedule=options.schedule||(fn=>queueMicrotask(fn));
     const gesture=options.isUserGesture||(()=>global.navigator?.userActivation?.isActive===true);
-    let generation=1,disposed=false,serial=0,used=false,unlocked=false,muted=false,errorText='',framePixels=0;
+    let generation=1,disposed=false,serial=0,used=false,unlocked=false,muted=false,errorText='',framePixels=0,ownAudioContext=null,mixerUnsub=null;
     const diagnosticsList=[];
     const hub=events.create({weakTargets:true,alive:value=>!disposed&&(connections.get(value)||streams.get(value))?.generation===generation});
     function open(){if(disposed)throw new Error('This video service has been disposed.');}
@@ -71,12 +71,95 @@
       if(trimmed.split(/[/?#]/).includes('..')||/%2e%2e/i.test(trimmed))throw new TypeError('Progressive video stream URL cannot contain parent traversal (..) segments.');
       return trimmed;
     }
+    function defaultTransformWire(v=1){return {volume:v,pan:0,leftToLeft:v,leftToRight:0,rightToLeft:0,rightToRight:v};}
+    function matMul(a,b){
+      return [
+        a[0]*b[0]+a[2]*b[1],
+        a[1]*b[0]+a[3]*b[1],
+        a[0]*b[2]+a[2]*b[3],
+        a[1]*b[2]+a[3]*b[3],
+      ];
+    }
+    function localStreamTransformPlan(channelTf,targetTf=null){
+      if(typeof options.wasm?.as3_sound_transform_plan_json==='function'){
+        const res=JSON.parse(options.wasm.as3_sound_transform_plan_json(JSON.stringify(channelTf),targetTf?JSON.stringify(targetTf):'',''));
+        res.is_matrix=Boolean(res.isMatrix??res.is_matrix);
+        return res;
+      }
+      const ch=channelTf||defaultTransformWire(1);
+      let m=[ch.leftToLeft,ch.rightToLeft,ch.leftToRight,ch.rightToRight];
+      if(targetTf)m=matMul(m,[targetTf.leftToLeft,targetTf.rightToLeft,targetTf.leftToRight,targetTf.rightToRight]);
+      const gains=m.map(v=>Math.max(0,Math.min(10,Number(v)||0)));
+      const [ll,rl,lr,rr]=gains,outVol=Math.max(ll,rr);
+      const isPurePan=Math.abs(rl)<=1e-6&&Math.abs(lr)<=1e-6&&(outVol<=1e-6||Math.abs(ll-outVol)<=1e-5||Math.abs(rr-outVol)<=1e-5);
+      if(isPurePan&&outVol<=1+1e-6){
+        const pan=outVol<=1e-6?0:(Math.abs(ll-rr)<=1e-6?0:(ll>=rr?-(1-rr/outVol):(1-ll/outVol)));
+        return {is_matrix:false,volume:Math.max(0,Math.min(1,outVol)),pan:Math.max(-1,Math.min(1,pan)),gains};
+      }
+      return {is_matrix:true,volume:Math.max(0,Math.min(1,Math.max(ll+rl,lr+rr))),pan:0,gains};
+    }
+    function updateBufferedBytes(r){
+      if(!r||!r.media||r.isEmbeddedBytes)return;
+      const total=typeof r.totalBytes==='number'&&r.totalBytes>0?r.totalBytes:0;
+      if(total<=0)return;
+      if(r.media.ended||(r.clipCompleted&&r.clipPlan?.duration_limit==null&&!r.clipPlan?.single_frame)){
+        r.encodedBytes=total;
+        return;
+      }
+      let frac=0;
+      const dur=Number(r.media.duration);
+      if(r.media.buffered&&r.media.buffered.length>0&&Number.isFinite(dur)&&dur>0){
+        let maxEnd=0;
+        for(let i=0;i<r.media.buffered.length;i++){
+          try{maxEnd=Math.max(maxEnd,r.media.buffered.end(i));}catch(_){}
+        }
+        frac=Math.max(0,Math.min(1,maxEnd/dur));
+      }else if((r.media.readyState||0)>=4){
+        frac=1;
+      }else if((r.media.readyState||0)>=2){
+        frac=0.25;
+      }
+      r.encodedBytes=Math.max(Number(r.encodedBytes)||0,Math.min(total,Math.round(total*frac)));
+    }
+    function currentBytesLoaded(r){updateBufferedBytes(r);return Math.max(0,Math.trunc(Number(r.encodedBytes)||0));}
+    function currentBytesTotal(r){updateBufferedBytes(r);return Math.max(0,Math.trunc(Number(r.totalBytes??r.encodedBytes)||0));}
+    function computeBufferLength(r){
+      if(hasAvi(r))return Math.max(0,(r.duration||0)-(r.time||0));
+      const media=r.media;
+      if(!media)return 0;
+      const t=Math.max(0,Number(media.currentTime)||0),ranges=[];
+      for(let i=0;i<(media.buffered?.length||0);i++){
+        try{ranges.push([media.buffered.start(i),media.buffered.end(i)]);}catch(_){}
+      }
+      let ahead=0;
+      for(const [s,e] of ranges){
+        if(e>s&&t+0.05>=s&&t<=e)ahead=Math.max(ahead,Math.max(0,e-t));
+      }
+      return ahead;
+    }
+    function recordFrameTick(r,nowMs){
+      if(!r.frameTimes)r.frameTimes=[];
+      const t=Number.isFinite(nowMs)&&nowMs>0?nowMs:(global.performance?.now?.()||Date.now());
+      if(r.frameTimes.length===0||t>r.frameTimes[r.frameTimes.length-1]){
+        r.frameTimes.push(t);
+        while(r.frameTimes.length>2&&t-r.frameTimes[0]>1000)r.frameTimes.shift();
+      }
+    }
+    function computeStreamFps(r){
+      if(!r||!r.playing||r.receiveState?.video===false||(r.metadata&&r.width===0&&r.height===0))return 0;
+      if(r.frameTimes&&r.frameTimes.length>=2){
+        const span=r.frameTimes[r.frameTimes.length-1]-r.frameTimes[0];
+        if(span>=1e-3)return Math.min(120,((r.frameTimes.length-1)*1000)/span);
+      }
+      const fallback=Number(r.containerFps)||Number(r.aviFps)||Number(options.getFrameRate?.())||24;
+      return fallback>0?fallback:0;
+    }
     function changed(){options.onState?.(status());}
     function report(error){errorText=String(error?.message||error);changed();options.onError?.(error);}
     function current(r,media,sequence){return !disposed&&r.generation===generation&&r.media===media&&r.sequence===sequence;}
     // AS2 component observers receive browser facts only. No observer is installed
     // for existing AS3 or ordinary NetStream users, preserving their event path.
-    function controllerSample(r){return {now:global.performance?.now?.()||0,time:r.media?Number(r.media.currentTime)||0:r.time,width:r.width,height:r.height,duration:r.duration,bytesLoaded:r.url?(r.encodedBytes??null):0,bytesTotal:r.url?(r.encodedBytes??null):0};}
+    function controllerSample(r){return {now:global.performance?.now?.()||0,time:r.media?Number(r.media.currentTime)||0:r.time,width:r.width,height:r.height,duration:r.duration,bytesLoaded:r.url?currentBytesLoaded(r):0,bytesTotal:r.url?currentBytesTotal(r):0};}
     function observeController(r,type,message){if(typeof r.controllerObserver!=='function')return;const sample=controllerSample(r);if(message)sample.message=message;r.controllerObserver(type,sample);}
     function after(epoch){if(!disposed&&generation===epoch)options.afterEvent?.();}
     function repaint(){(options.onFrame||options.afterEvent)?.();}
@@ -97,17 +180,47 @@
       else hub.dispatch(r.receiver,new NetStatusEvent('netStatus',false,false,info));
       after(epoch);return !disposed&&r.generation===generation&&r.sequence===sequence;
     }
+    function invokeStreamCallback(r,name,payload){
+      if(!r||r.timelineOwned||disposed||r.generation!==generation)return;
+      const targets=r.legacy?(r.client&&r.client!==r.receiver?[r.client,r.receiver]:[r.receiver]):[r.client];
+      for(const target of targets){
+        const fn=target?.[name];
+        if(typeof fn==='function'){
+          Reflect.apply(fn,target,[payload]);
+          after(generation);
+          return;
+        }
+      }
+    }
+    function checkCuePoints(r,prevTime,curTime){
+      if(r.timelineOwned||disposed||r.generation!==generation)return;
+      const list=r.cuePoints;
+      if(!Array.isArray(list)||list.length===0)return;
+      if(!r.firedCues)r.firedCues=new Set();
+      const lo=Math.min(prevTime,curTime)-1e-4,hi=Math.max(prevTime,curTime)+1e-4;
+      for(let i=0;i<list.length;i++){
+        if(r.firedCues.has(i))continue;
+        const cue=list[i],ct=Number(cue?.time);
+        if(Number.isFinite(ct)&&ct>=lo&&ct<=hi){
+          r.firedCues.add(i);
+          invokeStreamCallback(r,'onCuePoint',{name:String(cue.name||''),time:ct,type:String(cue.type||'navigation'),parameters:cue.parameters&&typeof cue.parameters==='object'?{...cue.parameters}:{}});
+          if(disposed||r.generation!==generation)return;
+        }
+      }
+    }
     function later(r,fn){const epoch=generation,sequence=r.sequence;schedule(()=>{if(disposed||epoch!==generation||r.generation!==generation||r.sequence!==sequence)return;try{fn();}catch(error){if(!disposed&&epoch===generation)report(error);}});}
     function noBase(Type,predicate){Object.defineProperties(Type,{__nfIs:{value:predicate},[Symbol.hasInstance]:{value:predicate},__nfInitialize:{configurable:true,value:()=>unsupported(`${Type.name} native subclassing`)}});}
     function canvas(w,h){const surface=options.createCanvas?options.createCanvas(w,h):typeof global.OffscreenCanvas==='function'?new global.OffscreenCanvas(w,h):global.document?.createElement('canvas');if(!surface)throw new Error('Video painting requires Canvas 2D.');surface.width=w;surface.height=h;return surface;}
     function collectFrames(){const keep=new Set();for(const r of streamRecords){if(r.frozen)keep.add(r.frozen);if(r.suppressedFrame)keep.add(r.suppressedFrame);if(r.appendFrame?.canvas)keep.add(r.appendFrame);}for(const b of bindings.values())if(b.frozen)keep.add(b.frozen);for(const f of derived.values())keep.add(f);for(const f of frames)if(!keep.has(f)){framePixels-=f.width*f.height;f.canvas.width=f.canvas.height=0;frames.delete(f);}}
     function frame(w,h){collectFrames();if(frames.size>=32||framePixels+w*h>MAX_PIXELS)throw new RangeError('Retained video frames exceed 16 Mi pixels / 32 surfaces; clear detached video images or restart.');const result={canvas:canvas(w,h),width:w,height:h,id:++serial};frames.add(result);framePixels+=w*h;return result;}
-    function dimensions(media){const w=media.videoWidth,h=media.videoHeight;if(!Number.isInteger(w)||!Number.isInteger(h)||w<1||h<1||w>1920||h>1080)throw new RangeError('Video decoder dimensions must be within 1920×1080.');return[w,h];}
+    function dimensions(media){const w=media.videoWidth,h=media.videoHeight;if(w===0&&h===0)return[0,0];if(!Number.isInteger(w)||!Number.isInteger(h)||w<1||h<1||w>1920||h>1080)throw new RangeError('Video decoder dimensions must be within 1920×1080.');return[w,h];}
     function freeze(r){
       if(r.receiveState?.video===false)return r.suppressedFrame||null;
       if(!r.media&&r.appendFrame)return r.appendFrame;
       if(!r.media||r.media.readyState<2)return r.frozen||null;
-      const [w,h]=dimensions(r.media),f=frame(w,h),ctx=f.canvas.getContext('2d');if(!ctx)throw new Error('Video capture requires Canvas 2D.');
+      const [w,h]=dimensions(r.media);
+      if(w<1||h<1)return r.frozen||null;
+      const f=frame(w,h),ctx=f.canvas.getContext('2d');if(!ctx)throw new Error('Video capture requires Canvas 2D.');
       try{ctx.drawImage(r.media,0,0,w,h);return f;}catch(error){f.canvas.width=f.canvas.height=0;frames.delete(f);framePixels-=w*h;throw error;}
     }
     function setAppendFrame(r,w,h,frameIndex=1){
@@ -123,14 +236,128 @@
       collectFrames();repaint();changed();
     }
     function hasAvi(r){return Boolean(r&&(r.aviHandle||r.aviBytes));}
-    function audio(r){
-      const shouldMute=!unlocked||muted||r.timelineMuted===true||r.volume===0||r.receiveState?.audio===false;
-      if(r.media){r.media.muted=shouldMute;r.media.volume=r.volume;}
-      if(r.aviAudio){r.aviAudio.muted=shouldMute;r.aviAudio.volume=r.volume;}
+    function ensureOwnAudioBus(){
+      if(disposed)return null;
+      if(ownAudioContext)return {context:ownAudioContext,destination:ownAudioContext.destination};
+      const Ctor=global.AudioContext||global.webkitAudioContext;
+      if(!options.createAudioContext&&!Ctor)return null;
+      try{
+        ownAudioContext=options.createAudioContext?options.createAudioContext():new Ctor();
+        return ownAudioContext?{context:ownAudioContext,destination:ownAudioContext.destination}:null;
+      }catch(_){return null;}
     }
-    function stopMedia(r,retain){
+    function ancestorStreamTransform(r,Type){
+      if(typeof proxyForRef!=='function'||!Type?.__nfIs)return null;
+      let combined=null;
+      for(const b of bindings.values()){
+        if(b.stream!==r||!b.ref)continue;
+        let node=null;
+        try{node=proxyForRef(b.ref)?.parent;}catch(_){node=null;}
+        let guard=0;
+        while(node&&typeof node==='object'&&guard++<64){
+          let pst=null;
+          try{pst=node.soundTransform;}catch(_){pst=null;}
+          if(pst&&Type.__nfIs(pst)){
+            const wire=typeof Type.__nfToWire==='function'?Type.__nfToWire(pst):defaultTransformWire(pst.volume);
+            if(!combined)combined=wire;
+            else{
+              const m=matMul([combined.leftToLeft,combined.rightToLeft,combined.leftToRight,combined.rightToRight],[wire.leftToLeft,wire.rightToLeft,wire.leftToRight,wire.rightToRight]);
+              combined={volume:Math.max(0,Math.min(1,Math.max(m[0]+m[1],m[2]+m[3]))),pan:0,leftToLeft:m[0],rightToLeft:m[1],leftToRight:m[2],rightToRight:m[3]};
+            }
+          }
+          try{node=node.parent;}catch(_){break;}
+        }
+        break;
+      }
+      return combined;
+    }
+    function disconnectStreamAudio(r){
+      for(const node of [r.webAudioSource,r.webAudioGain,r.webAudioPanner,...(r.webAudioMatrixNodes||[])]){
+        try{node?.disconnect();}catch(_){}
+      }
+      r.webAudioSource=null;r.webAudioGain=null;r.webAudioPanner=null;r.webAudioMatrixNodes=null;r.webAudioMatrixGains=null;r.webAudioContext=null;
+    }
+    function applyStreamWebAudio(r,mediaEl,plan,shouldMute,Type){
+      let bus=typeof Type?.__nfStreamBus==='function'?Type.__nfStreamBus():null;
+      if(!bus||typeof bus.context?.createMediaElementSource!=='function')bus=ensureOwnAudioBus();
+      if(!bus||typeof bus.context?.createMediaElementSource!=='function'||typeof bus.context?.createGain!=='function')return false;
+      const ctx=bus.context,dest=ctx.destination;
+      if(unlocked&&ctx.state==='suspended'){try{Promise.resolve(ctx.resume?.()).catch(()=>{});}catch(_){}}
+      if(!r.webAudioSource){
+        try{
+          r.webAudioSource=ctx.createMediaElementSource(mediaEl);
+          r.webAudioGain=ctx.createGain();
+          r.webAudioContext=ctx;
+          r.webAudioGain.gain.value=0;
+          r.webAudioSource.connect(r.webAudioGain);
+        }catch(_){
+          disconnectStreamAudio(r);
+          return false;
+        }
+      }
+      const canMatrix=typeof ctx.createChannelSplitter==='function'&&typeof ctx.createChannelMerger==='function';
+      if(plan.is_matrix&&canMatrix){
+        if(!r.webAudioMatrixGains){
+          for(const n of r.webAudioMatrixNodes||[])try{n.disconnect();}catch(_){}
+          try{r.webAudioGain.disconnect();r.webAudioPanner?.disconnect();}catch(_){}
+          r.webAudioPanner=null;
+          const splitter=ctx.createChannelSplitter(2),merger=ctx.createChannelMerger(2);
+          const gains=[0,1,2,3].map(()=>{const g=ctx.createGain();g.gain.value=0;return g;});
+          r.webAudioGain.gain.value=shouldMute?0:1;
+          r.webAudioGain.channelCount=2;r.webAudioGain.channelCountMode='explicit';r.webAudioGain.channelInterpretation='speakers';
+          r.webAudioGain.connect(splitter);
+          for(const [i,inp,out] of [[0,0,0],[1,1,0],[2,0,1],[3,1,1]]){splitter.connect(gains[i],inp);gains[i].connect(merger,0,out);}
+          merger.connect(dest);
+          r.webAudioMatrixNodes=[splitter,merger,...gains];
+          r.webAudioMatrixGains=gains;
+        }
+        r.webAudioGain.gain.value=shouldMute?0:1;
+        for(let i=0;i<4;i++)r.webAudioMatrixGains[i].gain.value=shouldMute?0:plan.gains[i];
+      }else{
+        if(r.webAudioMatrixNodes){
+          for(const n of r.webAudioMatrixNodes)try{n.disconnect();}catch(_){}
+          r.webAudioMatrixNodes=null;r.webAudioMatrixGains=null;
+          try{r.webAudioGain.disconnect();}catch(_){}
+        }
+        if(!r.webAudioPanner&&typeof ctx.createStereoPanner==='function'){
+          r.webAudioPanner=ctx.createStereoPanner();
+          r.webAudioGain.connect(r.webAudioPanner);
+          r.webAudioPanner.connect(dest);
+        }else if(!r.webAudioPanner){
+          try{r.webAudioGain.disconnect();}catch(_){}
+          r.webAudioGain.connect(dest);
+        }
+        r.webAudioGain.gain.value=shouldMute?0:plan.volume;
+        if(r.webAudioPanner)r.webAudioPanner.pan.value=plan.pan;
+      }
+      mediaEl.muted=shouldMute;
+      mediaEl.volume=shouldMute?0:1;
+      return true;
+    }
+    function audio(r){
+      const Type=options.getSoundTransform?.();
+      if(!mixerUnsub&&typeof Type?.__nfSubscribeMixer==='function'){
+        mixerUnsub=Type.__nfSubscribeMixer(()=>{if(!disposed)for(const sr of streamRecords)audio(sr);});
+      }
+      if(!r.soundTransform)r.soundTransform=defaultTransformWire(typeof r.volume==='number'?r.volume:1);
+      const targetTf=ancestorStreamTransform(r,Type);
+      const plan=typeof Type?.__nfPlan==='function'?Type.__nfPlan(r.soundTransform,targetTf,true):localStreamTransformPlan(r.soundTransform,targetTf);
+      r.volume=plan.volume;
+      const shouldMute=!unlocked||muted||r.timelineMuted===true||plan.volume===0||r.receiveState?.audio===false;
+      const targetMedia=r.media||r.aviAudio;
+      const needsWebAudio=Boolean(targetMedia&&(r.webAudioSource||(!shouldMute&&(plan.is_matrix||Math.abs(plan.pan)>1e-6))));
+      if(needsWebAudio&&applyStreamWebAudio(r,targetMedia,plan,shouldMute,Type))return;
+      if(r.media){r.media.muted=shouldMute;r.media.volume=shouldMute?0:Math.max(0,Math.min(1,plan.volume));}
+      if(r.aviAudio){r.aviAudio.muted=shouldMute;r.aviAudio.volume=shouldMute?0:Math.max(0,Math.min(1,plan.volume));}
+    }
+    function clearClipTimer(r){if(r.clipTimer){clearTimeout(r.clipTimer);r.clipTimer=null;}}
+    function stopMedia(r,retain,keepQueue=false){
       const frozen=retain?freeze(r):null;
-      r.sequence++;r.wanted=false;r.playing=false;r.pendingSeek=null;
+      r.sequence++;r.wanted=false;r.playing=false;r.pendingSeek=null;r.bufferFull=false;r.clipCompleted=false;r.clipEndSec=null;
+      if(!keepQueue)r.queue=[];
+      clearClipTimer(r);
+      if(r.probeAbort){try{r.probeAbort.abort();}catch(_){}r.probeAbort=null;}
+      disconnectStreamAudio(r);
       if(r.aviLoad){try{r.aviLoad.close();}catch(_){}r.aviLoad=null;}
       if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;}
       if(r.aviHandle&&typeof player.avi_close_stream==='function'){try{player.avi_close_stream(r.aviHandle);}catch(_){}}
@@ -139,7 +366,7 @@
       if(r.aviAudioUrl){try{(options.revokeObjectURL||global.URL.revokeObjectURL.bind(global.URL))(r.aviAudioUrl);}catch(_){}r.aviAudioUrl=null;}
       if(r.media){for(const[type,fn]of r.listeners)r.media.removeEventListener(type,fn);if(r.frameCallback!==null)r.media.cancelVideoFrameCallback?.(r.frameCallback);r.media.pause();r.media.muted=true;r.media.removeAttribute('src');r.media.load();}
       if(r.objectURL)(options.revokeObjectURL||global.URL.revokeObjectURL.bind(global.URL))(r.objectURL);
-      r.media=null;r.objectURL=null;r.listeners=[];r.frameCallback=null;r.metadata=false;r.frozen=frozen;r.appendFrame=null;r.suppressedFrame=null;if(r.receivePolicy)streamPolicy(r,{op:"reset"});r.time=0;r.lastTime=null;collectFrames();changed();
+      r.media=null;r.objectURL=null;r.listeners=[];r.frameCallback=null;r.metadata=false;r.frozen=frozen;r.appendFrame=null;r.suppressedFrame=null;r.frameTimes=[];r.cuePoints=[];r.firedCues=null;r.containerFps=null;if(r.receivePolicy)streamPolicy(r,{op:"reset"});r.time=0;r.lastTime=null;collectFrames();changed();
     }
     function isAviContainer(bytes){
       return Boolean(bytes&&bytes.length>=12&&bytes[0]===0x52&&bytes[1]===0x49&&bytes[2]===0x46&&bytes[3]===0x46&&bytes[8]===0x41&&bytes[9]===0x56&&bytes[10]===0x49&&bytes[11]===0x20);
@@ -163,6 +390,117 @@
       }
       r.appendFrame.id=++serial;r.serial=r.appendFrame.id;repaint();
     }
+    function planPlay(url,extra){
+      const stop=url===false,isNull=url===null;
+      const start=extra.length>=1&&extra[0]!==undefined?Number(extra[0]):undefined;
+      const len=extra.length>=2&&extra[1]!==undefined?Number(extra[1]):undefined;
+      const reset=extra.length>=3?extra[2]:undefined;
+      if(typeof options.wasm?.netstream_play_plan_json==='function'){
+        const req={stop,isNull};
+        if(typeof url==='string')req.url=url;
+        if(start!==undefined&&Number.isFinite(start))req.start=start;
+        if(len!==undefined&&Number.isFinite(len))req.len=len;
+        if(reset!==undefined)req.reset=reset;
+        return JSON.parse(options.wasm.netstream_play_plan_json(JSON.stringify(req)));
+      }
+      if(stop)return {action:'stop'};
+      if(isNull)return {action:'dataGeneration'};
+      if(typeof url!=='string'||!url.trim())return {action:'rejectInvalid',description:'NetStream.play requires a media URL string.'};
+      if(/^(?:rtmp|rtmps|rtmpt|rtmpe|rtmpte|rtmfp):/i.test(url.trim())){
+        return {action:'rejectRtmp',url:url.trim(),code:'NetStream.Play.StreamNotFound',description:'RTMP and remote live streaming servers are excluded in HTML5; use NetConnection.connect(null) with progressive HTTP(S) or bundled file media.'};
+      }
+      const rawStart=start!==undefined&&Number.isFinite(start)?start:-2;
+      const startSec=rawStart>0?rawStart:0;
+      const rawLen=len!==undefined&&Number.isFinite(len)?len:-1;
+      const singleFrame=rawLen===0;
+      const durLim=rawLen<0?null:(singleFrame?0:rawLen);
+      let resetMode='resetAll';
+      if(reset===false||reset===0)resetMode='append';
+      else if(reset===2)resetMode='immediateIfIdle';
+      else if(reset===3)resetMode='resetQueueAppend';
+      return {action:'playClip',url,start_seconds:startSec,raw_start:rawStart,duration_limit:durLim,single_frame:singleFrame,reset_mode:resetMode};
+    }
+    function decideSeek(offset,hasMeta,duration){
+      const val=Number(offset);
+      if(typeof options.wasm?.netstream_seek_decision_json==='function'){
+        return JSON.parse(options.wasm.netstream_seek_decision_json(val,Boolean(hasMeta),Number(duration)||0));
+      }
+      if(!Number.isFinite(val)||val<0)return {decision:'invalidTime',details:0};
+      if(!hasMeta)return {decision:'pending',target:val};
+      const dur=Number.isFinite(duration)&&duration>=0?duration:0;
+      if(val>dur+1e-6)return {decision:'invalidTime',details:dur};
+      return {decision:'seekNow',target:Math.min(val,dur)};
+    }
+    function finishClipOrTransition(r){
+      if(r.clipCompleted)return;
+      r.clipCompleted=true;
+      clearClipTimer(r);
+      if(Array.isArray(r.queue)&&r.queue.length>0&&!r.timelineOwned){
+        const next=r.queue.shift();
+        r.playing=false;
+        if(!emit(r,'NetStream.Play.Transition','status',{details:next.url}))return;
+        invokeStreamCallback(r,'onPlayStatus',{code:'NetStream.Play.TransitionComplete',level:'status',duration:r.duration,bytes:currentBytesLoaded(r)});
+        if(disposed||r.generation!==generation)return;
+        load(r,next.url,null,next,true);
+        return;
+      }
+      r.wanted=false;r.playing=false;
+      if(r.bufferFull){
+        r.bufferFull=false;
+        if(!emit(r,'NetStream.Buffer.Empty'))return;
+      }
+      if(!emit(r,'NetStream.Play.Stop'))return;
+      invokeStreamCallback(r,'onPlayStatus',{code:'NetStream.Play.Complete',level:'status',duration:r.duration,bytes:currentBytesLoaded(r)});
+      observeController(r,'ended');
+      changed();
+    }
+    function completeSingleFrame(r,media,sequence){
+      if(!current(r,media,sequence)||r.clipCompleted)return;
+      media.pause();
+      r.time=Number(media.currentTime)||0;
+      r.frozen=freeze(r);
+      r.serial=++serial;
+      repaint();
+      if(!r.started){
+        r.started=true;
+        if(!emit(r,'NetStream.Play.Start'))return;
+      }
+      if(!r.bufferFull){
+        r.bufferFull=true;
+        if(!emit(r,'NetStream.Buffer.Full'))return;
+      }
+      finishClipOrTransition(r);
+    }
+    function completeBoundedClip(r,media,sequence){
+      if(!current(r,media,sequence)||r.clipCompleted)return;
+      clearClipTimer(r);
+      const endT=r.clipEndSec!==null?Math.min(r.duration||r.clipEndSec,r.clipEndSec):(Number(media.currentTime)||r.time);
+      media.pause();
+      if(Math.abs((Number(media.currentTime)||0)-endT)>0.02){
+        try{r.suppressSeekNotifyOnce=true;media.currentTime=endT;}catch(_){r.suppressSeekNotifyOnce=false;}
+      }
+      r.time=endT;
+      r.frozen=freeze(r);
+      r.serial=++serial;
+      repaint();
+      finishClipOrTransition(r);
+    }
+    function armClipTimer(r,media,sequence){
+      clearClipTimer(r);
+      if(!current(r,media,sequence)||r.clipCompleted||r.clipEndSec===null||!r.playing)return;
+      const cur=Number(media.currentTime)||0,rem=r.clipEndSec-cur;
+      if(rem<=0.012){completeBoundedClip(r,media,sequence);return;}
+      const waitMs=Math.max(12,Math.min(80,Math.round(rem*1000)));
+      r.clipTimer=setTimeout(()=>{
+        r.clipTimer=null;
+        if(!current(r,media,sequence)||r.clipCompleted||!r.playing)return;
+        const nowSec=Number(media.currentTime)||0;
+        checkCuePoints(r,r.time||0,nowSec);
+        r.time=nowSec;
+        if(r.clipEndSec!==null&&nowSec>=r.clipEndSec-0.012)completeBoundedClip(r,media,sequence);
+        else armClipTimer(r,media,sequence);
+      },waitMs);
+    }
     function startAviPlayback(r){
       if(!hasAvi(r)||!r.wanted||(!unlocked&&!r.timelineOwned))return;
       if(r.aviTimer)return;
@@ -171,23 +509,26 @@
       if(r.aviAudio&&!r.aviAudio.muted){try{if(Math.abs((Number(r.aviAudio.currentTime)||0)-r.time)>0.08)r.aviAudio.currentTime=r.time;Promise.resolve(r.aviAudio.play()).catch(()=>{});}catch(_){}}
       if(!r.started){r.started=true;emit(r,'NetStream.Play.Start');}
       else if(r.pauseRequested){r.pauseRequested=false;emit(r,'NetStream.Unpause.Notify');}
+      if(!r.bufferFull){r.bufferFull=true;emit(r,'NetStream.Buffer.Full');}
       observeController(r,'playing');changed();
       const fps=Math.max(1,r.aviFps||24),stepSec=1/fps,seq=r.sequence;
       r.aviTimer=setInterval(()=>{
         if(disposed||r.generation!==generation||r.sequence!==seq||!r.wanted||!hasAvi(r)){if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;}return;}
+        recordFrameTick(r,global.performance?.now?.()||Date.now());
         let next=r.time+stepSec;
-        if(r.duration>0&&next>=r.duration){
-          if(r.timelineLoop){next=next%r.duration;if(r.aviAudio){try{r.aviAudio.currentTime=next;}catch(_){}}}
+        const stopAt=r.clipEndSec!==null&&r.duration>0?Math.min(r.duration,r.clipEndSec):r.duration;
+        if(stopAt>0&&next>=stopAt){
+          if(r.timelineLoop&&r.clipEndSec===null){next=next%r.duration;if(r.aviAudio){try{r.aviAudio.currentTime=next;}catch(_){}}}
           else{
-            r.time=r.duration;renderAviAt(r,r.time);
-            clearInterval(r.aviTimer);r.aviTimer=null;r.wanted=false;r.playing=false;
+            r.time=stopAt;renderAviAt(r,r.time);
+            clearInterval(r.aviTimer);r.aviTimer=null;
             if(r.aviAudio){try{r.aviAudio.pause();}catch(_){}}
-            if(emit(r,'NetStream.Play.Stop')&&r.legacy&&typeof r.receiver?.onPlayStatus==='function'){
-              Reflect.apply(r.receiver.onPlayStatus,r.receiver,[{code:'NetStream.Play.Complete',level:'status'}]);after(generation);
-            }
-            observeController(r,'ended');changed();return;
+            r.frozen=r.appendFrame;
+            finishClipOrTransition(r);
+            return;
           }
         }
+        checkCuePoints(r,r.time,next);
         r.time=next;renderAviAt(r,r.time);observeController(r,'time');
       },Math.max(16,Math.round(1000/fps)));
     }
@@ -222,19 +563,31 @@
       }else{
         throw new TypeError('AVI runtime decoding requires the NeoFlash WASM video module.');
       }
-      r.aviFps=Number(info.fps)||24;
+      r.aviFps=Number(info.fps)||24;r.containerFps=r.aviFps;
       r.width=info.width;r.height=info.height;r.duration=Math.max(0,(Number(info.duration_ms)||0)/1000);
-      r.metadata=true;r.encodedBytes=bytes.length;
-      renderAviAt(r,0);
+      r.metadata=true;r.encodedBytes=bytes.length;r.totalBytes=bytes.length;
+      const initStart=r.clipPlan?.start_seconds?Math.min(r.duration,Math.max(0,r.clipPlan.start_seconds)):0;
+      if(r.clipPlan?.duration_limit>0)r.clipEndSec=Math.min(r.duration,initStart+r.clipPlan.duration_limit);
+      r.time=initStart;
+      renderAviAt(r,initStart);
       observeController(r,'metadata');observeController(r,'ready');
-      const client=r.timelineOwned?null:(r.legacy?r.receiver:r.client),fn=client?.onMetaData;
-      if(typeof fn==='function')Reflect.apply(fn,client,[{width:r.width,height:r.height,duration:r.duration,framerate:r.aviFps}]);
-      if(r.pendingSeek!==null){let at=r.pendingSeek;r.pendingSeek=null;if(r.timelineOwned&&r.duration>0)at=r.timelineLoop?at%r.duration:Math.min(at,r.duration);r.time=at;renderAviAt(r,at);}
+      invokeStreamCallback(r,'onMetaData',{width:r.width,height:r.height,duration:r.duration,framerate:r.aviFps});
+      if(disposed||r.generation!==generation||r.sequence!==seq)return;
+      if(r.pendingSeek!==null&&!r.suppressInitialSeekNotify){let at=r.pendingSeek;r.pendingSeek=null;if(r.timelineOwned&&r.duration>0)at=r.timelineLoop?at%r.duration:Math.min(at,r.duration);r.time=at;renderAviAt(r,at);}
+      r.pendingSeek=null;r.suppressInitialSeekNotify=false;r.pendingInitialSeek=false;
+      if(r.clipPlan?.single_frame){
+        r.frozen=r.appendFrame;
+        if(!r.started){r.started=true;if(!emit(r,'NetStream.Play.Start'))return;}
+        if(!r.bufferFull){r.bufferFull=true;if(!emit(r,'NetStream.Buffer.Full'))return;}
+        finishClipOrTransition(r);
+        return;
+      }
       if((!r.timelineOwned||r.timelineEventMode)&&r.wanted)startAviPlayback(r);
       else if(r.timelineOwned&&r.wanted){r.playing=true;audio(r);if(r.aviAudio&&!r.aviAudio.muted){try{r.aviAudio.currentTime=r.time;Promise.resolve(r.aviAudio.play()).catch(()=>{});}catch(_){}}}
       after(generation);changed();
     }
     function playNative(r){
+      if(r.clipPlan?.single_frame||r.clipCompleted)return;
       if(hasAvi(r)){
         if(!r.timelineOwned||r.timelineEventMode)startAviPlayback(r);
         else{r.playing=true;audio(r);if(r.aviAudio&&!r.aviAudio.muted&&r.aviAudio.paused){try{r.aviAudio.currentTime=r.time;Promise.resolve(r.aviAudio.play()).catch(()=>{});}catch(_){}}}
@@ -254,42 +607,107 @@
       if(!current(r,media,sequence))return;
       const [width,height]=dimensions(media);if(!Number.isFinite(media.duration)||media.duration<0)throw new TypeError('Live or unbounded-duration video is unsupported; use a finite media file.');
       r.metadata=true;r.width=width;r.height=height;r.duration=media.duration;r.serial=++serial;
+      if(r.clipPlan){
+        const clampedStart=Math.min(r.duration,Math.max(0,Number(r.clipPlan.start_seconds)||0));
+        if(r.clipPlan.duration_limit!==null&&r.clipPlan.duration_limit!==undefined&&r.clipPlan.duration_limit>0){
+          r.clipEndSec=Math.min(r.duration,clampedStart+r.clipPlan.duration_limit);
+        }
+      }
+      if(media.textTracks&&media.textTracks.length>0){
+        for(let ti=0;ti<media.textTracks.length;ti++){
+          const tr=media.textTracks[ti];
+          if(tr.mode==='disabled')tr.mode='hidden';
+          const cues=tr.cues;
+          if(cues){
+            for(let ci=0;ci<cues.length;ci++){
+              const c=cues[ci];
+              if(c&&Number.isFinite(c.startTime)){
+                r.cuePoints.push({name:String(c.id||c.text||`cue_${ci}`),time:c.startTime,type:'navigation',parameters:{text:String(c.text||'')}});
+              }
+            }
+          }
+        }
+      }
       observeController(r,'metadata');if(!current(r,media,sequence))return;
-      const client=r.timelineOwned?null:(r.legacy?r.receiver:r.client),fn=client?.onMetaData;
+      const metaPayload={width,height,duration:media.duration};
+      const fps=Number(r.containerFps)||(width>0&&height>0?(Number(options.getFrameRate?.())||24):0);
+      if(fps>0)metaPayload.framerate=fps;
+      invokeStreamCallback(r,'onMetaData',metaPayload);
       if(!current(r,media,sequence))return;
-      if(typeof fn==='function')Reflect.apply(fn,client,[{width,height,duration:media.duration}]);
+      if(r.pendingSeek!==null){
+        let at=r.pendingSeek;r.pendingSeek=null;
+        if(r.suppressInitialSeekNotify){
+          at=Math.min(Math.max(0,at),r.duration);
+          r.time=at;
+          if(at>0){media.currentTime=at;}
+          else{r.suppressInitialSeekNotify=false;r.pendingInitialSeek=false;}
+        }else if(r.timelineOwned&&r.duration>0){
+          at=r.timelineLoop?at%r.duration:Math.min(at,r.duration);
+          seek(r,at);
+        }else{
+          seek(r,at);
+        }
+      }
       if(!current(r,media,sequence))return;
-      if(r.pendingSeek!==null){let at=r.pendingSeek;r.pendingSeek=null;if(r.timelineOwned&&r.duration>0)at=r.timelineLoop?at%r.duration:Math.min(at,r.duration);seek(r,at);}after(generation);changed();
+      if(!r.clipPlan?.single_frame&&r.clipPlan?.duration_limit>0&&r.duration<=0){
+        completeBoundedClip(r,media,sequence);
+        return;
+      }
+      after(generation);changed();
     }
-    function load(r,url,sourceSpec=null){
+    function load(r,url,sourceSpec=null,clipPlan=null,keepQueue=false){
       // Timeline-owned records carry an explicit deployment source. Script-created
       // NetStreams instead choose bundled-vs-HTTP for every play() call, so a prior
       // URL must not force the next bundled path through the progressive validator.
       const mode=sourceSpec?.mode||'embedded';
       if(typeof url!=='string'||!url)throw new TypeError('NetStream.play requires a media URL string.');
       if(!r.connection.local)throw new Error('Call NetConnection.connect(null) before playing local video.');
-      if(/\.(?:flv|f4v|swf|gif)(?:[?#]|$)/i.test(url))throw new TypeError('This browser profile supports native MP4/WebM media, not FLV/F4V/SWF/GIF decoding.');
-      const allowedVideoMimes=['video/mp4','video/webm','video/ogg','video/x-msvideo','video/avi'];
+      if(/\.(?:flv|f4v|swf|gif)(?:[?#]|$)/i.test(url))throw new TypeError('This browser profile supports native MP4/WebM/audio media, not FLV/F4V/SWF/GIF decoding.');
+      const allowedMediaMimes=['video/mp4','video/webm','video/ogg','video/x-msvideo','video/avi','audio/mpeg','audio/mp3','audio/wav','audio/wave','audio/x-wav','audio/ogg','audio/aac','audio/mp4','audio/x-m4a','audio/webm','audio/flac'];
       let resolvedUrl=url,source=null,mediaType=sourceSpec?.mime_type||'video/mp4';
       if(mode==='external'){
         const relPath=validateExternalPath(sourceSpec?.url_or_path||url);
         resolvedUrl=resolveExternalUrl(relPath);
-        if(sourceSpec?.mime_type&&!allowedVideoMimes.includes(String(sourceSpec.mime_type).toLowerCase()))throw new TypeError(`External video MIME type ${sourceSpec.mime_type} is unsupported; use a native browser video format.`);
+        if(sourceSpec?.mime_type&&!allowedMediaMimes.includes(String(sourceSpec.mime_type).toLowerCase()))throw new TypeError(`External media MIME type ${sourceSpec.mime_type} is unsupported; use a native browser video/audio format.`);
         r.deploymentMode='external';
         r.sourceSpec={mode:'external',url_or_path:relPath,resolvedUrl,mime_type:mediaType};
       }else if(mode==='progressive'){
         resolvedUrl=validateProgressiveUrl(sourceSpec?.url_or_path||url);
-        if(sourceSpec?.mime_type&&!allowedVideoMimes.includes(String(sourceSpec.mime_type).toLowerCase()))throw new TypeError(`Progressive video MIME type ${sourceSpec.mime_type} is unsupported; use a native browser video format.`);
+        if(sourceSpec?.mime_type&&!allowedMediaMimes.includes(String(sourceSpec.mime_type).toLowerCase()))throw new TypeError(`Progressive media MIME type ${sourceSpec.mime_type} is unsupported; use a native browser video/audio format.`);
         r.deploymentMode='progressive';
         r.sourceSpec={mode:'progressive',url_or_path:resolvedUrl,resolvedUrl,mime_type:mediaType};
       }else{
         source=net.mediaSource(url);
-        if(source.kind==='resource'&&!allowedVideoMimes.includes(String(source.mediaType||'').toLowerCase()))throw new TypeError(`Bundled video MIME type ${source.mediaType} is unsupported; use a native browser video format.`);
+        if(source.kind==='resource'&&source.mediaType&&!allowedMediaMimes.includes(String(source.mediaType||'').toLowerCase()))throw new TypeError(`Bundled media MIME type ${source.mediaType} is unsupported; use a native browser video/audio format.`);
         if(source.kind!=='resource')resolvedUrl=source.url;
         r.deploymentMode=source.kind==='resource'?'embedded':'progressive';
         r.sourceSpec={mode:r.deploymentMode,url_or_path:url,resolvedUrl:source.kind==='resource'?url:source.url,mime_type:source.mediaType||mediaType};
       }
-      stopMedia(r,false);used=true;errorText='';r.wanted=true;r.encodedBytes=source?.kind==='resource'?source.length:null;r.url=resolvedUrl;
+      stopMedia(r,false,keepQueue);used=true;errorText='';r.wanted=true;
+      r.clipPlan=clipPlan||null;r.clipCompleted=false;r.clipEndSec=null;
+      r.suppressInitialSeekNotify=false;r.pendingInitialSeek=false;r.suppressSeekNotifyOnce=false;
+      if(clipPlan&&clipPlan.start_seconds>0){
+        r.pendingSeek=clipPlan.start_seconds;
+        r.suppressInitialSeekNotify=true;
+        r.pendingInitialSeek=true;
+      }
+      if(source?.kind==='resource'){
+        r.isEmbeddedBytes=true;
+        r.encodedBytes=source.length;
+        r.totalBytes=source.length;
+        if(source.bytes&&typeof options.wasm?.netstream_inspect_container_json==='function'){
+          try{
+            const probe=JSON.parse(options.wasm.netstream_inspect_container_json(source.bytes));
+            if(probe?.framerate>0)r.containerFps=probe.framerate;
+            if(Array.isArray(probe?.cuePoints)&&probe.cuePoints.length>0)r.cuePoints=probe.cuePoints.slice();
+          }catch(_){}
+        }
+      }else{
+        r.isEmbeddedBytes=false;
+        r.encodedBytes=0;
+        r.totalBytes=0;
+      }
+      r.url=resolvedUrl;
       const isAviResource=source?.kind==='resource'&&(isAviContainer(source.bytes)||['video/x-msvideo','video/avi'].includes(String(source.mediaType||'').toLowerCase()));
       const isAviRemote=source?.kind!=='resource'&&(/\.avi(?:[?#]|$)/i.test(resolvedUrl)||['video/x-msvideo','video/avi'].includes(String(r.sourceSpec?.mime_type||'').toLowerCase()));
       if(isAviResource||isAviRemote){
@@ -306,20 +724,91 @@
         changed();
         return;
       }
+      const sequence=r.sequence;
+      if(source?.kind!=='resource'&&typeof net.probeMediaBytes==='function'){
+        r.probeAbort=net.probeMediaBytes(resolvedUrl,meta=>{
+          if(disposed||r.generation!==generation||r.sequence!==sequence)return;
+          if(meta?.probeBytes)r.probeAbort=null;
+          if(meta?.finalUrl)r.url=meta.finalUrl;
+          if(typeof meta?.totalBytes==='number'&&meta.totalBytes>0){
+            r.totalBytes=meta.totalBytes;
+            updateBufferedBytes(r);
+            observeController(r,'progress');
+          }
+          if(meta?.probeBytes&&typeof options.wasm?.netstream_inspect_container_json==='function'){
+            try{
+              const probe=JSON.parse(options.wasm.netstream_inspect_container_json(meta.probeBytes));
+              if(probe?.framerate>0&&!r.containerFps)r.containerFps=probe.framerate;
+              if(Array.isArray(probe?.cuePoints)&&probe.cuePoints.length>0&&(!r.cuePoints||r.cuePoints.length===0)){
+                r.cuePoints=probe.cuePoints.slice();
+                const curSec=r.media?Number(r.media.currentTime)||r.time||0:r.time||0;
+                if(r.playing||curSec>0)checkCuePoints(r,0,curSec);
+              }
+            }catch(_){}
+          }
+        });
+      }
       const media=options.createVideo?options.createVideo():global.document?.createElement('video');if(!media)throw new Error('HTMLVideoElement is unavailable in this environment.');
       r.media=media;media.muted=true;media.volume=0;media.crossOrigin=options.crossOrigin!==undefined?options.crossOrigin:'anonymous';media.preload='auto';media.playsInline=true;media.loop=false;
-      const sequence=r.sequence;
       function listen(type,fn){const callback=()=>{if(!current(r,media,sequence))return;try{fn();}catch(error){if(current(r,media,sequence)){stopMedia(r,false);report(error);}}};media.addEventListener(type,callback);r.listeners.push([type,callback]);}
       listen('loadedmetadata',()=>metadata(r,media,sequence));
-      listen('loadeddata',()=>{r.serial=++serial;observeController(r,'ready');repaint();if(current(r,media,sequence)&&r.legacy)playNative(r);});
-      listen('canplay',()=>{if(r.legacy)playNative(r);});
-      listen('playing',()=>{r.playing=true;r.serial=++serial;if(!r.started){r.started=true;emit(r,'NetStream.Play.Start');}else if(r.pauseRequested){r.pauseRequested=false;emit(r,'NetStream.Unpause.Notify');}observeController(r,'playing');changed();});
-      listen('pause',()=>{r.playing=false;observeController(r,'paused');changed();});
-      listen('timeupdate',()=>{r.serial=++serial;r.time=media.currentTime;observeController(r,'time');repaint();});
-      listen('seeked',()=>{r.serial=++serial;r.time=media.currentTime;emit(r,'NetStream.Seek.Notify');observeController(r,'seeked');if(current(r,media,sequence)&&r.legacy)playNative(r);});
-      listen('ended',()=>{r.wanted=false;r.playing=false;r.time=media.currentTime;r.serial=++serial;if(!emit(r,'NetStream.Play.Stop'))return;if(r.legacy&&typeof r.receiver.onPlayStatus==='function'){Reflect.apply(r.receiver.onPlayStatus,r.receiver,[{code:'NetStream.Play.Complete',level:'status'}]);if(!current(r,media,sequence))return;after(generation);}observeController(r,'ended');changed();});
+      listen('loadeddata',()=>{
+        r.serial=++serial;updateBufferedBytes(r);observeController(r,'ready');repaint();
+        if(!current(r,media,sequence))return;
+        if(r.clipPlan?.single_frame&&!r.pendingInitialSeek){completeSingleFrame(r,media,sequence);return;}
+        if(r.legacy)playNative(r);
+      });
+      listen('canplay',()=>{
+        updateBufferedBytes(r);
+        if(r.clipPlan?.single_frame){if(!r.pendingInitialSeek&&(media.readyState||0)>=2)completeSingleFrame(r,media,sequence);return;}
+        if(r.legacy)playNative(r);
+      });
+      listen('playing',()=>{
+        if(r.clipPlan?.single_frame){completeSingleFrame(r,media,sequence);return;}
+        r.playing=true;r.serial=++serial;
+        recordFrameTick(r,global.performance?.now?.()||Date.now());
+        if(!r.started){r.started=true;if(!emit(r,'NetStream.Play.Start'))return;}
+        else if(r.pauseRequested){r.pauseRequested=false;if(!emit(r,'NetStream.Unpause.Notify'))return;}
+        if(!r.bufferFull){r.bufferFull=true;if(!emit(r,'NetStream.Buffer.Full'))return;}
+        checkCuePoints(r,0,Number(media.currentTime)||0);
+        if(r.clipEndSec!==null)armClipTimer(r,media,sequence);
+        observeController(r,'playing');changed();
+      });
+      listen('pause',()=>{r.playing=false;clearClipTimer(r);observeController(r,'paused');changed();});
+      listen('timeupdate',()=>{
+        const prev=r.time||0,cur=Number(media.currentTime)||0;
+        r.serial=++serial;r.time=cur;
+        recordFrameTick(r,global.performance?.now?.()||Date.now());
+        updateBufferedBytes(r);
+        checkCuePoints(r,prev,cur);
+        if(!current(r,media,sequence))return;
+        observeController(r,'time');repaint();
+        if(r.clipEndSec!==null&&!r.clipCompleted&&cur>=r.clipEndSec-0.012){
+          completeBoundedClip(r,media,sequence);
+        }
+      });
+      listen('seeked',()=>{
+        r.serial=++serial;r.time=Number(media.currentTime)||0;
+        if(r.suppressSeekNotifyOnce){r.suppressSeekNotifyOnce=false;repaint();return;}
+        const wasInitial=r.suppressInitialSeekNotify;
+        r.suppressInitialSeekNotify=false;r.pendingInitialSeek=false;
+        if(r.clipPlan?.single_frame){completeSingleFrame(r,media,sequence);return;}
+        if(!wasInitial){if(!emit(r,'NetStream.Seek.Notify'))return;observeController(r,'seeked');}
+        if(current(r,media,sequence)){
+          if(r.clipEndSec!==null&&r.playing)armClipTimer(r,media,sequence);
+          if(r.legacy)playNative(r);
+        }
+      });
+      listen('ended',()=>{
+        r.time=Number(media.currentTime)||r.duration||0;
+        if(r.totalBytes>0)r.encodedBytes=r.totalBytes;
+        r.serial=++serial;
+        checkCuePoints(r,r.lastTime??0,r.time);
+        if(!current(r,media,sequence))return;
+        finishClipOrTransition(r);
+      });
       listen('error',()=>{
-        r.wanted=false;r.playing=false;
+        r.wanted=false;r.playing=false;clearClipTimer(r);
         const code=media.error?.code||0,depMode=r.deploymentMode||'embedded';
         const diagCode=depMode==='external'?(code===3||code===4?'video-external-codec-error':'video-external-missing-or-http-error'):depMode==='progressive'?(code===3||code===4?'video-progressive-codec-error':'video-progressive-http-or-cors-error'):(code===4?'video-codec-unsupported':'video-stream-error');
         const desc=depMode==='external'
@@ -335,25 +824,90 @@
         observeController(r,'error',desc);
         changed();
       });
-      listen('waiting',()=>{if(r.legacy&&r.wanted){streamPolicy(r,{op:'buffer_wait'});r.playing=false;media.pause();}observeController(r,'waiting');});
-      listen('progress',()=>{observeController(r,'progress');if(current(r,media,sequence)&&r.legacy)playNative(r);});
-      const nextFrame=(now,facts)=>{if(!current(r,media,sequence))return;try{if(r.receivePolicy)streamPolicy(r,{op:"frame",now,presented:facts.presentedFrames});r.serial=++serial;observeController(r,'time');repaint();if(current(r,media,sequence))r.frameCallback=media.requestVideoFrameCallback(nextFrame);}catch(error){if(current(r,media,sequence))report(error);}};
+      listen('waiting',()=>{
+        if(r.bufferFull){r.bufferFull=false;emit(r,'NetStream.Buffer.Empty');}
+        if(r.legacy&&r.wanted){streamPolicy(r,{op:'buffer_wait'});r.playing=false;media.pause();}
+        observeController(r,'waiting');
+      });
+      listen('progress',()=>{updateBufferedBytes(r);observeController(r,'progress');if(current(r,media,sequence)&&!r.clipPlan?.single_frame&&r.legacy)playNative(r);});
+      const nextFrame=(now,facts)=>{
+        if(!current(r,media,sequence))return;
+        try{
+          recordFrameTick(r,now);
+          if(r.receivePolicy)streamPolicy(r,{op:'frame',now,presented:facts.presentedFrames});
+          const cur=Number(media.currentTime)||0;
+          checkCuePoints(r,r.time||0,cur);
+          r.serial=++serial;observeController(r,'time');repaint();
+          if(r.clipEndSec!==null&&!r.clipCompleted&&cur>=r.clipEndSec-0.012){completeBoundedClip(r,media,sequence);return;}
+          if(current(r,media,sequence))r.frameCallback=media.requestVideoFrameCallback(nextFrame);
+        }catch(error){if(current(r,media,sequence))report(error);}
+      };
       if(typeof media.requestVideoFrameCallback==='function')r.frameCallback=media.requestVideoFrameCallback(nextFrame);
       if(source?.kind==='resource'){const blob=new Blob([source.bytes],{type:source.mediaType});r.objectURL=(options.createObjectURL||global.URL.createObjectURL.bind(global.URL))(blob);media.src=r.objectURL;}else media.src=resolvedUrl;
-      r.started=false;r.width=r.height=0;r.duration=0;media.load();if(gesture()){unlocked=true;muted=false;}if(!r.timelineOwned)playNative(r);changed();
+      r.started=false;r.width=r.height=0;r.duration=0;media.load();if(gesture()){unlocked=true;muted=false;}if(!r.timelineOwned&&!r.clipPlan?.single_frame)playNative(r);changed();
     }
-    function pause(r){const media=r.media,wasPlaying=r.wanted||r.playing;r.wanted=false;r.pauseRequested=true;r.playing=false;if(r.aviAudio){try{r.aviAudio.pause();}catch(_){}}if(r.aviTimer||hasAvi(r)){if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;}if(wasPlaying)later(r,()=>{if(hasAvi(r)&&!r.wanted)emit(r,'NetStream.Pause.Notify');});changed();return;}media?.pause();if(media&&wasPlaying)later(r,()=>{if(r.media===media&&!r.wanted&&media.paused)emit(r,'NetStream.Pause.Notify');});changed();}
-    function resume(r){r.wanted=true;if(gesture()){unlocked=true;muted=false;}playNative(r);changed();}
-    function seek(r,value){number(value,'NetStream.seek',0,86400*365);if(hasAvi(r)){if(!r.metadata){r.pendingSeek=value;return;}if(value>r.duration)throw new RangeError('NetStream.seek is beyond the finite media duration.');r.time=value;if(r.aviAudio){try{r.aviAudio.currentTime=value;}catch(_){}}renderAviAt(r,value);later(r,()=>emit(r,'NetStream.Seek.Notify'));return;}if(!r.media&&!r.wanted)throw new Error('NetStream.seek requires a loaded stream.');if(!r.media||!r.metadata){r.pendingSeek=value;return;}if(value>r.duration)throw new RangeError('NetStream.seek is beyond the finite media duration.');if(r.legacy){streamPolicy(r,{op:'buffer_wait'});r.playing=false;r.media.pause();}r.media.currentTime=value;}
+    function pause(r){const media=r.media,wasPlaying=r.wanted||r.playing;r.wanted=false;r.pauseRequested=true;r.playing=false;clearClipTimer(r);if(r.aviAudio){try{r.aviAudio.pause();}catch(_){}}if(r.aviTimer||hasAvi(r)){if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;}if(wasPlaying)later(r,()=>{if(hasAvi(r)&&!r.wanted)emit(r,'NetStream.Pause.Notify');});changed();return;}media?.pause();if(media&&wasPlaying)later(r,()=>{if(r.media===media&&!r.wanted&&media.paused)emit(r,'NetStream.Pause.Notify');});changed();}
+    function resume(r){if(r.clipCompleted)return;r.wanted=true;if(gesture()){unlocked=true;muted=false;}playNative(r);if(r.media&&r.playing&&r.clipEndSec!==null)armClipTimer(r,r.media,r.sequence);changed();}
+    function seek(r,value){
+      if(typeof value!=='number'||Number.isNaN(value)){
+        later(r,()=>emit(r,'NetStream.Seek.InvalidTime','error',{details:0,description:'NetStream.seek offset must be a finite non-negative time within stream duration.'}));
+        return;
+      }
+      if(hasAvi(r)){
+        const dec=decideSeek(value,r.metadata,r.duration);
+        if(dec.decision==='invalidTime'){
+          later(r,()=>emit(r,'NetStream.Seek.InvalidTime','error',{details:dec.details,description:'NetStream.seek is out of bounds for this media stream.'}));
+          return;
+        }
+        if(dec.decision==='pending'){r.pendingSeek=dec.target;return;}
+        if(r.firedCues&&Array.isArray(r.cuePoints)){for(let i=0;i<r.cuePoints.length;i++)if(Number(r.cuePoints[i]?.time)>=dec.target-1e-4)r.firedCues.delete(i);}
+        r.time=dec.target;if(r.aviAudio){try{r.aviAudio.currentTime=dec.target;}catch(_){}}renderAviAt(r,dec.target);later(r,()=>emit(r,'NetStream.Seek.Notify'));return;
+      }
+      if(!r.media&&!r.wanted)throw new Error('NetStream.seek requires a loaded stream.');
+      const dec=decideSeek(value,Boolean(r.media&&r.metadata),r.duration);
+      if(dec.decision==='invalidTime'){
+        later(r,()=>emit(r,'NetStream.Seek.InvalidTime','error',{details:dec.details,description:'NetStream.seek is out of bounds for this media stream.'}));
+        return;
+      }
+      if(dec.decision==='pending'){r.pendingSeek=dec.target;return;}
+      if(r.firedCues&&Array.isArray(r.cuePoints)){for(let i=0;i<r.cuePoints.length;i++)if(Number(r.cuePoints[i]?.time)>=dec.target-1e-4)r.firedCues.delete(i);}
+      if(r.clipCompleted&&r.clipEndSec===null)r.clipCompleted=false;
+      if(r.legacy){streamPolicy(r,{op:'buffer_wait'});r.playing=false;r.media.pause();}
+      r.suppressInitialSeekNotify=false;r.pendingInitialSeek=false;r.suppressSeekNotifyOnce=false;
+      r.media.currentTime=dec.target;
+    }
     class NetConnection extends events.EventDispatcher{
-      constructor(){super();open();const record={receiver:this,generation,sequence:0,local:false,legacy:false};connections.set(this,record);connectionRecords.add(record);Object.assign(this,hub.methods(this));this.client=this;if(new.target===NetConnection)Object.seal(this);}
-      connect(command){const r=state(this,connections);if(command!==null)unsupported('NetConnection remote connections');r.local=true;r.sequence++;later(r,()=>emit(r,'NetConnection.Connect.Success'));}
-      close(){const r=state(this,connections);r.local=false;r.sequence++;for(const stream of streamRecords)if(stream.connection===r)stopMedia(stream,true);later(r,()=>emit(r,'NetConnection.Connect.Closed'));}
-      get connected(){state(this,connections);return false;}get uri(){state(this,connections);return null;}
+      constructor(){super();open();const record={receiver:this,generation,sequence:0,local:false,connected:false,uriValue:null,legacy:false};connections.set(this,record);connectionRecords.add(record);Object.assign(this,hub.methods(this));this.client=this;if(new.target===NetConnection)Object.seal(this);}
+      connect(command){
+        const r=state(this,connections);
+        if(command===null){
+          r.local=true;r.connected=true;r.uriValue='null';r.sequence++;
+          later(r,()=>emit(r,'NetConnection.Connect.Success'));
+          return;
+        }
+        r.local=false;r.connected=false;r.uriValue=typeof command==='string'?command:null;r.sequence++;
+        later(r,()=>emit(r,'NetConnection.Connect.Rejected','error',{description:'RTMP and remote streaming servers are excluded in HTML5; use NetConnection.connect(null) for file media playback.'}));
+      }
+      close(){const r=state(this,connections);const wasConnected=Boolean(r.local||r.connected);r.local=false;r.connected=false;r.sequence++;for(const stream of streamRecords)if(stream.connection===r)stopMedia(stream,true);if(wasConnected)later(r,()=>emit(r,'NetConnection.Connect.Closed'));}
+      get connected(){const r=state(this,connections);return Boolean(r.connected);}
+      get uri(){const r=state(this,connections);return r.uriValue;}
     }
     class LegacyNetConnection extends NetConnection{
       constructor(){super();connections.get(this).legacy=true;this.onStatus=null;}
-      connect(command){const r=state(this,connections),remote=options.getRemoting?.();if(command===null){remote?.close(this);super.connect(null);return true;}if(!remote)unsupported('AS2 HTTP remoting service unavailable');if(r.local)super.close();return remote.connect(this,command);}
+      connect(command){
+        const r=state(this,connections),remote=options.getRemoting?.();
+        if(command===null){remote?.close(this);super.connect(null);return true;}
+        if(typeof command==='string'&&/^(?:rtmp|rtmps|rtmpt|rtmpe|rtmpte|rtmfp):/i.test(command.trim())){
+          remote?.close(this);
+          if(r.local||r.connected){r.local=false;r.connected=false;r.sequence++;}
+          r.uriValue=command.trim();r.sequence++;
+          later(r,()=>emit(r,'NetConnection.Connect.Rejected','error',{description:'RTMP and live remote streaming servers are excluded in HTML5; use NetConnection.connect(null) for progressive/embedded file media or HTTP(S) AMF remoting.'}));
+          return false;
+        }
+        if(!remote)unsupported('AS2 HTTP remoting service unavailable');
+        if(r.local)super.close();
+        return remote.connect(this,command);
+      }
       close(){state(this,connections);options.getRemoting?.()?.close(this);super.close();}
       call(method,responder=null,...args){state(this,connections);const remote=options.getRemoting?.();if(!remote)unsupported('AS2 HTTP remoting service unavailable');return remote.call(this,method,responder,args);}
       get isConnected(){const r=state(this,connections);return options.getRemoting?.()?.isConnected(this,r.local)??r.local;}
@@ -362,8 +916,53 @@
     }
     let onStreamCreated=null;
     class NetStream extends events.EventDispatcher{
-      constructor(connection,peerID='connectToFMS'){super();const nc=state(connection,connections);if(peerID!==undefined&&peerID!==null&&typeof peerID!=='string')throw new TypeError('NetStream peerID requires a String.');if(streamRecords.size>=64)throw new RangeError('Video is limited to 64 NetStream instances per publication session.');const r={receiver:this,generation,connection:nc,peerID:peerID||'connectToFMS',sequence:0,legacy:false,client:this,media:null,objectURL:null,listeners:[],frameCallback:null,frozen:null,serial:++serial,metadata:false,wanted:false,playing:false,started:false,pauseRequested:false,pendingSeek:null,width:0,height:0,duration:0,time:0,lastTime:null,volume:1};streams.set(this,r);streamRecords.add(r);Object.assign(this,hub.methods(this));onStreamCreated?.(this,r);if(new.target===NetStream)Object.seal(this);}
-      play(url,...extra){if(extra.length)unsupported('NetStream.play playlist/start/length/reset arguments');load(state(this,streams),url);}
+      constructor(connection,peerID='connectToFMS'){super();const nc=state(connection,connections);if(peerID!==undefined&&peerID!==null&&typeof peerID!=='string')throw new TypeError('NetStream peerID requires a String.');if(streamRecords.size>=64)throw new RangeError('Video is limited to 64 NetStream instances per publication session.');const r={receiver:this,generation,connection:nc,peerID:peerID||'connectToFMS',sequence:0,legacy:false,client:this,media:null,objectURL:null,listeners:[],frameCallback:null,frozen:null,serial:++serial,metadata:false,wanted:false,playing:false,started:false,pauseRequested:false,pendingSeek:null,width:0,height:0,duration:0,time:0,lastTime:null,volume:1,soundTransform:defaultTransformWire(1),bufferTimeVal:0.1,checkPolicyFileVal:false,bufferFull:false,clipPlan:null,clipCompleted:false,clipEndSec:null,clipTimer:null,queue:[],frameTimes:[],cuePoints:[],firedCues:null,containerFps:null,encodedBytes:0,totalBytes:0,isEmbeddedBytes:false,probeAbort:null};streams.set(this,r);streamRecords.add(r);Object.assign(this,hub.methods(this));onStreamCreated?.(this,r);if(new.target===NetStream)Object.seal(this);}
+      play(url,...extra){
+        const r=state(this,streams);
+        const plan=planPlay(url,extra);
+        if(plan.action==='stop'){
+          const wasActive=Boolean(r.started||r.playing||r.wanted);
+          stopMedia(r,true,false);
+          if(wasActive)later(r,()=>emit(r,'NetStream.Play.Stop'));
+          return;
+        }
+        if(plan.action==='rejectInvalid')throw new TypeError(plan.description||'NetStream.play requires a media URL string.');
+        if(plan.action==='rejectRtmp'){
+          stopMedia(r,false,false);
+          r.sequence++;
+          later(r,()=>emit(r,plan.code||'NetStream.Play.StreamNotFound','error',{details:plan.url,description:plan.description}));
+          return;
+        }
+        if(plan.action==='dataGeneration'){
+          stopMedia(r,false,false);
+          return;
+        }
+        if(!r.connection.local)throw new Error('Call NetConnection.connect(null) before playing local video.');
+        const isBusy=Boolean((r.wanted||r.playing||(r.media&&!r.media.ended&&!r.clipCompleted))&&!r.clipCompleted);
+        if(plan.reset_mode==='immediateIfIdle'){
+          if(isBusy||(Array.isArray(r.queue)&&r.queue.length>0))return;
+          load(r,plan.url,null,plan,false);
+          return;
+        }
+        if(plan.reset_mode==='append'){
+          if(isBusy){
+            if(!Array.isArray(r.queue))r.queue=[];
+            r.queue.push(plan);
+            return;
+          }
+          load(r,plan.url,null,plan,true);
+          return;
+        }
+        if(plan.reset_mode==='resetQueueAppend'){
+          if(isBusy){
+            r.queue=[plan];
+            return;
+          }
+          load(r,plan.url,null,plan,false);
+          return;
+        }
+        load(r,plan.url,null,plan,false);
+      }
       pause(){pause(state(this,streams));}resume(){resume(state(this,streams));}togglePause(){const r=state(this,streams);if(r.wanted||r.playing)pause(r);else resume(r);}seek(seconds){seek(state(this,streams),seconds);}
       step(frames){
         const r=state(this,streams),n=Math.trunc(Number(frames)||0),fps=Math.max(1,Number(options.getFrameRate?.())||24);
@@ -382,13 +981,35 @@
         r.serial=++serial;repaint();
         return clamped;
       }
-      close(){stopMedia(state(this,streams),true);}
+      close(){stopMedia(state(this,streams),true,false);}
       get time(){const r=state(this,streams);return r.media?Number(r.media.currentTime)||0:r.time;}
       get client(){return state(this,streams).client;}set client(value){if(value===null||(typeof value!=='object'&&typeof value!=='function'))throw new TypeError('NetStream.client requires an object.');state(this,streams).client=value;}
-      get soundTransform(){const r=state(this,streams),Type=options.getSoundTransform?.();if(!Type)throw new Error('SoundTransform service is unavailable.');return new Type(r.volume,0);}
-      set soundTransform(value){const r=state(this,streams),Type=options.getSoundTransform?.();if(!Type?.__nfIs?.(value))throw new TypeError('NetStream.soundTransform requires SoundTransform.');const volume=number(value.volume,'Video volume',0,1);if(value.pan!==0)unsupported('NetStream nonzero stereo pan');r.volume=volume;audio(r);}
-      get bytesLoaded(){const r=state(this,streams);if(r.encodedBytes===null)unsupported('NetStream HTTP byte counts (browser-managed progressive buffering)');return r.encodedBytes||0;}
-      get bytesTotal(){return this.bytesLoaded;}
+      get soundTransform(){
+        const r=state(this,streams),Type=options.getSoundTransform?.();
+        if(!Type)throw new Error('SoundTransform service is unavailable.');
+        if(typeof Type.__nfFromWire==='function')return Type.__nfFromWire(r.soundTransform||defaultTransformWire(r.volume));
+        return new Type(r.volume,r.soundTransform?.pan||0);
+      }
+      set soundTransform(value){
+        const r=state(this,streams),Type=options.getSoundTransform?.();
+        if(!Type?.__nfIs?.(value))throw new TypeError('NetStream.soundTransform requires SoundTransform.');
+        if(typeof Type.__nfToWire==='function'){
+          r.soundTransform=Type.__nfToWire(value);
+        }else{
+          const volume=number(value.volume,'Video volume',0,10);
+          const pan=number(value.pan??0,'Video pan',-1,1);
+          r.soundTransform={volume,pan,leftToLeft:Number(value.leftToLeft??(pan>0?1-pan:1)),leftToRight:Number(value.leftToRight??0),rightToLeft:Number(value.rightToLeft??0),rightToRight:Number(value.rightToRight??(pan<0?1+pan:1))};
+        }
+        audio(r);
+      }
+      get bytesLoaded(){return currentBytesLoaded(state(this,streams));}
+      get bytesTotal(){return currentBytesTotal(state(this,streams));}
+      get bufferTime(){return state(this,streams).bufferTimeVal;}
+      set bufferTime(value){const r=state(this,streams);r.bufferTimeVal=Math.max(0,Number(value)||0);}
+      get bufferLength(){return computeBufferLength(state(this,streams));}
+      get currentFPS(){return computeStreamFps(state(this,streams));}
+      get checkPolicyFile(){return Boolean(state(this,streams).checkPolicyFileVal);}
+      set checkPolicyFile(value){state(this,streams).checkPolicyFileVal=Boolean(value);}
     }
     function streamPolicy(r,request){
       if(!r.receivePolicy)throw new Error('AS2 stream controls require the shared Rust WASM media policy.');
@@ -397,26 +1018,26 @@
     function bufferFacts(r){const media=r.media,ranges=[];if(media)for(let i=0;i<(media.buffered?.length||0);i++)ranges.push([media.buffered.start(i),media.buffered.end(i)]);return {time:media?.currentTime||0,duration:r.metadata?r.duration:null,ready:(media?.readyState||0)>=2,ranges};}
     class LegacyNetStream extends NetStream{constructor(connection){super(connection);const r=streams.get(this);r.legacy=true;r.checkPolicyFile=false;r.receivePolicy=options.wasm?.ScriptAS2Stream?new options.wasm.ScriptAS2Stream():null;r.receiveState={audio:true,video:true};r.suppressedFrame=null;r.attachedAudio=null;r.attachedCamera=null;r.publishedName=null;r.publishedType=null;this.onStatus=null;this.onMetaData=null;this.onPlayStatus=null;this.onCuePoint=null;this.onTextData=null;this.onXMPData=null;}
       get checkPolicyFile(){return state(this,streams).checkPolicyFile;}
-      set checkPolicyFile(value){if(typeof value!=='boolean')throw new TypeError('AS2 NetStream.checkPolicyFile requires a Boolean.');state(this,streams).checkPolicyFile=value;}
-      get bytesLoaded(){const r=state(this,streams);return r.encodedBytes||0;}
-      get bytesTotal(){return this.bytesLoaded;}
+      set checkPolicyFile(value){if(typeof value!=='boolean')throw new TypeError('AS2 NetStream.checkPolicyFile requires a Boolean.');const r=state(this,streams);r.checkPolicyFile=value;r.checkPolicyFileVal=value;}
+      get bytesLoaded(){return currentBytesLoaded(state(this,streams));}
+      get bytesTotal(){return currentBytesTotal(state(this,streams));}
       receiveAudio(enabled){const r=state(this,streams);streamPolicy(r,{op:'receive',kind:'audio',enabled});audio(r);}
       receiveVideo(enabled){const r=state(this,streams);if(typeof enabled==='number'){if(!Number.isFinite(enabled)||enabled<0)throw new RangeError('AS2 NetStream.receiveVideo FPS must be a finite non-negative number.');enabled=enabled>0;}else if(typeof enabled!=='boolean')throw new TypeError('AS2 NetStream.receiveVideo requires a Boolean or non-negative FPS number.');if(enabled===r.receiveState.video)return;const captured=enabled?null:freeze(r);streamPolicy(r,{op:'receive',kind:'video',enabled});r.suppressedFrame=captured;r.serial=++serial;collectFrames();repaint();}
       get bufferLength(){const r=state(this,streams);return streamPolicy(r,{op:'buffer',...bufferFacts(r)});}
       get bufferTime(){return streamPolicy(state(this,streams),{op:'buffer_time'});}
-      setBufferTime(seconds){const r=state(this,streams);streamPolicy(r,{op:'set_buffer_time',seconds});playNative(r);}
+      setBufferTime(seconds){const r=state(this,streams);streamPolicy(r,{op:'set_buffer_time',seconds});r.bufferTimeVal=Math.max(0,Number(seconds)||0);playNative(r);}
       get liveDelay(){state(this,streams);return 0;}
       get maxPauseBufferTime(){return streamPolicy(state(this,streams),{op:'max_pause_buffer_time'});}
       set maxPauseBufferTime(seconds){streamPolicy(state(this,streams),{op:'set_max_pause_buffer_time',seconds});}
       getInfo(){
-        const r=state(this,streams),bufLen=this.bufferLength,loaded=r.encodedBytes||0,aud=r.receiveState?.audio!==false,vid=r.receiveState?.video!==false;
+        const r=state(this,streams),bufLen=this.bufferLength,loaded=currentBytesLoaded(r),aud=r.receiveState?.audio!==false,vid=r.receiveState?.video!==false;
         return {audioBufferByteLength:aud?loaded:0,videoBufferByteLength:vid?loaded:0,dataBufferByteLength:0,audioBufferLength:aud?bufLen:0,videoBufferLength:vid?bufLen:0,srtt:0,droppedFrames:0,currentBytesPerSecond:0,maxBytesPerSecond:0,playbackBytesPerSecond:0,isLive:false};
       }
       play2(param){
         const r=state(this,streams);
         if(!param||typeof param!=='object'||typeof param.streamName!=='string'||!param.streamName)throw new TypeError('AS2 NetStream.play2 requires an options Object with a non-empty streamName String.');
-        load(r,param.streamName);
-        if(typeof param.start==='number'&&Number.isFinite(param.start)&&param.start>0)seek(r,param.start);
+        const resetArg=(param.transition==='append'||param.transition==='appendAndWait')?false:true;
+        this.play(param.streamName,param.start,param.len,resetArg);
       }
       attachAudio(source){
         const r=state(this,streams),capture=options.getCapture?.();
@@ -441,18 +1062,29 @@
         if(typeof handlerName!=='string'||!handlerName||['__proto__','prototype','constructor'].includes(handlerName))throw new TypeError('AS2 NetStream.send requires a valid handler name String.');
         later(r,()=>{const fn=r.receiver[handlerName];if(typeof fn==='function')Reflect.apply(fn,r.receiver,args);after(generation);});
       }
-      get currentFps(){const r=state(this,streams);if(r.media&&typeof r.media.requestVideoFrameCallback!=='function')return 0;return streamPolicy(r,{op:'fps',now:global.performance?.now?.()||0,playing:r.playing});}
-      pause(flag){const r=state(this,streams);if(flag===undefined)return super.togglePause();if(typeof flag!=='boolean')throw new TypeError('AS2 NetStream.pause expects a Boolean or no argument.');if(flag)pause(r);else resume(r);}get soundTransform(){unsupported('AS2 NetStream.soundTransform; legacy Sound target mixing');}set soundTransform(_){unsupported('AS2 NetStream.soundTransform; legacy Sound target mixing');}}
+      get currentFps(){
+        const r=state(this,streams);
+        if(r.receiveState?.video===false)return 0;
+        if(r.media&&typeof r.media.requestVideoFrameCallback==='function'){
+          const fps=streamPolicy(r,{op:'fps',now:global.performance?.now?.()||0,playing:r.playing});
+          if(fps>0)return fps;
+        }
+        return computeStreamFps(r);
+      }
+      pause(flag){const r=state(this,streams);if(flag===undefined)return super.togglePause();if(typeof flag!=='boolean')throw new TypeError('AS2 NetStream.pause expects a Boolean or no argument.');if(flag)pause(r);else resume(r);}
+    }
     for(const[Type,predicate]of [[NetConnection,v=>connections.has(v)],[LegacyNetConnection,v=>connections.has(v)&&connections.get(v).legacy],[NetStream,v=>streams.has(v)],[LegacyNetStream,v=>streams.has(v)&&streams.get(v).legacy],[NetStatusEvent,v=>statusTypes.has(v)]])noBase(Type,predicate);
     for(const name of ['publish','send','appendBytes','appendBytesAction','attachAudio','attachCamera','attachVideo','setBufferTime','receiveAudio','receiveVideo','dispose'])Object.defineProperty(NetStream.prototype,name,{configurable:true,writable:true,value(){unsupported('NetStream.'+name);}});
-    for(const name of ['bufferTime','bufferLength','checkPolicyFile','objectEncoding','videoStreamSettings','inBufferSeek','backBufferTime','currentFPS','info','farID','peerStreams'])Object.defineProperty(NetStream.prototype,name,{configurable:true,get(){unsupported('NetStream.'+name);},set(){unsupported('NetStream.'+name);}});
+    for(const name of ['objectEncoding','videoStreamSettings','inBufferSeek','backBufferTime','info','farID','peerStreams'])Object.defineProperty(NetStream.prototype,name,{configurable:true,get(){unsupported('NetStream.'+name);},set(){unsupported('NetStream.'+name);}});
     for(const name of ['call','addHeader','addEventListenerRemote'])Object.defineProperty(NetConnection.prototype,name,{configurable:true,writable:true,value(){unsupported('NetConnection.'+name);}});
     function videoRef(target){const value=referenceOf(target);if(!value||!player.object_alive(value.key))throw new Error('Video display object is stale or foreign.');const info=JSON.parse(native('object_video_info',value.key));return {key:value.key,ref:value.objectRef,info};}
     function binding(target){const value=videoRef(target);let b=bindings.get(value.key);if(!b){b={...value,stream:null,capture:null,captureClearId:null,frozen:null,clearSerial:-1,revision:++serial};bindings.set(value.key,b);}return b;}
     function attachRecord(target,next){const b=binding(target);if(next===b.stream&&!b.capture)return;
       if(b.capture){b.frozen=freezeCapture(b);b.capture.release();b.capture=null;b.captureClearId=null;}
       const old=b.stream;b.frozen=old?freeze(old):b.frozen;b.stream=null;
-      if(next){for(const other of bindings.values())if(other!==b&&other.stream===next){other.frozen=freeze(next);other.stream=null;other.revision=++serial;}b.stream=next;b.frozen=null;b.clearSerial=-1;}b.revision=++serial;collectFrames();after(generation);
+      if(next){for(const other of bindings.values())if(other!==b&&other.stream===next){other.frozen=freeze(next);other.stream=null;other.revision=++serial;}b.stream=next;b.frozen=null;b.clearSerial=-1;audio(next);}
+      if(old)audio(old);
+      b.revision=++serial;collectFrames();after(generation);
     }
     function attach(target,value){return attachRecord(target,value===null?null:state(value,streams));}
     function freezeCapture(b){const source=b.capture?.read();if(!source||!source.image)return b.frozen;const output=frame(source.width,source.height),ctx=output.canvas.getContext('2d');if(!ctx)throw new Error('Camera retained frame requires Canvas 2D.');ctx.drawImage(source.image,0,0,source.width,source.height);return output;}
@@ -483,7 +1115,7 @@
       b.capture?.release();b.capture=lease;b.captureClearId=null;b.stream=null;b.frozen=null;b.clearSerial=-1;b.revision=++serial;collectFrames();after(generation);
     }
     function clear(target){const b=binding(target);b.frozen=null;b.captureClearId=b.capture?.read()?.id??null;b.clearSerial=b.stream?.serial??0;b.revision=++serial;collectFrames();after(generation);}
-    function source(b){if(!b)return null;if(b.capture){const f=b.capture.read();return f&&f.id!==b.captureClearId?f:null;}const r=b.stream;if(r){if(r.receiveState?.video===false){const f=r.suppressedFrame;return f&&f.id>b.clearSerial?{...f,image:f.canvas}:null;}if(r.media?.readyState>=2&&r.serial>b.clearSerial)return {image:r.media,width:r.width,height:r.height,id:`${r.serial}:${r.media.currentTime}`};if(!r.media&&r.appendFrame&&r.serial>b.clearSerial)return {...r.appendFrame,image:r.appendFrame.canvas};if(!r.media&&r.frozen&&r.serial>b.clearSerial)return {...r.frozen,image:r.frozen.canvas};return null;}return b.frozen?{...b.frozen,image:b.frozen.canvas}:null;}
+    function source(b){if(!b)return null;if(b.capture){const f=b.capture.read();return f&&f.id!==b.captureClearId?f:null;}const r=b.stream;if(r){if(r.receiveState?.video===false){const f=r.suppressedFrame;return f&&f.id>b.clearSerial?{...f,image:f.canvas}:null;}if(r.media?.readyState>=2&&r.width>0&&r.height>0&&r.serial>b.clearSerial)return {image:r.media,width:r.width,height:r.height,id:`${r.serial}:${r.media.currentTime}`};if(r.frozen&&r.serial>b.clearSerial)return {...r.frozen,image:r.frozen.canvas};if(!r.media&&r.appendFrame&&r.serial>b.clearSerial)return {...r.appendFrame,image:r.appendFrame.canvas};return null;}return b.frozen?{...b.frozen,image:b.frozen.canvas}:null;}
     function methods(target){return {attachNetStream:value=>attach(target,value),attachVideo:value=>attach(target,value),clear:()=>clear(target),attachCamera:value=>attachAs3Camera(target,value)};}
     function get(target,name){if(name==='smoothing')return videoRef(target).info.smoothing;if(name==='deblocking')return videoRef(target).info.deblocking??0;if(name==='videoWidth'||name==='videoHeight'){const b=binding(target),r=b.stream,f=source(b);return r?(name==='videoWidth'?r.width:r.height):f?(name==='videoWidth'?f.width:f.height):0;}return UNHANDLED;}
     function set(target,name,value){if(name==='smoothing'){if(typeof value!=='boolean')throw new TypeError('Video.smoothing requires a Boolean.');const v=videoRef(target),next={...v.info,smoothing:value};native('object_video_update',v.key,JSON.stringify(next));const b=bindings.get(v.key);if(b)b.info=next;return true;}if(name==='deblocking'){if(!Number.isInteger(value)||value<0||value>5)throw new RangeError('Video.deblocking requires an integer from 0 through 5.');const v=videoRef(target),next={...v.info,deblocking:value};native('object_video_update',v.key,JSON.stringify(next));const b=bindings.get(v.key);if(b)b.info=next;return true;}if(name==='videoWidth'||name==='videoHeight')throw new TypeError(`Video.${name} is read-only.`);return false;}
@@ -492,7 +1124,7 @@
     }
     noBase(Video,value=>{try{videoRef(value);return true;}catch(_){return false;}});
     function prepareSnapshot(snapshot){
-      for(const[key,b]of bindings)if(!player.object_alive(key)){b.capture?.release();bindings.delete(key);}
+      for(const[key,b]of bindings)if(!player.object_alive(key)){b.capture?.release();bindings.delete(key);}else if(b.stream&&(b.stream.media||b.stream.aviAudio))audio(b.stream);
       for(const r of streamRecords)if(r.media&&r.media.currentTime!==r.lastTime){r.lastTime=r.media.currentTime;r.serial=++serial;}
       const liveFrames=new Set([...bindings.values()].map(b=>source(b)?.id));for(const[key,f]of derived)if(!liveFrames.has(f.sourceId))derived.delete(key);collectFrames();
       return {...snapshot,draws:snapshot.draws.map(item=>{if(item.kind.type!=='video_frame')return item;const b=bindings.get(JSON.stringify(item.owner_ref)),f=source(b),ct=item.kind.color_transform||identity,alpha=Math.max(ct.offsets[3],255*ct.multipliers[3]+ct.offsets[3]);return {...item,kind:{...item.kind,frame_revision:f?String(f.id):`empty:${b?.revision||0}`,alpha_bounds:f&&alpha>0?{left:0,top:0,right:item.kind.width,bottom:item.kind.height}:null}};})};
@@ -534,7 +1166,7 @@
       const target=timelineTarget(command.target_path),targetKey=referenceOf(target)?.key;if(!targetKey)throw new Error('Authored timeline Video placement has no stable display reference.');
       const sourceSpec=resolveTimelineSource(command);
       const connection={generation,sequence:0,local:true,legacy:false};
-      const record={receiver:null,generation,connection,peerID:'timeline',sequence:0,legacy:false,timelineOwned:true,resourceId:command.resource,deploymentMode:sourceSpec.mode,sourceSpec,timelineMuted:Boolean(command.muted),timelineLoop:Boolean(command.loop_video),client:null,media:null,objectURL:null,listeners:[],frameCallback:null,frozen:null,serial:++serial,metadata:false,wanted:false,playing:false,started:false,pauseRequested:false,pendingSeek:null,width:0,height:0,duration:0,time:0,lastTime:null,volume:1};
+      const record={receiver:null,generation,connection,peerID:'timeline',sequence:0,legacy:false,timelineOwned:true,resourceId:command.resource,deploymentMode:sourceSpec.mode,sourceSpec,timelineMuted:Boolean(command.muted),timelineLoop:Boolean(command.loop_video),client:null,media:null,objectURL:null,listeners:[],frameCallback:null,frozen:null,serial:++serial,metadata:false,wanted:false,playing:false,started:false,pauseRequested:false,pendingSeek:null,width:0,height:0,duration:0,time:0,lastTime:null,volume:1,soundTransform:defaultTransformWire(1),queue:[],frameTimes:[],cuePoints:[],firedCues:null,containerFps:null,encodedBytes:0,totalBytes:0,isEmbeddedBytes:false};
       streamRecords.add(record);attachRecord(target,record);load(record,sourceSpec.url_or_path,sourceSpec);record.timelineMuted=Boolean(command.muted);record.timelineLoop=Boolean(command.loop_video);if(record.media)record.media.loop=Boolean(command.loop_video);audio(record);
       const ctl={record,targetKey,resource:command.resource,mode:sourceSpec.mode,sourceKey:`${sourceSpec.mode}:${sourceSpec.url_or_path}`};timelineControllers.set(command.channel,ctl);return ctl;
     }
@@ -566,11 +1198,11 @@
         read(){active();return controllerSample(record);},
         load(url,play){active();load(record,url);if(!play)pause(record);},
         play(){active();resume(record);},pause(){active();pause(record);},seek(time){active();seek(record,time);},
-        close(){active();stopMedia(record,true);},volume(value){active();record.volume=number(value,'AS2 video volume gain',0,1);audio(record);},
+        close(){active();stopMedia(record,true);},volume(value){active();const v=number(value,'AS2 video volume gain',0,1);record.volume=v;record.soundTransform=defaultTransformWire(v);audio(record);},
         dispose(){if(retired)return;retired=true;record.controllerObserver=null;if(record.generation!==generation||disposed)return;stopMedia(record,false);const b=bindings.get(referenceOf(target)?.key);if(b?.stream===record){b.stream=null;b.frozen=null;b.revision=++serial;}record.receivePolicy?.free();record.receivePolicy=null;streamRecords.delete(record);connectionRecords.delete(connections.get(connection));collectFrames();},
       });
     }
-    const _as3Hook=Object.freeze({connections,streams,connectionRecords,streamRecords,hub,NetStatusEvent,setOnStreamCreated:fn=>{onStreamCreated=fn;},state:(v,m)=>state(v,m),emit:(r,code,level,extra)=>emit(r,code,level,extra),later:(r,fn)=>later(r,fn),load:(r,url)=>load(r,url),stopMedia:(r,retain)=>stopMedia(r,retain),seek:(r,sec)=>seek(r,sec),pause:r=>pause(r),resume:r=>resume(r),audio:r=>audio(r),freeze:r=>freeze(r),setAppendFrame:(r,w,h,idx)=>setAppendFrame(r,w,h,idx),collectFrames:()=>collectFrames(),repaint:()=>repaint(),bumpSerial:()=>++serial,getGeneration:()=>generation,isDisposed:()=>disposed});
+    const _as3Hook=Object.freeze({connections,streams,connectionRecords,streamRecords,hub,NetStatusEvent,setOnStreamCreated:fn=>{onStreamCreated=fn;},state:(v,m)=>state(v,m),emit:(r,code,level,extra)=>emit(r,code,level,extra),later:(r,fn)=>later(r,fn),load:(r,...args)=>load(r,...args),stopMedia:(r,retain,keepQueue)=>stopMedia(r,retain,keepQueue),seek:(r,sec)=>seek(r,sec),pause:r=>pause(r),resume:r=>resume(r),audio:r=>audio(r),freeze:r=>freeze(r),setAppendFrame:(r,w,h,idx)=>setAppendFrame(r,w,h,idx),collectFrames:()=>collectFrames(),repaint:()=>repaint(),bumpSerial:()=>++serial,getGeneration:()=>generation,isDisposed:()=>disposed});
     function syncTimeline(frame,fps=24){
       open();const f=Math.max(0,Number(frame)||0),rate=Math.max(1,Number(fps)||Number(options.getFrameRate?.())||24);
       const targetSec=f/rate;
@@ -582,7 +1214,7 @@
         r.serial=++serial;
       }
     }
-    function reset(){open();for(const r of streamRecords){stopMedia(r,false);r.receivePolicy?.free();r.receivePolicy=null;}streamRecords.clear();connectionRecords.clear();timelineControllers.clear();diagnosticsList.length=0;for(const b of bindings.values())b.capture?.release();bindings.clear();derived.clear();for(const f of frames)f.canvas.width=f.canvas.height=0;frames.clear();framePixels=0;generation++;hub.clear();unlocked=false;muted=false;used=false;errorText='';changed();}
+    function reset(){open();if(mixerUnsub){try{mixerUnsub();}catch(_){}mixerUnsub=null;}for(const r of streamRecords){stopMedia(r,false);r.receivePolicy?.free();r.receivePolicy=null;}streamRecords.clear();connectionRecords.clear();timelineControllers.clear();diagnosticsList.length=0;for(const b of bindings.values())b.capture?.release();bindings.clear();derived.clear();for(const f of frames)f.canvas.width=f.canvas.height=0;frames.clear();framePixels=0;if(ownAudioContext){try{ownAudioContext.close?.();}catch(_){}ownAudioContext=null;}generation++;hub.clear();unlocked=false;muted=false;used=false;errorText='';changed();}
     function dispose(){if(disposed)return;reset();disposed=true;}
     return Object.freeze({Video,VideoStatus,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,timeline,timelineSources,diagnostics,syncTimeline,resumeFromGesture,setMuted,status,legacyController,legacyAttachVideo,reset,dispose,_as3Hook});
   }

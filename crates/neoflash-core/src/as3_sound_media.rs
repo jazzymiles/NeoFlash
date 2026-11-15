@@ -1115,6 +1115,753 @@ pub fn compute_spectrum(
     bytes
 }
 
+// ---------------------------------------------------------------------------
+// Shared Web Audio SoundTransform 2x2 Matrix & Stereo Pan Planner (T-327)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsSoundTransformWire {
+    pub volume: f64,
+    #[serde(default)]
+    pub pan: f64,
+    pub left_to_left: f64,
+    pub left_to_right: f64,
+    pub right_to_left: f64,
+    pub right_to_right: f64,
+}
+
+impl Default for JsSoundTransformWire {
+    fn default() -> Self {
+        Self::from_volume_pan(1.0, 0.0)
+    }
+}
+
+impl JsSoundTransformWire {
+    pub fn from_volume_pan(volume: f64, pan: f64) -> Self {
+        let v = if volume.is_finite() {
+            volume.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let p = if pan.is_finite() {
+            pan.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        Self {
+            volume: v,
+            pan: p,
+            left_to_left: if p <= 0.0 { v } else { v * (1.0 - p) },
+            left_to_right: 0.0,
+            right_to_left: 0.0,
+            right_to_right: if p >= 0.0 { v } else { v * (1.0 + p) },
+        }
+    }
+
+    pub fn sanitized(self) -> Self {
+        let clamp01 = |x: f64| {
+            if x.is_finite() {
+                x.clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        };
+        let p = if self.pan.is_finite() {
+            self.pan.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        Self {
+            volume: clamp01(self.volume),
+            pan: p,
+            left_to_left: clamp01(self.left_to_left),
+            left_to_right: clamp01(self.left_to_right),
+            right_to_left: clamp01(self.right_to_left),
+            right_to_right: clamp01(self.right_to_right),
+        }
+    }
+
+    pub fn is_pure_pan(&self) -> bool {
+        if self.left_to_right.abs() > 1e-6 || self.right_to_left.abs() > 1e-6 {
+            return false;
+        }
+        let expected = Self::from_volume_pan(self.volume, self.pan);
+        (self.left_to_left - expected.left_to_left).abs() <= 1e-5
+            && (self.right_to_right - expected.right_to_right).abs() <= 1e-5
+    }
+
+    /// Matrix multiplication `next * self` on `[L, R]^T`:
+    pub fn to_gain_matrix(self) -> [f64; 4] {
+        let s = self.sanitized();
+        [
+            s.left_to_left,
+            s.right_to_left,
+            s.left_to_right,
+            s.right_to_right,
+        ]
+    }
+
+    /// Compose `self` (inner/channel) followed by `next` (outer/target or mixer):
+    /// `mid = self * in`, `out = next * mid`.
+    pub fn then(self, next: Self) -> [f64; 4] {
+        mul_gain_matrix(self.to_gain_matrix(), next.to_gain_matrix()).map(|v| v.clamp(0.0, 2.0))
+    }
+}
+
+fn mul_gain_matrix(prev: [f64; 4], next: [f64; 4]) -> [f64; 4] {
+    [
+        next[0] * prev[0] + next[1] * prev[2],
+        next[0] * prev[1] + next[1] * prev[3],
+        next[2] * prev[0] + next[3] * prev[2],
+        next[2] * prev[1] + next[3] * prev[3],
+    ]
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoundTransformWebPlan {
+    pub volume: f64,
+    pub pan: f64,
+    pub is_matrix: bool,
+    /// `[ll, rl, lr, rr]` matching Web Audio splitter->merger wiring:
+    /// `[0]: L->L`, `[1]: R->L`, `[2]: L->R`, `[3]: R->R`.
+    pub gains: [f64; 4],
+}
+
+pub fn plan_web_sound_transform(
+    channel: JsSoundTransformWire,
+    target: Option<JsSoundTransformWire>,
+    mixer: Option<JsSoundTransformWire>,
+) -> SoundTransformWebPlan {
+    let ch = channel.sanitized();
+    let tgt = target.unwrap_or_default().sanitized();
+    let mx = mixer.unwrap_or_default().sanitized();
+
+    // Multiply raw 2x2 matrices directly without clamping intermediate stage1 sums to 1.0,
+    // preserving (mx * tgt) * ch == mx * (tgt * ch) associativity before final [0.0, 2.0] clamp.
+    let raw_stage1 = mul_gain_matrix(ch.to_gain_matrix(), tgt.to_gain_matrix());
+    let raw_gains = mul_gain_matrix(raw_stage1, mx.to_gain_matrix());
+    let gains = raw_gains.map(|v| v.clamp(0.0, 2.0));
+    let [ll, rl, lr, rr] = gains;
+
+    if ll <= 1e-9 && rl <= 1e-9 && lr <= 1e-9 && rr <= 1e-9 {
+        let pan = if ch.pan.abs() > 1e-9 {
+            ch.pan
+        } else if tgt.pan.abs() > 1e-9 {
+            tgt.pan
+        } else {
+            mx.pan
+        };
+        return SoundTransformWebPlan {
+            volume: 0.0,
+            pan,
+            is_matrix: false,
+            gains: [0.0, 0.0, 0.0, 0.0],
+        };
+    }
+
+    // Check if combined [ll, rl, lr, rr] can be represented as pure (volume, pan).
+    if rl.abs() <= 1e-6 && lr.abs() <= 1e-6 {
+        let vol = ll.max(rr).clamp(0.0, 1.0);
+        let pan = if vol <= 1e-9 {
+            0.0
+        } else if (ll - vol).abs() <= 1e-5 {
+            ((rr / vol) - 1.0).clamp(-1.0, 0.0)
+        } else if (rr - vol).abs() <= 1e-5 {
+            (1.0 - (ll / vol)).clamp(0.0, 1.0)
+        } else {
+            // Both L->L and R->R are attenuated asymmetrically (custom channel scaling, not pure pan).
+            return SoundTransformWebPlan {
+                volume: vol,
+                pan: ((rr - ll) / vol).clamp(-1.0, 1.0),
+                is_matrix: true,
+                gains,
+            };
+        };
+        let pure_check = ch.is_pure_pan() && tgt.is_pure_pan() && mx.is_pure_pan();
+        if pure_check {
+            return SoundTransformWebPlan {
+                volume: vol,
+                pan,
+                is_matrix: false,
+                gains,
+            };
+        }
+        // Even if built via leftToLeft/rightToRight setters, if lr==0 && rl==0 and one side == vol,
+        // wait: if user explicitly set custom leftToLeft/rightToRight or non-pure pan, check whether
+        // StereoPannerNode differs for stereo sources (StereoPanner sums R into L when pan < 0).
+        // Therefore, whenever !pure_check, use the exact 2x2 matrix!
+        return SoundTransformWebPlan {
+            volume: vol,
+            pan,
+            is_matrix: true,
+            gains,
+        };
+    }
+
+    let left_sum = ll + rl;
+    let right_sum = lr + rr;
+    let vol = left_sum.max(right_sum).clamp(0.0, 1.0);
+    let pan = if vol > 1e-9 {
+        ((right_sum - left_sum) / vol).clamp(-1.0, 1.0)
+    } else {
+        0.0
+    };
+    SoundTransformWebPlan {
+        volume: vol,
+        pan,
+        is_matrix: true,
+        gains,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared Non-RTMP NetStream Play / Playlist / Seek / Container Inspector (T-327)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NetStreamResetMode {
+    /// `true` or `1`: clear playlist and start playing immediately.
+    ResetAll,
+    /// `false` or `0`: append to playlist and wait for current item(s) to finish.
+    Append,
+    /// `2`: play immediately only if nothing is currently playing; otherwise ignore.
+    ImmediateIfIdle,
+    /// `3`: clear queued items (keep current playing item) and append this item next.
+    ResetQueueAppend,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "action")]
+pub enum NetStreamPlayPlan {
+    Stop,
+    DataGeneration,
+    RejectRtmp {
+        url: String,
+        code: String,
+        description: String,
+    },
+    RejectInvalid {
+        description: String,
+    },
+    PlayClip {
+        url: String,
+        /// Clamped non-negative progressive start offset in seconds (`start < 0` -> `0.0`).
+        start_seconds: f64,
+        /// Raw `start` argument passed by script (`-2` default).
+        raw_start: f64,
+        /// `None` = play to end (`len < 0`), `Some(0.0)` = single frame, `Some(d)` = play `d` seconds.
+        duration_limit: Option<f64>,
+        single_frame: bool,
+        reset_mode: NetStreamResetMode,
+    },
+}
+
+pub fn is_rtmp_or_live_scheme(url: &str) -> bool {
+    let trimmed = url.trim();
+    let Some(colon) = trimmed.find(':') else {
+        return false;
+    };
+    let scheme = trimmed[..colon].to_ascii_lowercase();
+    matches!(
+        scheme.as_str(),
+        "rtmp" | "rtmps" | "rtmpt" | "rtmpe" | "rtmpte" | "rtmfp"
+    )
+}
+
+pub fn plan_netstream_play(
+    url: Option<&str>,
+    stop_flag: bool,
+    is_null: bool,
+    start: Option<f64>,
+    len: Option<f64>,
+    reset_val: Option<&serde_json::Value>,
+) -> NetStreamPlayPlan {
+    if stop_flag {
+        return NetStreamPlayPlan::Stop;
+    }
+    if is_null {
+        return NetStreamPlayPlan::DataGeneration;
+    }
+    let Some(raw_url) = url else {
+        return NetStreamPlayPlan::RejectInvalid {
+            description: "NetStream.play requires a media URL string, false, or null.".to_owned(),
+        };
+    };
+    let trimmed = raw_url.trim();
+    if trimmed.is_empty() {
+        return NetStreamPlayPlan::RejectInvalid {
+            description: "NetStream.play requires a non-empty media URL.".to_owned(),
+        };
+    }
+    if is_rtmp_or_live_scheme(trimmed) {
+        return NetStreamPlayPlan::RejectRtmp {
+            url: trimmed.to_owned(),
+            code: "NetStream.Play.StreamNotFound".to_owned(),
+            description: "RTMP and remote live streaming servers are excluded in HTML5; use NetConnection.connect(null) with progressive HTTP(S) or bundled file media.".to_owned(),
+        };
+    }
+
+    let raw_start = start.unwrap_or(-2.0);
+    // Flash progressive file playback (`connect(null)`): negative start values (-2 default, -1, etc.)
+    // begin at the start of the recorded file (0s); positive values seek to `start` seconds.
+    let start_seconds = if raw_start.is_finite() && raw_start > 0.0 {
+        raw_start
+    } else {
+        0.0
+    };
+
+    let raw_len = len.unwrap_or(-1.0);
+    let (duration_limit, single_frame) = if !raw_len.is_finite() || raw_len < 0.0 {
+        (None, false)
+    } else if raw_len == 0.0 {
+        (Some(0.0), true)
+    } else {
+        (Some(raw_len), false)
+    };
+
+    let reset_mode = match reset_val {
+        None => NetStreamResetMode::ResetAll,
+        Some(serde_json::Value::Bool(true)) => NetStreamResetMode::ResetAll,
+        Some(serde_json::Value::Bool(false)) => NetStreamResetMode::Append,
+        Some(serde_json::Value::Number(n)) => {
+            match n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)) {
+                Some(0) => NetStreamResetMode::Append,
+                Some(2) => NetStreamResetMode::ImmediateIfIdle,
+                Some(3) => NetStreamResetMode::ResetQueueAppend,
+                _ => NetStreamResetMode::ResetAll,
+            }
+        }
+        _ => NetStreamResetMode::ResetAll,
+    };
+
+    NetStreamPlayPlan::PlayClip {
+        url: raw_url.to_owned(),
+        start_seconds,
+        raw_start,
+        duration_limit,
+        single_frame,
+        reset_mode,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "decision")]
+pub enum NetStreamSeekDecision {
+    SeekNow { target: f64 },
+    Pending { target: f64 },
+    InvalidTime { details: f64 },
+}
+
+pub fn decide_netstream_seek(
+    offset: f64,
+    metadata_known: bool,
+    duration: f64,
+) -> NetStreamSeekDecision {
+    if !offset.is_finite() || offset < 0.0 {
+        return NetStreamSeekDecision::InvalidTime { details: 0.0 };
+    }
+    if !metadata_known {
+        return NetStreamSeekDecision::Pending { target: offset };
+    }
+    let dur = if duration.is_finite() && duration >= 0.0 {
+        duration
+    } else {
+        0.0
+    };
+    if offset > dur + 1e-6 {
+        return NetStreamSeekDecision::InvalidTime { details: dur };
+    }
+    NetStreamSeekDecision::SeekNow {
+        target: offset.min(dur),
+    }
+}
+
+pub fn compute_netstream_buffer_length(current_time: f64, ranges: &[(f64, f64)]) -> f64 {
+    if !current_time.is_finite() || ranges.is_empty() {
+        return 0.0;
+    }
+    let mut sorted: Vec<(f64, f64)> = ranges
+        .iter()
+        .copied()
+        .filter(|(s, e)| s.is_finite() && e.is_finite() && *e >= *s)
+        .collect();
+    sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut covered_end: Option<f64> = None;
+    let eps = 0.05;
+    for (s, e) in sorted {
+        match covered_end {
+            None => {
+                if s <= current_time + eps && e >= current_time - eps {
+                    covered_end = Some(e);
+                }
+            }
+            Some(end) => {
+                if s <= end + eps {
+                    covered_end = Some(end.max(e));
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    covered_end
+        .map(|end| (end - current_time).max(0.0))
+        .unwrap_or(0.0)
+}
+
+pub fn compute_netstream_fps(
+    frame_times_ms: &[f64],
+    now_ms: f64,
+    playing: bool,
+    receive_video: bool,
+    metadata_fps: f64,
+) -> f64 {
+    if !playing || !receive_video {
+        return 0.0;
+    }
+    let recent: Vec<f64> = frame_times_ms
+        .iter()
+        .copied()
+        .filter(|t| t.is_finite() && now_ms - *t <= 1500.0 && *t <= now_ms + 1.0)
+        .collect();
+    if recent.len() >= 2 {
+        let span_ms = recent[recent.len() - 1] - recent[0];
+        if span_ms > 5.0 {
+            let fps = ((recent.len() - 1) as f64) * 1000.0 / span_ms;
+            return (fps * 100.0).round() / 100.0;
+        }
+    }
+    if metadata_fps.is_finite() && metadata_fps > 0.0 {
+        metadata_fps
+    } else {
+        0.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaCuePoint {
+    pub name: String,
+    pub time: f64,
+    #[serde(rename = "type")]
+    pub kind: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaContainerProbe {
+    pub format: Option<String>,
+    pub duration: Option<f64>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub framerate: Option<f64>,
+    pub cue_points: Vec<MediaCuePoint>,
+}
+
+/// Lightweight ISO BMFF (MP4/M4A/MOV) and RIFF WAV container inspector so progressive/embedded
+/// `NetStream` `onMetaData` receives real `framerate` and container cue points when bytes are known.
+pub fn inspect_media_container(bytes: &[u8]) -> MediaContainerProbe {
+    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
+        return inspect_mp4_boxes(bytes);
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE" {
+        return inspect_wav_cues(bytes);
+    }
+    MediaContainerProbe::default()
+}
+
+fn read_be_u32(data: &[u8], off: usize) -> Option<u32> {
+    let slice = data.get(off..off + 4)?;
+    Some(u32::from_be_bytes([slice[0], slice[1], slice[2], slice[3]]))
+}
+
+fn read_be_u64(data: &[u8], off: usize) -> Option<u64> {
+    let slice = data.get(off..off + 8)?;
+    Some(u64::from_be_bytes([
+        slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7],
+    ]))
+}
+
+fn inspect_mp4_boxes(bytes: &[u8]) -> MediaContainerProbe {
+    let mut probe = MediaContainerProbe {
+        format: Some("mp4".to_owned()),
+        ..Default::default()
+    };
+    let mut video_fps: Option<f64> = None;
+
+    fn walk_boxes(
+        buf: &[u8],
+        probe: &mut MediaContainerProbe,
+        video_fps: &mut Option<f64>,
+        mdhd_timescale: &mut u32,
+        is_video_trak: &mut bool,
+        depth: usize,
+    ) {
+        if depth > 8 {
+            return;
+        }
+        let mut pos = 0usize;
+        while pos + 8 <= buf.len() {
+            let sz32 = match read_be_u32(buf, pos) {
+                Some(v) => v as usize,
+                None => break,
+            };
+            let typ = &buf[pos + 4..pos + 8];
+            let (hdr, box_len) = if sz32 == 1 {
+                let Some(sz64) = read_be_u64(buf, pos + 8) else {
+                    break;
+                };
+                (16usize, sz64 as usize)
+            } else if sz32 == 0 {
+                (8usize, buf.len() - pos)
+            } else {
+                (8usize, sz32)
+            };
+            if box_len < hdr || pos + box_len > buf.len() {
+                break;
+            }
+            let payload = &buf[pos + hdr..pos + box_len];
+
+            match typ {
+                b"moov" | b"mdia" | b"minf" | b"stbl" | b"udta" => {
+                    walk_boxes(
+                        payload,
+                        probe,
+                        video_fps,
+                        mdhd_timescale,
+                        is_video_trak,
+                        depth + 1,
+                    );
+                }
+                b"trak" => {
+                    let mut local_ts = 0u32;
+                    let mut local_vid = false;
+                    walk_boxes(
+                        payload,
+                        probe,
+                        video_fps,
+                        &mut local_ts,
+                        &mut local_vid,
+                        depth + 1,
+                    );
+                }
+                b"mvhd" if payload.len() >= 20 => {
+                    let version = payload[0];
+                    if version == 1 && payload.len() >= 28 {
+                        let ts = read_be_u32(payload, 20).unwrap_or(0);
+                        let dur = read_be_u64(payload, 24).unwrap_or(0);
+                        if ts > 0 {
+                            probe.duration = Some(dur as f64 / ts as f64);
+                        }
+                    } else if version == 0 {
+                        let ts = read_be_u32(payload, 12).unwrap_or(0);
+                        let dur = read_be_u32(payload, 16).unwrap_or(0);
+                        if ts > 0 {
+                            probe.duration = Some(dur as f64 / ts as f64);
+                        }
+                    }
+                }
+                b"hdlr" if payload.len() >= 12 => {
+                    if &payload[8..12] == b"vide" {
+                        *is_video_trak = true;
+                    }
+                }
+                b"tkhd" if payload.len() >= 84 => {
+                    let version = payload[0];
+                    let wh_off = if version == 1 { 88 } else { 76 };
+                    if payload.len() >= wh_off + 8 {
+                        let w_fixed = read_be_u32(payload, wh_off).unwrap_or(0);
+                        let h_fixed = read_be_u32(payload, wh_off + 4).unwrap_or(0);
+                        let w = w_fixed >> 16;
+                        let h = h_fixed >> 16;
+                        if w > 0 && h > 0 && probe.width.is_none() {
+                            probe.width = Some(w);
+                            probe.height = Some(h);
+                        }
+                    }
+                }
+                b"mdhd" if payload.len() >= 20 => {
+                    let version = payload[0];
+                    if version == 1 && payload.len() >= 28 {
+                        *mdhd_timescale = read_be_u32(payload, 20).unwrap_or(0);
+                    } else if version == 0 {
+                        *mdhd_timescale = read_be_u32(payload, 12).unwrap_or(0);
+                    }
+                }
+                b"stts" if *is_video_trak && *mdhd_timescale > 0 && payload.len() >= 8 => {
+                    let entry_count = read_be_u32(payload, 4).unwrap_or(0) as usize;
+                    let mut total_samples = 0u64;
+                    let mut total_delta = 0u64;
+                    let max_entries = entry_count.min((payload.len() - 8) / 8);
+                    for i in 0..max_entries {
+                        let base = 8 + i * 8;
+                        let count = read_be_u32(payload, base).unwrap_or(0) as u64;
+                        let delta = read_be_u32(payload, base + 4).unwrap_or(0) as u64;
+                        total_samples = total_samples.saturating_add(count);
+                        total_delta = total_delta.saturating_add(count.saturating_mul(delta));
+                    }
+                    if total_samples > 0 && total_delta > 0 {
+                        let fps = (total_samples as f64) * (*mdhd_timescale as f64)
+                            / (total_delta as f64);
+                        if fps.is_finite() && fps > 0.0 && fps <= 240.0 {
+                            *video_fps = Some((fps * 100.0).round() / 100.0);
+                        }
+                    }
+                }
+                b"chpl" if payload.len() >= 9 => {
+                    // Nero chapter box inside udta: version(1)+flags(3)+reserved(4)+count(1)
+                    let count = payload[8] as usize;
+                    let mut cpos = 9usize;
+                    for idx in 0..count {
+                        if cpos + 9 > payload.len() {
+                            break;
+                        }
+                        let ts_100ns = read_be_u64(payload, cpos).unwrap_or(0);
+                        let name_len = payload[cpos + 8] as usize;
+                        cpos += 9;
+                        if cpos + name_len > payload.len() {
+                            break;
+                        }
+                        let name =
+                            String::from_utf8_lossy(&payload[cpos..cpos + name_len]).into_owned();
+                        cpos += name_len;
+                        probe.cue_points.push(MediaCuePoint {
+                            name: if name.is_empty() {
+                                format!("cue_{idx}")
+                            } else {
+                                name
+                            },
+                            time: (ts_100ns as f64) / 10_000_000.0,
+                            kind: "navigation".to_owned(),
+                        });
+                    }
+                }
+                _ => {}
+            }
+            pos += box_len;
+        }
+    }
+
+    let mut root_ts = 0u32;
+    let mut root_vid = false;
+    walk_boxes(
+        bytes,
+        &mut probe,
+        &mut video_fps,
+        &mut root_ts,
+        &mut root_vid,
+        0,
+    );
+    probe.framerate = video_fps;
+    probe
+}
+
+fn inspect_wav_cues(bytes: &[u8]) -> MediaContainerProbe {
+    let mut probe = MediaContainerProbe {
+        format: Some("wav".to_owned()),
+        ..Default::default()
+    };
+    let mut sample_rate = 0u32;
+    let mut byte_rate = 0u32;
+    let mut data_bytes = 0u32;
+    let mut cue_offsets: Vec<(u32, u32)> = Vec::new();
+    let mut cue_labels: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+
+    let mut pos = 12usize;
+    while pos + 8 <= bytes.len() {
+        let id = &bytes[pos..pos + 4];
+        let sz = u32::from_le_bytes([
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
+        ]) as usize;
+        let payload_end = (pos + 8).saturating_add(sz).min(bytes.len());
+        let payload = &bytes[pos + 8..payload_end];
+        match id {
+            b"fmt " if payload.len() >= 12 => {
+                sample_rate = u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
+                byte_rate = u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]);
+            }
+            b"data" => {
+                data_bytes = sz as u32;
+            }
+            b"cue " if payload.len() >= 4 => {
+                let count =
+                    u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]) as usize;
+                let max_cues = count.min((payload.len() - 4) / 24);
+                for i in 0..max_cues {
+                    let b = 4 + i * 24;
+                    let cue_id = u32::from_le_bytes([
+                        payload[b],
+                        payload[b + 1],
+                        payload[b + 2],
+                        payload[b + 3],
+                    ]);
+                    let sample_offset = u32::from_le_bytes([
+                        payload[b + 20],
+                        payload[b + 21],
+                        payload[b + 22],
+                        payload[b + 23],
+                    ]);
+                    cue_offsets.push((cue_id, sample_offset));
+                }
+            }
+            b"LIST" if payload.len() >= 4 && &payload[0..4] == b"adtl" => {
+                let mut lpos = 4usize;
+                while lpos + 8 <= payload.len() {
+                    let lid = &payload[lpos..lpos + 4];
+                    let lsz = u32::from_le_bytes([
+                        payload[lpos + 4],
+                        payload[lpos + 5],
+                        payload[lpos + 6],
+                        payload[lpos + 7],
+                    ]) as usize;
+                    let lend = (lpos + 8).saturating_add(lsz).min(payload.len());
+                    let ldata = &payload[lpos + 8..lend];
+                    if lid == b"labl" && ldata.len() >= 4 {
+                        let cid = u32::from_le_bytes([ldata[0], ldata[1], ldata[2], ldata[3]]);
+                        let raw_txt = &ldata[4..];
+                        let trimmed_end = raw_txt
+                            .iter()
+                            .position(|&c| c == 0)
+                            .unwrap_or(raw_txt.len());
+                        cue_labels.insert(
+                            cid,
+                            String::from_utf8_lossy(&raw_txt[..trimmed_end]).into_owned(),
+                        );
+                    }
+                    lpos = (lpos + 8).saturating_add(lsz + (lsz & 1));
+                }
+            }
+            _ => {}
+        }
+        pos = (pos + 8).saturating_add(sz + (sz & 1));
+    }
+
+    if byte_rate > 0 && data_bytes > 0 {
+        probe.duration = Some(data_bytes as f64 / byte_rate as f64);
+    }
+    if sample_rate > 0 {
+        for (cid, sample_offset) in cue_offsets {
+            let name = cue_labels
+                .remove(&cid)
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| format!("cue_{cid}"));
+            probe.cue_points.push(MediaCuePoint {
+                name,
+                time: sample_offset as f64 / sample_rate as f64,
+                kind: "event".to_owned(),
+            });
+        }
+    }
+    probe
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1199,5 +1946,230 @@ mod tests {
         let max_l = bins[..256].iter().copied().fold(0.0_f32, f32::max);
         let max_r = bins[256..].iter().copied().fold(0.0_f32, f32::max);
         assert!(max_l > max_r && max_r > 0.05);
+    }
+
+    #[test]
+    fn sound_transform_web_plan_handles_pure_pan_matrix_and_mixer_composition() {
+        let zero = JsSoundTransformWire::from_volume_pan(0.0, 0.25);
+        let mixer = JsSoundTransformWire::from_volume_pan(0.5, -0.25);
+        let zero_plan = plan_web_sound_transform(zero, None, Some(mixer));
+        assert_eq!(zero_plan.volume, 0.0);
+        assert!(!zero_plan.is_matrix);
+        assert_eq!(zero_plan.gains, [0.0, 0.0, 0.0, 0.0]);
+
+        let left_pan = JsSoundTransformWire::from_volume_pan(0.8, -0.5);
+        let pan_plan = plan_web_sound_transform(left_pan, None, None);
+        assert!(!pan_plan.is_matrix);
+        assert!((pan_plan.volume - 0.8).abs() < 1e-6);
+        assert!((pan_plan.pan + 0.5).abs() < 1e-6);
+
+        let swap = JsSoundTransformWire {
+            volume: 1.0,
+            pan: 0.0,
+            left_to_left: 0.0,
+            left_to_right: 1.0,
+            right_to_left: 1.0,
+            right_to_right: 0.0,
+        };
+        let swap_plan = plan_web_sound_transform(swap, None, None);
+        assert!(swap_plan.is_matrix);
+        // [ll, rl, lr, rr] = [0, 1, 1, 0]
+        assert_eq!(swap_plan.gains, [0.0, 1.0, 1.0, 0.0]);
+
+        // Swap composed with half-volume mixer scales swapped channels by 0.5
+        let half_mixer = JsSoundTransformWire::from_volume_pan(0.5, 0.0);
+        let swapped_half = plan_web_sound_transform(swap, None, Some(half_mixer));
+        assert!(swapped_half.is_matrix);
+        assert!((swapped_half.gains[1] - 0.5).abs() < 1e-6);
+        assert!((swapped_half.gains[2] - 0.5).abs() < 1e-6);
+
+        // 3-stage channel * target * mixer cross-channel summing > 1.0 in stage1 is NOT clamped
+        // prematurely before multiplying by mixer (preserving (mx * tgt) * ch == mx * (tgt * ch)).
+        let ch_full = JsSoundTransformWire {
+            volume: 1.0,
+            pan: 0.0,
+            left_to_left: 1.0,
+            left_to_right: 0.8,
+            right_to_left: 0.0,
+            right_to_right: 1.0,
+        };
+        let tgt_mix = JsSoundTransformWire {
+            volume: 1.0,
+            pan: 0.0,
+            left_to_left: 1.0,
+            left_to_right: 0.0,
+            right_to_left: 1.0,
+            right_to_right: 1.0,
+        };
+        // stage1[0] = tgt.ll * ch.ll + tgt.rl * ch.lr = 1.0 * 1.0 + 1.0 * 0.8 = 1.8 (> 1.0)
+        // With half_mixer (volume = 0.5): final ll must be 1.8 * 0.5 = 0.9, NOT 1.0 * 0.5 = 0.5!
+        let three_stage = plan_web_sound_transform(ch_full, Some(tgt_mix), Some(half_mixer));
+        assert!(three_stage.is_matrix);
+        assert!((three_stage.gains[0] - 0.9).abs() < 1e-9);
+        let assoc_rhs = mul_gain_matrix(
+            ch_full.to_gain_matrix(),
+            mul_gain_matrix(tgt_mix.to_gain_matrix(), half_mixer.to_gain_matrix()),
+        );
+        for (lhs, rhs) in three_stage.gains.into_iter().zip(assoc_rhs) {
+            assert!((lhs - rhs.clamp(0.0, 2.0)).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn netstream_play_seek_buffer_fps_and_container_probe() {
+        // RTMP schemes rejected cleanly
+        for rtmp in [
+            "rtmp://live.example.test/app/stream",
+            "rtmps://live.example.test/app/stream",
+            "rtmpt://live.example.test/app/stream",
+            "rtmpe://live.example.test/app/stream",
+            "rtmfp://p2p.example.test/live",
+        ] {
+            match plan_netstream_play(Some(rtmp), false, false, None, None, None) {
+                NetStreamPlayPlan::RejectRtmp { code, .. } => {
+                    assert_eq!(code, "NetStream.Play.StreamNotFound");
+                }
+                other => panic!("expected RejectRtmp, got {other:?}"),
+            }
+        }
+
+        // Single-frame load (len = 0) and playlist append (reset = false / 0)
+        let p_single = plan_netstream_play(
+            Some("clip1.mp4"),
+            false,
+            false,
+            Some(1.25),
+            Some(0.0),
+            Some(&serde_json::json!(true)),
+        );
+        assert_eq!(
+            p_single,
+            NetStreamPlayPlan::PlayClip {
+                url: "clip1.mp4".to_owned(),
+                start_seconds: 1.25,
+                raw_start: 1.25,
+                duration_limit: Some(0.0),
+                single_frame: true,
+                reset_mode: NetStreamResetMode::ResetAll,
+            }
+        );
+
+        let p_append = plan_netstream_play(
+            Some("clip2.mp4"),
+            false,
+            false,
+            Some(-2.0),
+            Some(0.75),
+            Some(&serde_json::json!(false)),
+        );
+        assert_eq!(
+            p_append,
+            NetStreamPlayPlan::PlayClip {
+                url: "clip2.mp4".to_owned(),
+                start_seconds: 0.0,
+                raw_start: -2.0,
+                duration_limit: Some(0.75),
+                single_frame: false,
+                reset_mode: NetStreamResetMode::Append,
+            }
+        );
+
+        // Seek decisions
+        assert_eq!(
+            decide_netstream_seek(-0.5, true, 4.0),
+            NetStreamSeekDecision::InvalidTime { details: 0.0 }
+        );
+        assert_eq!(
+            decide_netstream_seek(5.5, true, 4.0),
+            NetStreamSeekDecision::InvalidTime { details: 4.0 }
+        );
+        assert_eq!(
+            decide_netstream_seek(1.5, false, 0.0),
+            NetStreamSeekDecision::Pending { target: 1.5 }
+        );
+        assert_eq!(
+            decide_netstream_seek(2.0, true, 4.0),
+            NetStreamSeekDecision::SeekNow { target: 2.0 }
+        );
+
+        // Buffer length & FPS
+        assert!(
+            (compute_netstream_buffer_length(1.0, &[(0.0, 2.5), (2.5, 4.0)]) - 3.0).abs() < 1e-6
+        );
+        assert!(
+            (compute_netstream_fps(&[0.0, 40.0, 80.0, 120.0, 160.0], 170.0, true, true, 24.0)
+                - 25.0)
+                .abs()
+                < 1e-6
+        );
+        assert_eq!(
+            compute_netstream_fps(&[0.0, 40.0], 50.0, false, true, 24.0),
+            0.0
+        );
+
+        // Synthetic MP4 container probe (ftyp + moov(mvhd + trak(tkhd + mdia(mdhd + hdlr + minf(stbl(stts)))) + udta(chpl)))
+        fn mp4_box(tag: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+            let len = (8 + payload.len()) as u32;
+            let mut out = Vec::with_capacity(len as usize);
+            out.extend_from_slice(&len.to_be_bytes());
+            out.extend_from_slice(tag);
+            out.extend_from_slice(payload);
+            out
+        }
+        let ftyp = mp4_box(b"ftyp", b"isom\x00\x00\x02\x00isom");
+        let mut mvhd_payload = vec![0u8; 20];
+        mvhd_payload[12..16].copy_from_slice(&1000u32.to_be_bytes());
+        mvhd_payload[16..20].copy_from_slice(&4000u32.to_be_bytes());
+        let mvhd = mp4_box(b"mvhd", &mvhd_payload);
+        let mut tkhd_payload = vec![0u8; 84];
+        tkhd_payload[76..80].copy_from_slice(&(320u32 << 16).to_be_bytes());
+        tkhd_payload[80..84].copy_from_slice(&(180u32 << 16).to_be_bytes());
+        let tkhd = mp4_box(b"tkhd", &tkhd_payload);
+        let mut mdhd_payload = vec![0u8; 20];
+        mdhd_payload[12..16].copy_from_slice(&24000u32.to_be_bytes());
+        let mdhd = mp4_box(b"mdhd", &mdhd_payload);
+        let mut hdlr_payload = vec![0u8; 16];
+        hdlr_payload[8..12].copy_from_slice(b"vide");
+        let hdlr = mp4_box(b"hdlr", &hdlr_payload);
+        let mut stts_payload = vec![0u8; 16];
+        stts_payload[4..8].copy_from_slice(&1u32.to_be_bytes());
+        stts_payload[8..12].copy_from_slice(&96u32.to_be_bytes());
+        stts_payload[12..16].copy_from_slice(&1000u32.to_be_bytes());
+        let stts = mp4_box(b"stts", &stts_payload);
+        let stbl = mp4_box(b"stbl", &stts);
+        let minf = mp4_box(b"minf", &stbl);
+        let mut mdia_body = Vec::new();
+        mdia_body.extend_from_slice(&mdhd);
+        mdia_body.extend_from_slice(&hdlr);
+        mdia_body.extend_from_slice(&minf);
+        let mdia = mp4_box(b"mdia", &mdia_body);
+        let mut trak_body = Vec::new();
+        trak_body.extend_from_slice(&tkhd);
+        trak_body.extend_from_slice(&mdia);
+        let trak = mp4_box(b"trak", &trak_body);
+        let mut chpl_payload = vec![0u8; 9];
+        chpl_payload[8] = 1;
+        chpl_payload.extend_from_slice(&15_000_000u64.to_be_bytes()); // 1.5s
+        chpl_payload.push(5);
+        chpl_payload.extend_from_slice(b"intro");
+        let chpl = mp4_box(b"chpl", &chpl_payload);
+        let udta = mp4_box(b"udta", &chpl);
+        let mut moov_body = Vec::new();
+        moov_body.extend_from_slice(&mvhd);
+        moov_body.extend_from_slice(&trak);
+        moov_body.extend_from_slice(&udta);
+        let moov = mp4_box(b"moov", &moov_body);
+        let mut mp4 = Vec::new();
+        mp4.extend_from_slice(&ftyp);
+        mp4.extend_from_slice(&moov);
+
+        let probed = inspect_media_container(&mp4);
+        assert_eq!(probed.width, Some(320));
+        assert_eq!(probed.height, Some(180));
+        assert_eq!(probed.duration, Some(4.0));
+        assert_eq!(probed.framerate, Some(24.0));
+        assert_eq!(probed.cue_points.len(), 1);
+        assert_eq!(probed.cue_points[0].name, "intro");
+        assert!((probed.cue_points[0].time - 1.5).abs() < 1e-6);
     }
 }

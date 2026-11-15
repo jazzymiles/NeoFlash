@@ -2395,6 +2395,18 @@
               return;
             }
             const scheme = parsed.protocol.replace(/:$/, '').toLowerCase();
+            if (scheme === 'rtmp' || scheme === 'rtmpt' || scheme === 'rtmpe' || scheme === 'rtmpte') {
+              r.uriValue = uri;
+              r.protocolValue = scheme;
+              r.usingTLSValue = false;
+              r.local = false;
+              r.connected = false;
+              r.sequence++;
+              vh.later(r, () => vh.emit(r, 'NetConnection.Connect.Rejected', 'error', {
+                description: 'RTMP and live remote streaming servers are excluded in HTML5; use NetConnection.connect(null) for progressive or bundled file media.',
+              }));
+              return;
+            }
             r.uriValue = uri;
             r.protocolValue = scheme;
             r.usingTLSValue = scheme === 'rtmps' || scheme === 'https';
@@ -2542,6 +2554,14 @@
       const origClose = NetStream.prototype.close;
       const origSeek = NetStream.prototype.seek;
       const origTogglePause = NetStream.prototype.togglePause;
+      const origBufferLengthDesc = Object.getOwnPropertyDescriptor(NetStream.prototype, 'bufferLength');
+      const origCurrentFPSDesc = Object.getOwnPropertyDescriptor(NetStream.prototype, 'currentFPS');
+      const origBytesLoadedDesc = Object.getOwnPropertyDescriptor(NetStream.prototype, 'bytesLoaded');
+      const origBytesTotalDesc = Object.getOwnPropertyDescriptor(NetStream.prototype, 'bytesTotal');
+
+      function isFileStream(r) {
+        return Boolean(r.legacy || (!r.appendMode && (r.media || r.wanted || r.aviHandle || r.aviBytes || r.url)));
+      }
 
       function invokeClientCallback(r, handlerName, payload) {
         const client = r.client || r.receiver;
@@ -2590,6 +2610,9 @@
           enumerable: true,
           get() {
             const r = nsRec(this);
+            if (!r.appendMode && (r.media || r.aviHandle || r.aviBytes) && origBufferLengthDesc?.get) {
+              return origBufferLengthDesc.get.call(this);
+            }
             const flv = execKernel({ op: 'flv_info', streamId: r.flvId }).info;
             return Number(flv.videoBufferLength || flv.audioBufferLength || (r.playing ? r.bufferTimeVal : 0));
           },
@@ -2625,6 +2648,12 @@
           enumerable: true,
           get() {
             const r = nsRec(this);
+            if (r.receiveVideoFlag === false) return 0;
+            if (!r.appendMode && origCurrentFPSDesc?.get) {
+              const measured = origCurrentFPSDesc.get.call(this);
+              if (measured > 0) return measured;
+              if (r.metadata && r.width === 0 && r.height === 0) return 0;
+            }
             return r.playing ? r.receiveVideoFpsVal : 0;
           },
         },
@@ -2778,28 +2807,40 @@
           enumerable: true,
           get() {
             const r = nsRec(this);
-            if (typeof r.encodedBytes === 'number') return r.encodedBytes;
+            if (!r.appendMode && (r.media || r.url || r.aviHandle || r.aviBytes || r.isEmbeddedBytes || r.totalBytes > 0) && origBytesLoadedDesc?.get) {
+              return origBytesLoadedDesc.get.call(this);
+            }
             const snap = execKernel({ op: 'flv_info', streamId: r.flvId }).info;
-            return Number(snap.byteCount || 0);
+            const flvBytes = Number(snap.byteCount || 0);
+            if (flvBytes > 0) return flvBytes;
+            return origBytesLoadedDesc?.get ? origBytesLoadedDesc.get.call(this) : (r.encodedBytes || 0);
           },
         },
         bytesTotal: {
           configurable: true,
           enumerable: true,
-          get() { return this.bytesLoaded; },
+          get() {
+            const r = nsRec(this);
+            if (!r.appendMode && (r.media || r.url || r.aviHandle || r.aviBytes || r.isEmbeddedBytes || r.totalBytes > 0) && origBytesTotalDesc?.get) {
+              return origBytesTotalDesc.get.call(this);
+            }
+            return this.bytesLoaded;
+          },
         },
         play: {
           configurable: true,
           writable: true,
           value: function play(...args) {
             const r = nsRec(this);
-            if (args.length === 1 && args[0] === null) {
+            if (!r.legacy && args.length === 1 && args[0] === null) {
+              vh.stopMedia(r, false, false);
               r.appendMode = true;
               r.wanted = true;
               r.playing = true;
               r.started = true;
               r.pauseRequested = false;
               r.encodedBytes = 0;
+              r.totalBytes = 0;
               r.time = 0;
               execKernel({ op: 'flv_action', streamId: r.flvId, action: 'resetBegin' });
               vh.later(r, () => vh.emit(r, 'NetStream.Play.Start'));
@@ -2807,14 +2848,9 @@
             }
             if (args.length === 1 && args[0] === false) {
               r.appendMode = false;
-              vh.stopMedia(r, false);
-              return;
+              return Reflect.apply(origPlay, this, args);
             }
             r.appendMode = false;
-            const url = args[0];
-            if (typeof url === 'string' && url) {
-              return Reflect.apply(origPlay, this, [url]);
-            }
             return Reflect.apply(origPlay, this, args);
           },
         },
@@ -2823,7 +2859,7 @@
           writable: true,
           value: function pause() {
             const r = nsRec(this);
-            if (r.media) return Reflect.apply(origPause, this, []);
+            if (isFileStream(r)) return Reflect.apply(origPause, this, []);
             const wasPlaying = r.wanted || r.playing;
             r.wanted = false;
             r.playing = false;
@@ -2838,7 +2874,7 @@
           writable: true,
           value: function resume() {
             const r = nsRec(this);
-            if (r.media) return Reflect.apply(origResume, this, []);
+            if (isFileStream(r)) return Reflect.apply(origResume, this, []);
             const wasPaused = !r.playing || r.pauseRequested;
             r.wanted = true;
             r.playing = true;
@@ -2857,17 +2893,44 @@
               throw new TypeError('TypeError: Error #2007: NetStream.play2 requires a NetStreamPlayOptions instance.');
             }
             if (param.transition === 'stop') {
-              vh.stopMedia(r, false);
+              r.appendMode = false;
+              vh.stopMedia(r, false, false);
+              return;
+            }
+            if (typeof param.streamName === 'string' && /^(?:rtmp|rtmps|rtmpt|rtmpe|rtmpte|rtmfp):/i.test(param.streamName.trim())) {
+              const badUrl = param.streamName.trim();
+              r.appendMode = false;
+              r.url = badUrl;
+              vh.stopMedia(r, false, false);
+              vh.later(r, () => {
+                vh.emit(r, 'NetStream.Play.StreamNotFound', 'error', {
+                  description: `RTMP and remote live streaming servers ('${badUrl}') are excluded in HTML5; use NetConnection.connect(null) with progressive HTTP(S) or bundled file media.`,
+                });
+              });
               return;
             }
             if (typeof param.streamName === 'string' && param.streamName) {
+              const startSec = typeof param.start === 'number' && param.start > 0 ? param.start : 0;
+              const rawLen = typeof param.len === 'number' && Number.isFinite(param.len) ? param.len : -1;
+              const clipPlan = {
+                action: 'playClip',
+                url: param.streamName,
+                start_seconds: startSec,
+                raw_start: typeof param.start === 'number' ? param.start : -2,
+                duration_limit: rawLen < 0 ? null : (rawLen === 0 ? 0 : rawLen),
+                single_frame: rawLen === 0,
+                reset_mode: (param.transition === 'append' || param.transition === 'appendAndWait') ? 'append' : 'resetAll',
+              };
               try {
-                vh.load(r, param.streamName);
+                if (clipPlan.reset_mode === 'append' && (r.wanted || r.playing)) {
+                  if (!Array.isArray(r.queue)) r.queue = [];
+                  r.queue.push(clipPlan);
+                  return;
+                }
+                vh.load(r, param.streamName, null, clipPlan, false);
+                r.appendMode = false;
               } catch (_) {
                 r.url = param.streamName;
-              }
-              if (typeof param.start === 'number' && param.start > 0 && r.media) {
-                try { vh.seek(r, param.start); } catch (_) {}
               }
             }
             vh.later(r, () => {
@@ -2978,7 +3041,14 @@
             }
             r.publishedName = String(name);
             r.publishedType = pubType;
-            vh.later(r, () => vh.emit(r, 'NetStream.Publish.Start', 'status', { details: r.publishedName }));
+            if (r.peerID === 'directConnections') {
+              vh.later(r, () => vh.emit(r, 'NetStream.Publish.Start', 'status', { details: r.publishedName }));
+            } else {
+              vh.later(r, () => vh.emit(r, 'NetStream.Publish.BadName', 'error', {
+                details: r.publishedName,
+                description: 'HTML5 NetStream plays progressive media and has no RTMP media server for upstream publishing.',
+              }));
+            }
           },
         },
         send: {
@@ -3016,9 +3086,18 @@
           writable: true,
           value: function receiveVideo(flag) {
             const r = nsRec(this);
-            r.receiveVideoFlag = Boolean(flag);
+            const next = Boolean(flag);
             if (!r.receiveState) r.receiveState = { audio: true, video: true };
-            r.receiveState.video = r.receiveVideoFlag;
+            if (next !== r.receiveState.video) {
+              r.suppressedFrame = next ? null : vh.freeze(r);
+              r.receiveVideoFlag = next;
+              r.receiveState.video = next;
+              r.serial = vh.bumpSerial();
+              vh.collectFrames();
+              vh.repaint();
+            } else {
+              r.receiveVideoFlag = next;
+            }
           },
         },
         receiveVideoFPS: {
@@ -3030,6 +3109,8 @@
             if (!Number.isFinite(n) || n < 0) throw new RangeError('NetStream.receiveVideoFPS must be >= 0.');
             r.receiveVideoFpsVal = n;
             r.receiveVideoFlag = n > 0;
+            if (!r.receiveState) r.receiveState = { audio: true, video: true };
+            r.receiveState.video = n > 0;
           },
         },
         step: {
@@ -3039,8 +3120,14 @@
             const r = nsRec(this);
             const f = Number(frames) | 0;
             r.stepFrames += f;
-            r.time = Math.max(0, (r.time || 0) + f / 30);
+            const next = Math.max(0, (r.media ? Number(r.media.currentTime) || 0 : r.time || 0) + f / 30);
+            r.time = next;
+            if (r.media) {
+              try { r.suppressSeekNotifyOnce = true; r.media.currentTime = next; } catch (_) { r.suppressSeekNotifyOnce = false; }
+            }
+            r.serial = vh.bumpSerial();
             vh.later(r, () => vh.emit(r, 'NetStream.Step.Notify'));
+            vh.repaint();
           },
         },
         seek: {
@@ -3048,7 +3135,7 @@
           writable: true,
           value: function seek(offset) {
             const r = nsRec(this);
-            if (r.media) {
+            if (isFileStream(r)) {
               return Reflect.apply(origSeek, this, [offset]);
             }
             const sec = Math.max(0, Number(offset) || 0);
@@ -3064,7 +3151,7 @@
           writable: true,
           value: function togglePause() {
             const r = nsRec(this);
-            if (r.media) return Reflect.apply(origTogglePause, this, []);
+            if (isFileStream(r)) return Reflect.apply(origTogglePause, this, []);
             if (r.wanted || r.playing) this.pause();
             else this.resume();
           },
