@@ -537,7 +537,31 @@ def fetch_git_source(spec: ArtifactSpec, cache_dir: Path, allow_download: bool) 
                 f"cached Git repository verification failed: {fsck.stderr.strip()}"
             )
     cache_ref = f"refs/neoflash/{safe_leaf(spec.revision)}"
-    if allow_download:
+    pinned_full_sha = len(spec.revision) == 40 and all(
+        ch in "0123456789abcdef" for ch in spec.revision.lower()
+    )
+    cached_commit = None
+    if not repository_created:
+        verify_cached = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repository_cache),
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                f"{cache_ref}^{{commit}}",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        if verify_cached.returncode == 0:
+            candidate = verify_cached.stdout.strip()
+            if candidate.lower() == spec.revision.lower():
+                cached_commit = candidate
+    if allow_download and not (pinned_full_sha and cached_commit):
         subprocess.run(
             [
                 "git",
@@ -552,6 +576,8 @@ def fetch_git_source(spec: ArtifactSpec, cache_dir: Path, allow_download: bool) 
             ],
             check=True,
         )
+        revision_ref = cache_ref
+    elif cached_commit:
         revision_ref = cache_ref
     else:
         revision_ref = spec.revision

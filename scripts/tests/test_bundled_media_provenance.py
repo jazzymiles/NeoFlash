@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import shutil
 import sys
 import tarfile
 import tempfile
@@ -330,6 +331,11 @@ end
             rebuilt, actual, _ = provenance.fetch_git_source(spec, cache, False)
             self.assertEqual(actual, expected)
             self.assertTrue(tarfile.is_tarfile(rebuilt))
+
+            shutil.rmtree(repository)
+            offline_allow, offline_actual, _ = provenance.fetch_git_source(spec, cache, True)
+            self.assertEqual(offline_actual, expected)
+            self.assertTrue(tarfile.is_tarfile(offline_allow))
 
     def test_vanished_non_code_resource_can_be_recovered_only_by_exact_keg_hash(self):
         with tempfile.TemporaryDirectory() as raw:
