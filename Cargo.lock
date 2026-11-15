@@ -2527,6 +2527,7 @@ dependencies = [
  "resvg",
  "rfd",
  "rodio",
+ "same-file",
  "serde",
  "serde_json",
  "url",

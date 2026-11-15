@@ -61,6 +61,30 @@ struct RunningVideoExport {
     rx: Receiver<Option<(PathBuf, Result<VideoExportReport, String>)>>,
 }
 
+struct EmptyOutputDirCleanup(Option<PathBuf>);
+
+impl EmptyOutputDirCleanup {
+    fn new(path: Option<PathBuf>) -> Self {
+        Self(path)
+    }
+
+    fn keep(&mut self) {
+        self.0 = None;
+    }
+
+    fn cleanup_now(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_dir(path);
+        }
+    }
+}
+
+impl Drop for EmptyOutputDirCleanup {
+    fn drop(&mut self) {
+        self.cleanup_now();
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct VideoAsyncWorker {
     generation: u64,
@@ -137,6 +161,7 @@ impl VideoAsyncWorker {
         project: Project,
         path: PathBuf,
         options: VideoOptions,
+        empty_output_dir_cleanup: Option<PathBuf>,
     ) -> Option<(PathBuf, Result<VideoExportReport, String>)> {
         self.cancel();
         let generation = self.generation;
@@ -154,6 +179,7 @@ impl VideoAsyncWorker {
         let (tx, rx) = mpsc::channel();
 
         std::thread::spawn(move || {
+            let mut output_dir_cleanup = EmptyOutputDirCleanup::new(empty_output_dir_cleanup);
             let path_for_export = path.clone();
             let res =
                 export_project_video_with_progress(&project, &path_for_export, &options, |p| {
@@ -175,8 +201,14 @@ impl VideoAsyncWorker {
                     true
                 });
             if cancel_w.load(Ordering::Relaxed) {
+                output_dir_cleanup.cleanup_now();
                 let _ = tx.send(None);
                 return;
+            }
+            if res.is_ok() {
+                output_dir_cleanup.keep();
+            } else {
+                output_dir_cleanup.cleanup_now();
             }
             let _ = tx.send(Some((path, res.map_err(|e| e.to_string()))));
         });
@@ -276,9 +308,9 @@ pub(crate) fn default_video_file_name(
         })
         .collect();
     let clean_stem = if stem.trim_matches('-').is_empty() {
-        "movie"
+        "movie".to_owned()
     } else {
-        stem.trim_matches('-')
+        crate::output_paths::safe_output_file_stem(stem.trim_matches('-'), "movie")
     };
     let ext = format.extension();
     if format == VideoFormat::PngSequence {
@@ -308,9 +340,9 @@ pub(crate) fn sync_video_output_path_extension(path: &mut PathBuf, format: Video
     }
     let stem = base.strip_suffix("_0001").unwrap_or(base);
     let stem = if stem.trim().is_empty() {
-        "movie"
+        "movie".to_owned()
     } else {
-        stem
+        crate::output_paths::safe_output_file_stem(stem, "movie")
     };
     let next_name = if format == VideoFormat::PngSequence {
         format!("{stem}_0001.png")
@@ -772,7 +804,10 @@ impl Editor {
         self.finish_video_export(path, res)
     }
 
-    fn choose_export_video_path(&self, draft: &ExportVideoDraft) -> Option<PathBuf> {
+    fn choose_export_video_path(
+        &self,
+        draft: &ExportVideoDraft,
+    ) -> Result<Option<(PathBuf, Option<PathBuf>)>, String> {
         let ext = draft.options.format.extension();
         let file_name = draft
             .output_path
@@ -783,19 +818,47 @@ impl Editor {
             .unwrap_or_else(|| {
                 default_video_file_name(&self.project, &draft.range_choice, draft.options.format)
             });
+        let file_name = crate::output_paths::safe_output_file_name(&file_name, "movie", ext);
         if draft.options.format == VideoFormat::PngSequence {
-            let mut dialog = rfd::FileDialog::new().set_title("Choose PNG sequence parent folder");
-            if let Some(dir) = draft
+            let mut parent_dialog =
+                rfd::FileDialog::new().set_title("Choose PNG sequence parent folder");
+            if let Some(parent) = draft
                 .output_path
                 .parent()
                 .filter(|path| !path.as_os_str().is_empty())
             {
-                dialog = dialog.set_directory(dir);
+                parent_dialog = parent_dialog.set_directory(parent);
             }
-            let parent = dialog.pick_folder()?;
-            return Some(
-                crate::output_paths::project_output_dir(&parent, &self.project).join(file_name),
-            );
+            let Some(parent) = parent_dialog.pick_folder() else {
+                return Ok(None);
+            };
+            let (output_dir, created) =
+                crate::output_paths::prepare_project_output_dir(&parent, &self.project)
+                    .map_err(|err| format!("Could not prepare the PNG sequence folder: {err}"))?;
+            let picked = rfd::FileDialog::new()
+                .set_title("Export video")
+                .add_filter(draft.options.format.label(), &[ext])
+                .set_directory(&output_dir)
+                .set_file_name(&file_name)
+                .save_file();
+            let Some(picked) = picked else {
+                crate::output_paths::remove_created_output_dir_if_empty(&output_dir, created);
+                return Ok(None);
+            };
+            let output_path = match crate::output_paths::project_sequence_output_path(
+                &picked,
+                &output_dir,
+                "movie",
+                ext,
+            ) {
+                Ok(path) => path,
+                Err(err) => {
+                    crate::output_paths::remove_created_output_dir_if_empty(&output_dir, created);
+                    return Err(err);
+                }
+            };
+            let cleanup = created.then(|| output_dir.clone());
+            return Ok(Some((output_path, cleanup)));
         }
         let mut dialog = rfd::FileDialog::new()
             .set_title("Export video")
@@ -808,7 +871,7 @@ impl Editor {
         {
             dialog = dialog.set_directory(dir);
         }
-        dialog.save_file()
+        Ok(dialog.save_file().map(|path| (path, None)))
     }
 
     /// Render the `Dialog / Export video` modal (`DL-05`).
@@ -1405,27 +1468,42 @@ impl Editor {
         if do_export {
             draft.error_message = None;
             draft.sync_and_refresh(&self.project, self.frame);
-            if !draft.estimate_blocked
-                && let Some(path) = self.choose_export_video_path(&draft)
-            {
-                self.persist_video_export_options(&draft.options);
-                let immediate = draft.worker.lock().ok().and_then(|mut w| {
-                    w.spawn_export(self.project.clone(), path, draft.options.clone())
-                });
-                if let Some((out_path, res)) = immediate {
-                    match res {
-                        Ok(report) => {
-                            let _ = self.finish_video_export(&out_path, Ok(report));
-                            self.export_video = None;
-                            super::dialog_helpers::record_end_of_frame_focus(ctx);
-                            return;
-                        }
-                        Err(err) => {
-                            let msg = err.clone();
-                            let _ = self.finish_video_export(&out_path, Err(err));
-                            draft.error_message = Some(msg);
+            if !draft.estimate_blocked {
+                match self.choose_export_video_path(&draft) {
+                    Ok(Some((path, empty_output_dir_cleanup))) => {
+                        self.persist_video_export_options(&draft.options);
+                        let immediate = match draft.worker.lock() {
+                            Ok(mut worker) => worker.spawn_export(
+                                self.project.clone(),
+                                path.clone(),
+                                draft.options.clone(),
+                                empty_output_dir_cleanup,
+                            ),
+                            Err(_) => {
+                                if let Some(dir) = empty_output_dir_cleanup.as_ref() {
+                                    let _ = std::fs::remove_dir(dir);
+                                }
+                                Some((path, Err("Video export worker is unavailable.".to_owned())))
+                            }
+                        };
+                        if let Some((out_path, res)) = immediate {
+                            match res {
+                                Ok(report) => {
+                                    let _ = self.finish_video_export(&out_path, Ok(report));
+                                    self.export_video = None;
+                                    super::dialog_helpers::record_end_of_frame_focus(ctx);
+                                    return;
+                                }
+                                Err(err) => {
+                                    let msg = err.clone();
+                                    let _ = self.finish_video_export(&out_path, Err(err));
+                                    draft.error_message = Some(msg);
+                                }
+                            }
                         }
                     }
+                    Ok(None) => {}
+                    Err(err) => draft.error_message = Some(err),
                 }
             }
         }
@@ -1437,6 +1515,12 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn invalid_video_project() -> Project {
+        let mut project = Project::blank();
+        project.root = "missing-root".into();
+        project
+    }
 
     #[test]
     fn open_export_video_and_export_gif_and_mp4_through_editor() {
@@ -1638,5 +1722,88 @@ mod tests {
         let _ = run_modal(&mut editor);
         assert!(editor.export_video.is_none());
         assert_eq!(editor.last_video_report.as_ref(), Some(&report));
+    }
+
+    #[test]
+    fn png_sequence_worker_removes_only_new_empty_folder_after_failure_or_cancel() {
+        let root = std::env::temp_dir().join(format!(
+            "neoflash-video-empty-dir-cleanup-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let ctx = egui::Context::default();
+        let options = VideoOptions {
+            format: VideoFormat::PngSequence,
+            width: 2,
+            height: 2,
+            ..VideoOptions::default()
+        };
+
+        let failed_dir = root.join("failed");
+        std::fs::create_dir(&failed_dir).unwrap();
+        let mut failed_worker = VideoAsyncWorker::default();
+        failed_worker.spawn_export(
+            invalid_video_project(),
+            failed_dir.join("movie_0001.png"),
+            options.clone(),
+            Some(failed_dir.clone()),
+        );
+        let failure = (0..200).find_map(|_| {
+            let outcome = failed_worker.poll(&ctx);
+            if outcome.is_none() {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            outcome
+        });
+        assert!(failure.is_some_and(|(_, result)| result.is_err()));
+        assert!(!failed_dir.exists());
+
+        let cancelled_dir = root.join("cancelled");
+        std::fs::create_dir(&cancelled_dir).unwrap();
+        let mut cancelled_worker = VideoAsyncWorker::default();
+        cancelled_worker.spawn_export(
+            invalid_video_project(),
+            cancelled_dir.join("movie_0001.png"),
+            options,
+            Some(cancelled_dir.clone()),
+        );
+        cancelled_worker.cancel();
+        for _ in 0..200 {
+            if !cancelled_dir.exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!cancelled_dir.exists());
+
+        let nonempty_dir = root.join("nonempty");
+        std::fs::create_dir(&nonempty_dir).unwrap();
+        std::fs::write(nonempty_dir.join("keep.txt"), b"user content").unwrap();
+        let mut nonempty_worker = VideoAsyncWorker::default();
+        nonempty_worker.spawn_export(
+            invalid_video_project(),
+            nonempty_dir.join("movie_0001.png"),
+            VideoOptions {
+                format: VideoFormat::PngSequence,
+                width: 2,
+                height: 2,
+                ..VideoOptions::default()
+            },
+            Some(nonempty_dir.clone()),
+        );
+        let nonempty_failure = (0..200).find_map(|_| {
+            let outcome = nonempty_worker.poll(&ctx);
+            if outcome.is_none() {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            outcome
+        });
+        assert!(nonempty_failure.is_some_and(|(_, result)| result.is_err()));
+        assert_eq!(
+            std::fs::read(nonempty_dir.join("keep.txt")).unwrap(),
+            b"user content"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1038,6 +1038,7 @@ impl Editor {
                 let layer = self.layer;
                 let frame = self.frame;
                 let frame_context = self.selected_frame_range().is_some();
+                let explicit_frame_range = self.frame_range().is_some();
                 let original_tween = frame_context.then(|| {
                     self.symbol()
                         .timeline
@@ -1046,6 +1047,9 @@ impl Editor {
                         .and_then(|target| target.key_at(frame))
                         .map(|key| key.tween)
                 });
+                let can_edit_selected_tween =
+                    self.layer_editable() || self.has_selected_tween_ease_targets();
+                let active_layer_editable = self.layer_editable();
                 if !frame_context {
                 inspector_section(ui, "Stage", |ui| {
                 changes.note(text_row(ui, "Name", &mut document.name));
@@ -1105,7 +1109,7 @@ impl Editor {
                     if let Some(end) = layer_end { self.set_layer_duration(end); return; }
                     if let Some(span) = &motion { self.motion_tween_properties(ui, span); } else {
                     inspector_section(ui, "Tween", |ui| {
-                        ui.add_enabled_ui_semantic(self.layer_editable(), |ui| {
+                        ui.add_enabled_ui_semantic(can_edit_selected_tween, |ui| {
                             let guided = timeline.layers[layer].properties.motion_guide.is_some();
                             if let Some(key) = timeline.layers[layer].key_at_mut(frame) {
                                 let mut options = vec![
@@ -1121,58 +1125,60 @@ impl Editor {
                                 options.push((if let Some(flash @ Easing::Flash { .. }) = key.tween { Some(flash) } else { Some(Easing::Flash { acceleration: 0. }) }, "Flash ease"));
                                 changes.note(select_row(ui, "Easing", "tween", &mut key.tween, &options));
                                 if key.tween.is_some() && key.tween_kind == TweenKind::Classic {
-                                    let mut turns = key.classic_rotate_turns as f64;
-                                    let old_direction = key.classic_rotate_dir;
-                                    let mut direction = old_direction;
-                                    let dir_label = format!("Direction: {}", direction.label());
-                                    let (r_turns, mut r_dir) = two_column_row(
-                                        ui,
-                                        |ui, width| ui.add(
-                                            nf::Field::new(&mut turns, "Rotate")
-                                                .prefix("Rotate")
-                                                .unit("×")
-                                                .range(0.0..=(Keyframe::MAX_ROTATE_TURNS as f64))
-                                                .stepper()
-                                                .width(width),
-                                        ),
-                                        |ui, width| {
-                                            let (response, _) =
-                                            nf::Select::new("classic-direction", &dir_label)
-                                                .width(width)
-                                                .show(ui, |ui| {
-                                                    for dir in ClassicRotateDirection::ALL {
-                                                        if ui
-                                                            .add(
-                                                                MenuItem::new(dir.label()).checked(
-                                                                    direction == dir,
-                                                                ),
-                                                            )
-                                                            .clicked()
-                                                        {
-                                                            direction = dir;
-                                                            ui.close();
+                                    ui.add_enabled_ui_semantic(active_layer_editable, |ui| {
+                                        let mut turns = key.classic_rotate_turns as f64;
+                                        let old_direction = key.classic_rotate_dir;
+                                        let mut direction = old_direction;
+                                        let dir_label = format!("Direction: {}", direction.label());
+                                        let (r_turns, mut r_dir) = two_column_row(
+                                            ui,
+                                            |ui, width| ui.add(
+                                                nf::Field::new(&mut turns, "Rotate")
+                                                    .prefix("Rotate")
+                                                    .unit("×")
+                                                    .range(0.0..=(Keyframe::MAX_ROTATE_TURNS as f64))
+                                                    .stepper()
+                                                    .width(width),
+                                            ),
+                                            |ui, width| {
+                                                let (response, _) =
+                                                nf::Select::new("classic-direction", &dir_label)
+                                                    .width(width)
+                                                    .show(ui, |ui| {
+                                                        for dir in ClassicRotateDirection::ALL {
+                                                            if ui
+                                                                .add(
+                                                                    MenuItem::new(dir.label()).checked(
+                                                                        direction == dir,
+                                                                    ),
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                direction = dir;
+                                                                ui.close();
+                                                            }
                                                         }
-                                                    }
-                                                });
-                                            response
-                                        },
-                                    );
-                                    if r_turns.changed() {
-                                        key.classic_rotate_turns = (turns.round().max(0.0) as u32)
-                                            .min(Keyframe::MAX_ROTATE_TURNS);
-                                    }
-                                    if direction != old_direction {
-                                        key.classic_rotate_dir = direction;
-                                        r_dir.mark_changed();
-                                    }
-                                    changes.note(r_turns);
-                                    changes.note(r_dir);
-                                    let orient_resp = ui.add_enabled(guided, nf::Checkbox::new(&mut key.orient_to_path, "Orient to path"));
-                                    changes.note(crate::ui_icons::hover_tooltip(orient_resp, "", None, Some("Needs a motion guide layer")));
-                                    let snap_resp = ui.add_enabled(guided, nf::Checkbox::new(&mut key.snap_to_guide, "Snap to motion guide"));
-                                    changes.note(crate::ui_icons::hover_tooltip(snap_resp, "", None, Some("Needs a motion guide layer")));
-                                    changes.note(ui.add(nf::Checkbox::new(&mut key.sync_symbols, "Sync graphic symbols")));
-                                    changes.note(ui.add(nf::Checkbox::new(&mut key.tween_scale, "Scale")));
+                                                    });
+                                                response
+                                            },
+                                        );
+                                        if r_turns.changed() {
+                                            key.classic_rotate_turns = (turns.round().max(0.0) as u32)
+                                                .min(Keyframe::MAX_ROTATE_TURNS);
+                                        }
+                                        if direction != old_direction {
+                                            key.classic_rotate_dir = direction;
+                                            r_dir.mark_changed();
+                                        }
+                                        changes.note(r_turns);
+                                        changes.note(r_dir);
+                                        let orient_resp = ui.add_enabled(guided, nf::Checkbox::new(&mut key.orient_to_path, "Orient to path"));
+                                        changes.note(crate::ui_icons::hover_tooltip(orient_resp, "", None, Some("Needs a motion guide layer")));
+                                        let snap_resp = ui.add_enabled(guided, nf::Checkbox::new(&mut key.snap_to_guide, "Snap to motion guide"));
+                                        changes.note(crate::ui_icons::hover_tooltip(snap_resp, "", None, Some("Needs a motion guide layer")));
+                                        changes.note(ui.add(nf::Checkbox::new(&mut key.sync_symbols, "Sync graphic symbols")));
+                                        changes.note(ui.add(nf::Checkbox::new(&mut key.tween_scale, "Scale")));
+                                    });
                                 }
 
                                 // Y may overshoot (Back) or undershoot; the document allows |y| ≤ 100, x stays in 0–1.
@@ -1323,9 +1329,10 @@ impl Editor {
                 });
                 let mut handled_range_easing = false;
                 if original_tween != edited_tween
-                    && original_tween
-                        .flatten()
-                        .is_some_and(|tween| tween.is_some())
+                    && (explicit_frame_range
+                        || original_tween
+                            .flatten()
+                            .is_some_and(|tween| tween.is_some()))
                     && let Some(control) = changes.control
                 {
                     match edited_tween.flatten().flatten() {

@@ -26,6 +26,7 @@ resvg = { version = "=0.49.0", default-features = false, features = ["text", "sy
 rodio = { version = "0.21.1", default-features = false, features = ["playback", "mp3", "wav"] }
 url = "2.5.8"
 webbrowser = "1.2.5"
+same-file = "1.0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 wgpu = { version = "27", default-features = false, features = ["metal"] }

@@ -347,6 +347,25 @@ impl Editor {
         out
     }
 
+    /// Whether the editable part of the current Timeline selection contains at least one
+    /// existing tween. A selected hold is not itself an easing target, but it must not disable
+    /// Properties when another selected layer/span has a tween that can be edited.
+    pub(crate) fn has_selected_tween_ease_targets(&self) -> bool {
+        let timeline = &self.symbol().timeline;
+        self.target_tween_spans().iter().any(|(layer_idx, starts)| {
+            let Some(layer) = timeline.layers.get(*layer_idx) else {
+                return false;
+            };
+            starts.iter().any(|start| {
+                layer
+                    .keyframes
+                    .iter()
+                    .find(|key| key.frame == *start)
+                    .is_some_and(|key| key.tween.is_some())
+            })
+        })
+    }
+
     fn span_tween_kind(layer: &Layer, start_frame: u32) -> Option<TweenKind> {
         let key = layer.keyframes.iter().find(|k| k.frame == start_frame)?;
         key.tween.map(|_| key.tween_kind)

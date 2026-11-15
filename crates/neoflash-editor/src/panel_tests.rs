@@ -70,6 +70,15 @@ fn named_bounds(output: &egui::FullOutput, label: &str) -> Option<Rect> {
             })
         })
 }
+fn named_disabled(output: &egui::FullOutput, label: &str) -> Option<bool> {
+    output
+        .platform_output
+        .accesskit_update
+        .as_ref()?
+        .nodes
+        .iter()
+        .find_map(|(_, node)| (node.label() == Some(label)).then(|| node.is_disabled()))
+}
 /// Like [`named_bounds`], but the node must lie inside `area` (labels such as "New folder"
 /// exist in several panels).
 fn named_bounds_in(output: &egui::FullOutput, label: &str, area: Rect) -> Option<Rect> {
@@ -6184,8 +6193,18 @@ fn standalone_image_sequence_exports_inside_the_named_project_folder() {
     let root = std::env::temp_dir().join(format!("neoflash-named-sequence-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    let report = editor
+    let outside_error = editor
         .confirm_export_image_to_path(&ctx, &root.join("frame.png"))
+        .expect_err("sequence path outside the prepared project folder must be rejected");
+    assert!(outside_error.contains("must stay inside"));
+    assert!(!root.join("frame_0001.png").exists());
+    let uppercase_extension_error = editor
+        .confirm_export_image_to_path(&ctx, &root.join("Ideas in motion/frame.PNG"))
+        .expect_err("sequence extension must match the exporter's exact output path");
+    assert!(uppercase_extension_error.contains("must end with '.png'"));
+    assert!(!root.join("Ideas in motion/frame.png").exists());
+    let report = editor
+        .confirm_export_image_to_path(&ctx, &root.join("Ideas in motion/frame.png"))
         .expect("sequence export");
     let expected = root.join("Ideas in motion");
     assert_eq!(report.files.len(), 2);
@@ -7488,7 +7507,13 @@ fn properties_easing_select_applies_to_every_tween_in_the_selected_frame_range()
         ],
         properties: LayerProperties::default(),
     };
-    project.symbols[0].timeline.layers = vec![make_layer("first"), make_layer("second")];
+    let mut active_hold = make_layer("active-hold");
+    active_hold.locked = true;
+    for key in &mut active_hold.keyframes {
+        key.tween = None;
+    }
+    project.symbols[0].timeline.layers =
+        vec![make_layer("first"), make_layer("second"), active_hold];
     project.upgrade_format_for_features();
     project.validate().unwrap();
 
@@ -7496,17 +7521,20 @@ fn properties_easing_select_applies_to_every_tween_in_the_selected_frame_range()
     ctx.enable_accesskit();
     let mut editor = Editor::from_project(&ctx, project);
     let before = editor.project.clone();
-    editor.layer = 0;
+    // Finish the multi-layer selection on a locked hold. Its direction/active endpoint must not
+    // disable editable tween spans on the other selected layers, and choosing an ease must not
+    // turn this hold into a tween.
+    editor.layer = 2;
     editor.frame = 0;
     editor.select_frame_range(FrameRange {
-        layers: vec!["first".into(), "second".into()],
+        layers: vec!["first".into(), "second".into(), "active-hold".into()],
         start: 0,
         end: 15,
     });
 
     render_properties(&mut editor, &ctx, 0.1, vec![]);
     let output = render_properties(&mut editor, &ctx, 0.2, vec![]);
-    let easing = named_bounds(&output, "Linear").expect("Easing selector");
+    let easing = named_bounds(&output, "No tween").expect("enabled Easing selector on active hold");
     render_properties(
         &mut editor,
         &ctx,
@@ -7535,17 +7563,176 @@ fn properties_easing_select_applies_to_every_tween_in_the_selected_frame_range()
     );
     render_properties(&mut editor, &ctx, 0.8, vec![]);
 
-    for layer in &editor.symbol().timeline.layers {
+    for layer in &editor.symbol().timeline.layers[..2] {
         assert_eq!(layer.keyframes[0].tween, Some(Easing::EaseOut));
         assert_eq!(layer.keyframes[1].tween, Some(Easing::EaseOut));
         assert_eq!(layer.keyframes[2].tween, None);
     }
+    assert!(
+        editor.symbol().timeline.layers[2]
+            .keyframes
+            .iter()
+            .all(|key| key.tween.is_none()),
+        "the active locked hold layer must remain unchanged"
+    );
     editor.project.validate().unwrap();
     editor.undo();
     assert_eq!(
         editor.project, before,
         "one Undo restores the whole range edit"
     );
+}
+
+#[test]
+fn properties_easing_on_a_hold_only_frame_range_is_a_noop() {
+    let render = |editor: &mut Editor, ctx: &egui::Context, time: f64, events: Vec<Event>| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(520.0, 900.0))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.properties(ui, ctx));
+            },
+        )
+    };
+
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 20;
+    project.symbols[0].timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            ..Keyframe::default()
+        },
+        Keyframe {
+            frame: 10,
+            ..Keyframe::default()
+        },
+    ];
+    let layer_id = project.symbols[0].timeline.layers[0].id.clone();
+    project.validate().unwrap();
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id],
+        start: 0,
+        end: 10,
+    });
+    let before = editor.project.clone();
+
+    render(&mut editor, &ctx, 0.1, vec![]);
+    let output = render(&mut editor, &ctx, 0.2, vec![]);
+    let easing = named_bounds(&output, "No tween").expect("hold easing selector");
+    render(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![primary_button(easing.center(), true)],
+    );
+    render(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![primary_button(easing.center(), false)],
+    );
+    let popup = render(&mut editor, &ctx, 0.5, vec![]);
+    let ease_out = named_bounds(&popup, "Ease out").expect("Ease out popup item");
+    render(
+        &mut editor,
+        &ctx,
+        0.6,
+        vec![primary_button(ease_out.center(), true)],
+    );
+    render(
+        &mut editor,
+        &ctx,
+        0.7,
+        vec![primary_button(ease_out.center(), false)],
+    );
+    render(&mut editor, &ctx, 0.8, vec![]);
+
+    assert_eq!(
+        editor.project, before,
+        "range easing must not create a tween"
+    );
+    assert!(
+        !editor.history.can_undo(),
+        "a no-op must not add Undo history"
+    );
+}
+
+#[test]
+fn properties_locked_active_tween_only_enables_range_easing_controls() {
+    let render = |editor: &mut Editor, ctx: &egui::Context, time: f64| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(520.0, 900.0))),
+                time: Some(time),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.properties(ui, ctx));
+            },
+        )
+    };
+    let tween_layer = |id: &str, locked: bool| Layer {
+        id: id.into(),
+        name: id.into(),
+        visible: true,
+        locked,
+        keyframes: vec![
+            Keyframe {
+                frame: 0,
+                tween: Some(Easing::Linear),
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 10,
+                ..Keyframe::default()
+            },
+        ],
+        properties: LayerProperties::default(),
+    };
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 20;
+    project.symbols[0].timeline.layers = vec![
+        tween_layer("editable", false),
+        tween_layer("active-locked", true),
+    ];
+    project.validate().unwrap();
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.layer = 1;
+    editor.frame = 0;
+    editor.select_frame_range(FrameRange {
+        layers: vec!["editable".into(), "active-locked".into()],
+        start: 0,
+        end: 5,
+    });
+
+    render(&mut editor, &ctx, 0.1);
+    let output = render(&mut editor, &ctx, 0.2);
+    assert_eq!(named_disabled(&output, "Linear"), Some(false));
+    for control in [
+        "Rotate",
+        "Direction: Auto",
+        "Orient to path",
+        "Snap to motion guide",
+        "Sync graphic symbols",
+        "Scale",
+    ] {
+        assert_eq!(
+            named_disabled(&output, control),
+            Some(true),
+            "{control} must remain disabled for the active locked layer"
+        );
+    }
 }
 
 #[test]

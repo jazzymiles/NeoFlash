@@ -962,14 +962,19 @@ Screenshot aids: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>` and
 
 **DL-04 · Export image (`⌥⇧⌘S`)** — partial (`panels/export_image.rs`, `neoflash_export::image_export`, `File ▸ Export ▸ Export image…`):
 - Working: 760 pt modal dialog and live floating panel with format tabs `PNG · SVG · PSD · AI · PDF`; preview `"Frame n of N · W × H"`; `Range` (`Current frame`, `Whole movie`, `Current scene`, `Frames A..=B`); linked `W × H` + `1x` / `2x` / `0.5x` scale presets; and `Background` (`Stage colour`, `Transparent`). PNG and SVG are direct exports. PSD writes a layered v1 document when supported. AI is an EPS-compatible PostScript subset and uses a raster fallback for unsupported scene features; PDF is currently raster-backed. Every destination file is written atomically.
-- Working: whole-movie, scene and custom numbered sequences chosen through the GUI are placed inside one folder
-  named after the project; single-frame and explicit headless paths remain exact.
+- Working: for whole-movie, scene and custom numbered sequences, the native Save dialog opens inside one
+  cross-platform-safe folder named after the project, retains the selected portable basename, and leaves single-frame
+  and explicit headless paths exact.
 - Pending: SVG image-link/CSS-class generation and PSD folder groups, smart objects, editable text and colour-space conversion. Their approved controls are present but do not yet alter exported content. Native Illustrator/PDF editability beyond the documented fallbacks also remains open.
+  Numbered sequences are still replaced atomically per file, not as one owned set; collision preflight, rollback and
+  removal of an older export's stale tail frames remain pending.
 
 **DL-05 · Export video** — done (`panels/export_video.rs`, `neoflash_export::video`, `File ▸ Export ▸ Export video…`, `Library ▸ Export symbol as video…`, CLI `--video`):
 - Done: 840 pt modal dialog with format tabs `MP4 · WebM · MOV · GIF · PNG seq.`; live rendered stage preview thumbnail (`render_project_frame_rgba`) with cancellable background `VideoAsyncWorker` progress bar (`Exporting frames f / N`) and pause/resume (`Preview while rendering · ⏸ to pause`); `Range` (`Whole movie (all scenes)`, `Current scene`, `Frames From..To`); `Video` (`W × H` with aspect-lock toggle, `1x` / `2x` / `0.5x` scale, `FPS`, per-format `Codec: H.264 / H.265 / VP9 / AV1 / Apple ProRes / GIF 256-colour / PNG 8-bit`, `Quality` slider `0..=100` with live bitrate caption); `Content` (`Render nested movie clip animation and scripts (runtime capture)`, `Stop at last frame` vs `Stop after N s`, `Include audio` + `AAC 128/192/256 kbps` / `Opus 160 kbps` / `PCM 16-bit`, `Transparent bg (MOV/WebM/GIF/PNG seq.)`); and live footer estimate (`~ X.X MB · MM:SS · W×H`). Acceptance: 5 s MP4 at 24 fps has 120 frames matching the timeline.
-- Done: GUI PNG-sequence export asks for a parent folder and creates the project-named child folder; encoded
-  single-file video destinations remain exact.
+- Done: the GUI PNG-sequence Save dialog opens inside the cross-platform-safe project-named folder and retains the
+  selected portable basename; encoded single-file video destinations remain exact.
+- Pending: PNG-sequence ownership, whole-set collision/rollback and stale-tail cleanup share the numbered-sequence
+  limitation in DL-04.
 
 **DL-06 · Export audio (`⌥⇧⌘A`)** — done (`panels/export_audio.rs`, `neoflash_export::audio`, `File ▸ Export ▸ Export audio…`, `Library ▸ Export audio…`, CLI `--audio`):
 - Done: 640 pt modal dialog with format tabs `WAV · MP3 · OGG · AAC`; `Source` selector (`Timeline mix (all sound layers)`, individual sound layers `Layer: <name>`, or Library audio resources `Resource: <name>`) and `Range` selector (`Range: whole movie`, `Range: current scene`, `Range: frames A–B`); `Format` selectors (`8` / `11.025` / `22.05` / `44.1` / `48 kHz`, WAV bit depth `8-bit` / `16-bit` / `24-bit` / `32-bit float`, `Stereo` / `Mono`, compressed CBR bit rate `64`–`320 kbps CBR`); `Processing` controls (`Normalize to −1 dB`, `Fade out 0.0..=30.0 s` stepper, `Trim silence`); and live footer summary (`<source> · <duration> s · ~ <size>`).

@@ -61,9 +61,9 @@ pub(crate) fn default_image_output_path(
         })
         .collect();
     let stem = if sanitized.trim_matches('_').is_empty() {
-        "untitled"
+        "untitled".to_owned()
     } else {
-        sanitized.trim_matches('_')
+        crate::output_paths::safe_output_file_stem(sanitized.trim_matches('_'), "untitled")
     };
     let file_name = format!("{stem}.{}", format.extension());
     match project_path
@@ -96,9 +96,9 @@ pub(crate) fn sync_image_output_path_extension(path: &mut PathBuf, format: Image
         }
     }
     let stem = if stem.trim().is_empty() {
-        "untitled"
+        "untitled".to_owned()
     } else {
-        stem
+        crate::output_paths::safe_output_file_stem(stem, "untitled")
     };
     let next_name = format!("{stem}.{}", format.extension());
     *path = match parent {
@@ -416,10 +416,22 @@ impl Editor {
             .unwrap_or_else(|| ExportImageDraft {
                 options: self.default_export_image_options(),
             });
-        let output_path = if matches!(draft.options.range, ImageExportRange::CurrentFrame(_)) {
+        let is_sequence = !matches!(draft.options.range, ImageExportRange::CurrentFrame(_));
+        let output_path = if !is_sequence {
             path.to_path_buf()
         } else {
-            crate::output_paths::project_sequence_output_path(path, &self.project)
+            let chosen_parent = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            let prepared_output_dir =
+                crate::output_paths::project_output_dir(chosen_parent, &self.project);
+            crate::output_paths::project_sequence_output_path(
+                path,
+                &prepared_output_dir,
+                "export",
+                draft.options.format.extension(),
+            )?
         };
         let report = export_project_image(&self.project, &output_path, &draft.options)
             .map_err(|e| e.to_string())?;
@@ -1067,9 +1079,12 @@ impl Editor {
                 .filter(|s| !s.is_empty())
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("untitled.{ext}"));
+            let default_name =
+                crate::output_paths::safe_output_file_name(&default_name, "untitled", ext);
             let initial_dir = resolved_out
                 .parent()
                 .filter(|path| !path.as_os_str().is_empty());
+            let mut prepared_output_dir = None;
             let picked = if matches!(draft.options.range, ImageExportRange::CurrentFrame(_)) {
                 let mut dialog = rfd::FileDialog::new()
                     .set_title(draft.options.format.button_label())
@@ -1080,20 +1095,51 @@ impl Editor {
                 }
                 dialog.save_file()
             } else {
-                let mut dialog =
+                let mut parent_dialog =
                     rfd::FileDialog::new().set_title("Choose image sequence parent folder");
                 if let Some(dir) = initial_dir {
-                    dialog = dialog.set_directory(dir);
+                    parent_dialog = parent_dialog.set_directory(dir);
                 }
-                dialog.pick_folder().map(|parent| {
-                    crate::output_paths::project_output_dir(&parent, &self.project)
-                        .join(&default_name)
-                })
+                match parent_dialog.pick_folder() {
+                    Some(parent) => {
+                        match crate::output_paths::prepare_project_output_dir(
+                            &parent,
+                            &self.project,
+                        ) {
+                            Ok((output_dir, created)) => {
+                                let dialog = rfd::FileDialog::new()
+                                    .set_title(draft.options.format.button_label())
+                                    .set_directory(&output_dir)
+                                    .set_file_name(&default_name)
+                                    .add_filter(draft.options.format.label(), &[ext]);
+                                prepared_output_dir = Some((output_dir, created));
+                                dialog.save_file()
+                            }
+                            Err(err) => {
+                                self.message(format!("Export image failed: {err}"));
+                                None
+                            }
+                        }
+                    }
+                    None => None,
+                }
             };
-            if let Some(path) = picked
-                && let Err(err) = self.confirm_export_image_to_path(ctx, &path)
-            {
-                self.message(format!("Export image failed: {err}"));
+            if let Some(path) = picked {
+                let resolved_path = if let Some((dir, _)) = prepared_output_dir.as_ref() {
+                    crate::output_paths::project_sequence_output_path(&path, dir, "export", ext)
+                } else {
+                    Ok(path)
+                };
+                if let Err(err) = resolved_path
+                    .and_then(|path| self.confirm_export_image_to_path(ctx, &path).map(|_| ()))
+                {
+                    self.message(format!("Export image failed: {err}"));
+                    if let Some((dir, created)) = prepared_output_dir.as_ref() {
+                        crate::output_paths::remove_created_output_dir_if_empty(dir, *created);
+                    }
+                }
+            } else if let Some((dir, created)) = prepared_output_dir.as_ref() {
+                crate::output_paths::remove_created_output_dir_if_empty(dir, *created);
             }
         }
         super::dialog_helpers::record_end_of_frame_focus(ctx);
