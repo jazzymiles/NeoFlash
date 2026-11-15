@@ -758,7 +758,7 @@ impl Reader<'_> {
                 }
                 5 => Ok(AmfValue::Number(self.double()?)),
                 6 => Ok(AmfValue::String(self.string3()?)),
-                7 | 8 | 9 | 10 | 11 | 12 => self.complex3(marker, depth),
+                7..=12 => self.complex3(marker, depth),
                 _ => Err(fail(
                     "unsupported AMF3 marker (Vector/Dictionary are pending)",
                 )),
