@@ -11,6 +11,8 @@
     function reflow(ref){const field=text.info(ref);if(field.as2_viewport.auto_size!=='none')return player.as2_text_fit(ref,JSON.stringify(text.layout(field)));return false;}
     text.bindAs2Layout(reflow);
     text.bindAs2Wheel(wheel);
+    text.bindTargetForRef?.(targetForRef);
+    text.bindAs2TextEvent?.((ref,name,args)=>textEvent(ref,name,args));
     const broadcasters=broadcaster.create(wasm);
     const defaultRender=()=>({embedFonts:false,antiAliasType:'normal',gridFitType:'pixel',sharpness:0,thickness:0});
     const defaultRenderer=()=>({displayMode:'default',maxLevel:4,tables:{}});
@@ -28,47 +30,75 @@
     function stateFor(ref){active();const field=text.info(ref);let state=fields.get(ref);if(!state){if(fields.size>=4096)throw new RangeError('AS2 text state exceeds 4096 fields.');state={html:Boolean(field.html),condense:Boolean(field.condense_white),style:null,source:null,revision:null,runs:null,baseAlign:null,defaultAlign:null,render:{...defaultRender(),embedFonts:Boolean(field.embed_fonts),antiAliasType:field.anti_alias_type||'normal',gridFitType:field.grid_fit_type||'pixel',sharpness:field.sharpness||0,thickness:field.thickness||0}};fields.set(ref,state);}return state;}
     function ensureRuns(state,field){
       const len=field.text.length,base={...field.format,...(state.baseAlign?{align:state.baseAlign}:{})};
-      if(!state.runs||state.runs.length!==len)state.runs=Array.from({length:len},()=>({...base,tabStops:Array.isArray(base.tabStops)?base.tabStops.slice():base.tabStops}));
+      if(!state.runs||state.runs.length!==len||state.runsRevision!==field.revision){
+        state.runs=Array.from({length:len},()=>({...base,tabStops:Array.isArray(base.tabStops)?base.tabStops.slice():base.tabStops}));
+        if(Array.isArray(field.format_runs)){
+          for(const r of field.format_runs){
+            const rs=Math.max(0,Math.min(len,Number(r.start??r.begin)||0));
+            const re=Math.max(rs,Math.min(len,Number(r.end)||0));
+            const rf=r.format||{};
+            const alignVal=(rf.align_mode||rf.alignMode||rf.align);
+            for(let i=rs;i<re;i++){
+              Object.assign(state.runs[i],rf,alignVal?{align:alignVal}:{},Array.isArray(rf.tabStops)?{tabStops:rf.tabStops.slice()}:{});
+            }
+          }
+        }
+        state.runsRevision=field.revision;
+      }
       return state.runs;
     }
     function as2SetTextFormat(ref,state,...args){
       if(state.style)throw new Error('Error #2009: This method cannot be used on a text field with a style sheet.');
       const field=text.info(ref),len=field.text.length;
-      let fmt,begin=0,end=len,whole=false;
+      let fmt,begin=0,end=len,whole=false,singleChar=false;
       if(args.length===1){fmt=args[0];whole=true;}
-      else if(args.length===2){begin=Math.trunc(Number(args[0]));end=begin+1;fmt=args[1];}
+      else if(args.length===2){begin=Math.trunc(Number(args[0]));end=begin+1;fmt=args[1];singleChar=true;}
       else if(args.length===3){begin=Math.trunc(Number(args[0]));end=Math.trunc(Number(args[1]));fmt=args[2];}
       else throw new TypeError('setTextFormat accepts (format), (index, format), or (beginIndex, endIndex, format).');
       const rawPatch=text.formatPatch(fmt,true),rustPatch=text.formatPatch(fmt,false);
-      const b=Math.max(0,Math.min(len,Number.isFinite(begin)?begin:0)),e=Math.max(b,Math.min(len,Number.isFinite(end)?end:len));
-      const runs=ensureRuns(state,field);
-      for(let i=b;i<e;i++)Object.assign(runs[i],rawPatch,Array.isArray(rawPatch.tabStops)?{tabStops:rawPatch.tabStops.slice()}:{});
+      let b=Math.max(0,Math.min(len,Number.isFinite(begin)?begin:0));
+      let e=Math.max(b,Math.min(len,Number.isFinite(end)?end:len));
+      if(!whole&&len>0&&text.snapGraphemeFloor&&text.snapGraphemeCeil){
+        b=text.snapGraphemeFloor(field.text,b);
+        e=singleChar?(text.nextGrapheme?text.nextGrapheme(field.text,b):Math.min(len,b+1)):(e>b?text.snapGraphemeCeil(field.text,e):b);
+      }
+      const prevRuns=ensureRuns(state,field).map(r=>({...r,tabStops:Array.isArray(r.tabStops)?r.tabStops.slice():r.tabStops}));
+      for(let i=b;i<e;i++)Object.assign(prevRuns[i],rawPatch,Array.isArray(rawPatch.tabStops)?{tabStops:rawPatch.tabStops.slice()}:{});
       if(whole||(b===0&&e===len)){
         if(rawPatch.align!==undefined)state.baseAlign=rawPatch.align;
         text.update(ref,{format:rustPatch});
+      }else if(b<e){
+        text.update(ref,{format_range:{begin:b,end:e,format:rustPatch}});
       }
+      state.runs=prevRuns;
+      state.runsRevision=text.info(ref).revision;
     }
     function as2GetTextFormat(ref,state,...args){
       const field=text.info(ref),len=field.text.length;
-      if(!state.runs||state.runs.length!==len||len===0){
+      if(len===0||((!state.runs||state.runsRevision!==field.revision)&&(!field.format_runs||field.format_runs.length===0))){
         const res=text.legacyFormatCopy(field.format);if(state.baseAlign)res.align=state.baseAlign;return res;
       }
+      const runs=ensureRuns(state,field);
       let b=0,e=len;
-      if(args.length===1){b=Math.max(0,Math.min(len-1,Math.trunc(Number(args[0]))));e=b+1;}
+      if(args.length===1){
+        const rawIdx=Math.max(0,Math.min(len-1,Math.trunc(Number(args[0]))));
+        b=text.snapGraphemeFloor?text.snapGraphemeFloor(field.text,rawIdx):rawIdx;
+        e=text.nextGrapheme?text.nextGrapheme(field.text,b):b+1;
+      }
       else if(args.length>=2){b=Math.max(0,Math.min(len,Math.trunc(Number(args[0]))));e=Math.max(b,Math.min(len,Math.trunc(Number(args[1]))));}
       if(b>=e){const res=text.legacyFormatCopy(field.format);if(state.baseAlign)res.align=state.baseAlign;return res;}
-      const first=state.runs[b],res=text.legacyFormatCopy(first);
+      const first=runs[b],res=text.legacyFormatCopy(first);
       for(const k of Object.keys(first)){
         for(let i=b+1;i<e;i++){
-          if(JSON.stringify(state.runs[i][k])!==JSON.stringify(first[k])){res[k]=null;break;}
+          if(JSON.stringify(runs[i][k])!==JSON.stringify(first[k])){res[k]=null;break;}
         }
       }
       return res;
     }
     function render(ref,state,source){
       const field=text.info(ref),styles=state.style?record(state.style).state:{styles:{}};
-      const parsed=execute({op:'html',source,format:field.default_format,styles,condense_white:state.condense});
-      text.update(ref,{text:parsed.text,format:parsed.format});state.source=source;state.revision=text.info(ref).revision;state.runs=null;state.baseAlign=null;
+      const parsed=execute({op:'html',source,format:field.default_format,styles,condense_white:state.condense,multi_run:true});
+      text.update(ref,{text:parsed.text,format:parsed.format,format_runs:parsed.format_runs||[]});state.source=source;state.revision=text.info(ref).revision;state.runs=null;state.runsRevision=null;state.baseAlign=null;
     }
     function changed(sheet){
       for(const [ref,state]of fields)if(state.style===sheet&&state.source!==null){try{if(!player.object_alive(ref)){fields.delete(ref);continue;}render(ref,state,state.source);}catch(error){throw new Error('StyleSheet change could not reflow its TextField: '+String(error),{cause:error});}}
@@ -93,11 +123,12 @@
     }
     StyleSheet.__nfIs=value=>sheets.has(value);StyleSheet.__nfInitialize=()=>{throw new TypeError('AS2 StyleSheet subclassing is not supported.');};Object.defineProperty(StyleSheet,Symbol.hasInstance,{value:StyleSheet.__nfIs});
     const renderProps=new Set(['embedFonts','antiAliasType','gridFitType','sharpness','thickness']);
-    const names=new Set(['html','htmlText','styleSheet','condenseWhite','getTextFormat','setTextFormat','getNewTextFormat','setNewTextFormat','text','background','backgroundColor','border','borderColor','scroll','hscroll','maxscroll','maxhscroll','bottomScroll','onScroller','addListener','removeListener','autoSize','mouseWheelEnabled',...renderProps]);
+    const names=new Set(['html','htmlText','styleSheet','condenseWhite','getTextFormat','setTextFormat','getNewTextFormat','setNewTextFormat','text','background','backgroundColor','border','borderColor','scroll','hscroll','maxscroll','maxhscroll','bottomScroll','onScroller','addListener','removeListener','autoSize','mouseWheelEnabled','interactionMode','textInteractionMode',...renderProps]);
     function as2Ref(ref,name){
       if(!names.has(name))return null;
       return {has:()=>true,delete:()=>false,get:()=>{
         const state=stateFor(ref),field=text.info(ref);
+        if(name==='interactionMode'||name==='textInteractionMode')return text.get(ref,name);
         if(renderProps.has(name))return state.render[name];
         if(['background','backgroundColor','border','borderColor'].includes(name))return field.as2_viewport[name];
         if(['scroll','hscroll','maxscroll','maxhscroll','bottomScroll'].includes(name)){const viewport=text.layout(field).viewport;return viewport[name==='bottomScroll'?'bottom_scroll':name];}
@@ -113,9 +144,10 @@
         if(name==='text')return text.get(ref,'text');
         if(name==='html')return state.html;if(name==='condenseWhite')return state.condense;if(name==='styleSheet')return state.style;
         if(!state.html&&!state.style)return text.get(ref,'text');
-        return state.source!==null&&state.revision===field.revision?state.source:execute({op:'serialize_html',text:field.text,format:field.format}).result;
+        return state.source!==null&&state.revision===field.revision?state.source:execute({op:'serialize_html',text:field.text,format:field.format,format_runs:field.format_runs||[]}).result;
       },set:value=>{
         const state=stateFor(ref);
+        if(name==='interactionMode'||name==='textInteractionMode'){text.set(ref,name,value);return value;}
         if(renderProps.has(name)){state.render=execute({op:'field_render_set',state:state.render,name,value}).state;return value;}
         if(name==='autoSize'||name==='mouseWheelEnabled'){const field=text.info(ref);if(name==='autoSize'){if(value===true)value='left';if(value===false)value='none';if(!['none','left','center','right'].includes(value))throw new TypeError('autoSize requires none/left/center/right or Boolean.');}else if(typeof value!=='boolean')throw new TypeError('mouseWheelEnabled requires Boolean.');text.update(ref,{as2_viewport:{...field.as2_viewport,active:true,[name==='autoSize'?'auto_size':'mouse_wheel_enabled']:value}});return value;}
         if(name==='onScroller'){if(value!==null&&value!==undefined&&typeof value!=='function')throw new TypeError('onScroller requires a function or null.');state.onScroller=value;return value;}
@@ -130,7 +162,7 @@
         if(['maxscroll','maxhscroll','bottomScroll'].includes(name))throw new TypeError('TextField.'+name+' is read-only.');
         if(name==='html'||name==='condenseWhite'){if(typeof value!=='boolean')throw new TypeError('TextField.'+name+' requires a Boolean.');const key=name==='html'?'html':'condense';const old=state[key];state[key]=value;try{if(name==='condenseWhite'&&state.source!==null)render(ref,state,state.source);}catch(error){state[key]=old;throw error;}return value;}
         if(name==='styleSheet'){if(value!==null)record(value);const previous=state.style;state.style=value;try{if(state.source!==null)render(ref,state,state.source);}catch(error){state.style=previous;throw error;}return value;}
-        if(name==='htmlText'||name==='text'){if(typeof value!=='string')throw new TypeError('TextField text requires a string.');if(state.style||(name==='htmlText'&&state.html))render(ref,state,value);else{text.update(ref,{text:value});state.source=null;state.revision=null;state.runs=null;state.baseAlign=state.defaultAlign;}return value;}
+        if(name==='htmlText'||name==='text'){if(typeof value!=='string')throw new TypeError('TextField text requires a string.');if(state.style||(name==='htmlText'&&state.html))render(ref,state,value);else{text.update(ref,{text:value});state.source=null;state.revision=null;state.runs=null;state.runsRevision=null;state.baseAlign=state.defaultAlign;}return value;}
         throw new TypeError('AS2 TextField method '+name+' is read-only.');
       }};
     }

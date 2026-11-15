@@ -160,21 +160,27 @@ impl TextFormat {
             return Vec::new();
         }
         let is_woff = &font_bytes[0..4] == b"wOFF";
-        let num_tables = if is_woff {
+        let (dir_off, num_tables) = if is_woff {
             if font_bytes.len() < 44 {
                 return Vec::new();
             }
-            u16::from_be_bytes([font_bytes[12], font_bytes[13]]) as usize
+            (0usize, u16::from_be_bytes([font_bytes[12], font_bytes[13]]) as usize)
         } else {
-            let sig = &font_bytes[0..4];
-            if sig != [0, 1, 0, 0] && sig != b"OTTO" && sig != b"true" && sig != b"typ1" {
+            let Some(off) = sfnt_first_dir_offset(font_bytes) else {
                 return Vec::new();
-            }
-            u16::from_be_bytes([font_bytes[4], font_bytes[5]]) as usize
+            };
+            (
+                off,
+                u16::from_be_bytes([font_bytes[off + 4], font_bytes[off + 5]]) as usize,
+            )
         };
         let mut out = Vec::new();
         for i in 0..num_tables.min(128) {
-            let entry = if is_woff { 44 + i * 20 } else { 12 + i * 16 };
+            let entry = if is_woff {
+                44 + i * 20
+            } else {
+                dir_off + 12 + i * 16
+            };
             let entry_len = if is_woff { 20 } else { 16 };
             if entry + entry_len > font_bytes.len() {
                 break;
@@ -332,9 +338,15 @@ struct CoreEmbeddedFontMetadata {
     #[serde(default)]
     id: String,
     #[serde(default)]
+    name: String,
+    #[serde(default)]
     family: String,
     #[serde(default)]
     style: String,
+    #[serde(default)]
+    export_for_actionscript: bool,
+    #[serde(default)]
+    class_name: String,
 }
 
 fn core_requested_style(bold: bool, italic: bool) -> &'static str {
@@ -353,10 +365,13 @@ pub fn is_font_resource_unit(resource: &crate::ResourceUnit) -> bool {
         mime.as_str(),
         "font/ttf"
             | "font/otf"
+            | "font/collection"
             | "font/woff"
             | "font/woff2"
             | "application/font-sfnt"
+            | "application/font-collection"
             | "application/x-font-ttf"
+            | "application/x-font-ttc"
             | "application/x-font-opentype"
             | "application/vnd.ms-opentype"
             | "application/font-woff"
@@ -366,6 +381,8 @@ pub fn is_font_resource_unit(resource: &crate::ResourceUnit) -> bool {
     let path_lower = resource.path.to_ascii_lowercase();
     path_lower.ends_with(".ttf")
         || path_lower.ends_with(".otf")
+        || path_lower.ends_with(".ttc")
+        || path_lower.ends_with(".otc")
         || path_lower.ends_with(".woff")
         || path_lower.ends_with(".woff2")
 }
@@ -666,17 +683,64 @@ pub fn pack_sfnt_to_woff(sfnt: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Returns an SFNT view over raw SFNT or WOFF1 bytes.
+fn is_sfnt_flavor(sig: &[u8]) -> bool {
+    sig == [0, 1, 0, 0] || sig == b"OTTO" || sig == b"true" || sig == b"typ1"
+}
+
+/// Returns the SFNT table-directory byte offsets inside `sfnt`: `[0]` for standalone SFNT,
+/// or each valid face's `tableDirectoryOffset` (from `12 + i * 4`, relative to `&sfnt[0..]`)
+/// for an OpenType/TrueType Collection (`ttcf`).
+pub(crate) fn sfnt_face_dir_offsets(sfnt: &[u8]) -> Option<Vec<usize>> {
+    if sfnt.len() < 12 {
+        return None;
+    }
+    let sig = &sfnt[0..4];
+    if is_sfnt_flavor(sig) {
+        return Some(vec![0]);
+    }
+    if sig == b"ttcf" {
+        if sfnt.len() < 16 {
+            return None;
+        }
+        let num_fonts = u32::from_be_bytes([sfnt[8], sfnt[9], sfnt[10], sfnt[11]]) as usize;
+        if num_fonts == 0 {
+            return None;
+        }
+        let count = num_fonts.min(64);
+        if 12usize.checked_add(count * 4)? > sfnt.len() {
+            return None;
+        }
+        let mut offsets = Vec::with_capacity(count);
+        for i in 0..count {
+            let pos = 12 + i * 4;
+            let dir_off =
+                u32::from_be_bytes([sfnt[pos], sfnt[pos + 1], sfnt[pos + 2], sfnt[pos + 3]])
+                    as usize;
+            if dir_off.checked_add(12).is_some_and(|end| end <= sfnt.len())
+                && is_sfnt_flavor(&sfnt[dir_off..dir_off + 4])
+            {
+                offsets.push(dir_off);
+            }
+        }
+        return (!offsets.is_empty()).then_some(offsets);
+    }
+    None
+}
+
+pub(crate) fn sfnt_first_dir_offset(sfnt: &[u8]) -> Option<usize> {
+    sfnt_face_dir_offsets(sfnt)?.into_iter().next()
+}
+
+/// Returns an SFNT/TTC view over raw SFNT, OpenType/TrueType Collection (`ttcf`), or WOFF1 bytes.
 pub fn sfnt_view_bytes(bytes: &[u8]) -> Option<std::borrow::Cow<'_, [u8]>> {
     if bytes.len() < 12 {
         return None;
     }
-    let sig = &bytes[0..4];
-    if sig == [0, 1, 0, 0] || sig == b"OTTO" || sig == b"true" || sig == b"typ1" {
-        return Some(std::borrow::Cow::Borrowed(bytes));
-    }
-    if sig == b"wOFF" {
+    if &bytes[0..4] == b"wOFF" {
         return unpack_woff_to_sfnt(bytes).map(std::borrow::Cow::Owned);
+    }
+    if sfnt_face_dir_offsets(bytes).is_some() {
+        return Some(std::borrow::Cow::Borrowed(bytes));
     }
     None
 }
@@ -825,14 +889,22 @@ pub(crate) fn parse_cmap_subtables(cmap: &[u8]) -> BTreeMap<u32, u16> {
 
 fn parse_sfnt_cmap_table(bytes: &[u8]) -> Option<std::collections::BTreeMap<u32, u16>> {
     let sfnt = sfnt_view_bytes(bytes)?;
-    let num_tables = u16::from_be_bytes([sfnt[4], sfnt[5]]) as usize;
-    let mut cmap_slice: Option<&[u8]> = None;
-    for i in 0..num_tables.min(128) {
-        let entry = 12 + i * 16;
+    let cmap_slice = sfnt_table_slice(&sfnt, b"cmap")?;
+    Some(parse_cmap_subtables(cmap_slice))
+}
+
+fn sfnt_table_slice_at<'a>(sfnt: &'a [u8], dir_off: usize, wanted_tag: &[u8; 4]) -> Option<&'a [u8]> {
+    if dir_off.checked_add(12)? > sfnt.len() {
+        return None;
+    }
+    let num_tables = u16::from_be_bytes([sfnt[dir_off + 4], sfnt[dir_off + 5]]) as usize;
+    for i in 0..num_tables.min(256) {
+        let entry = dir_off.checked_add(12 + i * 16)?;
         if entry + 16 > sfnt.len() {
             break;
         }
         let tag = &sfnt[entry..entry + 4];
+        // Per OpenType TTC specification, table offsets are always measured from byte 0 of `sfnt`.
         let offset = u32::from_be_bytes([
             sfnt[entry + 8],
             sfnt[entry + 9],
@@ -845,12 +917,628 @@ fn parse_sfnt_cmap_table(bytes: &[u8]) -> Option<std::collections::BTreeMap<u32,
             sfnt[entry + 14],
             sfnt[entry + 15],
         ]) as usize;
-        if tag == b"cmap" && offset.saturating_add(length) <= sfnt.len() {
-            cmap_slice = Some(&sfnt[offset..offset + length]);
-            break;
+        if tag == wanted_tag && offset.checked_add(length).is_some_and(|end| end <= sfnt.len()) {
+            return Some(&sfnt[offset..offset + length]);
         }
     }
-    Some(parse_cmap_subtables(cmap_slice?))
+    None
+}
+
+fn sfnt_table_slice<'a>(sfnt: &'a [u8], wanted_tag: &[u8; 4]) -> Option<&'a [u8]> {
+    let dir_off = sfnt_first_dir_offset(sfnt)?;
+    sfnt_table_slice_at(sfnt, dir_off, wanted_tag)
+}
+
+fn cmap_subtable_glyph_id(cmap: &[u8], sub_off: usize, codepoint: u32) -> Option<u32> {
+    if sub_off.checked_add(4)? > cmap.len() {
+        return None;
+    }
+    let fmt = u16::from_be_bytes([cmap[sub_off], cmap[sub_off + 1]]);
+    match fmt {
+        // Format 12 (segmented coverage) & Format 13 (many-to-one range mappings): BMP + SMP 32-bit
+        12 | 13 => {
+            if sub_off.checked_add(16)? > cmap.len() {
+                return None;
+            }
+            let n_groups = u32::from_be_bytes([
+                cmap[sub_off + 12],
+                cmap[sub_off + 13],
+                cmap[sub_off + 14],
+                cmap[sub_off + 15],
+            ]) as usize;
+            let groups_end = sub_off.checked_add(16)?.checked_add(n_groups.checked_mul(12)?)?;
+            if groups_end > cmap.len() {
+                return None;
+            }
+            let mut lo = 0usize;
+            let mut hi = n_groups;
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2;
+                let grp = sub_off + 16 + mid * 12;
+                let start_c =
+                    u32::from_be_bytes([cmap[grp], cmap[grp + 1], cmap[grp + 2], cmap[grp + 3]]);
+                let end_c = u32::from_be_bytes([
+                    cmap[grp + 4],
+                    cmap[grp + 5],
+                    cmap[grp + 6],
+                    cmap[grp + 7],
+                ]);
+                if codepoint < start_c {
+                    hi = mid;
+                } else if codepoint > end_c {
+                    lo = mid + 1;
+                } else {
+                    let start_gid = u32::from_be_bytes([
+                        cmap[grp + 8],
+                        cmap[grp + 9],
+                        cmap[grp + 10],
+                        cmap[grp + 11],
+                    ]);
+                    let gid = if fmt == 12 {
+                        start_gid.wrapping_add(codepoint - start_c)
+                    } else {
+                        start_gid
+                    };
+                    return Some(gid);
+                }
+            }
+            Some(0)
+        }
+        // Format 4: Segment mapping to delta values (BMP U+0000..=U+FFFF)
+        4 => {
+            if codepoint > 0xFFFF {
+                return Some(0);
+            }
+            if sub_off.checked_add(14)? > cmap.len() {
+                return None;
+            }
+            let seg_count_x2 =
+                u16::from_be_bytes([cmap[sub_off + 6], cmap[sub_off + 7]]) as usize;
+            if seg_count_x2 < 2 || !seg_count_x2.is_multiple_of(2) {
+                return None;
+            }
+            let seg_count = seg_count_x2 / 2;
+            let end_codes = sub_off + 14;
+            let start_codes = end_codes.checked_add(seg_count_x2)?.checked_add(2)?;
+            let id_deltas = start_codes.checked_add(seg_count_x2)?;
+            let id_range_offsets = id_deltas.checked_add(seg_count_x2)?;
+            if id_range_offsets.checked_add(seg_count_x2)? > cmap.len() {
+                return None;
+            }
+            let cp16 = codepoint as u16;
+            let mut lo = 0usize;
+            let mut hi = seg_count;
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2;
+                let end_c =
+                    u16::from_be_bytes([cmap[end_codes + mid * 2], cmap[end_codes + mid * 2 + 1]]);
+                if cp16 > end_c {
+                    lo = mid + 1;
+                } else {
+                    hi = mid;
+                }
+            }
+            if lo >= seg_count {
+                return Some(0);
+            }
+            let end_c = u16::from_be_bytes([cmap[end_codes + lo * 2], cmap[end_codes + lo * 2 + 1]]);
+            let start_c =
+                u16::from_be_bytes([cmap[start_codes + lo * 2], cmap[start_codes + lo * 2 + 1]]);
+            if cp16 < start_c || cp16 > end_c || (start_c == 0xFFFF && cp16 == 0xFFFF) {
+                return Some(0);
+            }
+            let delta =
+                i16::from_be_bytes([cmap[id_deltas + lo * 2], cmap[id_deltas + lo * 2 + 1]]) as i32;
+            let ro_pos = id_range_offsets + lo * 2;
+            let ro = u16::from_be_bytes([cmap[ro_pos], cmap[ro_pos + 1]]) as usize;
+            let gid = if ro == 0 {
+                ((i32::from(cp16) + delta) & 0xFFFF) as u32
+            } else {
+                let glyph_idx_off = ro_pos
+                    .checked_add(ro)?
+                    .checked_add(usize::from(cp16 - start_c) * 2)?;
+                if glyph_idx_off + 2 > cmap.len() {
+                    return Some(0);
+                }
+                let raw = u16::from_be_bytes([cmap[glyph_idx_off], cmap[glyph_idx_off + 1]]);
+                if raw == 0 {
+                    0
+                } else {
+                    ((i32::from(raw) + delta) & 0xFFFF) as u32
+                }
+            };
+            Some(gid)
+        }
+        // Format 6: Trimmed table mapping (BMP contiguous range)
+        6 => {
+            if codepoint > 0xFFFF || sub_off.checked_add(10)? > cmap.len() {
+                return Some(0);
+            }
+            let first_code = u16::from_be_bytes([cmap[sub_off + 6], cmap[sub_off + 7]]);
+            let entry_count = u16::from_be_bytes([cmap[sub_off + 8], cmap[sub_off + 9]]);
+            let cp16 = codepoint as u16;
+            if cp16 < first_code || cp16.saturating_sub(first_code) >= entry_count {
+                return Some(0);
+            }
+            let idx = usize::from(cp16 - first_code);
+            let pos = sub_off + 10 + idx * 2;
+            if pos + 2 > cmap.len() {
+                return Some(0);
+            }
+            Some(u32::from(u16::from_be_bytes([cmap[pos], cmap[pos + 1]])))
+        }
+        // Format 0: Byte encoding table
+        0 => {
+            if codepoint > 0xFF || sub_off.checked_add(6 + 256)? > cmap.len() {
+                return Some(0);
+            }
+            Some(u32::from(cmap[sub_off + 6 + (codepoint as usize)]))
+        }
+        _ => None,
+    }
+}
+
+fn sfnt_cmap_glyph_id_at(sfnt: &[u8], dir_off: usize, codepoint: u32) -> Option<u32> {
+    let cmap = sfnt_table_slice_at(sfnt, dir_off, b"cmap")?;
+    if cmap.len() < 4 {
+        return None;
+    }
+    let num_subtables = u16::from_be_bytes([cmap[2], cmap[3]]) as usize;
+    if num_subtables == 0 {
+        return None;
+    }
+
+    #[derive(Clone, Copy)]
+    struct SubtableCand {
+        rank: u8,
+        sub_off: usize,
+    }
+    let mut cands = Vec::with_capacity(num_subtables.min(64));
+    for i in 0..num_subtables.min(64) {
+        let rec = 4 + i * 8;
+        if rec + 8 > cmap.len() {
+            break;
+        }
+        let platform_id = u16::from_be_bytes([cmap[rec], cmap[rec + 1]]);
+        let encoding_id = u16::from_be_bytes([cmap[rec + 2], cmap[rec + 3]]);
+        let sub_off =
+            u32::from_be_bytes([cmap[rec + 4], cmap[rec + 5], cmap[rec + 6], cmap[rec + 7]])
+                as usize;
+        if sub_off + 2 > cmap.len() {
+            continue;
+        }
+        let fmt = u16::from_be_bytes([cmap[sub_off], cmap[sub_off + 1]]);
+        let rank = match (platform_id, encoding_id, fmt) {
+            (3, 10, 12 | 13) | (0, 4 | 6, 12 | 13) => 0,
+            (_, _, 12 | 13) => 1,
+            (3, 1, 4) | (0, _, 4) => 2,
+            (_, _, 4) => 3,
+            (0 | 3, _, 6 | 0) => 4,
+            (_, _, 6 | 0) => 5,
+            _ => continue,
+        };
+        cands.push(SubtableCand { rank, sub_off });
+    }
+    if cands.is_empty() {
+        return None;
+    }
+    cands.sort_by_key(|c| c.rank);
+
+    let mut saw_valid_subtable = false;
+    for cand in cands {
+        if let Some(gid) = cmap_subtable_glyph_id(cmap, cand.sub_off, codepoint) {
+            saw_valid_subtable = true;
+            if gid > 0 {
+                return Some(gid);
+            }
+        }
+    }
+    saw_valid_subtable.then_some(0)
+}
+
+/// Looks up the exact glyph index for `codepoint` in an SFNT/TTC/WOFF1 font's `cmap` table
+/// without any glyph-count truncation (`Format 12`/`13` for BMP + supplementary planes, `Format 4`/`6`/`0` for BMP).
+/// Returns `None` if `font_bytes` is not a valid SFNT/TTC/WOFF1 font containing a `cmap` table,
+/// or `Some(glyph_id)` (`0` means `.notdef` / missing glyph).
+pub fn sfnt_cmap_glyph_id(font_bytes: &[u8], codepoint: u32) -> Option<u32> {
+    let sfnt = sfnt_view_bytes(font_bytes)?;
+    let dir_off = sfnt_first_dir_offset(&sfnt)?;
+    sfnt_cmap_glyph_id_at(&sfnt, dir_off, codepoint)
+}
+
+fn sfnt_has_glyphs_at(sfnt: &[u8], dir_off: usize, text: &str) -> Option<bool> {
+    // Validate that this face actually contains a readable SFNT `cmap` table.
+    let _ = sfnt_cmap_glyph_id_at(sfnt, dir_off, 0x0020)?;
+    if text.is_empty() {
+        return Some(true);
+    }
+    for ch in text.chars() {
+        let cp = ch as u32;
+        // C0 control characters (including \n, \r, \t, \0) and DEL are not renderable glyphs in Flash Font.hasGlyphs.
+        if cp < 0x20 || cp == 0x7F {
+            return Some(false);
+        }
+        if sfnt_cmap_glyph_id_at(sfnt, dir_off, cp).unwrap_or(0) == 0 {
+            return Some(false);
+        }
+    }
+    Some(true)
+}
+
+/// Evaluates `Font.hasGlyphs(str)` against a real SFNT/TTC/WOFF1 binary's `cmap` table
+/// (Format 4 + Format 12/13, supporting BMP and supplementary plane scalars).
+/// Returns `None` if `font_bytes` is not a valid SFNT/TTC/WOFF1 font with a `cmap` table.
+pub fn sfnt_has_glyphs(font_bytes: &[u8], text: &str) -> Option<bool> {
+    let sfnt = sfnt_view_bytes(font_bytes)?;
+    let dir_off = sfnt_first_dir_offset(&sfnt)?;
+    sfnt_has_glyphs_at(&sfnt, dir_off, text)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmbeddedFontDescriptor {
+    pub resource_id: String,
+    pub class_name: String,
+    pub font_name: String,
+    pub font_style: String,
+    pub font_type: String,
+}
+
+fn decode_sfnt_name_string(platform_id: u16, bytes: &[u8]) -> Option<String> {
+    match platform_id {
+        0 | 3 => {
+            if !bytes.len().is_multiple_of(2) {
+                return None;
+            }
+            let units: Vec<u16> = bytes
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .copied()
+                .map(u16::from_be_bytes)
+                .collect();
+            let s = String::from_utf16(&units).ok()?;
+            let trimmed = s.trim_matches('\0').trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_owned())
+        }
+        1 => {
+            let s: String = bytes
+                .iter()
+                .copied()
+                .filter(|b| (0x20..0x7F).contains(b))
+                .map(char::from)
+                .collect();
+            let trimmed = s.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_owned())
+        }
+        _ => None,
+    }
+}
+
+fn normalize_as3_font_style(raw: &str, bold_flag: bool, italic_flag: bool) -> String {
+    let lower = raw.trim().to_ascii_lowercase();
+    let is_bold = bold_flag || lower.contains("bold") || lower.contains("black") || lower.contains("heavy");
+    let is_italic = italic_flag || lower.contains("italic") || lower.contains("oblique");
+    match (is_bold, is_italic) {
+        (true, true) => "boldItalic".to_owned(),
+        (true, false) => "bold".to_owned(),
+        (false, true) => "italic".to_owned(),
+        (false, false) => "regular".to_owned(),
+    }
+}
+
+fn inspect_sfnt_font_descriptor_at(
+    sfnt: &[u8],
+    dir_off: usize,
+    fallback_family: &str,
+) -> Option<EmbeddedFontDescriptor> {
+    // Require a valid cmap table so non-font dummy bytes do not masquerade as SFNT binaries.
+    let _ = sfnt_cmap_glyph_id_at(sfnt, dir_off, 0x0020)?;
+
+    let mut family_16: Option<(u8, String)> = None;
+    let mut family_1: Option<(u8, String)> = None;
+    let mut subfamily_2: Option<(u8, String)> = None;
+    if let Some(name_tbl) = sfnt_table_slice_at(sfnt, dir_off, b"name")
+        && name_tbl.len() >= 6
+    {
+        let count = u16::from_be_bytes([name_tbl[2], name_tbl[3]]) as usize;
+        let storage_off = u16::from_be_bytes([name_tbl[4], name_tbl[5]]) as usize;
+        for i in 0..count.min(256) {
+            let rec = 6 + i * 12;
+            if rec + 12 > name_tbl.len() {
+                break;
+            }
+            let platform_id = u16::from_be_bytes([name_tbl[rec], name_tbl[rec + 1]]);
+            let language_id = u16::from_be_bytes([name_tbl[rec + 4], name_tbl[rec + 5]]);
+            let name_id = u16::from_be_bytes([name_tbl[rec + 6], name_tbl[rec + 7]]);
+            let length = u16::from_be_bytes([name_tbl[rec + 8], name_tbl[rec + 9]]) as usize;
+            let offset = u16::from_be_bytes([name_tbl[rec + 10], name_tbl[rec + 11]]) as usize;
+            let str_start = storage_off.saturating_add(offset);
+            let str_end = str_start.saturating_add(length);
+            if str_end > name_tbl.len() {
+                continue;
+            }
+            let prio = match (platform_id, language_id) {
+                (3, 0x0409) => 0,
+                (3, _) => 1,
+                (0, _) => 2,
+                (1, 0) => 3,
+                (1, _) => 4,
+                _ => continue,
+            };
+            let Some(decoded) = decode_sfnt_name_string(platform_id, &name_tbl[str_start..str_end])
+            else {
+                continue;
+            };
+            match name_id {
+                16 if family_16.as_ref().is_none_or(|(p, _)| prio < *p) => {
+                    family_16 = Some((prio, decoded));
+                }
+                1 if family_1.as_ref().is_none_or(|(p, _)| prio < *p) => {
+                    family_1 = Some((prio, decoded));
+                }
+                2 if subfamily_2.as_ref().is_none_or(|(p, _)| prio < *p) => {
+                    subfamily_2 = Some((prio, decoded));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut bold_flag = false;
+    let mut italic_flag = false;
+    if let Some(os2) = sfnt_table_slice_at(sfnt, dir_off, b"OS/2") {
+        if os2.len() >= 6 {
+            let weight_class = u16::from_be_bytes([os2[4], os2[5]]);
+            if weight_class >= 600 {
+                bold_flag = true;
+            }
+        }
+        if os2.len() >= 64 {
+            let fs_selection = u16::from_be_bytes([os2[62], os2[63]]);
+            if fs_selection & 0x0001 != 0 {
+                italic_flag = true;
+            }
+            if fs_selection & 0x0020 != 0 {
+                bold_flag = true;
+            }
+        }
+    } else if let Some(head) = sfnt_table_slice_at(sfnt, dir_off, b"head")
+        && head.len() >= 46
+    {
+        let mac_style = u16::from_be_bytes([head[44], head[45]]);
+        bold_flag |= mac_style & 0x0001 != 0;
+        italic_flag |= mac_style & 0x0002 != 0;
+    }
+
+    let font_name = family_16
+        .map(|(_, v)| v)
+        .or_else(|| family_1.map(|(_, v)| v))
+        .unwrap_or_else(|| fallback_family.trim().to_owned());
+    let subfam = subfamily_2.map(|(_, v)| v).unwrap_or_default();
+    let font_style = normalize_as3_font_style(&subfam, bold_flag, italic_flag);
+    let has_cff = sfnt_table_slice_at(sfnt, dir_off, b"CFF ").is_some()
+        || sfnt_table_slice_at(sfnt, dir_off, b"CFF2").is_some();
+    let has_glyf = sfnt_table_slice_at(sfnt, dir_off, b"glyf").is_some();
+    let font_type = if has_cff && !has_glyf {
+        "embeddedCFF".to_owned()
+    } else {
+        "embedded".to_owned()
+    };
+
+    Some(EmbeddedFontDescriptor {
+        resource_id: String::new(),
+        class_name: String::new(),
+        font_name,
+        font_style,
+        font_type,
+    })
+}
+
+/// Extracts AS3 `Font` descriptor metadata (`fontName`, `fontStyle`, `fontType`) from SFNT/TTC/WOFF1 bytes.
+pub fn inspect_sfnt_font_descriptor(
+    font_bytes: &[u8],
+    fallback_family: &str,
+) -> Option<EmbeddedFontDescriptor> {
+    let sfnt = sfnt_view_bytes(font_bytes)?;
+    let dir_off = sfnt_first_dir_offset(&sfnt)?;
+    inspect_sfnt_font_descriptor_at(&sfnt, dir_off, fallback_family)
+}
+
+/// Enumerates embedded font descriptors in `project.resources` (combining real SFNT/TTC/WOFF1
+/// binaries — including multi-face `ttcf` collections — and `fonts/embedding.json` metadata).
+pub fn enumerate_project_embedded_fonts(project: &crate::Project) -> Vec<EmbeddedFontDescriptor> {
+    let metadata_list: Vec<CoreEmbeddedFontMetadata> = project
+        .resources
+        .iter()
+        .find(|resource| resource.path.eq_ignore_ascii_case("fonts/embedding.json"))
+        .and_then(|resource| resource.decoded_bytes().ok())
+        .and_then(|bytes| serde_json::from_slice::<Vec<CoreEmbeddedFontMetadata>>(&bytes).ok())
+        .unwrap_or_default();
+    let metadata_by_id: BTreeMap<String, &CoreEmbeddedFontMetadata> = metadata_list
+        .iter()
+        .filter(|entry| !entry.id.is_empty())
+        .map(|entry| (entry.id.clone(), entry))
+        .collect();
+
+    let mut out = Vec::new();
+    let mut seen_ids = std::collections::BTreeSet::new();
+    for res in &project.resources {
+        if !is_font_resource_unit(res) {
+            continue;
+        }
+        seen_ids.insert(res.id.clone());
+        let fallback_family = font_family_for_resource_unit(res);
+        let meta = metadata_by_id.get(&res.id).copied();
+        let decoded = res.decoded_bytes().ok();
+        let faces: Vec<EmbeddedFontDescriptor> = decoded
+            .as_deref()
+            .and_then(sfnt_view_bytes)
+            .and_then(|sfnt| {
+                let offsets = sfnt_face_dir_offsets(&sfnt)?;
+                let parsed: Vec<EmbeddedFontDescriptor> = offsets
+                    .into_iter()
+                    .filter_map(|off| inspect_sfnt_font_descriptor_at(&sfnt, off, &fallback_family))
+                    .collect();
+                (!parsed.is_empty()).then_some(parsed)
+            })
+            .unwrap_or_default();
+
+        if faces.len() > 1 {
+            for face in faces {
+                out.push(EmbeddedFontDescriptor {
+                    resource_id: res.id.clone(),
+                    class_name: String::new(),
+                    font_name: face.font_name,
+                    font_style: face.font_style,
+                    font_type: face.font_type,
+                });
+            }
+            continue;
+        }
+
+        let inspected = faces.into_iter().next();
+        let font_name = meta
+            .filter(|m| !m.family.trim().is_empty())
+            .map(|m| m.family.trim().to_owned())
+            .or_else(|| {
+                inspected
+                    .as_ref()
+                    .filter(|d| !d.font_name.is_empty())
+                    .map(|d| d.font_name.clone())
+            })
+            .unwrap_or(fallback_family);
+        let font_style = meta
+            .filter(|m| !m.style.trim().is_empty())
+            .map(|m| normalize_as3_font_style(&m.style, false, false))
+            .or_else(|| inspected.as_ref().map(|d| d.font_style.clone()))
+            .unwrap_or_else(|| "regular".to_owned());
+        let font_type = inspected
+            .as_ref()
+            .map(|d| d.font_type.clone())
+            .unwrap_or_else(|| "embedded".to_owned());
+        let class_name = meta
+            .filter(|m| m.export_for_actionscript && !m.class_name.trim().is_empty())
+            .map(|m| m.class_name.trim().to_owned())
+            .unwrap_or_default();
+
+        out.push(EmbeddedFontDescriptor {
+            resource_id: res.id.clone(),
+            class_name,
+            font_name,
+            font_style,
+            font_type,
+        });
+    }
+
+    for meta in &metadata_list {
+        if !meta.id.is_empty() && seen_ids.contains(&meta.id) {
+            continue;
+        }
+        let family = if !meta.family.trim().is_empty() {
+            meta.family.trim().to_owned()
+        } else if !meta.name.trim().is_empty() {
+            meta.name.trim().to_owned()
+        } else {
+            continue;
+        };
+        out.push(EmbeddedFontDescriptor {
+            resource_id: meta.id.clone(),
+            class_name: if meta.export_for_actionscript {
+                meta.class_name.trim().to_owned()
+            } else {
+                String::new()
+            },
+            font_name: family,
+            font_style: normalize_as3_font_style(&meta.style, false, false),
+            font_type: "embedded".to_owned(),
+        });
+    }
+    out
+}
+
+/// Checks `Font.hasGlyphs(text)` against a matching SFNT/TTC/WOFF1 binary in `project.resources`.
+/// Returns `Some(bool)` when a real SFNT binary with `cmap` exists for `(font_name, font_style, font_type)`,
+/// or `None` when no matching SFNT binary is embedded in `project.resources`.
+pub fn project_font_has_glyphs(
+    project: &crate::Project,
+    font_name: &str,
+    font_style: &str,
+    font_type: &str,
+    text: &str,
+) -> Option<bool> {
+    let wanted = font_name.trim();
+    if wanted.is_empty() || font_type.eq_ignore_ascii_case("device") {
+        return None;
+    }
+    let wanted_style = if font_style.trim().is_empty() {
+        "regular".to_owned()
+    } else {
+        normalize_as3_font_style(font_style, false, false)
+    };
+    let metadata_list: Vec<CoreEmbeddedFontMetadata> = project
+        .resources
+        .iter()
+        .find(|resource| resource.path.eq_ignore_ascii_case("fonts/embedding.json"))
+        .and_then(|resource| resource.decoded_bytes().ok())
+        .and_then(|bytes| serde_json::from_slice::<Vec<CoreEmbeddedFontMetadata>>(&bytes).ok())
+        .unwrap_or_default();
+    let metadata_by_id: BTreeMap<String, &CoreEmbeddedFontMetadata> = metadata_list
+        .iter()
+        .filter(|entry| !entry.id.is_empty())
+        .map(|entry| (entry.id.clone(), entry))
+        .collect();
+
+    let mut family_fallback_face: Option<(Vec<u8>, usize)> = None;
+    for res in &project.resources {
+        if !is_font_resource_unit(res) {
+            continue;
+        }
+        let Ok(bytes) = res.decoded_bytes() else {
+            continue;
+        };
+        let Some(sfnt) = sfnt_view_bytes(&bytes) else {
+            continue;
+        };
+        let Some(dir_offsets) = sfnt_face_dir_offsets(&sfnt) else {
+            continue;
+        };
+        let fallback_family = font_family_for_resource_unit(res);
+        let meta = metadata_by_id.get(&res.id).copied();
+        let multi_face = dir_offsets.len() > 1;
+        for dir_off in dir_offsets {
+            let Some(inspected) = inspect_sfnt_font_descriptor_at(&sfnt, dir_off, &fallback_family)
+            else {
+                continue;
+            };
+            let matches_name = inspected.font_name.eq_ignore_ascii_case(wanted)
+                || (!multi_face && fallback_family.eq_ignore_ascii_case(wanted))
+                || res.id.eq_ignore_ascii_case(wanted)
+                || (!multi_face
+                    && meta.is_some_and(|m| {
+                        m.family.trim().eq_ignore_ascii_case(wanted)
+                            || m.name.trim().eq_ignore_ascii_case(wanted)
+                            || m.class_name.trim().eq_ignore_ascii_case(wanted)
+                    }));
+            if !matches_name {
+                continue;
+            }
+            let eff_style = if !multi_face {
+                meta.filter(|m| !m.style.trim().is_empty())
+                    .map(|m| normalize_as3_font_style(&m.style, false, false))
+                    .unwrap_or_else(|| inspected.font_style.clone())
+            } else {
+                inspected.font_style.clone()
+            };
+            if eff_style == wanted_style {
+                return sfnt_has_glyphs_at(&sfnt, dir_off, text);
+            }
+            if family_fallback_face.is_none() {
+                family_fallback_face = Some((sfnt.as_ref().to_vec(), dir_off));
+            }
+        }
+    }
+    family_fallback_face
+        .and_then(|(sfnt_bytes, dir_off)| sfnt_has_glyphs_at(&sfnt_bytes, dir_off, text))
 }
 
 fn glyf_slice_for_gid<'a>(
@@ -1328,6 +2016,265 @@ mod fonts_tests {
             (fitted.box_size.as_ref().expect("box_size").width - 244.0).abs() < 2.5,
             "expected WOFF1 embedded advance width (~244.0), got {:?}",
             fitted.box_size
+        );
+    }
+
+    fn build_sfnt_from_tables(sfnt_tag: [u8; 4], tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
+        let num_tables = tables.len() as u16;
+        let mut out = Vec::new();
+        out.extend_from_slice(&sfnt_tag);
+        out.extend_from_slice(&num_tables.to_be_bytes());
+        out.extend_from_slice(&0u16.to_be_bytes());
+        out.extend_from_slice(&0u16.to_be_bytes());
+        out.extend_from_slice(&0u16.to_be_bytes());
+        let mut offset = 12 + tables.len() * 16;
+        for (tag, data) in tables {
+            out.extend_from_slice(tag);
+            out.extend_from_slice(&0u32.to_be_bytes());
+            out.extend_from_slice(&(offset as u32).to_be_bytes());
+            out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            offset += data.len();
+        }
+        for (_, data) in tables {
+            out.extend_from_slice(data);
+        }
+        out
+    }
+
+    fn build_utf16be_name_table(family: &str, subfamily: &str) -> Vec<u8> {
+        let enc = |s: &str| -> Vec<u8> {
+            s.encode_utf16().flat_map(u16::to_be_bytes).collect()
+        };
+        let fam_bytes = enc(family);
+        let sub_bytes = enc(subfamily);
+        let mut tbl = Vec::new();
+        tbl.extend_from_slice(&0u16.to_be_bytes()); // format 0
+        tbl.extend_from_slice(&2u16.to_be_bytes()); // count = 2
+        let storage_off = (6 + 2 * 12) as u16;
+        tbl.extend_from_slice(&storage_off.to_be_bytes());
+        // Record 0: nameID 1 (Family)
+        tbl.extend_from_slice(&3u16.to_be_bytes()); // Windows
+        tbl.extend_from_slice(&1u16.to_be_bytes()); // Unicode BMP
+        tbl.extend_from_slice(&0x0409u16.to_be_bytes()); // en-US
+        tbl.extend_from_slice(&1u16.to_be_bytes()); // nameID 1
+        tbl.extend_from_slice(&(fam_bytes.len() as u16).to_be_bytes());
+        tbl.extend_from_slice(&0u16.to_be_bytes());
+        // Record 1: nameID 2 (Subfamily)
+        tbl.extend_from_slice(&3u16.to_be_bytes());
+        tbl.extend_from_slice(&1u16.to_be_bytes());
+        tbl.extend_from_slice(&0x0409u16.to_be_bytes());
+        tbl.extend_from_slice(&2u16.to_be_bytes()); // nameID 2
+        tbl.extend_from_slice(&(sub_bytes.len() as u16).to_be_bytes());
+        tbl.extend_from_slice(&(fam_bytes.len() as u16).to_be_bytes());
+        tbl.extend_from_slice(&fam_bytes);
+        tbl.extend_from_slice(&sub_bytes);
+        tbl
+    }
+
+    #[test]
+    fn t326_sfnt_cmap_format4_and_format12_font_has_glyphs_and_descriptor() {
+        // 1. Format-4-only TrueType font mapping space (0x20), 'A'..'Z' (65..=90),
+        // Cyrillic 'Я' (0x042F) via idDelta, Greek 'Ω' (0x03A9) via non-zero idRangeOffset,
+        // and Hiragana 'あ' (0x3042) via idDelta.
+        let seg_count: u16 = 6; // 0x20, 65..90, 0x03A9, 0x042F, 0x3042, 0xFFFF
+        let end_codes: [u16; 6] = [0x0020, 0x005A, 0x03A9, 0x042F, 0x3042, 0xFFFF];
+        let start_codes: [u16; 6] = [0x0020, 0x0041, 0x03A9, 0x042F, 0x3042, 0xFFFF];
+        // Segment 2 (0x03A9) uses glyphIdArray (1 u16 entry = glyph 30) via idRangeOffset:
+        // range_off_pos is at sub_start + 16 + 3*segCount*2 + 2*2; glyphIdArray starts at sub_start + 16 + 4*segCount*2.
+        // Byte distance from range_off_pos (segment index 2 out of 6) to glyphIdArray[0] = (6 - 2) * 2 = 8!
+        let id_deltas: [i16; 6] = [
+            1 - 0x0020,
+            2 - 0x0041,
+            0,
+            40 - 0x042F,
+            50 - 0x3042,
+            1,
+        ];
+        let id_range_offsets: [u16; 6] = [0, 0, 8, 0, 0, 0];
+
+        let mut fmt4 = Vec::new();
+        let sub_len: u16 = 16 + 4 * seg_count * 2 + 2; // + 1 u16 in glyphIdArray
+        fmt4.extend_from_slice(&4u16.to_be_bytes());
+        fmt4.extend_from_slice(&sub_len.to_be_bytes());
+        fmt4.extend_from_slice(&0u16.to_be_bytes());
+        fmt4.extend_from_slice(&(seg_count * 2).to_be_bytes());
+        fmt4.extend_from_slice(&8u16.to_be_bytes());
+        fmt4.extend_from_slice(&2u16.to_be_bytes());
+        fmt4.extend_from_slice(&4u16.to_be_bytes());
+        for v in end_codes {
+            fmt4.extend_from_slice(&v.to_be_bytes());
+        }
+        fmt4.extend_from_slice(&0u16.to_be_bytes()); // reservedPad
+        for v in start_codes {
+            fmt4.extend_from_slice(&v.to_be_bytes());
+        }
+        for v in id_deltas {
+            fmt4.extend_from_slice(&(v as u16).to_be_bytes());
+        }
+        for v in id_range_offsets {
+            fmt4.extend_from_slice(&v.to_be_bytes());
+        }
+        fmt4.extend_from_slice(&30u16.to_be_bytes()); // glyphIdArray[0] -> glyph 30 for 'Ω'
+
+        let mut cmap4 = Vec::new();
+        cmap4.extend_from_slice(&0u16.to_be_bytes());
+        cmap4.extend_from_slice(&1u16.to_be_bytes());
+        cmap4.extend_from_slice(&3u16.to_be_bytes()); // Windows
+        cmap4.extend_from_slice(&1u16.to_be_bytes()); // Unicode BMP
+        cmap4.extend_from_slice(&12u32.to_be_bytes());
+        cmap4.extend_from_slice(&fmt4);
+
+        let mut head = vec![0u8; 54];
+        head[18..20].copy_from_slice(&1000u16.to_be_bytes());
+        head[44..46].copy_from_slice(&0x0003u16.to_be_bytes()); // macStyle bold + italic
+        let sfnt4 = build_sfnt_from_tables(
+            [0, 1, 0, 0],
+            &[
+                (*b"cmap", cmap4),
+                (*b"head", head.clone()),
+                (*b"name", build_utf16be_name_table("NeoBmpSans", "Bold Italic")),
+            ],
+        );
+
+        assert_eq!(sfnt_has_glyphs(&sfnt4, "AZЯあΩ "), Some(true));
+        assert_eq!(sfnt_has_glyphs(&sfnt4, "AЖ"), Some(false)); // unmapped BMP Cyrillic 'Ж'
+        assert_eq!(sfnt_has_glyphs(&sfnt4, "A😀"), Some(false)); // SMP not in Format 4
+        assert_eq!(sfnt_has_glyphs(&sfnt4, "A\nB"), Some(false)); // newline control rejected
+        let desc4 = inspect_sfnt_font_descriptor(&sfnt4, "Fallback").expect("desc4");
+        assert_eq!(desc4.font_name, "NeoBmpSans");
+        assert_eq!(desc4.font_style, "boldItalic");
+        assert_eq!(desc4.font_type, "embedded");
+
+        // 2. Format-12 OpenType/CFF font mapping space (0x20), BMP '漢' (0x6F22),
+        // SMP CJK Extension B '𠮷' (0x20BB7), and SMP emoji '😀' (0x1F600).
+        let mut cmap12 = Vec::new();
+        cmap12.extend_from_slice(&0u16.to_be_bytes());
+        cmap12.extend_from_slice(&1u16.to_be_bytes());
+        cmap12.extend_from_slice(&3u16.to_be_bytes()); // Windows
+        cmap12.extend_from_slice(&10u16.to_be_bytes()); // Unicode full repertoire
+        cmap12.extend_from_slice(&12u32.to_be_bytes());
+        cmap12.extend_from_slice(&12u16.to_be_bytes()); // format 12
+        cmap12.extend_from_slice(&0u16.to_be_bytes());
+        cmap12.extend_from_slice(&(16u32 + 4 * 12).to_be_bytes());
+        cmap12.extend_from_slice(&0u32.to_be_bytes());
+        cmap12.extend_from_slice(&4u32.to_be_bytes()); // 4 groups (sorted by startCharCode!)
+        for (start, end, gid) in [
+            (0x0020u32, 0x0020u32, 1u32),
+            (0x6F22u32, 0x6F22u32, 2u32),
+            (0x1F600u32, 0x1F605u32, 10u32),
+            (0x20BB7u32, 0x20BB7u32, 20u32),
+        ] {
+            cmap12.extend_from_slice(&start.to_be_bytes());
+            cmap12.extend_from_slice(&end.to_be_bytes());
+            cmap12.extend_from_slice(&gid.to_be_bytes());
+        }
+        let mut head_reg = vec![0u8; 54];
+        head_reg[18..20].copy_from_slice(&1000u16.to_be_bytes());
+        let sfnt12 = build_sfnt_from_tables(
+            *b"OTTO",
+            &[
+                (*b"CFF ", vec![1, 0, 4, 1]),
+                (*b"cmap", cmap12),
+                (*b"head", head_reg),
+                (*b"name", build_utf16be_name_table("NeoSmpCff", "Regular")),
+            ],
+        );
+
+        assert_eq!(sfnt_has_glyphs(&sfnt12, "漢 𠮷 😀"), Some(true));
+        assert_eq!(sfnt_has_glyphs(&sfnt12, "漢🚀"), Some(false)); // 0x1F680 unmapped
+        let desc12 = inspect_sfnt_font_descriptor(&sfnt12, "Fallback").expect("desc12");
+        assert_eq!(desc12.font_name, "NeoSmpCff");
+        assert_eq!(desc12.font_style, "regular");
+        assert_eq!(desc12.font_type, "embeddedCFF");
+
+        // Project enumeration + lookup end-to-end
+        let mut project = crate::Project::blank();
+        project.resources.push(
+            crate::ResourceUnit::from_bytes("f4", "fonts/NeoBmpSans.ttf", "font/ttf", &sfnt4).unwrap(),
+        );
+        project.resources.push(
+            crate::ResourceUnit::from_bytes("f12", "fonts/NeoSmpCff.otf", "font/otf", &sfnt12).unwrap(),
+        );
+        let enumerated = enumerate_project_embedded_fonts(&project);
+        assert_eq!(enumerated.len(), 2);
+        assert_eq!(
+            project_font_has_glyphs(&project, "NeoBmpSans", "boldItalic", "", "AZΩ"),
+            Some(true)
+        );
+        assert_eq!(
+            project_font_has_glyphs(&project, "NeoBmpSans", "boldItalic", "", "😀"),
+            Some(false)
+        );
+        assert_eq!(
+            project_font_has_glyphs(&project, "NeoSmpCff", "regular", "embeddedCFF", "𠮷😀"),
+            Some(true)
+        );
+
+        // 3. Synthetic 2-face OpenType Collection (`ttcf` v1.0, `numFonts = 2`, table record
+        //    offsets relative to `&ttc[0..]` per OpenType TTC spec): face 0 = sfnt4, face 1 = sfnt12.
+        fn pack_sfnts_into_ttc(faces: &[&[u8]]) -> Vec<u8> {
+            let header_len = 12 + faces.len() * 4;
+            let mut out = Vec::new();
+            out.extend_from_slice(b"ttcf");
+            out.extend_from_slice(&1u16.to_be_bytes());
+            out.extend_from_slice(&0u16.to_be_bytes());
+            out.extend_from_slice(&(faces.len() as u32).to_be_bytes());
+            out.resize(header_len, 0);
+            for (idx, face) in faces.iter().enumerate() {
+                while !out.len().is_multiple_of(4) {
+                    out.push(0);
+                }
+                let base = out.len();
+                let off_pos = 12 + idx * 4;
+                out[off_pos..off_pos + 4].copy_from_slice(&(base as u32).to_be_bytes());
+                let mut relocated = face.to_vec();
+                let num_tables = u16::from_be_bytes([relocated[4], relocated[5]]) as usize;
+                for t in 0..num_tables {
+                    let rec_off = 12 + t * 16 + 8;
+                    let orig_table_off = u32::from_be_bytes([
+                        relocated[rec_off],
+                        relocated[rec_off + 1],
+                        relocated[rec_off + 2],
+                        relocated[rec_off + 3],
+                    ]) as usize;
+                    let new_table_off = (base + orig_table_off) as u32;
+                    relocated[rec_off..rec_off + 4].copy_from_slice(&new_table_off.to_be_bytes());
+                }
+                out.extend_from_slice(&relocated);
+            }
+            out
+        }
+
+        let ttc = pack_sfnts_into_ttc(&[&sfnt4, &sfnt12]);
+        assert_eq!(sfnt_has_glyphs(&ttc, "AZЯあΩ "), Some(true));
+        assert_eq!(sfnt_has_glyphs(&ttc, "A😀"), Some(false));
+        let ttc_desc = inspect_sfnt_font_descriptor(&ttc, "Fallback").expect("ttc face 0 desc");
+        assert_eq!(ttc_desc.font_name, "NeoBmpSans");
+
+        let mut ttc_project = crate::Project::blank();
+        ttc_project.resources.push(
+            crate::ResourceUnit::from_bytes("ttc1", "fonts/NeoBundle.ttc", "font/collection", &ttc)
+                .unwrap(),
+        );
+        let ttc_enum = enumerate_project_embedded_fonts(&ttc_project);
+        assert_eq!(ttc_enum.len(), 2);
+        assert_eq!(ttc_enum[0].font_name, "NeoBmpSans");
+        assert_eq!(ttc_enum[1].font_name, "NeoSmpCff");
+        assert_eq!(
+            project_font_has_glyphs(&ttc_project, "NeoBmpSans", "boldItalic", "", "AZΩ"),
+            Some(true)
+        );
+        assert_eq!(
+            project_font_has_glyphs(&ttc_project, "NeoBmpSans", "boldItalic", "", "😀"),
+            Some(false)
+        );
+        assert_eq!(
+            project_font_has_glyphs(&ttc_project, "NeoSmpCff", "regular", "embeddedCFF", "𠮷😀"),
+            Some(true)
+        );
+        assert_eq!(
+            project_font_has_glyphs(&ttc_project, "NeoSmpCff", "regular", "embeddedCFF", "🚀"),
+            Some(false)
         );
     }
 }

@@ -2563,18 +2563,69 @@
       get text() { return contentElemMap.get(this).text; }
       set text(v) {
         const st = contentElemMap.get(this);
-        st.text = v === null || v === undefined ? '' : String(v);
+        const s = v === null || v === undefined ? '' : String(v);
+        for (let i = 0; i < s.length; i++) {
+          const u = s.charCodeAt(i);
+          if (u >= 0xd800 && u <= 0xdbff) {
+            const low = s.charCodeAt(++i);
+            if (!(low >= 0xdc00 && low <= 0xdfff)) {
+              throw rangeError('RangeError: TextElement.text must preserve complete Unicode characters.');
+            }
+          } else if (u >= 0xdc00 && u <= 0xdfff) {
+            throw rangeError('RangeError: TextElement.text must preserve complete Unicode characters.');
+          }
+        }
+        st.text = s;
         st.rawText = st.text;
         notifyHierarchyChange(this);
       }
       replaceText(beginIndex, endIndex, newText) {
         const st = contentElemMap.get(this);
-        const b = Number(beginIndex) | 0;
-        const e = Number(endIndex) | 0;
-        if (b < 0 || e < b || e > st.text.length) {
+        const nb = Number(beginIndex);
+        const ne = Number(endIndex);
+        if (!Number.isFinite(nb) || !Number.isFinite(ne)) {
+          throw rangeError('RangeError: TextElement.replaceText index out of bounds.');
+        }
+        const rawB = Math.trunc(nb);
+        const rawE = Math.trunc(ne);
+        if (rawB < 0 || rawE < rawB || rawE > st.text.length) {
           throw rangeError('RangeError: TextElement.replaceText index out of bounds.');
         }
         const rep = newText === null || newText === undefined ? '' : String(newText);
+        for (let i = 0; i < rep.length; i++) {
+          const u = rep.charCodeAt(i);
+          if (u >= 0xd800 && u <= 0xdbff) {
+            const low = rep.charCodeAt(++i);
+            if (!(low >= 0xdc00 && low <= 0xdfff)) {
+              throw rangeError('RangeError: TextElement.replaceText must preserve complete Unicode characters.');
+            }
+          } else if (u >= 0xdc00 && u <= 0xdfff) {
+            throw rangeError('RangeError: TextElement.replaceText must preserve complete Unicode characters.');
+          }
+        }
+        let b = rawB;
+        let e = rawE;
+        if (st.text.length > 0 && typeof wasm?.grapheme_boundaries_utf16 === 'function') {
+          const bounds = wasm.grapheme_boundaries_utf16(st.text);
+          let floorB = 0;
+          for (let i = 0; i < bounds.length; i++) {
+            if (bounds[i] <= rawB) floorB = bounds[i];
+            else break;
+          }
+          b = floorB;
+          if (rawE > rawB) {
+            let ceilE = st.text.length;
+            for (let i = 0; i < bounds.length; i++) {
+              if (bounds[i] >= rawE) {
+                ceilE = bounds[i];
+                break;
+              }
+            }
+            e = ceilE;
+          } else {
+            e = b;
+          }
+        }
         st.text = st.text.slice(0, b) + rep + st.text.slice(e);
         st.rawText = st.text;
         notifyHierarchyChange(this);
@@ -2734,9 +2785,30 @@
         if (!tst || tst.kind !== 'text') {
           throw argError('ArgumentError: splitTextElement target must be a TextElement.');
         }
-        const si = Number(splitIndex) | 0;
-        if (si <= 0 || si >= tst.text.length) {
+        const rawSi = Number(splitIndex) | 0;
+        if (rawSi <= 0 || rawSi >= tst.text.length) {
           throw rangeError('RangeError: splitTextElement splitIndex out of bounds.');
+        }
+        let si = rawSi;
+        if (typeof wasm?.grapheme_boundaries_utf16 === 'function') {
+          const bounds = wasm.grapheme_boundaries_utf16(tst.text);
+          let snapped = 0;
+          for (let i = 0; i < bounds.length; i++) {
+            if (bounds[i] <= rawSi) snapped = bounds[i];
+            else break;
+          }
+          if (snapped <= 0 || snapped >= tst.text.length) {
+            for (let i = 0; i < bounds.length; i++) {
+              if (bounds[i] >= rawSi && bounds[i] > 0 && bounds[i] < tst.text.length) {
+                snapped = bounds[i];
+                break;
+              }
+            }
+          }
+          if (snapped <= 0 || snapped >= tst.text.length) {
+            throw rangeError('RangeError: splitTextElement cannot split a single grapheme cluster.');
+          }
+          si = snapped;
         }
         const rightText = tst.text.slice(si);
         tst.text = tst.text.slice(0, si);
@@ -4427,6 +4499,16 @@
       globalToLocal3D,
       rasterizeShaderToBitmapData,
       inspectSwfBytes: bytes => JSON.parse(kcall(() => kernel.inspect_swf_bytes_json(bytes))),
+      fontHasGlyphs: (fontBytes, textValue) => {
+        if (!(fontBytes instanceof Uint8Array)) throw new TypeError('fontHasGlyphs requires a Uint8Array.');
+        if (textValue === null || textValue === undefined) throw new TypeError('fontHasGlyphs requires a String.');
+        if (typeof wasm?.sfnt_font_has_glyphs !== 'function') {
+          throw new Error('SFNT cmap glyph inspection kernel is unavailable.');
+        }
+        const r = wasm.sfnt_font_has_glyphs(fontBytes, String(textValue));
+        if (r < 0) throw argError('ArgumentError: Invalid SFNT/OpenType font bytes.');
+        return r === 1;
+      },
       GraphicsShaderFill,
       Shader,
       FallbackUncaughtErrorEvents,

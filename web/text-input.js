@@ -22,23 +22,42 @@
     function target(value){if(referenceOf(value))return value;const ref=typeof value==='string'?JSON.parse(value):value;return proxyForRef(ref);}
     function entry(value){const receiver=target(value),ref=referenceOf(receiver);if(!ref||!display.alive(receiver)||display.descriptor(receiver).owner!=='text')throw new TypeError('Text editing requires a live TextField.');return {receiver,key:ref.key,field:text.info(ref.key)};}
     function alive(record){return record&&!disposed&&display.alive(record.target);}
-    function editable(field){return field.field_type==='input';}
+    function editable(field){return field.field_type==='input'&&field.interaction_mode!=='selection';}
+    function mountsDom(field){return field.field_type==='input'&&(field.interaction_mode!=='selection'||field.selectable!==false);}
     // Canvas owns AS2 custom paragraph layout. A plain native textarea cannot
     // preserve its bullets or explicit tab columns, so keep that text on Canvas.
-    function selectable(field){return (editable(field)||field.selectable!==false)&&!field.format.bullet&&!field.format.tabStops?.length;}
+    function selectable(field){return (mountsDom(field)||field.selectable!==false)&&!field.format.bullet&&!field.format.tabStops?.length;}
+    text.bindInteractionModeChange?.(ref=>{
+      if(disposed)return;
+      if(typeof player.object_alive==='function'&&!player.object_alive(ref))return;
+      const receiver=target(ref);
+      if(receiver&&display.alive(receiver)&&events.Event){
+        hub.dispatch(receiver,new events.Event(events.Event.TEXT_INTERACTION_MODE_CHANGE||'textInteractionModeChange',true,false));
+      }
+      if(active?.key===ref){
+        const nextField=text.info(ref);
+        active.field=nextField;
+        if(!selectable(nextField)){stage.changeFocus(null);return;}
+        if(active.control)active.control.readOnly=!editable(nextField);
+      }
+    });
     function legacy(receiver,name,args){if(!receiver||!display.alive(receiver))return;options.beforeLegacyTextEvent?.(receiver,name,args);const fn=receiver[name];if(typeof fn==='function')Reflect.apply(fn,receiver,args);options.onLegacyTextEvent?.(receiver,name,args);}
     function commit(value,proposal){
       open();const {receiver,key,field}=entry(value),expected=proposal.expected_revision??field.revision;
       if(typeof proposal.text!=='string')throw new TypeError('User text insertion requires a String.');
+      if(field.interaction_mode==='selection'){sync(key,true);return field;}
       let insert=proposal.text;
       if(insert.length){
         const event=new events.TextEvent(events.TextEvent.TEXT_INPUT,true,true,insert);
-        if(!hub.dispatch(receiver,event)){sync(key);return text.info(key);}
+        if(!hub.dispatch(receiver,event)){sync(key,true);return text.info(key);}
         if(!display.alive(receiver))return null;
         insert=event.text;if(typeof insert!=='string')throw new TypeError('TextEvent.text must remain a String.');
       }
-      const result=JSON.parse(player.object_text_input(key,JSON.stringify({expected_revision:expected,begin:proposal.begin,end:proposal.end,text:insert})));
-      sync(key);
+      const useRich=Array.isArray(proposal.runs)&&proposal.runs.length>0&&insert===proposal.text&&typeof player.object_text_rich_input==='function';
+      const result=useRich
+        ?JSON.parse(player.object_text_rich_input(key,JSON.stringify({expected_revision:expected,begin:proposal.begin,end:proposal.end,text:insert,runs:proposal.runs})))
+        :JSON.parse(player.object_text_input(key,JSON.stringify({expected_revision:expected,begin:proposal.begin,end:proposal.end,text:insert})));
+      sync(key,true);
       if(result.text!==field.text){
         hub.dispatch(receiver,new events.Event(events.Event.CHANGE,true,false));
         if(display.alive(receiver))legacy(receiver,'onChanged',[receiver]);
@@ -47,14 +66,16 @@
     }
     function selection(record){
       if(!alive(record)||record.composing||!record.control)return;
-      const field=text.info(record.key),begin=record.control.selectionStart??0,end=record.control.selectionEnd??begin;
-      const backward=record.control.selectionDirection==='backward';
+      const field=text.info(record.key);
+      const rawBegin=record.control.selectionStart??0,rawEnd=record.control.selectionEnd??rawBegin;
+      const begin=text.snapGraphemeFloor?text.snapGraphemeFloor(field.text,rawBegin):rawBegin;
+      const end=rawEnd>rawBegin?(text.snapGraphemeCeil?text.snapGraphemeCeil(field.text,rawEnd):rawEnd):begin;
+      const backward=record.control.selectionDirection==='backward'&&begin!==end;
       if(begin!==field.selection_begin||end!==field.selection_end||(backward?begin:end)!==field.caret)text.update(record.key,{selection:{begin:backward?end:begin,end:backward?begin:end}});
     }
     function difference(before,after){
+      if(typeof text.graphemeSafeDiff==='function')return text.graphemeSafeDiff(before,after);
       let begin=0;while(begin<before.length&&begin<after.length&&before[begin]===after[begin])begin++;
-      // Browser replacement boundaries can sit between surrogate code units;
-      // expand the common prefix/suffix to complete Unicode characters.
       if(begin>0&&begin<before.length&&/[\uDC00-\uDFFF]/.test(before[begin]))begin--;
       let oldEnd=before.length,newEnd=after.length;
       while(oldEnd>begin&&newEnd>begin&&before[oldEnd-1]===after[newEnd-1]){oldEnd--;newEnd--;}
@@ -64,8 +85,10 @@
     const displayed=field=>field.multiline?field.text:field.text.replace(/\n/g,' ');
     function acceptDom(record){
       if(!alive(record)||!record.control||record.composing)return;
-      if(!editable(record.field)){selection(record);return;}
-      const proposed=record.control.value.replace(/\r\n?|\n/g,'\n'),base=record.base||record.field;
+      const curField=text.info(record.key);
+      record.field=curField;
+      if(!editable(curField)){record.base=null;if(record.control.value!==displayed(curField))record.control.value=displayed(curField);selection(record);return;}
+      const proposed=record.control.value.replace(/\r\n?|\n/g,'\n'),base=record.base||curField;
       record.base=null;
       if(proposed===displayed(base)){selection(record);return;}
       const edit=difference(displayed(base),proposed);
@@ -108,15 +131,150 @@
       Object.assign(control.style,{position:'absolute',left:'0',top:'0',margin:'0',padding:'2px',boxSizing:'border-box',border:'0',borderRadius:'0',background:'transparent',outline:'none',resize:'none',transformOrigin:'0 0',pointerEvents:'auto',overflow:'hidden',scrollbarWidth:'none'});
       const wrappers=[];let parent=clipped;for(let i=0;i<32;i++){const wrapper=doc.createElement('div');Object.assign(wrapper.style,{position:'absolute',inset:'0',pointerEvents:'none'});parent.appendChild(wrapper);wrappers.push(wrapper);parent=wrapper;}parent.appendChild(control);Object.assign(record,{root,control,defs,clipped,wrappers,clipKey:null,serial:++serial,cleanups:[]});
       const on=(name,fn)=>record.cleanups.push(listen(control,name,fn));
-      on('beforeinput',()=>{if(!record.composing){selection(record);record.base=text.info(record.key);}});
+      on('beforeinput',event=>{
+        const curField=text.info(record.key);
+        if(!editable(curField)){event.preventDefault?.();return;}
+        if(!record.composing){selection(record);record.base=text.info(record.key);}
+      });
       on('input',event=>{if(!record.composing&&!event.isComposing)acceptDom(record);});
-      on('compositionstart',event=>{selection(record);record.base=text.info(record.key);record.composing=true;const textValue=typeof event?.data==='string'?event.data:'';const Evt=events.IMEEvent||events.TextEvent;hub.dispatch(record.target,new Evt('imeStartComposition',false,false,textValue));});
-      on('compositionupdate',event=>{const textValue=typeof event?.data==='string'?event.data:'';const Evt=events.IMEEvent||events.TextEvent;hub.dispatch(record.target,new Evt('imeComposition',false,false,textValue));});
-      on('compositionend',event=>{record.composing=false;const textValue=typeof event?.data==='string'?event.data:'';const Evt=events.IMEEvent||events.TextEvent;hub.dispatch(record.target,new Evt('imeComposition',false,false,textValue));acceptDom(record);});
+      on('compositionstart',event=>{
+        const curField=text.info(record.key);
+        if(!editable(curField)){event.preventDefault?.();return;}
+        selection(record);
+        record.imeSnapshot=text.info(record.key);
+        record.base=record.imeSnapshot;
+        record.composing=true;
+        record.imeCancelled=false;
+        const textValue=typeof event?.data==='string'?event.data:'';
+        const Evt=events.IMEEvent||events.TextEvent;
+        hub.dispatch(record.target,new Evt('imeStartComposition',false,false,textValue));
+      });
+      on('compositionupdate',event=>{
+        if(!record.composing)return;
+        const textValue=typeof event?.data==='string'?event.data:'';
+        const Evt=events.IMEEvent||events.TextEvent;
+        hub.dispatch(record.target,new Evt('imeComposition',false,false,textValue));
+      });
+      on('compositionend',event=>{
+        const wasCancelled=Boolean(record.imeCancelled);
+        const snap=record.imeSnapshot;
+        record.composing=false;
+        record.imeCancelled=false;
+        record.imeSnapshot=null;
+        if(wasCancelled||!editable(text.info(record.key))){
+          record.base=null;
+          sync(record.key,true);
+          return;
+        }
+        const textValue=typeof event?.data==='string'?event.data:'';
+        const Evt=events.IMEEvent||events.TextEvent;
+        hub.dispatch(record.target,new Evt('imeComposition',false,false,textValue));
+        if(snap)record.base=snap;
+        acceptDom(record);
+      });
       on('select',()=>selection(record));
+      on('copy',event=>{
+        const curField=text.info(record.key);
+        if(curField.display_as_password)return;
+        const lo=control.selectionStart??curField.selection_begin??0;
+        const hi=control.selectionEnd??curField.selection_end??0;
+        if(lo<hi){
+          text.writeRichClipboard?.(record.key,curField,lo,hi,event.clipboardData);
+          if(event.clipboardData?.setData)event.preventDefault?.();
+        }
+      });
+      on('cut',event=>{
+        const curField=text.info(record.key);
+        if(!editable(curField)){event.preventDefault?.();return;}
+        const loRaw=control.selectionStart??curField.selection_begin??0;
+        const hiRaw=control.selectionEnd??curField.selection_end??0;
+        const lo=text.snapGraphemeFloor?text.snapGraphemeFloor(curField.text,loRaw):loRaw;
+        const hi=hiRaw>loRaw?(text.snapGraphemeCeil?text.snapGraphemeCeil(curField.text,hiRaw):hiRaw):lo;
+        event.preventDefault?.();
+        if(lo>=hi)return;
+        text.writeRichClipboard?.(record.key,curField,lo,hi,event.clipboardData);
+        commit(record.target,{begin:lo,end:hi,text:'',expected_revision:curField.revision});
+      });
+      on('paste',event=>{
+        const curField=text.info(record.key);
+        if(!editable(curField)){event.preventDefault?.();return;}
+        const payload=text.readRichClipboard?text.readRichClipboard(record.key,curField,event.clipboardData,null):{text:event.clipboardData?.getData?.('text/plain')||'',runs:null};
+        const rawInsert=curField.multiline?payload.text:String(payload.text||'').replace(/\n/g,'');
+        event.preventDefault?.();
+        if(!rawInsert.length)return;
+        const loRaw=control.selectionStart??curField.selection_begin??0;
+        const hiRaw=control.selectionEnd??curField.selection_end??loRaw;
+        const lo=text.snapGraphemeFloor?text.snapGraphemeFloor(curField.text,loRaw):loRaw;
+        const hi=hiRaw>loRaw?(text.snapGraphemeCeil?text.snapGraphemeCeil(curField.text,hiRaw):hiRaw):lo;
+        commit(record.target,{begin:lo,end:hi,text:rawInsert,runs:payload.runs,expected_revision:curField.revision});
+      });
       on('wheel',event=>{if(text.wheel?.(record.key,event))options.afterInput?.();});
-      on('blur',()=>{if(domSuppressed||active!==record)return;if(record.composing)record.composing=false;acceptDom(record);if(stage.stage.focus===record.target)stage.changeFocus(null);options.afterInput?.();});
-      on('keydown',event=>{if(event.key==='Tab'&&!event.isComposing){if(options.onLegacyTab?.(event))return;event.preventDefault();const scene=snapshot(),items=scene.objects.filter(node=>node.text?.field_type==='input'&&node.on_stage&&node.effective_visible&&node.world[0]*node.world[3]-node.world[1]*node.world[2]!==0);if(items.length){const index=items.findIndex(node=>refKey(node.object_ref)===record.key),next=(index+(event.shiftKey?-1:1)+items.length)%items.length;stage.changeFocus(proxyForRef(items[next].object_ref),'key',event);}}});
+      on('blur',()=>{
+        if(domSuppressed||active!==record)return;
+        if(record.composing){
+          const wasCancelled=Boolean(record.imeCancelled);
+          record.composing=false;
+          record.imeCancelled=false;
+          if(wasCancelled){record.base=null;record.imeSnapshot=null;sync(record.key,true);}
+          else if(record.imeSnapshot){record.base=record.imeSnapshot;record.imeSnapshot=null;}
+        }
+        acceptDom(record);
+        if(stage.stage.focus===record.target)stage.changeFocus(null);
+        options.afterInput?.();
+      });
+      on('keydown',event=>{
+        if(record.composing&&event.key==='Escape'){
+          event.preventDefault();
+          record.imeCancelled=true;
+          record.composing=false;
+          record.base=null;
+          record.imeSnapshot=null;
+          sync(record.key,true);
+          return;
+        }
+        if(event.key==='Tab'&&!event.isComposing){
+          if(options.onLegacyTab?.(event))return;
+          event.preventDefault();
+          const scene=snapshot(),items=scene.objects.filter(node=>node.text?.field_type==='input'&&node.on_stage&&node.effective_visible&&node.world[0]*node.world[3]-node.world[1]*node.world[2]!==0);
+          if(items.length){const index=items.findIndex(node=>refKey(node.object_ref)===record.key),next=(index+(event.shiftKey?-1:1)+items.length)%items.length;stage.changeFocus(proxyForRef(items[next].object_ref),'key',event);}
+          return;
+        }
+        const curField=text.info(record.key);
+        if(!editable(curField)){
+          if(event.key==='Backspace'||event.key==='Delete'||event.key==='Enter'||(typeof event.key==='string'&&event.key.length===1&&!event.ctrlKey&&!event.metaKey&&!event.altKey)){
+            event.preventDefault();
+            return;
+          }
+        }
+        if(record.composing||event.isComposing||event.altKey||event.ctrlKey||event.metaKey)return;
+        if(event.key==='ArrowLeft'||event.key==='ArrowRight'){
+          const val=control.value;
+          const lo=control.selectionStart??0,hi=control.selectionEnd??lo;
+          const backward=control.selectionDirection==='backward'&&lo!==hi;
+          const anchor=backward?hi:lo,head=backward?lo:hi;
+          if(event.shiftKey){
+            const nextHead=event.key==='ArrowLeft'?(text.prevGrapheme?text.prevGrapheme(val,head):Math.max(0,head-1)):(text.nextGrapheme?text.nextGrapheme(val,head):Math.min(val.length,head+1));
+            const nLo=Math.min(anchor,nextHead),nHi=Math.max(anchor,nextHead),dir=nextHead<anchor?'backward':'forward';
+            control.setSelectionRange(nLo,nHi,dir);
+          }else{
+            const nextPos=lo!==hi?(event.key==='ArrowLeft'?(text.snapGraphemeFloor?text.snapGraphemeFloor(val,lo):lo):(text.snapGraphemeCeil?text.snapGraphemeCeil(val,hi):hi)):(event.key==='ArrowLeft'?(text.prevGrapheme?text.prevGrapheme(val,lo):Math.max(0,lo-1)):(text.nextGrapheme?text.nextGrapheme(val,hi):Math.min(val.length,hi+1)));
+            control.setSelectionRange(nextPos,nextPos,'forward');
+          }
+          selection(record);
+          event.preventDefault();
+          return;
+        }
+        if((event.key==='Backspace'||event.key==='Delete')&&editable(curField)){
+          const val=displayed(curField);
+          const lo=control.selectionStart??curField.selection_begin??0,hi=control.selectionEnd??curField.selection_end??lo;
+          const delBegin=lo<hi?(text.snapGraphemeFloor?text.snapGraphemeFloor(val,lo):lo):(event.key==='Backspace'?(text.prevGrapheme?text.prevGrapheme(val,lo):Math.max(0,lo-1)):(text.snapGraphemeFloor?text.snapGraphemeFloor(val,lo):lo));
+          const delEnd=lo<hi?(text.snapGraphemeCeil?text.snapGraphemeCeil(val,hi):hi):(event.key==='Delete'?(text.nextGrapheme?text.nextGrapheme(val,lo):Math.min(val.length,lo+1)):(text.snapGraphemeCeil?text.snapGraphemeCeil(val,lo):lo));
+          event.preventDefault();
+          if(delBegin<delEnd){
+            commit(record.target,{begin:delBegin,end:delEnd,text:'',expected_revision:curField.revision});
+          }
+        }
+      });
       for(const type of ['pointerdown','pointerup','pointermove'])on(type,event=>stage.handlePointer(type,event,record.target));
       on('click',event=>options.onClick?.(record.target,event));
       surface.appendChild(root);style(record,lastSnapshot||snapshot());sync(record.key,true);
@@ -176,14 +334,23 @@
     }
     function focusChanged(next,previous){
       open();const version=++transition,old=active;active=null;
-      if(old){if(old.composing)old.composing=false;try{acceptDom(old);}finally{removeDom(old);}}
+      if(old){
+        if(old.composing){
+          const wasCancelled=Boolean(old.imeCancelled);
+          old.composing=false;
+          old.imeCancelled=false;
+          if(wasCancelled){old.base=null;old.imeSnapshot=null;sync(old.key,true);}
+          else if(old.imeSnapshot){old.base=old.imeSnapshot;old.imeSnapshot=null;}
+        }
+        try{acceptDom(old);}finally{removeDom(old);}
+      }
       if(previous&&display.alive(previous))legacy(previous,'onKillFocus',[next]);if(version!==transition)return true;
       if(next&&display.alive(next)){
         const node=display.descriptor(next);
         if(node.owner==='text'){
           const key=referenceOf(next).key,field=text.info(key);
           if(!selectable(field))return false;
-          active={target:next,key,field,base:null,composing:false,control:null,cleanups:[]};if(editable(field))makeDom(active);
+          active={target:next,key,field,base:null,imeSnapshot:null,imeCancelled:false,composing:false,control:null,cleanups:[]};if(mountsDom(field))makeDom(active);
         }
         legacy(next,'onSetFocus',[previous]);
       }
@@ -197,7 +364,7 @@
         const record=active,node=scene.objects.find(node=>refKey(node.object_ref)===record.key);
         if(!alive(record)||!node||!node.on_stage||!node.effective_visible||node.world[0]*node.world[3]-node.world[1]*node.world[2]===0){stage.changeFocus(null);return;}
         const field=text.info(record.key);if(!selectable(field)){stage.changeFocus(null);return;}
-        if(!editable(field)){if(record.control){if(record.composing)record.composing=false;removeDom(record);}record.field=field;return;}
+        if(!mountsDom(field)){if(record.control){if(record.composing)record.composing=false;removeDom(record);}record.field=field;return;}
         if(!record.control){record.field=field;makeDom(record);}
         else if(Boolean(field.multiline)!==(record.control.tagName==='TEXTAREA')){if(record.composing)record.composing=false;acceptDom(record);removeDom(record);record.field=text.info(record.key);makeDom(record);}
         sync(record.key);style(record,scene);
@@ -216,7 +383,27 @@
       addListener:value=>{open();if(!value||!['object','function'].includes(typeof value)||listeners.has(value))return false;if(listeners.size>=1024)throw new RangeError('Selection supports at most 1024 listeners.');listeners.add(value);return true;},
       removeListener:value=>{open();return listeners.delete(value);},
     });
-    if(doc?.addEventListener)cleanups.push(listen(doc,'selectionchange',()=>{if(active?.control===doc.activeElement)selection(active);}));
+    if(doc?.addEventListener){
+      cleanups.push(listen(doc,'selectionchange',()=>{if(active?.control===doc.activeElement)selection(active);}));
+      cleanups.push(listen(doc,'copy',event=>{
+        if(!active||active.control||!alive(active))return;
+        const curField=text.info(active.key);
+        if(!selectable(curField)||curField.display_as_password)return;
+        const lo=curField.selection_begin??0,hi=curField.selection_end??0;
+        if(lo<hi){
+          text.writeRichClipboard?.(active.key,curField,lo,hi,event.clipboardData);
+          if(event.clipboardData?.setData)event.preventDefault?.();
+        }
+      }));
+      cleanups.push(listen(doc,'cut',event=>{
+        if(!active||active.control||!alive(active))return;
+        event.preventDefault?.();
+      }));
+      cleanups.push(listen(doc,'paste',event=>{
+        if(!active||active.control||!alive(active))return;
+        event.preventDefault?.();
+      }));
+    }
     function reset(){open();transition++;removeDom(active);active=null;lastSnapshot=null;listeners.clear();}
     function dispose(){if(disposed)return;reset();for(const cleanup of cleanups)cleanup();disposed=true;}
     return Object.freeze({commit,focusChanged,update,sync,canFocus,Selection,owns:node=>node===active?.control,hidden:ref=>Boolean(active?.control&&active.key===refKey(ref)),reset,dispose});

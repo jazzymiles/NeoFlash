@@ -2330,3 +2330,170 @@ fn t318_review_regressions_vector_blend_overlapping_groups_external_video_class_
         "repeated paste of symbol with vector_blend and class_name must deduplicate cleanly"
     );
 }
+
+#[test]
+fn t326_stage_rich_text_copy_cut_paste_preserves_mixed_runs_and_survives_tab_switch() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.add_element(
+        ElementKind::TextBox {
+            text: "Bold👨‍👩‍👧‍👦 Blue".into(),
+            width: 300.0,
+            height: 80.0,
+            format: neoflash_core::TextFormat {
+                font: "Inter".into(),
+                size: 16.0,
+                color: 0x222222,
+                ..neoflash_core::TextFormat::default()
+            },
+            word_wrap: true,
+            multiline: true,
+        },
+        20.0,
+        20.0,
+    );
+    // "Bold👨‍👩‍👧‍👦" = 4 + 11 = 15 UTF-16 units (bold red), " " = 15..16, "Blue" = 16..20 (italic blue).
+    assert!(editor.select_stage_text_utf16_range(0, 15));
+    assert!(
+        editor
+            .apply_stage_text_format_patch(&neoflash_core::TextFormatPatch {
+                bold: Some(true),
+                color: Some(0xdd1111),
+                ..neoflash_core::TextFormatPatch::default()
+            })
+            .unwrap()
+    );
+    assert!(editor.select_stage_text_utf16_range(16, 20));
+    assert!(
+        editor
+            .apply_stage_text_format_patch(&neoflash_core::TextFormatPatch {
+                italic: Some(true),
+                color: Some(0x1155dd),
+                ..neoflash_core::TextFormatPatch::default()
+            })
+            .unwrap()
+    );
+
+    // Select mixed-run span "👨‍👩‍👧‍👦 Blue" (UTF-16 4..20) and Copy inside inline Stage text edit.
+    assert!(editor.select_stage_text_utf16_range(4, 20));
+    let tab_a_project_before_copy = editor.project.clone();
+    let out_copy = frame(
+        &mut editor,
+        &ctx,
+        1.0,
+        vec![Event::Copy],
+        Modifiers::COMMAND,
+        None,
+    );
+    assert_eq!(
+        copied(&out_copy),
+        ["👨‍👩‍👧‍👦 Blue"],
+        "Stage inline Copy must copy only the selected substring, never the whole TextBox element"
+    );
+    assert_eq!(editor.project, tab_a_project_before_copy);
+
+    // Open a second document tab (Tab B): verify Tab A's text stays intact and inline edit focus does NOT leak to Tab B!
+    editor.open_new_session_tab(&ctx, Project::blank(), None);
+    assert_eq!(editor.active_session, 1);
+    assert!(
+        !editor.stage_text_edit.is_active(&editor),
+        "inline Stage text edit focus must not leak across document tabs"
+    );
+    editor.add_element(
+        ElementKind::TextBox {
+            text: "Start End".into(),
+            width: 300.0,
+            height: 80.0,
+            format: neoflash_core::TextFormat {
+                font: "Georgia".into(),
+                size: 18.0,
+                color: 0x008844,
+                ..neoflash_core::TextFormat::default()
+            },
+            word_wrap: true,
+            multiline: true,
+        },
+        30.0,
+        30.0,
+    );
+    assert!(editor.select_stage_text_utf16_range(0, 5));
+    assert!(
+        editor
+            .apply_stage_text_format_patch(&neoflash_core::TextFormatPatch {
+                underline: Some(true),
+                ..neoflash_core::TextFormatPatch::default()
+            })
+            .unwrap()
+    );
+    // Place caret at UTF-16 index 6 (before "End") and Paste the rich mixed-run payload from Tab A!
+    assert!(editor.place_stage_text_caret_utf16(6));
+    let tab_b_before_paste = editor.project.clone();
+    let undo_before_paste = editor.history.undo_len();
+    frame(
+        &mut editor,
+        &ctx,
+        2.0,
+        vec![Event::Paste("👨‍👩‍👧‍👦 Blue".into())],
+        Modifiers::COMMAND,
+        None,
+    );
+    assert_eq!(
+        editor.history.undo_len(),
+        undo_before_paste + 1,
+        "rich paste records cleanly as one Undo step"
+    );
+    let pasted_state =
+        neoflash_core::TextFieldState::from_kind(&editor.selected_sampled().unwrap().kind).unwrap();
+    assert_eq!(pasted_state.text, "Start 👨‍👩‍👧‍👦 BlueEnd");
+    // Surrounding underline green "Start" (0..5) and green "End" (22..25) are preserved,
+    // while pasted "👨‍👩‍👧‍👦" (6..17) is bold red and "Blue" (18..22) is italic blue!
+    assert!(
+        pasted_state
+            .format_runs
+            .iter()
+            .any(|r| r.start == 0 && r.end == 5 && r.format.underline)
+    );
+    assert!(
+        pasted_state
+            .format_runs
+            .iter()
+            .any(|r| r.start == 6 && r.end == 17 && r.format.bold && r.format.color == 0xdd1111)
+    );
+    assert!(
+        pasted_state
+            .format_runs
+            .iter()
+            .any(|r| r.start == 18 && r.end == 22 && r.format.italic && r.format.color == 0x1155dd)
+    );
+    assert!(
+        pasted_state
+            .format_runs
+            .iter()
+            .any(|r| r.start == 22 && r.end == 25 && r.format.color == 0x008844)
+    );
+    editor.project.validate().unwrap();
+
+    // One Undo reverts the entire rich paste cleanly.
+    editor.undo();
+    assert_eq!(editor.project, tab_b_before_paste);
+
+    // Switch back to Tab A and test inline Cut on "Bold👨‍👩‍👧‍👦 " (0..16): preserves "Blue" italic run!
+    assert!(editor.switch_session_tab(&ctx, 0));
+    assert_eq!(editor.project, tab_a_project_before_copy);
+    assert!(editor.select_stage_text_utf16_range(0, 16));
+    let out_cut = frame(
+        &mut editor,
+        &ctx,
+        3.0,
+        vec![Event::Cut],
+        Modifiers::COMMAND,
+        None,
+    );
+    assert_eq!(copied(&out_cut), ["Bold👨‍👩‍👧‍👦 "]);
+    let after_cut =
+        neoflash_core::TextFieldState::from_kind(&editor.selected_sampled().unwrap().kind).unwrap();
+    assert_eq!(after_cut.text, "Blue");
+    assert!(after_cut.format.italic);
+    assert_eq!(after_cut.format.color, 0x1155dd);
+    editor.project.validate().unwrap();
+}

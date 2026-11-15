@@ -115,11 +115,45 @@ struct Request {
     expires: f64,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RichTextClipboard {
+    pub(crate) plain_text: String,
+    pub(crate) runs: Vec<neoflash_core::TextFormatRun>,
+}
+
+#[cfg(not(test))]
+static PROCESS_RICH_TEXT_CLIPBOARD: std::sync::Mutex<Option<RichTextClipboard>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(not(test))]
+fn store_process_rich_clipboard(value: Option<RichTextClipboard>) {
+    if let Ok(mut guard) = PROCESS_RICH_TEXT_CLIPBOARD.lock() {
+        *guard = value;
+    }
+}
+
+#[cfg(test)]
+fn store_process_rich_clipboard(_value: Option<RichTextClipboard>) {}
+
+#[cfg(not(test))]
+fn load_process_rich_clipboard() -> Option<RichTextClipboard> {
+    PROCESS_RICH_TEXT_CLIPBOARD
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+}
+
+#[cfg(test)]
+fn load_process_rich_clipboard() -> Option<RichTextClipboard> {
+    None
+}
+
 pub(crate) struct ClipboardState {
     pub(crate) session: String,
     pub(crate) menu_open: bool,
     pub(crate) menu_viewport: Option<egui::ViewportId>,
     pub(crate) menu_target: Option<ClipboardTarget>,
+    pub(crate) rich_text: Option<RichTextClipboard>,
     pending: Option<Request>,
     view: Option<(Id, u64, [f64; 2])>,
 }
@@ -136,6 +170,7 @@ impl Default for ClipboardState {
             menu_open: false,
             menu_viewport: None,
             menu_target: None,
+            rich_text: None,
             pending: None,
             view: None,
         }
@@ -189,10 +224,91 @@ impl Editor {
                 }
             })
     }
+    pub(crate) fn copy_stage_text_selection(&mut self, ctx: &egui::Context, cut: bool) -> bool {
+        if !self.has_document() || self.confirm.is_some() {
+            return false;
+        }
+        self.sync_stage_text_edit();
+        if !self.stage_text_edit.is_active(self) {
+            return false;
+        }
+        if !self.stage_text_edit.has_range_selection() {
+            // Collapsed caret in inline text edit: no-op so Copy/Cut never copies/deletes the whole TextBox.
+            return true;
+        }
+        let Some(sampled) = self.selected_sampled() else {
+            return false;
+        };
+        let Some(mut state) = neoflash_core::TextFieldState::from_kind(&sampled.kind) else {
+            return false;
+        };
+        if cut && (state.interaction_mode == "selection" || !self.selected_editable()) {
+            self.message("Cut blocked: text field is in selection-only mode.");
+            return true;
+        }
+        let (lo, hi) = self.stage_text_edit.selection_range_utf16();
+        let plain_text = neoflash_core::utf16_slice_safe(&state.text, lo, hi)
+            .replace("\r\n", "\n")
+            .replace('\r', "\n");
+        let runs = state.slice_runs_utf16(lo, hi);
+        let rich = RichTextClipboard {
+            plain_text: plain_text.clone(),
+            runs,
+        };
+        for sess in self.sessions.iter_mut().flatten() {
+            sess.clipboard.rich_text = None;
+        }
+        self.clipboard.rich_text = Some(rich.clone());
+        self.stage_text_edit.copied_rich_text = Some(rich.clone());
+        store_process_rich_clipboard(Some(rich));
+        ctx.copy_text(plain_text);
+
+        if cut {
+            self.finish_stage_text_typing();
+            self.finish_property_edit();
+            let Ok(new_caret) = state.replace_utf16_range(lo, hi, "", None) else {
+                return true;
+            };
+            let mut next_kind = sampled.kind.clone();
+            state.write_to_kind(&mut next_kind);
+            self.refresh_non_wrapping_text_box_bounds(&mut next_kind);
+            self.playing = false;
+            self.transact_named("Cut text", |s| {
+                s.ensure_selected_key();
+                if let Some(el) = s.selected_element_mut() {
+                    crate::stage_text_edit::preserve_point_text_alpha_on_upgrade(
+                        &el.kind,
+                        &next_kind,
+                        &mut el.transform.alpha,
+                    );
+                    el.kind = next_kind;
+                }
+            });
+            self.stage_text_edit.caret_utf16 = new_caret;
+            self.stage_text_edit.selection_anchor_utf16 = None;
+            self.stage_text_edit.typing_format = None;
+            self.stage_text_edit.preferred_x = None;
+            self.message("Cut text.");
+        } else {
+            self.message("Copied text.");
+        }
+        true
+    }
+
     pub(crate) fn copy_selection(&mut self, ctx: &egui::Context, cut: bool) {
         if !self.has_document() || self.confirm.is_some() {
             return;
         }
+        if self.stage_text_edit.is_active(self) {
+            self.copy_stage_text_selection(ctx, cut);
+            return;
+        }
+        for sess in self.sessions.iter_mut().flatten() {
+            sess.clipboard.rich_text = None;
+        }
+        self.clipboard.rich_text = None;
+        self.stage_text_edit.copied_rich_text = None;
+        store_process_rich_clipboard(None);
         self.finish_edits();
         self.normalize_targets();
         let selected = self.sampled_targets();
@@ -343,7 +459,43 @@ impl Editor {
         let Some(mut state) = neoflash_core::TextFieldState::from_kind(&sampled.kind) else {
             return false;
         };
-        let normalized = raw_text.replace("\r\n", "\n").replace('\r', "\n");
+        if state.interaction_mode == "selection" {
+            self.message("Paste blocked: text field is in selection-only mode.");
+            return true;
+        }
+        let mut normalized = raw_text.replace("\r\n", "\n").replace('\r', "\n");
+        let mut pasted_runs: Vec<neoflash_core::TextFormatRun> = self
+            .stage_text_edit
+            .copied_rich_text
+            .as_ref()
+            .filter(|rich| rich.plain_text == normalized)
+            .cloned()
+            .or_else(|| {
+                self.clipboard
+                    .rich_text
+                    .as_ref()
+                    .filter(|rich| rich.plain_text == normalized)
+                    .cloned()
+            })
+            .or_else(|| {
+                self.sessions.iter().flatten().find_map(|sess| {
+                    sess.clipboard
+                        .rich_text
+                        .as_ref()
+                        .filter(|rich| rich.plain_text == normalized)
+                        .cloned()
+                })
+            })
+            .or_else(|| load_process_rich_clipboard().filter(|rich| rich.plain_text == normalized))
+            .map(|rich| rich.runs)
+            .unwrap_or_default();
+        if pasted_runs.is_empty()
+            && let Some((html_plain, html_runs)) =
+                extract_html_fragment_clipboard(&normalized, &state.format)
+        {
+            normalized = html_plain;
+            pasted_runs = html_runs;
+        }
         let candidate = match &sampled.kind {
             neoflash_core::ElementKind::Text { .. } => normalized.replace('\n', " "),
             neoflash_core::ElementKind::TextBox { multiline, .. } => {
@@ -367,10 +519,11 @@ impl Editor {
             None
         };
         let state_before = state.clone();
-        let new_caret = match state.replace_utf16_range(
+        let new_caret = match state.replace_utf16_range_with_runs(
             rep_start,
             rep_end,
             &candidate,
+            &pasted_runs,
             typing_style.as_ref(),
         ) {
             Ok(caret) => caret,
@@ -390,6 +543,7 @@ impl Editor {
         let mut next_kind = sampled.kind.clone();
         state.write_to_kind(&mut next_kind);
         self.refresh_non_wrapping_text_box_bounds(&mut next_kind);
+        self.finish_stage_text_typing();
         self.finish_edits();
         self.playing = false;
         self.transact_named("Paste text", |s| {
@@ -820,6 +974,36 @@ impl Editor {
         }
         ctx.input_mut(|input| input.events = retained);
     }
+}
+
+fn extract_html_fragment_clipboard(
+    text: &str,
+    base_format: &neoflash_core::TextFormat,
+) -> Option<(String, Vec<neoflash_core::TextFormatRun>)> {
+    const START_MARKER: &str = "<!--StartFragment-->";
+    const END_MARKER: &str = "<!--EndFragment-->";
+    let start_idx = text.find(START_MARKER)? + START_MARKER.len();
+    let end_idx = text[start_idx..].find(END_MARKER)? + start_idx;
+    let fragment = text[start_idx..end_idx].trim();
+    if fragment.is_empty() {
+        return None;
+    }
+    let mut clean_base = base_format.clone();
+    clean_base.set_field_options(None);
+    let resp = neoflash_core::as2_text::execute(neoflash_core::as2_text::Request::Html {
+        source: fragment.to_owned(),
+        format: clean_base,
+        styles: neoflash_core::as2_text::StyleSheet::default(),
+        condense_white: false,
+        multi_run: true,
+    })
+    .ok()?;
+    let plain = resp.get("text")?.as_str()?.to_owned();
+    let runs: Vec<neoflash_core::TextFormatRun> = resp
+        .get("format_runs")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    Some((plain, runs))
 }
 
 fn is_svg_clipboard_text(text: &str) -> bool {

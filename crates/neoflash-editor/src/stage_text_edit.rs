@@ -44,6 +44,7 @@ pub(crate) struct StageTextEditState {
     pub(crate) last_click_time: f64,
     pub(crate) last_click_pos: Option<Pos2>,
     pub(crate) preferred_x: Option<f64>,
+    pub(crate) copied_rich_text: Option<crate::clipboard::RichTextClipboard>,
 }
 
 impl StageTextEditState {
@@ -261,201 +262,108 @@ impl StageTextGeometry {
 }
 
 pub(crate) fn prev_char_utf16(text: &str, offset_utf16: usize) -> usize {
-    let mut prev = 0usize;
-    let mut cur = 0usize;
-    for ch in text.chars() {
-        let next = cur + ch.len_utf16();
-        if next >= offset_utf16 {
-            return cur;
-        }
-        prev = cur;
-        cur = next;
-    }
-    if offset_utf16 > cur { cur } else { prev }
+    neoflash_core::prev_grapheme_utf16(text, offset_utf16)
 }
 
 pub(crate) fn next_char_utf16(text: &str, offset_utf16: usize) -> usize {
-    let mut cur = 0usize;
-    for ch in text.chars() {
-        let next = cur + ch.len_utf16();
-        if cur >= offset_utf16 {
-            return next;
-        }
-        cur = next;
-    }
-    cur
+    neoflash_core::next_grapheme_utf16(text, offset_utf16)
 }
 
-fn is_word_char(ch: char) -> bool {
-    ch.is_alphanumeric() || ch == '_'
+fn is_word_grapheme(cluster: &str) -> bool {
+    cluster.chars().any(|ch| ch.is_alphanumeric() || ch == '_')
 }
 
 pub(crate) fn prev_word_utf16(text: &str, offset_utf16: usize) -> usize {
-    let mut chars: Vec<(usize, usize, char)> = Vec::new();
-    let mut cur = 0usize;
-    for ch in text.chars() {
-        let next = cur + ch.len_utf16();
-        if cur >= offset_utf16 {
-            break;
-        }
-        chars.push((cur, next, ch));
-        cur = next;
-    }
-    let mut idx = chars.len();
-    while idx > 0 && chars[idx - 1].2.is_whitespace() {
-        idx -= 1;
-    }
-    if idx == 0 {
-        return 0;
-    }
-    let word_kind = is_word_char(chars[idx - 1].2);
-    while idx > 0
-        && !chars[idx - 1].2.is_whitespace()
-        && is_word_char(chars[idx - 1].2) == word_kind
-    {
-        idx -= 1;
-    }
-    chars.get(idx).map_or(0, |(start, _, _)| *start)
+    neoflash_core::prev_word_utf16(text, offset_utf16)
 }
 
 pub(crate) fn next_word_utf16(text: &str, offset_utf16: usize) -> usize {
-    let mut chars: Vec<(usize, usize, char)> = Vec::new();
-    let mut cur = 0usize;
-    for ch in text.chars() {
-        let next = cur + ch.len_utf16();
-        if next > offset_utf16 {
-            chars.push((cur, next, ch));
-        }
-        cur = next;
-    }
-    let total = cur;
-    let mut idx = 0usize;
-    if idx < chars.len() && !chars[idx].2.is_whitespace() {
-        let word_kind = is_word_char(chars[idx].2);
-        while idx < chars.len()
-            && !chars[idx].2.is_whitespace()
-            && is_word_char(chars[idx].2) == word_kind
-        {
-            idx += 1;
-        }
-    } else {
-        while idx < chars.len() && chars[idx].2.is_whitespace() {
-            idx += 1;
-        }
-        if idx < chars.len() {
-            let word_kind = is_word_char(chars[idx].2);
-            while idx < chars.len()
-                && !chars[idx].2.is_whitespace()
-                && is_word_char(chars[idx].2) == word_kind
-            {
-                idx += 1;
-            }
-        }
-    }
-    if idx == 0 { total } else { chars[idx - 1].1 }
+    neoflash_core::next_word_utf16(text, offset_utf16)
 }
 
 pub(crate) fn word_utf16_bounds_at(text: &str, offset_utf16: usize) -> (usize, usize) {
-    let mut chars: Vec<(usize, usize, char)> = Vec::new();
-    let mut cur = 0usize;
-    for ch in text.chars() {
-        let next = cur + ch.len_utf16();
-        chars.push((cur, next, ch));
-        cur = next;
-    }
-    if chars.is_empty() {
+    let clusters = neoflash_core::grapheme_clusters_utf16(text);
+    if clusters.is_empty() {
         return (0, 0);
     }
-    let pos = chars
+    let pos = clusters
         .iter()
-        .position(|(start, end, _)| offset_utf16 >= *start && offset_utf16 < *end)
-        .unwrap_or(chars.len() - 1);
-    let ch = chars[pos].2;
-    if ch == '\n' {
-        return (chars[pos].0, chars[pos].1);
+        .position(|(start, end, _)| {
+            offset_utf16 >= (*start as usize) && offset_utf16 < (*end as usize)
+        })
+        .unwrap_or(clusters.len() - 1);
+    let cur = clusters[pos].2;
+    if cur == "\n" {
+        return (clusters[pos].0 as usize, clusters[pos].1 as usize);
     }
-    let is_ws = ch.is_whitespace();
-    let is_wc = is_word_char(ch);
-    let matches_group = |c: char| {
-        if c == '\n' {
+    let is_ws = cur.chars().all(char::is_whitespace);
+    let is_wc = is_word_grapheme(cur);
+    let matches_group = |c: &str| {
+        if c == "\n" {
             false
         } else if is_ws {
-            c.is_whitespace()
+            c.chars().all(char::is_whitespace)
         } else {
-            !c.is_whitespace() && is_word_char(c) == is_wc
+            !c.chars().all(char::is_whitespace) && is_word_grapheme(c) == is_wc
         }
     };
     let mut start_idx = pos;
-    while start_idx > 0 && matches_group(chars[start_idx - 1].2) {
+    while start_idx > 0 && matches_group(clusters[start_idx - 1].2) {
         start_idx -= 1;
     }
     let mut end_idx = pos;
-    while end_idx + 1 < chars.len() && matches_group(chars[end_idx + 1].2) {
+    while end_idx + 1 < clusters.len() && matches_group(clusters[end_idx + 1].2) {
         end_idx += 1;
     }
-    (chars[start_idx].0, chars[end_idx].1)
+    (clusters[start_idx].0 as usize, clusters[end_idx].1 as usize)
 }
 
 pub(crate) fn utf16_slice(text: &str, start_utf16: usize, end_utf16: usize) -> &str {
-    let lo = start_utf16.min(end_utf16);
-    let hi = start_utf16.max(end_utf16);
-    let mut byte_start = text.len();
-    let mut byte_end = text.len();
-    let mut cur = 0usize;
-    let mut found_start = false;
-    for (byte_idx, ch) in text.char_indices() {
-        if !found_start && cur >= lo {
-            byte_start = byte_idx;
-            found_start = true;
-        }
-        if cur >= hi {
-            byte_end = byte_idx;
-            return &text[byte_start..byte_end];
-        }
-        cur += ch.len_utf16();
-    }
-    if !found_start {
-        byte_start = text.len();
-    }
-    &text[byte_start..byte_end]
+    neoflash_core::utf16_slice_safe(text, start_utf16, end_utf16)
 }
 
-/// Compute the minimal UTF-16 range `[start_utf16, end_utf16)` in `before` that was replaced by
-/// `inserted` in `after`.
+/// Compute the minimal grapheme-aligned UTF-16 range `[start_utf16, end_utf16)` in `before`
+/// that was replaced by `inserted` in `after`.
 pub(crate) fn diff_utf16_replacement<'a>(before: &str, after: &'a str) -> (usize, usize, &'a str) {
-    let before_chars: Vec<(usize, char)> = before.char_indices().collect();
-    let after_chars: Vec<(usize, char)> = after.char_indices().collect();
+    let before_clusters = neoflash_core::grapheme_clusters_utf16(before);
+    let after_clusters = neoflash_core::grapheme_clusters_utf16(after);
     let mut prefix_len = 0usize;
-    while prefix_len < before_chars.len()
-        && prefix_len < after_chars.len()
-        && before_chars[prefix_len].1 == after_chars[prefix_len].1
+    while prefix_len < before_clusters.len()
+        && prefix_len < after_clusters.len()
+        && before_clusters[prefix_len].2 == after_clusters[prefix_len].2
     {
         prefix_len += 1;
     }
     let mut suffix_len = 0usize;
-    while suffix_len < (before_chars.len() - prefix_len)
-        && suffix_len < (after_chars.len() - prefix_len)
-        && before_chars[before_chars.len() - 1 - suffix_len].1
-            == after_chars[after_chars.len() - 1 - suffix_len].1
+    while suffix_len < (before_clusters.len() - prefix_len)
+        && suffix_len < (after_clusters.len() - prefix_len)
+        && before_clusters[before_clusters.len() - 1 - suffix_len].2
+            == after_clusters[after_clusters.len() - 1 - suffix_len].2
     {
         suffix_len += 1;
     }
-    let start_utf16: usize = before_chars[..prefix_len]
-        .iter()
-        .map(|(_, ch)| ch.len_utf16())
-        .sum();
-    let end_utf16: usize = before_chars[..before_chars.len() - suffix_len]
-        .iter()
-        .map(|(_, ch)| ch.len_utf16())
-        .sum();
-    let after_byte_start = after_chars.get(prefix_len).map_or(after.len(), |(b, _)| *b);
-    let after_byte_end = after_chars
-        .get(after_chars.len() - suffix_len)
-        .map_or(after.len(), |(b, _)| *b);
+    let start_utf16 = before_clusters.get(prefix_len).map_or_else(
+        || before_clusters.last().map_or(0, |c| c.1 as usize),
+        |c| c.0 as usize,
+    );
+    let end_utf16 = if suffix_len == 0 {
+        before_clusters.last().map_or(0, |c| c.1 as usize)
+    } else {
+        before_clusters[before_clusters.len() - suffix_len].0 as usize
+    };
+    let after_start_u16 = after_clusters.get(prefix_len).map_or_else(
+        || after_clusters.last().map_or(0, |c| c.1 as usize),
+        |c| c.0 as usize,
+    );
+    let after_end_u16 = if suffix_len == 0 {
+        after_clusters.last().map_or(0, |c| c.1 as usize)
+    } else {
+        after_clusters[after_clusters.len() - suffix_len].0 as usize
+    };
     (
         start_utf16,
         end_utf16,
-        &after[after_byte_start..after_byte_end],
+        neoflash_core::utf16_slice_safe(after, after_start_u16, after_end_u16),
     )
 }
 
@@ -472,13 +380,15 @@ impl Editor {
         if self.selection.single() != Some(&target) {
             self.set_selection(vec![target.clone()]);
         }
-        let max_u16 = self
+        let sampled_text = self
             .selected_sampled()
-            .and_then(|e| e.kind.text_utf16_len())
-            .unwrap_or(0);
-        let clamped_caret = caret_utf16.min(max_u16);
+            .and_then(|e| TextFieldState::from_kind(&e.kind))
+            .map(|s| s.text)
+            .unwrap_or_default();
+        let clamped_caret =
+            neoflash_core::snap_utf16_to_grapheme_floor(&sampled_text, caret_utf16 as i64) as usize;
         let clamped_anchor = anchor_utf16
-            .map(|a| a.min(max_u16))
+            .map(|a| neoflash_core::snap_utf16_to_grapheme_floor(&sampled_text, a as i64) as usize)
             .filter(|&a| a != clamped_caret);
         self.stage_text_edit.active_target = Some(target);
         self.stage_text_edit.symbol_id = sym_id;
@@ -519,15 +429,19 @@ impl Editor {
             }
             return;
         }
-        let max_u16 = self
+        let sampled_text = self
             .selected_sampled()
-            .and_then(|e| e.kind.text_utf16_len())
-            .unwrap_or(0);
-        self.stage_text_edit.caret_utf16 = self.stage_text_edit.caret_utf16.min(max_u16);
+            .and_then(|e| TextFieldState::from_kind(&e.kind))
+            .map(|s| s.text)
+            .unwrap_or_default();
+        self.stage_text_edit.caret_utf16 = neoflash_core::snap_utf16_to_grapheme_floor(
+            &sampled_text,
+            self.stage_text_edit.caret_utf16 as i64,
+        ) as usize;
         self.stage_text_edit.selection_anchor_utf16 = self
             .stage_text_edit
             .selection_anchor_utf16
-            .map(|a| a.min(max_u16))
+            .map(|a| neoflash_core::snap_utf16_to_grapheme_floor(&sampled_text, a as i64) as usize)
             .filter(|&a| a != self.stage_text_edit.caret_utf16);
     }
 
@@ -627,10 +541,10 @@ impl Editor {
             let line_end = line.end as usize;
             let slice = utf16_slice(&state.text, line_start, line_end);
             let mut chars = Vec::new();
-            let mut cursor_u16 = line_start;
             let mut cursor_x = line.x;
-            for ch in slice.chars() {
-                let ch_u16 = ch.len_utf16();
+            for (rel_start, rel_end, cluster) in neoflash_core::grapheme_clusters_utf16(slice) {
+                let cursor_u16 = line_start + (rel_start as usize);
+                let ch_u16 = (rel_end - rel_start) as usize;
                 let cursor = cursor_u16 as u32;
                 while materialized_runs
                     .get(format_run_index)
@@ -650,7 +564,6 @@ impl Editor {
                     .get(format_run_index)
                     .filter(|run| run.start <= cursor && cursor < run.end)
                     .map_or(&state.format, |run| &run.format);
-                let ch_str = ch.to_string();
                 let base_adv = if let Some(p) = painter {
                     let named = crate::fonts::styled_family(&fmt.font, fmt.bold, fmt.italic);
                     let family = if p.ctx().fonts(|f| f.families().contains(&named)) {
@@ -658,12 +571,16 @@ impl Editor {
                     } else {
                         FontFamily::Proportional
                     };
-                    p.layout_no_wrap(ch_str, FontId::new(fmt.size as f32, family), Color32::WHITE)
-                        .size()
-                        .x as f64
+                    p.layout_no_wrap(
+                        cluster.to_owned(),
+                        FontId::new(fmt.size as f32, family),
+                        Color32::WHITE,
+                    )
+                    .size()
+                    .x as f64
                 } else {
                     self.fonts
-                        .measure_width(&fmt.font, fmt.bold, fmt.italic, fmt.size, &ch_str)
+                        .measure_width(&fmt.font, fmt.bold, fmt.italic, fmt.size, cluster)
                 };
                 let width = (base_adv + fmt.letter_spacing).max(1.0);
                 chars.push(StageTextCharBox {
@@ -673,7 +590,6 @@ impl Editor {
                     width,
                 });
                 cursor_x += width;
-                cursor_u16 += ch_u16;
             }
             lines.push(StageTextLineBox {
                 start_utf16: line_start,
@@ -817,6 +733,10 @@ impl Editor {
         let Some(mut state) = TextFieldState::from_kind(&sampled.kind) else {
             return false;
         };
+        if state.interaction_mode == "selection" {
+            self.message("Editing blocked: text field is in selection-only mode.");
+            return true;
+        }
         let state_before = state.clone();
         let Ok(new_caret) =
             state.replace_utf16_range(sel_start, sel_end, inserted, typing_style.as_ref())
@@ -1255,6 +1175,11 @@ impl Editor {
             return false;
         }
         if ctx.memory(|m| m.focused().is_some()) {
+            if self.stage_text_edit.ime_preedit.is_some() {
+                self.stage_text_edit.ime_preedit = None;
+                self.stage_text_edit.ime_cursor_utf16 = None;
+            }
+            self.finish_stage_text_typing();
             return false;
         }
 
@@ -1262,16 +1187,18 @@ impl Editor {
         let geom = self
             .selected_sampled()
             .and_then(|el| self.stage_text_geometry(None, &el.kind));
-        let text_content = self
+        let sampled_state = self
             .selected_sampled()
-            .and_then(|el| TextFieldState::from_kind(&el.kind))
-            .map(|s| s.text)
+            .and_then(|el| TextFieldState::from_kind(&el.kind));
+        let selection_only = sampled_state
+            .as_ref()
+            .is_some_and(|s| s.interaction_mode == "selection");
+        let text_content = sampled_state
+            .as_ref()
+            .map(|s| s.text.clone())
             .unwrap_or_default();
         let total_u16 = text_content.encode_utf16().count();
-        let is_multiline = self
-            .selected_sampled()
-            .and_then(|el| TextFieldState::from_kind(&el.kind))
-            .is_none_or(|s| s.multiline);
+        let is_multiline = sampled_state.as_ref().is_none_or(|s| s.multiline);
 
         enum Action {
             Insert(String),
@@ -1507,12 +1434,14 @@ impl Editor {
                     update_ime_output = true;
                 }
                 Action::ImeEnabled => {
-                    self.stage_text_edit.ime_preedit = Some(String::new());
-                    self.stage_text_edit.ime_cursor_utf16 = Some((0, 0));
-                    update_ime_output = true;
+                    if !selection_only {
+                        self.stage_text_edit.ime_preedit = Some(String::new());
+                        self.stage_text_edit.ime_cursor_utf16 = Some((0, 0));
+                        update_ime_output = true;
+                    }
                 }
                 Action::ImePreedit(text) => {
-                    if text.is_empty() {
+                    if selection_only || text.is_empty() {
                         self.stage_text_edit.ime_preedit = None;
                         self.stage_text_edit.ime_cursor_utf16 = None;
                     } else {
@@ -1520,15 +1449,19 @@ impl Editor {
                         self.stage_text_edit.ime_preedit = Some(text);
                         self.stage_text_edit.ime_cursor_utf16 = Some((u16_len, u16_len));
                     }
-                    update_ime_output = true;
+                    if !selection_only {
+                        update_ime_output = true;
+                    }
                 }
                 Action::ImeCommit(text) => {
                     self.stage_text_edit.ime_preedit = None;
                     self.stage_text_edit.ime_cursor_utf16 = None;
-                    if !text.is_empty() {
+                    if !selection_only && !text.is_empty() {
                         self.stage_text_insert_or_replace(&text);
                     }
-                    update_ime_output = true;
+                    if !selection_only {
+                        update_ime_output = true;
+                    }
                 }
                 Action::ImeDisabled => {
                     self.stage_text_edit.ime_preedit = None;
@@ -1537,12 +1470,16 @@ impl Editor {
                 Action::Backspace(word) => {
                     self.stage_text_edit.ime_preedit = None;
                     self.stage_text_edit.ime_cursor_utf16 = None;
-                    self.stage_text_backspace(word);
+                    if !selection_only {
+                        self.stage_text_backspace(word);
+                    }
                 }
                 Action::Delete(word) => {
                     self.stage_text_edit.ime_preedit = None;
                     self.stage_text_edit.ime_cursor_utf16 = None;
-                    self.stage_text_delete_forward(word);
+                    if !selection_only {
+                        self.stage_text_delete_forward(word);
+                    }
                 }
                 Action::SelectAll => {
                     self.finish_stage_text_typing();
@@ -1552,7 +1489,8 @@ impl Editor {
                     self.stage_text_edit.preferred_x = None;
                 }
                 Action::ToggleBold => {
-                    if let Some(sampled) = self.selected_sampled()
+                    if !selection_only
+                        && let Some(sampled) = self.selected_sampled()
                         && let Some(state) = TextFieldState::from_kind(&sampled.kind)
                     {
                         let cur = self.resolved_inspector_text_format(&sampled.id, &state);
@@ -1563,7 +1501,8 @@ impl Editor {
                     }
                 }
                 Action::ToggleItalic => {
-                    if let Some(sampled) = self.selected_sampled()
+                    if !selection_only
+                        && let Some(sampled) = self.selected_sampled()
                         && let Some(state) = TextFieldState::from_kind(&sampled.kind)
                     {
                         let cur = self.resolved_inspector_text_format(&sampled.id, &state);
@@ -1574,7 +1513,8 @@ impl Editor {
                     }
                 }
                 Action::ToggleUnderline => {
-                    if let Some(sampled) = self.selected_sampled()
+                    if !selection_only
+                        && let Some(sampled) = self.selected_sampled()
                         && let Some(state) = TextFieldState::from_kind(&sampled.kind)
                     {
                         let cur = self.resolved_inspector_text_format(&sampled.id, &state);
@@ -1585,16 +1525,10 @@ impl Editor {
                     }
                 }
                 Action::Copy => {
-                    let (lo, hi) = self.stage_text_edit.selection_range_utf16();
-                    let copied = utf16_slice(&text_content, lo, hi).to_owned();
-                    ctx.copy_text(copied);
+                    self.copy_stage_text_selection(ctx, false);
                 }
                 Action::Cut => {
-                    let (lo, hi) = self.stage_text_edit.selection_range_utf16();
-                    let copied = utf16_slice(&text_content, lo, hi).to_owned();
-                    ctx.copy_text(copied);
-                    self.stage_text_edit.typing_format = None;
-                    self.stage_text_insert_or_replace("");
+                    self.copy_stage_text_selection(ctx, true);
                 }
                 Action::Exit => {
                     if self.stage_text_edit.ime_preedit.is_some() {
@@ -3044,5 +2978,230 @@ mod tests {
 
         editor.undo();
         assert_eq!(editor.selected_element().unwrap().transform.x, 100.0);
+    }
+
+    #[test]
+    fn t326_stage_grapheme_navigation_ime_preedit_cancel_commit_and_selection_mode() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        let mut base_fmt = TextFormat {
+            font: "Inter".into(),
+            size: 16.0,
+            color: 0x222222,
+            ..TextFormat::default()
+        };
+        base_fmt.set_field_options(Some(AuthoredTextFieldOptions {
+            field_type: neoflash_core::TextFieldType::Input,
+            selectable: true,
+            ..Default::default()
+        }));
+        editor.add_element(
+            ElementKind::TextBox {
+                text: "Red Blue".into(),
+                width: 320.0,
+                height: 80.0,
+                format: base_fmt,
+                word_wrap: true,
+                multiline: true,
+            },
+            30.0,
+            40.0,
+        );
+        // Apply bold red to "Red" (0..3) and italic blue to "Blue" (4..8).
+        assert!(editor.select_stage_text_utf16_range(0, 3));
+        assert!(
+            editor
+                .apply_stage_text_format_patch(&TextFormatPatch {
+                    bold: Some(true),
+                    color: Some(0xff0000),
+                    ..TextFormatPatch::default()
+                })
+                .unwrap()
+        );
+        assert!(editor.select_stage_text_utf16_range(4, 8));
+        assert!(
+            editor
+                .apply_stage_text_format_patch(&TextFormatPatch {
+                    italic: Some(true),
+                    color: Some(0x0055ff),
+                    ..TextFormatPatch::default()
+                })
+                .unwrap()
+        );
+        let mixed_baseline = editor.project.clone();
+        let undo_before_ime = editor.history.undo_len();
+
+        // 1. Place caret at end of "Red" (UTF-16 index 3), start IME preedit, then Escape to cancel.
+        assert!(editor.place_stage_text_caret_utf16(3));
+        stage_frame(
+            &mut editor,
+            &ctx,
+            1.0,
+            vec![
+                egui::Event::Ime(egui::ImeEvent::Enabled),
+                egui::Event::Ime(egui::ImeEvent::Preedit("に".into())),
+            ],
+        );
+        stage_frame(
+            &mut editor,
+            &ctx,
+            1.05,
+            vec![egui::Event::Ime(egui::ImeEvent::Preedit("にほんご".into()))],
+        );
+        assert_eq!(
+            editor.history.undo_len(),
+            undo_before_ime,
+            "IME preedit preview must never create Undo steps"
+        );
+        assert_eq!(
+            editor.project, mixed_baseline,
+            "IME preedit preview must not mutate committed project state"
+        );
+        stage_frame(
+            &mut editor,
+            &ctx,
+            1.1,
+            vec![egui::Event::Key {
+                key: Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            }],
+        );
+        assert!(
+            editor.stage_text_edit.is_active(&editor),
+            "Escape during IME preedit cancels only the composition and keeps inline editing active"
+        );
+        assert_eq!(editor.stage_text_edit.ime_preedit, None);
+        assert_eq!(editor.project, mixed_baseline);
+        assert_eq!(editor.history.undo_len(), undo_before_ime);
+
+        // 2. Commit multi-grapheme IME text ("か\u{3099}👨‍👩‍👧‍👦и\u{0306}") at index 3 (inheriting bold red run!).
+        // Cluster lengths in UTF-16: "か\u{3099}" (2) + "👨‍👩‍👧‍👦" (11) + "и\u{0306}" (2) = 15 units.
+        stage_frame(
+            &mut editor,
+            &ctx,
+            1.2,
+            vec![
+                egui::Event::Ime(egui::ImeEvent::Enabled),
+                egui::Event::Ime(egui::ImeEvent::Preedit("か".into())),
+                egui::Event::Ime(egui::ImeEvent::Commit("か\u{3099}👨‍👩‍👧‍👦и\u{0306}".into())),
+            ],
+        );
+        assert_eq!(
+            editor.history.undo_len(),
+            undo_before_ime + 1,
+            "completed IME commit records exactly one Undo step"
+        );
+        let committed_state =
+            TextFieldState::from_kind(&editor.selected_sampled().unwrap().kind).unwrap();
+        assert_eq!(committed_state.text, "Redか\u{3099}👨‍👩‍👧‍👦и\u{0306} Blue");
+        assert_eq!(committed_state.format_runs.len(), 3);
+        // Bold red run grew from 0..3 to 0..18, space is 18..19, italic blue rebased to 19..23!
+        assert_eq!(
+            (
+                committed_state.format_runs[0].start,
+                committed_state.format_runs[0].end
+            ),
+            (0, 18)
+        );
+        assert!(committed_state.format_runs[0].format.bold);
+        assert_eq!(committed_state.format_runs[0].format.color, 0xff0000);
+        assert_eq!(
+            (
+                committed_state.format_runs[2].start,
+                committed_state.format_runs[2].end
+            ),
+            (19, 23)
+        );
+        assert!(committed_state.format_runs[2].format.italic);
+        assert_eq!(committed_state.format_runs[2].format.color, 0x0055ff);
+
+        // 3. Continuous typing + Backspace in the same burst coalesces into the SAME Undo step!
+        let key_ev = |key: Key| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        stage_frame(
+            &mut editor,
+            &ctx,
+            1.22,
+            vec![egui::Event::Text("!".into()), key_ev(Key::Backspace)],
+        );
+        assert_eq!(
+            editor.history.undo_len(),
+            undo_before_ime + 1,
+            "continuous typing + IME commit + Backspace coalesces into one Undo step"
+        );
+        let after_ime_project = editor.project.clone();
+
+        // 4. ArrowLeft and Backspace/Delete step/delete whole grapheme clusters ("и\u{0306}" = 2, "👨‍👩‍👧‍👦" = 11, "か\u{3099}" = 2).
+        assert_eq!(editor.stage_text_edit.selection_range_utf16(), (18, 18));
+        stage_frame(&mut editor, &ctx, 1.25, vec![key_ev(Key::ArrowLeft)]);
+        assert_eq!(editor.stage_text_edit.selection_range_utf16(), (16, 16)); // stepped over "и\u{0306}"
+        stage_frame(&mut editor, &ctx, 1.30, vec![key_ev(Key::ArrowLeft)]);
+        assert_eq!(editor.stage_text_edit.selection_range_utf16(), (5, 5)); // stepped over 11-unit "👨‍👩‍👧‍👦"
+        stage_frame(&mut editor, &ctx, 1.35, vec![key_ev(Key::Delete)]);
+        // Forward Delete at 5 deletes the entire 11-unit ZWJ family emoji in one stroke!
+        let after_del =
+            TextFieldState::from_kind(&editor.selected_sampled().unwrap().kind).unwrap();
+        assert_eq!(after_del.text, "Redか\u{3099}и\u{0306} Blue");
+        assert_eq!(
+            editor.history.undo_len(),
+            undo_before_ime + 2,
+            "cursor repositioning starts a clean coalesced edit boundary"
+        );
+        stage_frame(&mut editor, &ctx, 1.40, vec![key_ev(Key::Backspace)]);
+        // Backspace at 5 deletes the entire 2-unit "か\u{3099}" cluster and coalesces into the same Undo step!
+        let after_bs = TextFieldState::from_kind(&editor.selected_sampled().unwrap().kind).unwrap();
+        assert_eq!(after_bs.text, "Redи\u{0306} Blue");
+        assert_eq!(
+            editor.history.undo_len(),
+            undo_before_ime + 2,
+            "consecutive grapheme deletes coalesce into one Undo step"
+        );
+
+        // Save/reopen + validate preserves mixed runs and valid UTF-8/UTF-16 boundaries.
+        let saved_json = editor.project.to_json().unwrap();
+        let reopened = Project::from_json(&saved_json).unwrap();
+        reopened.validate().unwrap();
+
+        // Undo reverts the post-navigation grapheme deletes, then Undo reverts the IME commit back to mixed_baseline!
+        editor.undo();
+        assert_eq!(editor.project, after_ime_project);
+        editor.undo();
+        assert_eq!(editor.project, mixed_baseline);
+
+        // 4. Switch field to interaction_mode = "selection": selection works, mutations are blocked cleanly.
+        editor.transact_named("Set selection mode", |s| {
+            if let Some(el) = s.selected_element_mut()
+                && let ElementKind::TextBox { format, .. } = &mut el.kind
+            {
+                let mut opts = format.field_options().unwrap_or_default();
+                opts.interaction_mode = "selection".into();
+                format.set_field_options(Some(opts));
+            }
+        });
+        let sel_mode_baseline = editor.project.clone();
+        let sel_mode_undo = editor.history.undo_len();
+        assert!(editor.select_stage_text_utf16_range(0, 3));
+        stage_frame(
+            &mut editor,
+            &ctx,
+            2.0,
+            vec![
+                egui::Event::Text("X".into()),
+                key_ev(Key::Backspace),
+                key_ev(Key::Delete),
+                egui::Event::Paste("Pasted".into()),
+            ],
+        );
+        assert_eq!(editor.project, sel_mode_baseline);
+        assert_eq!(editor.history.undo_len(), sel_mode_undo);
+        editor.project.validate().unwrap();
     }
 }

@@ -397,7 +397,7 @@ pub struct FteLayoutResponse {
 #[derive(Clone)]
 struct RawAtom {
     ch: char,
-    display_ch: char,
+    display_text: String,
     small_cap: bool,
     char_begin: usize,
     char_end: usize,
@@ -529,7 +529,7 @@ fn flatten_paragraph(
             let word_left = prev_ch.is_none_or(|p| p.is_whitespace());
             atoms.push(RawAtom {
                 ch: FTE_GRAPHIC_CHAR,
-                display_ch: FTE_GRAPHIC_CHAR,
+                display_text: FTE_GRAPHIC_CHAR.to_string(),
                 small_cap: false,
                 char_begin: utf16_pos,
                 char_end: utf16_pos + 1,
@@ -567,18 +567,16 @@ fn flatten_paragraph(
         let descent = size * 0.2;
         let line_gap = size * 0.15;
 
-        let chars: Vec<char> = run.text.chars().collect();
-        let mut idx = 0usize;
-        while idx < chars.len() {
-            let ch = chars[idx];
+        for (c_start, c_end, cluster) in crate::grapheme_clusters_utf16(&run.text) {
+            let u16_len = (c_end - c_start) as usize;
             // Combine \r\n into one mandatory-break atom spanning 2 UTF-16 code units.
-            if ch == '\r' && idx + 1 < chars.len() && chars[idx + 1] == '\n' {
+            if cluster == "\r\n" {
                 atoms.push(RawAtom {
                     ch: '\n',
-                    display_ch: '\n',
+                    display_text: "\n".to_owned(),
                     small_cap: false,
                     char_begin: utf16_pos,
-                    char_end: utf16_pos + 2,
+                    char_end: utf16_pos + u16_len,
                     advance: 0.0,
                     ascent,
                     descent,
@@ -600,13 +598,12 @@ fn flatten_paragraph(
                     bold,
                     italic,
                 });
-                utf16_pos += 2;
+                utf16_pos += u16_len;
                 prev_ch = Some('\n');
-                idx += 2;
                 continue;
             }
 
-            let u16_len = ch.len_utf16();
+            let ch = cluster.chars().next().unwrap_or(' ');
             let word_start = match prev_ch {
                 None => !ch.is_whitespace(),
                 Some(p) => {
@@ -620,29 +617,52 @@ fn flatten_paragraph(
                 }
             };
 
-            let (display_ch, small_cap) = match run.typographic_case.as_str() {
-                "uppercase" | "caps" => (ch.to_ascii_uppercase(), false),
-                "lowercase" => (ch.to_ascii_lowercase(), false),
-                "smallCaps" => (ch.to_ascii_uppercase(), ch.is_lowercase()),
-                "capsAndSmallCaps" => (ch.to_ascii_uppercase(), ch.is_lowercase()),
+            let (display_text, display_ch, small_cap) = match run.typographic_case.as_str() {
+                "uppercase" | "caps" => (
+                    cluster.chars().map(|c| c.to_ascii_uppercase()).collect(),
+                    ch.to_ascii_uppercase(),
+                    false,
+                ),
+                "lowercase" => (
+                    cluster.chars().map(|c| c.to_ascii_lowercase()).collect(),
+                    ch.to_ascii_lowercase(),
+                    false,
+                ),
+                "smallCaps" | "capsAndSmallCaps" => (
+                    cluster.chars().map(|c| c.to_ascii_uppercase()).collect(),
+                    ch.to_ascii_uppercase(),
+                    ch.is_lowercase(),
+                ),
                 "title" => {
                     if word_start {
-                        (ch.to_ascii_uppercase(), false)
+                        let mut chars = cluster.chars();
+                        let first = chars.next().map(|c| c.to_ascii_uppercase());
+                        let mut s = String::with_capacity(cluster.len());
+                        if let Some(f) = first {
+                            s.push(f);
+                        }
+                        s.extend(chars);
+                        (s, ch.to_ascii_uppercase(), false)
                     } else {
-                        (ch, false)
+                        (cluster.to_owned(), ch, false)
                     }
                 }
-                _ => (ch, false),
+                _ => (cluster.to_owned(), ch, false),
             };
 
             let is_nl = matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}');
             let is_tab = ch == '\t';
             let is_sp = ch == ' ' || ch == '\u{00A0}' || ch == '\u{3000}';
-            let mut adv = glyph_advance(display_ch, size, bold, tabular, small_cap, non_linear);
+            let is_emoji_cluster = cluster.chars().any(|c| (c as u32) >= 0x1F000);
+            let mut adv = if is_emoji_cluster {
+                if small_cap { size * 0.78 } else { size }
+            } else {
+                glyph_advance(display_ch, size, bold, tabular, small_cap, non_linear)
+            };
             if !is_nl && !is_tab {
                 adv = (adv + run.tracking_left + run.tracking_right).max(0.0);
             }
-            let bidi = if is_rtl_char(ch) {
+            let bidi = if cluster.chars().any(is_rtl_char) {
                 if block_bidi % 2 == 1 {
                     block_bidi
                 } else {
@@ -654,7 +674,7 @@ fn flatten_paragraph(
 
             atoms.push(RawAtom {
                 ch,
-                display_ch,
+                display_text,
                 small_cap,
                 char_begin: utf16_pos,
                 char_end: utf16_pos + u16_len,
@@ -682,7 +702,6 @@ fn flatten_paragraph(
 
             utf16_pos += u16_len;
             prev_ch = Some(ch);
-            idx += 1;
         }
     }
     atoms
@@ -1025,7 +1044,7 @@ pub fn layout_text_line(req: &FteLayoutRequest) -> Result<FteLayoutResponse, Fte
         }
 
         if !atom.is_graphic && !atom.is_newline && !atom.is_tab && atom.font_size > 0.0 {
-            let ch_str = atom.display_ch.to_string();
+            let ch_str = atom.display_text.clone();
             let y_top = roman_y - atom.ascent + atom.baseline_shift;
             let eff_rot = if !req.line_rotation.is_empty() && req.line_rotation != "rotate0" {
                 req.line_rotation.clone()
@@ -1046,7 +1065,7 @@ pub fn layout_text_line(req: &FteLayoutRequest) -> Result<FteLayoutResponse, Fte
                 && prev_draw.italic == atom.italic
                 && prev_draw.rotation == eff_rot
             {
-                prev_draw.text.push(atom.display_ch);
+                prev_draw.text.push_str(&atom.display_text);
             } else {
                 draw_runs.push(FteDrawRunOut {
                     x: pos_x,
@@ -1106,29 +1125,18 @@ pub fn layout_text_line(req: &FteLayoutRequest) -> Result<FteLayoutResponse, Fte
 }
 
 pub fn find_next_atom_boundary(raw_text: &str, after_char_index: i32) -> Result<i32, Fte3dError> {
-    let u16_total: i32 = raw_text.chars().map(|c| c.len_utf16() as i32).sum();
+    let bounds = crate::grapheme_utf16_boundaries(raw_text);
+    let u16_total = *bounds.last().unwrap_or(&0) as i32;
     if after_char_index < 0 || after_char_index >= u16_total {
         return Err(Fte3dError::Range(format!(
             "Char index {after_char_index} is out of bounds for TextBlock length {u16_total}."
         )));
     }
-    let mut pos = 0i32;
-    let chars: Vec<char> = raw_text.chars().collect();
-    let mut i = 0usize;
-    while i < chars.len() {
-        let step = if chars[i] == '\r' && i + 1 < chars.len() && chars[i + 1] == '\n' {
-            i += 2;
-            2
-        } else {
-            let s = chars[i].len_utf16() as i32;
-            i += 1;
-            s
-        };
-        let next = pos + step;
-        if next > after_char_index {
-            return Ok(next);
+    for b in bounds {
+        let bi = b as i32;
+        if bi > after_char_index {
+            return Ok(bi);
         }
-        pos = next;
     }
     Ok(u16_total)
 }
@@ -1137,66 +1145,57 @@ pub fn find_previous_atom_boundary(
     raw_text: &str,
     before_char_index: i32,
 ) -> Result<i32, Fte3dError> {
-    let u16_total: i32 = raw_text.chars().map(|c| c.len_utf16() as i32).sum();
+    let bounds = crate::grapheme_utf16_boundaries(raw_text);
+    let u16_total = *bounds.last().unwrap_or(&0) as i32;
     if before_char_index <= 0 || before_char_index > u16_total {
         return Err(Fte3dError::Range(format!(
             "Char index {before_char_index} is out of bounds for TextBlock length {u16_total}."
         )));
     }
-    let mut boundaries = vec![0i32];
-    let chars: Vec<char> = raw_text.chars().collect();
-    let mut pos = 0i32;
-    let mut i = 0usize;
-    while i < chars.len() {
-        let step = if chars[i] == '\r' && i + 1 < chars.len() && chars[i + 1] == '\n' {
-            i += 2;
-            2
-        } else {
-            let s = chars[i].len_utf16() as i32;
-            i += 1;
-            s
-        };
-        pos += step;
-        boundaries.push(pos);
-    }
-    for &b in boundaries.iter().rev() {
-        if b < before_char_index {
-            return Ok(b);
+    for &b in bounds.iter().rev() {
+        let bi = b as i32;
+        if bi < before_char_index {
+            return Ok(bi);
         }
     }
     Ok(0)
 }
 
 fn word_boundaries_utf16(raw_text: &str) -> Vec<i32> {
-    let chars: Vec<char> = raw_text.chars().collect();
-    if chars.is_empty() {
+    let clusters = crate::grapheme_clusters_utf16(raw_text);
+    if clusters.is_empty() {
         return vec![0];
     }
     let mut bounds = vec![0i32];
-    let mut pos = 0i32;
-    for i in 0..chars.len() {
-        pos += chars[i].len_utf16() as i32;
-        if i + 1 < chars.len() {
-            let a = chars[i];
-            let b = chars[i + 1];
-            let boundary = if a == '\r' && b == '\n' {
-                false
-            } else if a.is_whitespace() != b.is_whitespace() || is_cjk(a) || is_cjk(b) {
+    for i in 0..clusters.len() {
+        let end_pos = clusters[i].1 as i32;
+        if i + 1 < clusters.len() {
+            let a_str = clusters[i].2;
+            let b_str = clusters[i + 1].2;
+            let a = a_str.chars().next().unwrap_or(' ');
+            let b = b_str.chars().next().unwrap_or(' ');
+            let a_ws = a_str.chars().all(char::is_whitespace);
+            let b_ws = b_str.chars().all(char::is_whitespace);
+            let boundary = if a_ws != b_ws || is_cjk(a) || is_cjk(b) {
                 true
-            } else if !a.is_whitespace() && !b.is_whitespace() {
+            } else if !a_ws && !b_ws {
                 is_word_char(a) != is_word_char(b)
             } else {
                 false
             };
             if boundary {
-                bounds.push(pos);
+                bounds.push(end_pos);
             }
+        } else if bounds.last().copied() != Some(end_pos) {
+            bounds.push(end_pos);
         }
     }
-    if bounds.last().copied() != Some(pos) {
-        bounds.push(pos);
-    }
     bounds
+}
+
+pub fn font_has_glyphs(font_bytes: &[u8], text: &str) -> Result<bool, Fte3dError> {
+    crate::sfnt_has_glyphs(font_bytes, text)
+        .ok_or_else(|| Fte3dError::Argument("Invalid SFNT/TTC/WOFF font binary.".to_owned()))
 }
 
 pub fn find_next_word_boundary(raw_text: &str, after_char_index: i32) -> Result<i32, Fte3dError> {
@@ -5673,5 +5672,92 @@ mod tests {
         cws.extend_from_slice(&compressed);
         let err = inspect_swf_bytes(&cws).unwrap_err();
         assert!(err.to_string().contains("16 MiB"));
+    }
+
+    #[test]
+    fn t326_fte_atom_and_word_boundaries_preserve_combining_marks_and_zwj_emoji() {
+        // "e\u{0301} и\u{0306} か\u{3099} 👨‍👩‍👧‍👦"
+        // Offsets:
+        // "e\u{0301}" -> 0..2
+        // " "         -> 2..3
+        // "и\u{0306}" -> 3..5
+        // " "         -> 5..6
+        // "か\u{3099}" -> 6..8
+        // " "         -> 8..9
+        // "👨‍👩‍👧‍👦" -> 9..20
+        let raw = "e\u{0301} и\u{0306} か\u{3099} 👨‍👩‍👧‍👦";
+        assert_eq!(raw.encode_utf16().count(), 20);
+
+        let mut atoms = Vec::new();
+        let mut idx = 0i32;
+        while (idx as usize) < 20 {
+            idx = find_next_atom_boundary(raw, idx).unwrap();
+            atoms.push(idx);
+        }
+        assert_eq!(atoms, vec![2, 3, 5, 6, 8, 9, 20]);
+
+        let mut rev_atoms = Vec::new();
+        while idx > 0 {
+            idx = find_previous_atom_boundary(raw, idx).unwrap();
+            rev_atoms.push(idx);
+        }
+        rev_atoms.reverse();
+        assert_eq!(rev_atoms, vec![0, 2, 3, 5, 6, 8, 9]);
+
+        // Word boundaries never land inside combining sequences or ZWJ clusters either.
+        let next_w0 = find_next_word_boundary(raw, 0).unwrap();
+        assert_eq!(next_w0, 2);
+        let prev_w_end = find_previous_word_boundary(raw, 20).unwrap();
+        assert!(matches!(prev_w_end, 9 | 8));
+
+        // FTE paragraph layout produces 7 grapheme atoms (never 18 code-unit atoms!).
+        let req = FteLayoutRequest {
+            runs: vec![FteInputElementRun {
+                element_id: 1,
+                is_graphic: false,
+                text: raw.into(),
+                graphic_width: 0.0,
+                graphic_height: 0.0,
+                font_name: "_sans".into(),
+                font_size: 16.0,
+                font_weight: "normal".into(),
+                font_posture: "normal".into(),
+                color: 0,
+                alpha: 1.0,
+                tracking_left: 0.0,
+                tracking_right: 0.0,
+                baseline_shift: 0.0,
+                text_rotation: "auto".into(),
+                break_opportunity: "auto".into(),
+                digit_width: "default".into(),
+                typographic_case: "default".into(),
+                has_mirror: false,
+            }],
+            start_char: 0,
+            max_width: 1000.0,
+            line_offset: 0.0,
+            fit_something: true,
+            tab_stops: Vec::new(),
+            justifier: FteJustifierSpec {
+                kind: "space".into(),
+                locale: "en".into(),
+                line_justification: "unjustified".into(),
+                letter_spacing: false,
+                minimum_spacing: 0.5,
+                optimum_spacing: 1.0,
+                maximum_spacing: 2.0,
+                justification_style: "pushInKinsoku".into(),
+                compose_trailing_ideographic_spaces: false,
+            },
+            baseline_font_size: 16.0,
+            baseline_zero: "roman".into(),
+            bidi_level: 0,
+            line_rotation: "rotate0".into(),
+            apply_non_linear_font_scaling: true,
+        };
+        let resp = layout_text_line(&req).expect("layout_text_line");
+        let line = resp.line.expect("non-empty line");
+        assert_eq!(line.atoms.len(), 7);
+        assert_eq!(line.raw_text_length, 20);
     }
 }

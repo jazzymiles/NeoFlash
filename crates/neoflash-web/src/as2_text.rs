@@ -72,3 +72,6 @@ impl WebPlayer {
             .map_err(display_error)
     }
 }
+
+#[path = "as3_text_bridge.rs"]
+mod as3_text_bridge;

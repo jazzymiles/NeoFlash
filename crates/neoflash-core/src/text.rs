@@ -789,6 +789,11 @@ pub struct TextFieldState {
         skip_serializing_if = "is_word_spacing_str"
     )]
     pub text_justify: String,
+    #[serde(
+        default = "default_normal_interaction_str",
+        skip_serializing_if = "is_normal_interaction_str"
+    )]
+    pub interaction_mode: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub format_runs: Vec<TextFormatRun>,
 }
@@ -853,9 +858,18 @@ impl Default for TextFieldState {
             space_before: 0.0,
             space_after: 0.0,
             text_justify: "word_spacing".into(),
+            interaction_mode: "normal".into(),
             format_runs: Vec::new(),
         }
     }
+}
+
+fn default_normal_interaction_str() -> String {
+    "normal".into()
+}
+
+fn is_normal_interaction_str(v: &str) -> bool {
+    v.is_empty() || v == "normal"
 }
 
 fn default_true_bool() -> bool {
@@ -1127,6 +1141,11 @@ pub struct AuthoredTextFieldOptions {
     pub sharpness: f64,
     #[serde(default, skip_serializing_if = "is_zero_f64")]
     pub thickness: f64,
+    #[serde(
+        default = "default_normal_interaction_str",
+        skip_serializing_if = "is_normal_interaction_str"
+    )]
+    pub interaction_mode: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub format_runs: Vec<TextFormatRun>,
 }
@@ -1188,6 +1207,7 @@ impl Default for AuthoredTextFieldOptions {
             grid_fit_type: grid_fit_default(),
             sharpness: 0.0,
             thickness: 0.0,
+            interaction_mode: "normal".into(),
             format_runs: Vec::new(),
         }
     }
@@ -1308,6 +1328,11 @@ impl AuthoredTextFieldOptions {
         }
         state.sharpness = self.sharpness.clamp(-400.0, 400.0);
         state.thickness = self.thickness.clamp(-200.0, 200.0);
+        state.interaction_mode = if self.interaction_mode.is_empty() {
+            "normal".into()
+        } else {
+            self.interaction_mode.clone()
+        };
         state.format_runs = self.format_runs.clone();
         state.normalize_runs();
     }
@@ -1362,6 +1387,7 @@ impl AuthoredTextFieldOptions {
             grid_fit_type: state.grid_fit_type.clone(),
             sharpness: state.sharpness,
             thickness: state.thickness,
+            interaction_mode: state.interaction_mode.clone(),
             format_runs: state.format_runs.clone(),
         }
     }
@@ -1551,6 +1577,9 @@ impl TextFieldState {
         if !matches!(self.grid_fit_type.as_str(), "none" | "pixel" | "subpixel") {
             return Err(error("gridFitType requires none, pixel or subpixel"));
         }
+        if !matches!(self.interaction_mode.as_str(), "normal" | "selection") {
+            return Err(error("interactionMode requires normal or selection"));
+        }
         if !self.sharpness.is_finite() || !(-400.0..=400.0).contains(&self.sharpness) {
             return Err(error("sharpness requires a finite number in -400..=400"));
         }
@@ -1674,6 +1703,9 @@ impl TextFieldState {
         if let Some(value) = patch.always_show_selection {
             next.always_show_selection = value;
         }
+        if let Some(value) = &patch.interaction_mode {
+            next.interaction_mode = value.clone();
+        }
 
         if let Some(format) = &patch.default_format {
             format.apply(&mut next.default_format)
@@ -1732,12 +1764,21 @@ impl TextFieldState {
                 next.normalize_runs();
             }
         }
+        let mut applied_selected_caret: Option<u32> = None;
         if let Some(replacement) = patch.replace.as_ref().or(selected_replacement.as_ref()) {
-            let start = utf16_byte(&next.text, replacement.begin)?;
-            let end = utf16_byte(&next.text, replacement.end)?;
-            if start > end {
+            utf16_byte(&next.text, replacement.begin)?;
+            utf16_byte(&next.text, replacement.end)?;
+            if replacement.begin > replacement.end {
                 return Err(error("replacement range must be ordered"));
             }
+            let rep_begin = snap_utf16_to_grapheme_floor(&next.text, i64::from(replacement.begin));
+            let rep_end = if replacement.end > replacement.begin {
+                snap_utf16_to_grapheme_ceil(&next.text, i64::from(replacement.end))
+            } else {
+                rep_begin
+            };
+            let start = utf16_byte(&next.text, rep_begin)?;
+            let end = utf16_byte(&next.text, rep_end)?;
             if next.text.len() - (end - start) + replacement.text.len() > MAX_TEXT_BYTES {
                 return Err(error("replacement exceeds 1048576 UTF-8 bytes"));
             }
@@ -1753,41 +1794,43 @@ impl TextFieldState {
             } else {
                 let insert_fmt = if selected_replacement.is_some() {
                     next.default_format.clone()
+                } else if rep_begin < rep_end {
+                    next.format_at_utf16(rep_begin, old_units)
                 } else {
-                    next.format_at_utf16(replacement.begin, old_units)
+                    next.format_at_utf16_caret(rep_begin as usize)
                 };
                 if !next.format_runs.is_empty() || insert_fmt != next.format {
                     let old_runs = next.materialized_runs(old_units);
-                    let removed = replacement.end - replacement.begin;
+                    let removed = rep_end - rep_begin;
                     let mut runs = Vec::new();
                     for r in &old_runs {
-                        if r.end <= replacement.begin {
+                        if r.end <= rep_begin {
                             runs.push(r.clone());
-                        } else if r.start < replacement.begin {
+                        } else if r.start < rep_begin {
                             runs.push(TextFormatRun {
                                 start: r.start,
-                                end: replacement.begin,
+                                end: rep_begin,
                                 format: r.format.clone(),
                             });
                         }
                     }
                     if insert_units > 0 {
                         runs.push(TextFormatRun {
-                            start: replacement.begin,
-                            end: replacement.begin + insert_units,
+                            start: rep_begin,
+                            end: rep_begin + insert_units,
                             format: insert_fmt,
                         });
                     }
                     for r in &old_runs {
-                        if r.start >= replacement.end {
+                        if r.start >= rep_end {
                             runs.push(TextFormatRun {
                                 start: r.start - removed + insert_units,
                                 end: r.end - removed + insert_units,
                                 format: r.format.clone(),
                             });
-                        } else if r.end > replacement.end {
+                        } else if r.end > rep_end {
                             runs.push(TextFormatRun {
-                                start: replacement.begin + insert_units,
+                                start: rep_begin + insert_units,
                                 end: r.end - removed + insert_units,
                                 format: r.format.clone(),
                             });
@@ -1798,6 +1841,9 @@ impl TextFieldState {
             }
             next.text.replace_range(start..end, &normalized);
             next.normalize_runs();
+            if selected_replacement.is_some() {
+                applied_selected_caret = Some(rep_begin + insert_units);
+            }
         }
         if let Some(format) = &patch.format {
             format.apply(&mut next.format);
@@ -1858,9 +1904,7 @@ impl TextFieldState {
             next.selection_end = 0;
             next.caret = 0;
         }
-        if let Some(replacement) = &selected_replacement {
-            let caret =
-                replacement.begin + normalize_text(&replacement.text).encode_utf16().count() as u32;
+        if let Some(caret) = applied_selected_caret {
             next.selection_begin = caret;
             next.selection_end = caret;
             next.caret = caret;
@@ -1899,6 +1943,9 @@ impl TextFieldState {
                 "stale text input revision; refresh the editor before committing",
             ));
         }
+        if self.interaction_mode == "selection" {
+            return Ok(());
+        }
         if edit.text.len() > MAX_TEXT_BYTES {
             return Err(error("input insertion exceeds 1048576 UTF-8 bytes"));
         }
@@ -1907,48 +1954,139 @@ impl TextFieldState {
         if edit.begin > edit.end {
             return Err(error("input replacement range must be ordered"));
         }
+        let floor_begin = snap_utf16_to_grapheme_floor(&self.text, i64::from(edit.begin));
+        let ceil_end = if edit.end > edit.begin {
+            snap_utf16_to_grapheme_ceil(&self.text, i64::from(edit.end))
+        } else {
+            floor_begin
+        };
+        let (eff_begin, eff_end, candidate_text) = if edit.text.is_empty() {
+            (floor_begin, ceil_end, String::new())
+        } else if floor_begin < edit.begin || ceil_end > edit.end {
+            (
+                floor_begin,
+                ceil_end,
+                format!(
+                    "{}{}{}",
+                    utf16_slice_safe(&self.text, floor_begin as usize, edit.begin as usize),
+                    normalize_text(&edit.text),
+                    utf16_slice_safe(&self.text, edit.end as usize, ceil_end as usize),
+                ),
+            )
+        } else {
+            (edit.begin, edit.end, normalize_text(&edit.text))
+        };
         let restriction = self
             .restrict
             .as_deref()
             .map(Restriction::compile)
             .transpose()?;
-        let retained = self.text.encode_utf16().count() - (edit.end - edit.begin) as usize;
+        let total_units = self.text.encode_utf16().count();
+        let retained = total_units.saturating_sub((eff_end - eff_begin) as usize);
         let capacity = if self.max_chars == 0 {
             MAX_TEXT_BYTES
         } else {
             (self.max_chars as usize).saturating_sub(retained)
         };
         let mut inserted = String::new();
-        let mut units = 0;
-        for ch in normalize_text(&edit.text).chars() {
-            if (!self.multiline && ch == '\n')
-                || restriction.as_ref().is_some_and(|rule| !rule.allows(ch))
+        let mut units = 0usize;
+        for (_, _, cluster) in grapheme_clusters_utf16(&candidate_text) {
+            if cluster == "\n" {
+                if !self.multiline {
+                    continue;
+                }
+            } else if let Some(rule) = &restriction
+                && !cluster.chars().all(|ch| rule.allows(ch))
             {
                 continue;
             }
-            if units + ch.len_utf16() > capacity {
+            let cluster_units = cluster.encode_utf16().count();
+            if units + cluster_units > capacity {
                 break;
             }
-            inserted.push(ch);
-            units += ch.len_utf16();
+            inserted.push_str(cluster);
+            units += cluster_units;
         }
         // Rejected typing must not erase an existing selection.
         if !edit.text.is_empty() && inserted.is_empty() {
             return Ok(());
         }
-        let caret = i64::from(edit.begin) + units as i64;
-        self.apply(&TextPatch {
-            replace: Some(TextReplacement {
-                begin: edit.begin,
-                end: edit.end,
-                text: inserted,
-            }),
-            selection: Some(TextSelection {
-                begin: caret,
-                end: caret,
-            }),
-            ..TextPatch::default()
-        })
+        let byte_start = utf16_byte(&self.text, eff_begin)?;
+        let byte_end = utf16_byte(&self.text, eff_end)?;
+        if self.text.len() - (byte_end - byte_start) + inserted.len() > MAX_TEXT_BYTES {
+            return Err(error("replacement exceeds 1048576 UTF-8 bytes"));
+        }
+        let old_units = total_units as u32;
+        let insert_units = units as u32;
+        let removed_units = eff_end - eff_begin;
+        let mut insert_fmt = self.format_for_utf16_selection(eff_begin as usize, eff_end as usize);
+        insert_fmt.set_field_options(None);
+
+        let mut next = self.clone();
+        let has_surrounding = eff_begin > 0 || eff_end < old_units;
+        if !has_surrounding {
+            if old_units == 0 {
+                next.format = next.default_format.clone();
+            } else {
+                next.format = insert_fmt;
+            }
+            next.format_runs.clear();
+        } else if !next.format_runs.is_empty() || insert_fmt != next.format {
+            let old_runs = next.materialized_runs(old_units);
+            let mut runs = Vec::new();
+            for r in &old_runs {
+                if r.end <= eff_begin {
+                    runs.push(r.clone());
+                } else if r.start < eff_begin {
+                    runs.push(TextFormatRun {
+                        start: r.start,
+                        end: eff_begin,
+                        format: r.format.clone(),
+                    });
+                }
+            }
+            if insert_units > 0 {
+                runs.push(TextFormatRun {
+                    start: eff_begin,
+                    end: eff_begin + insert_units,
+                    format: insert_fmt,
+                });
+            }
+            for r in &old_runs {
+                if r.start >= eff_end {
+                    runs.push(TextFormatRun {
+                        start: r.start - removed_units + insert_units,
+                        end: r.end - removed_units + insert_units,
+                        format: r.format.clone(),
+                    });
+                } else if r.end > eff_end {
+                    runs.push(TextFormatRun {
+                        start: eff_begin + insert_units,
+                        end: r.end - removed_units + insert_units,
+                        format: r.format.clone(),
+                    });
+                }
+            }
+            next.format_runs = runs;
+        }
+        next.text.replace_range(byte_start..byte_end, &inserted);
+        next.normalize_runs();
+        let new_caret = eff_begin + insert_units;
+        next.selection_begin = new_caret;
+        next.selection_end = new_caret;
+        next.caret = new_caret;
+        next.validate()?;
+        if next != *self {
+            next.revision = self
+                .revision
+                .parse::<u64>()
+                .unwrap_or(0)
+                .checked_add(1)
+                .ok_or_else(|| error("text revision exhausted"))?
+                .to_string();
+            *self = next;
+        }
+        Ok(())
     }
 
     pub fn materialized_runs(&self, total_units: u32) -> Vec<TextFormatRun> {
@@ -2161,6 +2299,39 @@ impl TextFieldState {
         })
     }
 
+    pub fn slice_runs_utf16(&self, start_utf16: usize, end_utf16: usize) -> Vec<TextFormatRun> {
+        let lo = snap_utf16_to_grapheme_floor(&self.text, start_utf16.min(end_utf16) as i64);
+        let hi = snap_utf16_to_grapheme_ceil(&self.text, start_utf16.max(end_utf16) as i64);
+        if lo >= hi {
+            return Vec::new();
+        }
+        let total = self.text.encode_utf16().count() as u32;
+        let mut out: Vec<TextFormatRun> = Vec::new();
+        for r in self.materialized_runs(total) {
+            let s = r.start.max(lo);
+            let e = r.end.min(hi);
+            if s < e {
+                let mut fmt = r.format;
+                fmt.set_field_options(None);
+                let rel_start = s - lo;
+                let rel_end = e - lo;
+                if let Some(last) = out.last_mut()
+                    && last.end == rel_start
+                    && last.format == fmt
+                {
+                    last.end = rel_end;
+                    continue;
+                }
+                out.push(TextFormatRun {
+                    start: rel_start,
+                    end: rel_end,
+                    format: fmt,
+                });
+            }
+        }
+        out
+    }
+
     pub fn replace_utf16_range(
         &mut self,
         start_utf16: usize,
@@ -2168,34 +2339,103 @@ impl TextFieldState {
         inserted: &str,
         typing_style: Option<&TextFormat>,
     ) -> Result<usize, TextError> {
-        let begin = self.clamp_utf16_offset(start_utf16.min(end_utf16)) as u32;
-        let end = self.clamp_utf16_offset(start_utf16.max(end_utf16)) as u32;
+        self.replace_utf16_range_with_runs(start_utf16, end_utf16, inserted, &[], typing_style)
+    }
+
+    pub fn replace_utf16_range_with_runs(
+        &mut self,
+        start_utf16: usize,
+        end_utf16: usize,
+        inserted: &str,
+        inserted_runs: &[TextFormatRun],
+        typing_style: Option<&TextFormat>,
+    ) -> Result<usize, TextError> {
+        let old_units = self.text.encode_utf16().count() as u32;
+        let raw_begin = start_utf16.min(end_utf16).min(old_units as usize) as u32;
+        let raw_end = start_utf16.max(end_utf16).min(old_units as usize) as u32;
+        utf16_byte(&self.text, raw_begin)?;
+        utf16_byte(&self.text, raw_end)?;
+        let begin = snap_utf16_to_grapheme_floor(&self.text, raw_begin as i64);
+        let end = if raw_end > raw_begin {
+            snap_utf16_to_grapheme_ceil(&self.text, raw_end as i64)
+        } else {
+            begin
+        };
         let byte_start = utf16_byte(&self.text, begin)?;
         let byte_end = utf16_byte(&self.text, end)?;
-        let mut normalized = normalize_text(inserted);
-        if !self.multiline {
-            normalized = normalized.replace('\n', " ");
-        }
-        if let Some(pattern) = &self.restrict {
-            let rule = Restriction::compile(pattern)?;
-            normalized.retain(|ch| ch == '\n' || rule.allows(ch));
-        }
-        let old_units = self.text.encode_utf16().count() as u32;
+
+        // Normalize \r\n / \r to \n while remapping inserted_runs offsets if \r\n was present.
+        let (normalized_source, mapped_runs) = normalize_text_and_runs(inserted, inserted_runs);
+        let compiled_rule = if let Some(pattern) = &self.restrict {
+            Some(Restriction::compile(pattern)?)
+        } else {
+            None
+        };
         let removed_units = end - begin;
-        if self.max_chars > 0 {
+        let capacity = if self.max_chars > 0 {
             let retained_units = old_units.saturating_sub(removed_units) as usize;
-            let capacity = (self.max_chars as usize).saturating_sub(retained_units);
-            let mut capped = String::new();
-            let mut units = 0usize;
-            for ch in normalized.chars() {
-                if units + ch.len_utf16() > capacity {
-                    break;
+            Some((self.max_chars as usize).saturating_sub(retained_units))
+        } else {
+            None
+        };
+
+        let mut base_insert_fmt = typing_style
+            .cloned()
+            .unwrap_or_else(|| self.format_for_utf16_selection(begin as usize, end as usize));
+        base_insert_fmt.set_field_options(None);
+
+        let mut normalized = String::new();
+        let mut filtered_runs: Vec<TextFormatRun> = Vec::new();
+        let mut kept_units = 0u32;
+        for (c_start, _c_end, cluster) in grapheme_clusters_utf16(&normalized_source) {
+            let effective_cluster: &str = if !self.multiline && cluster == "\n" {
+                " "
+            } else {
+                cluster
+            };
+            if let Some(rule) = &compiled_rule {
+                let allowed = effective_cluster == "\n"
+                    || effective_cluster.chars().all(|ch| rule.allows(ch));
+                if !allowed {
+                    continue;
                 }
-                capped.push(ch);
-                units += ch.len_utf16();
             }
-            normalized = capped;
+            let c_units = effective_cluster.encode_utf16().count() as u32;
+            if let Some(cap) = capacity
+                && (kept_units as usize) + (c_units as usize) > cap
+            {
+                break;
+            }
+            let mut cluster_fmt = mapped_runs
+                .iter()
+                .find(|r| r.start <= c_start && c_start < r.end)
+                .map(|r| r.format.clone())
+                .unwrap_or_else(|| base_insert_fmt.clone());
+            cluster_fmt.set_field_options(None);
+
+            let r_start = kept_units;
+            let r_end = kept_units + c_units;
+            if let Some(last) = filtered_runs.last_mut() {
+                if last.end == r_start && last.format == cluster_fmt {
+                    last.end = r_end;
+                } else {
+                    filtered_runs.push(TextFormatRun {
+                        start: r_start,
+                        end: r_end,
+                        format: cluster_fmt,
+                    });
+                }
+            } else {
+                filtered_runs.push(TextFormatRun {
+                    start: r_start,
+                    end: r_end,
+                    format: cluster_fmt,
+                });
+            }
+            normalized.push_str(effective_cluster);
+            kept_units = r_end;
         }
+
         // A rejected typed/pasted value is a no-op, not a deletion of the active selection.
         // Intentional deletion is represented by an actually empty `inserted` string.
         if !inserted.is_empty() && normalized.is_empty() {
@@ -2204,19 +2444,25 @@ impl TextFieldState {
         if self.text.len() - (byte_end - byte_start) + normalized.len() > MAX_TEXT_BYTES {
             return Err(error("replacement exceeds 1048576 UTF-8 bytes"));
         }
-        let insert_units = normalized.encode_utf16().count() as u32;
-        let mut insert_fmt = typing_style
-            .cloned()
-            .unwrap_or_else(|| self.format_at_utf16_caret(begin as usize));
-        insert_fmt.set_field_options(None);
+        let insert_units = kept_units;
 
         let mut next = self.clone();
         let retained = begin > 0 || end < old_units;
         if !retained {
-            next.format = insert_fmt.clone();
-            next.default_format = insert_fmt;
-            next.format_runs.clear();
-        } else if !next.format_runs.is_empty() || insert_fmt != next.format {
+            if filtered_runs.is_empty() {
+                next.format = base_insert_fmt.clone();
+                next.default_format = base_insert_fmt;
+                next.format_runs.clear();
+            } else {
+                let first_fmt = filtered_runs[0].format.clone();
+                next.format = first_fmt.clone();
+                next.default_format = first_fmt;
+                next.format_runs = filtered_runs;
+            }
+        } else if !next.format_runs.is_empty()
+            || base_insert_fmt != next.format
+            || filtered_runs.iter().any(|r| r.format != next.format)
+        {
             let old_runs = next.materialized_runs(old_units);
             let mut runs = Vec::new();
             for r in &old_runs {
@@ -2231,11 +2477,13 @@ impl TextFieldState {
                 }
             }
             if insert_units > 0 {
-                runs.push(TextFormatRun {
-                    start: begin,
-                    end: begin + insert_units,
-                    format: insert_fmt,
-                });
+                for r in filtered_runs {
+                    runs.push(TextFormatRun {
+                        start: begin + r.start,
+                        end: begin + r.end,
+                        format: r.format,
+                    });
+                }
             }
             for r in &old_runs {
                 if r.start >= end {
@@ -2368,6 +2616,8 @@ pub struct TextPatch {
     pub selection: Option<TextSelection>,
     pub field_type: Option<TextFieldType>,
     pub selectable: Option<bool>,
+    #[serde(default)]
+    pub interaction_mode: Option<String>,
     pub display_as_password: Option<bool>,
     pub max_chars: Option<u32>,
     pub restrict: Option<TextRestrictPatch>,
@@ -2396,17 +2646,664 @@ pub struct TextReplacement {
     pub end: u32,
     pub text: String,
 }
-fn clamp_utf16(text: &str, index: i64) -> u32 {
-    let wanted = index.max(0) as u64;
-    let mut units = 0u32;
-    for ch in text.chars() {
-        let next = units + ch.len_utf16() as u32;
-        if u64::from(next) > wanted {
-            return units;
-        }
-        units = next;
+pub fn normalize_text_and_runs(
+    inserted: &str,
+    inserted_runs: &[TextFormatRun],
+) -> (String, Vec<TextFormatRun>) {
+    if !inserted.contains('\r') {
+        return (inserted.to_owned(), inserted_runs.to_vec());
     }
-    units
+    if inserted_runs.is_empty() {
+        return (normalize_text(inserted), Vec::new());
+    }
+    let chars: Vec<char> = inserted.chars().collect();
+    let mut old_to_new = Vec::with_capacity(inserted.encode_utf16().count() + 1);
+    let mut norm = String::with_capacity(inserted.len());
+    let mut new_u16 = 0u32;
+    let mut i = 0usize;
+    while i < chars.len() {
+        let ch = chars[i];
+        let u16_len = ch.len_utf16();
+        for _ in 0..u16_len {
+            old_to_new.push(new_u16);
+        }
+        if ch == '\r' {
+            if i + 1 < chars.len() && chars[i + 1] == '\n' {
+                // \r\n collapses to a single \n: map both \r and \n starts consistently.
+                old_to_new.push(new_u16);
+                norm.push('\n');
+                new_u16 += 1;
+                i += 2;
+                continue;
+            }
+            norm.push('\n');
+            new_u16 += 1;
+        } else {
+            norm.push(ch);
+            new_u16 += u16_len as u32;
+        }
+        i += 1;
+    }
+    old_to_new.push(new_u16);
+    let map_idx = |pos: u32| -> u32 { old_to_new.get(pos as usize).copied().unwrap_or(new_u16) };
+    let mut mapped = Vec::with_capacity(inserted_runs.len());
+    for r in inserted_runs {
+        let s = map_idx(r.start);
+        let e = map_idx(r.end);
+        if s < e {
+            mapped.push(TextFormatRun {
+                start: s,
+                end: e,
+                format: r.format.clone(),
+            });
+        }
+    }
+    (norm, mapped)
+}
+fn clamp_utf16(text: &str, index: i64) -> u32 {
+    snap_utf16_to_grapheme_floor(text, index)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GraphemeBreakProp {
+    Cr,
+    Lf,
+    Control,
+    Extend,
+    Zwj,
+    RegionalIndicator,
+    Prepend,
+    SpacingMark,
+    HangulL,
+    HangulV,
+    HangulT,
+    HangulLv,
+    HangulLvt,
+    ExtendedPictographic,
+    Other,
+}
+
+fn grapheme_break_prop(ch: char) -> GraphemeBreakProp {
+    let cp = ch as u32;
+    match cp {
+        0x000D => GraphemeBreakProp::Cr,
+        0x000A => GraphemeBreakProp::Lf,
+        0x200D => GraphemeBreakProp::Zwj,
+        0x1F1E6..=0x1F1FF => GraphemeBreakProp::RegionalIndicator,
+        // C0/C1 controls, bidi/format controls, line/paragraph separators (excluding ZWJ/ZWNJ)
+        0x0000..=0x0009
+        | 0x000B..=0x000C
+        | 0x000E..=0x001F
+        | 0x007F..=0x009F
+        | 0x00AD
+        | 0x061C
+        | 0x180E
+        | 0x200B
+        | 0x200E..=0x200F
+        | 0x2028..=0x202E
+        | 0x2060..=0x206F
+        | 0xFEFF
+        | 0xFFF9..=0xFFFB
+        | 0xE0000..=0xE001F
+        | 0xE0080..=0xE00FF => GraphemeBreakProp::Control,
+        // Prepend
+        0x0600..=0x0605 | 0x06DD | 0x070F | 0x0890..=0x0891 | 0x08E2 | 0x110BD | 0x110CD => {
+            GraphemeBreakProp::Prepend
+        }
+        // Hangul Jamo & precomposed Hangul syllables
+        0x1100..=0x115F | 0xA960..=0xA97C => GraphemeBreakProp::HangulL,
+        0x1160..=0x11A7 | 0xD7B0..=0xD7C6 => GraphemeBreakProp::HangulV,
+        0x11A8..=0x11FF | 0xD7CB..=0xD7FB => GraphemeBreakProp::HangulT,
+        0xAC00..=0xD7A3 => {
+            if (cp - 0xAC00).is_multiple_of(28) {
+                GraphemeBreakProp::HangulLv
+            } else {
+                GraphemeBreakProp::HangulLvt
+            }
+        }
+        // Extend: combining marks, Cyrillic/Coptic/Semitic/Indic non-spacing marks,
+        // Japanese combining dakuten/handakuten (U+3099..U+309A), variation selectors,
+        // Fitzpatrick skin-tone modifiers (U+1F3FB..U+1F3FF), tag characters, ZWNJ.
+        0x0300..=0x036F
+        | 0x0483..=0x0489
+        | 0x0591..=0x05BD
+        | 0x05BF
+        | 0x05C1..=0x05C2
+        | 0x05C4..=0x05C5
+        | 0x05C7
+        | 0x0610..=0x061A
+        | 0x064B..=0x065F
+        | 0x0670
+        | 0x06D6..=0x06DC
+        | 0x06DF..=0x06E4
+        | 0x06E7..=0x06E8
+        | 0x06EA..=0x06ED
+        | 0x0711
+        | 0x0730..=0x074A
+        | 0x07A6..=0x07B0
+        | 0x07EB..=0x07F3
+        | 0x0816..=0x0819
+        | 0x081B..=0x0823
+        | 0x0825..=0x0827
+        | 0x0829..=0x082D
+        | 0x0859..=0x085B
+        | 0x08D3..=0x0902
+        | 0x093A
+        | 0x093C
+        | 0x0941..=0x0948
+        | 0x094D
+        | 0x0951..=0x0957
+        | 0x0962..=0x0963
+        | 0x0981
+        | 0x09BC
+        | 0x09BE
+        | 0x09C1..=0x09C4
+        | 0x09CD
+        | 0x09D7
+        | 0x09E2..=0x09E3
+        | 0x0A01..=0x0A02
+        | 0x0A3C
+        | 0x0A41..=0x0A42
+        | 0x0A47..=0x0A48
+        | 0x0A4B..=0x0A4D
+        | 0x0A51
+        | 0x0A70..=0x0A71
+        | 0x0A75
+        | 0x0A81..=0x0A82
+        | 0x0ABC
+        | 0x0AC1..=0x0AC5
+        | 0x0AC7..=0x0AC8
+        | 0x0ACD
+        | 0x0AE2..=0x0AE3
+        | 0x0B01
+        | 0x0B3C
+        | 0x0B3E..=0x0B3F
+        | 0x0B41..=0x0B44
+        | 0x0B4D
+        | 0x0B55..=0x0B57
+        | 0x0B62..=0x0B63
+        | 0x0B82
+        | 0x0BBE
+        | 0x0BC0
+        | 0x0BCD
+        | 0x0BD7
+        | 0x0C00
+        | 0x0C04
+        | 0x0C3C
+        | 0x0C3E..=0x0C40
+        | 0x0C46..=0x0C48
+        | 0x0C4A..=0x0C4D
+        | 0x0C55..=0x0C56
+        | 0x0C62..=0x0C63
+        | 0x0C81
+        | 0x0CBC
+        | 0x0CBF
+        | 0x0CC2
+        | 0x0CC6
+        | 0x0CCC..=0x0CCD
+        | 0x0CD5..=0x0CD6
+        | 0x0CE2..=0x0CE3
+        | 0x0D00..=0x0D01
+        | 0x0D3B..=0x0D3C
+        | 0x0D3E
+        | 0x0D41..=0x0D44
+        | 0x0D4D
+        | 0x0D57
+        | 0x0D62..=0x0D63
+        | 0x0D81
+        | 0x0DCA
+        | 0x0DCF
+        | 0x0DD2..=0x0DD4
+        | 0x0DD6
+        | 0x0DDF
+        | 0x0E31
+        | 0x0E34..=0x0E3A
+        | 0x0E47..=0x0E4E
+        | 0x0EB1
+        | 0x0EB4..=0x0EBC
+        | 0x0EC8..=0x0ECE
+        | 0x0F18..=0x0F19
+        | 0x0F35
+        | 0x0F37
+        | 0x0F39
+        | 0x0F71..=0x0F7E
+        | 0x0F80..=0x0F84
+        | 0x0F86..=0x0F87
+        | 0x0F8D..=0x0F97
+        | 0x0F99..=0x0FBC
+        | 0x0FC6
+        | 0x102D..=0x1030
+        | 0x1032..=0x1037
+        | 0x1039..=0x103A
+        | 0x103D..=0x103E
+        | 0x1058..=0x1059
+        | 0x105E..=0x1060
+        | 0x1071..=0x1074
+        | 0x1082
+        | 0x1085..=0x1086
+        | 0x108D
+        | 0x109D
+        | 0x135D..=0x135F
+        | 0x1712..=0x1714
+        | 0x1732..=0x1734
+        | 0x1752..=0x1753
+        | 0x1772..=0x1773
+        | 0x17B4..=0x17B5
+        | 0x17B7..=0x17BD
+        | 0x17C6
+        | 0x17C9..=0x17D3
+        | 0x17DD
+        | 0x180B..=0x180D
+        | 0x180F
+        | 0x1885..=0x1886
+        | 0x18A9
+        | 0x1AB0..=0x1AFF
+        | 0x1DC0..=0x1DFF
+        | 0x200C
+        | 0x20D0..=0x20FF
+        | 0x2DE0..=0x2DFF
+        | 0x302A..=0x302F
+        | 0x3099..=0x309A
+        | 0xA66F..=0xA67D
+        | 0xA69E..=0xA69F
+        | 0xFE00..=0xFE0F
+        | 0xFE20..=0xFE2F
+        | 0x1F3FB..=0x1F3FF
+        | 0xE0020..=0xE007F
+        | 0xE0100..=0xE01EF => GraphemeBreakProp::Extend,
+        // SpacingMark
+        0x0903
+        | 0x093B
+        | 0x093E..=0x0940
+        | 0x0949..=0x094C
+        | 0x094E..=0x094F
+        | 0x0982..=0x0983
+        | 0x09BF..=0x09C0
+        | 0x09C7..=0x09C8
+        | 0x09CB..=0x09CC
+        | 0x0A03
+        | 0x0A3E..=0x0A40
+        | 0x0A83
+        | 0x0ABE..=0x0AC0
+        | 0x0AC9
+        | 0x0ACB..=0x0ACC
+        | 0x0B02..=0x0B03
+        | 0x0B40
+        | 0x0B47..=0x0B48
+        | 0x0B4B..=0x0B4C
+        | 0x0BBF
+        | 0x0BC1..=0x0BC2
+        | 0x0BC6..=0x0BC8
+        | 0x0BCA..=0x0BCC
+        | 0x0C01..=0x0C03
+        | 0x0C41..=0x0C44
+        | 0x0C82..=0x0C83
+        | 0x0CBE
+        | 0x0CC0..=0x0CC1
+        | 0x0CC3..=0x0CC4
+        | 0x0CC7..=0x0CC8
+        | 0x0CCA..=0x0CCB
+        | 0x0D02..=0x0D03
+        | 0x0D3F..=0x0D40
+        | 0x0D46..=0x0D48
+        | 0x0D4A..=0x0D4C
+        | 0x0D82..=0x0D83
+        | 0x0DD0..=0x0DD1
+        | 0x0DD8..=0x0DDE
+        | 0x0DF2..=0x0DF3
+        | 0x0E33
+        | 0x0EB3
+        | 0x0F3E..=0x0F3F
+        | 0x0F7F
+        | 0x1031
+        | 0x103B..=0x103C
+        | 0x1056..=0x1057
+        | 0x1084
+        | 0x17B6
+        | 0x17BE..=0x17C5
+        | 0x17C7..=0x17C8
+        | 0x1D165..=0x1D16D => GraphemeBreakProp::SpacingMark,
+        // Extended_Pictographic (emoji & pictographs for UAX #29 GB11 ZWJ sequences)
+        0x00A9
+        | 0x00AE
+        | 0x203C
+        | 0x2049
+        | 0x2122
+        | 0x2139
+        | 0x2194..=0x2199
+        | 0x21A9..=0x21AA
+        | 0x231A..=0x231B
+        | 0x2328
+        | 0x23CF
+        | 0x23E9..=0x23FA
+        | 0x24C2
+        | 0x25AA..=0x25AB
+        | 0x25B6
+        | 0x25C0
+        | 0x25FB..=0x25FE
+        | 0x2600..=0x27BF
+        | 0x2934..=0x2935
+        | 0x2B05..=0x2B07
+        | 0x2B1B..=0x2B1C
+        | 0x2B50
+        | 0x2B55
+        | 0x3030
+        | 0x303D
+        | 0x3297
+        | 0x3299
+        | 0x1F000..=0x1F1E5
+        | 0x1F200..=0x1F3FA
+        | 0x1F400..=0x1FAFF => GraphemeBreakProp::ExtendedPictographic,
+        _ => GraphemeBreakProp::Other,
+    }
+}
+
+/// Returns all UAX #29 extended grapheme cluster boundaries in UTF-16 code-unit offsets,
+/// always starting with `0` and ending with `text.encode_utf16().count() as u32`.
+pub fn grapheme_utf16_boundaries(text: &str) -> Vec<u32> {
+    let mut bounds = Vec::new();
+    bounds.push(0);
+    if text.is_empty() {
+        return bounds;
+    }
+    let mut prev_prop: Option<GraphemeBreakProp> = None;
+    let mut ext_pic_chain = false;
+    let mut zwj_after_ext_pic = false;
+    let mut ri_odd = false;
+    let mut utf16_pos = 0u32;
+
+    for ch in text.chars() {
+        let prop = grapheme_break_prop(ch);
+        if let Some(prev) = prev_prop {
+            let no_break = match (prev, prop) {
+                // GB3: CR x LF
+                (GraphemeBreakProp::Cr, GraphemeBreakProp::Lf) => true,
+                // GB4: (Control | CR | LF) ÷
+                (GraphemeBreakProp::Control | GraphemeBreakProp::Cr | GraphemeBreakProp::Lf, _) => {
+                    false
+                }
+                // GB5: ÷ (Control | CR | LF)
+                (_, GraphemeBreakProp::Control | GraphemeBreakProp::Cr | GraphemeBreakProp::Lf) => {
+                    false
+                }
+                // GB6: L x (L | V | LV | LVT)
+                (
+                    GraphemeBreakProp::HangulL,
+                    GraphemeBreakProp::HangulL
+                    | GraphemeBreakProp::HangulV
+                    | GraphemeBreakProp::HangulLv
+                    | GraphemeBreakProp::HangulLvt,
+                ) => true,
+                // GB7: (LV | V) x (V | T)
+                (
+                    GraphemeBreakProp::HangulLv | GraphemeBreakProp::HangulV,
+                    GraphemeBreakProp::HangulV | GraphemeBreakProp::HangulT,
+                ) => true,
+                // GB8: (LVT | T) x T
+                (
+                    GraphemeBreakProp::HangulLvt | GraphemeBreakProp::HangulT,
+                    GraphemeBreakProp::HangulT,
+                ) => true,
+                // GB9: x (Extend | ZWJ)
+                (_, GraphemeBreakProp::Extend | GraphemeBreakProp::Zwj) => true,
+                // GB9a: x SpacingMark
+                (_, GraphemeBreakProp::SpacingMark) => true,
+                // GB9b: Prepend x
+                (GraphemeBreakProp::Prepend, _) => true,
+                // GB11: \p{Extended_Pictographic} Extend* ZWJ x \p{Extended_Pictographic}
+                (_, GraphemeBreakProp::ExtendedPictographic) if zwj_after_ext_pic => true,
+                // GB12/GB13: sot (RI RI)* RI x RI / [^RI] (RI RI)* RI x RI
+                (GraphemeBreakProp::RegionalIndicator, GraphemeBreakProp::RegionalIndicator)
+                    if ri_odd =>
+                {
+                    true
+                }
+                // GB999: Any ÷ Any
+                _ => false,
+            };
+            if !no_break {
+                bounds.push(utf16_pos);
+            }
+        }
+        // Update GB11 / GB12-13 state after deciding boundary before `ch`.
+        match prop {
+            GraphemeBreakProp::ExtendedPictographic => {
+                ext_pic_chain = true;
+                zwj_after_ext_pic = false;
+                ri_odd = false;
+            }
+            GraphemeBreakProp::Extend => {
+                // ext_pic_chain stays as-is across Extend*; zwj_after_ext_pic clears.
+                zwj_after_ext_pic = false;
+                ri_odd = false;
+            }
+            GraphemeBreakProp::Zwj => {
+                zwj_after_ext_pic = ext_pic_chain;
+                ext_pic_chain = false;
+                ri_odd = false;
+            }
+            GraphemeBreakProp::RegionalIndicator => {
+                ext_pic_chain = false;
+                zwj_after_ext_pic = false;
+                ri_odd = !ri_odd;
+            }
+            _ => {
+                ext_pic_chain = false;
+                zwj_after_ext_pic = false;
+                ri_odd = false;
+            }
+        }
+        prev_prop = Some(prop);
+        utf16_pos += ch.len_utf16() as u32;
+    }
+    if bounds.last().copied() != Some(utf16_pos) {
+        bounds.push(utf16_pos);
+    }
+    bounds
+}
+
+/// Iterates over UAX #29 extended grapheme clusters in `text`, yielding
+/// `(start_utf16, end_utf16, cluster_str)`.
+pub fn grapheme_clusters_utf16(text: &str) -> Vec<(u32, u32, &str)> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let bounds = grapheme_utf16_boundaries(text);
+    let mut out = Vec::with_capacity(bounds.len().saturating_sub(1));
+    let mut cur_u16 = 0u32;
+    let mut bound_idx = 1usize;
+    let mut cluster_start_u16 = 0u32;
+    let mut cluster_start_byte = 0usize;
+    for (byte_idx, ch) in text.char_indices() {
+        cur_u16 += ch.len_utf16() as u32;
+        let cur_byte = byte_idx + ch.len_utf8();
+        if bound_idx < bounds.len() && cur_u16 == bounds[bound_idx] {
+            out.push((
+                cluster_start_u16,
+                cur_u16,
+                &text[cluster_start_byte..cur_byte],
+            ));
+            cluster_start_u16 = cur_u16;
+            cluster_start_byte = cur_byte;
+            bound_idx += 1;
+        }
+    }
+    if cluster_start_byte < text.len() {
+        out.push((cluster_start_u16, cur_u16, &text[cluster_start_byte..]));
+    }
+    out
+}
+
+pub fn is_grapheme_boundary_utf16(text: &str, utf16_offset: u32) -> bool {
+    grapheme_utf16_boundaries(text)
+        .binary_search(&utf16_offset)
+        .is_ok()
+}
+
+pub fn snap_utf16_to_grapheme_floor(text: &str, index: i64) -> u32 {
+    if index <= 0 || text.is_empty() {
+        return 0;
+    }
+    let bounds = grapheme_utf16_boundaries(text);
+    let total = *bounds.last().unwrap_or(&0);
+    if index >= i64::from(total) {
+        return total;
+    }
+    let wanted = index as u32;
+    match bounds.binary_search(&wanted) {
+        Ok(_) => wanted,
+        Err(pos) => bounds[pos.saturating_sub(1)],
+    }
+}
+
+pub fn snap_utf16_to_grapheme_ceil(text: &str, index: i64) -> u32 {
+    if index <= 0 || text.is_empty() {
+        return 0;
+    }
+    let bounds = grapheme_utf16_boundaries(text);
+    let total = *bounds.last().unwrap_or(&0);
+    if index >= i64::from(total) {
+        return total;
+    }
+    let wanted = index as u32;
+    match bounds.binary_search(&wanted) {
+        Ok(_) => wanted,
+        Err(pos) => bounds.get(pos).copied().unwrap_or(total),
+    }
+}
+
+pub fn prev_grapheme_utf16(text: &str, offset: usize) -> usize {
+    if offset == 0 || text.is_empty() {
+        return 0;
+    }
+    let bounds = grapheme_utf16_boundaries(text);
+    let clamped = offset.min(*bounds.last().unwrap_or(&0) as usize) as u32;
+    match bounds.binary_search(&clamped) {
+        Ok(0) => 0,
+        Ok(idx) => bounds[idx - 1] as usize,
+        Err(idx) => bounds[idx.saturating_sub(1)] as usize,
+    }
+}
+
+pub fn next_grapheme_utf16(text: &str, offset: usize) -> usize {
+    if text.is_empty() {
+        return 0;
+    }
+    let bounds = grapheme_utf16_boundaries(text);
+    let total = *bounds.last().unwrap_or(&0);
+    if offset >= total as usize {
+        return total as usize;
+    }
+    let clamped = offset as u32;
+    match bounds.binary_search(&clamped) {
+        Ok(idx) => bounds.get(idx + 1).copied().unwrap_or(total) as usize,
+        Err(idx) => bounds.get(idx).copied().unwrap_or(total) as usize,
+    }
+}
+
+fn is_word_grapheme(cluster: &str) -> bool {
+    cluster.chars().any(|ch| ch.is_alphanumeric() || ch == '_')
+}
+
+pub fn prev_word_utf16(text: &str, offset: usize) -> usize {
+    if offset == 0 || text.is_empty() {
+        return 0;
+    }
+    let clusters = grapheme_clusters_utf16(text);
+    let clamped = snap_utf16_to_grapheme_floor(text, offset as i64);
+    let mut i = clusters.partition_point(|(start, _, _)| *start < clamped);
+    while i > 0 && clusters[i - 1].2.chars().all(char::is_whitespace) {
+        i -= 1;
+    }
+    if i == 0 {
+        return 0;
+    }
+    let target_word = is_word_grapheme(clusters[i - 1].2);
+    while i > 0 {
+        let prev = clusters[i - 1].2;
+        if prev.chars().all(char::is_whitespace) || is_word_grapheme(prev) != target_word {
+            break;
+        }
+        i -= 1;
+    }
+    clusters[i].0 as usize
+}
+
+pub fn next_word_utf16(text: &str, offset: usize) -> usize {
+    if text.is_empty() {
+        return 0;
+    }
+    let clusters = grapheme_clusters_utf16(text);
+    let total = clusters
+        .last()
+        .map(|(_, end, _)| *end as usize)
+        .unwrap_or(0);
+    if offset >= total {
+        return total;
+    }
+    let clamped = snap_utf16_to_grapheme_floor(text, offset as i64);
+    let mut i = clusters.partition_point(|(start, _, _)| *start < clamped);
+    while i < clusters.len() && clusters[i].2.chars().all(char::is_whitespace) {
+        i += 1;
+    }
+    if i >= clusters.len() {
+        return total;
+    }
+    let target_word = is_word_grapheme(clusters[i].2);
+    while i < clusters.len() {
+        let cur = clusters[i].2;
+        if cur.chars().all(char::is_whitespace) || is_word_grapheme(cur) != target_word {
+            break;
+        }
+        i += 1;
+    }
+    clusters
+        .get(i)
+        .map(|(s, _, _)| *s as usize)
+        .unwrap_or(total)
+}
+
+pub fn word_bounds_at_utf16(text: &str, offset: usize) -> (usize, usize) {
+    if text.is_empty() {
+        return (0, 0);
+    }
+    let clusters = grapheme_clusters_utf16(text);
+    if clusters.is_empty() {
+        return (0, 0);
+    }
+    let snapped = snap_utf16_to_grapheme_floor(text, offset as i64);
+    let mut idx = clusters.partition_point(|(start, _, _)| *start < snapped);
+    if idx >= clusters.len() {
+        idx = clusters.len() - 1;
+    }
+    let cur = clusters[idx].2;
+    let is_ws = cur.chars().all(char::is_whitespace);
+    let word = is_word_grapheme(cur);
+    let same_cat = |s: &str| {
+        if is_ws {
+            s.chars().all(char::is_whitespace)
+        } else {
+            !s.chars().all(char::is_whitespace) && is_word_grapheme(s) == word
+        }
+    };
+    let mut start = idx;
+    while start > 0 && same_cat(clusters[start - 1].2) {
+        start -= 1;
+    }
+    let mut end = idx + 1;
+    while end < clusters.len() && same_cat(clusters[end].2) {
+        end += 1;
+    }
+    (clusters[start].0 as usize, clusters[end - 1].1 as usize)
+}
+
+pub fn utf16_slice_safe(text: &str, start_utf16: usize, end_utf16: usize) -> &str {
+    let lo = snap_utf16_to_grapheme_floor(text, start_utf16.min(end_utf16) as i64);
+    let hi = snap_utf16_to_grapheme_ceil(text, start_utf16.max(end_utf16) as i64);
+    match (utf16_byte(text, lo), utf16_byte(text, hi)) {
+        (Ok(b0), Ok(b1)) if b0 <= b1 && b1 <= text.len() => &text[b0..b1],
+        _ => "",
+    }
 }
 /// Compiled change points keep membership O(log ranges), including long pasted
 /// text. The common restrict grammar is exact Unicode ranges/toggles/escapes;
@@ -2832,14 +3729,20 @@ fn parts(field: &TextFieldState) -> Result<Vec<Part>, TextError> {
     } else {
         field.text.as_str()
     };
+    let grapheme_bounds: BTreeSet<u32> = grapheme_utf16_boundaries(display_source)
+        .into_iter()
+        .collect();
     for ch in display_source.chars() {
         let newline = ch == '\n';
         let is_tab = split_tabs_for_wrap && ch == '\t';
         let nextspace = ch.is_whitespace();
+        let at_grapheme = grapheme_bounds.contains(&offset);
         let hit_boundary = !run_boundaries.is_empty() && run_boundaries.contains(&offset);
-        let digit_boundary =
-            split_digits && (ch.is_ascii_digit() || prev_ch.is_some_and(|p| p.is_ascii_digit()));
-        let kinsoku_break = enable_kinsoku
+        let digit_boundary = at_grapheme
+            && split_digits
+            && (ch.is_ascii_digit() || prev_ch.is_some_and(|p| p.is_ascii_digit()));
+        let kinsoku_break = at_grapheme
+            && enable_kinsoku
             && prev_ch.is_some_and(|p| {
                 !p.is_whitespace()
                     && !nextspace
@@ -2851,8 +3754,8 @@ fn parts(field: &TextFieldState) -> Result<Vec<Part>, TextError> {
             && (newline
                 || is_tab
                 || hit_boundary
-                || space != nextspace
-                || break_all
+                || (at_grapheme && space != nextspace)
+                || (at_grapheme && break_all)
                 || digit_boundary
                 || kinsoku_break)
         {
@@ -4741,10 +5644,11 @@ impl PortableFontMetrics {
 fn parse_sfnt_metrics(family: &str, bytes: &[u8]) -> Option<PortableFontMetrics> {
     let sfnt = sfnt_view_bytes(bytes)?;
     let bytes = sfnt.as_ref();
-    let num_tables = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+    let dir_off = sfnt_first_dir_offset(bytes)?;
+    let num_tables = u16::from_be_bytes([bytes[dir_off + 4], bytes[dir_off + 5]]) as usize;
     let mut tables = std::collections::HashMap::<[u8; 4], (usize, usize)>::new();
     for i in 0..num_tables.min(128) {
-        let entry = 12 + i * 16;
+        let entry = dir_off + 12 + i * 16;
         if entry + 16 > bytes.len() {
             break;
         }
@@ -6574,6 +7478,115 @@ mod query_tests {
             field.text, "AB",
             "an explicit empty replacement still deletes"
         );
+        field.validate().unwrap();
+    }
+
+    #[test]
+    fn t326_grapheme_boundaries_selection_delete_replace_and_maxchars_never_split_clusters() {
+        // String combining: decomposed Latin "e\u{0301}" (2), decomposed Cyrillic "и\u{0306}" (2),
+        // Japanese kana+dakuten "か\u{3099}" (2), regional flag "🇺🇸" (4), ZWJ family "👨‍👩‍👧‍👦" (11),
+        // rainbow flag "🏳️‍🌈" (6), skin-tone ZWJ "👩🏽‍💻" (7).
+        let sample = "e\u{0301}и\u{0306}か\u{3099}🇺🇸👨‍👩‍👧‍👦🏳️‍🌈👩🏽‍💻";
+        let bounds = grapheme_utf16_boundaries(sample);
+        assert_eq!(bounds, vec![0, 2, 4, 6, 10, 21, 27, 34]);
+
+        // Stepping forward and backward visits exact cluster boundaries only.
+        let mut forward = Vec::new();
+        let mut cur = 0usize;
+        forward.push(cur as u32);
+        while cur < 34 {
+            cur = next_grapheme_utf16(sample, cur);
+            forward.push(cur as u32);
+        }
+        assert_eq!(forward, bounds);
+
+        let mut backward = Vec::new();
+        while cur > 0 {
+            cur = prev_grapheme_utf16(sample, cur);
+            backward.push(cur as u32);
+        }
+        backward.reverse();
+        assert_eq!(backward, vec![0u32, 2, 4, 6, 10, 21, 27]);
+
+        // Mid-cluster clamping snaps cleanly without panicking on surrogate halves or combining marks.
+        assert_eq!(clamp_utf16(sample, 1), 0); // inside e\u{0301}
+        assert_eq!(clamp_utf16(sample, 3), 2); // inside и\u{0306}
+        assert_eq!(clamp_utf16(sample, 5), 4); // inside か\u{3099}
+        assert_eq!(clamp_utf16(sample, 7), 6); // surrogate midpoint inside 🇺🇸
+        assert_eq!(clamp_utf16(sample, 15), 10); // ZWJ midpoint inside 👨‍👩‍👧‍👦
+
+        // Mixed-run input field with max_chars: ZWJ cluster exceeding remaining UTF-16 capacity is rejected whole.
+        let mut field = TextFieldState {
+            field_type: TextFieldType::Input,
+            text: "A".into(),
+            max_chars: 10,
+            format: TextFormat {
+                font: "Inter".into(),
+                color: 0xff0000,
+                bold: true,
+                ..TextFormat::default()
+            },
+            ..TextFieldState::default()
+        };
+        let rev0 = field.revision.clone();
+        // 👨‍👩‍👧‍👦 is 11 UTF-16 code units; capacity remaining is 9, so whole cluster must be rejected cleanly.
+        field
+            .apply_input(&TextInputEdit {
+                expected_revision: rev0,
+                begin: 1,
+                end: 1,
+                text: "👨‍👩‍👧‍👦".into(),
+            })
+            .unwrap();
+        assert_eq!(field.text, "A");
+
+        // Inserting "e\u{0301}🇺🇸" (2 + 4 = 6 UTF-16 units) fits within max_chars=10 -> total 7 units.
+        let rev1 = field.revision.clone();
+        field
+            .apply_input(&TextInputEdit {
+                expected_revision: rev1,
+                begin: 1,
+                end: 1,
+                text: "e\u{0301}🇺🇸👨‍👩‍👧‍👦".into(),
+            })
+            .unwrap();
+        assert_eq!(field.text, "Ae\u{0301}🇺🇸");
+        assert_eq!(field.caret, 7);
+        field.validate().unwrap();
+
+        // Mid-cluster deletion via apply_input expands to full cluster (deleting all of "e\u{0301}" at 1..2).
+        let rev2 = field.revision.clone();
+        field
+            .apply_input(&TextInputEdit {
+                expected_revision: rev2,
+                begin: 1,
+                end: 2,
+                text: String::new(),
+            })
+            .unwrap();
+        assert_eq!(field.text, "A🇺🇸");
+        assert_eq!(field.caret, 1);
+
+        // TextInteractionMode::SELECTION blocks apply_input and replace_utf16_range_with_runs while allowing selection.
+        field
+            .apply(&TextPatch {
+                interaction_mode: Some("selection".into()),
+                selection: Some(TextSelection { begin: 1, end: 5 }),
+                ..TextPatch::default()
+            })
+            .unwrap();
+        assert_eq!(field.interaction_mode, "selection");
+        assert_eq!((field.selection_begin, field.selection_end), (1, 5));
+        let rev_sel = field.revision.clone();
+        field
+            .apply_input(&TextInputEdit {
+                expected_revision: rev_sel,
+                begin: 1,
+                end: 5,
+                text: "blocked".into(),
+            })
+            .unwrap();
+        assert_eq!(field.text, "A🇺🇸");
         field.validate().unwrap();
     }
 }

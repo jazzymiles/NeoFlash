@@ -2096,7 +2096,9 @@ impl crate::app::Editor {
          -> Result<Vec<f64>, neoflash_core::TextError> {
             Ok(segments
                 .iter()
-                .map(|s| s.chars().count() as f64 * seg_format.size * 0.56)
+                .map(|s| {
+                    neoflash_core::grapheme_clusters_utf16(s).len() as f64 * seg_format.size * 0.56
+                })
                 .collect())
         };
         for layer in &mut sym.timeline.layers {

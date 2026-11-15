@@ -149,9 +149,122 @@
     return value.replace(/\r\n?|\n/g,'\n');
   }
   const publicText=value=>value.replace(/\n/g,'\r');
+  const sharedGraphemeSegmenter=typeof Intl!=='undefined'&&typeof Intl.Segmenter==='function'?new Intl.Segmenter(undefined,{granularity:'grapheme'}):null;
+  function graphemeBoundaries(value,runtimeWasm=null){
+    const s=String(value??'');
+    if(!s.length)return [0];
+    if(typeof runtimeWasm?.grapheme_boundaries_utf16==='function'){
+      try{return Array.from(runtimeWasm.grapheme_boundaries_utf16(s));}catch(_){}
+    }
+    if(sharedGraphemeSegmenter){
+      const out=[];
+      for(const seg of sharedGraphemeSegmenter.segment(s))out.push(seg.index);
+      out.push(s.length);
+      return out;
+    }
+    const out=[0];
+    for(let i=0;i<s.length;i++){
+      const u=s.charCodeAt(i);
+      if(u>=0xd800&&u<=0xdbff&&i+1<s.length&&s.charCodeAt(i+1)>=0xdc00&&s.charCodeAt(i+1)<=0xdfff)i++;
+      out.push(i+1);
+    }
+    return out;
+  }
+  function snapGraphemeFloor(value,index,runtimeWasm=null){
+    const s=String(value??'');
+    const clamped=Math.max(0,Math.min(s.length,Math.trunc(Number(index)||0)));
+    if(clamped<=0||clamped>=s.length)return clamped;
+    const bounds=graphemeBoundaries(s,runtimeWasm);
+    let best=0;
+    for(let i=0;i<bounds.length;i++){if(bounds[i]<=clamped)best=bounds[i];else break;}
+    return best;
+  }
+  function snapGraphemeCeil(value,index,runtimeWasm=null){
+    const s=String(value??'');
+    const clamped=Math.max(0,Math.min(s.length,Math.trunc(Number(index)||0)));
+    if(clamped<=0||clamped>=s.length)return clamped;
+    const bounds=graphemeBoundaries(s,runtimeWasm);
+    for(let i=0;i<bounds.length;i++){if(bounds[i]>=clamped)return bounds[i];}
+    return s.length;
+  }
+  function prevGrapheme(value,index,runtimeWasm=null){
+    const s=String(value??'');
+    const clamped=Math.max(0,Math.min(s.length,Math.trunc(Number(index)||0)));
+    if(clamped<=0)return 0;
+    const bounds=graphemeBoundaries(s,runtimeWasm);
+    let prev=0;
+    for(let i=0;i<bounds.length;i++){if(bounds[i]<clamped)prev=bounds[i];else break;}
+    return prev;
+  }
+  function nextGrapheme(value,index,runtimeWasm=null){
+    const s=String(value??'');
+    const clamped=Math.max(0,Math.min(s.length,Math.trunc(Number(index)||0)));
+    if(clamped>=s.length)return s.length;
+    const bounds=graphemeBoundaries(s,runtimeWasm);
+    for(let i=0;i<bounds.length;i++){if(bounds[i]>clamped)return bounds[i];}
+    return s.length;
+  }
+  function graphemeSafeDiff(before,after,runtimeWasm=null){
+    const bStr=String(before??''),aStr=String(after??'');
+    let begin=0;
+    while(begin<bStr.length&&begin<aStr.length&&bStr[begin]===aStr[begin])begin++;
+    const bBounds=graphemeBoundaries(bStr,runtimeWasm);
+    const aBounds=graphemeBoundaries(aStr,runtimeWasm);
+    const bSet=new Set(bBounds),aSet=new Set(aBounds);
+    while(begin>0&&(!bSet.has(begin)||!aSet.has(begin)))begin--;
+    let oldEnd=bStr.length,newEnd=aStr.length;
+    while(oldEnd>begin&&newEnd>begin&&bStr[oldEnd-1]===aStr[newEnd-1]){oldEnd--;newEnd--;}
+    while(oldEnd<bStr.length&&newEnd<aStr.length&&(!bSet.has(oldEnd)||!aSet.has(newEnd))){oldEnd++;newEnd++;}
+    if(!bSet.has(oldEnd))oldEnd=snapGraphemeCeil(bStr,oldEnd,runtimeWasm);
+    if(!aSet.has(newEnd))newEnd=snapGraphemeCeil(aStr,newEnd,runtimeWasm);
+    return {begin,end:oldEnd,text:aStr.slice(begin,newEnd)};
+  }
+  function sliceFieldRuns(field,begin,end){
+    const fullLen=String(field?.text??'').length;
+    const lo=Math.max(0,Math.min(fullLen,Math.min(begin,end)));
+    const hi=Math.max(lo,Math.min(fullLen,Math.max(begin,end)));
+    if(lo>=hi)return [];
+    const rawRuns=Array.isArray(field?.format_runs)&&field.format_runs.length
+      ?field.format_runs
+      :[{start:0,end:fullLen,format:field?.format||{}}];
+    const out=[];
+    for(const r of rawRuns){
+      const rs=Number(r.start??r.begin)||0;
+      const re=Number(r.end)||0;
+      if(re<=lo||rs>=hi)continue;
+      const s=Math.max(rs,lo)-lo;
+      const e=Math.min(re,hi)-lo;
+      if(s<e)out.push({start:s,end:e,format:structuredClone?structuredClone(r.format):JSON.parse(JSON.stringify(r.format||{}))});
+    }
+    return out;
+  }
+  function extractHtmlFragment(rawHtml){
+    const s=String(rawHtml??'');
+    const startMarker='<!--StartFragment-->',endMarker='<!--EndFragment-->';
+    const si=s.indexOf(startMarker);
+    if(si>=0){
+      const contentStart=si+startMarker.length;
+      const ei=s.indexOf(endMarker,contentStart);
+      if(ei>=contentStart)return s.slice(contentStart,ei);
+    }
+    return s;
+  }
+  function decodeBase64Bytes(encoded){
+    const clean=String(encoded||'').trim();
+    if(!clean)return null;
+    try{
+      if(typeof Buffer!=='undefined')return new Uint8Array(Buffer.from(clean,'base64'));
+      const bin=global.atob(clean),out=new Uint8Array(bin.length);
+      for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);
+      return out;
+    }catch(_){return null;}
+  }
+  const RICH_CLIPBOARD_MIME='application/x-neoflash-runs+json';
   const UNHANDLED=Symbol('unhandled text member');
-  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,portableMetrics=false,fontMetrics=null,onUpdate=()=>{},onScroll=null}={}){
+  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,portableMetrics=false,fontMetrics=null,onUpdate=()=>{},onScroll=null,onInteractionModeChange=null}={}){
     if(!player)throw new TypeError('TextField requires the shared Player.');
+    const getRuntimeWasm=()=>wasm||(typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm);
+    let sharedRichClipboard=null;
     const defaultPortableMeasure=(textValue,style)=>{
       const runtimeWasm=wasm||(typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm);
       const fn=player?.portable_measure_text_json?.bind(player)||runtimeWasm?.portable_measure_text_json;
@@ -181,7 +294,22 @@
     else if(portableMetrics){
       measureText=defaultPortableMeasure;
     }
-    let as2Execute=null,as2Layout=null,as2Wheel=null;
+    let as2Execute=null,as2Layout=null,as2Wheel=null,targetForRef=null,as2TextEvent=null,interactionModeCallback=null;
+    function resolveReceiver(ref){
+      if(targetForRef){try{const r=targetForRef(ref);if(r)return r;}catch(_){}}
+      const rootProxy=document?.defaultView?.NeoFlashPlayer?.root||global.NeoFlashPlayer?.root;
+      if(!rootProxy)return null;
+      const queue=[rootProxy];
+      for(let i=0;i<queue.length&&i<2048;i++){
+        const cur=queue[i];
+        try{
+          if(JSON.stringify(cur?.toJSON?.()?.object_ref)===ref)return cur;
+          const n=Number(cur?.numChildren)||0;
+          for(let c=0;c<n;c++){const ch=cur.getChildAt(c);if(ch)queue.push(ch);}
+        }catch(_){}
+      }
+      return null;
+    }
     const fieldStates=new Map();
     function stateFor(ref){
       let state=fieldStates.get(ref);
@@ -210,7 +338,24 @@
     const active=()=>{if(disposed)throw new Error('This text service has been disposed.');};
     function info(ref){active();return JSON.parse(player.object_text_info(ref));}
     function fit(ref){if(typeof player.as2_text_fit!=='function')return false;const field=info(ref);return field.as2_viewport?.auto_size&&field.as2_viewport.auto_size!=='none'?player.as2_text_fit(ref,JSON.stringify(layout(field))):false;}
-    function update(ref,patch){active();if(!player.object_text_update(ref,JSON.stringify(patch)))throw new Error('TextField update requires a live text object.');if(!fit(ref))as2Layout?.(ref);onUpdate(ref);}
+    function syncDomInputControl(ref,patch=null){
+      if(!document?.querySelectorAll)return;
+      let controls;
+      try{controls=document.querySelectorAll('.nf-dom-input');}catch(_){return;}
+      const wantedId=`input:${ref}`;
+      for(const el of controls){
+        if(el.getAttribute?.('data-nf-id')!==wantedId)continue;
+        let field;
+        try{field=info(ref);}catch(_){continue;}
+        const readOnly=field.field_type!=='input'||field.interaction_mode==='selection'||Boolean(el.disabled);
+        el.readOnly=readOnly;
+        if(patch?.selection&&typeof el.setSelectionRange==='function'){
+          const b=field.selection_begin||0,e=field.selection_end||0,dir=field.caret===b&&e!==b?'backward':'forward';
+          try{if(el.selectionStart!==b||el.selectionEnd!==e)el.setSelectionRange(b,e,dir);}catch(_){}
+        }
+      }
+    }
+    function update(ref,patch){active();if(!player.object_text_update(ref,JSON.stringify(patch)))throw new Error('TextField update requires a live text object.');if(!fit(ref))as2Layout?.(ref);onUpdate(ref);syncDomInputControl(ref,patch);}
     function layout(field){
       active();const key=JSON.stringify(field.revision!==undefined?{...field,revision:0}:field),existing=cache.get(key);
       if(existing){cache.delete(key);cache.set(key,existing);return existing.value;}
@@ -244,10 +389,10 @@
       state.source=source;state.revision=info(ref).revision;state.images=parsed.images||[];state.imageRefs=null;
     }
     function get(ref,name){
-      const known=['text','htmlText','styleSheet','useRichTextClipboard','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','autoSize','background','backgroundColor','border','borderColor','scrollV','scrollH','maxScrollV','maxScrollH','bottomScrollV','mouseWheelEnabled','antiAliasType','gridFitType','sharpness','thickness','embedFonts','condenseWhite','alwaysShowSelection','textInteractionMode'];
+      const known=['text','htmlText','styleSheet','useRichTextClipboard','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','autoSize','background','backgroundColor','border','borderColor','scrollV','scrollH','maxScrollV','maxScrollH','bottomScrollV','mouseWheelEnabled','antiAliasType','gridFitType','sharpness','thickness','embedFonts','condenseWhite','alwaysShowSelection','textInteractionMode','interactionMode'];
       if(!known.includes(name))return UNHANDLED;
       const field=info(ref);
-      if(name==='textInteractionMode')return TextInteractionMode.NORMAL;
+      if(name==='textInteractionMode'||name==='interactionMode')return field.interaction_mode||TextInteractionMode.NORMAL;
       if(name==='useRichTextClipboard')return Boolean(fieldStates.get(ref)?.useRichTextClipboard);
       if(name==='styleSheet')return fieldStates.get(ref)?.style??null;
       if(name==='htmlText'){
@@ -325,7 +470,32 @@
         if(!field.box){const result=layout(field);patch[axis==='width'?'height':'width']=axis==='width'?result.text_height:result.text_width;}
         update(ref,patch);return true;
       }
-      if(['length','numLines','textWidth','textHeight','maxScrollV','maxScrollH','bottomScrollV','textInteractionMode'].includes(name))throw new TypeError(`TextField.${name} is read-only.`);
+      if(name==='textInteractionMode'||name==='interactionMode'){
+        if(value!=='normal'&&value!=='selection'){
+          const err=new RangeError('Error #2008: Parameter interactionMode must be one of the accepted values.');
+          err.name='ArgumentError';err.errorID=2008;throw err;
+        }
+        const prev=info(ref).interaction_mode||TextInteractionMode.NORMAL;
+        update(ref,{interaction_mode:value});
+        if(typeof document?.querySelectorAll==='function'){
+          const targetAttr='input:'+ref;
+          for(const domEl of document.querySelectorAll('.nf-dom-input')){
+            if(domEl.getAttribute?.('data-nf-id')===targetAttr){
+              domEl.readOnly=value==='selection'||Boolean(domEl.disabled);
+            }
+          }
+        }
+        if(prev!==value){
+          onInteractionModeChange?.(ref,value);
+          if(interactionModeCallback)interactionModeCallback(ref,value);
+          else if(events?.Event){
+            const receiver=resolveReceiver(ref);
+            receiver?.dispatchEvent?.(new events.Event(events.Event.TEXT_INTERACTION_MODE_CHANGE||'textInteractionModeChange',true,false));
+          }
+        }
+        return true;
+      }
+      if(['length','numLines','textWidth','textHeight','maxScrollV','maxScrollH','bottomScrollV'].includes(name))throw new TypeError(`TextField.${name} is read-only.`);
       return false;
     }
     function methods(ref){return {
@@ -404,7 +574,7 @@
     const projectFontResourceIds=new Set(projectResources.filter(r=>{
       const mime=String(r?.media_type||r?.mime||'').toLowerCase();
       const name=String(r?.path||r?.name||r?.id||'').toLowerCase();
-      return mime.startsWith('font/')||mime.includes('truetype')||mime.includes('opentype')||mime.includes('woff')||/\.(?:ttf|otf|woff2?)$/.test(name);
+      return mime.startsWith('font/')||mime.includes('truetype')||mime.includes('opentype')||mime.includes('collection')||mime.includes('woff')||/\.(?:ttf|otf|ttc|otc|woff2?)$/.test(name);
     }).map(r=>String(r?.id||'')));
     const embeddedFaces=(()=>{
       if(!embeddingMetadataResource)return [];
@@ -433,7 +603,7 @@
       if(projectResources.some(r=>{
         const mime=String(r?.media_type||r?.mime||'').toLowerCase();
         const name=String(r?.path||r?.name||r?.id||'').toLowerCase();
-        const isFont=mime.startsWith('font/')||mime.includes('truetype')||mime.includes('opentype')||mime.includes('woff')||/\.(?:ttf|otf|woff2?)$/.test(name);
+        const isFont=mime.startsWith('font/')||mime.includes('truetype')||mime.includes('opentype')||mime.includes('collection')||mime.includes('woff')||/\.(?:ttf|otf|ttc|otc|woff2?)$/.test(name);
         return isFont&&name.includes(wanted);
       }))return true;
       if(document?.fonts&&typeof document.fonts[Symbol.iterator]==='function'){
@@ -545,13 +715,53 @@
     Object.defineProperties(TextRenderer,{__nfIs:{value:()=>false},__nfInitialize:{value:()=>{throw new TypeError('TextRenderer cannot be subclassed.');}},[Symbol.hasInstance]:{value:()=>false}});
     Object.freeze(TextRenderer);
 
+    const projectSfntResources=(()=>{
+      const out=[],rtWasm=getRuntimeWasm();
+      if(typeof rtWasm?.sfnt_font_info_json!=='function')return out;
+      const metaById=new Map(embeddedFaces.map(f=>[f.id,f]));
+      for(const r of projectResources){
+        const id=String(r?.id||'');
+        if(!projectFontResourceIds.has(id))continue;
+        const bytes=decodeBase64Bytes(r?.data_base64);
+        if(!bytes||bytes.length<12)continue;
+        const meta=metaById.get(id);
+        const fallbackFamily=String(meta?.family||r?.name||r?.path||id||'');
+        let desc=null;
+        try{
+          const raw=rtWasm.sfnt_font_info_json(bytes,fallbackFamily);
+          if(raw)desc=JSON.parse(raw);
+        }catch(_){desc=null;}
+        if(!desc||!desc.font_name)continue;
+        const mappedStyle=meta?(()=>{
+          const ns=normalizedFontStyle(meta.style);
+          return ns==='bolditalic'?FontStyle.BOLD_ITALIC:ns==='bold'?FontStyle.BOLD:ns==='italic'?FontStyle.ITALIC:FontStyle.REGULAR;
+        })():(desc.font_style||FontStyle.REGULAR);
+        out.push({
+          id,
+          bytes,
+          fontName:meta?.family?String(meta.family):String(desc.font_name),
+          rawFontName:String(desc.font_name),
+          fontStyle:mappedStyle,
+          fontType:desc.font_type||FontType.EMBEDDED,
+        });
+      }
+      return out;
+    })();
+
     const fontRecords=new WeakMap(),fontToken=Symbol('Font'),registeredFonts=[],registeredFontClasses=new Set();
+    function fallbackPrintableHasGlyphs(value){
+      for(const ch of value){
+        const cp=ch.codePointAt(0);
+        if(cp<0x20||(cp>=0x7f&&cp<=0x9f)||(cp>=0xd800&&cp<=0xdfff)||cp===0xfffd||(cp>=0xfdd0&&cp<=0xfdef)||(cp&0xfffe)===0xfffe)return false;
+      }
+      return true;
+    }
     class Font {
       constructor(token,record){
         active();
         if(token===fontToken){fontRecords.set(this,record);Object.freeze(this);return;}
         if(arguments.length>0)throw new TypeError('Font constructor accepts no arguments.');
-        fontRecords.set(this,{fontName:null,fontStyle:FontStyle.REGULAR,fontType:FontType.EMBEDDED});
+        fontRecords.set(this,{fontName:null,fontStyle:FontStyle.REGULAR,fontType:FontType.EMBEDDED,fontBytes:null});
       }
       get fontName(){const record=fontRecords.get(this);if(!record)throw new TypeError('Expected Font.');return record.fontName;}
       get fontStyle(){const record=fontRecords.get(this);if(!record)throw new TypeError('Expected Font.');return record.fontStyle;}
@@ -560,11 +770,43 @@
         const record=fontRecords.get(this);if(!record)throw new TypeError('Expected Font.');
         if(str===null||str===undefined)throw new TypeError('Font.hasGlyphs requires a non-null String.');
         const value=String(str);
-        for(const ch of value){
-          const cp=ch.codePointAt(0);
-          if(cp<0x20||(cp>=0x7f&&cp<=0x9f)||(cp>=0xd800&&cp<=0xdfff)||cp===0xfffd||(cp>=0xfdd0&&cp<=0xfdef)||(cp&0xfffe)===0xfffe)return false;
+        for(let i=0;i<value.length;i++){
+          const u=value.charCodeAt(i);
+          if(u>=0xd800&&u<=0xdbff){
+            const low=value.charCodeAt(++i);
+            if(!(low>=0xdc00&&low<=0xdfff))return false;
+          }else if(u>=0xdc00&&u<=0xdfff){
+            return false;
+          }
         }
-        return true;
+        if(!value.length)return true;
+        const rtWasm=getRuntimeWasm();
+        if(record.fontBytes instanceof Uint8Array&&typeof rtWasm?.sfnt_font_has_glyphs==='function'){
+          const r=rtWasm.sfnt_font_has_glyphs(record.fontBytes,value);
+          if(r===1)return true;
+          if(r===0)return false;
+        }
+        if(record.fontType!==FontType.DEVICE&&record.fontName){
+          if(typeof player?.font_has_glyphs_check==='function'){
+            try{
+              const r=player.font_has_glyphs_check(String(record.fontName),String(record.fontStyle||FontStyle.REGULAR),String(record.fontType||''),value);
+              if(r===1)return true;
+              if(r===0)return false;
+            }catch(_){}
+          }
+          if(typeof rtWasm?.sfnt_font_has_glyphs==='function'&&projectSfntResources.length){
+            const wantName=String(record.fontName).trim().toLowerCase();
+            const wantStyle=normalizedFontStyle(record.fontStyle);
+            const matched=projectSfntResources.find(f=>(f.fontName.trim().toLowerCase()===wantName||f.rawFontName.trim().toLowerCase()===wantName)&&normalizedFontStyle(f.fontStyle)===wantStyle)
+              ||projectSfntResources.find(f=>f.fontName.trim().toLowerCase()===wantName||f.rawFontName.trim().toLowerCase()===wantName);
+            if(matched){
+              const r=rtWasm.sfnt_font_has_glyphs(matched.bytes,value);
+              if(r===1)return true;
+              if(r===0)return false;
+            }
+          }
+        }
+        return fallbackPrintableHasGlyphs(value);
       }
       static registerFont(fontClass){
         active();
@@ -572,11 +814,52 @@
         const prog=getProgram?.();
         const instance=prog?.isClass?.(fontClass)?prog.constructClass(fontClass,[]):new fontClass();
         if(!Font.__nfIs(instance))throw new TypeError('ArgumentError: Font.registerFont requires a Font subclass.');
+        const rec=fontRecords.get(instance);
+        const explicitBytes=fontClass.__nfFontBytes instanceof Uint8Array?fontClass.__nfFontBytes:(fontClass.fontBytes instanceof Uint8Array?fontClass.fontBytes:null);
+        if(rec&&explicitBytes){
+          rec.fontBytes=explicitBytes;
+          const rtWasm=getRuntimeWasm();
+          if(typeof rtWasm?.sfnt_font_info_json==='function'){
+            try{
+              const fallbackFamily=String(rec.fontName||fontClass.fontName||fontClass.name||'');
+              const parsed=rtWasm.sfnt_font_info_json(explicitBytes,fallbackFamily);
+              if(parsed){
+                const d=JSON.parse(parsed);
+                if(d?.font_name&&(!rec.fontName||rec.fontName===fontClass.name))rec.fontName=d.font_name;
+                if(d?.font_style)rec.fontStyle=d.font_style;
+                if(d?.font_type)rec.fontType=d.font_type;
+              }
+            }catch(_){}
+          }
+        }
         if(!registeredFontClasses.has(fontClass)){registeredFontClasses.add(fontClass);registeredFonts.push(instance);invalidateCache();}
       }
       static enumerateFonts(enumerateDeviceFonts=false){
         active();
         const list=registeredFonts.slice();
+        const seenEmbedded=new Set(list.map(f=>`${String(f.fontName||'').toLowerCase()}\u0000${normalizedFontStyle(f.fontStyle)}\u0000${String(f.fontType||'')}`));
+        if(typeof player?.embedded_fonts_json==='function'){
+          try{
+            const raw=player.embedded_fonts_json();
+            const entries=raw?JSON.parse(raw):[];
+            if(Array.isArray(entries)){
+              for(const e of entries){
+                if(!e?.font_name)continue;
+                const fn=String(e.font_name),fs=String(e.font_style||FontStyle.REGULAR),ft=String(e.font_type||FontType.EMBEDDED);
+                const key=`${fn.toLowerCase()}\u0000${normalizedFontStyle(fs)}\u0000${ft}`;
+                if(seenEmbedded.has(key))continue;
+                seenEmbedded.add(key);
+                list.push(new Font(fontToken,{fontName:fn,fontStyle:fs,fontType:ft,fontBytes:null}));
+              }
+            }
+          }catch(_){}
+        }
+        for(const sfnt of projectSfntResources){
+          const key=`${sfnt.fontName.toLowerCase()}\u0000${normalizedFontStyle(sfnt.fontStyle)}\u0000${sfnt.fontType}`;
+          if(seenEmbedded.has(key))continue;
+          seenEmbedded.add(key);
+          list.push(new Font(fontToken,{fontName:sfnt.fontName,fontStyle:sfnt.fontStyle,fontType:sfnt.fontType,fontBytes:sfnt.bytes}));
+        }
         if(Boolean(enumerateDeviceFonts)){
           const candidates=['sans-serif','serif','monospace','Arial','Helvetica','Times New Roman','Courier New','Verdana','Georgia','Trebuchet MS'];
           if(document?.fonts&&typeof document.fonts[Symbol.iterator]==='function'){
@@ -591,16 +874,21 @@
           let families;
           try{families=textKernel({op:'font_list',candidates}).result;}
           catch(_){families=[...new Set(candidates)].sort((a,b)=>a.localeCompare(b));}
-          for(const family of families)list.push(new Font(fontToken,{fontName:family,fontStyle:FontStyle.REGULAR,fontType:FontType.DEVICE}));
+          for(const family of families)list.push(new Font(fontToken,{fontName:family,fontStyle:FontStyle.REGULAR,fontType:FontType.DEVICE,fontBytes:null}));
         }
         return list;
       }
     }
     Font.__nfIs=value=>fontRecords.has(value);
-    Font.__nfAllocate=({className}={})=>{
+    Font.__nfAllocate=({className,fontName,fontStyle,fontType,fontBytes}={})=>{
       const instance=Object.create(Font.prototype);
       const shortName=typeof className==='string'&&className.length?className.split('.').pop():'EmbeddedFont';
-      fontRecords.set(instance,{fontName:shortName,fontStyle:FontStyle.REGULAR,fontType:FontType.EMBEDDED});
+      fontRecords.set(instance,{
+        fontName:typeof fontName==='string'&&fontName.length?fontName:shortName,
+        fontStyle:typeof fontStyle==='string'&&fontStyle.length?fontStyle:FontStyle.REGULAR,
+        fontType:typeof fontType==='string'&&fontType.length?fontType:FontType.EMBEDDED,
+        fontBytes:fontBytes instanceof Uint8Array?fontBytes:null,
+      });
       return instance;
     };
     Font.__nfInitialize=(receiver,args=[])=>{
@@ -745,11 +1033,422 @@
       if(typeof fn!=='function')throw new Error('Text outline conversion kernel is unavailable.');
       return JSON.parse(fn(JSON.stringify(field)));
     }
+    function stripNewlinesFromRuns(normText,rawRuns){
+      if(!Array.isArray(rawRuns)||!rawRuns.length||!normText.includes('\n'))return {text:normText,runs:rawRuns};
+      const map=new Uint32Array(normText.length+1);
+      let out='',pos=0;
+      for(let i=0;i<normText.length;i++){
+        map[i]=pos;
+        if(normText[i]!=='\n'){out+=normText[i];pos++;}
+      }
+      map[normText.length]=pos;
+      const runs=[];
+      for(const r of rawRuns){
+        const s=map[Math.max(0,Math.min(normText.length,Number(r.start??r.begin)||0))];
+        const e=map[Math.max(0,Math.min(normText.length,Number(r.end)||0))];
+        if(s<e)runs.push({start:s,end:e,format:structuredClone?structuredClone(r.format):JSON.parse(JSON.stringify(r.format||{}))});
+      }
+      return {text:out,runs};
+    }
+    function writeRichClipboard(ref,field,begin,end,clipboardData=null){
+      if(field.display_as_password)return null;
+      const lo=Math.max(0,Math.min(field.text.length,Math.min(begin,end)));
+      const hi=Math.max(lo,Math.min(field.text.length,Math.max(begin,end)));
+      if(lo>=hi)return null;
+      const plain=field.text.slice(lo,hi);
+      const useRich=Boolean(fieldStates.get(ref)?.useRichTextClipboard);
+      const runs=useRich?sliceFieldRuns(field,lo,hi):null;
+      let html='';
+      if(useRich){
+        try{html=textKernel({op:'serialize_html',text:plain,format:field.format,format_runs:runs}).result||'';}catch(_){}
+      }
+      sharedRichClipboard={text:plain,runs,html};
+      if(clipboardData?.setData){
+        try{
+          clipboardData.setData('text/plain',plain);
+          if(useRich){
+            clipboardData.setData(RICH_CLIPBOARD_MIME,JSON.stringify({text:plain,runs}));
+            if(html)clipboardData.setData('text/html',html);
+          }
+        }catch(_){}
+      }
+      return sharedRichClipboard;
+    }
+    function readRichClipboard(ref,field,clipboardData=null,fallbackPlain=null){
+      const plainFromCb=clipboardData?.getData?clipboardData.getData('text/plain'):'';
+      let plain=typeof fallbackPlain==='string'?fallbackPlain:(plainFromCb||sharedRichClipboard?.text||'');
+      plain=String(plain??'').replace(/\r\n?|\n/g,'\n');
+      const multiline=field?.multiline!==false;
+      const useRich=Boolean(fieldStates.get(ref)?.useRichTextClipboard);
+      if(!useRich){
+        return {text:multiline?plain:plain.replace(/\n/g,''),runs:null};
+      }
+      if(clipboardData?.getData){
+        try{
+          const rawJson=clipboardData.getData(RICH_CLIPBOARD_MIME);
+          if(rawJson){
+            const parsed=JSON.parse(rawJson);
+            if(parsed&&typeof parsed.text==='string'&&Array.isArray(parsed.runs)){
+              const normText=parsed.text.replace(/\r\n?|\n/g,'\n');
+              if(!plain||plain===normText){
+                return multiline?{text:normText,runs:parsed.runs}:stripNewlinesFromRuns(normText,parsed.runs);
+              }
+            }
+          }
+        }catch(_){}
+        try{
+          const rawHtml=clipboardData.getData('text/html');
+          if(rawHtml){
+            const frag=extractHtmlFragment(rawHtml);
+            const parsed=textKernel({op:'html',source:frag,format:field.default_format||field.format,styles:{styles:{}},condense_white:false,multi_run:true});
+            if(parsed&&typeof parsed.text==='string'){
+              const normHtmlText=parsed.text.replace(/\r\n?|\n/g,'\n');
+              if(!plain||plain===normHtmlText){
+                const runs=(parsed.format_runs&&parsed.format_runs.length)?parsed.format_runs:(normHtmlText.length?[{start:0,end:normHtmlText.length,format:parsed.format||field.default_format}]:[]);
+                return multiline?{text:normHtmlText,runs}:stripNewlinesFromRuns(normHtmlText,runs);
+              }
+            }
+          }
+        }catch(_){}
+      }
+      if(sharedRichClipboard&&sharedRichClipboard.text===plain&&Array.isArray(sharedRichClipboard.runs)&&sharedRichClipboard.runs.length){
+        const cloned=sharedRichClipboard.runs.map(r=>({start:r.start,end:r.end,format:{...r.format}}));
+        return multiline?{text:plain,runs:cloned}:stripNewlinesFromRuns(plain,cloned);
+      }
+      return {text:multiline?plain:plain.replace(/\n/g,''),runs:null};
+    }
+
+    const domIme=new WeakMap(),domCleanups=[];
+    const domDisplayed=field=>field.multiline?String(field.text??''):String(field.text??'').replace(/\n/g,' ');
+    const domCanEdit=field=>Boolean(field&&field.field_type==='input'&&field.interaction_mode!=='selection');
+    function resolveDomInputTarget(ev){
+      const el=ev?.target;
+      if(!el||!el.classList?.contains?.('nf-dom-input'))return null;
+      const attr=String(el.getAttribute?.('data-nf-id')||'');
+      if(!attr.startsWith('input:'))return null;
+      const ownerKey=attr.slice(6);
+      if(!ownerKey||(typeof player.object_alive==='function'&&!player.object_alive(ownerKey)))return null;
+      let field;
+      try{field=info(ownerKey);}catch(_){return null;}
+      return {el,ownerKey,field};
+    }
+    function syncDomSelectionToPlayer(el,ownerKey){
+      if(domIme.has(el)||typeof el.selectionStart!=='number'||typeof el.selectionEnd!=='number')return;
+      let field;
+      try{field=info(ownerKey);}catch(_){return;}
+      const rtWasm=getRuntimeWasm();
+      const s=snapGraphemeFloor(field.text,el.selectionStart,rtWasm);
+      const e=el.selectionEnd>el.selectionStart?snapGraphemeCeil(field.text,el.selectionEnd,rtWasm):s;
+      const backward=el.selectionDirection==='backward'&&s!==e;
+      const caret=backward?s:e;
+      if(s!==field.selection_begin||e!==field.selection_end||caret!==field.caret){
+        player.object_text_update(ownerKey,JSON.stringify({selection:{begin:backward?e:s,end:backward?s:e}}));
+      }
+    }
+    if(typeof document?.addEventListener==='function'){
+      const addDocCapture=(type,handler)=>{
+        const wrapped=ev=>{if(!disposed)handler(ev);};
+        document.addEventListener(type,wrapped,true);
+        domCleanups.push(()=>document.removeEventListener(type,wrapped,true));
+      };
+      for(const guardEvt of ['pointerdown','mousedown','focusin']){
+        addDocCapture(guardEvt,ev=>{
+          const hit=resolveDomInputTarget(ev);if(!hit)return;
+          hit.el.readOnly=!domCanEdit(hit.field)||Boolean(hit.el.disabled);
+        });
+      }
+      addDocCapture('compositionstart',ev=>{
+        const hit=resolveDomInputTarget(ev);if(!hit)return;
+        if(!domCanEdit(hit.field)||hit.el.disabled){ev.preventDefault?.();ev.stopImmediatePropagation?.();return;}
+        ev.stopImmediatePropagation?.();
+        syncDomSelectionToPlayer(hit.el,hit.ownerKey);
+        const snap=info(hit.ownerKey);
+        domIme.set(hit.el,{ownerKey:hit.ownerKey,baseText:hit.el.value,previewValue:hit.el.value,snapshot:snap,cancelled:false});
+        if(events){
+          const receiver=resolveReceiver(hit.ownerKey),Evt=events.IMEEvent||events.TextEvent;
+          if(receiver&&Evt)receiver.dispatchEvent?.(new Evt('imeStartComposition',false,true,typeof ev.data==='string'?ev.data:''));
+        }
+      });
+      addDocCapture('compositionupdate',ev=>{
+        const hit=resolveDomInputTarget(ev);if(!hit||!domIme.has(hit.el))return;
+        ev.stopImmediatePropagation?.();
+        const ime=domIme.get(hit.el);
+        const previewVal=hit.el.value,pStart=hit.el.selectionStart,pEnd=hit.el.selectionEnd;
+        if(ime)ime.previewValue=previewVal;
+        if(events){
+          const receiver=resolveReceiver(hit.ownerKey),Evt=events.IMEEvent||events.TextEvent;
+          if(receiver&&Evt)receiver.dispatchEvent?.(new Evt('imeComposition',false,true,typeof ev.data==='string'?ev.data:''));
+        }
+        if(hit.el.value!==previewVal){
+          hit.el.value=previewVal;
+          if(typeof pStart==='number'&&typeof pEnd==='number'){try{hit.el.setSelectionRange?.(pStart,pEnd,'forward');}catch(_){}}
+        }
+      });
+      function commitDomEdit(el,ownerKey,beforeField,nextDomValue){
+        const rtWasm=getRuntimeWasm();
+        const before=domDisplayed(beforeField);
+        const normalized=String(nextDomValue??'').replace(/\r\n?|\n/g,'\n');
+        const edit=graphemeSafeDiff(before,normalized,rtWasm);
+        const rawInsert=beforeField.multiline?edit.text:edit.text.replace(/\n/g,'');
+        if(!rawInsert.length&&edit.begin===edit.end)return;
+        const receiver=resolveReceiver(ownerKey);
+        let finalInsert=rawInsert;
+        if(rawInsert.length&&receiver&&events?.TextEvent){
+          const textEvt=new events.TextEvent(events.TextEvent.TEXT_INPUT||'textInput',true,true,rawInsert);
+          if(receiver.dispatchEvent?.(textEvt)===false){
+            const cur=info(ownerKey);
+            el.value=domDisplayed(cur);
+            if(typeof el.setSelectionRange==='function'){
+              try{el.setSelectionRange(cur.selection_begin||0,cur.selection_end||0,'forward');}catch(_){}
+            }
+            onUpdate(ownerKey);
+            return;
+          }
+          finalInsert=String(textEvt.text??'');
+        }
+        const post=info(ownerKey);
+        const postEdit=post.revision===beforeField.revision
+          ?{begin:edit.begin,end:edit.end,text:finalInsert}
+          :(()=>{
+              const d=graphemeSafeDiff(domDisplayed(post),normalized,rtWasm);
+              return {begin:d.begin,end:d.end,text:post.multiline?d.text:d.text.replace(/\n/g,'')};
+            })();
+        const committed=JSON.parse(player.object_text_input(ownerKey,JSON.stringify({
+          expected_revision:post.revision,
+          begin:postEdit.begin,
+          end:postEdit.end,
+          text:postEdit.text,
+        })));
+        const nextDisp=domDisplayed(committed);
+        if(el.value!==nextDisp)el.value=nextDisp;
+        if(typeof el.setSelectionRange==='function'&&Number.isInteger(committed.caret)){
+          try{el.setSelectionRange(committed.caret,committed.caret,'forward');}catch(_){}
+        }
+        if(committed.text!==beforeField.text){
+          if(receiver&&events?.Event)receiver.dispatchEvent?.(new events.Event(events.Event.CHANGE||'change',true,false));
+          if(receiver&&typeof receiver.onChanged==='function')receiver.onChanged(receiver);
+          as2TextEvent?.(ownerKey,'onChanged',[receiver]);
+        }
+        onUpdate(ownerKey);
+      }
+      addDocCapture('input',ev=>{
+        const hit=resolveDomInputTarget(ev);if(!hit)return;
+        if(!domCanEdit(hit.field)||hit.el.disabled){
+          hit.el.value=domDisplayed(hit.field);
+          ev.preventDefault?.();ev.stopImmediatePropagation?.();return;
+        }
+        if(domIme.has(hit.el)||ev.isComposing){
+          const ime=domIme.get(hit.el);
+          if(ime)ime.previewValue=hit.el.value;
+          ev.stopImmediatePropagation?.();return;
+        }
+        // Guard against surrogate-pair or extended-grapheme-cluster splits in dom-layout.js's
+        // UTF-16 code-unit diff (e.g. replacing 😀 \uD83D\uDE00 with 😁 \uD83D\uDE01 or editing
+        // decomposed combining marks / ZWJ sequences).
+        const before=domDisplayed(hit.field),after=String(hit.el.value??'').replace(/\r\n?|\n/g,'\n');
+        let rawBegin=0;
+        while(rawBegin<before.length&&rawBegin<after.length&&before[rawBegin]===after[rawBegin])rawBegin++;
+        let rawEnd=before.length,afterEnd=after.length;
+        while(rawEnd>rawBegin&&afterEnd>rawBegin&&before[rawEnd-1]===after[afterEnd-1]){rawEnd--;afterEnd--;}
+        const edit=graphemeSafeDiff(before,after,getRuntimeWasm());
+        if(edit.begin!==rawBegin||edit.end!==rawEnd){
+          ev.stopImmediatePropagation?.();
+          commitDomEdit(hit.el,hit.ownerKey,hit.field,after);
+        }
+      });
+      addDocCapture('compositionend',ev=>{
+        const hit=resolveDomInputTarget(ev);if(!hit)return;
+        const ime=domIme.get(hit.el);
+        domIme.delete(hit.el);
+        if(!ime)return;
+        ev.stopImmediatePropagation?.();
+        if(ime.cancelled||!domCanEdit(hit.field)||hit.el.disabled){
+          hit.el.value=ime.baseText;
+          const s=ime.snapshot;
+          try{hit.el.setSelectionRange?.(s.selection_begin||0,s.selection_end||0);}catch(_){}
+          return;
+        }
+        let committedDomValue=hit.el.value;
+        const evText=typeof ev.data==='string'?ev.data:'';
+        if(committedDomValue===ime.baseText&&evText.length>0){
+          const sb=ime.snapshot?.selection_begin||0,se=ime.snapshot?.selection_end??sb;
+          committedDomValue=ime.baseText.slice(0,sb)+evText+ime.baseText.slice(se);
+        }
+        if(events){
+          const receiver=resolveReceiver(hit.ownerKey),Evt=events.IMEEvent||events.TextEvent;
+          if(receiver&&Evt)receiver.dispatchEvent?.(new Evt('imeComposition',false,true,evText));
+        }
+        if(committedDomValue===ime.baseText)return;
+        commitDomEdit(hit.el,hit.ownerKey,ime.snapshot,committedDomValue);
+      });
+      addDocCapture('keydown',ev=>{
+        const hit=resolveDomInputTarget(ev);if(!hit)return;
+        const {el,ownerKey,field}=hit;
+        const rtWasm=getRuntimeWasm();
+        if(domIme.has(el)&&ev.key==='Escape'){
+          const ime=domIme.get(el);
+          ime.cancelled=true;
+          domIme.delete(el);
+          el.value=ime.baseText;
+          const s=ime.snapshot;
+          try{el.setSelectionRange?.(s.selection_begin||0,s.selection_end||0);}catch(_){}
+          ev.preventDefault?.();ev.stopImmediatePropagation?.();
+          return;
+        }
+        if(!domCanEdit(field)||el.disabled){
+          el.readOnly=true;
+          if(ev.key==='Backspace'||ev.key==='Delete'||ev.key==='Enter'||(typeof ev.key==='string'&&ev.key.length===1&&!ev.ctrlKey&&!ev.metaKey&&!ev.altKey)){
+            ev.preventDefault?.();ev.stopImmediatePropagation?.();
+            return;
+          }
+        }
+        if(domIme.has(el)||ev.isComposing||ev.altKey||ev.ctrlKey||ev.metaKey)return;
+        if((ev.key==='ArrowLeft'||ev.key==='ArrowRight')&&typeof el.selectionStart==='number'&&typeof el.selectionEnd==='number'){
+          const val=el.value;
+          const lo=el.selectionStart,hi=el.selectionEnd;
+          const backward=el.selectionDirection==='backward'&&lo!==hi;
+          const anchor=backward?hi:lo,head=backward?lo:hi;
+          if(ev.shiftKey){
+            const nextHead=ev.key==='ArrowLeft'?prevGrapheme(val,head,rtWasm):nextGrapheme(val,head,rtWasm);
+            const nLo=Math.min(anchor,nextHead),nHi=Math.max(anchor,nextHead),dir=nextHead<anchor?'backward':'forward';
+            el.setSelectionRange(nLo,nHi,dir);
+            player.object_text_update(ownerKey,JSON.stringify({selection:{begin:anchor,end:nextHead}}));
+          }else{
+            const nextPos=lo!==hi?(ev.key==='ArrowLeft'?snapGraphemeFloor(val,lo,rtWasm):snapGraphemeCeil(val,hi,rtWasm)):(ev.key==='ArrowLeft'?prevGrapheme(val,lo,rtWasm):nextGrapheme(val,hi,rtWasm));
+            el.setSelectionRange(nextPos,nextPos,'forward');
+            player.object_text_update(ownerKey,JSON.stringify({selection:{begin:nextPos,end:nextPos}}));
+          }
+          ev.preventDefault?.();ev.stopImmediatePropagation?.();
+          return;
+        }
+        if((ev.key==='Backspace'||ev.key==='Delete')&&domCanEdit(field)&&!el.disabled&&typeof el.selectionStart==='number'&&typeof el.selectionEnd==='number'){
+          const val=el.value,lo=el.selectionStart,hi=el.selectionEnd;
+          const delBegin=lo<hi?snapGraphemeFloor(val,lo,rtWasm):(ev.key==='Backspace'?prevGrapheme(val,lo,rtWasm):snapGraphemeFloor(val,lo,rtWasm));
+          const delEnd=lo<hi?snapGraphemeCeil(val,hi,rtWasm):(ev.key==='Delete'?nextGrapheme(val,lo,rtWasm):snapGraphemeCeil(val,lo,rtWasm));
+          ev.preventDefault?.();ev.stopImmediatePropagation?.();
+          if(delBegin<delEnd){
+            const nextVal=val.slice(0,delBegin)+val.slice(delEnd);
+            el.value=nextVal;
+            el.setSelectionRange(delBegin,delBegin,'forward');
+            commitDomEdit(el,ownerKey,field,nextVal);
+            player.object_text_update(ownerKey,JSON.stringify({selection:{begin:delBegin,end:delBegin}}));
+          }
+        }
+      });
+      for(const selEvt of ['select','keyup','mouseup']){
+        addDocCapture(selEvt,ev=>{
+          const hit=resolveDomInputTarget(ev);if(!hit)return;
+          syncDomSelectionToPlayer(hit.el,hit.ownerKey);
+        });
+      }
+      addDocCapture('copy',ev=>{
+        const hit=resolveDomInputTarget(ev);if(!hit)return;
+        const {el,ownerKey,field}=hit;
+        if(field.display_as_password)return;
+        const lo=el.selectionStart??field.selection_begin??0,hi=el.selectionEnd??field.selection_end??0;
+        if(lo<hi&&ev.clipboardData?.setData){
+          writeRichClipboard(ownerKey,field,lo,hi,ev.clipboardData);
+          ev.preventDefault?.();
+        }else if(lo<hi){
+          writeRichClipboard(ownerKey,field,lo,hi,null);
+        }
+      });
+      addDocCapture('cut',ev=>{
+        const hit=resolveDomInputTarget(ev);if(!hit)return;
+        const {el,ownerKey,field}=hit;
+        if(!domCanEdit(field)||el.disabled){ev.preventDefault?.();ev.stopImmediatePropagation?.();return;}
+        const rtWasm=getRuntimeWasm();
+        const lo=snapGraphemeFloor(el.value,el.selectionStart??field.selection_begin??0,rtWasm);
+        const hi=snapGraphemeCeil(el.value,el.selectionEnd??field.selection_end??0,rtWasm);
+        if(lo>=hi){ev.preventDefault?.();ev.stopImmediatePropagation?.();return;}
+        writeRichClipboard(ownerKey,field,lo,hi,ev.clipboardData);
+        const nextVal=el.value.slice(0,lo)+el.value.slice(hi);
+        el.value=nextVal;
+        el.setSelectionRange(lo,lo,'forward');
+        ev.preventDefault?.();ev.stopImmediatePropagation?.();
+        commitDomEdit(el,ownerKey,field,nextVal);
+        player.object_text_update(ownerKey,JSON.stringify({selection:{begin:lo,end:lo}}));
+      });
+      addDocCapture('paste',ev=>{
+        const hit=resolveDomInputTarget(ev);if(!hit)return;
+        const {el,ownerKey,field}=hit;
+        if(!domCanEdit(field)||el.disabled){ev.preventDefault?.();ev.stopImmediatePropagation?.();return;}
+        const payload=readRichClipboard(ownerKey,field,ev.clipboardData,null);
+        const rawInsert=field.multiline?payload.text:payload.text.replace(/\n/g,'');
+        if(!rawInsert.length){ev.preventDefault?.();ev.stopImmediatePropagation?.();return;}
+        const rtWasm=getRuntimeWasm();
+        const begin=snapGraphemeFloor(field.text,el.selectionStart??field.selection_begin??0,rtWasm);
+        const rawEnd=el.selectionEnd??field.selection_end??begin;
+        const end=rawEnd>begin?snapGraphemeCeil(field.text,rawEnd,rtWasm):begin;
+        if(Array.isArray(payload.runs)&&payload.runs.length&&typeof player.object_text_rich_input==='function'){
+          ev.preventDefault?.();ev.stopImmediatePropagation?.();
+          const receiver=resolveReceiver(ownerKey);
+          let finalInsert=rawInsert;
+          if(receiver&&events?.TextEvent){
+            const textEvt=new events.TextEvent(events.TextEvent.TEXT_INPUT||'textInput',true,true,rawInsert);
+            if(receiver.dispatchEvent?.(textEvt)===false)return;
+            finalInsert=String(textEvt.text??'');
+          }
+          const post=info(ownerKey);
+          const committed=JSON.parse(player.object_text_rich_input(ownerKey,JSON.stringify({
+            expected_revision:post.revision,
+            begin,
+            end,
+            text:finalInsert,
+            runs:finalInsert===rawInsert?payload.runs:[],
+          })));
+          const nextDisp=domDisplayed(committed);
+          if(el.value!==nextDisp)el.value=nextDisp;
+          if(typeof el.setSelectionRange==='function'&&Number.isInteger(committed.caret)){
+            try{el.setSelectionRange(committed.caret,committed.caret,'forward');}catch(_){}
+          }
+          if(committed.text!==field.text){
+            if(receiver&&events?.Event){
+              receiver.dispatchEvent?.(new events.Event(events.Event.CHANGE||'change',true,false));
+            }
+            if(receiver&&typeof receiver.onChanged==='function')receiver.onChanged(receiver);
+            as2TextEvent?.(ownerKey,'onChanged',[receiver]);
+          }
+          onUpdate(ownerKey);
+          return;
+        }
+        ev.preventDefault?.();ev.stopImmediatePropagation?.();
+        const nextVal=el.value.slice(0,begin)+rawInsert+el.value.slice(end);
+        el.value=nextVal;
+        const caret=begin+rawInsert.length;
+        try{el.setSelectionRange(caret,caret,'forward');}catch(_){}
+        commitDomEdit(el,ownerKey,field,nextVal);
+      });
+    }
+
     function invalidateCache(){cache.clear();cacheBytes=0;}
-    function reset(){active();invalidateCache();fieldStates.clear();rendererState=defaultRenderer();rendererAntiAliasType=AntiAliasType.NORMAL;registeredFonts.length=0;registeredFontClasses.clear();}
-    function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({measure:(strings,format)=>strings.map(value=>measureText(value,format)),portableMeasure:(strings,format)=>strings.map(value=>defaultPortableMeasure(value,format)),toOutlines,TextFormat,As2TextFormat,legacyFormatCopy,formatPatch,bindAs2:execute=>{as2Execute=execute;},bindAs2Layout:callback=>{as2Layout=callback;},bindAs2Wheel:callback=>{as2Wheel=callback;},wheel:(ref,event)=>as2Wheel?.(ref,event)||false,notifyLayout:ref=>onUpdate(ref),invalidateCache,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED});
+    function reset(){active();invalidateCache();fieldStates.clear();sharedRichClipboard=null;rendererState=defaultRenderer();rendererAntiAliasType=AntiAliasType.NORMAL;registeredFonts.length=0;registeredFontClasses.clear();}
+    function dispose(){if(disposed)return;reset();for(const fn of domCleanups)fn();domCleanups.length=0;disposed=true;}
+    return Object.freeze({
+      measure:(strings,format)=>strings.map(value=>measureText(value,format)),
+      portableMeasure:(strings,format)=>strings.map(value=>defaultPortableMeasure(value,format)),
+      graphemeBoundaries:value=>graphemeBoundaries(value,getRuntimeWasm()),
+      snapGraphemeFloor:(value,idx)=>snapGraphemeFloor(value,idx,getRuntimeWasm()),
+      snapGraphemeCeil:(value,idx)=>snapGraphemeCeil(value,idx,getRuntimeWasm()),
+      prevGrapheme:(value,idx)=>prevGrapheme(value,idx,getRuntimeWasm()),
+      nextGrapheme:(value,idx)=>nextGrapheme(value,idx,getRuntimeWasm()),
+      graphemeSafeDiff:(before,after)=>graphemeSafeDiff(before,after,getRuntimeWasm()),
+      sliceFieldRuns,
+      writeRichClipboard,
+      readRichClipboard,
+      clearRichClipboard:()=>{sharedRichClipboard=null;},
+      toOutlines,TextFormat,As2TextFormat,legacyFormatCopy,formatPatch,
+      bindAs2:execute=>{as2Execute=execute;},
+      bindAs2Layout:callback=>{as2Layout=callback;},
+      bindAs2Wheel:callback=>{as2Wheel=callback;},
+      bindTargetForRef:fn=>{targetForRef=fn;},
+      bindAs2TextEvent:fn=>{as2TextEvent=fn;},
+      bindInteractionModeChange:fn=>{interactionModeCallback=fn;},
+      wheel:(ref,event)=>as2Wheel?.(ref,event)||false,
+      notifyLayout:ref=>onUpdate(ref),
+      invalidateCache,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED
+    });
   }
-  const api={create,TextFormat,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextLineMetrics,formatPatch,formatCopy,cssFontFamily,cssFont,applyFont};
+  const api={create,TextFormat,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextLineMetrics,formatPatch,formatCopy,cssFontFamily,cssFont,applyFont,graphemeBoundaries,snapGraphemeFloor,snapGraphemeCeil,prevGrapheme,nextGrapheme,graphemeSafeDiff,sliceFieldRuns};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashText=api;
 })(globalThis);
