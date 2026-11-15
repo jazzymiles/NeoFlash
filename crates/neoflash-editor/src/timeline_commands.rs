@@ -3482,6 +3482,142 @@ impl Editor {
             .is_some_and(|guard| guard.is_some())
     }
 
+    fn apply_ease_to_tween_targets(
+        &mut self,
+        targets: &[(usize, Vec<u32>)],
+        ease: Easing,
+    ) -> usize {
+        let mut changed = 0usize;
+        {
+            let layers = &mut self.symbol_mut().timeline.layers;
+            for (layer_idx, starts) in targets {
+                let Some(layer) = layers.get_mut(*layer_idx) else {
+                    continue;
+                };
+                for &start_frame in starts {
+                    let Some(key) = layer.keyframes.iter_mut().find(|key| {
+                        key.frame == start_frame
+                            && key.keyed_properties.is_none()
+                            && key.tween.is_some()
+                    }) else {
+                        continue;
+                    };
+                    let key_changed = key.tween != Some(ease);
+                    key.tween = Some(ease);
+                    changed += usize::from(key_changed);
+                }
+            }
+        }
+        if changed > 0 {
+            self.project.upgrade_format_for_features();
+        }
+        changed
+    }
+
+    fn apply_ease_to_motion_object_targets(
+        &mut self,
+        targets: &[(usize, Vec<u32>)],
+        layer_id: &str,
+        element_id: &str,
+        ease: Easing,
+    ) -> usize {
+        let Some((layer_idx, starts)) = targets.iter().find(|(layer_idx, _)| {
+            self.symbol()
+                .timeline
+                .layers
+                .get(*layer_idx)
+                .is_some_and(|layer| layer.id == layer_id)
+        }) else {
+            return 0;
+        };
+        let mut changed = 0usize;
+        if let Some(layer) = self.symbol_mut().timeline.layers.get_mut(*layer_idx) {
+            for &start_frame in starts {
+                let Some(key) = layer.keyframes.iter_mut().find(|key| {
+                    key.frame == start_frame
+                        && key.keyed_properties.is_none()
+                        && key.tween.is_some()
+                        && key.tween_kind == TweenKind::Motion
+                        && key.elements.iter().any(|element| element.id == element_id)
+                }) else {
+                    continue;
+                };
+                if key.motion_easing_for(element_id) != ease {
+                    key.ensure_motion_track(element_id).easing = Some(ease);
+                    changed += 1;
+                }
+            }
+        }
+        if changed > 0 {
+            self.project.upgrade_format_for_features();
+        }
+        changed
+    }
+
+    /// Change one selected Motion object's base ease on every one of its tween spans intersecting
+    /// the Timeline selection. Sibling objects keep their independent track easing.
+    pub(crate) fn set_selected_motion_tween_ease(
+        &mut self,
+        span: &crate::panels::ease::TweenSpan,
+        ease: Easing,
+        control: Option<eframe::egui::Id>,
+    ) -> usize {
+        let Some(element_id) = span.motion_element.as_deref() else {
+            return 0;
+        };
+        let targets = self.target_tween_spans();
+        if targets.is_empty() {
+            return 0;
+        }
+        if let Some(control) = control {
+            self.begin_property_edit(
+                eframe::egui::Id::new("timeline-selection-motion-easing"),
+                control,
+            );
+            return self.apply_ease_to_motion_object_targets(
+                &targets,
+                &span.layer_id,
+                element_id,
+                ease,
+            );
+        }
+
+        self.finish_edits();
+        let layer_id = span.layer_id.clone();
+        let element_id = element_id.to_owned();
+        let mut changed = 0usize;
+        self.transact_named("Edit selected Motion easing", |editor| {
+            changed =
+                editor.apply_ease_to_motion_object_targets(&targets, &layer_id, &element_id, ease);
+        });
+        changed
+    }
+
+    /// Change the base easing of every existing tween span intersecting the Timeline selection.
+    /// Hold spans are intentionally ignored; choosing an easing must not create a tween. With a
+    /// control id the whole pointer/keyboard interaction is coalesced into one Undo step.
+    pub(crate) fn set_selected_tween_ease(
+        &mut self,
+        ease: Easing,
+        control: Option<eframe::egui::Id>,
+    ) -> usize {
+        let targets = self.target_tween_spans();
+        if targets.is_empty() {
+            return 0;
+        }
+        if let Some(control) = control {
+            self.begin_property_edit(eframe::egui::Id::new("timeline-selection-easing"), control);
+            return self.apply_ease_to_tween_targets(&targets, ease);
+        }
+
+        self.finish_edits();
+        let mut changed = 0usize;
+        self.transact_named("Edit selected tween easing", |editor| {
+            changed = editor.apply_ease_to_tween_targets(&targets, ease);
+        });
+        changed
+    }
+
     /// Justin Putney `Copy Ease`: copies the `Easing` curve from the active keyframe or tween span.
     pub fn copy_active_keyframe_ease(&mut self) -> bool {
         let ease = self

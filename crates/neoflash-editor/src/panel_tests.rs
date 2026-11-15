@@ -6165,6 +6165,40 @@ fn export_image_defaults_to_the_active_scene() {
     );
 }
 
+#[test]
+fn standalone_image_sequence_exports_inside_the_named_project_folder() {
+    use crate::panels::export_image::{ExportImageDraft, set_inline_export_image_draft};
+    use neoflash_export::{ImageExportFormat, ImageExportOptions, ImageExportRange};
+
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.name = "Ideas in motion".into();
+    project.symbols[0].timeline.frame_count = 2;
+    let mut editor = Editor::from_project(&ctx, project);
+    let mut options = ImageExportOptions::for_project(&editor.project, 0);
+    options.format = ImageExportFormat::Png;
+    options.range = ImageExportRange::WholeMovie;
+    options.symbol_id = None;
+    set_inline_export_image_draft(&ctx, ExportImageDraft { options });
+
+    let root = std::env::temp_dir().join(format!("neoflash-named-sequence-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let report = editor
+        .confirm_export_image_to_path(&ctx, &root.join("frame.png"))
+        .expect("sequence export");
+    let expected = root.join("Ideas in motion");
+    assert_eq!(report.files.len(), 2);
+    assert!(
+        report
+            .files
+            .iter()
+            .all(|file| file.parent() == Some(expected.as_path()) && file.is_file())
+    );
+    assert!(!root.join("frame_0001.png").exists());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// T-126 / T-127: Export image (PNG/SVG/PSD/AI/PDF), Import video, Stroke style, Font embedding,
 /// Bitmap fill swatch tiling, Deco pattern, Spray brush burst, and Stage context-menu Swap/Duplicate
 /// symbol all work end-to-end with single-step Undo/Redo and valid project documents.
@@ -7406,6 +7440,112 @@ fn brushes_options_activates_brush_before_opening_contextual_properties() {
     );
     assert!(named_bounds(&properties, "Brush mode").is_some());
     assert!(named_bounds(&properties, "Position and size").is_none());
+}
+
+#[test]
+fn properties_easing_select_applies_to_every_tween_in_the_selected_frame_range() {
+    fn render_properties(
+        editor: &mut Editor,
+        ctx: &egui::Context,
+        time: f64,
+        events: Vec<Event>,
+    ) -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(520.0, 900.0))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.properties(ui, ctx));
+            },
+        )
+    }
+
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 30;
+    let make_layer = |id: &str| Layer {
+        id: id.into(),
+        name: id.into(),
+        visible: true,
+        locked: false,
+        keyframes: vec![
+            Keyframe {
+                frame: 0,
+                tween: Some(Easing::Linear),
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 10,
+                tween: Some(Easing::Linear),
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 20,
+                ..Keyframe::default()
+            },
+        ],
+        properties: LayerProperties::default(),
+    };
+    project.symbols[0].timeline.layers = vec![make_layer("first"), make_layer("second")];
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+    editor.layer = 0;
+    editor.frame = 0;
+    editor.select_frame_range(FrameRange {
+        layers: vec!["first".into(), "second".into()],
+        start: 0,
+        end: 15,
+    });
+
+    render_properties(&mut editor, &ctx, 0.1, vec![]);
+    let output = render_properties(&mut editor, &ctx, 0.2, vec![]);
+    let easing = named_bounds(&output, "Linear").expect("Easing selector");
+    render_properties(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![primary_button(easing.center(), true)],
+    );
+    render_properties(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![primary_button(easing.center(), false)],
+    );
+    let popup = render_properties(&mut editor, &ctx, 0.5, vec![]);
+    let ease_out = named_bounds(&popup, "Ease out").expect("Ease out popup item");
+    render_properties(
+        &mut editor,
+        &ctx,
+        0.6,
+        vec![primary_button(ease_out.center(), true)],
+    );
+    render_properties(
+        &mut editor,
+        &ctx,
+        0.7,
+        vec![primary_button(ease_out.center(), false)],
+    );
+    render_properties(&mut editor, &ctx, 0.8, vec![]);
+
+    for layer in &editor.symbol().timeline.layers {
+        assert_eq!(layer.keyframes[0].tween, Some(Easing::EaseOut));
+        assert_eq!(layer.keyframes[1].tween, Some(Easing::EaseOut));
+        assert_eq!(layer.keyframes[2].tween, None);
+    }
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(
+        editor.project, before,
+        "one Undo restores the whole range edit"
+    );
 }
 
 #[test]

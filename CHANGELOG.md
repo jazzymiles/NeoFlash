@@ -2,6 +2,10 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- GUI Publish and numbered image/PNG-video sequence exports now create one cross-platform-safe folder named after
+  the project instead of `neoflash-export-<timestamp>` or loose sibling frames; explicit configured/headless paths
+  remain exact. Changing easing on a selected multi-layer frame range now updates every existing editable tween span
+  in one Undo step, while Motion Tween keeps sibling-object and per-property curves independent (`T-330`).
 - Completed the post-polish safety and wiring pass (`T-322`): failed `Revert` keeps the live Path draft and Undo
   history; cross-tab object/frame paste preserves keyed IK identity and program-reachable linkage exports; scene
   changes discard departed child state without losing root variables; Brushes now follows the same Hide/Detach/Dock

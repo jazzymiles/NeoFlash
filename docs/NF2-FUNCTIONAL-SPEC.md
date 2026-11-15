@@ -680,11 +680,15 @@ their own layout.
   X/Y/W/H; Show path / frame dots; Sync graphic symbols; Snap to motion guide.
 - Data: `MotionTrackOverride` on the span start plus `MotionPropertyKey` on ◆ keys (TL-05). Acceptance: changing
   Ease, Orient, Path, Sync or Snap for one of two objects leaves the sibling untouched in editor, HTML5 and Lottie.
+  With a Timeline range selected, Ease changes every intersecting Motion span of that same selected object as one
+  Undo step while preserving sibling-object and per-property easing overrides.
 - Reusable: `Editor::set_orient_to_path` (any tweened span); `TimelineEdit::SyncSymbols` / `Editor::sync_symbols`;
   `timeline_motion.rs::paint_motion_path`.
 
 **PR-11 · Frame easing values** — done (`properties` Tween section)
 - Done: Y1/Y2 accept −100…100 (X stays 0–1); "Flash ease" option with an Acceleration field −100…100.
+- Done: a chosen easing applies to every existing editable tween span intersecting the selected multi-layer frame
+  range as one Undo step; locked, hidden and hold spans remain unchanged.
 - Behaviour: allow Y outside 0–1 (Ease panel ranges: −30…130 % in the overshoot graph); add Flash acceleration
   −100…100 as the existing field style (no new control type — if a field must be added, request).
 - Depends on: UI-only. Acceptance: Y2 = 1.12 saves, reloads and overshoots in editor and HTML5.
@@ -952,14 +956,20 @@ Screenshot aids: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>` and
 - Data: `neoflash_export::export_project_with_config(project, output_dir, runtime_dir, &PublishOptions { fonts, size, audio }, &HtmlPublishConfig)`
   publishes at a `SizeLevel` (Full · Balanced · Compact · Shared runtime URL) with `HtmlPublishConfig::clean_publish_default()` (clean stage output without technical HUD by default), while `Test Movie` and `Test Scene` use `PublishPrefs::preview_html_config()` (`PlayerChromeConfig` from `Preferences ▸ Publish`). `Balanced`, `Compact`, and local `Shared` packages embed `globalThis.NeoFlashWasmBase64` in `neoflash_web.js` so they open directly from `file://` without browser `fetch` CORS failure while preserving HTTP(S) streaming. `estimate_publish_options_cancellable_with_config` returns exact on-disk files, bytes and gzip bytes across all `HtmlPublishConfig` options.
   Both `OK` and `Publish` persist `self.workspace.publish = draft.settings.clone()` so settings never reset after publishing; if all target checkboxes are unchecked when `Publish` is invoked from the toolbar/menu, the editor opens `Publish settings` instead of a no-op folder picker.
+- Default GUI parent-folder selection creates one Unicode-safe child folder named after the project. An explicitly
+  configured output folder and every headless `--out` path remain exact.
 - Acceptance: draft/default persistence across both `OK` and `Publish`, clean publish vs configurable preview HUD, direct `file://` execution for `Compact`/`Balanced`/`Full`, exact background size estimates, strict executable output with rebased source maps, and all five target routes are verified. Completion still requires real Assets-folder packaging, runtime atlas binding, subsetting for unsupported font layouts, acceleration selection and runtime-module minification.
 
 **DL-04 · Export image (`⌥⇧⌘S`)** — partial (`panels/export_image.rs`, `neoflash_export::image_export`, `File ▸ Export ▸ Export image…`):
 - Working: 760 pt modal dialog and live floating panel with format tabs `PNG · SVG · PSD · AI · PDF`; preview `"Frame n of N · W × H"`; `Range` (`Current frame`, `Whole movie`, `Current scene`, `Frames A..=B`); linked `W × H` + `1x` / `2x` / `0.5x` scale presets; and `Background` (`Stage colour`, `Transparent`). PNG and SVG are direct exports. PSD writes a layered v1 document when supported. AI is an EPS-compatible PostScript subset and uses a raster fallback for unsupported scene features; PDF is currently raster-backed. Every destination file is written atomically.
+- Working: whole-movie, scene and custom numbered sequences chosen through the GUI are placed inside one folder
+  named after the project; single-frame and explicit headless paths remain exact.
 - Pending: SVG image-link/CSS-class generation and PSD folder groups, smart objects, editable text and colour-space conversion. Their approved controls are present but do not yet alter exported content. Native Illustrator/PDF editability beyond the documented fallbacks also remains open.
 
 **DL-05 · Export video** — done (`panels/export_video.rs`, `neoflash_export::video`, `File ▸ Export ▸ Export video…`, `Library ▸ Export symbol as video…`, CLI `--video`):
 - Done: 840 pt modal dialog with format tabs `MP4 · WebM · MOV · GIF · PNG seq.`; live rendered stage preview thumbnail (`render_project_frame_rgba`) with cancellable background `VideoAsyncWorker` progress bar (`Exporting frames f / N`) and pause/resume (`Preview while rendering · ⏸ to pause`); `Range` (`Whole movie (all scenes)`, `Current scene`, `Frames From..To`); `Video` (`W × H` with aspect-lock toggle, `1x` / `2x` / `0.5x` scale, `FPS`, per-format `Codec: H.264 / H.265 / VP9 / AV1 / Apple ProRes / GIF 256-colour / PNG 8-bit`, `Quality` slider `0..=100` with live bitrate caption); `Content` (`Render nested movie clip animation and scripts (runtime capture)`, `Stop at last frame` vs `Stop after N s`, `Include audio` + `AAC 128/192/256 kbps` / `Opus 160 kbps` / `PCM 16-bit`, `Transparent bg (MOV/WebM/GIF/PNG seq.)`); and live footer estimate (`~ X.X MB · MM:SS · W×H`). Acceptance: 5 s MP4 at 24 fps has 120 frames matching the timeline.
+- Done: GUI PNG-sequence export asks for a parent folder and creates the project-named child folder; encoded
+  single-file video destinations remain exact.
 
 **DL-06 · Export audio (`⌥⇧⌘A`)** — done (`panels/export_audio.rs`, `neoflash_export::audio`, `File ▸ Export ▸ Export audio…`, `Library ▸ Export audio…`, CLI `--audio`):
 - Done: 640 pt modal dialog with format tabs `WAV · MP3 · OGG · AAC`; `Source` selector (`Timeline mix (all sound layers)`, individual sound layers `Layer: <name>`, or Library audio resources `Resource: <name>`) and `Range` selector (`Range: whole movie`, `Range: current scene`, `Range: frames A–B`); `Format` selectors (`8` / `11.025` / `22.05` / `44.1` / `48 kHz`, WAV bit depth `8-bit` / `16-bit` / `24-bit` / `32-bit float`, `Stereo` / `Mono`, compressed CBR bit rate `64`–`320 kbps CBR`); `Processing` controls (`Normalize to −1 dB`, `Fade out 0.0..=30.0 s` stepper, `Trim silence`); and live footer summary (`<source> · <duration> s · ~ <size>`).

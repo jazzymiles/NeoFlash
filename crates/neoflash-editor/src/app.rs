@@ -2664,13 +2664,7 @@ impl Editor {
             else {
                 return;
             };
-            base.join(format!(
-                "neoflash-export-{}",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs()
-            ))
+            crate::output_paths::project_output_dir(&base, &self.project)
         };
         let parent_opt = (!output.as_os_str().is_empty()).then_some(output.as_path());
         self.publish_enabled_targets_with_settings(

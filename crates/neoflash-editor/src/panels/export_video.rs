@@ -783,6 +783,20 @@ impl Editor {
             .unwrap_or_else(|| {
                 default_video_file_name(&self.project, &draft.range_choice, draft.options.format)
             });
+        if draft.options.format == VideoFormat::PngSequence {
+            let mut dialog = rfd::FileDialog::new().set_title("Choose PNG sequence parent folder");
+            if let Some(dir) = draft
+                .output_path
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+            {
+                dialog = dialog.set_directory(dir);
+            }
+            let parent = dialog.pick_folder()?;
+            return Some(
+                crate::output_paths::project_output_dir(&parent, &self.project).join(file_name),
+            );
+        }
         let mut dialog = rfd::FileDialog::new()
             .set_title("Export video")
             .add_filter(draft.options.format.label(), &[ext])

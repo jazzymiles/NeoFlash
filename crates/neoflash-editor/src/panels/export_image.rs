@@ -416,8 +416,13 @@ impl Editor {
             .unwrap_or_else(|| ExportImageDraft {
                 options: self.default_export_image_options(),
             });
-        let report =
-            export_project_image(&self.project, path, &draft.options).map_err(|e| e.to_string())?;
+        let output_path = if matches!(draft.options.range, ImageExportRange::CurrentFrame(_)) {
+            path.to_path_buf()
+        } else {
+            crate::output_paths::project_sequence_output_path(path, &self.project)
+        };
+        let report = export_project_image(&self.project, &output_path, &draft.options)
+            .map_err(|e| e.to_string())?;
         self.workspace.export_image_options = Some(draft.options.clone());
         ctx.data_mut(|data| {
             data.remove::<ExportImageDraft>(draft_id());
@@ -427,7 +432,7 @@ impl Editor {
         self.message(format!(
             "Exported {} to {} ({}×{}, {} file(s)).",
             report.format.label(),
-            path.display(),
+            output_path.display(),
             report.width,
             report.height,
             report.files.len()
@@ -1062,14 +1067,30 @@ impl Editor {
                 .filter(|s| !s.is_empty())
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("untitled.{ext}"));
-            let mut dialog = rfd::FileDialog::new()
-                .set_title(draft.options.format.button_label())
-                .set_file_name(&default_name)
-                .add_filter(draft.options.format.label(), &[ext]);
-            if let Some(dir) = resolved_out.parent().filter(|p| !p.as_os_str().is_empty()) {
-                dialog = dialog.set_directory(dir);
-            }
-            if let Some(path) = dialog.save_file()
+            let initial_dir = resolved_out
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty());
+            let picked = if matches!(draft.options.range, ImageExportRange::CurrentFrame(_)) {
+                let mut dialog = rfd::FileDialog::new()
+                    .set_title(draft.options.format.button_label())
+                    .set_file_name(&default_name)
+                    .add_filter(draft.options.format.label(), &[ext]);
+                if let Some(dir) = initial_dir {
+                    dialog = dialog.set_directory(dir);
+                }
+                dialog.save_file()
+            } else {
+                let mut dialog =
+                    rfd::FileDialog::new().set_title("Choose image sequence parent folder");
+                if let Some(dir) = initial_dir {
+                    dialog = dialog.set_directory(dir);
+                }
+                dialog.pick_folder().map(|parent| {
+                    crate::output_paths::project_output_dir(&parent, &self.project)
+                        .join(&default_name)
+                })
+            };
+            if let Some(path) = picked
                 && let Err(err) = self.confirm_export_image_to_path(ctx, &path)
             {
                 self.message(format!("Export image failed: {err}"));

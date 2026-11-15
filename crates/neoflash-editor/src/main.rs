@@ -33,6 +33,7 @@ mod native_quit;
 mod native_screens;
 mod native_windows;
 mod notifications;
+mod output_paths;
 mod output_pipeline;
 mod paint_controls;
 mod panels;

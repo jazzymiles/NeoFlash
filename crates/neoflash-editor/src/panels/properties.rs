@@ -1038,6 +1038,14 @@ impl Editor {
                 let layer = self.layer;
                 let frame = self.frame;
                 let frame_context = self.selected_frame_range().is_some();
+                let original_tween = frame_context.then(|| {
+                    self.symbol()
+                        .timeline
+                        .layers
+                        .get(layer)
+                        .and_then(|target| target.key_at(frame))
+                        .map(|key| key.tween)
+                });
                 if !frame_context {
                 inspector_section(ui, "Stage", |ui| {
                 changes.note(text_row(ui, "Name", &mut document.name));
@@ -1306,7 +1314,29 @@ impl Editor {
                     });
                 }
                 document.fps = fps;
-                if document != self.project && let Some(control) = changes.control {
+                let edited_tween = frame_context.then(|| {
+                    document
+                        .symbol(&symbol_id)
+                        .and_then(|symbol| symbol.timeline.layers.get(layer))
+                        .and_then(|target| target.key_at(frame))
+                        .map(|key| key.tween)
+                });
+                let mut handled_range_easing = false;
+                if original_tween != edited_tween
+                    && original_tween
+                        .flatten()
+                        .is_some_and(|tween| tween.is_some())
+                    && let Some(control) = changes.control
+                {
+                    match edited_tween.flatten().flatten() {
+                        Some(ease) => {
+                            self.set_selected_tween_ease(ease, Some(control));
+                        }
+                        None => self.remove_tween(),
+                    }
+                    handled_range_easing = true;
+                }
+                if !handled_range_easing && document != self.project && let Some(control) = changes.control {
                     self.begin_property_edit(scope, control);
                     // Copy only changed authoring fields, never the cloned document.
                     self.project.name=document.name.clone(); self.project.width=document.width; self.project.height=document.height;

@@ -1141,7 +1141,7 @@ impl Editor {
                 } else {
                     draft.error = Some(self.status.clone());
                 }
-            } else if let Some(output) = publish_output(&draft.settings) {
+            } else if let Some(output) = publish_output(&draft.settings, &self.project) {
                 let mut ok = true;
                 if publish_html5 {
                     ok &= self.publish_html5_atomic(&output, &Self::runtime_dir(), &draft.settings);
@@ -1848,7 +1848,7 @@ fn draw_svg_target_settings(
     }
 }
 
-fn publish_output(settings: &PublishPrefs) -> Option<PathBuf> {
+fn publish_output(settings: &PublishPrefs, project: &neoflash_core::Project) -> Option<PathBuf> {
     if let Some(folder) = settings
         .output_folder
         .as_deref()
@@ -1865,7 +1865,7 @@ fn publish_output(settings: &PublishPrefs) -> Option<PathBuf> {
     rfd::FileDialog::new()
         .set_title("Choose HTML5 output parent folder")
         .pick_folder()
-        .map(|parent| parent.join("neoflash-export"))
+        .map(|parent| crate::output_paths::project_output_dir(&parent, project))
 }
 
 /// Returns whether Retry was pressed. All byte data comes from the exporter's assembled package.

@@ -893,15 +893,13 @@ impl Editor {
                                 .width(160.0),
                         );
                         if response.changed() {
-                            let span = span.clone();
-                            self.motion_edit(Some(response.id), |s| {
-                                if let Some(key) = s.span_key_mut(&span, span.start) {
-                                    key.tween = Some(Easing::Flash {
-                                        acceleration: value.round(),
-                                    });
-                                }
-                                s.project.format_version = s.project.format_version.max(5);
-                            });
+                            self.set_selected_motion_tween_ease(
+                                span,
+                                Easing::Flash {
+                                    acceleration: value.round(),
+                                },
+                                Some(response.id),
+                            );
                         }
                         if ui.add(c::Button::ghost("Edit curve…")).clicked() {
                             self.show_panel(PanelId::Ease);

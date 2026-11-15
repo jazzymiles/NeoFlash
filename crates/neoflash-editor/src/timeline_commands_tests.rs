@@ -5640,6 +5640,196 @@ fn t196_putney_copy_apply_ease_pixel_snap_reverse_order_and_layer_cleanup() {
 }
 
 #[test]
+fn selected_range_easing_updates_every_editable_tween_start_in_one_undo() {
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 40;
+    let make_layer = |id: &str, visible: bool, locked: bool| Layer {
+        id: id.into(),
+        name: id.into(),
+        visible,
+        locked,
+        keyframes: [0, 10, 20, 30]
+            .into_iter()
+            .map(|frame| Keyframe {
+                frame,
+                elements: vec![element(&format!("{id}-item"), rectangle(), frame as f64)],
+                tween: Some(Easing::EaseIn),
+                ..Keyframe::default()
+            })
+            .collect(),
+        properties: LayerProperties::default(),
+    };
+    project.symbols[0].timeline.layers = vec![
+        make_layer("first", true, false),
+        make_layer("second", true, false),
+        make_layer("locked", true, true),
+        make_layer("hidden", false, false),
+    ];
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+    editor.select_frame_range(FrameRange {
+        layers: vec![
+            "first".into(),
+            "second".into(),
+            "locked".into(),
+            "hidden".into(),
+        ],
+        start: 0,
+        end: 25,
+    });
+
+    assert_eq!(editor.set_selected_tween_ease(Easing::EaseOut, None), 6);
+    for layer in &editor.symbol().timeline.layers[..2] {
+        assert!(
+            layer
+                .keyframes
+                .iter()
+                .filter(|key| key.frame <= 20)
+                .all(|key| key.tween == Some(Easing::EaseOut))
+        );
+        assert_eq!(layer.keyframes[3].tween, Some(Easing::EaseIn));
+    }
+    for layer in &editor.symbol().timeline.layers[2..] {
+        assert!(
+            layer
+                .keyframes
+                .iter()
+                .all(|key| key.tween == Some(Easing::EaseIn))
+        );
+    }
+    editor.project.validate().unwrap();
+    let reopened = Project::from_json(&editor.project.to_json().unwrap()).unwrap();
+    assert_eq!(reopened, editor.project);
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn selected_range_base_easing_preserves_explicit_motion_object_curves() {
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 12;
+    project.symbols[0].timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            elements: vec![element("clip", rectangle(), 0.0)],
+            tween: Some(Easing::Linear),
+            tween_kind: TweenKind::Motion,
+            motion_tracks: vec![MotionTrackOverride {
+                element_id: "clip".into(),
+                easing: Some(Easing::EaseIn),
+                property_eases: Some(vec![(TweenProperty::X, Easing::Bounce)]),
+                ..MotionTrackOverride::new("clip")
+            }],
+            ..Keyframe::default()
+        },
+        Keyframe {
+            frame: 10,
+            elements: vec![element("clip", rectangle(), 100.0)],
+            ..Keyframe::default()
+        },
+    ];
+    let layer_id = project.symbols[0].timeline.layers[0].id.clone();
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id],
+        start: 0,
+        end: 5,
+    });
+    assert_eq!(editor.set_selected_tween_ease(Easing::EaseOut, None), 1);
+    let start = &editor.symbol().timeline.layers[0].keyframes[0];
+    assert_eq!(start.tween, Some(Easing::EaseOut));
+    assert_eq!(
+        start.motion_easing_for("clip"),
+        Easing::EaseIn,
+        "a range-level base edit must not overwrite an explicit object track"
+    );
+    assert_eq!(
+        start.motion_property_ease_for("clip", TweenProperty::X),
+        Easing::Bounce,
+        "a base-ease edit must preserve explicit per-property curves"
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn selected_range_motion_easing_updates_one_object_across_spans_only() {
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 35;
+    project.symbols[0].timeline.layers[0].keyframes = [0, 10, 20, 30]
+        .into_iter()
+        .map(|frame| Keyframe {
+            frame,
+            elements: vec![
+                element("clip", rectangle(), frame as f64),
+                element("sibling", rectangle(), frame as f64 + 100.0),
+            ],
+            tween: (frame < 30).then_some(Easing::Linear),
+            tween_kind: TweenKind::Motion,
+            motion_tracks: if frame < 30 {
+                vec![
+                    MotionTrackOverride {
+                        element_id: "clip".into(),
+                        easing: Some(Easing::EaseIn),
+                        property_eases: Some(vec![(TweenProperty::X, Easing::Bounce)]),
+                        ..MotionTrackOverride::new("clip")
+                    },
+                    MotionTrackOverride {
+                        element_id: "sibling".into(),
+                        easing: Some(Easing::Elastic),
+                        ..MotionTrackOverride::new("sibling")
+                    },
+                ]
+            } else {
+                vec![]
+            },
+            ..Keyframe::default()
+        })
+        .collect();
+    let layer_id = project.symbols[0].timeline.layers[0].id.clone();
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+    editor.select_single_id("clip".into());
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id],
+        start: 0,
+        end: 15,
+    });
+    let span = editor.motion_tween_span().expect("selected Motion span");
+    assert_eq!(
+        editor.set_selected_motion_tween_ease(&span, Easing::EaseOut, None),
+        2
+    );
+
+    let layer = &editor.symbol().timeline.layers[0];
+    for key in &layer.keyframes[..2] {
+        assert_eq!(key.motion_easing_for("clip"), Easing::EaseOut);
+        assert_eq!(key.motion_easing_for("sibling"), Easing::Elastic);
+        assert_eq!(
+            key.motion_property_ease_for("clip", TweenProperty::X),
+            Easing::Bounce
+        );
+    }
+    assert_eq!(layer.keyframes[2].motion_easing_for("clip"), Easing::EaseIn);
+    editor.project.validate().unwrap();
+    let reopened = Project::from_json(&editor.project.to_json().unwrap()).unwrap();
+    assert_eq!(reopened, editor.project);
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
 fn t201_native_stage_video_decoding_play_pause_scrub_trims_and_portable_external_save_reopen() {
     use neoflash_core::timeline_video::{TimelineVideoSpan, VideoSyncMode};
     use neoflash_export::encode_deterministic_mp4_rgba_frames;

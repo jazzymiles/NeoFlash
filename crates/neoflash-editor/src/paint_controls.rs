@@ -1060,6 +1060,9 @@ impl Editor {
             self.symbol_id(),
             self.frame,
             self.layer,
+            self.selected_frame_range()
+                .and_then(|_| self.frame_range())
+                .map(|range| (range.layers, range.start, range.end)),
             self.selection
                 .targets
                 .iter()
