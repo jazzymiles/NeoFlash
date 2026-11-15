@@ -1,7 +1,10 @@
-//! Strict JSON batch automation runner with atomic final project replacement
-//! (`neoflash-editor --headless batch`). Explicit export/save/JSFL filesystem side effects are
-//! immediate and intentionally outside that final replacement boundary.
-use super::import_export::{ExportSpec, export_project_with_spec, parse_library_folder_flag};
+//! Strict JSON batch automation runner with one rollback boundary for the candidate project and
+//! every explicit export/save/JSFL filesystem effect (`neoflash-editor --headless batch`).
+use super::effects::HeadlessEffectTransaction;
+use super::import_export::{
+    BatchImportSpec, ExportSpec, export_project_with_spec, import_project_with_spec,
+    parse_library_folder_flag, plan_export_effects,
+};
 use super::jsfl_fs::{
     JsflExecRequest, execute_jsfl_on_project, jsfl_value_to_json, read_jsfl_source_file,
 };
@@ -438,10 +441,30 @@ enum BatchOp {
         #[serde(default)]
         no_resources: bool,
     },
+    Import(Box<BatchImportSpec>),
     Export(Box<ExportSpec>),
     Save {
         path: Option<PathBuf>,
     },
+}
+
+struct BatchContext<'a> {
+    /// Directory against which external project media is resolved for exporters such as AEP.
+    project_base_dir: Option<PathBuf>,
+    effects: &'a HeadlessEffectTransaction,
+}
+
+fn project_base_dir(path: &Path) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::canonicalize(parent).unwrap_or_else(|_| {
+        if parent.is_absolute() {
+            parent.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join(parent)
+        }
+    })
 }
 
 pub(crate) fn cmd_batch<R: Read, W1: Write, W2: Write>(
@@ -544,11 +567,55 @@ fn run_cmd_batch<R: Read, W1: Write>(
         out_path.clone()
     };
 
+    let effects = HeadlessEffectTransaction::default();
+    let mut context = BatchContext {
+        project_base_dir: project_path.as_deref().map(project_base_dir),
+        effects: &effects,
+    };
+    for op in &ops {
+        op.validate_effects(final_save_target.as_deref())?;
+    }
+
+    let result = run_batch_transaction(
+        ops,
+        &mut project,
+        final_save_target.as_deref(),
+        format,
+        pretty,
+        stdout,
+        &mut context,
+    );
+    match result {
+        Ok(()) => {
+            effects.finalize_after_response();
+            Ok(())
+        }
+        Err(mut error) => {
+            if let Err(rollback_error) = effects.rollback() {
+                error.message = format!(
+                    "{}; filesystem rollback also failed: {}",
+                    error.message, rollback_error.message
+                );
+            }
+            Err(error)
+        }
+    }
+}
+
+fn run_batch_transaction<W: Write>(
+    ops: Vec<BatchOp>,
+    project: &mut Project,
+    final_save_target: Option<&Path>,
+    format: OutputFormat,
+    pretty: bool,
+    stdout: &mut W,
+    context: &mut BatchContext<'_>,
+) -> Result<(), CliError> {
     let mut step_results = Vec::with_capacity(ops.len());
     for (idx, op) in ops.into_iter().enumerate() {
         let op_name = op.name_str();
         let step_out =
-            execute_batch_op(&mut project, op, final_save_target.as_deref()).map_err(|err| {
+            execute_batch_op(project, op, final_save_target, context).map_err(|err| {
                 let mut details = err.details.unwrap_or(Value::Null);
                 let step_info = json!({
                     "step_index": idx,
@@ -569,7 +636,7 @@ fn run_cmd_batch<R: Read, W1: Write>(
         }));
     }
 
-    upgrade_project_format_versions(&mut project);
+    upgrade_project_format_versions(project);
     project.validate().map_err(|e| {
         CliError::runtime(
             "validation_failed",
@@ -578,8 +645,10 @@ fn run_cmd_batch<R: Read, W1: Write>(
     })?;
 
     let mut saved_path: Option<String> = None;
-    if let Some(ref dest) = final_save_target {
-        save_project_atomic(&mut project, dest)?;
+    if let Some(dest) = final_save_target {
+        context.effects.plan_path(dest)?;
+        context.effects.activate()?;
+        save_project_atomic(project, dest)?;
         saved_path = Some(dest.display().to_string());
     }
 
@@ -621,6 +690,18 @@ fn run_cmd_batch<R: Read, W1: Write>(
 }
 
 impl BatchOp {
+    fn validate_effects(&self, default_save_target: Option<&Path>) -> Result<(), CliError> {
+        if let Self::Save { path } = self {
+            path.as_deref().or(default_save_target).ok_or_else(|| {
+                CliError::usage(
+                    "missing_field",
+                    "save step requires 'path' when CLI --out/--in-place is omitted",
+                )
+            })?;
+        }
+        Ok(())
+    }
+
     fn name_str(&self) -> &'static str {
         match self {
             Self::New { .. } => "new",
@@ -638,6 +719,7 @@ impl BatchOp {
             Self::Compile { .. } => "compile",
             Self::Eval { .. } => "eval",
             Self::Inspect { .. } => "inspect",
+            Self::Import(_) => "import",
             Self::Export(_) => "export",
             Self::Save { .. } => "save",
         }
@@ -648,6 +730,7 @@ fn execute_batch_op(
     project: &mut Project,
     op: BatchOp,
     default_save_target: Option<&Path>,
+    context: &mut BatchContext<'_>,
 ) -> Result<Value, CliError> {
     match op {
         BatchOp::New {
@@ -666,6 +749,7 @@ fn execute_batch_op(
                 script_language.as_deref().map(parse_language).transpose()?;
             let bg_color = bg.as_deref().map(parse_color).transpose()?;
             *project = build_new_project(name, width, height, fps, bg_color, lang, demo)?;
+            context.project_base_dir = None;
             if let Some(sl) = explicit_script_lang.or(lang) {
                 project.script_language = Some(sl);
             }
@@ -690,6 +774,7 @@ fn execute_batch_op(
         }
         BatchOp::Open { path } => {
             *project = load_project_valid(&path)?;
+            context.project_base_dir = Some(project_base_dir(&path));
             Ok(json!({
                 "path": path.display().to_string(),
                 "name": project.name,
@@ -1509,6 +1594,7 @@ fn execute_batch_op(
             };
             let eff_read = allow_read.or_else(|| flfile_root.clone());
             let eff_write = allow_write.or(flfile_root);
+            context.effects.activate()?;
             let res = execute_jsfl_on_project(
                 project,
                 JsflExecRequest {
@@ -1519,6 +1605,7 @@ fn execute_batch_op(
                     allow_read: eff_read.as_deref(),
                     allow_write: eff_write.as_deref(),
                     allow_delete,
+                    effects: Some(context.effects.handle()),
                 },
             )?;
             *project = res.project;
@@ -1601,7 +1688,15 @@ fn execute_batch_op(
                 no_resources,
             },
         ),
-        BatchOp::Export(spec) => export_project_with_spec(project, &spec),
+        BatchOp::Import(spec) => import_project_with_spec(project, &spec),
+        BatchOp::Export(mut spec) => {
+            if spec.project_base_dir.is_none() {
+                spec.project_base_dir.clone_from(&context.project_base_dir);
+            }
+            plan_export_effects(project, &spec, context.effects)?;
+            context.effects.activate()?;
+            export_project_with_spec(project, &spec)
+        }
         BatchOp::Save { path } => {
             let dest = path
                 .or_else(|| default_save_target.map(Path::to_path_buf))
@@ -1611,6 +1706,8 @@ fn execute_batch_op(
                         "save step requires 'path' when CLI --out/--in-place is omitted",
                     )
                 })?;
+            context.effects.plan_path(&dest)?;
+            context.effects.activate()?;
             save_project_atomic(project, &dest)?;
             Ok(json!({ "saved_path": dest.display().to_string() }))
         }

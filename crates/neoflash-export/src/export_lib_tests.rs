@@ -67,6 +67,25 @@ fn package_paths_reject_generated_name_collisions_before_writing() {
     assert!(validate_package_file_names(&duplicate).is_err());
     let marker = vec![(MARKER.to_owned(), vec![1])];
     assert!(validate_package_file_names(&marker).is_err());
+    for unsafe_name in [
+        "C:outside.txt",
+        "../outside.txt",
+        "/tmp/outside.txt",
+        "assets\\outside.txt",
+        "assets/../../outside.txt",
+        "assets//outside.txt",
+        "CON.png",
+        "assets/LPT1.txt",
+        "name.",
+        "name ",
+        "bad*.png",
+    ] {
+        let unsafe_file = vec![(unsafe_name.to_owned(), vec![1])];
+        assert!(
+            validate_package_file_names(&unsafe_file).is_err(),
+            "unsafe package path {unsafe_name:?} was accepted"
+        );
+    }
     let file_directory_collision = vec![
         ("runtime.js".to_owned(), vec![1]),
         ("RUNTIME.JS/clip.mp4".to_owned(), vec![2]),
@@ -80,6 +99,97 @@ fn package_paths_reject_generated_name_collisions_before_writing() {
     assert!(write_package(&dir, &file_directory_collision, "collision", "project").is_err());
     assert_eq!(fs::read(&sentinel).unwrap(), b"keep");
     assert!(!dir.join("media").exists());
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn malformed_or_unsafe_ownership_marker_never_authorizes_a_destination() {
+    let dir = temp();
+    let outside = dir
+        .parent()
+        .unwrap()
+        .join(format!("neoflash-marker-outside-{}", std::process::id()));
+    fs::write(&outside, b"outside").unwrap();
+    fs::write(dir.join("owned.txt"), b"owned").unwrap();
+
+    for files in [
+        serde_json::json!(["../outside.txt"]),
+        serde_json::json!(["C:outside.txt"]),
+        serde_json::json!(["safe.txt", 42]),
+        serde_json::json!(["safe.txt", "SAFE.TXT"]),
+        serde_json::json!(["tree", "tree/child.txt"]),
+    ] {
+        fs::write(
+            dir.join(MARKER),
+            serde_json::to_vec(&serde_json::json!({
+                "generator": "NeoFlash",
+                "format_version": 1,
+                "kind": "project",
+                "project": "unsafe marker",
+                "files": files,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(read_neoflash_marker_files(&dir).is_none());
+        assert!(matches!(
+            preflight_package_output_dir(&dir),
+            Err(ExportError::Destination(_))
+        ));
+    }
+
+    assert_eq!(fs::read(&outside).unwrap(), b"outside");
+    fs::remove_file(outside).unwrap();
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn package_destination_preflight_matches_write_ownership_rules() {
+    let empty = temp();
+    preflight_package_output_dir(&empty).unwrap();
+
+    let managed = temp();
+    let package = vec![("index.html".to_owned(), b"managed".to_vec())];
+    write_package(&managed, &package, "managed", "project").unwrap();
+    preflight_package_output_dir(&managed).unwrap();
+
+    let banner = temp();
+    fs::write(
+        banner.join("index.html"),
+        "<meta name=\"ad.size\" content=\"width=300,height=250\"><div id=\"nf-ad\"></div><script>window.clickTag='';</script>",
+    )
+    .unwrap();
+    preflight_package_output_dir(&banner).unwrap();
+
+    let unowned = temp();
+    fs::write(unowned.join("keep.txt"), b"unowned").unwrap();
+    assert!(matches!(
+        preflight_package_output_dir(&unowned),
+        Err(ExportError::Destination(_))
+    ));
+
+    for path in [empty, managed, banner, unowned] {
+        fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[test]
+fn temporary_path_guard_cleans_files_and_directories_on_early_return() {
+    let dir = temp();
+    let file = dir.join("temporary.bin");
+    fs::write(&file, b"temporary").unwrap();
+    {
+        let _guard = TemporaryPathGuard::new(file.clone());
+    }
+    assert!(!file.exists());
+
+    let nested = dir.join("temporary-dir");
+    fs::create_dir_all(nested.join("nested")).unwrap();
+    fs::write(nested.join("nested/file.bin"), b"temporary").unwrap();
+    {
+        let _guard = TemporaryPathGuard::new(nested.clone());
+    }
+    assert!(!nested.exists());
     fs::remove_dir_all(dir).unwrap();
 }
 

@@ -1,4 +1,5 @@
 //! Host filesystem adapter and CLI execution helpers for sandboxed JSFL scripts.
+use super::effects::{HeadlessEffectHandle, HeadlessEffectTransaction};
 use super::{
     CliError, OutputFormat, load_project_valid, resolve_symbol, save_project_atomic,
     serialize_json_value, take_flag_value, upgrade_project_format_versions, write_json_error,
@@ -12,6 +13,9 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static JSFL_REPLACEMENT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Capability-bounded host filesystem adapter for headless JSFL `FLfile` calls.
 ///
@@ -23,6 +27,7 @@ pub(crate) struct HostJsflFileSystem {
     read_roots: Vec<PathBuf>,
     write_roots: Vec<PathBuf>,
     allow_delete: bool,
+    effects: Option<HeadlessEffectHandle>,
 }
 
 impl HostJsflFileSystem {
@@ -35,7 +40,20 @@ impl HostJsflFileSystem {
             read_roots,
             write_roots,
             allow_delete,
+            effects: None,
         }
+    }
+
+    fn with_effects(mut self, effects: Option<HeadlessEffectHandle>) -> Self {
+        self.effects = effects;
+        self
+    }
+
+    fn capture_before_write(&self, path: &Path) -> Result<(), String> {
+        if let Some(effects) = &self.effects {
+            effects.capture_path_before_write(path)?;
+        }
+        Ok(())
     }
 
     fn canonicalize_anchored(path: &Path) -> Result<PathBuf, String> {
@@ -47,9 +65,15 @@ impl HostJsflFileSystem {
                 ));
             }
         }
-        if path.exists() {
-            return fs::canonicalize(path)
-                .map_err(|e| format!("Failed to canonicalize '{}': {e}", path.display()));
+        match fs::symlink_metadata(path) {
+            Ok(_) => {
+                return fs::canonicalize(path)
+                    .map_err(|e| format!("Failed to canonicalize '{}': {e}", path.display()));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!("Failed to inspect '{}': {error}", path.display()));
+            }
         }
         let abs = if path.is_absolute() {
             path.to_path_buf()
@@ -60,9 +84,20 @@ impl HostJsflFileSystem {
         };
         let mut cursor = abs.as_path();
         let mut tail = Vec::new();
-        while !cursor.exists() {
-            if let Some(name) = cursor.file_name() {
-                tail.push(name.to_os_string());
+        loop {
+            match fs::symlink_metadata(cursor) {
+                Ok(_) => break,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    if let Some(name) = cursor.file_name() {
+                        tail.push(name.to_os_string());
+                    }
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "Failed to inspect ancestor '{}': {error}",
+                        cursor.display()
+                    ));
+                }
             }
             let Some(parent) = cursor.parent() else {
                 break;
@@ -103,6 +138,228 @@ impl HostJsflFileSystem {
     }
 }
 
+#[cfg(unix)]
+fn has_multiple_hard_links(_path: &Path, metadata: &fs::Metadata) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt as _;
+    Ok(metadata.nlink() > 1)
+}
+
+#[cfg(windows)]
+fn has_multiple_hard_links(path: &Path, _metadata: &fs::Metadata) -> io::Result<bool> {
+    use std::ffi::c_void;
+    use std::mem::MaybeUninit;
+    use std::os::windows::ffi::OsStrExt as _;
+
+    type Handle = *mut c_void;
+    const INVALID_HANDLE_VALUE: Handle = -1_isize as Handle;
+    const FILE_READ_ATTRIBUTES: u32 = 0x0000_0080;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+    const OPEN_EXISTING: u32 = 3;
+    const FILE_ATTRIBUTE_NORMAL: u32 = 0x0000_0080;
+
+    #[repr(C)]
+    struct FileTime {
+        _low_date_time: u32,
+        _high_date_time: u32,
+    }
+
+    #[repr(C)]
+    struct ByHandleFileInformation {
+        _file_attributes: u32,
+        _creation_time: FileTime,
+        _last_access_time: FileTime,
+        _last_write_time: FileTime,
+        _volume_serial_number: u32,
+        _file_size_high: u32,
+        _file_size_low: u32,
+        number_of_links: u32,
+        _file_index_high: u32,
+        _file_index_low: u32,
+    }
+
+    unsafe extern "system" {
+        fn CreateFileW(
+            file_name: *const u16,
+            desired_access: u32,
+            share_mode: u32,
+            security_attributes: *const c_void,
+            creation_disposition: u32,
+            flags_and_attributes: u32,
+            template_file: Handle,
+        ) -> Handle;
+        fn GetFileInformationByHandle(
+            file: Handle,
+            information: *mut ByHandleFileInformation,
+        ) -> i32;
+        fn CloseHandle(object: Handle) -> i32;
+    }
+
+    let path_wide = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: `path_wide` is NUL-terminated and remains alive for the call. Null security and
+    // template handles are permitted by `CreateFileW` for an existing regular file.
+    let handle = unsafe {
+        CreateFileW(
+            path_wide.as_ptr(),
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+
+    let mut information = MaybeUninit::<ByHandleFileInformation>::uninit();
+    // SAFETY: `handle` is valid and `information` points to writable storage of the exact Win32
+    // structure size. `CloseHandle` is called exactly once on every path below.
+    let status = unsafe { GetFileInformationByHandle(handle, information.as_mut_ptr()) };
+    let result = if status == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        // SAFETY: a nonzero result initialized the complete `ByHandleFileInformation` structure.
+        Ok(unsafe { information.assume_init() }.number_of_links > 1)
+    };
+    // SAFETY: `handle` came from the successful `CreateFileW` call above and is no longer used.
+    let _ = unsafe { CloseHandle(handle) };
+    result
+}
+
+#[cfg(not(any(unix, windows)))]
+fn has_multiple_hard_links(_path: &Path, _metadata: &fs::Metadata) -> io::Result<bool> {
+    Ok(false)
+}
+
+/// A JSFL write to one hard-link name must not mutate aliases outside the granted root. Replace
+/// that one directory entry from a sibling stage instead; ordinary single-link files keep their
+/// established write/append path and metadata behaviour.
+fn write_isolated_hard_link(target: &Path, content: &str, append: bool) -> Result<bool, String> {
+    let metadata = match fs::symlink_metadata(target) {
+        Ok(metadata) if metadata.is_file() => metadata,
+        Ok(_) => return Ok(false),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(format!(
+                "Failed to inspect hard links for '{}': {error}",
+                target.display()
+            ));
+        }
+    };
+    if !has_multiple_hard_links(target, &metadata).map_err(|error| {
+        format!(
+            "Failed to inspect hard links for '{}': {error}",
+            target.display()
+        )
+    })? {
+        return Ok(false);
+    }
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    let name = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("output");
+    let mut staged_path = None;
+    let mut staged_file = None;
+    for _ in 0..32 {
+        let candidate = parent.join(format!(
+            ".{name}.neoflash-jsfl-{}-{}.tmp",
+            std::process::id(),
+            JSFL_REPLACEMENT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => {
+                staged_path = Some(candidate);
+                staged_file = Some(file);
+                break;
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(format!(
+                    "Failed to stage hard-link-safe write for '{}': {error}",
+                    target.display()
+                ));
+            }
+        }
+    }
+    let staged_path = staged_path.ok_or_else(|| {
+        format!(
+            "Failed to reserve a hard-link-safe write beside '{}'",
+            target.display()
+        )
+    })?;
+    let mut staged_file = staged_file.expect("a staged path always has an open file");
+    let staged_result = (|| -> io::Result<()> {
+        if append {
+            let mut source = fs::File::open(target)?;
+            io::copy(&mut source, &mut staged_file)?;
+        }
+        staged_file.write_all(content.as_bytes())?;
+        staged_file.set_permissions(metadata.permissions())?;
+        staged_file.sync_all()?;
+        Ok(())
+    })();
+    drop(staged_file);
+    let staged_result = staged_result.and_then(|()| replace_staged_jsfl_file(&staged_path, target));
+    if let Err(error) = staged_result {
+        let _ = fs::remove_file(&staged_path);
+        return Err(format!(
+            "Failed to replace hard-linked file '{}': {error}",
+            target.display()
+        ));
+    }
+    Ok(true)
+}
+
+#[cfg(target_os = "windows")]
+fn replace_staged_jsfl_file(source: &Path, target: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt as _;
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x0000_0001;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x0000_0008;
+    unsafe extern "system" {
+        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
+    }
+    let wide = |path: &Path| {
+        path.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>()
+    };
+    let source = wide(source);
+    let target = wide(target);
+    // SAFETY: both UTF-16 buffers are NUL-terminated and remain alive for the call. The staging
+    // file handle was closed before this replacement function was entered.
+    if unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            target.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    } != 0
+    {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn replace_staged_jsfl_file(source: &Path, target: &Path) -> io::Result<()> {
+    fs::rename(source, target)
+}
+
 impl JsflFileSystem for HostJsflFileSystem {
     fn read_file(&self, path: &Path) -> Result<String, String> {
         let target = Self::check_in_roots(path, &self.read_roots, "read")?;
@@ -112,11 +369,15 @@ impl JsflFileSystem for HostJsflFileSystem {
 
     fn write_file(&self, path: &Path, content: &str) -> Result<(), String> {
         let target = Self::check_in_roots(path, &self.write_roots, "write")?;
+        self.capture_before_write(&target)?;
         if let Some(parent) = target.parent()
             && !parent.as_os_str().is_empty()
         {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create parent dir '{}': {e}", parent.display()))?;
+        }
+        if write_isolated_hard_link(&target, content, false)? {
+            return Ok(());
         }
         fs::write(&target, content)
             .map_err(|e| format!("Failed to write '{}': {e}", target.display()))
@@ -124,11 +385,15 @@ impl JsflFileSystem for HostJsflFileSystem {
 
     fn append_file(&self, path: &Path, content: &str) -> Result<(), String> {
         let target = Self::check_in_roots(path, &self.write_roots, "append")?;
+        self.capture_before_write(&target)?;
         if let Some(parent) = target.parent()
             && !parent.as_os_str().is_empty()
         {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create parent dir '{}': {e}", parent.display()))?;
+        }
+        if write_isolated_hard_link(&target, content, true)? {
+            return Ok(());
         }
         let mut file = OpenOptions::new()
             .create(true)
@@ -150,6 +415,7 @@ impl JsflFileSystem for HostJsflFileSystem {
             return Ok(());
         }
         let target = Self::check_in_roots(path, &self.write_roots, "createFolder")?;
+        self.capture_before_write(&target)?;
         fs::create_dir_all(&target)
             .map_err(|e| format!("Failed to create folder '{}': {e}", target.display()))
     }
@@ -162,6 +428,7 @@ impl JsflFileSystem for HostJsflFileSystem {
         if !target.exists() {
             return Ok(false);
         }
+        self.capture_before_write(&target)?;
         if target.is_dir() {
             fs::remove_dir_all(&target)
                 .map_err(|e| format!("Failed to remove dir '{}': {e}", target.display()))?;
@@ -226,6 +493,7 @@ pub(crate) struct JsflExecRequest<'a> {
     pub(crate) allow_read: Option<&'a Path>,
     pub(crate) allow_write: Option<&'a Path>,
     pub(crate) allow_delete: bool,
+    pub(crate) effects: Option<HeadlessEffectHandle>,
 }
 
 /// Execute JSFL against a project inside [`JsflSandbox`], keeping `FLfile` deny-all unless
@@ -265,6 +533,22 @@ pub(crate) fn execute_jsfl_on_project(
         let mut read_roots = Vec::new();
         let mut write_roots = Vec::new();
         if let Some(write_dir) = req.allow_write {
+            let resolved = HostJsflFileSystem::canonicalize_anchored(write_dir).map_err(|e| {
+                CliError::runtime(
+                    "invalid_jsfl_root",
+                    format!("Invalid --allow-write dir: {e}"),
+                )
+            })?;
+            if !resolved.exists()
+                && let Some(effects) = &req.effects
+            {
+                effects.capture_path_before_write(&resolved).map_err(|e| {
+                    CliError::runtime(
+                        "effect_transaction_error",
+                        format!("Could not journal --allow-write root: {e}"),
+                    )
+                })?;
+            }
             fs::create_dir_all(write_dir).map_err(|e| {
                 CliError::runtime(
                     "invalid_jsfl_root",
@@ -317,11 +601,10 @@ pub(crate) fn execute_jsfl_on_project(
             (None, Some(w)) => Some(w.clone()),
             (None, None) => None,
         };
-        let host_fs = Arc::new(HostJsflFileSystem::new(
-            read_roots,
-            write_roots,
-            req.allow_delete,
-        ));
+        let host_fs = Arc::new(
+            HostJsflFileSystem::new(read_roots, write_roots, req.allow_delete)
+                .with_effects(req.effects.clone()),
+        );
         sandbox = sandbox
             .with_file_system(host_fs)
             .with_flfile_capabilities(FlFileCapabilities {
@@ -526,69 +809,93 @@ fn run_cmd_jsfl<R: Read, W1: Write>(
         ("stdin.jsfl".to_owned(), buf)
     };
 
-    let project = load_project_valid(&project_path)?;
-    let mut result = execute_jsfl_on_project(
-        &project,
-        JsflExecRequest {
-            script_name: &script_name,
-            source: &source,
-            symbol_selector: symbol_selector.as_deref(),
-            frame,
-            allow_read: allow_read.as_deref(),
-            allow_write: allow_write.as_deref(),
-            allow_delete,
-        },
-    )?;
+    let effects = HeadlessEffectTransaction::default();
 
-    upgrade_project_format_versions(&mut result.project);
-    result.project.validate().map_err(|e| {
-        CliError::runtime(
-            "validation_failed",
-            format!("Resulting JSFL project failed validation: {e}"),
-        )
-    })?;
+    let command_result = (|| -> Result<(), CliError> {
+        let project = load_project_valid(&project_path)?;
+        effects.activate()?;
+        let mut result = execute_jsfl_on_project(
+            &project,
+            JsflExecRequest {
+                script_name: &script_name,
+                source: &source,
+                symbol_selector: symbol_selector.as_deref(),
+                frame,
+                allow_read: allow_read.as_deref(),
+                allow_write: allow_write.as_deref(),
+                allow_delete,
+                effects: Some(effects.handle()),
+            },
+        )?;
 
-    let mut saved_path: Option<String> = None;
-    if let Some(dest) = out_path {
-        save_project_atomic(&mut result.project, &dest)?;
-        saved_path = Some(dest.display().to_string());
-    } else if in_place && (result.mutations > 0 || result.project != project) {
-        save_project_atomic(&mut result.project, &project_path)?;
-        saved_path = Some(project_path.display().to_string());
-    }
-
-    match format {
-        OutputFormat::Json => {
-            let val = json!({
-                "ok": true,
-                "command": "jsfl",
-                "traces": result.output_lines,
-                "output_lines": result.output_lines,
-                "mutations": result.mutations,
-                "steps_executed": result.steps_executed,
-                "return_value": jsfl_value_to_json(&result.return_value),
-                "saved_path": saved_path,
-            });
-            let text = serialize_json_value(&val, pretty)?;
-            writeln!(stdout, "{text}").map_err(io_write_err)?;
-        }
-        OutputFormat::Text => {
-            for line in &result.output_lines {
-                writeln!(stdout, "{line}").map_err(io_write_err)?;
-            }
-            writeln!(
-                stdout,
-                "JSFL ok: {} step(s), {} mutation(s){}",
-                result.steps_executed,
-                result.mutations,
-                saved_path
-                    .as_deref()
-                    .map_or_else(String::new, |p| format!(", saved to {p}"))
+        upgrade_project_format_versions(&mut result.project);
+        result.project.validate().map_err(|e| {
+            CliError::runtime(
+                "validation_failed",
+                format!("Resulting JSFL project failed validation: {e}"),
             )
-            .map_err(io_write_err)?;
+        })?;
+
+        let mut saved_path: Option<String> = None;
+        if let Some(dest) = out_path.as_ref() {
+            effects.plan_path(dest)?;
+            save_project_atomic(&mut result.project, dest)?;
+            saved_path = Some(dest.display().to_string());
+        } else if in_place && (result.mutations > 0 || result.project != project) {
+            effects.plan_path(&project_path)?;
+            save_project_atomic(&mut result.project, &project_path)?;
+            saved_path = Some(project_path.display().to_string());
+        }
+
+        match format {
+            OutputFormat::Json => {
+                let val = json!({
+                    "ok": true,
+                    "command": "jsfl",
+                    "traces": result.output_lines,
+                    "output_lines": result.output_lines,
+                    "mutations": result.mutations,
+                    "steps_executed": result.steps_executed,
+                    "return_value": jsfl_value_to_json(&result.return_value),
+                    "saved_path": saved_path,
+                });
+                let text = serialize_json_value(&val, pretty)?;
+                writeln!(stdout, "{text}").map_err(io_write_err)?;
+            }
+            OutputFormat::Text => {
+                for line in &result.output_lines {
+                    writeln!(stdout, "{line}").map_err(io_write_err)?;
+                }
+                writeln!(
+                    stdout,
+                    "JSFL ok: {} step(s), {} mutation(s){}",
+                    result.steps_executed,
+                    result.mutations,
+                    saved_path
+                        .as_deref()
+                        .map_or_else(String::new, |p| format!(", saved to {p}"))
+                )
+                .map_err(io_write_err)?;
+            }
+        }
+        Ok(())
+    })();
+
+    match command_result {
+        Ok(()) => {
+            effects.finalize_after_response();
+            Ok(())
+        }
+        Err(mut error) => {
+            if let Err(rollback_error) = effects.rollback() {
+                error.message = format!(
+                    "{}; filesystem rollback also failed: {}",
+                    error.message, rollback_error.message
+                );
+            }
+            Err(error)
         }
     }
-    Ok(())
 }
 
 pub(crate) fn jsfl_value_to_json(val: &JsflValue) -> Value {

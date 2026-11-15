@@ -76,9 +76,9 @@ pub fn import_fla_bytes(bytes: &[u8]) -> Result<Project, ExportError> {
         "neoflash-roundtrip-{}-{seq}.fla",
         std::process::id()
     ));
+    let _temp_guard = crate::TemporaryPathGuard::new(tmp_path.clone());
     std::fs::write(&tmp_path, bytes)?;
     let res = neoflash_import::import_project(&tmp_path);
-    let _ = std::fs::remove_file(&tmp_path);
     res.map_err(|e| ExportError::InvalidProject(format!("Failed to re-import FLA bytes: {e}")))
 }
 

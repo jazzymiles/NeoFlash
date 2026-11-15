@@ -2514,14 +2514,9 @@ pub fn export_fla_with_profile(
         let backup_path = parent_dir.join(format!(".{stem}.xfl-backup-{pid}-{nanos}"));
         remove_path_if_exists(&temp_dir)?;
         remove_path_if_exists(&backup_path)?;
-        if let Err(error) = write_uncompressed_xfl_dir(&derived, profile, stem, &temp_dir) {
-            let _ = remove_path_if_exists(&temp_dir);
-            return Err(error);
-        }
-        if let Err(error) = verify_reimported_fla(&temp_dir, profile) {
-            let _ = remove_path_if_exists(&temp_dir);
-            return Err(error);
-        }
+        let _temp_guard = crate::TemporaryPathGuard::new(temp_dir.clone());
+        write_uncompressed_xfl_dir(&derived, profile, stem, &temp_dir)?;
+        verify_reimported_fla(&temp_dir, profile)?;
         replace_staged_path_recoverably(&temp_dir, target_path, &backup_path)?;
         return Ok(report);
     }
@@ -2536,15 +2531,10 @@ pub fn export_fla_with_profile(
     } else {
         write_zipped_xfl_bytes(&derived, profile, stem)?
     };
+    let _temp_guard = crate::TemporaryPathGuard::new(temp_file.clone());
     fs::write(&temp_file, &bytes)?;
-    if let Err(err) = verify_reimported_fla(&temp_file, profile) {
-        let _ = fs::remove_file(&temp_file);
-        return Err(err);
-    }
-    if let Err(err) = fs::rename(&temp_file, target_path) {
-        let _ = fs::remove_file(&temp_file);
-        return Err(ExportError::Io(err));
-    }
+    verify_reimported_fla(&temp_file, profile)?;
+    fs::rename(&temp_file, target_path)?;
     Ok(report)
 }
 

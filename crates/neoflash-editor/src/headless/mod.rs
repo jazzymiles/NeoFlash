@@ -2,9 +2,10 @@
 //!
 //! Dispatched from `main.rs` before initializing `eframe` so all project creation, inspection,
 //! validation, compilation, playback evaluation, sandboxed JSFL scripting, strict JSON batching,
-//! import, and export workflows run with zero windowing/display dependency. Batch project output is
-//! replaced atomically after validation; explicit filesystem side effects are not transactional.
+//! import, and export workflows run with zero windowing/display dependency. Batch and standalone
+//! JSFL filesystem effects share a command-level rollback boundary with validated project output.
 mod batch;
+mod effects;
 mod import_export;
 mod jsfl_fs;
 #[cfg(test)]
@@ -1077,7 +1078,7 @@ fn global_help_text() -> &'static str {
         "  compile                 Compile/check project scripts with R-102 language policy and located diagnostics\n",
         "  eval                    Evaluate deterministic frame poses and optional native AuthoredPlayback script traces\n",
         "  jsfl                    Run capability-gated JSFL scripts cleanly against a project\n",
-        "  batch                   Execute a strict JSON batch with atomic final project replacement\n",
+        "  batch                   Execute a strict JSON batch with transactional filesystem effects\n",
         "  import                  Import FLA/XFL/SWF/SWC/Figma/SVG/PSD/PDF/AI/FXG/image/audio/video/font/palette into .nflash\n",
         "  export                  Publish/export HTML5, SWF, Image, PNG Sequence, AEP, FLA, XFL, SVG, Lottie, Atlas, Video, Audio\n"
     )
@@ -1168,12 +1169,12 @@ fn subcommands_schema() -> Value {
         },
         {
             "name": "jsfl",
-            "summary": "Run sandboxed JSFL scripts against a project with deny-all FLfile defaults, trace capture, and atomic saves",
+            "summary": "Run sandboxed JSFL scripts with deny-all FLfile defaults and one rollback boundary for project and permitted filesystem effects",
             "flags": ["--project <file.nflash>", "--script <file.jsfl> | --eval <code> | --stdin", "--out <out.nflash> | --in-place", "--symbol <id|name>", "--frame <u32>", "--flfile-root <dir>", "--allow-read <dir>", "--allow-write <dir>", "--allow-delete", "-h", "--help"]
         },
         {
             "name": "batch",
-            "summary": "Execute a strict JSON sequence with atomic final project replacement after validation",
+            "summary": "Execute a strict JSON sequence with one rollback boundary for saves, exports, permitted FLfile effects, and final project output",
             "flags": ["--file <ops.json> | --stdin", "--project <in.nflash>", "--out <out.nflash> | --in-place", "-h", "--help"]
         },
         {
@@ -1345,6 +1346,20 @@ fn batch_operations_schema() -> Value {
         ]),
     );
     ops.insert(
+        "import".into(),
+        json!([
+            "exactly one of input? | inputs?",
+            "library_only?",
+            "symbol?",
+            "layer?",
+            "frame?",
+            "folder?",
+            "swc_conflict?",
+            "sequence_placement?",
+            "frame_step?"
+        ]),
+    );
+    ops.insert(
         "export".into(),
         json!([
             "target",
@@ -1397,7 +1412,7 @@ fn batch_schema_json() -> Value {
     json!({
         "containers": ["{ \"ops\": [ ... ] }", "{ \"steps\": [ ... ] }", "[ ... ]"],
         "strict": "Unknown wrapper, operation, nested transform, path-command, authoring-command, and export fields are rejected.",
-        "atomicity": "Operations mutate an in-memory candidate project; the implicit final --out / --in-place project replacement occurs atomically only after every step and Project::validate() pass. Explicit save/export operations and permitted JSFL FLfile writes occur immediately and are not rolled back if a later step fails.",
+        "atomicity": "Operations mutate an in-memory candidate project. Saves, exports, permitted JSFL FLfile mutations, and the implicit final --out / --in-place project output retain step-order read-your-writes behavior but share one rollback journal; any later operation, validation, save, or response-write failure restores their pre-command filesystem state.",
         "operations": batch_operations_schema(),
         "nested_schemas": {
             "transform": ["x?", "y?", "scale_x?", "scale_y?", "rotation?", "skew?", "alpha?"],

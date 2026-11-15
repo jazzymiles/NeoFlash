@@ -126,6 +126,30 @@ const AS3_MEDIA_EVENTS: &str = include_str!("../../../web/as3-media-events.js");
 const DISPLAY: &str = include_str!("../../../web/display.js");
 const MARKER: &str = "neoflash-export.json";
 
+/// Best-effort cleanup for a task-owned temporary file or directory on every early return.
+pub(crate) struct TemporaryPathGuard {
+    path: PathBuf,
+}
+
+impl TemporaryPathGuard {
+    pub(crate) fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl Drop for TemporaryPathGuard {
+    fn drop(&mut self) {
+        let Ok(metadata) = fs::symlink_metadata(&self.path) else {
+            return;
+        };
+        if metadata.is_dir() && !metadata.file_type().is_symlink() {
+            let _ = fs::remove_dir_all(&self.path);
+        } else {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum ExportError {
     #[error("Invalid project: {0}")]
@@ -1282,15 +1306,76 @@ fn package_paths_collide(left: &str, right: &str) -> bool {
     left == right || component_descendant(&left, &right) || component_descendant(&right, &left)
 }
 
-fn validate_package_file_names(files: &[(String, Vec<u8>)]) -> Result<(), ExportError> {
-    let mut names: Vec<&str> = Vec::with_capacity(files.len());
-    for (name, _) in files {
-        if name.eq_ignore_ascii_case(MARKER) {
-            return Err(ExportError::Options(format!(
-                "package file '{name}' collides with the NeoFlash ownership marker"
-            )));
-        }
-        if let Some(previous) = names
+fn windows_device_name(name: &str) -> bool {
+    let base = name
+        .split('.')
+        .next()
+        .unwrap_or(name)
+        .trim()
+        .to_ascii_uppercase();
+    matches!(
+        base.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || base
+        .strip_prefix("COM")
+        .or_else(|| base.strip_prefix("LPT"))
+        .is_some_and(|suffix| {
+            matches!(
+                suffix,
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            )
+        })
+}
+
+pub(crate) fn validate_portable_path_component(component: &str) -> Result<(), String> {
+    if component.is_empty() || matches!(component, "." | "..") {
+        return Err("path component must not be empty, '.' or '..'".into());
+    }
+    if component.ends_with([' ', '.']) {
+        return Err("path component must not end in a space or dot".into());
+    }
+    if component.chars().any(|character| {
+        character.is_control()
+            || matches!(
+                character,
+                '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+            )
+    }) {
+        return Err("path component contains characters forbidden on Windows".into());
+    }
+    if component.len() > 255 || component.encode_utf16().count() > 255 {
+        return Err("path component exceeds portable filesystem limits".into());
+    }
+    if windows_device_name(component) {
+        return Err("path component is a reserved Windows device name".into());
+    }
+    Ok(())
+}
+
+fn validate_package_relative_path(name: &str) -> Result<(), ExportError> {
+    neoflash_core::validate_external_video_path(name).map_err(|reason| {
+        ExportError::Options(format!("invalid package file path '{name}': {reason}"))
+    })?;
+    for component in name.split('/') {
+        validate_portable_path_component(component).map_err(|reason| {
+            ExportError::Options(format!("invalid package file path '{name}': {reason}"))
+        })?;
+    }
+    if name.eq_ignore_ascii_case(MARKER) {
+        return Err(ExportError::Options(format!(
+            "package file '{name}' collides with the NeoFlash ownership marker"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_package_path_set<'a>(
+    names: impl IntoIterator<Item = &'a str>,
+) -> Result<(), ExportError> {
+    let mut validated: Vec<&str> = Vec::new();
+    for name in names {
+        validate_package_relative_path(name)?;
+        if let Some(previous) = validated
             .iter()
             .find(|previous| package_paths_collide(name, previous))
         {
@@ -1298,9 +1383,13 @@ fn validate_package_file_names(files: &[(String, Vec<u8>)]) -> Result<(), Export
                 "package paths '{previous}' and '{name}' collide by name or file/directory prefix"
             )));
         }
-        names.push(name);
+        validated.push(name);
     }
     Ok(())
+}
+
+fn validate_package_file_names(files: &[(String, Vec<u8>)]) -> Result<(), ExportError> {
+    validate_package_path_set(files.iter().map(|(name, _)| name.as_str()))
 }
 
 fn read_runtime(runtime_dir: &Path) -> Result<(String, Vec<u8>), ExportError> {
@@ -2299,17 +2388,13 @@ pub(crate) fn read_neoflash_marker_files(dir: &Path) -> Option<Vec<String>> {
     if marker["generator"] != "NeoFlash" || marker["format_version"] != 1 {
         return None;
     }
-    Some(
-        marker["files"]
-            .as_array()
-            .map(|names| {
-                names
-                    .iter()
-                    .filter_map(|name| name.as_str().map(str::to_owned))
-                    .collect()
-            })
-            .unwrap_or_default(),
-    )
+    let names = marker["files"].as_array()?;
+    let files: Vec<String> = names
+        .iter()
+        .map(|name| name.as_str().map(str::to_owned))
+        .collect::<Option<_>>()?;
+    validate_package_path_set(files.iter().map(String::as_str)).ok()?;
+    Some(files)
 }
 
 pub(crate) fn is_neoflash_native_banner_html(path: &Path) -> bool {
@@ -2358,15 +2443,36 @@ pub(crate) fn cleanup_stale_package_files(
     keep_lower: &BTreeSet<String>,
 ) {
     for stale in previous_files {
-        let plain = !stale.contains(['/', '\\']) && stale != MARKER && !stale.starts_with('.');
-        let valid_rel = neoflash_core::validate_external_video_path(stale).is_ok();
         // A case-only rename addresses the same file on the default macOS filesystem. Never
         // delete the freshly written spelling while cleaning the marker's previous spelling.
-        if (plain || valid_rel) && !keep_lower.contains(&stale.to_lowercase()) {
+        if validate_package_relative_path(stale).is_ok()
+            && !keep_lower.contains(&stale.to_lowercase())
+        {
             let _ = fs::remove_file(output_dir.join(stale));
         }
     }
     let _ = fs::remove_dir(output_dir.join("assets"));
+}
+
+fn previous_package_files(output_dir: &Path) -> Result<Vec<String>, ExportError> {
+    if !has_non_ignorable_dir_entries(output_dir)? {
+        return Ok(Vec::new());
+    }
+    if let Some(marker_files) = read_neoflash_marker_files(output_dir) {
+        return Ok(marker_files);
+    }
+    if is_neoflash_native_banner_dir(output_dir)? {
+        return Ok(vec!["index.html".to_owned()]);
+    }
+    Err(ExportError::Destination(output_dir.display().to_string()))
+}
+
+/// Verify that `output_dir` is empty or contains only a previous NeoFlash-managed package.
+///
+/// This read-only check is shared with headless transactions so they can reject an unowned or
+/// malformed destination before recursively snapshotting it.
+pub fn preflight_package_output_dir(output_dir: &Path) -> Result<(), ExportError> {
+    previous_package_files(output_dir).map(|_| ())
 }
 
 /// Writes generated files (index.html last) into a NeoFlash-owned folder and removes files an
@@ -2378,16 +2484,7 @@ pub(crate) fn write_package(
     kind: &str,
 ) -> Result<PathBuf, ExportError> {
     validate_package_file_names(files)?;
-    let mut previous_files = Vec::new();
-    if has_non_ignorable_dir_entries(output_dir)? {
-        if let Some(marker_files) = read_neoflash_marker_files(output_dir) {
-            previous_files = marker_files;
-        } else if is_neoflash_native_banner_dir(output_dir)? {
-            previous_files.push("index.html".to_owned());
-        } else {
-            return Err(ExportError::Destination(output_dir.display().to_string()));
-        }
-    }
+    let previous_files = previous_package_files(output_dir)?;
     fs::create_dir_all(output_dir)?;
     let current_names: BTreeSet<String> =
         files.iter().map(|(name, _)| name.to_lowercase()).collect();

@@ -34,7 +34,11 @@ use std::{
     fs::{self, OpenOptions},
     io::{Read as _, Write as _},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Condvar, LazyLock, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+    thread::{self, ThreadId},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -109,6 +113,7 @@ struct VerifiedPriorState {
     present_owned_names: Vec<String>,
 }
 
+#[derive(Debug)]
 struct DirectoryCommitLock {
     file: fs::File,
 }
@@ -138,6 +143,115 @@ impl DirectoryCommitLock {
 impl Drop for DirectoryCommitLock {
     fn drop(&mut self) {
         let _ = fs2::FileExt::unlock(&self.file);
+    }
+}
+
+#[derive(Debug)]
+enum ProcessSequenceLock {
+    /// One local thread is waiting for the cross-process advisory lock. Publishing this state
+    /// before the blocking OS call lets unrelated directory leases continue to make progress.
+    Acquiring,
+    Held {
+        owner: ThreadId,
+        depth: usize,
+        _directory_lock: DirectoryCommitLock,
+    },
+}
+
+static PROCESS_SEQUENCE_LOCKS: LazyLock<(Mutex<BTreeMap<PathBuf, ProcessSequenceLock>>, Condvar)> =
+    LazyLock::new(|| (Mutex::new(BTreeMap::new()), Condvar::new()));
+
+/// A process- and cross-process exclusive lease for one sequence output directory.
+///
+/// Headless multi-operation transactions retain this lease from their first filesystem snapshot
+/// until commit or rollback. Sequence exporters on the same thread re-enter it without opening a
+/// second advisory-lock handle, while other threads and processes continue to serialize on the
+/// persistent `.neoflash-sequences.lock` inode.
+#[derive(Debug)]
+pub struct SequenceCommitLease {
+    key: PathBuf,
+    owner: ThreadId,
+}
+
+impl SequenceCommitLease {
+    /// Acquire the persistent sequence commit lock for an existing directory.
+    pub fn acquire(directory: &Path) -> Result<Self, ExportError> {
+        let key = fs::canonicalize(directory)?;
+        let owner = thread::current().id();
+        let (lock_map, changed) = &*PROCESS_SEQUENCE_LOCKS;
+        loop {
+            let mut locks = lock_map.lock().map_err(|_| {
+                ExportError::Io(std::io::Error::other("sequence lock state poisoned"))
+            })?;
+            match locks.get_mut(&key) {
+                Some(ProcessSequenceLock::Held {
+                    owner: existing_owner,
+                    depth,
+                    ..
+                }) if *existing_owner == owner => {
+                    *depth = depth.saturating_add(1);
+                    return Ok(Self { key, owner });
+                }
+                Some(_) => {
+                    drop(changed.wait(locks).map_err(|_| {
+                        ExportError::Io(std::io::Error::other("sequence lock state poisoned"))
+                    })?);
+                }
+                None => {
+                    locks.insert(key.clone(), ProcessSequenceLock::Acquiring);
+                    drop(locks);
+
+                    // Never hold the process-wide map mutex while a different process may keep
+                    // this directory's advisory lock. Otherwise an unrelated lease cannot be
+                    // released and two processes can deadlock across different directories.
+                    let acquired = DirectoryCommitLock::acquire(&key);
+                    let mut locks = lock_map.lock().map_err(|_| {
+                        ExportError::Io(std::io::Error::other("sequence lock state poisoned"))
+                    })?;
+                    match acquired {
+                        Ok(directory_lock) => {
+                            locks.insert(
+                                key.clone(),
+                                ProcessSequenceLock::Held {
+                                    owner,
+                                    depth: 1,
+                                    _directory_lock: directory_lock,
+                                },
+                            );
+                            changed.notify_all();
+                            return Ok(Self { key, owner });
+                        }
+                        Err(error) => {
+                            locks.remove(&key);
+                            changed.notify_all();
+                            return Err(error);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Drop for SequenceCommitLease {
+    fn drop(&mut self) {
+        let (locks, changed) = &*PROCESS_SEQUENCE_LOCKS;
+        let Ok(mut locks) = locks.lock() else {
+            return;
+        };
+        let should_remove = locks
+            .get_mut(&self.key)
+            .is_some_and(|existing| match existing {
+                ProcessSequenceLock::Held { owner, depth, .. } if *owner == self.owner => {
+                    *depth = depth.saturating_sub(1);
+                    *depth == 0
+                }
+                ProcessSequenceLock::Acquiring | ProcessSequenceLock::Held { .. } => false,
+            });
+        if should_remove {
+            locks.remove(&self.key);
+            changed.notify_all();
+        }
     }
 }
 
@@ -209,8 +323,9 @@ impl SequenceSetTransaction {
         if trimmed_stem.is_empty()
             || trimmed_stem == "."
             || trimmed_stem == ".."
-            || trimmed_stem.contains(['/', '\\'])
+            || trimmed_stem.contains(['/', '\\', ':'])
             || trimmed_stem.chars().any(char::is_control)
+            || crate::validate_portable_path_component(trimmed_stem).is_err()
         {
             return Err(ExportError::Options(format!(
                 "Invalid sequence base name '{stem}'."
@@ -549,7 +664,7 @@ impl SequenceSetTransaction {
 
         // Keep the lock file stable (never unlink it) so concurrent processes always contend on
         // the same inode. OS advisory locks are released automatically if a process exits.
-        let _commit_lock = DirectoryCommitLock::acquire(&self.directory)?;
+        let _commit_lock = SequenceCommitLease::acquire(&self.directory)?;
         let planned_names: Vec<String> = self.files.iter().map(|f| f.file_name.clone()).collect();
         let mut prior = self.verify_planned_set(&planned_names)?;
 
@@ -743,11 +858,14 @@ pub fn read_sequence_manifest(
     Ok((parsed, true))
 }
 
-fn validate_sequence_member_name(name: &str) -> Result<(), ExportError> {
+/// Validate one portable leaf filename used by a sequence manifest or staged sequence member.
+pub fn validate_sequence_member_name(name: &str) -> Result<(), ExportError> {
     if name.is_empty()
         || name == "."
         || name == ".."
-        || name.contains(['/', '\\', '\0'])
+        || name.contains(['/', '\\', ':', '\0'])
+        || name.chars().any(char::is_control)
+        || crate::validate_portable_path_component(name).is_err()
         || name.eq_ignore_ascii_case(SEQUENCE_MANIFEST_FILENAME)
         || name.eq_ignore_ascii_case(SEQUENCE_COMMIT_LOCK_FILENAME)
         || name.to_ascii_lowercase().starts_with(SEQUENCE_STAGE_PREFIX)

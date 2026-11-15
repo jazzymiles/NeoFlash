@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Made headless automation transactional across real external effects: strict JSON `batch` now includes in-memory
+  `import` and rolls explicit saves, multi-file exports, permitted JSFL `FLfile` mutations and final project output
+  back to their pre-command state after a later returned error, cooperative cancellation or response-write failure.
+  AEP exports resolve external footage beside the opened project; sequence transactions retain one stable,
+  re-entrant cross-process lock; package/sequence names reject non-portable Windows paths; and FLA/XFL/SWF
+  verification temporaries are removed on early failure. Forced process termination remains outside this
+  process-local rollback boundary (`T-350`).
 - Fixed Timeline selection so an ordinary click targets one frame, Shift-click and drag create exact ranges, and
   switching layers cannot leave a stale range active. Right-clicking blank Layers-column space now opens the existing
   active-layer menu; right-clicking a selected frame preserves its range, so Remove Frames follows that range in one

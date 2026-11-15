@@ -128,7 +128,7 @@ neoflash-editor --headless eval --project app.nflash --frames 0..=1 --scripts
 neoflash-editor --headless export --project app.nflash --target html5 --size-level compact --out dist-web
 ```
 
-`inspect`, `validate`, strict JSON `batch` pipelines (`--stdin` / `--file`) with atomic final `.nflash` replacement, `import`, and capability-gated JSFL `FLfile` access (`--allow-read` / `--allow-write` / `--allow-delete`, default deny-all) return structured JSON on stdout (`{ "ok": true, ... }`) and errors on stderr with non-zero exit codes. Explicit batch `save` / `export` steps and permitted JSFL filesystem writes happen at their step and are not rolled back by a later failure. See [workspace and headless CLI notes](docs/WORKSPACE.md#headless-cli-and-ai-automation).
+`inspect`, `validate`, strict 18-operation JSON `batch` pipelines (`--stdin` / `--file`, including in-memory `import`), and capability-gated JSFL `FLfile` access (`--allow-read` / `--allow-write` / `--allow-delete`, default deny-all) return structured JSON on stdout (`{ "ok": true, ... }`) and errors on stderr with non-zero exit codes. Batch `save`, `export`, permitted `FLfile` mutations and the final `.nflash` output retain step-order read-your-writes behavior but share one filesystem rollback boundary; standalone `jsfl` applies the same rule to its permitted writes and project save. Returned errors, cooperative cancellation and response-write failure restore the pre-command state; process termination or power loss cannot run this in-memory rollback. See [workspace and headless CLI notes](docs/WORKSPACE.md#headless-cli-and-ai-automation).
 
 ## Project layout
 

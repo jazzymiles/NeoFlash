@@ -9276,11 +9276,11 @@ pub fn import_swf_bytes(bytes: &[u8]) -> Result<Project, ExportError> {
         bytes.len()
     ));
     let _ = std::fs::remove_dir_all(&tmp_dir);
+    let _temp_guard = crate::TemporaryPathGuard::new(tmp_dir.clone());
     std::fs::create_dir_all(&tmp_dir)?;
     let tmp_file = tmp_dir.join("verify.swf");
     std::fs::write(&tmp_file, bytes)?;
     let res = neoflash_import::import_project(&tmp_file);
-    let _ = std::fs::remove_dir_all(&tmp_dir);
     res.map_err(|e| ExportError::RoundTripVerification(e.to_string()))
 }
 

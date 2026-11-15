@@ -1,14 +1,23 @@
 //! Unit and end-to-end tests for the NeoFlash Editor headless CLI (`T-302`).
 use super::*;
 use neoflash_core::{
-    Keyframe, Layer, LayerProperties, ObjectEvent, ObjectScript, ResourceUnit, Script, new_id,
+    FrameSound, Keyframe, Layer, LayerProperties, ObjectEvent, ObjectScript, ResourceUnit, Script,
+    TimelineVideoSpan, new_id,
 };
 use neoflash_import::export_act_palette;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
-use std::io::Cursor;
-use std::path::PathBuf;
+use std::io::{self, Cursor, Write};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, PartialEq, Eq)]
+enum TreeEntry {
+    Directory,
+    File(Vec<u8>),
+    Symlink(PathBuf),
+}
 
 struct TempDirGuard {
     path: PathBuf,
@@ -50,6 +59,34 @@ fn run_args(args: &[&str], stdin_data: &str) -> (i32, String, String) {
         String::from_utf8(stdout).expect("utf8 stdout"),
         String::from_utf8(stderr).expect("utf8 stderr"),
     )
+}
+
+fn snapshot_tree(root: &Path) -> BTreeMap<PathBuf, TreeEntry> {
+    fn visit(root: &Path, path: &Path, out: &mut BTreeMap<PathBuf, TreeEntry>) {
+        let relative = path.strip_prefix(root).unwrap_or(path).to_path_buf();
+        let metadata = fs::symlink_metadata(path).unwrap();
+        if metadata.file_type().is_symlink() {
+            out.insert(relative, TreeEntry::Symlink(fs::read_link(path).unwrap()));
+        } else if metadata.is_dir() {
+            out.insert(relative, TreeEntry::Directory);
+            let mut children = fs::read_dir(path)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect::<Vec<_>>();
+            children.sort();
+            for child in children {
+                visit(root, &child, out);
+            }
+        } else {
+            out.insert(relative, TreeEntry::File(fs::read(path).unwrap()));
+        }
+    }
+
+    let mut snapshot = BTreeMap::new();
+    if root.exists() {
+        visit(root, root, &mut snapshot);
+    }
+    snapshot
 }
 
 #[test]
@@ -168,9 +205,10 @@ fn help_version_and_capabilities_schema() {
         caps["batch_schema"]["atomicity"]
             .as_str()
             .unwrap_or_default()
-            .contains("not rolled back")
+            .contains("share one rollback journal")
     );
     assert!(caps["batch_schema"]["operations"]["add_element"].is_array());
+    assert!(caps["batch_schema"]["operations"]["import"].is_array());
     assert!(
         caps["batch_schema"]["operations"]["export"]
             .as_array()
@@ -643,7 +681,10 @@ fn jsfl_sandbox_mutates_saves_and_enforces_flfile_capabilities() {
             .any(|l| l.name == "LayerFromFile")
     );
 
-    // 4. Runtime error with --in-place leaves original project untouched
+    // 4. Runtime error rolls back both the project and every granted FLfile effect.
+    fs::write(allowed_dir.join("existing.txt"), "original").unwrap();
+    fs::write(allowed_dir.join("delete-me.txt"), "keep").unwrap();
+    let files_before_failure = snapshot_tree(&allowed_dir);
     let (code, _, _) = run_args(
         &[
             "--headless",
@@ -652,11 +693,23 @@ fn jsfl_sandbox_mutates_saves_and_enforces_flfile_capabilities() {
             proj_path.to_str().unwrap(),
             "--stdin",
             "--in-place",
+            "--flfile-root",
+            allowed_dir.to_str().unwrap(),
+            "--allow-delete",
         ],
-        "fl.getDocumentDOM().width = 333;\nthrow 'boom';",
+        r#"
+            FLfile.write("file:///existing.txt", "changed");
+            FLfile.write("file:///existing.txt", "+appended", "append");
+            FLfile.write("file:///created.txt", "created");
+            FLfile.createFolder("file:///created-dir");
+            FLfile.remove("file:///delete-me.txt");
+            fl.getDocumentDOM().width = 333;
+            throw "boom";
+        "#,
     );
     assert_eq!(code, 1);
     assert_eq!(fs::read_to_string(&proj_path).unwrap(), orig_json);
+    assert_eq!(snapshot_tree(&allowed_dir), files_before_failure);
 
     // 5. File-backed JSFL is bounded before loading the whole source into memory. The VM already
     // rejects this size; the CLI reader must enforce the same boundary while reading it.
@@ -878,6 +931,848 @@ fn batch_pipeline_builds_validates_exports_and_rolls_back_atomically() {
         alias_res["results"][2]["result"]["trace_lines"][0],
         "alias_ok"
     );
+}
+
+#[test]
+fn batch_rolls_back_save_multi_output_export_and_flfile_after_late_failure() {
+    let tmp = TempDirGuard::new("batch-effects-rollback");
+    let project_path = tmp.path.join("source.nflash");
+    let explicit_save = tmp.path.join("explicit-save.nflash");
+    let aep_path = tmp.path.join("package.aep");
+    let aepx_path = aep_path.with_extension("aepx");
+    let jsx_path = aep_path.with_extension("jsx");
+    let footage_dir = tmp.path.join("package_Footage");
+    let flfile_root = tmp.path.join("flfile");
+
+    let media_dir = tmp.path.join("media");
+    fs::create_dir_all(&media_dir).unwrap();
+    fs::write(media_dir.join("clip.mp4"), b"external-video").unwrap();
+    let mut project = Project::blank();
+    project.resources.push(
+        ResourceUnit::from_bytes(
+            "movie",
+            "media/reference.mp4",
+            "video/mp4",
+            b"resource-placeholder",
+        )
+        .unwrap(),
+    );
+    let root = project.root.clone();
+    project.symbol_mut(&root).unwrap().timeline.layers[0].keyframes[0].video =
+        Some(TimelineVideoSpan::external("movie", "media/clip.mp4"));
+    upgrade_project_format_versions(&mut project);
+    let project_bytes = project.to_json().unwrap().into_bytes();
+    fs::write(&project_path, &project_bytes).unwrap();
+    fs::write(&explicit_save, b"old explicit save").unwrap();
+    fs::write(&aep_path, b"old aep").unwrap();
+    fs::write(&aepx_path, b"old aepx").unwrap();
+    fs::write(&jsx_path, b"old jsx").unwrap();
+    fs::create_dir_all(&footage_dir).unwrap();
+    fs::write(footage_dir.join("old.bin"), b"old footage").unwrap();
+    fs::create_dir_all(&flfile_root).unwrap();
+    fs::write(flfile_root.join("existing.txt"), b"original").unwrap();
+    fs::write(flfile_root.join("delete-me.txt"), b"keep").unwrap();
+
+    let save_before = fs::read(&explicit_save).unwrap();
+    let aep_before = snapshot_tree(&tmp.path);
+    let flfile_before = snapshot_tree(&flfile_root);
+    let ops = json!([
+        { "op": "set_project", "name": "Effect candidate" },
+        { "op": "save", "path": explicit_save },
+        { "op": "export", "target": "aep", "out": aep_path },
+        {
+            "op": "jsfl",
+            "flfile_root": tmp.path,
+            "code": "if (FLfile.read('file:///package_Footage/clip.mp4') != 'external-video') { throw 'external footage missing'; }"
+        },
+        {
+            "op": "jsfl",
+            "flfile_root": flfile_root,
+            "allow_delete": true,
+            "code": r#"
+                FLfile.write("file:///existing.txt", "changed");
+                FLfile.write("file:///existing.txt", "+appended", "append");
+                FLfile.write("file:///created.txt", "created");
+                FLfile.copy("file:///created.txt", "file:///copied.txt");
+                FLfile.createFolder("file:///created-dir");
+                FLfile.remove("file:///delete-me.txt");
+            "#
+        },
+        {
+            "op": "set_script",
+            "frame": 0,
+            "language": "js",
+            "source": "let = ;"
+        },
+        { "op": "compile" }
+    ]);
+
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &ops.to_string(),
+    );
+    assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+    assert!(stderr.is_empty());
+    let error: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        error["error"]["code"], "compile_failed",
+        "unexpected batch error: {stdout}"
+    );
+    assert_eq!(error["error"]["details"]["step_index"], 6);
+    assert_eq!(fs::read(&project_path).unwrap(), project_bytes);
+    assert_eq!(fs::read(&explicit_save).unwrap(), save_before);
+    assert_eq!(snapshot_tree(&flfile_root), flfile_before);
+    assert_eq!(snapshot_tree(&tmp.path), aep_before);
+}
+
+#[test]
+fn successful_mixed_batch_commits_read_your_writes_and_step_snapshot_once() {
+    let tmp = TempDirGuard::new("batch-effects-success");
+    let mid_save = tmp.path.join("mid.nflash");
+    let final_save = tmp.path.join("final.nflash");
+    let flfile_root = tmp.path.join("flfile");
+    fs::create_dir_all(&flfile_root).unwrap();
+
+    let ops = json!([
+        { "op": "new", "name": "Initial" },
+        { "op": "set_project", "name": "Saved midpoint" },
+        { "op": "save", "path": mid_save },
+        {
+            "op": "jsfl",
+            "flfile_root": flfile_root,
+            "code": "FLfile.write('file:///first.txt', 'alpha');"
+        },
+        {
+            "op": "jsfl",
+            "flfile_root": flfile_root,
+            "code": "var v = FLfile.read('file:///first.txt'); FLfile.write('file:///first.txt', '-beta', 'append'); FLfile.copy('file:///first.txt', 'file:///copy.txt'); fl.trace(v);"
+        },
+        { "op": "set_project", "name": "Final state" },
+        { "op": "validate" }
+    ]);
+
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--out",
+            final_save.to_str().unwrap(),
+        ],
+        &ops.to_string(),
+    );
+    assert_eq!(code, 0, "stdout={stdout}, stderr={stderr}");
+    assert!(stderr.is_empty());
+    let response: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(response["ok"], true);
+    assert_eq!(response["results"][4]["result"]["traces"], json!(["alpha"]));
+    assert_eq!(
+        Project::from_json(&fs::read_to_string(&mid_save).unwrap())
+            .unwrap()
+            .name,
+        "Saved midpoint"
+    );
+    assert_eq!(
+        Project::from_json(&fs::read_to_string(&final_save).unwrap())
+            .unwrap()
+            .name,
+        "Final state"
+    );
+    assert_eq!(
+        fs::read_to_string(flfile_root.join("first.txt")).unwrap(),
+        "alpha-beta"
+    );
+    assert_eq!(
+        fs::read_to_string(flfile_root.join("copy.txt")).unwrap(),
+        "alpha-beta"
+    );
+}
+
+#[test]
+fn batch_import_mutates_only_the_candidate_and_participates_in_late_rollback() {
+    let tmp = TempDirGuard::new("batch-import-rollback");
+    let svg = tmp.path.join("asset.svg");
+    let saved = tmp.path.join("imported.nflash");
+    fs::write(
+        &svg,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="24"><rect width="40" height="24" fill="#3366cc"/></svg>"##,
+    )
+    .unwrap();
+    fs::write(&saved, b"original-project-placeholder").unwrap();
+    let baseline = snapshot_tree(&tmp.path);
+
+    let failing = json!([
+        { "op": "import", "input": svg, "folder": "Imported/Batch" },
+        { "op": "inspect" },
+        { "op": "save", "path": saved },
+        {
+            "op": "set_script",
+            "frame": 0,
+            "language": "js",
+            "source": "let = ;"
+        },
+        { "op": "compile" }
+    ]);
+    let (code, stdout, stderr) =
+        run_args(&["--headless", "batch", "--stdin"], &failing.to_string());
+    assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+    assert!(stderr.is_empty());
+    let error: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(error["error"]["code"], "compile_failed");
+    assert_eq!(error["error"]["details"]["step_index"], 4);
+    assert_eq!(snapshot_tree(&tmp.path), baseline);
+
+    let successful = json!([
+        { "op": "import", "inputs": [svg], "folder": "Imported/Batch" },
+        { "op": "inspect" }
+    ]);
+    let (code, stdout, stderr) =
+        run_args(&["--headless", "batch", "--stdin"], &successful.to_string());
+    assert_eq!(code, 0, "stdout={stdout}, stderr={stderr}");
+    let response: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(response["results"][0]["op"], "import");
+    assert!(
+        response["results"][0]["result"]["project"]["symbols"]
+            .as_u64()
+            .is_some_and(|count| count > 1)
+    );
+}
+
+#[test]
+fn batch_rolls_back_the_resolved_image_path_when_extension_and_format_differ() {
+    let tmp = TempDirGuard::new("batch-image-effect-path");
+    let project_path = tmp.path.join("source.nflash");
+    let requested = tmp.path.join("render.bmp");
+    let actual = tmp.path.join("render.png");
+    fs::write(&project_path, Project::blank().to_json().unwrap()).unwrap();
+    fs::write(&actual, b"original png").unwrap();
+
+    let ops = json!([
+        {
+            "op": "export",
+            "target": "image",
+            "out": requested,
+            "image_format": "png"
+        },
+        {
+            "op": "set_script",
+            "frame": 0,
+            "language": "js",
+            "source": "let = ;"
+        },
+        { "op": "compile" }
+    ]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &ops.to_string(),
+    );
+    assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+    let error: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(error["error"]["code"], "compile_failed");
+    assert_eq!(error["error"]["details"]["step_index"], 2);
+    assert_eq!(fs::read(&actual).unwrap(), b"original png");
+    assert!(!requested.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn sequence_rollback_preserves_unrelated_sibling_and_stable_lock_inodes() {
+    use std::os::unix::fs::MetadataExt;
+
+    let tmp = TempDirGuard::new("batch-sequence-scope");
+    let project_path = tmp.path.join("source.nflash");
+    let sequence_path = tmp.path.join("frames.png");
+    let unrelated = tmp.path.join("unrelated.bin");
+    let lock = tmp.path.join(".neoflash-sequences.lock");
+    fs::write(&project_path, Project::blank().to_json().unwrap()).unwrap();
+    fs::write(&unrelated, b"must keep inode").unwrap();
+
+    let export = json!([{
+        "op": "export",
+        "target": "png-sequence",
+        "out": sequence_path,
+        "frame": 0,
+        "end_frame": 0
+    }]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &export.to_string(),
+    );
+    assert_eq!(code, 0, "stdout={stdout}, stderr={stderr}");
+    let unrelated_inode = fs::metadata(&unrelated).unwrap().ino();
+    let lock_inode = fs::metadata(&lock).unwrap().ino();
+    let sequence_before = fs::read(&sequence_path).unwrap();
+    let tree_before = snapshot_tree(&tmp.path);
+
+    let failing = json!([
+        { "op": "set_project", "bg": "#A04020" },
+        {
+            "op": "export",
+            "target": "png-sequence",
+            "out": sequence_path,
+            "frame": 0,
+            "end_frame": 0
+        },
+        {
+            "op": "set_script",
+            "frame": 0,
+            "language": "js",
+            "source": "let = ;"
+        },
+        { "op": "compile" }
+    ]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &failing.to_string(),
+    );
+    assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+    let error: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(error["error"]["code"], "compile_failed");
+    assert_eq!(error["error"]["details"]["step_index"], 3);
+    assert_eq!(fs::read(&sequence_path).unwrap(), sequence_before);
+    assert_eq!(fs::read(&unrelated).unwrap(), b"must keep inode");
+    assert_eq!(fs::metadata(&unrelated).unwrap().ino(), unrelated_inode);
+    assert_eq!(fs::metadata(&lock).unwrap().ino(), lock_inode);
+    assert_eq!(snapshot_tree(&tmp.path), tree_before);
+}
+
+#[test]
+fn repeated_sequence_exports_restore_the_original_absent_family_and_keep_stable_lock() {
+    let tmp = TempDirGuard::new("batch-repeated-sequence-rollback");
+    let project_path = tmp.path.join("source.nflash");
+    let sequence_path = tmp.path.join("frames.png");
+    let unrelated = tmp.path.join("unrelated.bin");
+    fs::write(&project_path, Project::blank().to_json().unwrap()).unwrap();
+    fs::write(&unrelated, b"unrelated").unwrap();
+    let tree_before = snapshot_tree(&tmp.path);
+
+    let failing = json!([
+        {
+            "op": "export",
+            "target": "png-sequence",
+            "out": sequence_path
+        },
+        { "op": "set_project", "bg": "#2050A0" },
+        {
+            "op": "export",
+            "target": "png-sequence",
+            "out": sequence_path
+        },
+        {
+            "op": "set_script",
+            "frame": 0,
+            "language": "js",
+            "source": "let = ;"
+        },
+        { "op": "compile" }
+    ]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &failing.to_string(),
+    );
+    assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+    let error: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(error["error"]["code"], "compile_failed");
+    assert_eq!(error["error"]["details"]["step_index"], 4);
+    let mut expected = tree_before;
+    expected.insert(
+        PathBuf::from(".neoflash-sequences.lock"),
+        TreeEntry::File(Vec::new()),
+    );
+    assert_eq!(snapshot_tree(&tmp.path), expected);
+    assert!(tmp.path.join(".neoflash-sequences.lock").is_file());
+    assert!(!tmp.path.join(".neoflash-sequences.json").exists());
+}
+
+#[test]
+fn legacy_sequence_sidecars_are_restored_after_exact_family_overlap() {
+    let tmp = TempDirGuard::new("batch-legacy-sequence-rollback");
+    let project_path = tmp.path.join("source.nflash");
+    let sequence_path = tmp.path.join("frames.png");
+    fs::write(&project_path, Project::blank().to_json().unwrap()).unwrap();
+
+    let initial = json!([{
+        "op": "export",
+        "target": "png-sequence",
+        "out": sequence_path
+    }]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &initial.to_string(),
+    );
+    assert_eq!(code, 0, "stdout={stdout}, stderr={stderr}");
+
+    let sidecar_name = "legacy-sidecar.bin";
+    let sidecar_bytes = b"legacy owned bytes";
+    fs::write(tmp.path.join(sidecar_name), sidecar_bytes).unwrap();
+    let (mut manifest, existed) = neoflash_export::read_sequence_manifest(&tmp.path).unwrap();
+    assert!(existed);
+    let current_key = manifest.sequences.keys().next().unwrap().clone();
+    let mut entry = manifest.sequences.remove(&current_key).unwrap();
+    entry.family = None;
+    entry.files.push(neoflash_export::SequenceOwnedFileRecord {
+        name: sidecar_name.to_owned(),
+        bytes: sidecar_bytes.len() as u64,
+        sha256: neoflash_export::bitmap_encode::sha256_hex(sidecar_bytes),
+    });
+    manifest.sequences.insert("frames".to_owned(), entry);
+    fs::write(
+        tmp.path.join(neoflash_export::SEQUENCE_MANIFEST_FILENAME),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let tree_before = snapshot_tree(&tmp.path);
+
+    let failing = json!([
+        { "op": "set_project", "bg": "#C03070" },
+        {
+            "op": "export",
+            "target": "png-sequence",
+            "out": sequence_path
+        },
+        {
+            "op": "set_script",
+            "frame": 0,
+            "language": "js",
+            "source": "let = ;"
+        },
+        { "op": "compile" }
+    ]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &failing.to_string(),
+    );
+    assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+    let error: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(error["error"]["code"], "compile_failed");
+    assert_eq!(error["error"]["details"]["step_index"], 3);
+    assert_eq!(snapshot_tree(&tmp.path), tree_before);
+}
+
+#[test]
+fn legacy_png_video_wav_overlap_restores_non_family_sidecars() {
+    fn wav(samples: usize) -> Vec<u8> {
+        let data = vec![0_u8; samples * 2];
+        let mut bytes = b"RIFF".to_vec();
+        bytes.extend((36 + data.len() as u32).to_le_bytes());
+        bytes.extend(b"WAVEfmt ");
+        for value in [16_u32, 1 | (1 << 16), 8_000, 16_000, 2 | (16 << 16)] {
+            bytes.extend(value.to_le_bytes());
+        }
+        bytes.extend(b"data");
+        bytes.extend((data.len() as u32).to_le_bytes());
+        bytes.extend(data);
+        bytes
+    }
+
+    let tmp = TempDirGuard::new("batch-legacy-video-wav-rollback");
+    let project_path = tmp.path.join("source.nflash");
+    let video_path = tmp.path.join("movie.png");
+    let mut project = Project::blank();
+    project.resources.push(
+        ResourceUnit::from_bytes("sound", "audio/sound.wav", "audio/wav", &wav(800)).unwrap(),
+    );
+    let root = project.root.clone();
+    project.symbol_mut(&root).unwrap().timeline.layers[0].keyframes[0].sound =
+        Some(FrameSound::new("sound"));
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+    fs::write(&project_path, project.to_json().unwrap()).unwrap();
+
+    let initial = json!([{
+        "op": "export",
+        "target": "video",
+        "out": video_path,
+        "width": 8,
+        "height": 8
+    }]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &initial.to_string(),
+    );
+    assert_eq!(code, 0, "stdout={stdout}, stderr={stderr}");
+
+    let sidecar_name = "legacy-audio-sidecar.bin";
+    let sidecar_bytes = b"legacy audio family sidecar";
+    fs::write(tmp.path.join(sidecar_name), sidecar_bytes).unwrap();
+    let (mut manifest, existed) = neoflash_export::read_sequence_manifest(&tmp.path).unwrap();
+    assert!(existed);
+    let current_key = manifest.sequences.keys().next().unwrap().clone();
+    let mut entry = manifest.sequences.remove(&current_key).unwrap();
+    let removed = entry
+        .files
+        .iter()
+        .filter(|owned| !owned.name.ends_with(".wav"))
+        .map(|owned| owned.name.clone())
+        .collect::<Vec<_>>();
+    assert!(entry.files.iter().any(|owned| owned.name.ends_with(".wav")));
+    entry.files.retain(|owned| owned.name.ends_with(".wav"));
+    for name in removed {
+        fs::remove_file(tmp.path.join(name)).unwrap();
+    }
+    entry.family = None;
+    entry.files.push(neoflash_export::SequenceOwnedFileRecord {
+        name: sidecar_name.to_owned(),
+        bytes: sidecar_bytes.len() as u64,
+        sha256: neoflash_export::bitmap_encode::sha256_hex(sidecar_bytes),
+    });
+    manifest.sequences.insert("movie".to_owned(), entry);
+    fs::write(
+        tmp.path.join(neoflash_export::SEQUENCE_MANIFEST_FILENAME),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let tree_before = snapshot_tree(&tmp.path);
+
+    let failing = json!([
+        {
+            "op": "export",
+            "target": "video",
+            "out": video_path,
+            "width": 8,
+            "height": 8
+        },
+        {
+            "op": "set_script",
+            "frame": 0,
+            "language": "js",
+            "source": "let = ;"
+        },
+        { "op": "compile" }
+    ]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &failing.to_string(),
+    );
+    assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+    let error: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(error["error"]["code"], "compile_failed");
+    assert_eq!(error["error"]["details"]["step_index"], 2);
+    assert_eq!(snapshot_tree(&tmp.path), tree_before);
+}
+
+#[test]
+fn jsfl_removes_a_new_write_root_on_failure_and_keeps_it_on_success() {
+    let tmp = TempDirGuard::new("jsfl-new-root");
+    let project_path = tmp.path.join("source.nflash");
+    fs::write(&project_path, Project::blank().to_json().unwrap()).unwrap();
+
+    let failed_root = tmp.path.join("failed/deep/root");
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "jsfl",
+            "--project",
+            project_path.to_str().unwrap(),
+            "--stdin",
+            "--flfile-root",
+            failed_root.to_str().unwrap(),
+        ],
+        "FLfile.write('file:///nested/out.txt', 'temporary'); throw 'late';",
+    );
+    assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+    let error: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(error["error"]["code"], "jsfl_error");
+    assert!(
+        error["error"]["details"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("late"))
+    );
+    assert!(!tmp.path.join("failed").exists());
+
+    let success_root = tmp.path.join("success/deep/root");
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "jsfl",
+            "--project",
+            project_path.to_str().unwrap(),
+            "--stdin",
+            "--flfile-root",
+            success_root.to_str().unwrap(),
+        ],
+        "FLfile.write('file:///nested/out.txt', 'committed');",
+    );
+    assert_eq!(code, 0, "stdout={stdout}, stderr={stderr}");
+    assert_eq!(
+        fs::read_to_string(success_root.join("nested/out.txt")).unwrap(),
+        "committed"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn batch_rolls_back_jsfl_writes_through_a_symlinked_root() {
+    use std::os::unix::fs::symlink;
+
+    let tmp = TempDirGuard::new("jsfl-symlink-root");
+    let project_path = tmp.path.join("source.nflash");
+    let real_root = tmp.path.join("real");
+    let alias_root = tmp.path.join("alias");
+    fs::write(&project_path, Project::blank().to_json().unwrap()).unwrap();
+    fs::create_dir_all(&real_root).unwrap();
+    fs::write(real_root.join("existing.txt"), b"original").unwrap();
+    symlink(&real_root, &alias_root).unwrap();
+
+    let ops = json!([
+        {
+            "op": "jsfl",
+            "flfile_root": alias_root,
+            "code": "FLfile.write('file:///existing.txt', 'changed');"
+        },
+        {
+            "op": "set_script",
+            "frame": 0,
+            "language": "js",
+            "source": "let = ;"
+        },
+        { "op": "compile" }
+    ]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &ops.to_string(),
+    );
+    assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+    let error: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(error["error"]["code"], "compile_failed");
+    assert_eq!(error["error"]["details"]["step_index"], 2);
+    assert_eq!(
+        fs::read(real_root.join("existing.txt")).unwrap(),
+        b"original"
+    );
+    assert_eq!(fs::read_link(&alias_root).unwrap(), real_root);
+}
+
+#[cfg(unix)]
+#[test]
+fn batch_restores_an_xfl_output_symlink_after_a_late_failure() {
+    use std::os::unix::fs::symlink;
+
+    let tmp = TempDirGuard::new("xfl-output-symlink");
+    let project_path = tmp.path.join("source.nflash");
+    let referent = tmp.path.join("existing-xfl");
+    let output = tmp.path.join("document.xfl");
+    fs::write(&project_path, Project::blank().to_json().unwrap()).unwrap();
+    fs::create_dir_all(&referent).unwrap();
+    fs::write(referent.join("keep.bin"), b"referent stays untouched").unwrap();
+    symlink(&referent, &output).unwrap();
+    let tree_before = snapshot_tree(&tmp.path);
+
+    let ops = json!([
+        { "op": "export", "target": "xfl", "out": output },
+        {
+            "op": "set_script",
+            "frame": 0,
+            "language": "js",
+            "source": "let = ;"
+        },
+        { "op": "compile" }
+    ]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &ops.to_string(),
+    );
+    assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+    let error: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(error["error"]["code"], "compile_failed");
+    assert_eq!(error["error"]["details"]["step_index"], 2);
+    assert_eq!(snapshot_tree(&tmp.path), tree_before);
+    assert_eq!(fs::read_link(&output).unwrap(), referent);
+}
+
+#[cfg(unix)]
+#[test]
+fn jsfl_denies_a_dangling_symlink_escape_before_creating_its_target() {
+    use std::os::unix::fs::symlink;
+
+    let tmp = TempDirGuard::new("jsfl-dangling-symlink");
+    let project_path = tmp.path.join("source.nflash");
+    let allowed = tmp.path.join("allowed");
+    let outside = tmp.path.join("outside");
+    fs::write(&project_path, Project::blank().to_json().unwrap()).unwrap();
+    fs::create_dir_all(&allowed).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    symlink("../outside/new.txt", allowed.join("escape")).unwrap();
+
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "jsfl",
+            "--project",
+            project_path.to_str().unwrap(),
+            "--stdin",
+            "--flfile-root",
+            allowed.to_str().unwrap(),
+        ],
+        "FLfile.write('file:///escape', 'must not escape');",
+    );
+    assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+    assert!(!outside.join("new.txt").exists());
+    assert_eq!(
+        fs::read_link(allowed.join("escape")).unwrap(),
+        Path::new("../outside/new.txt")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn jsfl_hardlink_writes_do_not_mutate_aliases_outside_the_allowed_root() {
+    let tmp = TempDirGuard::new("jsfl-hardlink-root");
+    let project_path = tmp.path.join("source.nflash");
+    let allowed = tmp.path.join("allowed");
+    let outside = tmp.path.join("outside");
+    fs::write(&project_path, Project::blank().to_json().unwrap()).unwrap();
+    fs::create_dir_all(&allowed).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+
+    let failed_target = allowed.join("failed.txt");
+    let failed_alias = outside.join("failed-alias.txt");
+    fs::write(&failed_target, b"original").unwrap();
+    fs::hard_link(&failed_target, &failed_alias).unwrap();
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "jsfl",
+            "--project",
+            project_path.to_str().unwrap(),
+            "--stdin",
+            "--flfile-root",
+            allowed.to_str().unwrap(),
+        ],
+        "FLfile.write('file:///failed.txt', 'changed'); throw 'late';",
+    );
+    assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
+    let error: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(error["error"]["code"], "jsfl_error");
+    assert!(
+        error["error"]["details"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("late"))
+    );
+    assert_eq!(fs::read(&failed_target).unwrap(), b"original");
+    assert_eq!(fs::read(&failed_alias).unwrap(), b"original");
+
+    let committed_target = allowed.join("committed.txt");
+    let committed_alias = outside.join("committed-alias.txt");
+    fs::write(&committed_target, b"before").unwrap();
+    fs::hard_link(&committed_target, &committed_alias).unwrap();
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "jsfl",
+            "--project",
+            project_path.to_str().unwrap(),
+            "--stdin",
+            "--flfile-root",
+            allowed.to_str().unwrap(),
+        ],
+        "FLfile.write('file:///committed.txt', '+after', 'append');",
+    );
+    assert_eq!(code, 0, "stdout={stdout}, stderr={stderr}");
+    assert_eq!(fs::read(&committed_target).unwrap(), b"before+after");
+    assert_eq!(fs::read(&committed_alias).unwrap(), b"before");
+}
+
+struct FailingWriter;
+
+impl Write for FailingWriter {
+    fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+        Err(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "test writer failed",
+        ))
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn batch_rolls_back_final_output_when_success_response_cannot_be_written() {
+    let tmp = TempDirGuard::new("batch-broken-stdout");
+    let output = tmp.path.join("output.nflash");
+    fs::write(&output, b"original project bytes").unwrap();
+    let ops = json!([{ "op": "new", "name": "Candidate" }]).to_string();
+    let args = vec![
+        "--headless".to_owned(),
+        "batch".to_owned(),
+        "--stdin".to_owned(),
+        "--out".to_owned(),
+        output.display().to_string(),
+    ];
+    let mut stdin = Cursor::new(ops.as_bytes());
+    let mut stdout = FailingWriter;
+    let mut stderr = Vec::new();
+    let code = run_cli_with_io(&args, true, &mut stdin, &mut stdout, &mut stderr);
+    assert_eq!(code, 1);
+    assert_eq!(fs::read(&output).unwrap(), b"original project bytes");
 }
 
 #[test]

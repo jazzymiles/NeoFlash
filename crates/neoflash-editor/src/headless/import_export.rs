@@ -1,5 +1,6 @@
 //! Shared import and export handlers delegating directly to `neoflash_import`,
 //! `neoflash_export`, and editor media helpers for headless CLI commands and batch pipelines.
+use super::effects::HeadlessEffectTransaction;
 use super::{
     CliError, OutputFormat, load_project_valid, resolve_layer_index, resolve_layer_index_mut,
     resolve_symbol, resolve_symbol_mut, save_project_atomic, serialize_json_value, take_flag_value,
@@ -196,6 +197,368 @@ pub(crate) struct ExportSpec {
     pub(crate) project_base_dir: Option<PathBuf>,
 }
 
+/// Register the exact files or owned output trees that one batch export may mutate.
+pub(crate) fn plan_export_effects(
+    project: &Project,
+    spec: &ExportSpec,
+    effects: &HeadlessEffectTransaction,
+) -> Result<(), CliError> {
+    let target = ExportTarget::parse(&spec.target)?;
+    let parent = || output_parent(&spec.out);
+    match target {
+        ExportTarget::Html5 => {
+            let (_, _, route) = resolve_publish_profile_and_options(project, spec)?;
+            match route {
+                BuiltinHtmlRoute::Standard => {
+                    neoflash_export::preflight_package_output_dir(&spec.out)
+                        .map_err(|error| CliError::runtime("export_failed", error.to_string()))?;
+                    effects.plan_tree(&spec.out)?;
+                }
+                BuiltinHtmlRoute::BannerNative => plan_banner_effects(&spec.out, effects)?,
+                BuiltinHtmlRoute::DesktopApp => plan_desktop_effects(project, &spec.out, effects)?,
+            }
+        }
+        ExportTarget::Desktop => plan_desktop_effects(project, &spec.out, effects)?,
+        ExportTarget::Banner => plan_banner_effects(&spec.out, effects)?,
+        ExportTarget::Fla | ExportTarget::Xfl => effects.plan_path(&spec.out)?,
+        ExportTarget::Swf | ExportTarget::Audio => effects.plan_path(&spec.out)?,
+        ExportTarget::Image => {
+            let format = match spec.image_format.as_deref() {
+                Some(raw) => parse_image_export_format(raw)?,
+                None => match ext_lower(&spec.out).as_deref() {
+                    Some(ext) => parse_image_export_format(ext)?,
+                    None => ImageExportFormat::Png,
+                },
+            };
+            let path = if format == ImageExportFormat::Jpeg
+                && ext_lower(&spec.out).as_deref() == Some("jpeg")
+            {
+                spec.out.clone()
+            } else {
+                spec.out.with_extension(format.extension())
+            };
+            effects.plan_path(path)?;
+        }
+        ExportTarget::Sequence => {
+            let format = match spec.image_format.as_deref() {
+                Some(raw) => parse_image_export_format(raw)?,
+                None => match ext_lower(&spec.out).as_deref() {
+                    Some(ext) => parse_image_export_format(ext).unwrap_or(ImageExportFormat::Png),
+                    None => ImageExportFormat::Png,
+                },
+            };
+            let extension = format.extension();
+            let base =
+                if !spec.out.is_file() && (spec.out.is_dir() || spec.out.extension().is_none()) {
+                    spec.out.join(format!("frame.{extension}"))
+                } else {
+                    spec.out.clone()
+                };
+            if spec.frame.is_some() && spec.end_frame.is_none() {
+                effects.plan_path(base.with_extension(extension))?;
+            } else {
+                let directory = output_parent(&base);
+                let stem = sequence_stem(&base);
+                let symbol_id = spec
+                    .symbol
+                    .as_deref()
+                    .map(|selector| {
+                        resolve_symbol(project, selector).map(|symbol| symbol.id.as_str())
+                    })
+                    .transpose()?;
+                let range = match spec.frame {
+                    Some(start) => ImageExportRange::Frames {
+                        start,
+                        end: spec.end_frame.unwrap_or(start),
+                    },
+                    None => ImageExportRange::WholeMovie,
+                };
+                let (start, end) = range.resolve_frames(project, symbol_id);
+                let count = end.saturating_sub(start).saturating_add(1).max(1);
+                let planned_names = planned_numbered_names(&stem, extension, count);
+                plan_sequence_sidecars_and_prior_members(
+                    &directory,
+                    &stem,
+                    extension,
+                    &planned_names,
+                    effects,
+                )?;
+                effects.plan_numbered_files(directory, stem, [extension], true, true)?;
+            }
+        }
+        ExportTarget::Aep => {
+            let aep = if spec.out.extension().is_some() {
+                spec.out.clone()
+            } else {
+                spec.out.with_extension("aep")
+            };
+            let stem = aep
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .filter(|value| !value.is_empty())
+                .unwrap_or("project");
+            effects.plan_path(&aep)?;
+            if spec.include_aepx.unwrap_or(true) {
+                effects.plan_path(aep.with_extension("aepx"))?;
+            }
+            if spec.include_extendscript.unwrap_or(true) {
+                effects.plan_path(aep.with_extension("jsx"))?;
+            }
+            effects.plan_tree(parent().join(format!("{stem}_Footage")))?;
+        }
+        ExportTarget::Svg => {
+            let start = spec.frame.unwrap_or(0);
+            let end = spec.end_frame.unwrap_or(start).max(start);
+            if end == start {
+                effects.plan_path(&spec.out)?;
+            } else {
+                let stem = spec
+                    .out
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("frame");
+                let parent = parent();
+                for frame in start..=end {
+                    effects.plan_path(parent.join(format!("{stem}_{:04}.svg", frame + 1)))?;
+                }
+            }
+        }
+        ExportTarget::Lottie => {
+            effects.plan_path(&spec.out)?;
+            if spec.html_preview {
+                effects.plan_path(spec.out.with_extension("preview.html"))?;
+            }
+            let dotlottie = spec.target.trim().eq_ignore_ascii_case("dotlottie")
+                || ext_lower(&spec.out).as_deref() == Some("lottie");
+            if spec.assets_folder || (dotlottie && spec.html_preview) {
+                effects.plan_tree(parent().join("images"))?;
+            }
+        }
+        ExportTarget::Atlas => {
+            effects.plan_path(&spec.out)?;
+            let image = spec.out.with_extension("png");
+            let stem = image
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .filter(|value| !value.is_empty())
+                .unwrap_or("spritesheet");
+            effects.plan_numbered_files(parent(), stem, ["png"], true, false)?;
+        }
+        ExportTarget::Video
+            if VideoFormat::from_path(&spec.out) == Some(VideoFormat::PngSequence) =>
+        {
+            let directory = parent();
+            let stem = sequence_stem(&spec.out);
+            let symbol_id = spec
+                .symbol
+                .as_deref()
+                .map(|selector| resolve_symbol(project, selector).map(|symbol| symbol.id.as_str()))
+                .transpose()?;
+            let count = effective_timeline_frame_count(project, symbol_id);
+            let raw_stem = spec
+                .out
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .filter(|value| !value.is_empty())
+                .unwrap_or("frame");
+            let mut planned_names =
+                if count == 1 && raw_stem == stem && spec.out.extension().is_some() {
+                    vec![
+                        spec.out
+                            .file_name()
+                            .and_then(|value| value.to_str())
+                            .unwrap_or("frame.png")
+                            .to_owned(),
+                    ]
+                } else {
+                    planned_numbered_names(&stem, "png", count)
+                };
+            // PNG-video may stage mixed audio in the same transaction. Including the companion
+            // name conservatively mirrors legacy exact-overlap migration before audio decoding.
+            planned_names.push(format!("{stem}.wav"));
+            plan_sequence_sidecars_and_prior_members(
+                &directory,
+                &stem,
+                "png",
+                &planned_names,
+                effects,
+            )?;
+            effects.plan_numbered_files(directory, stem, ["png", "wav"], true, true)?;
+        }
+        ExportTarget::Video => effects.plan_path(&spec.out)?,
+    }
+    Ok(())
+}
+
+fn output_parent(path: &Path) -> PathBuf {
+    path.parent()
+        .filter(|value| !value.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf()
+}
+
+fn sequence_stem(path: &Path) -> String {
+    let raw = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("frame");
+    raw.strip_suffix("_0001")
+        .filter(|value| !value.is_empty())
+        .unwrap_or(raw)
+        .to_owned()
+}
+
+fn planned_numbered_names(stem: &str, extension: &str, count: u32) -> Vec<String> {
+    let count = count.max(1);
+    if count == 1 {
+        return vec![format!("{stem}.{extension}")];
+    }
+    (0..count)
+        .map(|index| format!("{stem}_{:04}.{extension}", index + 1))
+        .collect()
+}
+
+fn plan_sequence_sidecars_and_prior_members(
+    directory: &Path,
+    stem: &str,
+    family: &str,
+    planned_names: &[String],
+    effects: &HeadlessEffectTransaction,
+) -> Result<(), CliError> {
+    let Ok((manifest, _)) = neoflash_export::read_sequence_manifest(directory) else {
+        return Ok(());
+    };
+    for (key, entry) in manifest.sequences {
+        let stem_matches = entry.stem.eq_ignore_ascii_case(stem)
+            || (entry.family.is_none() && key.eq_ignore_ascii_case(stem));
+        if !stem_matches {
+            continue;
+        }
+        let family_matches = match entry.family.as_deref() {
+            Some(recorded) => recorded.eq_ignore_ascii_case(family),
+            None => {
+                let exact_overlap = entry.files.iter().any(|owned| {
+                    planned_names
+                        .iter()
+                        .any(|planned| owned.name.eq_ignore_ascii_case(planned))
+                });
+                exact_overlap || {
+                    let mut saw_family = false;
+                    entry.files.iter().all(|owned| {
+                        let extension = Path::new(&owned.name)
+                            .extension()
+                            .and_then(|value| value.to_str())
+                            .unwrap_or_default();
+                        if extension.eq_ignore_ascii_case(family) {
+                            saw_family = true;
+                            true
+                        } else {
+                            family.eq_ignore_ascii_case("png")
+                                && extension.eq_ignore_ascii_case("wav")
+                        }
+                    }) && saw_family
+                }
+            }
+        };
+        if family_matches {
+            for owned in entry.files {
+                neoflash_export::validate_sequence_member_name(&owned.name)
+                    .map_err(|error| CliError::runtime("export_failed", error.to_string()))?;
+                effects.plan_path(directory.join(owned.name))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn plan_desktop_effects(
+    project: &Project,
+    output: &Path,
+    effects: &HeadlessEffectTransaction,
+) -> Result<(), CliError> {
+    let safe_name = project
+        .name
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() || matches!(character, '-' | '_' | ' ') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let safe_name = safe_name.trim();
+    let stem = if safe_name.is_empty() {
+        "NeoFlashApp"
+    } else {
+        safe_name
+    };
+    effects.plan_tree(output.join(format!("{stem}.app")))?;
+    effects.plan_path(output.join(format!("Launch {stem}.bat")))?;
+    effects.plan_path(output.join(format!("Launch {stem}.sh")))?;
+    Ok(())
+}
+
+fn plan_banner_effects(output: &Path, effects: &HeadlessEffectTransaction) -> Result<(), CliError> {
+    let directory_target = output.is_dir() || output.extension().is_none();
+    let final_path = if directory_target {
+        output.join("index.html")
+    } else {
+        output.to_path_buf()
+    };
+    effects.plan_path(&final_path)?;
+    if final_path
+        .file_name()
+        .is_some_and(|name| name.eq_ignore_ascii_case("index.html"))
+    {
+        let directory = output_parent(&final_path);
+        let marker = directory.join("neoflash-export.json");
+        effects.plan_path(&marker)?;
+        for relative in read_marker_owned_paths(&marker) {
+            effects.plan_path(directory.join(relative))?;
+        }
+        effects.plan_tree(directory.join("assets"))?;
+    }
+    Ok(())
+}
+
+fn read_marker_owned_paths(marker: &Path) -> Vec<PathBuf> {
+    let Ok(metadata) = fs::metadata(marker) else {
+        return Vec::new();
+    };
+    if !metadata.is_file() {
+        return Vec::new();
+    }
+    let Ok(bytes) = fs::read(marker) else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
+        return Vec::new();
+    };
+    if value["generator"] != "NeoFlash" || value["format_version"] != 1 {
+        return Vec::new();
+    }
+    let Some(files) = value["files"].as_array() else {
+        return Vec::new();
+    };
+    let mut seen = BTreeSet::new();
+    let mut paths = Vec::with_capacity(files.len());
+    for file in files {
+        let Some(relative) = file.as_str() else {
+            return Vec::new();
+        };
+        if neoflash_core::validate_external_video_path(relative).is_err()
+            || !seen.insert(relative.to_ascii_lowercase())
+        {
+            return Vec::new();
+        }
+        paths.push(PathBuf::from(relative));
+    }
+    paths
+}
+
 /// Locate the compiled `target/web-runtime` directory for HTML5 and Desktop exports.
 pub(crate) fn resolve_web_runtime(explicit: Option<&Path>) -> Result<PathBuf, CliError> {
     if let Some(dir) = explicit {
@@ -262,6 +625,111 @@ struct ImportTargetOptions {
     swc_conflict: Option<SwcConflictPolicy>,
     sequence_placement: Option<ImageSequencePlacement>,
     frame_step: Option<u32>,
+}
+
+/// Parameters for importing assets into the in-memory project owned by a batch transaction.
+///
+/// `input` is a convenience spelling for one path; `inputs` mirrors the standalone command's
+/// ability to import a numbered image sequence or several independent assets in one step.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BatchImportSpec {
+    #[serde(default)]
+    input: Option<PathBuf>,
+    #[serde(default)]
+    inputs: Vec<PathBuf>,
+    #[serde(default)]
+    library_only: bool,
+    #[serde(default)]
+    symbol: Option<String>,
+    #[serde(default)]
+    layer: Option<String>,
+    #[serde(default)]
+    frame: u32,
+    #[serde(default)]
+    folder: String,
+    #[serde(default)]
+    swc_conflict: Option<String>,
+    #[serde(default)]
+    sequence_placement: Option<String>,
+    #[serde(default)]
+    frame_step: Option<u32>,
+}
+
+/// Import one batch step into the current candidate project without writing a project file.
+/// Any explicit save/export remains owned by the outer filesystem transaction.
+pub(crate) fn import_project_with_spec(
+    project: &mut Project,
+    spec: &BatchImportSpec,
+) -> Result<Value, CliError> {
+    if spec.input.is_some() && !spec.inputs.is_empty() {
+        return Err(CliError::usage(
+            "conflicting_fields",
+            "batch import accepts either 'input' or 'inputs', not both",
+        ));
+    }
+    let inputs = if let Some(input) = &spec.input {
+        vec![input.clone()]
+    } else {
+        spec.inputs.clone()
+    };
+    if inputs.is_empty() {
+        return Err(CliError::usage(
+            "missing_field",
+            "batch import requires 'input' or a non-empty 'inputs' array",
+        ));
+    }
+    if spec.frame_step == Some(0) {
+        return Err(CliError::usage(
+            "invalid_argument",
+            "batch import frame_step must be >= 1",
+        ));
+    }
+
+    let opts = ImportTargetOptions {
+        library_only: spec.library_only,
+        symbol: spec.symbol.clone(),
+        layer: spec.layer.clone(),
+        frame: spec.frame,
+        folder: parse_library_folder_flag(&spec.folder)?,
+        swc_conflict: spec
+            .swc_conflict
+            .as_deref()
+            .map(parse_swc_conflict_policy)
+            .transpose()?,
+        sequence_placement: spec
+            .sequence_placement
+            .as_deref()
+            .map(parse_sequence_placement)
+            .transpose()?,
+        frame_step: spec.frame_step,
+    };
+
+    let (report, swc_link) = import_inputs_into_project(project, &inputs, &opts)?;
+    finalize_project_format_version(project);
+    project
+        .validate()
+        .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
+
+    let mut result = json!({
+        "inputs": inputs.iter().map(|path| path.display().to_string()).collect::<Vec<_>>(),
+        "library_only": opts.library_only,
+        "report": report,
+        "project": {
+            "name": project.name,
+            "format_version": project.format_version,
+            "symbols": project.symbols.len(),
+            "layers": project.symbols.iter().map(|symbol| symbol.timeline.layers.len()).sum::<usize>(),
+            "resources": project.resources.len(),
+            "sources": project.sources.len(),
+        },
+    });
+    if let Some(link) = swc_link
+        && let Some(object) = result.as_object_mut()
+    {
+        object.insert("swc_link".to_owned(), json!(link));
+    }
+    Ok(result)
 }
 
 pub(crate) fn cmd_import<W1: Write, W2: Write>(

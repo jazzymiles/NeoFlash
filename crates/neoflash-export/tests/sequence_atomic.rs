@@ -5,9 +5,10 @@ use neoflash_core::{
 use neoflash_export::{
     AtlasFormat, AtlasImageFormat, AtlasOptions, ExportError, ImageExportFormat,
     ImageExportOptions, ImageExportRange, SEQUENCE_COMMIT_LOCK_FILENAME,
-    SEQUENCE_MANIFEST_FILENAME, SEQUENCE_STAGE_PREFIX, SequenceSetTransaction, VideoFormat,
-    VideoOptions, export_project_atlas, export_project_image, export_project_image_with_progress,
-    export_project_video, export_project_video_with_progress, read_sequence_manifest, sha256_hex,
+    SEQUENCE_MANIFEST_FILENAME, SEQUENCE_STAGE_PREFIX, SequenceCommitLease, SequenceSetTransaction,
+    VideoFormat, VideoOptions, export_project_atlas, export_project_image,
+    export_project_image_with_progress, export_project_video, export_project_video_with_progress,
+    read_sequence_manifest, sha256_hex, validate_sequence_member_name,
 };
 use std::{
     collections::BTreeMap,
@@ -296,6 +297,71 @@ fn reserved_manifest_key_delimiter_is_rejected_without_creating_output() {
     };
     assert!(error.to_string().contains("Invalid sequence base name"));
     assert!(!out_dir.exists());
+}
+
+#[test]
+fn windows_drive_relative_sequence_names_are_rejected_on_every_platform() {
+    let guard = TempDirGuard::new("portable-drive-relative-name");
+    let out_dir = guard.path().join("output");
+    let mut transaction = SequenceSetTransaction::begin(&out_dir, "shot").unwrap();
+    let error = transaction
+        .stage_file("C:outside.png", b"must not escape")
+        .expect_err("drive-relative member names are not portable leaf names");
+    assert!(
+        error
+            .to_string()
+            .contains("Invalid sequence output filename")
+    );
+    assert!(!out_dir.join("C:outside.png").exists());
+
+    for name in ["CON.png", "LPT1", "name.", "name ", "bad*.png"] {
+        assert!(
+            validate_sequence_member_name(name).is_err(),
+            "non-portable sequence member {name:?} was accepted"
+        );
+    }
+    for stem in ["CON", "LPT1", "name.", "bad*"] {
+        assert!(
+            SequenceSetTransaction::begin(&out_dir, stem).is_err(),
+            "non-portable sequence stem {stem:?} was accepted"
+        );
+    }
+}
+
+#[test]
+fn transaction_sequence_lease_is_reentrant_and_blocks_other_threads_until_drop() {
+    let guard = TempDirGuard::new("transaction-lease");
+    let out_dir = guard.path().join("output");
+    fs::create_dir_all(&out_dir).unwrap();
+
+    let outer = SequenceCommitLease::acquire(&out_dir).unwrap();
+    let nested = SequenceCommitLease::acquire(&out_dir).unwrap();
+    drop(nested);
+
+    let worker_dir = out_dir.clone();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (acquired_tx, acquired_rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        started_tx.send(()).unwrap();
+        let lease = SequenceCommitLease::acquire(&worker_dir).unwrap();
+        acquired_tx.send(()).unwrap();
+        drop(lease);
+    });
+    started_rx.recv().unwrap();
+    assert!(
+        matches!(
+            acquired_rx.recv_timeout(Duration::from_millis(250)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ),
+        "a different thread must wait for the command-wide lease"
+    );
+
+    drop(outer);
+    acquired_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("waiting thread acquired the stable lock after release");
+    worker.join().unwrap();
+    assert!(out_dir.join(SEQUENCE_COMMIT_LOCK_FILENAME).is_file());
 }
 
 #[test]
