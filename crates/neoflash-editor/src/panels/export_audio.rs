@@ -20,7 +20,7 @@ use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
 use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::space;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicU64, Ordering},
@@ -51,12 +51,79 @@ impl From<&AudioExportOptions> for AudioPreviewKey {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ExportAudioDraft {
     pub(crate) options: AudioExportOptions,
+    pub(crate) output_path: PathBuf,
     pub(crate) cached_summary: String,
     pub(crate) cached_duration: f64,
     pub(crate) has_sound: bool,
     pub(crate) empty_reason: Option<String>,
     pub(crate) cached_peaks: Option<WaveformPeaks>,
     pub(crate) computed_key: Option<AudioPreviewKey>,
+}
+
+pub(crate) fn default_audio_output_path(
+    project: &Project,
+    project_path: Option<&Path>,
+    format: AudioFormat,
+) -> PathBuf {
+    let raw_stem = project_path
+        .and_then(|p| p.file_stem())
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(project.name.as_str());
+    let sanitized: String = raw_stem
+        .chars()
+        .filter(|c| !matches!(c, '/' | '\\' | ':' | '\0'))
+        .collect();
+    let stem = if sanitized.trim().is_empty() {
+        "Untitled"
+    } else {
+        sanitized.trim()
+    };
+    let file_name = format!("{stem}.{}", format.extension());
+    match project_path
+        .and_then(Path::parent)
+        .filter(|p| !p.as_os_str().is_empty())
+    {
+        Some(dir) => dir.join(file_name),
+        None => PathBuf::from(file_name),
+    }
+}
+
+pub(crate) fn sync_audio_output_path_extension(path: &mut PathBuf, format: AudioFormat) {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf);
+    let raw_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled.mp3");
+    let mut stem = raw_name;
+    for ext in [".wav", ".wave", ".mp3", ".ogg", ".flac", ".aac", ".m4a"] {
+        if raw_name.len() > ext.len()
+            && raw_name[raw_name.len() - ext.len()..].eq_ignore_ascii_case(ext)
+        {
+            stem = &raw_name[..raw_name.len() - ext.len()];
+            break;
+        }
+    }
+    let stem = if stem.trim().is_empty() {
+        "Untitled"
+    } else {
+        stem
+    };
+    let next_name = format!("{stem}.{}", format.extension());
+    *path = match parent {
+        Some(dir) => dir.join(next_name),
+        None => PathBuf::from(next_name),
+    };
+}
+
+impl ExportAudioDraft {
+    pub(crate) fn set_format(&mut self, format: AudioFormat) {
+        self.options.format = format;
+        sync_audio_output_path_extension(&mut self.output_path, format);
+    }
 }
 
 #[derive(Clone)]
@@ -309,8 +376,11 @@ impl Editor {
         {
             options.source = AudioExportSource::TimelineMix;
         }
+        let output_path =
+            default_audio_output_path(&self.project, self.path.as_deref(), options.format);
         let mut draft = ExportAudioDraft {
             options,
+            output_path,
             cached_summary: String::new(),
             cached_duration: 0.0,
             has_sound: false,
@@ -443,7 +513,7 @@ impl Editor {
 
                         let mut fmt_idx = draft.options.format.index();
                         if c::Segmented::show(ui, &mut fmt_idx, &FORMAT_TABS, false).is_some() {
-                            draft.options.format = AudioFormat::from_index(fmt_idx);
+                            draft.set_format(AudioFormat::from_index(fmt_idx));
                         }
 
                         if !draft.has_sound && !is_computing {
@@ -707,7 +777,11 @@ impl Editor {
                                 .changed()
                             {
                                 draft.options.fade_out_seconds =
-                                    draft.options.fade_out_seconds.clamp(0.0, 30.0);
+                                    if draft.options.fade_out_seconds.is_finite() {
+                                        draft.options.fade_out_seconds.clamp(0.0, 30.0)
+                                    } else {
+                                        0.0
+                                    };
                             }
                             if ui
                                 .add(c::Checkbox::new(
@@ -782,31 +856,50 @@ impl Editor {
 
         if close_cancel {
             self.cancel_export_audio(ctx);
+            super::dialog_helpers::record_end_of_frame_focus(ctx);
             return;
         }
 
+        sync_audio_output_path_extension(&mut draft.output_path, draft.options.format);
         ctx.data_mut(|d| d.insert_temp(draft_id(), draft.clone()));
 
         if do_export {
             let ext = draft.options.format.extension();
-            let default_stem = self
-                .path
-                .as_ref()
-                .and_then(|p| p.file_stem())
+            let default_file = draft
+                .output_path
+                .file_name()
                 .and_then(|s| s.to_str())
                 .filter(|s| !s.is_empty())
-                .unwrap_or(self.project.name.as_str());
-            let default_file = format!("{default_stem}.{ext}");
-            if let Some(path) = rfd::FileDialog::new()
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    default_audio_output_path(
+                        &self.project,
+                        self.path.as_deref(),
+                        draft.options.format,
+                    )
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Untitled.mp3")
+                    .to_owned()
+                });
+            let mut dialog = rfd::FileDialog::new()
                 .set_title("Export audio")
                 .set_file_name(&default_file)
-                .add_filter(draft.options.format.label(), &[ext])
-                .save_file()
+                .add_filter(draft.options.format.label(), &[ext]);
+            if let Some(dir) = draft
+                .output_path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+            {
+                dialog = dialog.set_directory(dir);
+            }
+            if let Some(path) = dialog.save_file()
                 && let Err(err) = self.confirm_export_audio_to_path(ctx, &path)
             {
                 self.message(format!("Audio export failed: {err}"));
             }
         }
+        super::dialog_helpers::record_end_of_frame_focus(ctx);
     }
 }
 

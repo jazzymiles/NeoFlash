@@ -3199,7 +3199,9 @@ impl<'a> LottieBuilder<'a> {
             let stroke = apply_rgb_only(ct, d_ov.color, apply_color_tx_alpha);
             if d_ov.width > 0.0 {
                 let dash_json = build_lottie_dash_array(d_ov.dash, d_ov.gap);
-                if let Some(grad) = &d_ov.gradient {
+                if let Some(grad) = &d_ov.gradient
+                    && !grad.stops.is_empty()
+                {
                     if let (Some(sid), Some(lid), Some(fr)) = (symbol_id, layer_id, frame) {
                         self.note_gradient_approximations(grad, sid, lid, fr);
                     }
@@ -3247,7 +3249,9 @@ impl<'a> LottieBuilder<'a> {
             _ => (None, None),
         };
 
-        if let Some(grad) = fill_grad {
+        if let Some(grad) = fill_grad
+            && !grad.stops.is_empty()
+        {
             if let (Some(sid), Some(lid), Some(fr)) = (symbol_id, layer_id, frame) {
                 self.note_gradient_approximations(grad, sid, lid, fr);
             }
@@ -3266,7 +3270,9 @@ impl<'a> LottieBuilder<'a> {
         }
 
         if stroke_width > 0.0 {
-            if let Some(grad) = stroke_grad {
+            if let Some(grad) = stroke_grad
+                && !grad.stops.is_empty()
+            {
                 if let (Some(sid), Some(lid), Some(fr)) = (symbol_id, layer_id, frame) {
                     self.note_gradient_approximations(grad, sid, lid, fr);
                 }
@@ -4278,7 +4284,10 @@ fn gradient_endpoints(grad: &GradientPaint) -> ([f64; 2], [f64; 2], u8) {
 }
 
 fn gradient_radial_highlight(grad: &GradientPaint) -> Option<(f64, f64)> {
-    if grad.kind != GradientKind::Radial || grad.focal_point_ratio.abs() <= 1e-4 {
+    if grad.kind != GradientKind::Radial
+        || !grad.focal_point_ratio.is_finite()
+        || grad.focal_point_ratio.abs() <= 1e-4
+    {
         return None;
     }
     let r = grad.focal_point_ratio.clamp(-0.999, 0.999);
@@ -4287,16 +4296,45 @@ fn gradient_radial_highlight(grad: &GradientPaint) -> Option<(f64, f64)> {
     Some((h, a))
 }
 
+fn normalized_lottie_stops(
+    grad: &GradientPaint,
+) -> std::borrow::Cow<'_, [neoflash_core::GradientStop]> {
+    if grad.stops.is_empty() {
+        std::borrow::Cow::Owned(vec![
+            neoflash_core::GradientStop {
+                ratio: 0,
+                color: [0, 0, 0, 0],
+            },
+            neoflash_core::GradientStop {
+                ratio: 255,
+                color: [0, 0, 0, 0],
+            },
+        ])
+    } else if grad.stops.len() == 1 {
+        let c = grad.stops[0].color;
+        std::borrow::Cow::Owned(vec![
+            neoflash_core::GradientStop { ratio: 0, color: c },
+            neoflash_core::GradientStop {
+                ratio: 255,
+                color: c,
+            },
+        ])
+    } else {
+        std::borrow::Cow::Borrowed(&grad.stops)
+    }
+}
+
 fn gradient_stops_array_with_opacity(grad: &GradientPaint, include_opacity: bool) -> Vec<f64> {
-    let mut arr = Vec::with_capacity(grad.stops.len() * 6);
-    for stop in &grad.stops {
+    let stops = normalized_lottie_stops(grad);
+    let mut arr = Vec::with_capacity(stops.len() * 6);
+    for stop in stops.iter() {
         arr.push(round4(f64::from(stop.ratio) / 255.0));
         arr.push(round4(f64::from(stop.color[0]) / 255.0));
         arr.push(round4(f64::from(stop.color[1]) / 255.0));
         arr.push(round4(f64::from(stop.color[2]) / 255.0));
     }
     if include_opacity {
-        for stop in &grad.stops {
+        for stop in stops.iter() {
             arr.push(round4(f64::from(stop.ratio) / 255.0));
             arr.push(round4(f64::from(stop.color[3]) / 255.0));
         }
@@ -4305,12 +4343,14 @@ fn gradient_stops_array_with_opacity(grad: &GradientPaint, include_opacity: bool
 }
 
 fn gradient_stops_array(grad: &GradientPaint) -> Vec<f64> {
-    let has_alpha = grad.stops.iter().any(|s| s.color[3] < 255);
+    let stops = normalized_lottie_stops(grad);
+    let has_alpha = stops.iter().any(|s| s.color[3] < 255);
     gradient_stops_array_with_opacity(grad, has_alpha)
 }
 
 fn gradient_fill_item(grad: &GradientPaint, fill_rule: FillRule) -> Value {
     let (s, e, t) = gradient_endpoints(grad);
+    let p_count = normalized_lottie_stops(grad).len();
     let k = gradient_stops_array(grad);
     let mut obj = json!({
         "ty": "gf",
@@ -4319,7 +4359,7 @@ fn gradient_fill_item(grad: &GradientPaint, fill_rule: FillRule) -> Value {
         "r": if fill_rule == FillRule::EvenOdd { 2 } else { 1 },
         "bm": 0,
         "g": {
-            "p": grad.stops.len(),
+            "p": p_count,
             "k": {"a": 0, "k": k}
         },
         "s": {"a": 0, "k": s},
@@ -4337,6 +4377,7 @@ fn gradient_fill_item(grad: &GradientPaint, fill_rule: FillRule) -> Value {
 
 fn gradient_stroke_item(grad: &GradientPaint, stroke_width: f64) -> Value {
     let (s, e, t) = gradient_endpoints(grad);
+    let p_count = normalized_lottie_stops(grad).len();
     let k = gradient_stops_array(grad);
     let mut obj = json!({
         "ty": "gs",
@@ -4348,7 +4389,7 @@ fn gradient_stroke_item(grad: &GradientPaint, stroke_width: f64) -> Value {
         "ml": 4,
         "bm": 0,
         "g": {
-            "p": grad.stops.len(),
+            "p": p_count,
             "k": {"a": 0, "k": k}
         },
         "s": {"a": 0, "k": s},
@@ -4405,11 +4446,11 @@ fn build_linear_f64_slice_prop(samples: &[(u32, Vec<f64>)]) -> Value {
 fn animated_gradient_common(
     grads: &[(u32, GradientPaint)],
 ) -> (usize, u8, Value, Value, Value, Option<(Value, Value)>) {
-    let p_count = grads[0].1.stops.len();
+    let p_count = normalized_lottie_stops(&grads[0].1).len();
     let (_, _, t_code) = gradient_endpoints(&grads[0].1);
     let include_opacity = grads
         .iter()
-        .any(|(_, g)| g.stops.iter().any(|s| s.color[3] < 255));
+        .any(|(_, g)| normalized_lottie_stops(g).iter().any(|s| s.color[3] < 255));
     let k_samples: Vec<(u32, Vec<f64>)> = grads
         .iter()
         .map(|(f, g)| (*f, gradient_stops_array_with_opacity(g, include_opacity)))
@@ -4422,25 +4463,27 @@ fn animated_gradient_common(
         .iter()
         .map(|(f, g)| (*f, gradient_endpoints(g).1))
         .collect();
-    let highlight = if t_code == 2 && grads.iter().any(|(_, g)| g.focal_point_ratio.abs() > 1e-4) {
+    let highlight = if t_code == 2
+        && grads
+            .iter()
+            .any(|(_, g)| g.focal_point_ratio.is_finite() && g.focal_point_ratio.abs() > 1e-4)
+    {
         let h_samples: Vec<(u32, [f64; 1])> = grads
             .iter()
             .map(|(f, g)| {
-                let r = g.focal_point_ratio.clamp(-0.999, 0.999);
+                let r = if g.focal_point_ratio.is_finite() {
+                    g.focal_point_ratio.clamp(-0.999, 0.999)
+                } else {
+                    0.0
+                };
                 (*f, [round4(r.abs() * 100.0)])
             })
             .collect();
         let a_samples: Vec<(u32, [f64; 1])> = grads
             .iter()
             .map(|(f, g)| {
-                (
-                    *f,
-                    [if g.focal_point_ratio < -1e-4 {
-                        180.0
-                    } else {
-                        0.0
-                    }],
-                )
+                let neg = g.focal_point_ratio.is_finite() && g.focal_point_ratio < -1e-4;
+                (*f, [if neg { 180.0 } else { 0.0 }])
             })
             .collect();
         let h_val = if h_samples.iter().all(|(_, v)| v[0] == h_samples[0].1[0]) {

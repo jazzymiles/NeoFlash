@@ -3772,13 +3772,14 @@ fn build_clip_mask(
 }
 
 fn affine_to_skia(m: [f64; 6]) -> SkiaTransform {
+    let f = |v: f64, def: f32| if v.is_finite() { v as f32 } else { def };
     SkiaTransform::from_row(
-        m[0] as f32,
-        m[1] as f32,
-        m[2] as f32,
-        m[3] as f32,
-        m[4] as f32,
-        m[5] as f32,
+        f(m[0], 1.0),
+        f(m[1], 0.0),
+        f(m[2], 0.0),
+        f(m[3], 1.0),
+        f(m[4], 0.0),
+        f(m[5], 0.0),
     )
 }
 
@@ -3791,9 +3792,12 @@ fn to_skia_fill_rule(rule: FillRule) -> SkiaFillRule {
 
 fn apply_color(base: Color, ct: ColorTransform, alpha: f64) -> Color {
     let mut c = ct.apply(base);
-    c[3] = (f64::from(c[3]) * alpha.clamp(0.0, 1.0))
-        .round()
-        .clamp(0.0, 255.0) as u8;
+    let safe_alpha = if alpha.is_finite() {
+        alpha.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    c[3] = (f64::from(c[3]) * safe_alpha).round().clamp(0.0, 255.0) as u8;
     c
 }
 
@@ -3801,10 +3805,20 @@ fn build_skia_path(commands: &[PathCommand]) -> Option<SkiaPath> {
     let mut pb = PathBuilder::new();
     for cmd in commands {
         match *cmd {
-            PathCommand::MoveTo { x, y } => pb.move_to(x as f32, y as f32),
-            PathCommand::LineTo { x, y } => pb.line_to(x as f32, y as f32),
+            PathCommand::MoveTo { x, y } => {
+                if x.is_finite() && y.is_finite() {
+                    pb.move_to(x as f32, y as f32);
+                }
+            }
+            PathCommand::LineTo { x, y } => {
+                if x.is_finite() && y.is_finite() {
+                    pb.line_to(x as f32, y as f32);
+                }
+            }
             PathCommand::QuadraticTo { cx, cy, x, y } => {
-                pb.quad_to(cx as f32, cy as f32, x as f32, y as f32);
+                if cx.is_finite() && cy.is_finite() && x.is_finite() && y.is_finite() {
+                    pb.quad_to(cx as f32, cy as f32, x as f32, y as f32);
+                }
             }
             PathCommand::CubicTo {
                 cx1,
@@ -3814,9 +3828,17 @@ fn build_skia_path(commands: &[PathCommand]) -> Option<SkiaPath> {
                 x,
                 y,
             } => {
-                pb.cubic_to(
-                    cx1 as f32, cy1 as f32, cx2 as f32, cy2 as f32, x as f32, y as f32,
-                );
+                if cx1.is_finite()
+                    && cy1.is_finite()
+                    && cx2.is_finite()
+                    && cy2.is_finite()
+                    && x.is_finite()
+                    && y.is_finite()
+                {
+                    pb.cubic_to(
+                        cx1 as f32, cy1 as f32, cx2 as f32, cy2 as f32, x as f32, y as f32,
+                    );
+                }
             }
             PathCommand::Close => pb.close(),
         }
@@ -3837,6 +3859,11 @@ fn configure_paint_shader<'a>(
     if let Some(grad) = gradient
         && !grad.stops.is_empty()
     {
+        if grad.stops.len() == 1 {
+            let c = apply_color(grad.stops[0].color, ct, alpha);
+            paint.set_color_rgba8(c[0], c[1], c[2], c[3]);
+            return paint;
+        }
         let stops: Vec<SkiaGradientStop> = grad
             .stops
             .iter()
@@ -3858,7 +3885,12 @@ fn configure_paint_shader<'a>(
                 grad_xf,
             ),
             GradientKind::Radial => {
-                let fx = (grad.focal_point_ratio.clamp(-0.98, 0.98) * 819.2) as f32;
+                let focal = if grad.focal_point_ratio.is_finite() {
+                    grad.focal_point_ratio.clamp(-0.98, 0.98)
+                } else {
+                    0.0
+                };
+                let fx = (focal * 819.2) as f32;
                 RadialGradient::new(
                     SkiaPoint::from_xy(fx, 0.0),
                     0.0,
@@ -4836,45 +4868,53 @@ fn encode_gif_file(
         .map_err(|_| ExportError::Options("GIF width exceeds 65535 pixels".into()))?;
     let h = u16::try_from(height)
         .map_err(|_| ExportError::Options("GIF height exceeds 65535 pixels".into()))?;
-    let file = fs::File::create(output_path)?;
-    let mut encoder = gif::Encoder::new(BufWriter::new(file), w, h, &[])
-        .map_err(|e| ExportError::Options(format!("GIF encoder error: {e}")))?;
-    encoder
-        .set_repeat(gif::Repeat::Infinite)
-        .map_err(|e| ExportError::Options(format!("GIF repeat error: {e}")))?;
-
-    let delay_cs = ((100.0 / f64::from(fps)).round() as u16).max(1);
-    let sample_fac = (30 - i32::from(quality.clamp(1, 100)) * 29 / 100).clamp(1, 30);
-
-    for rgba in frames {
-        // If GIF dimensions exceed 2048, scale down or quantize directly.
-        let nq = NeuQuant::new(sample_fac, 255, rgba);
-        let mut palette = nq.color_map_rgb();
-        // Reserve index 255 for transparent pixels when transparent_bg is enabled.
-        while palette.len() < 256 * 3 {
-            palette.push(0);
-        }
-        let mut indexed = Vec::with_capacity((width * height) as usize);
-        for px in rgba.as_chunks::<4>().0 {
-            if transparent_bg && px[3] < 128 {
-                indexed.push(255u8);
-            } else {
-                let idx = (nq.index_of(px) as u8).min(254);
-                indexed.push(idx);
-            }
-        }
-        let mut frame =
-            gif::Frame::from_palette_pixels(w, h, indexed, palette, transparent_bg.then_some(255));
-        frame.delay = delay_cs;
-        frame.dispose = if transparent_bg {
-            gif::DisposalMethod::Background
-        } else {
-            gif::DisposalMethod::Any
-        };
+    let mut gif_bytes = Vec::new();
+    {
+        let mut encoder = gif::Encoder::new(BufWriter::new(&mut gif_bytes), w, h, &[])
+            .map_err(|e| ExportError::Options(format!("GIF encoder error: {e}")))?;
         encoder
-            .write_frame(&frame)
-            .map_err(|e| ExportError::Options(format!("GIF frame write error: {e}")))?;
+            .set_repeat(gif::Repeat::Infinite)
+            .map_err(|e| ExportError::Options(format!("GIF repeat error: {e}")))?;
+
+        let delay_cs = ((100.0 / f64::from(fps)).round() as u16).max(1);
+        let sample_fac = (30 - i32::from(quality.clamp(1, 100)) * 29 / 100).clamp(1, 30);
+
+        for rgba in frames {
+            // If GIF dimensions exceed 2048, scale down or quantize directly.
+            let nq = NeuQuant::new(sample_fac, 255, rgba);
+            let mut palette = nq.color_map_rgb();
+            // Reserve index 255 for transparent pixels when transparent_bg is enabled.
+            while palette.len() < 256 * 3 {
+                palette.push(0);
+            }
+            let mut indexed = Vec::with_capacity((width * height) as usize);
+            for px in rgba.as_chunks::<4>().0 {
+                if transparent_bg && px[3] < 128 {
+                    indexed.push(255u8);
+                } else {
+                    let idx = (nq.index_of(px) as u8).min(254);
+                    indexed.push(idx);
+                }
+            }
+            let mut frame = gif::Frame::from_palette_pixels(
+                w,
+                h,
+                indexed,
+                palette,
+                transparent_bg.then_some(255),
+            );
+            frame.delay = delay_cs;
+            frame.dispose = if transparent_bg {
+                gif::DisposalMethod::Background
+            } else {
+                gif::DisposalMethod::Any
+            };
+            encoder
+                .write_frame(&frame)
+                .map_err(|e| ExportError::Options(format!("GIF frame write error: {e}")))?;
+        }
     }
+    crate::atomic_write(output_path, &gif_bytes)?;
     Ok(())
 }
 
@@ -4910,10 +4950,14 @@ fn encode_png_sequence(
             };
         let img = RgbaImage::from_raw(width, height, rgba.clone())
             .ok_or_else(|| ExportError::Options("PNG sequence buffer size mismatch".into()))?;
-        img.save(&frame_path)
-            .map_err(|e| ExportError::Options(format!("Could not save PNG frame: {e}")))?;
-        let len = fs::metadata(&frame_path).map(|m| m.len()).unwrap_or(0);
-        total_bytes = total_bytes.saturating_add(len);
+        let mut png_bytes = Vec::new();
+        img.write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .map_err(|e| ExportError::Options(format!("Could not encode PNG frame: {e}")))?;
+        crate::atomic_write(&frame_path, &png_bytes)?;
+        total_bytes = total_bytes.saturating_add(png_bytes.len() as u64);
         if idx == 0 {
             first_path = frame_path;
         } else {
@@ -4924,7 +4968,7 @@ fn encode_png_sequence(
     let mut audio_included = false;
     if let Some(wav) = wav_audio {
         let wav_path = parent.join(format!("{stem}.wav"));
-        fs::write(&wav_path, wav)?;
+        crate::atomic_write(&wav_path, wav)?;
         total_bytes = total_bytes.saturating_add(wav.len() as u64);
         additional_files.push(wav_path);
         audio_included = true;
@@ -5140,9 +5184,26 @@ fn encode_with_ffmpeg(
     };
     let (primary_encoder, is_hw) = select_video_encoder(&ffmpeg, codec, prefer_hardware);
 
+    let parent = output_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let stem = output_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("video");
+    static FFMPEG_STAGE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let seq = FFMPEG_STAGE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let staged_output = parent.join(format!(
+        ".{stem}.neoflash-video-tmp-{}-{seq}.{}",
+        std::process::id(),
+        options.format.extension()
+    ));
+
     if let Err(primary_err) = run_ffmpeg_encode_attempt(
         &ffmpeg,
-        output_path,
+        &staged_output,
         options,
         frames,
         width,
@@ -5152,6 +5213,7 @@ fn encode_with_ffmpeg(
         staged_audio_path,
         primary_encoder,
     ) {
+        let _ = fs::remove_file(&staged_output);
         if is_hw {
             let (sw_encoder, _) = select_video_encoder(&ffmpeg, codec, false);
             if sw_encoder != primary_encoder && probe_ffmpeg_encoders(&ffmpeg).contains(sw_encoder)
@@ -5159,9 +5221,9 @@ fn encode_with_ffmpeg(
                 warnings.push(format!(
                     "Hardware video encoder '{primary_encoder}' was unavailable for this configuration; fell back to software encoder '{sw_encoder}'."
                 ));
-                run_ffmpeg_encode_attempt(
+                if let Err(sw_err) = run_ffmpeg_encode_attempt(
                     &ffmpeg,
-                    output_path,
+                    &staged_output,
                     options,
                     frames,
                     width,
@@ -5170,13 +5232,21 @@ fn encode_with_ffmpeg(
                     transparent_bg,
                     staged_audio_path,
                     sw_encoder,
-                )?;
+                ) {
+                    let _ = fs::remove_file(&staged_output);
+                    return Err(sw_err);
+                }
             } else {
                 return Err(primary_err);
             }
         } else {
             return Err(primary_err);
         }
+    }
+
+    if let Err(err) = fs::rename(&staged_output, output_path) {
+        let _ = fs::remove_file(&staged_output);
+        return Err(ExportError::Io(err));
     }
 
     let bytes = fs::metadata(output_path).map(|m| m.len()).unwrap_or(0);

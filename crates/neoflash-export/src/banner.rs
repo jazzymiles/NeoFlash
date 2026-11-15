@@ -1059,18 +1059,49 @@ pub fn export_native_banner_html(
     }
 
     let out = output_path.as_ref();
-    let final_path = if out.is_dir() || out.extension().is_none() {
-        fs::create_dir_all(out)?;
-        out.join("index.html")
+    let is_dir_target = out.is_dir() || out.extension().is_none();
+    let (target_dir, final_path) = if is_dir_target {
+        (Some(out), out.join("index.html"))
     } else {
-        if let Some(parent) = out.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            fs::create_dir_all(parent)?;
-        }
-        out.to_path_buf()
+        (
+            out.parent().filter(|p| !p.as_os_str().is_empty()),
+            out.to_path_buf(),
+        )
     };
+    let marker_files = target_dir.and_then(crate::read_neoflash_marker_files);
+    let is_index_html = final_path
+        .file_name()
+        .is_some_and(|name| name.eq_ignore_ascii_case("index.html"));
+    if is_dir_target {
+        if crate::has_non_ignorable_dir_entries(out)?
+            && marker_files.is_none()
+            && !crate::is_neoflash_native_banner_dir(out)?
+        {
+            return Err(ExportError::Destination(out.display().to_string()));
+        }
+    } else if final_path.is_dir()
+        || (is_index_html
+            && marker_files.is_none()
+            && ((final_path.exists() && !crate::is_neoflash_native_banner_html(&final_path))
+                || (!final_path.exists()
+                    && target_dir.is_some_and(|dir| {
+                        crate::has_non_ignorable_dir_entries(dir).unwrap_or(false)
+                    }))))
+    {
+        return Err(ExportError::Destination(
+            target_dir.unwrap_or(&final_path).display().to_string(),
+        ));
+    }
+
+    if let Some(dir) = target_dir {
+        fs::create_dir_all(dir)?;
+    }
     atomic_write(&final_path, html.as_bytes())?;
+    if is_index_html && let (Some(dir), Some(prev_files)) = (target_dir, marker_files.as_ref()) {
+        let keep = std::collections::BTreeSet::from(["index.html".to_owned()]);
+        crate::cleanup_stale_package_files(dir, prev_files, &keep);
+        let _ = fs::remove_file(dir.join(crate::MARKER));
+    }
 
     Ok(BannerExportReport {
         html_path: final_path,

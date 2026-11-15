@@ -1239,6 +1239,7 @@ fn collect_element_geometry(
         neoflash_core::transform_matrix(element.transform),
     );
     let mut add_fill = |color: Color, gradient: Option<GradientPaint>| -> u16 {
+        let gradient = gradient.filter(|g| !g.stops.is_empty());
         if color[3] == 0 && gradient.is_none() && authored_bf.is_none() {
             return 0;
         }
@@ -1253,6 +1254,9 @@ fn collect_element_geometry(
         } else {
             gradient.map(|mut g| {
                 g.matrix = multiply_matrices(m, g.matrix);
+                if g.stops.len() > 15 {
+                    g.stops.truncate(15);
+                }
                 g
             })
         };
@@ -1264,11 +1268,15 @@ fn collect_element_geometry(
         fills.len() as u16
     };
     let mut add_stroke = |color: Color, width: f64, gradient: Option<GradientPaint>| -> u16 {
-        if width <= 0.0 || (color[3] == 0 && gradient.is_none()) {
+        let gradient = gradient.filter(|g| !g.stops.is_empty());
+        if !width.is_finite() || width <= 0.0 || (color[3] == 0 && gradient.is_none()) {
             return 0;
         }
         let grad = gradient.map(|mut g| {
             g.matrix = multiply_matrices(m, g.matrix);
+            if g.stops.len() > 15 {
+                g.stops.truncate(15);
+            }
             g
         });
         let width_twips = (width * 20.0).round().clamp(1.0, 65535.0) as u16;
@@ -1436,7 +1444,12 @@ fn write_binary_fill(w: &mut MfcWriter, fill: &EncodedFill) -> Result<(), Export
         }
         w.u8(grad.stops.len() as u8);
         // BinaryGradientExtension (shape_revision >= 3)
-        let focal = (grad.focal_point_ratio.clamp(-1.0, 1.0) * 255.0).round() as i32;
+        let safe_focal = if grad.focal_point_ratio.is_finite() {
+            grad.focal_point_ratio.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        let focal = (safe_focal * 255.0).round() as i32;
         w.i32(focal);
         w.u32(0); // pad + RGB
         for stop in &grad.stops {

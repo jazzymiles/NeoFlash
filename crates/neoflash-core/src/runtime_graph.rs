@@ -812,6 +812,54 @@ impl Player {
         Ok(result)
     }
 
+    fn collect_eval_camera_layers(
+        &self,
+        project: &Project,
+        nodes: &[crate::evaluate::Node],
+        out: &mut HashMap<ObjectRef, ([f64; 6], ColorTransform)>,
+        resolve_ref: impl Fn(&[Id]) -> Option<ObjectRef>,
+    ) {
+        let stage_center = [project.width as f64 * 0.5, project.height as f64 * 0.5];
+        let fps = f64::from(project.fps.max(1));
+        for node in nodes {
+            let Some(sym_id) = &node.symbol_id else {
+                continue;
+            };
+            let Some(sym) = project.symbol(sym_id) else {
+                continue;
+            };
+            let Some(cam) = crate::evaluate::sample_timeline_camera(&sym.timeline, node.frame)
+            else {
+                continue;
+            };
+            for layer in &sym.timeline.layers {
+                if layer.properties.attach_to_camera
+                    || matches!(layer.properties.role, LayerRole::Folder | LayerRole::Guide)
+                {
+                    continue;
+                }
+                let cam_m = crate::evaluate::camera_layer_matrix(
+                    &cam,
+                    layer.properties.z_depth,
+                    stage_center,
+                );
+                let cam_ct = cam.color_transform;
+                let mut child_path = node.path.clone();
+                for el in
+                    crate::evaluate::sample_layer_in_at_fps(&sym.timeline, layer, node.frame, fps)
+                {
+                    child_path.push(el.id);
+                    if let Some(obj_ref) = resolve_ref(&child_path)
+                        && !self.graph.parent_overrides.contains_key(&obj_ref)
+                    {
+                        out.insert(obj_ref, (cam_m, cam_ct));
+                    }
+                    child_path.pop();
+                }
+            }
+        }
+    }
+
     fn snapshot_with_root(
         &self,
         project: &Project,
@@ -846,6 +894,10 @@ impl Player {
                     .flatten()
             })
             .collect();
+        let mut camera_by_ref: HashMap<ObjectRef, ([f64; 6], ColorTransform)> = HashMap::new();
+        self.collect_eval_camera_layers(project, &base.nodes, &mut camera_by_ref, |path| {
+            self.object_ref(path)
+        });
         let mut metadata: HashMap<_, _> = base
             .nodes
             .into_iter()
@@ -875,6 +927,9 @@ impl Player {
                     items.insert(reference, item);
                 }
             }
+            self.collect_eval_camera_layers(project, &source.nodes, &mut camera_by_ref, |path| {
+                self.graph.linked_ref(namespace, path)
+            });
             for node in source.nodes {
                 if let Some(symbol) = node.symbol_id.as_ref().and_then(|id| project.symbol(id))
                     && symbol.kind == SymbolKind::Button
@@ -1064,12 +1119,22 @@ impl Player {
                 |(_, _, color)| color,
             );
             display.transform.alpha = color_transform.multipliers[3];
-            let concatenated_color_transform = color_transform.then(parent_color);
+            let (effective_parent_world, effective_parent_color) = if capture_root.is_none()
+                && let Some(&(cam_m, cam_ct)) = camera_by_ref.get(&reference)
+            {
+                (
+                    affine_multiply(parent_world, cam_m),
+                    cam_ct.then(parent_color),
+                )
+            } else {
+                (parent_world, parent_color)
+            };
+            let concatenated_color_transform = color_transform.then(effective_parent_color);
             let scroll_rect = self.graph.scroll_rects.get(&reference).copied();
             let content_local_matrix = scroll_rect.map_or(local_matrix, |rect| {
                 affine_multiply(local_matrix, [1., 0., 0., 1., -rect.x, -rect.y])
             });
-            display.world = affine_multiply(parent_world, content_local_matrix);
+            display.world = affine_multiply(effective_parent_world, content_local_matrix);
             display.effective_visible =
                 parent_visible && (capture_root.is_some() || display.visible);
             let on_stage =

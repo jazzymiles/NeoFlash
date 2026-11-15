@@ -845,7 +845,7 @@
       if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,onAsfunction:(ref,spec)=>{const tf=proxyForRef(JSON.parse(ref));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document});
       display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,onSuperConstruct:handleSuperConstruct,isRetiring:target=>retiringTargets.has(target),onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,
         shapeContains:(kind,x,y,world)=>{const hasCanvas=typeof context!=='undefined'&&typeof context.isPointInPath==='function'&&typeof Path2D==='function';if(hasCanvas)inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(hasCanvas?context:null,kind,x,y,hasCanvas?inputPaths.get(kind.commands):null,world);},
-        clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[]),x,y,inputPaths);},
+        clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[],snapshot.filter_groups||[]),x,y,inputPaths);},
         beforeRaster:target=>assertUnfilteredEditing(stageHost?.stage.focus,target),beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,getStageHost:()=>stageHost||null,
         measureText:(line,kind)=>{if(typeof context==='undefined')throw new Error('Text bounds require the Canvas font measurement service.');context.font=font(kind);return context.measureText(line).width;},
         pathBounds:(commands,matrix)=>global.NeoFlashAccessibility.pathBounds(commands,matrix)});
@@ -1114,7 +1114,7 @@
             if(!islandPainter)islandPainter=createScenePainter({global,paths:new global.NeoFlashPaths.PathCache(),gradients:new global.NeoFlashPaths.GradientRenderer({createCanvas:()=>bitmapHost?bitmapHost.createCanvas(1,1):document.createElement('canvas')}),clippings:new global.NeoFlashPaths.ClipRenderer({createCanvas:()=>bitmapHost?bitmapHost.createCanvas(1,1):document.createElement('canvas')}),bitmapHost,textHost,filterHost,videoHost,context,snapBitmaps:false});
             const allGroups=new Map((fullSnapshot?.filter_groups||[]).map(g=>[g.id,g])),neededGroups=new Set();
             for(const d of islandDraws){for(let cur=d.filter_id?allGroups.get(d.filter_id):null;cur&&!neededGroups.has(cur.id);cur=cur.parent_id?allGroups.get(cur.parent_id):null)neededGroups.add(cur.id);}
-            const subGroups=(fullSnapshot?.filter_groups||[]).filter(g=>neededGroups.has(g.id));
+            const subGroups=(fullSnapshot?.filter_groups||[]).filter(g=>neededGroups.has(g.id)).map(g=>stageBox?.rootCssBlend&&g.parent_id===null?{...g,composite_operation:'source-over'}:g);
             let area=null;
             for(const d of islandDraws){const b=islandPainter.paintBounds(d,true);if(b&&b.right>b.left&&b.bottom>b.top)area=area?{left:Math.min(area.left,b.left),top:Math.min(area.top,b.top),right:Math.max(area.right,b.right),bottom:Math.max(area.bottom,b.bottom)}:{...b};}
             if(!area)return null;
@@ -1124,7 +1124,7 @@
             const minX=-(stageBox?.originX||0),minY=-(stageBox?.originY||0),maxX=(stageBox?.width||800)+minX,maxY=(stageBox?.height||600)+minY;
             const left=Math.max(minX,Math.floor(area.left)-1),top=Math.max(minY,Math.floor(area.top)-1),right=Math.min(maxX,Math.ceil(area.right)+1),bottom=Math.min(maxY,Math.ceil(area.bottom)+1);
             if(!(right>left&&bottom>top))return null;
-            const w=right-left,h=bottom-top,dpr=Math.min(2,Math.max(1,global.devicePixelRatio||1));
+            const w=right-left,h=bottom-top,scaleMax=Math.max(1,Number(stageBox?.scale?.x)||1,Number(stageBox?.scale?.y)||1),dpr=Math.min(4,Math.max(1,(global.devicePixelRatio||1)*scaleMax),8192/Math.max(1,w),8192/Math.max(1,h));
             const pw=Math.max(1,Math.round(w*dpr)),ph=Math.max(1,Math.round(h*dpr));
             if(islandCanvas.width!==pw||islandCanvas.height!==ph){islandCanvas.width=pw;islandCanvas.height=ph;}
             const ictx=islandCanvas.getContext('2d');if(!ictx)return null;
@@ -1632,14 +1632,21 @@
     }
     function resetProject() {
       pointerOverContent=false;legacyCursorVisible=true;updateCursor();
-      capturePainter?.clear();capturePainter=null;islandPainter?.clear();islandPainter=null;
+      runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
+      capturePainter?.clear();capturePainter=null;islandPainter?.clear();islandPainter=null;inputPaths=null;
+      if(typeof paths!=='undefined')paths?.paths?.clear?.();
       filterHost?.renderer.clear();
+      if(typeof semanticLayer!=='undefined')semanticLayer?.clear?.();
+      if(typeof a11yOverlay!=='undefined'&&a11yOverlay){if(typeof a11yOverlay.replaceChildren==='function')a11yOverlay.replaceChildren();else if('textContent' in a11yOverlay)a11yOverlay.textContent='';}
       as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
       as3MediaEventsHost?.reset();fte3dHost?.reset();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();domStageHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
       proxies.clear(); attachedClasses.clear(); constructedNodes.clear(); superConstructedNodes.clear(); offstageLinkedTargets.clear(); retiringTargets.clear(); constructSessions.length = 0; frameLabelDispatchedScopes.clear(); boundTextVariables.clear(); registeredClasses.clear(); executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0; if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';lastTraceLocation = '';
+      hostStageLayoutPinned=false;
       syncInitialStageLayout();
+      if(typeof resize==='function')resize();
       soundsPreloaded=false;
       player.reset();
+      if(hostPlayerConfig.autoplay===false)player.set_playing?.(false);
       enableLifecycleIfReady();
       initializeProgram();
       dispatchScripts();
@@ -2750,7 +2757,7 @@
       let snapshot=graphMode?(display?.snapshot?display.snapshot():JSON.parse(player.runtime_snapshot_json())):null;
       if(snapshot&&typeof videoHost!=='undefined'&&videoHost)snapshot=videoHost.prepareSnapshot(snapshot);
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
-      const clips=snapshot?.clips?.length?global.NeoFlashPaths.clipTable(snapshot.clips):new Map();
+      const clips=snapshot?.clips?.length?global.NeoFlashPaths.clipTable(snapshot.clips,snapshot.filter_groups||[]):new Map();
       const pt = stagePointFromEvent(event);
       if (!pt) return null;
       const { x, y, inside } = pt;

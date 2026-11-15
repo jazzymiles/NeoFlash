@@ -231,6 +231,7 @@ pub(crate) struct ExportVideoDraft {
     pub(crate) fps_idx: usize,
     pub(crate) stop_after_secs: f64,
     pub(crate) options: VideoOptions,
+    pub(crate) output_path: PathBuf,
     pub(crate) estimate: Option<VideoEstimate>,
     pub(crate) preview_rgba: Option<(u32, u32, Vec<u8>)>,
     pub(crate) preview_texture: Option<egui::TextureHandle>,
@@ -247,8 +248,79 @@ impl std::fmt::Debug for ExportVideoDraft {
             .field("from_frame", &self.from_frame)
             .field("to_frame", &self.to_frame)
             .field("options", &self.options)
+            .field("output_path", &self.output_path)
             .finish()
     }
+}
+
+pub(crate) fn default_video_file_name(
+    project: &Project,
+    range_choice: &VideoRangeChoice,
+    format: VideoFormat,
+) -> String {
+    let base_name = match range_choice {
+        VideoRangeChoice::Symbol(id) | VideoRangeChoice::Scene(id) => project
+            .symbol(id)
+            .map(|s| s.name.as_str())
+            .unwrap_or(project.name.as_str()),
+        _ => project.name.as_str(),
+    };
+    let stem: String = base_name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let clean_stem = if stem.trim_matches('-').is_empty() {
+        "movie"
+    } else {
+        stem.trim_matches('-')
+    };
+    let ext = format.extension();
+    if format == VideoFormat::PngSequence {
+        format!("{clean_stem}_0001.png")
+    } else {
+        format!("{clean_stem}.{ext}")
+    }
+}
+
+pub(crate) fn sync_video_output_path_extension(path: &mut PathBuf, format: VideoFormat) {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf);
+    let raw_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("movie.mp4");
+    let mut base = raw_name;
+    for ext in [".mp4", ".m4v", ".webm", ".mov", ".gif", ".png"] {
+        if raw_name.len() > ext.len()
+            && raw_name[raw_name.len() - ext.len()..].eq_ignore_ascii_case(ext)
+        {
+            base = &raw_name[..raw_name.len() - ext.len()];
+            break;
+        }
+    }
+    let stem = base.strip_suffix("_0001").unwrap_or(base);
+    let stem = if stem.trim().is_empty() {
+        "movie"
+    } else {
+        stem
+    };
+    let next_name = if format == VideoFormat::PngSequence {
+        format!("{stem}_0001.png")
+    } else {
+        format!("{stem}.{}", format.extension())
+    };
+    *path = match parent {
+        Some(dir) => dir.join(next_name),
+        None => PathBuf::from(next_name),
+    };
 }
 
 impl ExportVideoDraft {
@@ -271,6 +343,11 @@ impl ExportVideoDraft {
         options.height = project.height.max(2);
         options.from_frame = start_1;
         options.to_frame = Some(end_1);
+        let output_path = PathBuf::from(default_video_file_name(
+            project,
+            &range_choice,
+            options.format,
+        ));
 
         let mut draft = Self {
             range_choice,
@@ -283,6 +360,7 @@ impl ExportVideoDraft {
             fps_idx: 0,   // Document fps
             stop_after_secs: 10.0,
             options,
+            output_path,
             estimate: None,
             preview_rgba: None,
             preview_texture: None,
@@ -293,6 +371,15 @@ impl ExportVideoDraft {
         };
         draft.sync_and_refresh(project, current_frame);
         draft
+    }
+
+    pub(crate) fn set_format(&mut self, format: VideoFormat) {
+        if self.options.format != format {
+            self.options.format = format;
+            self.options.codec = format.default_codec();
+            self.preview_dirty = true;
+        }
+        sync_video_output_path_extension(&mut self.output_path, format);
     }
 
     pub(crate) fn cancel_worker(&self) {
@@ -321,15 +408,46 @@ impl ExportVideoDraft {
             }
         }
         let (min_1, max_1) = range_bounds_1based(project, &self.range_choice);
-        let from_1 = (self.from_frame.round() as u32).clamp(min_1, max_1);
-        let to_1 = (self.to_frame.round() as u32).clamp(from_1, max_1);
+        let from_1 = if self.from_frame.is_finite() {
+            (self
+                .from_frame
+                .round()
+                .clamp(f64::from(min_1), f64::from(max_1)) as u32)
+                .clamp(min_1, max_1)
+        } else {
+            min_1
+        };
+        let to_1 = if self.to_frame.is_finite() {
+            (self
+                .to_frame
+                .round()
+                .clamp(f64::from(from_1), f64::from(max_1)) as u32)
+                .clamp(from_1, max_1)
+        } else {
+            max_1.max(from_1)
+        };
         self.from_frame = f64::from(from_1);
         self.to_frame = f64::from(to_1);
         self.options.from_frame = from_1;
         self.options.to_frame = Some(to_1);
 
-        self.options.width = (self.width.round() as u32).clamp(2, 7680);
-        self.options.height = (self.height.round() as u32).clamp(2, 4320);
+        let safe_w = if self.width.is_finite() {
+            (self.width.round().clamp(2.0, 7680.0) as u32).clamp(2, 7680)
+        } else {
+            project.width.clamp(2, 7680)
+        };
+        let safe_h = if self.height.is_finite() {
+            (self.height.round().clamp(2.0, 4320.0) as u32).clamp(2, 4320)
+        } else {
+            project.height.clamp(2, 4320)
+        };
+        self.width = f64::from(safe_w);
+        self.height = f64::from(safe_h);
+        if !self.aspect.is_finite() || self.aspect <= 0.0 {
+            self.aspect = (self.width / self.height).max(0.01);
+        }
+        self.options.width = safe_w;
+        self.options.height = safe_h;
         self.options.scale = SCALE_PRESETS
             .get(self.scale_idx)
             .map(|(s, _)| *s)
@@ -341,10 +459,15 @@ impl ExportVideoDraft {
             .map(|v| v as f32)
             .unwrap_or(0.0);
         self.options.codec = self.options.resolved_codec();
-        if let VideoStopMode::AfterSeconds(_) = self.options.stop_mode {
+        if !self.stop_after_secs.is_finite() {
+            self.stop_after_secs = 10.0;
+        } else {
             self.stop_after_secs = self.stop_after_secs.clamp(0.1, 3600.0);
+        }
+        if let VideoStopMode::AfterSeconds(_) = self.options.stop_mode {
             self.options.stop_mode = VideoStopMode::AfterSeconds(self.stop_after_secs);
         }
+        sync_video_output_path_extension(&mut self.output_path, self.options.format);
 
         match estimate_video(project, &self.options) {
             Ok(est) => {
@@ -464,7 +587,11 @@ pub(crate) fn format_video_bytes(bytes: u64) -> String {
 }
 
 pub(crate) fn format_mm_ss(secs: f64) -> String {
-    let total = secs.max(0.0).round() as u64;
+    let total = if secs.is_finite() {
+        secs.max(0.0).round() as u64
+    } else {
+        0
+    };
     let mins = total / 60;
     let rem = total % 60;
     format!("{mins:02}:{rem:02}")
@@ -646,40 +773,28 @@ impl Editor {
     }
 
     fn choose_export_video_path(&self, draft: &ExportVideoDraft) -> Option<PathBuf> {
-        let base_name = match &draft.range_choice {
-            VideoRangeChoice::Symbol(id) | VideoRangeChoice::Scene(id) => self
-                .project
-                .symbol(id)
-                .map(|s| s.name.as_str())
-                .unwrap_or(self.project.name.as_str()),
-            _ => self.project.name.as_str(),
-        };
-        let stem: String = base_name
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                    c.to_ascii_lowercase()
-                } else {
-                    '-'
-                }
-            })
-            .collect();
-        let clean_stem = if stem.trim_matches('-').is_empty() {
-            "movie"
-        } else {
-            stem.trim_matches('-')
-        };
         let ext = draft.options.format.extension();
-        let file_name = if draft.options.format == VideoFormat::PngSequence {
-            format!("{clean_stem}_0001.png")
-        } else {
-            format!("{clean_stem}.{ext}")
-        };
-        rfd::FileDialog::new()
+        let file_name = draft
+            .output_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                default_video_file_name(&self.project, &draft.range_choice, draft.options.format)
+            });
+        let mut dialog = rfd::FileDialog::new()
             .set_title("Export video")
             .add_filter(draft.options.format.label(), &[ext])
-            .set_file_name(&file_name)
-            .save_file()
+            .set_file_name(&file_name);
+        if let Some(dir) = draft
+            .output_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+        {
+            dialog = dialog.set_directory(dir);
+        }
+        dialog.save_file()
     }
 
     /// Render the `Dialog / Export video` modal (`DL-05`).
@@ -800,15 +915,15 @@ impl Editor {
                                         (VideoFormat::PngSequence, "PNG seq."),
                                     ];
                                     let prev_fmt = draft.options.format;
+                                    let mut next_fmt = prev_fmt;
                                     c::Segmented::show(
                                         ui,
-                                        &mut draft.options.format,
+                                        &mut next_fmt,
                                         &fmt_opts,
                                         false,
                                     );
-                                    if draft.options.format != prev_fmt {
-                                        draft.options.codec = draft.options.format.default_codec();
-                                        draft.preview_dirty = true;
+                                    if next_fmt != prev_fmt {
+                                        draft.set_format(next_fmt);
                                         changed = true;
                                     }
 
@@ -928,10 +1043,10 @@ impl Editor {
                                                 .decimals(0)
                                                 .width(110.0),
                                         );
-                                        if r_w.changed() {
+                                        if r_w.changed() && draft.width.is_finite() {
                                             draft.width = draft.width.clamp(2.0, 7680.0);
                                             if draft.options.constrain_proportions {
-                                                draft.height = (draft.width / draft.aspect)
+                                                draft.height = (draft.width / draft.aspect.max(0.01))
                                                     .round()
                                                     .clamp(2.0, 4320.0);
                                             }
@@ -943,10 +1058,10 @@ impl Editor {
                                                 .decimals(0)
                                                 .width(110.0),
                                         );
-                                        if r_h.changed() {
+                                        if r_h.changed() && draft.height.is_finite() {
                                             draft.height = draft.height.clamp(2.0, 4320.0);
                                             if draft.options.constrain_proportions {
-                                                draft.width = (draft.height * draft.aspect)
+                                                draft.width = (draft.height * draft.aspect.max(0.01))
                                                     .round()
                                                     .clamp(2.0, 7680.0);
                                             }
@@ -1070,9 +1185,9 @@ impl Editor {
                                             c::Slider::new(&mut q, 1.0..=100.0, "Quality")
                                                 .width(180.0),
                                         );
-                                        if r_q.changed() {
+                                        if r_q.changed() && q.is_finite() {
                                             draft.options.quality =
-                                                (q.round() as u8).clamp(1, 100);
+                                                q.round().clamp(1.0, 100.0) as u8;
                                             changed = true;
                                         }
                                         let mbps = draft
@@ -1133,7 +1248,7 @@ impl Editor {
                                             .decimals(0)
                                             .width(72.0),
                                         );
-                                        if r_secs.changed() {
+                                        if r_secs.changed() && draft.stop_after_secs.is_finite() {
                                             draft.stop_after_secs =
                                                 draft.stop_after_secs.clamp(0.1, 3600.0);
                                             draft.options.stop_mode = VideoStopMode::AfterSeconds(
@@ -1267,6 +1382,7 @@ impl Editor {
         if cancel {
             draft.cancel_worker();
             self.export_video = None;
+            super::dialog_helpers::record_end_of_frame_focus(ctx);
             return;
         }
         if changed {
@@ -1287,6 +1403,7 @@ impl Editor {
                         Ok(report) => {
                             let _ = self.finish_video_export(&out_path, Ok(report));
                             self.export_video = None;
+                            super::dialog_helpers::record_end_of_frame_focus(ctx);
                             return;
                         }
                         Err(err) => {
@@ -1299,6 +1416,7 @@ impl Editor {
             }
         }
         self.export_video = Some(draft);
+        super::dialog_helpers::record_end_of_frame_focus(ctx);
     }
 }
 

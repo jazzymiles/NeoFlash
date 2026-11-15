@@ -2232,12 +2232,23 @@ impl SwfBitWriter {
     }
 
     pub(crate) fn write_matrix_raw(&mut self, m: [f64; 6], translate_scale: f64) {
-        let [a, b, c, d, tx, ty] = m;
+        let finite = |v: f64, def: f64| if v.is_finite() { v } else { def };
+        let to_fixed = |v: f64, scale: f64| -> i32 {
+            (v * scale)
+                .round()
+                .clamp(f64::from(i32::MIN / 2), f64::from(i32::MAX / 2)) as i32
+        };
+        let a = finite(m[0], 1.0);
+        let b = finite(m[1], 0.0);
+        let c = finite(m[2], 0.0);
+        let d = finite(m[3], 1.0);
+        let tx = finite(m[4], 0.0);
+        let ty = finite(m[5], 0.0);
         let has_scale = (a - 1.0).abs() > 1e-5 || (d - 1.0).abs() > 1e-5;
         self.bit(has_scale);
         if has_scale {
-            let sx = (a * 65536.0).round() as i32;
-            let sy = (d * 65536.0).round() as i32;
+            let sx = to_fixed(a, 65536.0);
+            let sy = to_fixed(d, 65536.0);
             let nbits = needed_sb_bits(&[sx, sy]).max(1);
             self.ub(5, nbits as u32);
             self.sb(nbits, sx);
@@ -2246,15 +2257,15 @@ impl SwfBitWriter {
         let has_rotate = b.abs() > 1e-5 || c.abs() > 1e-5;
         self.bit(has_rotate);
         if has_rotate {
-            let r0 = (b * 65536.0).round() as i32;
-            let r1 = (c * 65536.0).round() as i32;
+            let r0 = to_fixed(b, 65536.0);
+            let r1 = to_fixed(c, 65536.0);
             let nbits = needed_sb_bits(&[r0, r1]).max(1);
             self.ub(5, nbits as u32);
             self.sb(nbits, r0);
             self.sb(nbits, r1);
         }
-        let tx_t = (tx * translate_scale).round() as i32;
-        let ty_t = (ty * translate_scale).round() as i32;
+        let tx_t = to_fixed(tx, translate_scale);
+        let ty_t = to_fixed(ty, translate_scale);
         if tx_t == 0 && ty_t == 0 {
             self.ub(5, 0);
         } else {
@@ -3222,10 +3233,15 @@ fn write_single_fill_style(w: &mut SwfBitWriter, fill: &SwfShapeFillStyle) {
     if let Some(grad) = &fill.gradient
         && !grad.stops.is_empty()
     {
+        let focal = if grad.focal_point_ratio.is_finite() {
+            grad.focal_point_ratio
+        } else {
+            0.0
+        };
         let fill_type: u8 = match grad.kind {
             GradientKind::Linear => 0x10,
             GradientKind::Radial => {
-                if grad.focal_point_ratio.abs() > 1e-4 {
+                if focal.abs() > 1e-4 {
                     0x13
                 } else {
                     0x12
@@ -3247,7 +3263,7 @@ fn write_single_fill_style(w: &mut SwfBitWriter, fill: &SwfShapeFillStyle) {
             w.rgba(stop.color);
         }
         if fill_type == 0x13 {
-            let focal_fixed8 = (grad.focal_point_ratio.clamp(-1.0, 1.0) * 256.0).round() as i16;
+            let focal_fixed8 = (focal.clamp(-1.0, 1.0) * 256.0).round() as i16;
             w.i16(focal_fixed8);
         }
     } else {
@@ -9003,28 +9019,7 @@ pub fn publish_swf(
     let dest = dest.as_ref();
     let (bytes, report) = publish_swf_bytes(project, options)?;
     let _verified = import_swf_bytes(&bytes)?;
-
-    if let Some(parent) = dest.parent().filter(|p| !p.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent)?;
-    }
-    let parent_dir = dest
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let stem = dest
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("movie.swf");
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let tmp_path = parent_dir.join(format!(
-        ".{stem}.neoflash-swf-tmp-{}-{nanos}",
-        std::process::id()
-    ));
-    std::fs::write(&tmp_path, &bytes)?;
-    std::fs::rename(&tmp_path, dest)?;
+    crate::atomic_write(dest, &bytes)?;
     Ok(report)
 }
 

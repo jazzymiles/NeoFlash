@@ -902,6 +902,14 @@ pub fn export_desktop_app(
     config: &HtmlPublishConfig,
 ) -> Result<PathBuf, ExportError> {
     let mut app_config = config.clone();
+    if app_config.render_mode == HtmlRenderMode::Canvas
+        && project.html_render_mode() == HtmlRenderMode::Dom
+    {
+        app_config.render_mode = HtmlRenderMode::Dom;
+    }
+    if app_config.render_mode == HtmlRenderMode::Dom && app_config.breakpoints.is_empty() {
+        app_config.breakpoints = project.publish_settings().breakpoints;
+    }
     app_config.include_html = true;
     app_config.sprite_sheets = false;
     app_config.assets_folder = false;
@@ -924,6 +932,13 @@ pub fn export_desktop_app(
     } else {
         safe_name
     };
+    let app_dir = output_dir.join(format!("{app_stem}.app"));
+    let contents_dir = app_dir.join("Contents");
+    let macos_dir = contents_dir.join("MacOS");
+    let web_dir = contents_dir.join("Resources").join("web");
+    if has_non_ignorable_dir_entries(&app_dir)? && !web_dir.join(MARKER).exists() {
+        return Err(ExportError::Destination(app_dir.display().to_string()));
+    }
     let options = options.validated().map_err(ExportError::Options)?;
     let prepared = prepare_with_config(
         project,
@@ -933,16 +948,6 @@ pub fn export_desktop_app(
         Some(&app_config),
     )?;
     let package = assemble_with_config(project, &prepared, &options.size, Some(&app_config))?;
-    let app_dir = output_dir.join(format!("{app_stem}.app"));
-    let contents_dir = app_dir.join("Contents");
-    let macos_dir = contents_dir.join("MacOS");
-    let web_dir = contents_dir.join("Resources").join("web");
-    if app_dir.exists()
-        && fs::read_dir(&app_dir)?.next().is_some()
-        && !web_dir.join(MARKER).exists()
-    {
-        return Err(ExportError::Destination(app_dir.display().to_string()));
-    }
     fs::create_dir_all(&macos_dir)?;
     fs::create_dir_all(&web_dir)?;
     write_package(&web_dir, &package.files, &project.name, "project")?;
@@ -2273,6 +2278,95 @@ fn package_marker(
     .into_bytes())
 }
 
+pub(crate) fn has_non_ignorable_dir_entries(dir: &Path) -> std::io::Result<bool> {
+    if !dir.exists() {
+        return Ok(false);
+    }
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_name() != ".DS_Store" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+pub(crate) fn read_neoflash_marker_files(dir: &Path) -> Option<Vec<String>> {
+    let text = fs::read_to_string(dir.join(MARKER)).ok()?;
+    let marker = serde_json::from_str::<serde_json::Value>(&text).ok()?;
+    if marker["generator"] != "NeoFlash" || marker["format_version"] != 1 {
+        return None;
+    }
+    Some(
+        marker["files"]
+            .as_array()
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(|name| name.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    )
+}
+
+pub(crate) fn is_neoflash_native_banner_html(path: &Path) -> bool {
+    let Ok(meta) = fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() || meta.len() > 16 * 1024 * 1024 {
+        return false;
+    }
+    let Ok(text) = fs::read_to_string(path) else {
+        return false;
+    };
+    text.contains("<meta name=\"ad.size\"")
+        && text.contains("id=\"nf-ad\"")
+        && text.contains("window.clickTag")
+}
+
+pub(crate) fn is_neoflash_native_banner_dir(dir: &Path) -> std::io::Result<bool> {
+    if !dir.is_dir() {
+        return Ok(false);
+    }
+    let mut found_banner = false;
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name == ".DS_Store" {
+            continue;
+        }
+        let Some(name_str) = name.to_str() else {
+            return Ok(false);
+        };
+        if name_str.eq_ignore_ascii_case("index.html")
+            && is_neoflash_native_banner_html(&entry.path())
+        {
+            found_banner = true;
+        } else {
+            return Ok(false);
+        }
+    }
+    Ok(found_banner)
+}
+
+pub(crate) fn cleanup_stale_package_files(
+    output_dir: &Path,
+    previous_files: &[String],
+    keep_lower: &BTreeSet<String>,
+) {
+    for stale in previous_files {
+        let plain = !stale.contains(['/', '\\']) && stale != MARKER && !stale.starts_with('.');
+        let valid_rel = neoflash_core::validate_external_video_path(stale).is_ok();
+        // A case-only rename addresses the same file on the default macOS filesystem. Never
+        // delete the freshly written spelling while cleaning the marker's previous spelling.
+        if (plain || valid_rel) && !keep_lower.contains(&stale.to_lowercase()) {
+            let _ = fs::remove_file(output_dir.join(stale));
+        }
+    }
+    let _ = fs::remove_dir(output_dir.join("assets"));
+}
+
 /// Writes generated files (index.html last) into a NeoFlash-owned folder and removes files an
 /// earlier export there generated that this one no longer has.
 pub(crate) fn write_package(
@@ -2283,49 +2377,58 @@ pub(crate) fn write_package(
 ) -> Result<PathBuf, ExportError> {
     validate_package_file_names(files)?;
     let mut previous_files = Vec::new();
-    if output_dir.exists() && fs::read_dir(output_dir)?.next().is_some() {
-        let marker = fs::read_to_string(output_dir.join(MARKER))
-            .ok()
-            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-            .filter(|marker| marker["generator"] == "NeoFlash" && marker["format_version"] == 1)
-            .ok_or_else(|| ExportError::Destination(output_dir.display().to_string()))?;
-        previous_files = marker["files"]
-            .as_array()
-            .map(|names| {
-                names
-                    .iter()
-                    .filter_map(|name| name.as_str().map(str::to_owned))
-                    .collect()
-            })
-            .unwrap_or_default();
+    if has_non_ignorable_dir_entries(output_dir)? {
+        if let Some(marker_files) = read_neoflash_marker_files(output_dir) {
+            previous_files = marker_files;
+        } else if is_neoflash_native_banner_dir(output_dir)? {
+            previous_files.push("index.html".to_owned());
+        } else {
+            return Err(ExportError::Destination(output_dir.display().to_string()));
+        }
     }
     fs::create_dir_all(output_dir)?;
     let current_names: BTreeSet<String> =
         files.iter().map(|(name, _)| name.to_lowercase()).collect();
     let marker = package_marker(files, name, kind)?;
-    // Prepare all data before writing. Replace only generated files, with index written last.
+    // Stage every generated file in sibling temp files before replacing any existing output file,
+    // so an I/O error mid-package never leaves a half-overwritten build behind.
     let (last, rest) = files
         .split_last()
         .expect("a package always has an index file");
-    for (file, bytes) in rest {
-        atomic_write(&output_dir.join(file), bytes)?;
+    let mut staged: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(files.len() + 1);
+    let stage_result = (|| -> std::io::Result<()> {
+        for (file, bytes) in rest {
+            let target = output_dir.join(file);
+            let temp = reserve_temp_file(&target, bytes)?;
+            staged.push((temp, target));
+        }
+        let marker_target = output_dir.join(MARKER);
+        let marker_temp = reserve_temp_file(&marker_target, &marker)?;
+        staged.push((marker_temp, marker_target));
+        let last_target = output_dir.join(&last.0);
+        let last_temp = reserve_temp_file(&last_target, &last.1)?;
+        staged.push((last_temp, last_target));
+        Ok(())
+    })();
+    if let Err(err) = stage_result {
+        for (temp, _) in staged {
+            let _ = fs::remove_file(temp);
+        }
+        return Err(ExportError::Io(err));
     }
-    atomic_write(&output_dir.join(MARKER), &marker)?;
-    atomic_write(&output_dir.join(&last.0), &last.1)?;
-    for stale in previous_files {
-        let plain = !stale.contains(['/', '\\']) && stale != MARKER && !stale.starts_with('.');
-        let valid_rel = neoflash_core::validate_external_video_path(&stale).is_ok();
-        // A case-only rename addresses the same file on the default macOS filesystem. Never
-        // delete the freshly written spelling while cleaning the marker's previous spelling.
-        if (plain || valid_rel) && !current_names.contains(&stale.to_lowercase()) {
-            let _ = fs::remove_file(output_dir.join(stale));
+    for (idx, (temp, target)) in staged.iter().enumerate() {
+        if let Err(err) = fs::rename(temp, target) {
+            for (rem_temp, _) in &staged[idx..] {
+                let _ = fs::remove_file(rem_temp);
+            }
+            return Err(ExportError::Io(err));
         }
     }
-    let _ = fs::remove_dir(output_dir.join("assets"));
+    cleanup_stale_package_files(output_dir, &previous_files, &current_names);
     Ok(output_dir.join(&last.0))
 }
 
-pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+fn reserve_temp_file(path: &Path, bytes: &[u8]) -> std::io::Result<PathBuf> {
     static TEMP_ID: AtomicU64 = AtomicU64::new(1);
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
@@ -2349,16 +2452,26 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
             file.flush()
         })();
         drop(file);
-        let result = write_result.and_then(|()| fs::rename(&temp, path));
-        if result.is_err() {
+        if let Err(err) = write_result {
             let _ = fs::remove_file(&temp);
+            return Err(err);
         }
-        return result;
+        return Ok(temp);
     }
     Err(std::io::Error::new(
         std::io::ErrorKind::AlreadyExists,
         "could not reserve a unique temporary export file",
     ))
+}
+
+/// Write `bytes` to `path` atomically by staging in a sibling temp file and renaming.
+pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let temp = reserve_temp_file(path, bytes)?;
+    let result = fs::rename(&temp, path);
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
 }
 
 pub(crate) fn html_escape(value: &str) -> String {

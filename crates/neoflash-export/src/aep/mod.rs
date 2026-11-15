@@ -483,6 +483,25 @@ pub fn export_project_aep(
     let mut working = project.clone();
     let (_, bitmap_diags) = apply_bitmap_export_settings(&mut working, options.jpeg_quality);
 
+    let scene_ids: Vec<String> = if let Some(sym_id) = &options.symbol {
+        if working.symbol(sym_id).is_none() {
+            return Err(ExportError::MissingRootSymbol(sym_id.clone()));
+        }
+        vec![sym_id.clone()]
+    } else if working.scenes.is_empty() {
+        if working.symbol(&working.root).is_none() {
+            return Err(ExportError::MissingRootSymbol(working.root.clone()));
+        }
+        vec![working.root.clone()]
+    } else {
+        for sid in &working.scenes {
+            if working.symbol(sid).is_none() {
+                return Err(ExportError::MissingRootSymbol(sid.clone()));
+            }
+        }
+        working.scenes.clone()
+    };
+
     let mut diagnostics = Vec::new();
     for msg in bitmap_diags {
         diagnostics.push(AepDiagnostic {
@@ -529,17 +548,6 @@ pub fn export_project_aep(
         });
     }
     let bg = color_rgb01(working.background);
-
-    let scene_ids: Vec<String> = if let Some(sym_id) = &options.symbol {
-        if working.symbol(sym_id).is_none() {
-            return Err(ExportError::MissingRootSymbol(sym_id.clone()));
-        }
-        vec![sym_id.clone()]
-    } else if working.scenes.is_empty() {
-        vec![working.root.clone()]
-    } else {
-        working.scenes.clone()
-    };
 
     let scene_set: BTreeSet<String> = scene_ids.iter().cloned().collect();
     let reachable_symbols = collect_reachable_symbols(&working, &scene_ids);
@@ -829,13 +837,31 @@ pub(super) fn compute_symbol_precomp_bounds(
         for kf in &layer.keyframes {
             for el in &kf.elements {
                 let (lx0, ly0, lx1, ly1) = local_element_bounds(project, el);
-                let sx = el.transform.scale_x.abs().max(0.01);
-                let sy = el.transform.scale_y.abs().max(0.01);
+                let sx = if el.transform.scale_x.is_finite() {
+                    el.transform.scale_x.abs().max(0.01)
+                } else {
+                    1.0
+                };
+                let sy = if el.transform.scale_y.is_finite() {
+                    el.transform.scale_y.abs().max(0.01)
+                } else {
+                    1.0
+                };
+                let tx = if el.transform.x.is_finite() {
+                    el.transform.x
+                } else {
+                    0.0
+                };
+                let ty = if el.transform.y.is_finite() {
+                    el.transform.y
+                } else {
+                    0.0
+                };
                 let pad = 32.0;
-                let x0 = el.transform.x + lx0 * sx - pad;
-                let y0 = el.transform.y + ly0 * sy - pad;
-                let x1 = el.transform.x + lx1 * sx + pad;
-                let y1 = el.transform.y + ly1 * sy + pad;
+                let x0 = tx + lx0 * sx - pad;
+                let y0 = ty + ly0 * sy - pad;
+                let x1 = tx + lx1 * sx + pad;
+                let y1 = ty + ly1 * sy + pad;
                 if !any {
                     min_x = x0.min(0.0);
                     min_y = y0.min(0.0);
@@ -862,22 +888,32 @@ pub(super) fn compute_symbol_precomp_bounds(
 }
 
 pub(super) fn local_element_bounds(project: &Project, el: &Element) -> (f64, f64, f64, f64) {
+    let finite_nonneg = |v: f64| if v.is_finite() { v.max(0.0) } else { 0.0 };
     match &el.kind {
         ElementKind::Rectangle { width, height, .. }
         | ElementKind::Ellipse { width, height, .. }
         | ElementKind::Video { width, height }
-        | ElementKind::TextBox { width, height, .. } => (0.0, 0.0, *width, *height),
+        | ElementKind::TextBox { width, height, .. } => {
+            (0.0, 0.0, finite_nonneg(*width), finite_nonneg(*height))
+        }
         ElementKind::Bitmap { width, height, .. } => {
             (0.0, 0.0, f64::from(*width), f64::from(*height))
         }
         ElementKind::Text {
             text, font_size, ..
-        } => (
-            0.0,
-            -*font_size,
-            (text.chars().count() as f64 * *font_size * 0.65).max(32.0),
-            *font_size * 0.5,
-        ),
+        } => {
+            let sz = if font_size.is_finite() {
+                font_size.max(1.0)
+            } else {
+                16.0
+            };
+            (
+                0.0,
+                -sz,
+                (text.chars().count() as f64 * sz * 0.65).max(32.0),
+                sz * 0.5,
+            )
+        }
         ElementKind::Path { commands, .. } | ElementKind::PaintedPath { commands, .. } => {
             let mut x0 = 0.0_f64;
             let mut y0 = 0.0_f64;
@@ -899,6 +935,9 @@ pub(super) fn local_element_bounds(project: &Project, el: &Element) -> (f64, f64
                     PathCommand::Close => &[],
                 };
                 for &[px, py] in pts {
+                    if !px.is_finite() || !py.is_finite() {
+                        continue;
+                    }
                     if first {
                         x0 = px;
                         y0 = py;

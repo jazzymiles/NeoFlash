@@ -1025,7 +1025,12 @@ fn render_timeline_voices(
                     }
                     let (clip_start, clip_len) =
                         resolve_clip_bounds(clip.len(), out_rate, in_point, out_point);
-                    let offset_samples = (offset.max(0.0) * f64::from(out_rate)).round() as usize;
+                    let safe_offset = if offset.is_finite() {
+                        offset.max(0.0)
+                    } else {
+                        0.0
+                    };
+                    let offset_samples = (safe_offset * f64::from(out_rate)).round() as usize;
                     if !used_resources.contains(&resource) {
                         used_resources.push(resource.clone());
                     }
@@ -1123,10 +1128,12 @@ fn resolve_clip_bounds(
         return (0, 0);
     }
     let start = in_point
+        .filter(|s| s.is_finite())
         .map(|s| (s.max(0.0) * f64::from(sample_rate)).round() as usize)
         .unwrap_or(0)
         .min(total_frames.saturating_sub(1));
     let end = out_point
+        .filter(|s| s.is_finite())
         .map(|s| (s.max(0.0) * f64::from(sample_rate)).round() as usize)
         .unwrap_or(total_frames)
         .clamp(start + 1, total_frames);
@@ -1186,7 +1193,7 @@ fn normalize_frames_to_minus_1db(frames: &mut [[f32; 2]]) {
 }
 
 fn apply_fade_out(frames: &mut [[f32; 2]], sample_rate: u32, fade_seconds: f64) {
-    if frames.is_empty() || sample_rate == 0 || fade_seconds <= 0.0 {
+    if frames.is_empty() || sample_rate == 0 || !fade_seconds.is_finite() || fade_seconds <= 0.0 {
         return;
     }
     let fade_samples = ((fade_seconds * f64::from(sample_rate)).round() as usize)
@@ -1230,7 +1237,11 @@ fn compute_peaks(frames: &[[f32; 2]], sample_rate: u32, channels: AudioChannels)
 
 /// Estimate output byte size for the footer summary in `Export audio`.
 pub fn estimate_audio_export_bytes(duration_seconds: f64, options: &AudioExportOptions) -> usize {
-    let dur = duration_seconds.max(0.05);
+    let dur = if duration_seconds.is_finite() {
+        duration_seconds.clamp(0.05, 86_400.0)
+    } else {
+        0.05
+    };
     match options.format {
         AudioFormat::Wav => {
             let bytes_per_sec = (options.sample_rate.hz() as usize)
@@ -1299,19 +1310,14 @@ pub fn export_project_audio_bytes(
     Ok((bytes, report))
 }
 
-/// Render and write project audio to `path`.
+/// Render and write project audio atomically to `path`.
 pub fn export_project_audio(
     project: &Project,
     path: &Path,
     options: &AudioExportOptions,
 ) -> Result<AudioExportReport, ExportError> {
     let (bytes, report) = export_project_audio_bytes(project, options)?;
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, &bytes)?;
+    crate::atomic_write(path, &bytes)?;
     Ok(report)
 }
 

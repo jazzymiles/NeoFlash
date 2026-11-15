@@ -529,6 +529,7 @@ impl Editor {
                 None
             };
             self.frame = playback.frame();
+            let playback_symbol = playback.symbol().to_owned();
             let mut traces = playback.drain_traces();
             let preview_diagnostics = playback.drain_diagnostics();
             let mut unsupported_diagnostics = Vec::new();
@@ -552,11 +553,21 @@ impl Editor {
                     halted = true;
                 }
             }
+            if playback_symbol != symbol
+                && self.editing_scene()
+                && self.project.is_scene(&playback_symbol)
+            {
+                let next_frame = self.frame;
+                let was_playing = self.playing;
+                self.switch_scene(&playback_symbol);
+                self.frame = next_frame;
+                self.playing = was_playing;
+            }
             self.authored_preview = Some(AuthoringPreview {
                 playback,
                 swf_player,
                 project: self.project.clone(),
-                symbol,
+                symbol: playback_symbol,
                 epoch: next_preview_epoch(),
             });
             let preview_loc = self.current_preview_output_location();
@@ -622,12 +633,18 @@ impl Editor {
         let mut unsupported_diagnostics = Vec::new();
         let mut halted = false;
         let mut tick_video_commands = Vec::new();
+        let mut scene_switched_to: Option<(Id, u32)> = None;
         if let Some(preview) = &mut self.authored_preview {
             preview
                 .playback
                 .set_live_scripts(&self.project, self.live_script_preview);
             preview.playback.tick(&self.project);
             self.frame = preview.playback.frame();
+            let next_sym = preview.playback.symbol().to_owned();
+            if next_sym != preview.symbol {
+                preview.symbol = next_sym.clone();
+                scene_switched_to = Some((next_sym, self.frame));
+            }
             traces = preview.playback.drain_traces();
             preview_diagnostics = preview.playback.drain_diagnostics();
             tick_video_commands = preview.playback.drain_video_commands();
@@ -653,6 +670,17 @@ impl Editor {
                     halted = true;
                 }
             }
+        }
+        if let Some((next_scene, next_frame)) = scene_switched_to
+            && self.editing_scene()
+            && self.project.is_scene(&next_scene)
+        {
+            let saved_preview = self.authored_preview.take();
+            let was_playing = self.playing;
+            self.switch_scene(&next_scene);
+            self.frame = next_frame;
+            self.playing = was_playing;
+            self.authored_preview = saved_preview;
         }
         let epoch = self.valid_authored_preview().map(|p| p.epoch);
         self.timeline_video.follow_preview(epoch);
@@ -828,6 +856,7 @@ impl Editor {
         let mut was_halted = false;
         let mut halted = false;
         let mut clicked = false;
+        let mut scene_switched_to: Option<(Id, u32)> = None;
         if let Some(preview) = &mut self.authored_preview {
             was_halted = preview.playback.is_root_halted_by_script();
             preview
@@ -835,11 +864,27 @@ impl Editor {
                 .set_live_scripts(&self.project, self.live_script_preview);
             preview.playback.click(&self.project, path);
             self.frame = preview.playback.frame();
+            let next_sym = preview.playback.symbol().to_owned();
+            if next_sym != preview.symbol {
+                preview.symbol = next_sym.clone();
+                scene_switched_to = Some((next_sym, self.frame));
+            }
             traces = preview.playback.drain_traces();
             preview_diagnostics = preview.playback.drain_diagnostics();
             click_video_commands = preview.playback.drain_video_commands();
             halted = preview.playback.is_root_halted_by_script();
             clicked = true;
+        }
+        if let Some((next_scene, next_frame)) = scene_switched_to
+            && self.editing_scene()
+            && self.project.is_scene(&next_scene)
+        {
+            let saved_preview = self.authored_preview.take();
+            let was_playing = self.playing;
+            self.switch_scene(&next_scene);
+            self.frame = next_frame;
+            self.playing = was_playing;
+            self.authored_preview = saved_preview;
         }
         let click_loc = self.current_preview_output_location();
         if clicked && !click_video_commands.is_empty() {
@@ -1227,6 +1272,569 @@ impl Editor {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Local Loopback Test Movie HTTP Server (`127.0.0.1:0`, zero stale cache)
+// ---------------------------------------------------------------------------
+
+#[allow(dead_code)]
+#[derive(Default)]
+struct PreviewMountTable {
+    default_root: Option<std::path::PathBuf>,
+    mounts: HashMap<String, std::path::PathBuf>,
+    by_root: HashMap<std::path::PathBuf, String>,
+    next_id: u64,
+}
+
+/// Reusable loopback HTTP/1.1 static asset server for `Test Movie` (`⌘Return`) and `Test Scene`
+/// (`⌘⌥Return`). Serves fresh disk bytes on every request with strict `Cache-Control: no-store,
+/// no-cache, must-revalidate` headers, RFC 3986 UTF-8 percent-decoding, full WASM/ES-module/media
+/// MIME types, HTTP `Range` support for `<audio>`/`<video>` seeking, and directory-jail checks.
+#[allow(dead_code)]
+pub(crate) struct PreviewHttpServer {
+    addr: std::net::SocketAddr,
+    table: std::sync::Arc<std::sync::RwLock<PreviewMountTable>>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    accept_thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[allow(dead_code)]
+impl PreviewHttpServer {
+    /// Start a new loopback HTTP server bound to `127.0.0.1:0`.
+    pub(crate) fn start() -> std::io::Result<Self> {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let addr = listener.local_addr()?;
+        let table = std::sync::Arc::new(std::sync::RwLock::new(PreviewMountTable::default()));
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let thread_table = std::sync::Arc::clone(&table);
+        let thread_stop = std::sync::Arc::clone(&stop);
+        let accept_thread = std::thread::Builder::new()
+            .name("neoflash-preview-http".into())
+            .spawn(move || run_preview_accept_loop(listener, thread_table, thread_stop))?;
+        Ok(Self {
+            addr,
+            table,
+            stop,
+            accept_thread: Some(accept_thread),
+        })
+    }
+
+    /// Start a loopback HTTP server whose root `/` immediately serves `root_dir`.
+    pub(crate) fn start_for_dir(root_dir: &std::path::Path) -> std::io::Result<Self> {
+        let canonical = std::fs::canonicalize(root_dir)?;
+        if !canonical.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("preview root '{}' is not a directory", root_dir.display()),
+            ));
+        }
+        let server = Self::start()?;
+        if let Ok(mut guard) = server.table.write() {
+            guard.default_root = Some(canonical);
+        }
+        Ok(server)
+    }
+
+    pub(crate) fn local_addr(&self) -> std::net::SocketAddr {
+        self.addr
+    }
+
+    pub(crate) fn base_url(&self) -> String {
+        format!("http://127.0.0.1:{}", self.addr.port())
+    }
+
+    pub(crate) fn is_running(&self) -> bool {
+        !self.stop.load(Ordering::Acquire)
+            && self
+                .accept_thread
+                .as_ref()
+                .is_some_and(|handle| !handle.is_finished())
+    }
+
+    /// Register or reuse a mount for `index_file`'s parent directory and return its loopback URL.
+    pub(crate) fn mount_index_file(&self, index_file: &std::path::Path) -> Result<String, String> {
+        let canonical_file = std::fs::canonicalize(index_file).map_err(|e| {
+            format!(
+                "Preview file '{}' is unavailable: {e}",
+                index_file.display()
+            )
+        })?;
+        if !canonical_file.is_file() {
+            return Err(format!(
+                "Preview path '{}' is not a file.",
+                index_file.display()
+            ));
+        }
+        let parent = canonical_file
+            .parent()
+            .ok_or_else(|| "Preview file has no parent directory.".to_owned())?
+            .to_path_buf();
+        let file_name = canonical_file
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| "Preview file name is not valid UTF-8.".to_owned())?;
+
+        let slug = {
+            let mut guard = self
+                .table
+                .write()
+                .map_err(|_| "Preview server lock poisoned.".to_owned())?;
+            guard.default_root = Some(parent.clone());
+            if let Some(existing) = guard.by_root.get(&parent) {
+                existing.clone()
+            } else {
+                guard.next_id += 1;
+                let slug = format!("m{}", guard.next_id);
+                guard.mounts.insert(slug.clone(), parent.clone());
+                guard.by_root.insert(parent, slug.clone());
+                slug
+            }
+        };
+        Ok(format!(
+            "http://127.0.0.1:{}/{slug}/{}",
+            self.addr.port(),
+            percent_encode_url_segment(file_name)
+        ))
+    }
+
+    /// Gracefully stop the accept loop and wait for its background thread to exit.
+    pub(crate) fn shutdown(&mut self) {
+        if !self.stop.swap(true, Ordering::AcqRel) {
+            let _ = std::net::TcpStream::connect_timeout(
+                &self.addr,
+                std::time::Duration::from_millis(100),
+            );
+        }
+        if let Some(handle) = self.accept_thread.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+impl Drop for PreviewHttpServer {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+#[allow(dead_code)]
+static SHARED_PREVIEW_SERVER: std::sync::Mutex<Option<PreviewHttpServer>> =
+    std::sync::Mutex::new(None);
+
+/// Ensure the process-wide `PreviewHttpServer` is running, mount `index_file`, and return its
+/// `http://127.0.0.1:<port>/...` URL (reusing the same server and mount across repeated `⌘Return` runs).
+#[allow(dead_code)]
+pub(crate) fn serve_preview_index(index_file: &std::path::Path) -> Result<String, String> {
+    let mut guard = SHARED_PREVIEW_SERVER
+        .lock()
+        .map_err(|_| "Preview HTTP server lock poisoned.".to_owned())?;
+    let needs_restart = guard.as_ref().is_none_or(|srv| !srv.is_running());
+    if needs_restart {
+        if let Some(mut old) = guard.take() {
+            old.shutdown();
+        }
+        let srv = PreviewHttpServer::start()
+            .map_err(|e| format!("Cannot start local preview HTTP server: {e}"))?;
+        *guard = Some(srv);
+    }
+    guard
+        .as_ref()
+        .expect("preview server initialized")
+        .mount_index_file(index_file)
+}
+
+/// Serve `index_file` on the reusable loopback HTTP server (with `Cache-Control: no-store`) and
+/// launch it in the user's default browser.
+#[allow(dead_code)]
+pub(crate) fn open_preview_in_browser(index_file: &std::path::Path) -> Result<String, String> {
+    let url = serve_preview_index(index_file)?;
+    crate::platform_open::open_url(&url)?;
+    Ok(url)
+}
+
+#[allow(dead_code)]
+pub(crate) fn shutdown_shared_preview_server() {
+    if let Ok(mut guard) = SHARED_PREVIEW_SERVER.lock()
+        && let Some(mut srv) = guard.take()
+    {
+        srv.shutdown();
+    }
+}
+
+#[allow(dead_code)]
+fn run_preview_accept_loop(
+    listener: std::net::TcpListener,
+    table: std::sync::Arc<std::sync::RwLock<PreviewMountTable>>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    while !stop.load(Ordering::Acquire) {
+        let Ok((stream, _peer)) = listener.accept() else {
+            if stop.load(Ordering::Acquire) {
+                break;
+            }
+            continue;
+        };
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
+        let req_table = std::sync::Arc::clone(&table);
+        let _ = std::thread::Builder::new()
+            .name("neoflash-preview-req".into())
+            .spawn(move || {
+                let _ = handle_preview_http_connection(stream, &req_table);
+            });
+    }
+}
+
+#[allow(dead_code)]
+fn handle_preview_http_connection(
+    mut stream: std::net::TcpStream,
+    table: &std::sync::RwLock<PreviewMountTable>,
+) -> std::io::Result<()> {
+    use std::io::Read as _;
+
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(10)));
+
+    let mut buf = Vec::with_capacity(2048);
+    let mut chunk = [0_u8; 2048];
+    let header_end = loop {
+        let n = match stream.read(&mut chunk) {
+            Ok(0) => return Ok(()),
+            Ok(n) => n,
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                return Ok(());
+            }
+            Err(err) => return Err(err),
+        };
+        buf.extend_from_slice(&chunk[..n]);
+        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            break pos + 4;
+        }
+        if buf.len() > 16 * 1024 {
+            return write_preview_error(&mut stream, 400, "Bad Request", true, &[]);
+        }
+    };
+
+    let Ok(header_text) = std::str::from_utf8(&buf[..header_end]) else {
+        return write_preview_error(&mut stream, 400, "Bad Request", true, &[]);
+    };
+    let mut lines = header_text.split("\r\n");
+    let Some(request_line) = lines.next() else {
+        return write_preview_error(&mut stream, 400, "Bad Request", true, &[]);
+    };
+    let mut parts = request_line.split_whitespace();
+    let (Some(method), Some(raw_target), Some(_version)) =
+        (parts.next(), parts.next(), parts.next())
+    else {
+        return write_preview_error(&mut stream, 400, "Bad Request", true, &[]);
+    };
+
+    let send_body = match method {
+        "GET" => true,
+        "HEAD" => false,
+        _ => {
+            return write_preview_error(
+                &mut stream,
+                405,
+                "Method Not Allowed",
+                true,
+                &[("Allow", "GET, HEAD")],
+            );
+        }
+    };
+
+    let mut range_header: Option<&str> = None;
+    for line in lines {
+        if line.is_empty() {
+            break;
+        }
+        if let Some((name, val)) = line.split_once(':')
+            && name.trim().eq_ignore_ascii_case("range")
+        {
+            range_header = Some(val.trim());
+        }
+    }
+
+    // Strip #fragment and ?query (e.g. cache-busting `?t=...`), then decode RFC 3986 path segments.
+    let without_fragment = raw_target.split('#').next().unwrap_or(raw_target);
+    let raw_path = without_fragment
+        .split('?')
+        .next()
+        .unwrap_or(without_fragment);
+    if !raw_path.starts_with('/') {
+        return write_preview_error(&mut stream, 400, "Bad Request", send_body, &[]);
+    }
+
+    let mut decoded_segments: Vec<String> = Vec::new();
+    for raw_seg in raw_path.split('/').skip(1) {
+        if raw_seg.is_empty() {
+            continue;
+        }
+        let Ok(seg) = percent_decode_url_segment(raw_seg) else {
+            return write_preview_error(&mut stream, 400, "Bad Request", send_body, &[]);
+        };
+        if seg == "." {
+            continue;
+        }
+        if seg == ".." || seg.contains(['/', '\\', '\0']) {
+            return write_preview_error(&mut stream, 403, "Forbidden", send_body, &[]);
+        }
+        decoded_segments.push(seg);
+    }
+
+    let (root_dir, rel_segments): (std::path::PathBuf, &[String]) = {
+        let Ok(guard) = table.read() else {
+            return write_preview_error(&mut stream, 500, "Internal Server Error", send_body, &[]);
+        };
+        if let Some(first) = decoded_segments.first()
+            && let Some(mounted_root) = guard.mounts.get(first)
+        {
+            (mounted_root.clone(), &decoded_segments[1..])
+        } else if let Some(default_root) = &guard.default_root {
+            (default_root.clone(), &decoded_segments[..])
+        } else {
+            return write_preview_error(&mut stream, 404, "Not Found", send_body, &[]);
+        }
+    };
+
+    let mut candidate = root_dir.clone();
+    if rel_segments.is_empty() {
+        candidate.push("index.html");
+    } else {
+        for seg in rel_segments {
+            candidate.push(seg);
+        }
+    }
+    if candidate.is_dir() {
+        candidate.push("index.html");
+    }
+    if !candidate.exists() {
+        return write_preview_error(&mut stream, 404, "Not Found", send_body, &[]);
+    }
+    let Ok(canonical_target) = std::fs::canonicalize(&candidate) else {
+        return write_preview_error(&mut stream, 404, "Not Found", send_body, &[]);
+    };
+    if !canonical_target.starts_with(&root_dir) {
+        return write_preview_error(&mut stream, 403, "Forbidden", send_body, &[]);
+    }
+    if !canonical_target.is_file() {
+        return write_preview_error(&mut stream, 404, "Not Found", send_body, &[]);
+    }
+
+    let bytes = match std::fs::read(&canonical_target) {
+        Ok(b) => b,
+        Err(_) => return write_preview_error(&mut stream, 404, "Not Found", send_body, &[]),
+    };
+    let mime = preview_mime_type(&canonical_target);
+    let total_len = bytes.len();
+
+    if let Some(raw_range) = range_header
+        && let Some(spec) = raw_range.strip_prefix("bytes=")
+        && !spec.contains(',')
+    {
+        match parse_http_byte_range(spec, total_len) {
+            Some((start, end_inclusive)) => {
+                let slice = &bytes[start..=end_inclusive];
+                let content_range = format!("bytes {start}-{end_inclusive}/{total_len}");
+                return write_preview_response(
+                    &mut stream,
+                    206,
+                    "Partial Content",
+                    mime,
+                    slice,
+                    send_body,
+                    &[("Content-Range", content_range.as_str())],
+                );
+            }
+            None => {
+                let unsatisfied = format!("bytes */{total_len}");
+                return write_preview_error(
+                    &mut stream,
+                    416,
+                    "Range Not Satisfiable",
+                    send_body,
+                    &[("Content-Range", unsatisfied.as_str())],
+                );
+            }
+        }
+    }
+
+    write_preview_response(&mut stream, 200, "OK", mime, &bytes, send_body, &[])
+}
+
+#[allow(dead_code)]
+fn parse_http_byte_range(spec: &str, total_len: usize) -> Option<(usize, usize)> {
+    if total_len == 0 {
+        return None;
+    }
+    let (start_str, end_str) = spec.trim().split_once('-')?;
+    let start_str = start_str.trim();
+    let end_str = end_str.trim();
+    if start_str.is_empty() {
+        let suffix_len: usize = end_str.parse().ok()?;
+        if suffix_len == 0 {
+            return None;
+        }
+        let start = total_len.saturating_sub(suffix_len);
+        Some((start, total_len - 1))
+    } else {
+        let start: usize = start_str.parse().ok()?;
+        if start >= total_len {
+            return None;
+        }
+        let end = if end_str.is_empty() {
+            total_len - 1
+        } else {
+            let parsed_end: usize = end_str.parse().ok()?;
+            if parsed_end < start {
+                return None;
+            }
+            parsed_end.min(total_len - 1)
+        };
+        Some((start, end))
+    }
+}
+
+#[allow(dead_code)]
+fn write_preview_error(
+    stream: &mut std::net::TcpStream,
+    status: u16,
+    reason: &str,
+    send_body: bool,
+    extra_headers: &[(&str, &str)],
+) -> std::io::Result<()> {
+    let body = format!("{status} {reason}\n");
+    write_preview_response(
+        stream,
+        status,
+        reason,
+        "text/plain; charset=utf-8",
+        body.as_bytes(),
+        send_body,
+        extra_headers,
+    )
+}
+
+#[allow(dead_code)]
+fn write_preview_response(
+    stream: &mut std::net::TcpStream,
+    status: u16,
+    reason: &str,
+    content_type: &str,
+    body: &[u8],
+    send_body: bool,
+    extra_headers: &[(&str, &str)],
+) -> std::io::Result<()> {
+    use std::io::Write as _;
+
+    let mut header = format!(
+        "HTTP/1.1 {status} {reason}\r\n\
+Content-Type: {content_type}\r\n\
+Content-Length: {}\r\n\
+Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n\
+Pragma: no-cache\r\n\
+Expires: 0\r\n\
+Accept-Ranges: bytes\r\n\
+X-Content-Type-Options: nosniff\r\n\
+Connection: close\r\n",
+        body.len()
+    );
+    for (k, v) in extra_headers {
+        header.push_str(k);
+        header.push_str(": ");
+        header.push_str(v);
+        header.push_str("\r\n");
+    }
+    header.push_str("\r\n");
+    stream.write_all(header.as_bytes())?;
+    if send_body && !body.is_empty() {
+        stream.write_all(body)?;
+    }
+    stream.flush()
+}
+
+#[allow(dead_code)]
+pub(crate) fn preview_mime_type(path: &std::path::Path) -> &'static str {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    match ext.as_deref() {
+        Some("html" | "htm") => "text/html; charset=utf-8",
+        Some("js" | "mjs" | "cjs") => "text/javascript; charset=utf-8",
+        Some("wasm") => "application/wasm",
+        Some("json" | "map" | "webmanifest") => "application/json; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        Some("avif") => "image/avif",
+        Some("bmp") => "image/bmp",
+        Some("ico") => "image/x-icon",
+        Some("mp3") => "audio/mpeg",
+        Some("wav") => "audio/wav",
+        Some("ogg" | "oga") => "audio/ogg",
+        Some("opus") => "audio/opus",
+        Some("aac") => "audio/aac",
+        Some("m4a") => "audio/mp4",
+        Some("flac") => "audio/flac",
+        Some("mp4" | "m4v") => "video/mp4",
+        Some("webm") => "video/webm",
+        Some("ogv") => "video/ogg",
+        Some("mov") => "video/quicktime",
+        Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
+        Some("ttf") => "font/ttf",
+        Some("otf") => "font/otf",
+        Some("xml") => "application/xml; charset=utf-8",
+        Some("txt") => "text/plain; charset=utf-8",
+        Some("swf") => "application/x-shockwave-flash",
+        _ => "application/octet-stream",
+    }
+}
+
+#[allow(dead_code)]
+fn percent_encode_url_segment(segment: &str) -> String {
+    let mut out = String::with_capacity(segment.len());
+    for &b in segment.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+#[allow(dead_code)]
+fn percent_decode_url_segment(raw: &str) -> Result<String, ()> {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len() {
+                return Err(());
+            }
+            let hi = (bytes[i + 1] as char).to_digit(16).ok_or(())?;
+            let lo = (bytes[i + 2] as char).to_digit(16).ok_or(())?;
+            out.push(((hi << 4) | lo) as u8);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|_| ())
+}
+
 #[cfg(test)]
 mod timeline_video_preview_tests {
     use super::*;
@@ -1414,5 +2022,345 @@ mod timeline_video_preview_tests {
         );
         let solo_draws = editor.presented_authored_scene(true).draws.len();
         assert!(solo_draws < full_draws);
+    }
+
+    #[test]
+    fn t320_preview_http_server_no_store_unicode_mime_range_jail_and_reuse() {
+        use std::io::{Read as _, Write as _};
+
+        fn raw_http_request(addr: std::net::SocketAddr, request: &str) -> (String, Vec<u8>) {
+            let mut stream = std::net::TcpStream::connect(addr).expect("connect preview http");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream.write_all(request.as_bytes()).unwrap();
+            stream.flush().unwrap();
+            let mut raw = Vec::new();
+            stream.read_to_end(&mut raw).unwrap();
+            let split = raw
+                .windows(4)
+                .position(|w| w == b"\r\n\r\n")
+                .expect("HTTP CRLF header boundary");
+            let headers = String::from_utf8_lossy(&raw[..split]).into_owned();
+            let body = raw[split + 4..].to_vec();
+            (headers, body)
+        }
+
+        let root =
+            std::env::temp_dir().join(format!("neoflash-preview-http-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let sub = root.join("assets");
+        std::fs::create_dir_all(&sub).unwrap();
+        let outside_secret = std::env::temp_dir().join(format!(
+            "neoflash-preview-outside-{}.txt",
+            std::process::id()
+        ));
+        std::fs::write(&outside_secret, b"TOP_SECRET_OUTSIDE_JAIL").unwrap();
+
+        let index_path = root.join("index.html");
+        std::fs::write(&index_path, b"<!doctype html><title>v1</title>").unwrap();
+        std::fs::write(root.join("project.json"), br#"{"version":1}"#).unwrap();
+        std::fs::write(root.join("neoflash_web_bg.wasm"), b"\0asm\x01\0\0\0").unwrap();
+        std::fs::write(root.join("host.mjs"), b"export const ok = 1;\n").unwrap();
+        std::fs::write(sub.join("Сцена 1 — Тест.mp3"), b"0123456789").unwrap();
+        std::fs::write(sub.join("c++ clip.mp4"), b"MP4DATA").unwrap();
+
+        // 1. Shared preview server mounts index.html and reuses the exact same server & mount across repeated calls.
+        shutdown_shared_preview_server();
+        let url_1 = serve_preview_index(&index_path).expect("mount index v1");
+        let url_2 = serve_preview_index(&index_path).expect("reuse mount index v2");
+        assert_eq!(
+            url_1, url_2,
+            "repeated Test Movie runs must reuse the active loopback server and mount URL"
+        );
+
+        let after_scheme = url_1.strip_prefix("http://").expect("http url");
+        let (host_port, mount_and_file) = after_scheme.split_once('/').unwrap();
+        let addr: std::net::SocketAddr = host_port.parse().unwrap();
+        let (mount_slug, _) = mount_and_file.split_once('/').unwrap();
+
+        // 2. Verify strict no-cache headers + fresh disk reads after overwriting files in place.
+        let (hdr_v1, body_v1) = raw_http_request(
+            addr,
+            &format!("GET /{mount_slug}/project.json?cb=1 HTTP/1.1\r\nHost: {host_port}\r\n\r\n"),
+        );
+        assert!(hdr_v1.starts_with("HTTP/1.1 200 OK"));
+        assert!(
+            hdr_v1.contains("Cache-Control: no-store, no-cache, must-revalidate, max-age=0"),
+            "missing Cache-Control no-store header: {hdr_v1}"
+        );
+        assert!(hdr_v1.contains("Pragma: no-cache"));
+        assert!(hdr_v1.contains("Expires: 0"));
+        assert!(hdr_v1.contains("Content-Type: application/json; charset=utf-8"));
+        assert_eq!(body_v1, br#"{"version":1}"#);
+
+        // Mutate `project.json` and `index.html` on disk (simulating user editing stage/script + pressing Cmd+Return again).
+        std::fs::write(
+            root.join("project.json"),
+            br#"{"version":2,"updated":true}"#,
+        )
+        .unwrap();
+        let (_, body_v2) = raw_http_request(
+            addr,
+            &format!("GET /{mount_slug}/project.json HTTP/1.1\r\nHost: {host_port}\r\n\r\n"),
+        );
+        assert_eq!(
+            body_v2, br#"{"version":2,"updated":true}"#,
+            "preview server must serve updated disk bytes immediately without stale caching"
+        );
+
+        // 3. MIME types for .wasm, .mjs, Unicode/percent-encoded .mp3, and literal '+' in .mp4.
+        let (wasm_hdr, wasm_body) = raw_http_request(
+            addr,
+            &format!(
+                "GET /{mount_slug}/neoflash_web_bg.wasm HTTP/1.1\r\nHost: {host_port}\r\n\r\n"
+            ),
+        );
+        assert!(wasm_hdr.contains("Content-Type: application/wasm"));
+        assert_eq!(wasm_body, b"\0asm\x01\0\0\0");
+
+        let (mjs_hdr, _) = raw_http_request(
+            addr,
+            &format!("GET /{mount_slug}/host.mjs HTTP/1.1\r\nHost: {host_port}\r\n\r\n"),
+        );
+        assert!(mjs_hdr.contains("Content-Type: text/javascript; charset=utf-8"));
+
+        let encoded_unicode = percent_encode_url_segment("Сцена 1 — Тест.mp3");
+        let (mp3_hdr, mp3_body) = raw_http_request(
+            addr,
+            &format!(
+                "GET /{mount_slug}/assets/{encoded_unicode} HTTP/1.1\r\nHost: {host_port}\r\n\r\n"
+            ),
+        );
+        assert!(mp3_hdr.starts_with("HTTP/1.1 200 OK"));
+        assert!(mp3_hdr.contains("Content-Type: audio/mpeg"));
+        assert_eq!(mp3_body, b"0123456789");
+
+        // Literal '+' in URL path must remain '+' (RFC 3986 path segment, NOT form query space!).
+        let (mp4_hdr, mp4_body) = raw_http_request(
+            addr,
+            &format!(
+                "GET /{mount_slug}/assets/c++%20clip.mp4 HTTP/1.1\r\nHost: {host_port}\r\n\r\n"
+            ),
+        );
+        assert!(mp4_hdr.starts_with("HTTP/1.1 200 OK"));
+        assert!(mp4_hdr.contains("Content-Type: video/mp4"));
+        assert_eq!(mp4_body, b"MP4DATA");
+
+        // 4. HTTP Range (206 Partial Content & 416 Range Not Satisfiable), HEAD, and 405 Method Not Allowed.
+        let (range_hdr, range_body) = raw_http_request(
+            addr,
+            &format!(
+                "GET /{mount_slug}/assets/{encoded_unicode} HTTP/1.1\r\nHost: {host_port}\r\nRange: bytes=2-5\r\n\r\n"
+            ),
+        );
+        assert!(range_hdr.starts_with("HTTP/1.1 206 Partial Content"));
+        assert!(range_hdr.contains("Content-Range: bytes 2-5/10"));
+        assert_eq!(range_body, b"2345");
+
+        let (bad_range_hdr, _) = raw_http_request(
+            addr,
+            &format!(
+                "GET /{mount_slug}/assets/{encoded_unicode} HTTP/1.1\r\nHost: {host_port}\r\nRange: bytes=50-60\r\n\r\n"
+            ),
+        );
+        assert!(bad_range_hdr.starts_with("HTTP/1.1 416 Range Not Satisfiable"));
+
+        let (head_hdr, head_body) = raw_http_request(
+            addr,
+            &format!("HEAD /{mount_slug}/host.mjs HTTP/1.1\r\nHost: {host_port}\r\n\r\n"),
+        );
+        assert!(head_hdr.starts_with("HTTP/1.1 200 OK"));
+        assert!(head_hdr.contains("Content-Length: 21"));
+        assert!(head_body.is_empty(), "HEAD response must have empty body");
+
+        let (post_hdr, _) = raw_http_request(
+            addr,
+            &format!("POST /{mount_slug}/index.html HTTP/1.1\r\nHost: {host_port}\r\n\r\n"),
+        );
+        assert!(post_hdr.starts_with("HTTP/1.1 405 Method Not Allowed"));
+
+        // 5. Directory traversal attempts (`..`, `%2e%2e`, `\`) are strictly blocked!
+        let outside_name = outside_secret.file_name().unwrap().to_str().unwrap();
+        for attack in [
+            format!("/{mount_slug}/../{outside_name}"),
+            format!("/{mount_slug}/%2e%2e/{outside_name}"),
+            format!("/{mount_slug}/..\\{outside_name}"),
+        ] {
+            let (jail_hdr, jail_body) = raw_http_request(
+                addr,
+                &format!("GET {attack} HTTP/1.1\r\nHost: {host_port}\r\n\r\n"),
+            );
+            assert!(
+                jail_hdr.starts_with("HTTP/1.1 403") || jail_hdr.starts_with("HTTP/1.1 400"),
+                "expected 403/400 for traversal {attack}, got: {jail_hdr}"
+            );
+            assert!(!String::from_utf8_lossy(&jail_body).contains("TOP_SECRET_OUTSIDE_JAIL"));
+        }
+
+        // 6. Multi-mount `Test Movie` (`m1`) vs `Test Scene` (`m2`) `default_root` switching:
+        //    root-relative requests (`/data.json`) must always resolve against the latest mounted preview
+        //    while explicit `/m1/...` and `/m2/...` mounts continue to coexist!
+        std::fs::write(root.join("data.json"), br#"{"source":"movie"}"#).unwrap();
+        let (_, root_movie_body) = raw_http_request(
+            addr,
+            &format!("GET /data.json HTTP/1.1\r\nHost: {host_port}\r\n\r\n"),
+        );
+        assert_eq!(root_movie_body, br#"{"source":"movie"}"#);
+
+        let scene_root = std::env::temp_dir().join(format!(
+            "neoflash-preview-http-scene-test-{}-{}",
+            std::process::id(),
+            neoflash_core::new_id("srvscene")
+        ));
+        std::fs::create_dir_all(&scene_root).unwrap();
+        let scene_index = scene_root.join("index.html");
+        std::fs::write(&scene_index, b"<!doctype html><title>scene</title>").unwrap();
+        std::fs::write(scene_root.join("data.json"), br#"{"source":"scene"}"#).unwrap();
+
+        let scene_url = serve_preview_index(&scene_index).expect("mount scene preview");
+        let scene_after_scheme = scene_url.strip_prefix("http://").unwrap();
+        let (scene_host_port, scene_mount_and_file) = scene_after_scheme.split_once('/').unwrap();
+        assert_eq!(
+            scene_host_port, host_port,
+            "Test Scene reuses same HTTP server"
+        );
+        let (scene_slug, _) = scene_mount_and_file.split_once('/').unwrap();
+        assert_ne!(
+            scene_slug, mount_slug,
+            "Test Scene gets its own distinct mount slug"
+        );
+
+        let (_, root_scene_body) = raw_http_request(
+            addr,
+            &format!("GET /data.json HTTP/1.1\r\nHost: {host_port}\r\n\r\n"),
+        );
+        assert_eq!(
+            root_scene_body, br#"{"source":"scene"}"#,
+            "after Test Scene mount, root-relative /data.json must resolve to Test Scene, not stale Test Movie"
+        );
+        let (_, explicit_m1_body) = raw_http_request(
+            addr,
+            &format!("GET /{mount_slug}/data.json HTTP/1.1\r\nHost: {host_port}\r\n\r\n"),
+        );
+        assert_eq!(explicit_m1_body, br#"{"source":"movie"}"#);
+        let (_, explicit_m2_body) = raw_http_request(
+            addr,
+            &format!("GET /{scene_slug}/data.json HTTP/1.1\r\nHost: {host_port}\r\n\r\n"),
+        );
+        assert_eq!(explicit_m2_body, br#"{"source":"scene"}"#);
+
+        // Re-mounting `Test Movie` switches `default_root` back to `movie` while keeping `m1` slug!
+        let remount_movie_url = serve_preview_index(&index_path).expect("remount movie preview");
+        assert_eq!(remount_movie_url, url_1);
+        let (_, root_back_to_movie) = raw_http_request(
+            addr,
+            &format!("GET /data.json HTTP/1.1\r\nHost: {host_port}\r\n\r\n"),
+        );
+        assert_eq!(root_back_to_movie, br#"{"source":"movie"}"#);
+
+        // 7. Graceful shutdown and clean restart on next `serve_preview_index`.
+        shutdown_shared_preview_server();
+        let url_restarted = serve_preview_index(&index_path).expect("restart preview server");
+        assert!(url_restarted.starts_with("http://127.0.0.1:"));
+        shutdown_shared_preview_server();
+
+        let _ = std::fs::remove_file(&outside_secret);
+        let _ = std::fs::remove_dir_all(&scene_root);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn t320_editor_authored_preview_advances_across_scenes_and_syncs_active_scene() {
+        let mut project = Project::blank();
+        project.format_version = 6;
+        project.script_language = Some(neoflash_core::ScriptLanguage::ActionScript3);
+        let s1_id = project.root.clone();
+        let s2_id: Id = "scene-2".into();
+        project.symbol_mut(&s1_id).unwrap().timeline.frame_count = 2;
+
+        let mut s2 = project.symbol(&s1_id).unwrap().clone();
+        s2.id = s2_id.clone();
+        s2.name = "Scene 2".into();
+        s2.timeline.frame_count = 2;
+        s2.timeline.layers[0].id = "s2-layer".into();
+        s2.timeline.scripts = vec![neoflash_core::FrameScript {
+            frame: 0,
+            script: neoflash_core::Script {
+                language: neoflash_core::ScriptLanguage::ActionScript3,
+                source: r#"trace("ENTERED_S2"); stop();"#.into(),
+            },
+        }];
+        project.symbols.push(s2);
+        project.scenes = vec![s1_id.clone(), s2_id.clone()];
+        project.upgrade_format_for_features();
+
+        let ctx = eframe::egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.live_script_preview = true;
+        editor.timeline_edit.play_all_scenes = true;
+        editor.playing = true;
+        editor.sync_authored_preview();
+        assert_eq!(editor.symbol_id(), s1_id);
+        assert_eq!(editor.frame, 0);
+
+        let before = editor.frame;
+        editor.tick_authored_preview();
+        editor.after_playback_tick(before);
+        assert_eq!(editor.symbol_id(), s1_id);
+        assert_eq!(editor.frame, 1);
+
+        let before = editor.frame;
+        editor.tick_authored_preview();
+        editor.after_playback_tick(before);
+        editor.sync_authored_preview();
+        assert_eq!(
+            editor.symbol_id(),
+            s2_id,
+            "unstopped play_all_scenes playback must switch active editor scene to Scene 2"
+        );
+        assert_eq!(editor.frame, 0);
+        assert!(
+            !editor.playing,
+            "stop() on Scene 2 frame 1 must halt editor playback"
+        );
+        assert!(
+            editor
+                .output
+                .events()
+                .iter()
+                .any(|ev| ev.message.contains("ENTERED_S2")),
+            "Scene 2 entry trace must be emitted to Output"
+        );
+
+        // Also verify scripted `nextScene()` inside Scene 1 switches the active editor scene immediately!
+        editor.output.clear();
+        editor.project.symbol_mut(&s1_id).unwrap().timeline.scripts =
+            vec![neoflash_core::FrameScript {
+                frame: 1,
+                script: neoflash_core::Script {
+                    language: neoflash_core::ScriptLanguage::ActionScript3,
+                    source: r#"nextScene();"#.into(),
+                },
+            }];
+        editor.switch_scene(&s1_id);
+        editor.timeline_edit.play_all_scenes = false;
+        editor.playing = true;
+        editor.sync_authored_preview();
+        editor.tick_authored_preview();
+        assert_eq!(
+            editor.symbol_id(),
+            s2_id,
+            "scripted nextScene() must switch active editor scene even when play_all_scenes is false"
+        );
+        assert_eq!(editor.frame, 0);
+        assert!(!editor.playing);
+        assert!(
+            editor
+                .output
+                .events()
+                .iter()
+                .any(|ev| ev.message.contains("ENTERED_S2"))
+        );
     }
 }

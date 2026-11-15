@@ -18,7 +18,7 @@ use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::rich;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU32, Ordering},
@@ -291,11 +291,72 @@ pub(crate) struct ExportLottieDraft {
     pub(crate) scale_idx: usize,
     pub(crate) fps_idx: usize,
     pub(crate) options: LottieOptions,
+    pub(crate) output_path: PathBuf,
     pub(crate) preview_report: Option<LottieExportReport>,
     pub(crate) blocking_error: Option<String>,
     pub(crate) show_notes_modal: bool,
     pub(crate) dirty: bool,
     pub(crate) worker: Arc<Mutex<LottieAsyncWorker>>,
+}
+
+pub(crate) fn default_lottie_file_name(
+    project: &Project,
+    source: &LottieSourceChoice,
+    format: LottieFormat,
+) -> String {
+    let base_name = match source {
+        LottieSourceChoice::AllScenes => project.name.as_str(),
+        LottieSourceChoice::Scene(id) | LottieSourceChoice::Symbol(id) => project
+            .symbol(id)
+            .map(|s| s.name.as_str())
+            .unwrap_or(project.name.as_str()),
+    };
+    let stem: String = base_name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let clean_stem = if stem.trim_matches('-').is_empty() {
+        "animation"
+    } else {
+        stem.trim_matches('-')
+    };
+    format!("{clean_stem}.{}", format.extension())
+}
+
+pub(crate) fn sync_lottie_output_path_extension(path: &mut PathBuf, format: LottieFormat) {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf);
+    let raw_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("animation.json");
+    let mut stem = raw_name;
+    for suffix in [".lottie.json", ".json", ".lottie"] {
+        if raw_name.len() > suffix.len()
+            && raw_name[raw_name.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+        {
+            stem = &raw_name[..raw_name.len() - suffix.len()];
+            break;
+        }
+    }
+    let stem = if stem.trim().is_empty() {
+        "animation"
+    } else {
+        stem
+    };
+    let next_name = format!("{stem}.{}", format.extension());
+    *path = match parent {
+        Some(dir) => dir.join(next_name),
+        None => PathBuf::from(next_name),
+    };
 }
 
 impl ExportLottieDraft {
@@ -311,6 +372,7 @@ impl ExportLottieDraft {
         let total_frames = source_frame_count(project, &source);
         let w = project.width.max(1) as f64;
         let h = project.height.max(1) as f64;
+        let output_path = PathBuf::from(default_lottie_file_name(project, &source, options.format));
         let mut draft = Self {
             source,
             custom_range: false,
@@ -319,10 +381,11 @@ impl ExportLottieDraft {
             width: w,
             height: h,
             constrain: true,
-            aspect: w / h,
+            aspect: (w / h).max(0.01),
             scale_idx: 1, // 1x
             fps_idx: 0,   // Document fps
             options,
+            output_path,
             preview_report: None,
             blocking_error: None,
             show_notes_modal: false,
@@ -331,6 +394,14 @@ impl ExportLottieDraft {
         };
         draft.refresh_estimate(project);
         draft
+    }
+
+    pub(crate) fn set_format(&mut self, format: LottieFormat) {
+        if self.options.format != format {
+            self.options.format = format;
+            self.dirty = true;
+        }
+        sync_lottie_output_path_extension(&mut self.output_path, format);
     }
 
     pub(crate) fn cancel_worker(&self) {
@@ -368,8 +439,16 @@ impl ExportLottieDraft {
         }
         let max_frames = source_frame_count(project, &self.source);
         if self.custom_range {
-            let from = (self.from_frame.round() as u32).max(1);
-            let to = (self.to_frame.round() as u32).max(1);
+            let from = if self.from_frame.is_finite() && self.from_frame >= 1.0 {
+                self.from_frame.round().min(f64::from(u32::MAX)) as u32
+            } else {
+                1
+            };
+            let to = if self.to_frame.is_finite() && self.to_frame >= 1.0 {
+                self.to_frame.round().min(f64::from(u32::MAX)) as u32
+            } else {
+                max_frames.max(1)
+            };
             self.options.frame_range = Some((from, to));
             if from > to || from > max_frames || to > max_frames {
                 self.blocking_error = Some(format!(
@@ -382,8 +461,21 @@ impl ExportLottieDraft {
             self.options.frame_range = None;
             self.blocking_error = None;
         }
-        let w = (self.width.round() as u32).clamp(1, 16384);
-        let h = (self.height.round() as u32).clamp(1, 16384);
+        let w = if self.width.is_finite() {
+            (self.width.round().clamp(1.0, 16384.0) as u32).clamp(1, 16384)
+        } else {
+            project.width.clamp(1, 16384)
+        };
+        let h = if self.height.is_finite() {
+            (self.height.round().clamp(1.0, 16384.0) as u32).clamp(1, 16384)
+        } else {
+            project.height.clamp(1, 16384)
+        };
+        self.width = f64::from(w);
+        self.height = f64::from(h);
+        if !self.aspect.is_finite() || self.aspect <= 0.0 {
+            self.aspect = (self.width / self.height).max(0.01);
+        }
         self.options.width = Some(w);
         self.options.height = Some(h);
         self.options.scale = SCALE_PRESETS
@@ -391,6 +483,7 @@ impl ExportLottieDraft {
             .map(|(s, _)| *s)
             .unwrap_or(1.0);
         self.options.fps = FPS_PRESETS.get(self.fps_idx).copied().flatten();
+        sync_lottie_output_path_extension(&mut self.output_path, self.options.format);
     }
 
     pub(crate) fn refresh_estimate(&mut self, project: &Project) {
@@ -557,45 +650,38 @@ impl Editor {
     }
 
     fn choose_export_lottie_path(&self, draft: &ExportLottieDraft) -> Option<PathBuf> {
-        let base_name = match &draft.source {
-            LottieSourceChoice::AllScenes => self.project.name.as_str(),
-            LottieSourceChoice::Scene(id) | LottieSourceChoice::Symbol(id) => self
-                .project
-                .symbol(id)
-                .map(|s| s.name.as_str())
-                .unwrap_or(self.project.name.as_str()),
+        let (filter_name, filter_exts): (&str, &[&str]) = match draft.options.format {
+            LottieFormat::Json => ("Lottie JSON", &["json"]),
+            LottieFormat::DotLottie => ("dotLottie archive", &["lottie"]),
         };
-        let stem: String = base_name
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                    c.to_ascii_lowercase()
-                } else {
-                    '-'
-                }
-            })
-            .collect();
-        let clean_stem = if stem.trim_matches('-').is_empty() {
-            "animation"
-        } else {
-            stem.trim_matches('-')
-        };
-        let (ext, filter_name, filter_exts): (&str, &str, &[&str]) = match draft.options.format {
-            LottieFormat::Json => ("lottie.json", "Lottie JSON", &["json"]),
-            LottieFormat::DotLottie => ("lottie", "dotLottie archive", &["lottie"]),
-        };
-        let file_name = format!("{clean_stem}.{ext}");
-        rfd::FileDialog::new()
+        let file_name = draft
+            .output_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                default_lottie_file_name(&self.project, &draft.source, draft.options.format)
+            });
+        let mut dialog = rfd::FileDialog::new()
             .set_title("Export Lottie")
             .add_filter(filter_name, filter_exts)
-            .set_file_name(&file_name)
-            .save_file()
+            .set_file_name(&file_name);
+        if let Some(dir) = draft
+            .output_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+        {
+            dialog = dialog.set_directory(dir);
+        }
+        dialog.save_file()
     }
 
     pub(crate) fn jump_to_lottie_note(&mut self, note: &LottieNote) {
-        if let Some(sym_id) = note.symbol_id.as_deref()
-            && self.project.symbol(sym_id).is_some()
-        {
+        if let Some(sym_id) = note.symbol_id.as_deref() {
+            if self.project.symbol(sym_id).is_none() {
+                return;
+            }
             self.enter_explorer_timeline(sym_id);
         }
         if let Some(layer_id) = note.layer_id.as_deref()
@@ -609,7 +695,8 @@ impl Editor {
             self.layer = idx;
         }
         if let Some(f) = note.frame {
-            self.seek_frame(f);
+            let max_frame = self.symbol().timeline.frame_count.saturating_sub(1);
+            self.seek_frame(f.min(max_frame));
         }
     }
 
@@ -635,6 +722,7 @@ impl Editor {
                     }
                     let _ = self.finish_lottie_export(&path, result);
                     self.export_lottie = None;
+                    super::dialog_helpers::record_end_of_frame_focus(ctx);
                     return;
                 }
             }
@@ -648,6 +736,7 @@ impl Editor {
             let mut close_notes = false;
             let mut jump_target: Option<LottieNote> = None;
             let mut copy_text: Option<String> = None;
+            let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
             let notes = draft
                 .preview_report
                 .as_ref()
@@ -737,16 +826,27 @@ impl Editor {
                 ctx.copy_text(text);
                 self.message("Copied Lottie compatibility report.");
             }
+            if !close_notes && jump_target.is_none() {
+                match kb.resolve(ctx, &modal, true) {
+                    super::dialog_helpers::DialogKeyboardOutcome::Cancel
+                    | super::dialog_helpers::DialogKeyboardOutcome::Confirm => {
+                        close_notes = true;
+                    }
+                    super::dialog_helpers::DialogKeyboardOutcome::None => {}
+                }
+            }
             if let Some(target) = jump_target {
                 draft.show_notes_modal = false;
                 self.export_lottie = Some(draft);
                 self.jump_to_lottie_note(&target);
+                super::dialog_helpers::record_end_of_frame_focus(ctx);
                 return;
             }
-            if close_notes || modal.should_close() {
+            if close_notes {
                 draft.show_notes_modal = false;
             }
             self.export_lottie = Some(draft);
+            super::dialog_helpers::record_end_of_frame_focus(ctx);
             return;
         }
 
@@ -908,8 +1008,7 @@ impl Editor {
                                     LottieFormat::Json
                                 };
                                 if new_fmt != draft.options.format {
-                                    draft.options.format = new_fmt;
-                                    draft.dirty = true;
+                                    draft.set_format(new_fmt);
                                 }
 
                                 // Source + Range
@@ -1012,9 +1111,11 @@ impl Editor {
                                                 .width(96.0),
                                         )
                                         .changed()
+                                        && draft.width.is_finite()
                                     {
-                                        if draft.constrain && draft.aspect > 1e-6 {
-                                            draft.height = (draft.width / draft.aspect).round().max(1.0);
+                                        draft.width = draft.width.clamp(1.0, 16384.0);
+                                        if draft.constrain && draft.aspect.is_finite() && draft.aspect > 1e-6 {
+                                            draft.height = (draft.width / draft.aspect).round().clamp(1.0, 16384.0);
                                         }
                                         draft.dirty = true;
                                     }
@@ -1026,9 +1127,11 @@ impl Editor {
                                                 .width(96.0),
                                         )
                                         .changed()
+                                        && draft.height.is_finite()
                                     {
-                                        if draft.constrain && draft.aspect > 1e-6 {
-                                            draft.width = (draft.height * draft.aspect).round().max(1.0);
+                                        draft.height = draft.height.clamp(1.0, 16384.0);
+                                        if draft.constrain && draft.aspect.is_finite() && draft.aspect > 1e-6 {
+                                            draft.width = (draft.height * draft.aspect).round().clamp(1.0, 16384.0);
                                         }
                                         draft.dirty = true;
                                     }
@@ -1040,8 +1143,12 @@ impl Editor {
                                         .clicked()
                                     {
                                         draft.constrain = !draft.constrain;
-                                        if draft.constrain && draft.height > 0.0 {
-                                            draft.aspect = draft.width / draft.height;
+                                        if draft.constrain
+                                            && draft.width.is_finite()
+                                            && draft.height.is_finite()
+                                            && draft.height > 0.0
+                                        {
+                                            draft.aspect = (draft.width / draft.height).max(0.01);
                                         }
                                     }
                                     let scale_labels: Vec<&str> =
@@ -1213,8 +1320,9 @@ impl Editor {
                                                 .width(116.0),
                                         )
                                         .changed()
+                                        && prec.is_finite()
                                     {
-                                        draft.options.precision = (prec.round() as i32).clamp(0, 4) as u8;
+                                        draft.options.precision = prec.round().clamp(0.0, 4.0) as u8;
                                         draft.dirty = true;
                                     }
                                     let mut player_idx = match draft.options.player {
@@ -1325,6 +1433,7 @@ impl Editor {
         } else {
             self.export_lottie = Some(draft);
         }
+        super::dialog_helpers::record_end_of_frame_focus(ctx);
     }
 }
 

@@ -174,6 +174,7 @@ pub struct AuthoredPlayback {
     player: Player,
     button_root: bool,
     looping: bool,
+    play_all_scenes: bool,
     live_scripts: bool,
     script_halted_root: bool,
     current_language: ScriptLanguage,
@@ -217,6 +218,7 @@ impl AuthoredPlayback {
                 .symbol(symbol)
                 .is_some_and(|symbol| symbol.kind == SymbolKind::Button),
             looping: true,
+            play_all_scenes: false,
             live_scripts,
             script_halted_root: false,
             current_language: ScriptLanguage::ActionScript2,
@@ -234,6 +236,21 @@ impl AuthoredPlayback {
         preview
     }
 
+    pub fn symbol(&self) -> &str {
+        &self.symbol
+    }
+
+    pub fn set_play_all_scenes(&mut self, play_all_scenes: bool) {
+        if play_all_scenes && !self.play_all_scenes && !self.script_halted_root {
+            self.player.set_playing(true);
+        }
+        self.play_all_scenes = play_all_scenes;
+    }
+
+    pub fn is_play_all_scenes(&self) -> bool {
+        self.play_all_scenes
+    }
+
     pub fn set_live_scripts(&mut self, project: &Project, live_scripts: bool) {
         if self.live_scripts == live_scripts {
             return;
@@ -244,10 +261,12 @@ impl AuthoredPlayback {
         // the toggle start with clean placement lifetimes.
         let frame = self.frame();
         let looping = self.looping;
+        let play_all_scenes = self.play_all_scenes;
         let mut prior_traces = std::mem::take(&mut self.traces);
         let mut prior_diagnostics = std::mem::take(&mut self.diagnostics);
         let mut reset = Self::with_live_scripts(project, &self.symbol, frame, live_scripts);
         reset.looping = looping;
+        reset.play_all_scenes = play_all_scenes;
         prior_traces.append(&mut reset.traces);
         prior_diagnostics.append(&mut reset.diagnostics);
         reset.traces = prior_traces;
@@ -276,17 +295,82 @@ impl AuthoredPlayback {
         self.looping
     }
 
+    fn switch_root_scene(
+        &mut self,
+        project: &Project,
+        target_symbol: Id,
+        target_frame: u32,
+        playing: bool,
+    ) {
+        let mut player = Player::with_source_root(project, Some(target_symbol.clone()));
+        if target_frame != 0 {
+            player.drain_sound_commands();
+            player.drain_video_commands();
+            player.drain_scripts();
+            player.runtime_scripts.clear();
+            player.seek(project, target_frame);
+        }
+        player.set_playing(playing);
+        self.symbol = target_symbol.clone();
+        self.player = player;
+        self.button_root = project
+            .symbol(&target_symbol)
+            .is_some_and(|s| s.kind == SymbolKind::Button);
+        self.script_halted_root = !playing;
+        // Retain root-scoped (`path.is_empty()`) listeners and variables across scene transitions,
+        // while pruning child placement handlers from the departed scene.
+        let root_lifetime = self.player.lifetime_id(&[]);
+        self.registered_handlers.retain(|h| {
+            if h.target_path.is_empty() {
+                root_lifetime.is_some()
+            } else {
+                false
+            }
+        });
+        if let Some(lt) = root_lifetime {
+            for h in &mut self.registered_handlers {
+                if h.target_path.is_empty() {
+                    h.target_lifetime = lt;
+                }
+            }
+        }
+        self.initialized_wrapper_placements.clear();
+        self.executed_load_blocks.clear();
+    }
+
     pub fn tick(&mut self, project: &Project) {
         self.call_depth = 0;
         self.steps_remaining = MAX_PREVIEW_STEPS_PER_PASS;
         // Button Up/Over/Down/Hit are selected authoring states, not a timeline
         // animation that should advance automatically through Hit.
         if !self.button_root {
-            if !self.looping && !self.script_halted_root {
-                let total_frames = project
-                    .symbol(&self.symbol)
-                    .map_or(1, |s| s.timeline.frame_count.max(1));
-                if self.frame() + 1 >= total_frames {
+            let total_frames = project
+                .symbol(&self.symbol)
+                .map_or(1, |s| s.timeline.frame_count.max(1));
+            let scenes = project.scene_ids();
+            if self.play_all_scenes
+                && scenes.len() > 1
+                && !self.script_halted_root
+                && self.player.is_playing()
+                && self.frame() + 1 >= total_frames
+                && let Some(scene_idx) = scenes.iter().position(|id| id == &self.symbol)
+            {
+                if let Some(next_scene) = scenes.get(scene_idx + 1).cloned() {
+                    self.switch_root_scene(project, next_scene, 0, true);
+                    self.process_scripts(project);
+                    if self.live_scripts {
+                        self.run_registered_enter_frame(project);
+                    }
+                    return;
+                } else if self.looping {
+                    let first_scene = scenes[0].clone();
+                    self.switch_root_scene(project, first_scene, 0, true);
+                    self.process_scripts(project);
+                    if self.live_scripts {
+                        self.run_registered_enter_frame(project);
+                    }
+                    return;
+                } else {
                     self.player.set_playing(false);
                     self.process_scripts(project);
                     if self.live_scripts {
@@ -294,6 +378,14 @@ impl AuthoredPlayback {
                     }
                     return;
                 }
+            }
+            if !self.looping && !self.script_halted_root && self.frame() + 1 >= total_frames {
+                self.player.set_playing(false);
+                self.process_scripts(project);
+                if self.live_scripts {
+                    self.run_registered_enter_frame(project);
+                }
+                return;
             }
             self.player.tick(project);
         }
@@ -1316,7 +1408,14 @@ impl AuthoredPlayback {
         };
         if !matches!(
             method,
-            "stop" | "play" | "nextFrame" | "prevFrame" | "gotoAndStop" | "gotoAndPlay"
+            "stop"
+                | "play"
+                | "nextFrame"
+                | "prevFrame"
+                | "nextScene"
+                | "prevScene"
+                | "gotoAndStop"
+                | "gotoAndPlay"
         ) {
             return false;
         }
@@ -1392,30 +1491,24 @@ impl AuthoredPlayback {
                 }
                 true
             }
-            "gotoAndStop" => {
-                if let Some(target_frame) = self.resolve_frame_arg(project, &effective_path, arg) {
-                    self.player.control(
-                        project,
-                        &effective_path,
-                        PlaybackCommand::GotoAndStop(target_frame),
-                    );
-                    if effective_path.is_empty() {
-                        self.script_halted_root = true;
-                    }
+            "nextScene" if arg.is_empty() => {
+                if effective_path.is_empty() {
+                    self.apply_scene_step(project, 1);
                 }
                 true
             }
-            "gotoAndPlay" => {
-                if let Some(target_frame) = self.resolve_frame_arg(project, &effective_path, arg) {
-                    self.player.control(
-                        project,
-                        &effective_path,
-                        PlaybackCommand::GotoAndPlay(target_frame),
-                    );
-                    if effective_path.is_empty() {
-                        self.script_halted_root = false;
-                    }
+            "prevScene" if arg.is_empty() => {
+                if effective_path.is_empty() {
+                    self.apply_scene_step(project, -1);
                 }
+                true
+            }
+            "gotoAndStop" => {
+                self.apply_goto(project, path, &effective_path, arg, false);
+                true
+            }
+            "gotoAndPlay" => {
+                self.apply_goto(project, path, &effective_path, arg, true);
                 true
             }
             _ => false,
@@ -1537,35 +1630,243 @@ impl AuthoredPlayback {
         None
     }
 
-    fn resolve_frame_arg(&self, project: &Project, path: &[Id], arg: &str) -> Option<u32> {
-        // Support two-arg `gotoAndPlay("Scene", frame)` by taking the frame argument when targeting root
-        let parts = split_top_level_comma(arg);
-        let frame_expr = if parts.len() == 2 && path.is_empty() {
-            parts[1]
+    fn dispatch_switched_scene_scripts(&mut self, project: &Project) {
+        if self.live_scripts && self.call_depth < MAX_PREVIEW_CALL_DEPTH && self.steps_remaining > 0
+        {
+            self.call_depth += 1;
+            self.process_scripts(project);
+            self.call_depth -= 1;
         } else {
-            parts.first().copied().unwrap_or(arg)
-        };
-        let evaluated = self.eval_preview_expr(project, path, frame_expr);
-        if let Ok(one_based) = evaluated.trim().parse::<f64>() {
-            let idx = (one_based.round() as i64 - 1).max(0) as u32;
-            return Some(idx);
+            self.player.drain_scripts();
+            self.player.runtime_scripts.clear();
         }
-        let symbol_id = if path.is_empty() {
-            Some(self.symbol.as_str())
-        } else {
+    }
+
+    fn apply_scene_step(&mut self, project: &Project, direction: i32) {
+        let scenes = project.scene_ids();
+        if scenes.len() > 1 {
+            if let Some(idx) = scenes.iter().position(|id| id == &self.symbol) {
+                let target_idx = if direction >= 0 {
+                    idx.checked_add(1).filter(|&i| i < scenes.len())
+                } else {
+                    idx.checked_sub(1)
+                };
+                if let Some(next_idx) = target_idx {
+                    let next_sym = scenes[next_idx].clone();
+                    self.switch_root_scene(project, next_sym, 0, false);
+                    self.dispatch_switched_scene_scripts(project);
+                }
+            }
+            return;
+        }
+        if let Some(target_frame) = crate::scenes::scene_step(
+            self.player.scenes(),
+            self.player.frame(),
+            if direction >= 0 { 1 } else { -1 },
+        ) {
             self.player
-                .previous
-                .get(path)
-                .and_then(|n| n.symbol_id.as_deref())
-        }?;
+                .control(project, &[], PlaybackCommand::GotoAndStop(target_frame));
+            self.script_halted_root = true;
+        }
+    }
+
+    fn apply_goto(
+        &mut self,
+        project: &Project,
+        scope_path: &[Id],
+        effective_path: &[Id],
+        arg: &str,
+        play: bool,
+    ) {
+        let parts = split_top_level_comma(arg);
+        if parts.is_empty() {
+            return;
+        }
+
+        // Root timeline supports multi-scene navigation:
+        // - AS1/AS2: `gotoAndPlay("Scene 2", 1)` (`(scene, frame)`)
+        // - AS3/JS/TS: `gotoAndPlay(1, "Scene 2")` (`(frame, scene)`)
+        // - Single-arg label: `gotoAndStop("intro_end")` across all project scenes
+        if effective_path.is_empty() {
+            let is_as2_order = matches!(
+                self.current_language,
+                ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+            );
+            let (frame_val, explicit_scene): (String, Option<String>) = if parts.len() >= 2 {
+                let first = self.eval_preview_expr(project, scope_path, parts[0]);
+                let second = self.eval_preview_expr(project, scope_path, parts[1]);
+                let clean_scene = |raw: String| -> Option<String> {
+                    let trimmed = raw.trim();
+                    if trimmed.is_empty() || trimmed == "null" || trimmed == "undefined" {
+                        None
+                    } else {
+                        Some(trimmed.to_owned())
+                    }
+                };
+                if is_as2_order {
+                    // AS2 canonical order is `(scene, frame)`, but if arg 0 is numeric and arg 1 is
+                    // a non-numeric scene name, also accept `(frame, scene)` cleanly.
+                    if first.trim().parse::<f64>().is_ok() && second.trim().parse::<f64>().is_err()
+                    {
+                        (first, clean_scene(second))
+                    } else {
+                        (second, clean_scene(first))
+                    }
+                } else {
+                    (first, clean_scene(second))
+                }
+            } else {
+                (self.eval_preview_expr(project, scope_path, parts[0]), None)
+            };
+
+            let scenes = project.scene_ids();
+            if scenes.len() > 1 {
+                if let Some(scene_name) = explicit_scene {
+                    let Some(target_sym_id) = scenes.iter().find(|sid| {
+                        project
+                            .symbol(sid)
+                            .is_some_and(|s| s.name == scene_name || s.id == scene_name)
+                    }) else {
+                        return;
+                    };
+                    if let Some(target_frame) =
+                        Self::resolve_frame_in_symbol(project, target_sym_id, &frame_val)
+                    {
+                        if target_sym_id == &self.symbol {
+                            let cmd = if play {
+                                PlaybackCommand::GotoAndPlay(target_frame)
+                            } else {
+                                PlaybackCommand::GotoAndStop(target_frame)
+                            };
+                            self.player.control(project, &[], cmd);
+                            self.script_halted_root = !play;
+                        } else {
+                            let target_sym = target_sym_id.clone();
+                            self.switch_root_scene(project, target_sym, target_frame, play);
+                            self.dispatch_switched_scene_scripts(project);
+                        }
+                    }
+                    return;
+                }
+
+                // Single-arg on multi-scene project: check current scene first, then cross-scene labels.
+                if let Some(local_frame) =
+                    Self::resolve_frame_in_symbol(project, &self.symbol, &frame_val)
+                {
+                    let cmd = if play {
+                        PlaybackCommand::GotoAndPlay(local_frame)
+                    } else {
+                        PlaybackCommand::GotoAndStop(local_frame)
+                    };
+                    self.player.control(project, &[], cmd);
+                    self.script_halted_root = !play;
+                    return;
+                }
+                let label = frame_val.trim();
+                if !label.is_empty() && label.parse::<f64>().is_err() {
+                    for sid in &scenes {
+                        if sid == &self.symbol {
+                            continue;
+                        }
+                        if let Some(found_frame) = Self::find_label_in_symbol(project, sid, label) {
+                            self.switch_root_scene(project, sid.clone(), found_frame, play);
+                            self.dispatch_switched_scene_scripts(project);
+                            return;
+                        }
+                    }
+                }
+                return;
+            }
+
+            // Flattened `SceneRange` fallback when `player.scenes()` is populated.
+            if !self.player.scenes().is_empty()
+                && let Some(root_sym) = project.symbol(&self.symbol)
+            {
+                let labels = crate::scenes::timeline_labels(&root_sym.timeline);
+                let frame = match frame_val.trim().parse::<f64>() {
+                    Ok(num) => crate::scenes::GotoFrame::Number(num),
+                    Err(_) => crate::scenes::GotoFrame::Label(frame_val.trim().to_owned()),
+                };
+                let request = crate::scenes::GotoRequest {
+                    frame,
+                    scene: explicit_scene,
+                    as2: is_as2_order,
+                };
+                if let Ok(Some(target_frame)) = crate::scenes::resolve_goto(
+                    self.player.scenes(),
+                    &labels,
+                    self.player.frame(),
+                    &request,
+                ) {
+                    let cmd = if play {
+                        PlaybackCommand::GotoAndPlay(target_frame)
+                    } else {
+                        PlaybackCommand::GotoAndStop(target_frame)
+                    };
+                    self.player.control(project, &[], cmd);
+                    self.script_halted_root = !play;
+                }
+                return;
+            }
+
+            if let Some(target_frame) =
+                Self::resolve_frame_in_symbol(project, &self.symbol, &frame_val)
+            {
+                let cmd = if play {
+                    PlaybackCommand::GotoAndPlay(target_frame)
+                } else {
+                    PlaybackCommand::GotoAndStop(target_frame)
+                };
+                self.player.control(project, &[], cmd);
+                self.script_halted_root = !play;
+            }
+            return;
+        }
+
+        // Child MovieClip target (`effective_path` non-empty):
+        let evaluated = self.eval_preview_expr(project, scope_path, parts[0]);
+        let Some(symbol_id) = self
+            .player
+            .previous
+            .get(effective_path)
+            .and_then(|n| n.symbol_id.as_deref())
+        else {
+            return;
+        };
+        if let Some(target_frame) = Self::resolve_frame_in_symbol(project, symbol_id, &evaluated) {
+            let cmd = if play {
+                PlaybackCommand::GotoAndPlay(target_frame)
+            } else {
+                PlaybackCommand::GotoAndStop(target_frame)
+            };
+            self.player.control(project, effective_path, cmd);
+        }
+    }
+
+    fn find_label_in_symbol(project: &Project, symbol_id: &str, label: &str) -> Option<u32> {
         let symbol = project.symbol(symbol_id)?;
         symbol
             .timeline
             .layers
             .iter()
             .flat_map(|l| &l.keyframes)
-            .find(|k| k.label.as_str() == evaluated.trim())
+            .find(|k| !k.label.is_empty() && k.label.as_str() == label)
             .map(|k| k.frame)
+    }
+
+    fn resolve_frame_in_symbol(project: &Project, symbol_id: &str, evaluated: &str) -> Option<u32> {
+        let trimmed = evaluated.trim();
+        if let Ok(one_based) = trimmed.parse::<f64>() {
+            if !one_based.is_finite() {
+                return None;
+            }
+            let total = project
+                .symbol(symbol_id)
+                .map_or(1, |s| s.timeline.frame_count.max(1));
+            let idx = (one_based.round() as i64 - 1).clamp(0, i64::from(total - 1)) as u32;
+            return Some(idx);
+        }
+        Self::find_label_in_symbol(project, symbol_id, trimmed)
     }
 
     fn try_apply_property_or_var_mutation(
@@ -3650,6 +3951,335 @@ mod tests {
         assert_eq!(
             compat_preview.drain_traces(),
             vec!["COMPAT_TS_FRAME".to_owned()]
+        );
+    }
+
+    #[test]
+    fn t320_multi_scene_auto_advance_scene_step_and_dialect_aware_goto() {
+        let mut project = Project::blank();
+        project.format_version = 6;
+        project.script_language = Some(crate::ScriptLanguage::ActionScript3);
+        let s1_id = project.root.clone();
+        let s2_id: Id = "scene-2".into();
+
+        {
+            let s1 = project.symbol_mut(&s1_id).unwrap();
+            s1.name = "Scene 1".into();
+            s1.timeline.frame_count = 2;
+            s1.timeline.layers[0].keyframes[0].label = "s1_start".into();
+        }
+        let mut s2 = project.symbol(&s1_id).unwrap().clone();
+        s2.id = s2_id.clone();
+        s2.name = "Scene 2".into();
+        s2.timeline.frame_count = 2;
+        s2.timeline.layers[0].id = "s2-layer".into();
+        s2.timeline.layers[0].keyframes[0].label = "s2_entry".into();
+        s2.timeline.layers[0].keyframes.push(crate::Keyframe {
+            frame: 1,
+            label: "s2_final".into(),
+            ..crate::Keyframe::default()
+        });
+        s2.timeline.scripts = vec![
+            crate::FrameScript {
+                frame: 0,
+                script: crate::Script {
+                    language: crate::ScriptLanguage::ActionScript3,
+                    source: r#"trace("S2_F1");"#.into(),
+                },
+            },
+            crate::FrameScript {
+                frame: 1,
+                script: crate::Script {
+                    language: crate::ScriptLanguage::ActionScript3,
+                    source: r#"trace("S2_F2");"#.into(),
+                },
+            },
+        ];
+        project.symbols.push(s2);
+        project.scenes = vec![s1_id.clone(), s2_id.clone()];
+        project.upgrade_format_for_features();
+        project.validate().unwrap();
+
+        // 0. Flattened `Player` (used by HTML5/WASM) auto-advances unstopped Scene 1 -> Scene 2.
+        let (flat_project, scene_ranges) = crate::flatten_scenes_with_ranges(&project);
+        let mut runtime_player = crate::Player::new(&flat_project);
+        runtime_player
+            .set_scenes(&flat_project, scene_ranges)
+            .unwrap();
+        assert_eq!(runtime_player.frame(), 0);
+        runtime_player.tick(&flat_project);
+        assert_eq!(runtime_player.frame(), 1);
+        runtime_player.tick(&flat_project);
+        assert_eq!(runtime_player.frame(), 2); // Scene 2 frame 0 in flattened timeline
+
+        // 1. `AuthoredPlayback` with `set_play_all_scenes(true)` auto-advances Scene 1 (frames 0..1) -> Scene 2 frame 0 -> Scene 2 frame 1 -> wraps to Scene 1 frame 0.
+        let mut pb = AuthoredPlayback::with_live_scripts(&project, &s1_id, 0, true);
+        assert!(!pb.is_play_all_scenes());
+        pb.set_play_all_scenes(true);
+        assert!(pb.is_play_all_scenes());
+        assert_eq!(pb.symbol(), s1_id);
+        assert_eq!(pb.frame(), 0);
+
+        pb.tick(&project);
+        assert_eq!(pb.symbol(), s1_id);
+        assert_eq!(pb.frame(), 1);
+
+        pb.tick(&project);
+        assert_eq!(pb.symbol(), s2_id);
+        assert_eq!(pb.frame(), 0);
+        assert_eq!(pb.drain_traces(), vec!["S2_F1".to_owned()]);
+
+        pb.tick(&project);
+        assert_eq!(pb.symbol(), s2_id);
+        assert_eq!(pb.frame(), 1);
+        assert_eq!(pb.drain_traces(), vec!["S2_F2".to_owned()]);
+
+        pb.tick(&project);
+        assert_eq!(pb.symbol(), s1_id);
+        assert_eq!(pb.frame(), 0);
+
+        // 2. Single-scene mode (`set_play_all_scenes(false)`) loops inside Scene 1 without crossing.
+        pb.set_play_all_scenes(false);
+        pb.tick(&project);
+        assert_eq!((pb.symbol(), pb.frame()), (s1_id.as_str(), 1));
+        pb.tick(&project);
+        assert_eq!((pb.symbol(), pb.frame()), (s1_id.as_str(), 0));
+        pb.set_play_all_scenes(true);
+
+        // 3. AS3 `nextScene()` / `prevScene()`, 2-arg `(frame, scene)`, and cross-scene 1-arg label.
+        project.symbol_mut(&s1_id).unwrap().timeline.scripts = vec![crate::FrameScript {
+            frame: 0,
+            script: crate::Script {
+                language: crate::ScriptLanguage::ActionScript3,
+                source: r#"gotoAndStop("s2_final");"#.into(),
+            },
+        }];
+        let mut pb_label = AuthoredPlayback::with_live_scripts(&project, &s1_id, 0, true);
+        assert_eq!((pb_label.symbol(), pb_label.frame()), (s2_id.as_str(), 1));
+        assert!(pb_label.is_root_halted_by_script());
+        assert_eq!(pb_label.drain_traces(), vec!["S2_F2".to_owned()]);
+
+        project.symbol_mut(&s1_id).unwrap().timeline.scripts = vec![crate::FrameScript {
+            frame: 0,
+            script: crate::Script {
+                language: crate::ScriptLanguage::ActionScript3,
+                source: r#"nextScene();"#.into(),
+            },
+        }];
+        let mut pb_next = AuthoredPlayback::with_live_scripts(&project, &s1_id, 0, true);
+        assert_eq!((pb_next.symbol(), pb_next.frame()), (s2_id.as_str(), 0));
+        assert_eq!(pb_next.drain_traces(), vec!["S2_F1".to_owned()]);
+
+        project.symbol_mut(&s2_id).unwrap().timeline.scripts[0] = crate::FrameScript {
+            frame: 0,
+            script: crate::Script {
+                language: crate::ScriptLanguage::ActionScript3,
+                source: r#"gotoAndPlay(2, "Scene 1");"#.into(),
+            },
+        };
+        let pb_as3_2arg = AuthoredPlayback::with_live_scripts(&project, &s2_id, 0, true);
+        assert_eq!(
+            (pb_as3_2arg.symbol(), pb_as3_2arg.frame()),
+            (s1_id.as_str(), 1)
+        );
+        assert!(!pb_as3_2arg.is_root_halted_by_script());
+
+        // 4. AS2 2-arg `gotoAndStop("Scene 2", 2)` uses `(scene, frame)` argument order!
+        project.script_language = Some(crate::ScriptLanguage::ActionScript2);
+        project.symbol_mut(&s1_id).unwrap().timeline.scripts = vec![crate::FrameScript {
+            frame: 0,
+            script: crate::Script {
+                language: crate::ScriptLanguage::ActionScript2,
+                source: r#"gotoAndStop("Scene 2", 2);"#.into(),
+            },
+        }];
+        project.symbol_mut(&s2_id).unwrap().timeline.scripts = vec![crate::FrameScript {
+            frame: 1,
+            script: crate::Script {
+                language: crate::ScriptLanguage::ActionScript2,
+                source: r#"trace("AS2_S2_F2");"#.into(),
+            },
+        }];
+        let mut pb_as2 = AuthoredPlayback::with_live_scripts(&project, &s1_id, 0, true);
+        assert_eq!((pb_as2.symbol(), pb_as2.frame()), (s2_id.as_str(), 1));
+        assert!(pb_as2.is_root_halted_by_script());
+        assert_eq!(pb_as2.drain_traces(), vec!["AS2_S2_F2".to_owned()]);
+    }
+
+    #[test]
+    fn t320_runtime_display_graph_applies_camera_pose_parallax_tint_and_pinned_hud() {
+        let mut project = Project::blank();
+        project.width = 400;
+        project.height = 300;
+        project.format_version = 10;
+        let root_id = project.root.clone();
+
+        let box_sym_id: Id = "box-mc".into();
+        let mut box_sym = project.symbol(&root_id).unwrap().clone();
+        box_sym.id = box_sym_id.clone();
+        box_sym.name = "BoxMc".into();
+        box_sym.kind = crate::SymbolKind::MovieClip;
+        box_sym.timeline.frame_count = 1;
+        box_sym.timeline.layers[0].id = "box-layer".into();
+        box_sym.timeline.layers[0].keyframes[0].elements = vec![crate::Element {
+            id: "box-rect".into(),
+            name: String::new(),
+            kind: crate::ElementKind::Rectangle {
+                width: 20.0,
+                height: 20.0,
+                fill: [200, 100, 50, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..crate::Element::default()
+        }];
+        project.symbols.push(box_sym);
+
+        {
+            let root = project.symbol_mut(&root_id).unwrap();
+            root.timeline.frame_count = 1;
+            // Layer 0: active Camera layer panning to (+50, 0) with 2x zoom and 0.5 red tint.
+            let mut cam_layer = root.timeline.layers[0].clone();
+            cam_layer.id = "cam-layer".into();
+            cam_layer.name = "Camera".into();
+            cam_layer.keyframes[0].elements.clear();
+            cam_layer.keyframes[0].camera = Some(crate::CameraPose {
+                x: 50.0,
+                y: 0.0,
+                zoom: 2.0,
+                rotation: 0.0,
+                color_transform: crate::ColorTransform {
+                    multipliers: [0.5, 1.0, 1.0, 1.0],
+                    offsets: [0.0; 4],
+                },
+                ..crate::CameraPose::default()
+            });
+
+            // Layer 1: normal world layer (z_depth = 0) with clip at stage center (200, 150).
+            let mut world_layer = root.timeline.layers[0].clone();
+            world_layer.id = "world-layer".into();
+            world_layer.name = "World".into();
+            world_layer.keyframes[0].elements = vec![crate::Element {
+                id: "world-inst".into(),
+                name: "worldMc".into(),
+                transform: crate::Transform {
+                    x: 200.0,
+                    y: 150.0,
+                    ..crate::Transform::default()
+                },
+                kind: crate::ElementKind::Instance {
+                    symbol_id: box_sym_id.clone(),
+                    playback: crate::InstancePlayback::Independent,
+                },
+                ..crate::Element::default()
+            }];
+
+            // Layer 2: parallax layer (z_depth = 200 -> focal_length/(focal_length+z_depth)) at (200, 150).
+            let mut parallax_layer = world_layer.clone();
+            parallax_layer.id = "parallax-layer".into();
+            parallax_layer.name = "Parallax".into();
+            parallax_layer.properties.z_depth = 200.0;
+            parallax_layer.keyframes[0].elements[0].id = "parallax-inst".into();
+            parallax_layer.keyframes[0].elements[0].name = "parallaxMc".into();
+
+            // Layer 3: HUD layer pinned to camera (`attach_to_camera = true`) at (25, 15).
+            let mut hud_layer = world_layer.clone();
+            hud_layer.id = "hud-layer".into();
+            hud_layer.name = "HUD".into();
+            hud_layer.properties.attach_to_camera = true;
+            hud_layer.keyframes[0].elements[0].id = "hud-inst".into();
+            hud_layer.keyframes[0].elements[0].name = "hudMc".into();
+            hud_layer.keyframes[0].elements[0].transform = crate::Transform {
+                x: 25.0,
+                y: 15.0,
+                ..crate::Transform::default()
+            };
+
+            root.timeline.layers = vec![cam_layer, world_layer, parallax_layer, hud_layer];
+        }
+        project.upgrade_format_for_features();
+        project.validate().unwrap();
+
+        let player = crate::Player::new(&project);
+        let snap = player.runtime_snapshot(&project);
+
+        let world_node = snap
+            .objects
+            .iter()
+            .find(|n| n.display.name == "worldMc")
+            .expect("worldMc node");
+        let parallax_node = snap
+            .objects
+            .iter()
+            .find(|n| n.display.name == "parallaxMc")
+            .expect("parallaxMc node");
+        let hud_node = snap
+            .objects
+            .iter()
+            .find(|n| n.display.name == "hudMc")
+            .expect("hudMc node");
+
+        // Authored local matrices stay pure (unmutated by camera).
+        assert!((world_node.local_matrix[0] - 1.0).abs() < 1e-6);
+        assert!((world_node.local_matrix[4] - 200.0).abs() < 1e-6);
+        assert!((world_node.local_matrix[5] - 150.0).abs() < 1e-6);
+
+        // World clip at (200, 150) with camera (+50, 0) zoom 2 around (200, 150) -> scaled 2x and shifted by -50*2 = -100 -> x = 100, y = 150.
+        assert!((world_node.display.world[0] - 2.0).abs() < 1e-6);
+        assert!((world_node.display.world[3] - 2.0).abs() < 1e-6);
+        assert!((world_node.display.world[4] - 100.0).abs() < 1e-6);
+        assert!((world_node.display.world[5] - 150.0).abs() < 1e-6);
+
+        // Parallax clip (`z_depth = 200.0`) has distinct perspective scale (< 2.0) and pan (> 100.0).
+        assert!(parallax_node.display.world[0] < 1.9 && parallax_node.display.world[0] > 0.5);
+        assert!(parallax_node.display.world[4] > 105.0 && parallax_node.display.world[4] < 200.0);
+
+        // HUD clip (`attach_to_camera = true`) ignores camera transform completely!
+        assert!((hud_node.display.world[0] - 1.0).abs() < 1e-6);
+        assert!((hud_node.display.world[4] - 25.0).abs() < 1e-6);
+        assert!((hud_node.display.world[5] - 15.0).abs() < 1e-6);
+
+        let world_child = snap
+            .objects
+            .iter()
+            .find(|n| n.parent_ref.as_ref() == Some(&world_node.object_ref))
+            .expect("worldMc child shape");
+        let hud_child = snap
+            .objects
+            .iter()
+            .find(|n| n.parent_ref.as_ref() == Some(&hud_node.object_ref))
+            .expect("hudMc child shape");
+        let world_draw = snap
+            .draws
+            .iter()
+            .find(|d| d.owner_ref == world_child.object_ref)
+            .expect("worldMc draw");
+        let hud_draw = snap
+            .draws
+            .iter()
+            .find(|d| d.owner_ref == hud_child.object_ref)
+            .expect("hudMc draw");
+        let crate::runtime_graph::RuntimeDrawKind::Element(crate::ElementKind::Rectangle {
+            fill: world_fill,
+            ..
+        }) = &world_draw.item.kind
+        else {
+            panic!("expected rectangle draw for worldMc");
+        };
+        let crate::runtime_graph::RuntimeDrawKind::Element(crate::ElementKind::Rectangle {
+            fill: hud_fill,
+            ..
+        }) = &hud_draw.item.kind
+        else {
+            panic!("expected rectangle draw for hudMc");
+        };
+        assert_eq!(
+            world_fill[0], 100,
+            "camera color_transform (0.5 red) must tint non-attached layers (200 -> 100)"
+        );
+        assert_eq!(
+            hud_fill[0], 200,
+            "attach_to_camera HUD layer must not receive camera color_transform"
         );
     }
 }

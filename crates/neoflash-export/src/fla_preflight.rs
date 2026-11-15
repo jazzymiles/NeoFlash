@@ -2541,7 +2541,10 @@ pub fn export_fla_with_profile(
         let _ = fs::remove_file(&temp_file);
         return Err(err);
     }
-    fs::rename(&temp_file, target_path)?;
+    if let Err(err) = fs::rename(&temp_file, target_path) {
+        let _ = fs::remove_file(&temp_file);
+        return Err(ExportError::Io(err));
+    }
     Ok(report)
 }
 

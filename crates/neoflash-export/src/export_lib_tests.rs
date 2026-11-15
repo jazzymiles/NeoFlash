@@ -1973,3 +1973,588 @@ fn t315_compile_and_html5_export_enforce_foreign_script_policy() {
 
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn t320_atomic_publish_and_secondary_exporters_edge_case_hardening() {
+    let dir = temp();
+    let rt = dir.join("rt");
+    runtime(&rt);
+
+    fn snapshot_dir(root: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        fn walk(base: &Path, cur: &Path, out: &mut std::collections::BTreeMap<String, Vec<u8>>) {
+            for entry in fs::read_dir(cur).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(base, &path, out);
+                } else {
+                    let rel = path
+                        .strip_prefix(base)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    out.insert(rel, fs::read(&path).unwrap());
+                }
+            }
+        }
+        let mut out = std::collections::BTreeMap::new();
+        if root.is_dir() {
+            walk(root, root, &mut out);
+        }
+        out
+    }
+
+    // 1. `.DS_Store` in an otherwise empty output folder must not block HTML5 publish.
+    let out_html = dir.join("html-out");
+    fs::create_dir_all(&out_html).unwrap();
+    fs::write(out_html.join(".DS_Store"), b"macos-finder-metadata").unwrap();
+
+    let mut good_project = Project::demo();
+    good_project.script_language = Some(ScriptLanguage::ActionScript3);
+    good_project.upgrade_format_for_features();
+    export_project(&good_project, &out_html, &rt)
+        .expect("initial HTML5 publish succeeds over .DS_Store");
+    assert!(out_html.join("index.html").is_file());
+    assert!(out_html.join("bundle.js").is_file());
+    assert!(out_html.join("neoflash-export.json").is_file());
+    let good_snapshot = snapshot_dir(&out_html);
+
+    // 2a. Failed publish due to blocking script compile error preserves `out_html` byte-for-byte.
+    let mut broken_script_project = good_project.clone();
+    broken_script_project.symbols[0]
+        .timeline
+        .scripts
+        .push(neoflash_core::FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "var brokenSyntax = (;".into(),
+            },
+        });
+    assert!(
+        matches!(
+            export_project(&broken_script_project, &out_html, &rt),
+            Err(ExportError::Scripts(_))
+        ),
+        "syntax error must fail HTML5 export"
+    );
+    assert_eq!(
+        snapshot_dir(&out_html),
+        good_snapshot,
+        "failed script compile must never wipe or partially overwrite existing output_dir"
+    );
+
+    // 2b. Failed publish due to missing WASM runtime preserves `out_html` byte-for-byte.
+    let missing_rt = dir.join("no-such-runtime");
+    assert!(export_project(&good_project, &out_html, &missing_rt).is_err());
+    assert_eq!(
+        snapshot_dir(&out_html),
+        good_snapshot,
+        "missing runtime failure must preserve existing output_dir"
+    );
+
+    // 2c. Failed `Web Banner · Native` publish (strict gzip budget) into existing HTML5 folder preserves `out_html`!
+    let impossible_banner_opts = crate::BannerOptions {
+        max_gzip_bytes: Some(8),
+        max_raw_bytes: Some(16),
+        ..crate::BannerOptions::default()
+    };
+    assert!(
+        crate::export_native_banner_html(
+            &good_project,
+            out_html.join("index.html"),
+            &impossible_banner_opts
+        )
+        .is_err()
+    );
+    assert_eq!(
+        snapshot_dir(&out_html),
+        good_snapshot,
+        "failed banner preflight/budget must preserve existing HTML5 package untouched"
+    );
+
+    // 2d. Valid `Web Banner · Native` publish into existing HTML5 folder cleans up stale WASM/JS/manifest,
+    //     and switching BACK to Standard HTML5 succeeds without NotOwnedExportDir!
+    let banner_project = Project::blank();
+    crate::export_native_banner_html(
+        &banner_project,
+        out_html.join("index.html"),
+        &crate::BannerOptions::default(),
+    )
+    .expect("valid native banner overwrites owned HTML5 folder cleanly");
+    assert!(out_html.join("index.html").is_file());
+    assert!(
+        !out_html.join("neoflash-export.json").exists(),
+        "switching to native banner removes stale standard HTML5 manifest"
+    );
+    assert!(
+        !out_html.join("bundle.js").exists(),
+        "switching to native banner removes stale bundle.js"
+    );
+    export_project(&good_project, &out_html, &rt)
+        .expect("switching back from native banner to standard HTML5 succeeds");
+    assert!(out_html.join("bundle.js").is_file());
+
+    // 2e. `export_desktop_app` refuses foreign non-empty target before creating `.app` and propagates DOM mode + breakpoints.
+    let foreign_app_parent = dir.join("foreign-parent");
+    let foreign_web_dir =
+        foreign_app_parent.join(format!("{}.app/Contents/Resources/web", good_project.name));
+    fs::create_dir_all(&foreign_web_dir).unwrap();
+    fs::write(foreign_web_dir.join("important-user-file.txt"), b"keep-me").unwrap();
+    assert!(
+        export_desktop_app(
+            &good_project,
+            &foreign_app_parent,
+            &rt,
+            &PublishOptions::default(),
+            &HtmlPublishConfig::clean_publish_default(),
+        )
+        .is_err(),
+        "desktop app export must refuse overwriting foreign web folder"
+    );
+    assert_eq!(
+        fs::read(foreign_web_dir.join("important-user-file.txt")).unwrap(),
+        b"keep-me"
+    );
+
+    let mut dom_app_project = Project::blank();
+    dom_app_project.set_html_render_mode(neoflash_core::HtmlRenderMode::Dom);
+    let mut bp_settings = dom_app_project.publish_settings();
+    bp_settings
+        .breakpoints
+        .push(neoflash_core::PublishBreakpoint {
+            name: "mobile".into(),
+            max_width: Some(600),
+            scale_mode: Some("exactFit".into()),
+            stage_width: Some(360),
+            stage_height: Some(640),
+            ..Default::default()
+        });
+    dom_app_project.set_publish_settings(&bp_settings);
+    dom_app_project.upgrade_format_for_features();
+    let clean_app_parent = dir.join("desktop-dom");
+    let app_bundle = export_desktop_app(
+        &dom_app_project,
+        &clean_app_parent,
+        &rt,
+        &PublishOptions::default(),
+        &HtmlPublishConfig::clean_publish_default(),
+    )
+    .expect("DOM desktop app export succeeds");
+    let app_html =
+        fs::read_to_string(app_bundle.join("Contents/Resources/web/index.html")).unwrap();
+    let app_bundle_js =
+        fs::read_to_string(app_bundle.join("Contents/Resources/web/bundle.js")).unwrap();
+    assert!(app_html.contains("data-render-mode=\"dom\""));
+    assert!(app_bundle_js.contains("\"renderMode\":\"dom\""));
+    assert!(app_bundle_js.contains("\"mobile\""));
+
+    // 3. Adversarial Secondary Exporters Torture Suite (0-frame, 0x0 bounds, empty path, 0-stop & 1-stop gradients, >15 stops, NaN floats).
+    let mut torture = Project::blank();
+    torture.format_version = 6;
+    torture.symbols[0].timeline.frame_count = 0; // edge-case 0-frame timeline in memory
+    let empty_grad = neoflash_core::GradientPaint {
+        kind: neoflash_core::GradientKind::Linear,
+        stops: vec![],
+        matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        spread: neoflash_core::GradientSpread::Extend,
+        linear_rgb: false,
+        focal_point_ratio: f64::NAN,
+    };
+    let one_stop_grad = neoflash_core::GradientPaint {
+        kind: neoflash_core::GradientKind::Radial,
+        stops: vec![neoflash_core::GradientStop {
+            ratio: 128,
+            color: [255, 80, 40, 255],
+        }],
+        matrix: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0],
+        spread: neoflash_core::GradientSpread::Extend,
+        linear_rgb: false,
+        focal_point_ratio: f64::NAN,
+    };
+    let many_stops_grad = neoflash_core::GradientPaint {
+        kind: neoflash_core::GradientKind::Linear,
+        stops: (0..20)
+            .map(|i| neoflash_core::GradientStop {
+                ratio: ((i * 255) / 19) as u8,
+                color: [(i * 12) as u8, 100, 200, 255],
+            })
+            .collect(),
+        matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        spread: neoflash_core::GradientSpread::Extend,
+        linear_rgb: false,
+        focal_point_ratio: 0.25,
+    };
+    torture.symbols[0].timeline.layers[0].keyframes[0].elements = vec![
+        neoflash_core::Element {
+            id: "zero-rect".into(),
+            name: String::new(),
+            kind: ElementKind::Rectangle {
+                width: 0.0,
+                height: 0.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 0.0,
+            },
+            ..neoflash_core::Element::default()
+        },
+        neoflash_core::Element {
+            id: "empty-path".into(),
+            name: String::new(),
+            kind: ElementKind::Path {
+                commands: vec![],
+                fill_rule: neoflash_core::FillRule::NonZero,
+                fill: [0, 255, 0, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..neoflash_core::Element::default()
+        },
+        neoflash_core::Element {
+            id: "grad-0-stop".into(),
+            name: String::new(),
+            kind: ElementKind::PaintedPath {
+                commands: vec![
+                    neoflash_core::PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    neoflash_core::PathCommand::LineTo { x: 40.0, y: 0.0 },
+                    neoflash_core::PathCommand::LineTo { x: 40.0, y: 30.0 },
+                    neoflash_core::PathCommand::Close,
+                ],
+                fill_rule: neoflash_core::FillRule::NonZero,
+                fill: [20, 40, 60, 255],
+                stroke: [10, 20, 30, 255],
+                fill_gradient: Some(empty_grad),
+                stroke_gradient: Some(one_stop_grad),
+                stroke_width: 2.0,
+            },
+            ..neoflash_core::Element::default()
+        },
+        neoflash_core::Element {
+            id: "grad-20-stops".into(),
+            name: String::new(),
+            kind: ElementKind::PaintedPath {
+                commands: vec![
+                    neoflash_core::PathCommand::MoveTo { x: 5.0, y: 5.0 },
+                    neoflash_core::PathCommand::LineTo { x: 25.0, y: 5.0 },
+                    neoflash_core::PathCommand::LineTo { x: 25.0, y: 25.0 },
+                    neoflash_core::PathCommand::Close,
+                ],
+                fill_rule: neoflash_core::FillRule::NonZero,
+                fill: [0, 0, 0, 255],
+                stroke: [0, 0, 0, 0],
+                fill_gradient: Some(many_stops_grad),
+                stroke_gradient: None,
+                stroke_width: 0.0,
+            },
+            ..neoflash_core::Element::default()
+        },
+    ];
+
+    let mut valid_edge_project = Project::blank();
+    valid_edge_project.format_version = 6;
+    valid_edge_project.width = 64;
+    valid_edge_project.height = 48;
+    valid_edge_project.symbols[0].timeline.frame_count = 2;
+    let valid_one_stop_grad = neoflash_core::GradientPaint {
+        kind: neoflash_core::GradientKind::Radial,
+        stops: vec![neoflash_core::GradientStop {
+            ratio: 128,
+            color: [255, 80, 40, 255],
+        }],
+        matrix: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0],
+        spread: neoflash_core::GradientSpread::Extend,
+        linear_rgb: false,
+        focal_point_ratio: 0.75,
+    };
+    let fifteen_stop_grad = neoflash_core::GradientPaint {
+        kind: neoflash_core::GradientKind::Linear,
+        stops: (0..15)
+            .map(|i| neoflash_core::GradientStop {
+                ratio: ((i * 255) / 14) as u8,
+                color: [(i * 15) as u8, 100, 200, 255],
+            })
+            .collect(),
+        matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        spread: neoflash_core::GradientSpread::Extend,
+        linear_rgb: false,
+        focal_point_ratio: 0.25,
+    };
+    valid_edge_project.symbols[0].timeline.layers[0].keyframes[0].elements = vec![
+        torture.symbols[0].timeline.layers[0].keyframes[0].elements[0].clone(), // 0x0 rect
+        torture.symbols[0].timeline.layers[0].keyframes[0].elements[1].clone(), // empty path
+        neoflash_core::Element {
+            id: "grad-1-stop".into(),
+            name: String::new(),
+            kind: ElementKind::PaintedPath {
+                commands: vec![
+                    neoflash_core::PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    neoflash_core::PathCommand::LineTo { x: 40.0, y: 0.0 },
+                    neoflash_core::PathCommand::LineTo { x: 40.0, y: 30.0 },
+                    neoflash_core::PathCommand::Close,
+                ],
+                fill_rule: neoflash_core::FillRule::NonZero,
+                fill: [20, 40, 60, 255],
+                stroke: [10, 20, 30, 255],
+                fill_gradient: Some(valid_one_stop_grad.clone()),
+                stroke_gradient: Some(valid_one_stop_grad),
+                stroke_width: 2.0,
+            },
+            ..neoflash_core::Element::default()
+        },
+        neoflash_core::Element {
+            id: "grad-15-stops".into(),
+            name: String::new(),
+            kind: ElementKind::PaintedPath {
+                commands: vec![
+                    neoflash_core::PathCommand::MoveTo { x: 5.0, y: 5.0 },
+                    neoflash_core::PathCommand::LineTo { x: 25.0, y: 5.0 },
+                    neoflash_core::PathCommand::LineTo { x: 25.0, y: 25.0 },
+                    neoflash_core::PathCommand::Close,
+                ],
+                fill_rule: neoflash_core::FillRule::NonZero,
+                fill: [0, 0, 0, 255],
+                stroke: [0, 0, 0, 0],
+                fill_gradient: Some(fifteen_stop_grad),
+                stroke_gradient: None,
+                stroke_width: 0.0,
+            },
+            ..neoflash_core::Element::default()
+        },
+    ];
+    valid_edge_project.upgrade_format_for_features();
+    valid_edge_project
+        .validate()
+        .expect("valid_edge_project passes validation");
+
+    // 3a. SWF (valid 0x0 + empty-path + 1-stop + 15-stop succeeds; malformed torture fails preflight cleanly while preserving existing SWF!)
+    let swf_path = dir.join("torture.swf");
+    crate::publish_swf(
+        &valid_edge_project,
+        &swf_path,
+        &crate::SwfPublishOptions::default(),
+    )
+    .expect("SWF export handles 0x0/empty-path/1-stop/15-stop cleanly");
+    let swf_bytes = fs::read(&swf_path).unwrap();
+    assert!(swf_bytes.starts_with(b"FWS") || swf_bytes.starts_with(b"CWS"));
+    assert!(
+        crate::publish_swf(&torture, &swf_path, &crate::SwfPublishOptions::default()).is_err(),
+        "malformed torture project must fail SWF preflight cleanly without panicking"
+    );
+    assert_eq!(
+        fs::read(&swf_path).unwrap(),
+        swf_bytes,
+        "failed SWF publish must preserve pre-existing SWF file untouched"
+    );
+
+    // 3b. Lottie JSON & dotLottie (1-stop gradient expands to >= 2 stops; malformed torture preserves existing JSON!)
+    let lottie_json_path = dir.join("torture.json");
+    crate::export_project_lottie(
+        &valid_edge_project,
+        &lottie_json_path,
+        &crate::LottieOptions {
+            format: crate::LottieFormat::Json,
+            ..crate::LottieOptions::default()
+        },
+    )
+    .expect("Lottie JSON export succeeds on 0x0 + empty-path + 1-stop + 15-stop");
+    let lottie_text = fs::read_to_string(&lottie_json_path).unwrap();
+    assert!(
+        !lottie_text.contains("NaN"),
+        "Lottie JSON must never contain NaN"
+    );
+    assert!(
+        !lottie_text.contains("\"p\":0")
+            && !lottie_text.contains("\"p\": 0")
+            && !lottie_text.contains("\"p\":1,")
+            && !lottie_text.contains("\"p\": 1,"),
+        "Lottie JSON must expand 1-stop gradients to >= 2 stops"
+    );
+    let parsed_lottie: serde_json::Value = serde_json::from_str(&lottie_text).unwrap();
+    assert!(parsed_lottie.get("layers").is_some());
+    assert!(
+        crate::export_project_lottie(
+            &torture,
+            &lottie_json_path,
+            &crate::LottieOptions::default(),
+        )
+        .is_err()
+    );
+    assert_eq!(
+        fs::read_to_string(&lottie_json_path).unwrap(),
+        lottie_text,
+        "failed Lottie export must preserve pre-existing JSON file untouched"
+    );
+
+    let dotlottie_path = dir.join("torture.lottie");
+    crate::export_project_lottie(
+        &valid_edge_project,
+        &dotlottie_path,
+        &crate::LottieOptions {
+            format: crate::LottieFormat::DotLottie,
+            ..crate::LottieOptions::default()
+        },
+    )
+    .expect("dotLottie export succeeds");
+    assert!(dotlottie_path.is_file());
+
+    // 3c. FLA (XFL + Legacy Binary FLA)
+    let fla_path = dir.join("torture.fla");
+    crate::export_fla_with_profile(
+        &valid_edge_project,
+        crate::FlaTargetProfile::default(),
+        &crate::FlaExportOptions::default(),
+        &fla_path,
+    )
+    .expect("XFL FLA export succeeds on 0x0 + empty-path + 1-stop + 15-stop project");
+    let valid_fla_bytes = fs::read(&fla_path).unwrap();
+    assert!(!valid_fla_bytes.is_empty());
+    assert!(
+        crate::export_fla_with_profile(
+            &torture,
+            crate::FlaTargetProfile::default(),
+            &crate::FlaExportOptions::default(),
+            &fla_path,
+        )
+        .is_err()
+    );
+    assert_eq!(
+        fs::read(&fla_path).unwrap(),
+        valid_fla_bytes,
+        "failed FLA export must preserve pre-existing FLA file untouched"
+    );
+    let (legacy_bytes, _) = crate::export_legacy_binary_fla_bytes(
+        &valid_edge_project,
+        crate::FlaTargetProfile::LegacyFlashCS4,
+    )
+    .expect("Legacy binary CS4 FLA export succeeds on 0x0 + empty-path + 1-stop + 15-stop project");
+    assert!(!legacy_bytes.is_empty());
+
+    // 3d. SVG (valid edge shapes + unvalidated torture shapes without NaN or panic)
+    let svg_path = dir.join("torture.svg");
+    crate::export_project_svg(
+        &valid_edge_project,
+        &svg_path,
+        &crate::SvgOptions::default(),
+    )
+    .expect("SVG export succeeds on valid edge shapes");
+    let _ = crate::export_project_svg(
+        &torture,
+        dir.join("raw-torture.svg"),
+        &crate::SvgOptions::default(),
+    );
+    let svg_text = fs::read_to_string(&svg_path).unwrap();
+    assert!(!svg_text.contains("NaN") && !svg_text.contains("inf"));
+
+    // 3e. Image (PNG, WebP, AI)
+    for (fmt, ext) in [
+        (crate::ImageExportFormat::Png, "png"),
+        (crate::ImageExportFormat::Webp, "webp"),
+        (crate::ImageExportFormat::Ai, "ai"),
+    ] {
+        let img_path = dir.join(format!("torture.{ext}"));
+        let mut img_opts = crate::ImageExportOptions::for_project(&valid_edge_project, 0);
+        img_opts.format = fmt;
+        crate::export_project_image(&valid_edge_project, &img_path, &img_opts)
+            .unwrap_or_else(|e| panic!("Image export ({ext}) failed: {e}"));
+        assert!(img_path.is_file());
+        if ext == "ai" {
+            let ai_text = fs::read_to_string(&img_path).unwrap();
+            assert!(!ai_text.contains("NaN"));
+        }
+    }
+
+    // 3f. Atlas (JSON)
+    let atlas_path = dir.join("torture-atlas.json");
+    crate::export_project_atlas(
+        &valid_edge_project,
+        &atlas_path,
+        &crate::AtlasOptions::default(),
+    )
+    .expect("Atlas export succeeds on valid edge shapes");
+    assert!(atlas_path.is_file());
+
+    // 3g. Video (GIF + atomic preservation on error)
+    let gif_path = dir.join("torture.gif");
+    let mut gif_opts = crate::VideoOptions {
+        format: crate::VideoFormat::Gif,
+        ..crate::VideoOptions::default()
+    };
+    crate::export_project_video(&valid_edge_project, &gif_path, &gif_opts)
+        .expect("GIF video export succeeds on valid edge project");
+    let valid_gif_bytes = fs::read(&gif_path).unwrap();
+    assert!(valid_gif_bytes.starts_with(b"GIF89a") || valid_gif_bytes.starts_with(b"GIF87a"));
+
+    gif_opts.symbol = Some("missing-symbol-id".into());
+    assert!(crate::export_project_video(&valid_edge_project, &gif_path, &gif_opts).is_err());
+    assert_eq!(
+        fs::read(&gif_path).unwrap(),
+        valid_gif_bytes,
+        "failed video export must preserve pre-existing GIF file untouched"
+    );
+
+    // 3h. Audio (NaN fade sanitized to valid WAV + atomic preservation on missing resource error)
+    let nan_wav_path = dir.join("nan_fade.wav");
+    crate::export_project_audio(
+        &valid_edge_project,
+        &nan_wav_path,
+        &crate::AudioExportOptions {
+            format: crate::AudioFormat::Wav,
+            fade_out_seconds: f64::NAN,
+            ..crate::AudioExportOptions::default()
+        },
+    )
+    .expect("WAV export sanitizes NaN fade_out_seconds without panicking");
+    assert!(fs::read(&nan_wav_path).unwrap().starts_with(b"RIFF"));
+
+    let wav_path = dir.join("existing.wav");
+    fs::write(&wav_path, b"PREEXISTING-WAV").unwrap();
+    assert!(
+        crate::export_project_audio(
+            &valid_edge_project,
+            &wav_path,
+            &crate::AudioExportOptions {
+                format: crate::AudioFormat::Wav,
+                source: crate::AudioExportSource::Resource("missing-audio-res".into()),
+                ..crate::AudioExportOptions::default()
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(
+        fs::read(&wav_path).unwrap(),
+        b"PREEXISTING-WAV",
+        "failed audio export must preserve pre-existing audio file untouched"
+    );
+
+    // 3i. AEP (missing symbol must not create orphan `<stem>_Footage/` directory; valid edge project succeeds)
+    let missing_aep_path = dir.join("missing_comp.json");
+    assert!(
+        crate::export_project_aep(
+            &valid_edge_project,
+            &missing_aep_path,
+            &crate::AepOptions {
+                symbol: Some("nonexistent-symbol".into()),
+                ..crate::AepOptions::default()
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        !dir.join("missing_comp_Footage").exists(),
+        "failed AEP symbol lookup must not create an orphan _Footage folder"
+    );
+    let ok_aep_path = dir.join("torture_comp.aep");
+    crate::export_project_aep(
+        &valid_edge_project,
+        &ok_aep_path,
+        &crate::AepOptions::default(),
+    )
+    .expect("AEP export succeeds on valid edge project");
+    let aep_bytes = fs::read(&ok_aep_path).unwrap();
+    assert!(
+        aep_bytes.starts_with(b"RIFX"),
+        "AEP export must write valid RIFX binary container"
+    );
+
+    fs::remove_dir_all(dir).unwrap();
+}

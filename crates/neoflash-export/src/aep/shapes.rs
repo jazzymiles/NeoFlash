@@ -296,7 +296,14 @@ pub(super) fn build_ae_fill(
     if let Some(grad) = gradient
         && !grad.stops.is_empty()
     {
-        let [a, b, c, d, tx, ty] = grad.matrix;
+        let f = |v: f64, def: f64| if v.is_finite() { v } else { def };
+        let a = f(grad.matrix[0], 1.0);
+        let b = f(grad.matrix[1], 0.0);
+        let c = f(grad.matrix[2], 0.0);
+        let d = f(grad.matrix[3], 1.0);
+        let tx = f(grad.matrix[4], 0.0);
+        let ty = f(grad.matrix[5], 0.0);
+        let focal = f(grad.focal_point_ratio, 0.0);
         // Canonical Flash gradient box spans `-819.2..+819.2`.
         let start = [a * -819.2 + tx, b * -819.2 + ty];
         let end = match grad.kind {
@@ -326,7 +333,7 @@ pub(super) fn build_ae_fill(
                 start
             },
             end,
-            highlight_length: (grad.focal_point_ratio * 100.0).clamp(-99.0, 99.0),
+            highlight_length: (focal * 100.0).clamp(-99.0, 99.0),
             stops,
             opacity: 100.0,
             even_odd,

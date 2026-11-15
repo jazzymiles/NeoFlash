@@ -34,6 +34,101 @@ fn inline_draft_id() -> egui::Id {
     egui::Id::new("nf2-export-image-inline-draft")
 }
 
+fn output_path_id() -> egui::Id {
+    egui::Id::new("nf2-export-image-output-path")
+}
+
+pub(crate) fn default_image_output_path(
+    project: &neoflash_core::Project,
+    project_path: Option<&Path>,
+    format: ImageExportFormat,
+) -> PathBuf {
+    let raw_stem = project_path
+        .and_then(|p| p.file_stem())
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(project.name.as_str());
+    let sanitized: String = raw_stem
+        .trim()
+        .chars()
+        .filter(|c| !matches!(c, '/' | '\\' | ':' | '\0'))
+        .map(|c| {
+            if c == ' ' {
+                '_'
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
+        .collect();
+    let stem = if sanitized.trim_matches('_').is_empty() {
+        "untitled"
+    } else {
+        sanitized.trim_matches('_')
+    };
+    let file_name = format!("{stem}.{}", format.extension());
+    match project_path
+        .and_then(Path::parent)
+        .filter(|p| !p.as_os_str().is_empty())
+    {
+        Some(dir) => dir.join(file_name),
+        None => PathBuf::from(file_name),
+    }
+}
+
+pub(crate) fn sync_image_output_path_extension(path: &mut PathBuf, format: ImageExportFormat) {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf);
+    let raw_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("untitled.png");
+    let mut stem = raw_name;
+    for ext in [
+        ".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif", ".bmp", ".psd", ".ai", ".pdf",
+    ] {
+        if raw_name.len() > ext.len()
+            && raw_name[raw_name.len() - ext.len()..].eq_ignore_ascii_case(ext)
+        {
+            stem = &raw_name[..raw_name.len() - ext.len()];
+            break;
+        }
+    }
+    let stem = if stem.trim().is_empty() {
+        "untitled"
+    } else {
+        stem
+    };
+    let next_name = format!("{stem}.{}", format.extension());
+    *path = match parent {
+        Some(dir) => dir.join(next_name),
+        None => PathBuf::from(next_name),
+    };
+}
+
+pub(crate) fn export_image_output_path(ctx: &egui::Context) -> Option<PathBuf> {
+    ctx.data(|d| d.get_temp::<PathBuf>(output_path_id()))
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) fn set_export_image_output_path(ctx: &egui::Context, path: PathBuf) {
+    ctx.data_mut(|d| d.insert_temp(output_path_id(), path));
+}
+
+fn sync_stored_image_output_path(
+    ctx: &egui::Context,
+    project: &neoflash_core::Project,
+    project_path: Option<&Path>,
+    format: ImageExportFormat,
+) {
+    let mut path = export_image_output_path(ctx)
+        .unwrap_or_else(|| default_image_output_path(project, project_path, format));
+    sync_image_output_path_extension(&mut path, format);
+    ctx.data_mut(|d| d.insert_temp(output_path_id(), path));
+}
+
 pub(crate) fn has_export_image_dialog(ctx: &egui::Context) -> bool {
     ctx.data(|d| d.get_temp::<ExportImageDraft>(draft_id()))
         .is_some()
@@ -52,11 +147,22 @@ pub(crate) fn update_export_image_draft(
     ctx: &egui::Context,
     mut f: impl FnMut(&mut ExportImageDraft),
 ) {
+    let mut updated_format = None;
     for id in [draft_id(), inline_draft_id()] {
         if let Some(mut draft) = ctx.data(|d| d.get_temp::<ExportImageDraft>(id)) {
+            let prev_fmt = draft.options.format;
             f(&mut draft);
+            if draft.options.format != prev_fmt {
+                updated_format = Some(draft.options.format);
+            }
             ctx.data_mut(|d| d.insert_temp(id, draft));
         }
+    }
+    if let Some(fmt) = updated_format
+        && let Some(mut path) = export_image_output_path(ctx)
+    {
+        sync_image_output_path_extension(&mut path, fmt);
+        ctx.data_mut(|d| d.insert_temp(output_path_id(), path));
     }
 }
 
@@ -281,14 +387,20 @@ impl Editor {
     pub(crate) fn open_export_image(&mut self, ctx: &egui::Context) {
         self.finish_edits();
         let options = self.default_export_image_options();
+        let output_path =
+            default_image_output_path(&self.project, self.path.as_deref(), options.format);
         let draft = ExportImageDraft { options };
-        ctx.data_mut(|d| d.insert_temp(draft_id(), draft));
+        ctx.data_mut(|d| {
+            d.insert_temp(draft_id(), draft);
+            d.insert_temp(output_path_id(), output_path);
+        });
     }
 
     pub(crate) fn cancel_export_image(&mut self, ctx: &egui::Context) {
         ctx.data_mut(|data| {
             data.remove::<ExportImageDraft>(draft_id());
             data.remove::<ExportImageDraft>(inline_draft_id());
+            data.remove::<PathBuf>(output_path_id());
         });
     }
 
@@ -310,6 +422,7 @@ impl Editor {
         ctx.data_mut(|data| {
             data.remove::<ExportImageDraft>(draft_id());
             data.remove::<ExportImageDraft>(inline_draft_id());
+            data.remove::<PathBuf>(output_path_id());
         });
         self.message(format!(
             "Exported {} to {} ({}×{}, {} file(s)).",
@@ -336,6 +449,12 @@ impl Editor {
             && draft.options.format.index() != *ext_fmt
         {
             draft.options.format = ImageExportFormat::from_index(*ext_fmt);
+            sync_stored_image_output_path(
+                ui.ctx(),
+                &self.project,
+                self.path.as_deref(),
+                draft.options.format,
+            );
         }
 
         let symbol_id = self.symbol_id().to_owned();
@@ -396,6 +515,12 @@ impl Editor {
                     if draft.options.format == ImageExportFormat::Svg {
                         draft.options.transparent_background = true;
                     }
+                    sync_stored_image_output_path(
+                        ui.ctx(),
+                        &self.project,
+                        self.path.as_deref(),
+                        draft.options.format,
+                    );
                     if let Some(ext_fmt) = &mut external_format {
                         **ext_fmt = fmt_idx;
                     }
@@ -550,6 +675,14 @@ impl Editor {
                                 let checked = (draft.options.scale - scale_val).abs() < 0.05;
                                 if ui.add(c::MenuItem::new(label).checked(checked)).clicked() {
                                     draft.options.scale = scale_val;
+                                    draft.options.width =
+                                        ((self.project.width.max(1) as f32 * scale_val).round()
+                                            as u32)
+                                            .clamp(1, 8192);
+                                    draft.options.height =
+                                        ((self.project.height.max(1) as f32 * scale_val).round()
+                                            as u32)
+                                            .clamp(1, 8192);
                                     ui.close();
                                 }
                             }
@@ -644,8 +777,9 @@ impl Editor {
                                         .width(120.0),
                                 )
                                 .changed()
+                                && prec.is_finite()
                             {
-                                draft.options.svg_precision = (prec.round() as usize).clamp(1, 6);
+                                draft.options.svg_precision = prec.round().clamp(1.0, 6.0) as usize;
                             }
                             ui.add(
                                 c::TextField::new(&mut draft.options.svg_id_prefix, "ID prefix")
@@ -811,6 +945,12 @@ impl Editor {
                                             .clicked()
                                         {
                                             draft.options.format = sub;
+                                            sync_stored_image_output_path(
+                                                ui.ctx(),
+                                                &self.project,
+                                                self.path.as_deref(),
+                                                draft.options.format,
+                                            );
                                             ui.close();
                                         }
                                     }
@@ -824,6 +964,7 @@ impl Editor {
                                             .width(150.0),
                                     )
                                     .changed()
+                                    && q.is_finite()
                                 {
                                     draft.options.jpeg_quality = q.round().clamp(1.0, 100.0) as u8;
                                 }
@@ -898,26 +1039,42 @@ impl Editor {
         }
 
         ctx.data_mut(|d| d.insert_temp(draft_id(), draft.clone()));
+        sync_stored_image_output_path(
+            ctx,
+            &self.project,
+            self.path.as_deref(),
+            draft.options.format,
+        );
 
         if close_cancel {
             self.cancel_export_image(ctx);
+            super::dialog_helpers::record_end_of_frame_focus(ctx);
             return;
         }
         if do_export {
             let ext = draft.options.format.extension();
-            let default_name = format!(
-                "{}.{ext}",
-                self.project.name.trim().replace(' ', "_").to_lowercase()
-            );
-            if let Some(path) = rfd::FileDialog::new()
+            let resolved_out = export_image_output_path(ctx).unwrap_or_else(|| {
+                default_image_output_path(&self.project, self.path.as_deref(), draft.options.format)
+            });
+            let default_name = resolved_out
+                .file_name()
+                .and_then(|s| s.to_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("untitled.{ext}"));
+            let mut dialog = rfd::FileDialog::new()
                 .set_title(draft.options.format.button_label())
                 .set_file_name(&default_name)
-                .add_filter(draft.options.format.label(), &[ext])
-                .save_file()
+                .add_filter(draft.options.format.label(), &[ext]);
+            if let Some(dir) = resolved_out.parent().filter(|p| !p.as_os_str().is_empty()) {
+                dialog = dialog.set_directory(dir);
+            }
+            if let Some(path) = dialog.save_file()
                 && let Err(err) = self.confirm_export_image_to_path(ctx, &path)
             {
                 self.message(format!("Export image failed: {err}"));
             }
         }
+        super::dialog_helpers::record_end_of_frame_focus(ctx);
     }
 }

@@ -772,8 +772,14 @@
                 width: `${layout.stageWidth}px`,
                 height: `${layout.stageHeight}px`,
               });
-              canvas.width = Math.max(1, Math.round(layout.logicalWidth));
-              canvas.height = Math.max(1, Math.round(layout.logicalHeight));
+              const dpr = Math.min(4, Math.max(1, Number(global.devicePixelRatio) || 1));
+              canvas.width = Math.max(1, Math.round(layout.logicalWidth * dpr));
+              canvas.height = Math.max(1, Math.round(layout.logicalHeight * dpr));
+              if (canvas.style) {
+                canvas.style.width = `${layout.stageWidth}px`;
+                canvas.style.height = `${layout.stageHeight}px`;
+              }
+              canvas.getContext?.('2d')?.setTransform?.(dpr, 0, 0, dpr, 0, 0);
             },
           });
           this.responsiveController.refresh(this._stageWidth, this._stageHeight);
@@ -1289,33 +1295,54 @@
       }
     }
 
+    function stageCoordsFromClient(clientX, clientY) {
+      if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+      const refEl = canvas || stageElement;
+      const r = refEl?.getBoundingClientRect?.();
+      if (!r || !(r.width > 0 && r.height > 0)) return null;
+      const lw = Number(stageElement.dataset.logicalWidth) || project?.width || 800;
+      const lh = Number(stageElement.dataset.logicalHeight) || project?.height || 600;
+      const ox = Number(stageElement.dataset.originX) || 0;
+      const oy = Number(stageElement.dataset.originY) || 0;
+      return {
+        sx: (clientX - r.left) * lw / r.width - ox,
+        sy: (clientY - r.top) * lh / r.height - oy,
+      };
+    }
+
+    function isNativeInteractiveControlTarget(t) {
+      if (!t || t === sceneElement || t === stageElement) return false;
+      const tag = (t.tagName || '').toUpperCase();
+      if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'A' || tag === 'SELECT') return true;
+      return Boolean(t.closest?.('button, input, textarea, a, select'));
+    }
+
+    function onSceneBackgroundPointer(type, event) {
+      if (disposed) return;
+      if (type === 'pointerdown') unlockMediaFromGesture();
+      if (isNativeInteractiveControlTarget(event.target)) return;
+      guardedCall(() => {
+        const sh = getStageHost();
+        const disp = getDisplay();
+        if (!sh) return;
+        const ptEvent = syntheticPointerFromDom(event, sceneElement);
+        const pt = stageCoordsFromClient(ptEvent.clientX, ptEvent.clientY);
+        const picked = pt && disp?.pickDetails ? disp.pickDetails(pt.sx, pt.sy) : null;
+        sh.handlePointer(type, ptEvent, picked?.target || sh.stage, Boolean(picked?.target));
+      });
+    }
+
     function onSceneBackgroundClick(event) {
       if (disposed) return;
-      const t = event.target;
-      if (t && t !== sceneElement && t !== stageElement) {
-        const tag = (t.tagName || '').toUpperCase();
-        if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'A' || tag === 'SELECT') return;
-        if (t.closest?.('button, input, textarea, a, select')) return;
-      }
+      if (isNativeInteractiveControlTarget(event.target)) return;
       guardedCall(() => {
         unlockMediaFromGesture();
         const sh = getStageHost();
         const disp = getDisplay();
         if (!sh) return;
         const ptEvent = syntheticPointerFromDom(event, sceneElement);
-        let picked = null;
-        if (disp?.pickDetails && canvas) {
-          const r = canvas.getBoundingClientRect();
-          if (r.width > 0 && r.height > 0) {
-            const lw = Number(stageElement.dataset.logicalWidth) || project?.width || 800;
-            const lh = Number(stageElement.dataset.logicalHeight) || project?.height || 600;
-            const ox = Number(stageElement.dataset.originX) || 0;
-            const oy = Number(stageElement.dataset.originY) || 0;
-            const sx = (ptEvent.clientX - r.left) * lw / r.width - ox;
-            const sy = (ptEvent.clientY - r.top) * lh / r.height - oy;
-            picked = disp.pickDetails(sx, sy);
-          }
-        }
+        const pt = stageCoordsFromClient(ptEvent.clientX, ptEvent.clientY);
+        const picked = pt && disp?.pickDetails ? disp.pickDetails(pt.sx, pt.sy) : null;
         const target = picked?.target || null;
         const authored = picked?.owner || target;
         if (sh.handlePointer('click', ptEvent, target || sh.stage, Boolean(target)) === false) return;
@@ -1325,8 +1352,23 @@
       });
     }
 
-    function onScenePointerDown() {
-      if (!disposed) unlockMediaFromGesture();
+    function onScenePointerDown(event) {
+      onSceneBackgroundPointer('pointerdown', event);
+    }
+    function onScenePointerMove(event) {
+      onSceneBackgroundPointer('pointermove', event);
+    }
+    function onScenePointerUp(event) {
+      onSceneBackgroundPointer('pointerup', event);
+    }
+    function onStagePointerLeave(event) {
+      if (disposed) return;
+      guardedCall(() => {
+        const sh = getStageHost();
+        if (!sh) return;
+        sh.handlePointer('pointerleave', event);
+        sh.handlePointer('mouseLeave', event);
+      });
     }
 
     const hostWin = doc?.defaultView || global;
@@ -1337,12 +1379,18 @@
       dispose();
     }
     sceneElement.addEventListener('pointerdown', onScenePointerDown);
+    sceneElement.addEventListener('pointermove', onScenePointerMove);
+    sceneElement.addEventListener('pointerup', onScenePointerUp);
     sceneElement.addEventListener('click', onSceneBackgroundClick);
+    stageElement.addEventListener?.('pointerleave', onStagePointerLeave);
     hostWin?.addEventListener?.('pagehide', onWindowPageHide);
     hostWin?.addEventListener?.('unload', onWindowUnload);
     cleanups.push(() => {
       sceneElement.removeEventListener('pointerdown', onScenePointerDown);
+      sceneElement.removeEventListener('pointermove', onScenePointerMove);
+      sceneElement.removeEventListener('pointerup', onScenePointerUp);
       sceneElement.removeEventListener('click', onSceneBackgroundClick);
+      stageElement.removeEventListener?.('pointerleave', onStagePointerLeave);
       hostWin?.removeEventListener?.('pagehide', onWindowPageHide);
       hostWin?.removeEventListener?.('unload', onWindowUnload);
     });
@@ -1395,34 +1443,57 @@
       return url;
     }
 
-    function isSimpleSvgClip(clipIds, clipsById) {
+    function isSimpleSvgClip(clipIds, clipsById, alphaMaskClipIds) {
       if (!clipIds?.length) return true;
       for (const id of clipIds) {
         const clip = clipsById.get(id);
-        if (!clip || clip.invert || clip.alpha_components?.length) return false;
-        if (!Array.isArray(clip.components) || clip.components.some(c => c.clip_ids?.length || c.fill_gradient)) {
+        if (!clip || clip.invert || (clip.alpha_components !== null && clip.alpha_components !== undefined) || alphaMaskClipIds?.has(id)) {
+          return false;
+        }
+        if (
+          !Array.isArray(clip.components)
+          || clip.components.some(c =>
+            c.clip_ids?.length
+            || c.fill_gradient
+            || c.fill_bitmap
+            || c.resource_bitmap
+            || c.luminance
+            || (typeof c.alpha === 'number' && c.alpha > 0 && c.alpha < 1)
+          )
+        ) {
           return false;
         }
       }
       return true;
     }
 
-    function islandReasonForDraw(item, filterGroupsById, clipsById) {
+    function directFilterGroupReason(fg) {
+      if (!fg) return 'filter_group';
+      if (fg.filters?.length) return 'filters';
+      if (fg.alpha_masks?.length) return 'alpha_mask';
+      if (fg.opaque_background !== null && fg.opaque_background !== undefined) return 'opaque_background';
+      if (fg.composite_operation && !Object.hasOwn(COMPOSITE_TO_CSS_BLEND, fg.composite_operation)) {
+        return `blend:${fg.composite_operation}`;
+      }
+      return null;
+    }
+
+    function islandReasonForDraw(item, filterGroupsById, clipsById, alphaMaskClipIds, rootGroupReasons, fgAncestryFn) {
       if (item.filter_id !== null && item.filter_id !== undefined) {
-        const fg = filterGroupsById.get(item.filter_id);
-        if (!fg) return 'filter_group';
-        if (fg.filters?.length) return 'filters';
-        if (fg.alpha_masks?.length) return 'alpha_mask';
-        if (fg.opaque_background) return 'opaque_background';
-        if (fg.composite_operation && !Object.hasOwn(COMPOSITE_TO_CSS_BLEND, fg.composite_operation)) {
-          return `blend:${fg.composite_operation}`;
+        const chain = fgAncestryFn ? fgAncestryFn(item.filter_id) : [];
+        if (!chain.length) return 'filter_group';
+        for (const fg of chain) {
+          const direct = directFilterGroupReason(fg);
+          if (direct) return direct;
         }
+        const rootReason = rootGroupReasons?.get(chain[0].id);
+        if (rootReason) return rootReason;
       }
       const kind = item.kind;
       if (kind?.fill_bitmap || kind?.stroke_bitmap) return 'bitmap_fill';
       if (item.clip_ids?.length) {
         const isSvgKind = ['rectangle', 'ellipse', 'path', 'gradient_path'].includes(kind?.type);
-        if (!isSvgKind || !isSimpleSvgClip(item.clip_ids, clipsById)) return 'mask';
+        if (!isSvgKind || !isSimpleSvgClip(item.clip_ids, clipsById, alphaMaskClipIds)) return 'mask';
       }
       return null;
     }
@@ -1442,6 +1513,12 @@
           return null;
         }
       };
+      const hasExplicitCoords = ev => Boolean(
+        ev
+        && Number.isFinite(ev.clientX)
+        && Number.isFinite(ev.clientY)
+        && !(ev.clientX === 0 && ev.clientY === 0 && !ev.detail),
+      );
       const onPointer = (type, ev) => guardedCall(() => {
         if (disposed || btn.disabled) return;
         if (type === 'pointerdown') unlockMediaFromGesture();
@@ -1449,9 +1526,23 @@
         const disp = getDisplay();
         const target = resolveProxy();
         if (!sh || !target || (disp && !disp.alive(target))) return;
-        const resolved = disp?.resolveInput ? (disp.resolveInput(target) || target) : target;
         const syn = syntheticPointerFromDom(ev, btn);
-        sh.handlePointer(type, syn, resolved, false);
+        if (type !== 'pointerleave' && disp?.resolveInput && hasExplicitCoords(ev)) {
+          const pt = stageCoordsFromClient(ev.clientX, ev.clientY);
+          if (pt) {
+            const hit = disp.resolveInput(target, undefined, pt.sx, pt.sy);
+            if (!hit) {
+              const fallback = disp.pickDetails?.(pt.sx, pt.sy);
+              sh.handlePointer(type, syn, fallback?.target || sh.stage, Boolean(fallback?.target));
+              return;
+            }
+            sh.handlePointer(type, syn, hit, false);
+            return;
+          }
+        }
+        const resolved = disp?.resolveInput ? disp.resolveInput(target) : target;
+        if (!resolved && type !== 'pointerleave') return;
+        sh.handlePointer(type, syn, resolved || sh.stage, false);
       });
       let hadPointerPress = false;
       const onEnter = ev => onPointer('pointermove', ev);
@@ -1476,8 +1567,34 @@
           const disp = getDisplay();
           const target = resolveProxy();
           if (!target || (disp && !disp.alive(target))) return;
-          const resolved = disp?.resolveInput ? (disp.resolveInput(target) || target) : target;
           const syn = syntheticPointerFromDom(ev, btn);
+          let resolved = null;
+          let activationOwner = target;
+          if (disp?.resolveInput && hasExplicitCoords(ev)) {
+            const pt = stageCoordsFromClient(ev.clientX, ev.clientY);
+            if (pt) {
+              const hit = disp.resolveInput(target, undefined, pt.sx, pt.sy);
+              if (!hit) {
+                const fallback = disp.pickDetails?.(pt.sx, pt.sy);
+                const fbTarget = fallback?.target || null;
+                const fbOwner = fallback?.owner || fbTarget;
+                if (sh && sh.handlePointer('click', syn, fbTarget || sh.stage, Boolean(fbTarget)) === false) return;
+                if (fbTarget && fbOwner && disp.alive(fbTarget) && disp.alive(fbOwner) && typeof onActivateObject === 'function') {
+                  onActivateObject(fbTarget, fbOwner, syn);
+                }
+                return;
+              }
+              resolved = hit;
+            }
+          }
+          if (!resolved) {
+            if (disp?.descriptor) {
+              const desc = disp.descriptor(target);
+              if (desc?.owner === 'button' && desc.button_hit_authoritative && !desc.button_hits?.length) return;
+            }
+            resolved = disp?.resolveInput ? disp.resolveInput(target) : target;
+          }
+          if (!resolved) return;
           if (!fromPointer && disp?.pointer) {
             disp.pointer('mouseDown', resolved, syn);
             disp.pointer('mouseUp', resolved, syn);
@@ -1487,7 +1604,7 @@
             if (sh.handlePointer('click', syn, resolved, false) === false) return;
           }
           if ((!disp || disp.alive(resolved)) && typeof onActivateObject === 'function') {
-            onActivateObject(resolved, target, syn);
+            onActivateObject(resolved, activationOwner, syn);
           } else {
             afterInput?.();
           }
@@ -1889,6 +2006,7 @@
     function updateSvgElement(rec, item, localTransform, clipsById) {
       const svg = rec.element;
       const kind = item.kind;
+      svg.style.overflow = 'visible';
       svg.style.transform = cssMatrix(localTransform);
       svg.style.opacity = String(Math.max(0, Math.min(1, item.alpha)));
 
@@ -1964,7 +2082,7 @@
       svg.innerHTML = `${defsMarkup}${clipWrapStart}${body}${clipWrapEnd}`;
     }
 
-    function computeOwnerLocalBounds(ownerNode, ownerDraws, semBoundsByKey, ownerKey) {
+    function computeOwnerLocalBounds(ownerNode, ownerDraws, semBoundsByKey, ownerKey, drawsByOwnerAndAncestors, objectsByKey) {
       const invOwner = matInverse(ownerNode.world || [1, 0, 0, 1, 0, 0]);
       let box = null;
       const include = b => {
@@ -1979,8 +2097,55 @@
             }
           : { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
       };
+      const textHost = getTextHost();
+      if (ownerNode.owner === 'button' && (ownerNode.button_hit_authoritative || ownerNode.button_hits?.length)) {
+        if (!ownerNode.button_hits?.length) return null;
+        for (const item of ownerNode.button_hits) {
+          const enrichedKind = item.kind?.type === 'text_field' && textHost
+            ? { ...item.kind, field: { ...item.kind.field, alpha: 255 }, text_bounds: textHost.bounds({ ...item.kind.field, alpha: 255 }, true) }
+            : item.kind;
+          const b = a11yApi?.itemBounds?.(
+            { ...item, alpha: 1, transform: item.transform || [1, 0, 0, 1, 0, 0], kind: enrichedKind },
+            (line, tk) => line.length * (Number(tk.font_size) || 14) * 0.6,
+          );
+          include(b);
+        }
+        return box;
+      }
+      if (ownerNode.input?.hit_area && invOwner) {
+        const hitAreaKey = JSON.stringify(ownerNode.input.hit_area);
+        const hitDraws = drawsByOwnerAndAncestors?.get(hitAreaKey);
+        if (hitDraws?.length) {
+          for (const item of hitDraws) {
+            const relM = matMultiply(invOwner, item.transform || [1, 0, 0, 1, 0, 0]);
+            const enrichedKind = item.kind?.type === 'text_field' && textHost
+              ? { ...item.kind, field: { ...item.kind.field, alpha: 255 }, text_bounds: textHost.bounds({ ...item.kind.field, alpha: 255 }, true) }
+              : item.kind;
+            const b = a11yApi?.itemBounds?.(
+              { ...item, alpha: 1, transform: relM, kind: enrichedKind },
+              (line, tk) => line.length * (Number(tk.font_size) || 14) * 0.6,
+            );
+            include(b);
+          }
+          if (box) return box;
+        }
+        const disp = getDisplay();
+        try {
+          const parsed = JSON.parse(ownerKey);
+          const ownerProxy = Array.isArray(parsed) ? proxyFor(parsed) : proxyForRef(parsed);
+          const hitProxy = proxyForRef(ownerNode.input.hit_area);
+          if (ownerProxy && hitProxy && disp?.alive?.(ownerProxy) && disp?.alive?.(hitProxy) && typeof hitProxy.getBounds === 'function') {
+            const rect = hitProxy.getBounds(ownerProxy);
+            if (rect && rect.width > 0 && rect.height > 0) {
+              include({ left: rect.x, top: rect.y, right: rect.x + rect.width, bottom: rect.y + rect.height });
+              return box;
+            }
+          }
+        } catch (_) {}
+        const hitNode = objectsByKey?.get(hitAreaKey);
+        if (hitNode && !hitDraws?.length) return null;
+      }
       if (invOwner && ownerDraws?.length) {
-        const textHost = getTextHost();
         for (const item of ownerDraws) {
           const relM = matMultiply(invOwner, item.transform || [1, 0, 0, 1, 0, 0]);
           const enrichedKind = item.kind?.type === 'text_field' && textHost
@@ -2018,12 +2183,13 @@
 
     function isInteractiveButtonNode(node, nodeKey, semByRef) {
       if (!node || !node.parent_ref) return false;
+      if (node.visible === false || node.effective_visible === false) return false;
       if (node.input?.mouse_enabled === false) return false;
       const sem = semByRef.get(nodeKey);
       if (sem?.accessibility?.role === 'button') return true;
       if (node.owner === 'button') return true;
       if (node.owner !== 'movie_clip' && node.owner !== 'sprite') return false;
-      if (node.input?.button_mode) return true;
+      if (node.input?.button_mode || node.input?.hit_area) return true;
       if (node.name && authoredClickPlacements.has(node.name)) return true;
       if (Array.isArray(node.source_path) && node.source_path.some(seg => authoredClickPlacements.has(String(seg)))) return true;
       const disp = getDisplay();
@@ -2040,7 +2206,7 @@
       return false;
     }
 
-    function ensureContainerRecord(key, node) {
+    function ensureContainerRecord(key, node, relMatrix) {
       let rec = containerRecords.get(key);
       if (!rec) {
         const el = doc.createElement('div');
@@ -2068,7 +2234,7 @@
       } else if (el.hasAttribute('data-nf-name')) {
         el.removeAttribute('data-nf-name');
       }
-      const localM = node.content_local_matrix || node.local_matrix || [1, 0, 0, 1, 0, 0];
+      const localM = relMatrix || node.content_local_matrix || node.local_matrix || [1, 0, 0, 1, 0, 0];
       el.style.transform = cssMatrix(localM);
       el.style.display = node.visible === false || node.effective_visible === false ? 'none' : 'block';
       const cssBlend = node.blend_mode ? CSS_BLEND_MODES[String(node.blend_mode).toLowerCase()] : null;
@@ -2120,13 +2286,16 @@
 
       const scaleX = Number(scale?.x) || 1;
       const scaleY = Number(scale?.y) || scaleX;
+      const dpr = Math.min(4, Math.max(1, Number(global.devicePixelRatio) || 1));
       stageElement.dataset.logicalWidth = String(width);
       stageElement.dataset.logicalHeight = String(height);
       stageElement.dataset.originX = String(originX);
       stageElement.dataset.originY = String(originY);
+      stageElement.dataset.dpr = String(dpr);
       if (stageElement.style?.setProperty) {
         stageElement.style.setProperty('--neoflash-scale-x', String(scaleX));
         stageElement.style.setProperty('--neoflash-scale-y', String(scaleY));
+        stageElement.style.setProperty('--neoflash-dpr', String(dpr));
       }
       stageElement.style.backgroundColor = Number.isInteger(stageColor)
         ? rgbIntToCss(stageColor)
@@ -2154,6 +2323,12 @@
 
       const filterGroupsById = new Map((snapshot?.filter_groups || []).map(fg => [fg.id, fg]));
       const clipsById = new Map((snapshot?.clips || []).map(c => [c.id, c]));
+      const alphaMaskClipIds = new Set();
+      for (const fg of filterGroupsById.values()) {
+        for (const am of fg.alpha_masks || []) {
+          if (typeof am?.clip_id === 'string') alphaMaskClipIds.add(am.clip_id);
+        }
+      }
 
       const fgAncestry = id => {
         const chain = [];
@@ -2164,6 +2339,14 @@
         }
         return chain;
       };
+
+      const rootGroupReasons = new Map();
+      for (const fg of filterGroupsById.values()) {
+        const reason = directFilterGroupReason(fg);
+        if (!reason) continue;
+        const root = fgAncestry(fg.id)[0] || fg;
+        if (!rootGroupReasons.has(root.id)) rootGroupReasons.set(root.id, reason);
+      }
 
       const seenContainers = new Set();
       const seenLeaves = new Set();
@@ -2206,11 +2389,18 @@
         let currentWorld = [1, 0, 0, 1, 0, 0];
         let insideButton = false;
         for (const { key, node } of chain) {
-          const invWorld = matInverse(node.world || [1, 0, 0, 1, 0, 0]);
-          if (!invWorld) {
+          const nodeWorld = node.world || [1, 0, 0, 1, 0, 0];
+          const invWorld = matInverse(nodeWorld);
+          const invParentWorld = matInverse(currentWorld);
+          if (!invWorld || !invParentWorld) {
             return { targetList: null, worldMatrix: currentWorld, insideButton };
           }
-          const rec = ensureContainerRecord(key, node);
+          const hasScrollRect = Boolean(node.scroll_rect && node.scroll_rect.width > 0 && node.scroll_rect.height > 0);
+          const outerWorld = hasScrollRect
+            ? matMultiply(nodeWorld, [1, 0, 0, 1, node.scroll_rect.x, node.scroll_rect.y])
+            : nodeWorld;
+          const relMatrix = matMultiply(invParentWorld, outerWorld);
+          const rec = ensureContainerRecord(key, node, relMatrix);
           seenContainers.add(key);
           if (!parentChildren.includes(rec.element)) {
             parentChildren.push(rec.element);
@@ -2218,7 +2408,7 @@
           let childList = desiredChildrenByContainer.get(key);
           if (!childList) desiredChildrenByContainer.set(key, childList = []);
           parentChildren = childList;
-          currentWorld = node.world || currentWorld;
+          currentWorld = nodeWorld;
           if (interactiveOwnerKeys.has(key)) insideButton = true;
         }
         return { targetList: parentChildren, worldMatrix: currentWorld, insideButton };
@@ -2228,7 +2418,7 @@
       const renderQueue = [];
       for (let i = 0; i < draws.length; i++) {
         const item = draws[i];
-        const reason = islandReasonForDraw(item, filterGroupsById, clipsById);
+        const reason = islandReasonForDraw(item, filterGroupsById, clipsById, alphaMaskClipIds, rootGroupReasons, fgAncestry);
         if (!reason) {
           renderQueue.push({ type: 'dom', item, index: i });
           continue;
@@ -2277,13 +2467,25 @@
             islandRecords.set(islandKey, rec);
           }
           rec.element.setAttribute('data-nf-island-reason', entry.reason);
-          const painted = paintCanvasIsland(rec.element, entry.draws, snapshot, { width, height, originX, originY });
+          const rootOp = entry.rootFg?.composite_operation || 'source-over';
+          const islandCssBlend = rootOp === 'lighter'
+            ? 'plus-lighter'
+            : (Object.hasOwn(COMPOSITE_TO_CSS_BLEND, rootOp) ? COMPOSITE_TO_CSS_BLEND[rootOp] : null);
+          const painted = paintCanvasIsland(rec.element, entry.draws, snapshot, {
+            width,
+            height,
+            originX,
+            originY,
+            scale: { x: scaleX, y: scaleY },
+            rootCssBlend: Boolean(islandCssBlend && islandCssBlend !== 'normal'),
+          });
           if (painted && painted.width > 0 && painted.height > 0) {
             seenIslands.add(islandKey);
             Object.assign(rec.element.style, {
               transform: `translate(${painted.left}px, ${painted.top}px)`,
               width: `${painted.width}px`,
               height: `${painted.height}px`,
+              mixBlendMode: islandCssBlend && islandCssBlend !== 'normal' ? islandCssBlend : '',
             });
             sceneDesired.push(rec.element);
           }
@@ -2302,6 +2504,11 @@
         const localM = matMultiply(invContainer, item.transform || [1, 0, 0, 1, 0, 0]);
         const kind = item.kind;
         const semMeta = semByRef.get(ownerKey)?.accessibility || null;
+        const isContainerOwner = ownerNode && ['movie_clip', 'sprite', 'button', 'loader'].includes(ownerNode.owner);
+        const leafBlend = !isContainerOwner && ownerNode?.blend_mode
+          ? CSS_BLEND_MODES[String(ownerNode.blend_mode).toLowerCase()]
+          : null;
+        const leafMixBlend = leafBlend && leafBlend !== 'normal' ? leafBlend : '';
 
         if (kind.type === 'text_field' && kind.field?.field_type === 'input') {
           const leafKey = `input:${ownerKey}`;
@@ -2330,6 +2537,7 @@
           }
           seenLeaves.add(leafKey);
           updateTextElement(rec, item, localM, mounted.insideButton, semMeta);
+          rec.element.style.mixBlendMode = leafMixBlend;
           mounted.targetList.push(rec.element);
           continue;
         }
@@ -2354,6 +2562,7 @@
           }
           seenLeaves.add(leafKey);
           updateSvgElement(rec, item, localM, clipsById);
+          rec.element.style.mixBlendMode = leafMixBlend;
           mounted.targetList.push(rec.element);
           continue;
         }
@@ -2391,6 +2600,7 @@
             height: `${kind.height}px`,
             opacity: String(Math.max(0, Math.min(1, item.alpha))),
             imageRendering: kind.smoothing === false ? 'pixelated' : 'auto',
+            mixBlendMode: leafMixBlend,
           });
           a11yApi?.applyDomAccessibility?.(img, semMeta, { autoLabel: '', isInteractive: false });
           mounted.targetList.push(img);
@@ -2429,6 +2639,7 @@
             width: `${vw}px`,
             height: `${vh}px`,
             opacity: String(Math.max(0, Math.min(1, item.alpha))),
+            mixBlendMode: leafMixBlend,
           });
           mounted.targetList.push(vc);
         }
@@ -2448,7 +2659,7 @@
         const node = objectsByKey.get(key);
         const childList = desiredChildrenByContainer.get(key) || [];
         if (interactiveOwnerKeys.has(key) && node) {
-          const localBounds = computeOwnerLocalBounds(node, drawsByOwnerAndAncestors.get(key), null, key);
+          const localBounds = computeOwnerLocalBounds(node, drawsByOwnerAndAncestors.get(key), null, key, drawsByOwnerAndAncestors, objectsByKey);
           if (localBounds && localBounds.right > localBounds.left && localBounds.bottom > localBounds.top) {
             const btnRec = ensureButtonRecord(rec, key);
             const btn = btnRec.element;

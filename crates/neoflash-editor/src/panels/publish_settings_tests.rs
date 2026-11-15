@@ -623,13 +623,14 @@ fn default_target_and_empty_target_guard_route_to_publish_settings_instead_of_no
 
 #[test]
 fn publish_button_in_publish_settings_persists_all_edited_settings_without_resetting() {
-    use crate::workspace::PublishTarget;
+    use crate::workspace::{PublishProfilePreset, PublishTarget};
     use neoflash_export::{HtmlScaleMode, HtmlTemplate, SizeLevel};
 
     let temp_dir =
         std::env::temp_dir().join(format!("neoflash-publish-persist-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&temp_dir);
     let publish_dir = temp_dir.join("published-clean-compact");
+    let has_wasm = Editor::runtime_dir().join("neoflash_web_bg.wasm").is_file();
     let mut d = Driver::new(ThemeMode::Dark);
     d.editor.workspace.publish.warnings_as_errors = false;
     d.open();
@@ -643,6 +644,11 @@ fn publish_button_in_publish_settings_persists_all_edited_settings_without_reset
         // Simulate unchecking html5_enabled while HTML5 tab is selected, and customizing options:
         draft.settings.html5_enabled = false;
         draft.selected_target = PublishTarget::Html5;
+        if !has_wasm {
+            // In unbuilt worktrees lacking `neoflash_web_bg.wasm`, fall back to zero-WASM Native Banner
+            // so `Publish` still completes cleanly (`ok == true`) and verifies setting persistence.
+            draft.settings.profile = PublishProfilePreset::WebBannerNative;
+        }
         draft.settings.output_folder = Some(publish_dir.to_string_lossy().into_owned());
         draft.settings.options.size = SizeLevel::Compact;
         draft.settings.template = HtmlTemplate::Centered;
@@ -664,11 +670,11 @@ fn publish_button_in_publish_settings_persists_all_edited_settings_without_reset
         d.editor.publish_settings.is_none(),
         "clicking Publish closes the modal after publishing"
     );
-    if Editor::runtime_dir().join("neoflash_web_bg.wasm").is_file() {
-        assert!(
-            publish_dir.join("index.html").is_file(),
-            "HTML5 package published to configured folder"
-        );
+    assert!(
+        publish_dir.join("index.html").is_file(),
+        "HTML5 package published to configured folder"
+    );
+    if has_wasm {
         let html = std::fs::read_to_string(publish_dir.join("index.html")).unwrap();
         assert!(
             html.contains("<body data-clean=\"true\">"),
@@ -1327,4 +1333,325 @@ fn t311_publish_settings_single_undo_unchanged_clean_and_session_tab_profile_syn
         PublishProfilePreset::Default,
         "Canvas tab must clear stale WebAppDom preset on tab switch"
     );
+}
+
+#[test]
+fn t320_export_modals_two_step_escape_extension_sync_and_zero_frame_safety() {
+    use crate::panels::{export_audio, export_image, export_lottie, export_video};
+    use neoflash_export::{AudioFormat, ImageExportFormat, LottieFormat, VideoFormat};
+
+    // 1. Two-step Escape in Publish settings: opening a Select popup + first Escape closes ONLY the popup;
+    //    second Escape closes the modal!
+    let mut d = Driver::new(ThemeMode::Dark);
+    d.open();
+    d.click("Profile: Default");
+    assert!(
+        egui::Popup::is_any_open(&d.ctx),
+        "clicking Profile Select must open popup"
+    );
+    d.key(egui::Key::Escape);
+    assert!(
+        !egui::Popup::is_any_open(&d.ctx),
+        "first Escape must close the open Select popup"
+    );
+    assert!(
+        d.editor.publish_settings.is_some(),
+        "first Escape while Select popup was open must keep Publish settings modal open"
+    );
+    d.key(egui::Key::Escape);
+    assert!(
+        d.editor.publish_settings.is_none(),
+        "second Escape with no open popup must close Publish settings modal"
+    );
+
+    // 2. Two-step Escape across Export video, Export audio, Export image, Export Lottie (+ Notes modal),
+    //    plus 0-frame / 0x0 bounds safety!
+    let mut zero_proj = Project::blank();
+    zero_proj.width = 0;
+    zero_proj.height = 0;
+    zero_proj.symbols[0].timeline.frame_count = 0;
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, zero_proj);
+
+    let run_dialog_frame =
+        |ctx: &egui::Context, events: Vec<Event>, f: &mut dyn FnMut(&egui::Context)| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1920., 1080.))),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| f(ctx),
+            );
+        };
+    let press_escape = |ctx: &egui::Context, f: &mut dyn FnMut(&egui::Context)| {
+        run_dialog_frame(
+            ctx,
+            vec![Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            f,
+        );
+        run_dialog_frame(
+            ctx,
+            vec![Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            f,
+        );
+        run_dialog_frame(ctx, vec![], f);
+    };
+    let fake_popup_id = egui::Id::new("t320-test-select-popup");
+
+    // 2a. Export video on 0-frame / 0x0 project + two-step Escape + output extension sync
+    editor.open_export_video(None);
+    run_dialog_frame(&ctx, vec![], &mut |c| editor.export_video_modal(c));
+    assert!(editor.export_video.is_some());
+    {
+        let draft = editor.export_video.as_ref().unwrap();
+        assert!(draft.width.is_finite() && draft.width >= 2.0);
+        assert!(draft.height.is_finite() && draft.height >= 2.0);
+    }
+    egui::Popup::open_id(&ctx, fake_popup_id);
+    press_escape(&ctx, &mut |c| editor.export_video_modal(c));
+    assert!(
+        editor.export_video.is_some(),
+        "Export video must remain open on first Escape when popup was open"
+    );
+    press_escape(&ctx, &mut |c| editor.export_video_modal(c));
+    assert!(
+        editor.export_video.is_none(),
+        "Export video must close on second Escape"
+    );
+
+    let mut video_path = PathBuf::from("/tmp/movie.mp4");
+    for (fmt, expected) in [
+        (VideoFormat::WebM, "/tmp/movie.webm"),
+        (VideoFormat::Mov, "/tmp/movie.mov"),
+        (VideoFormat::Gif, "/tmp/movie.gif"),
+        (VideoFormat::PngSequence, "/tmp/movie_0001.png"),
+        (VideoFormat::Mp4, "/tmp/movie.mp4"),
+    ] {
+        export_video::sync_video_output_path_extension(&mut video_path, fmt);
+        assert_eq!(video_path, PathBuf::from(expected));
+    }
+
+    // 2b. Export audio on 0-frame project + two-step Escape + output extension sync
+    editor.open_export_audio(&ctx, None);
+    run_dialog_frame(&ctx, vec![], &mut |c| editor.export_audio_dialog(c));
+    assert!(export_audio::has_export_audio_dialog(&ctx));
+    egui::Popup::open_id(&ctx, fake_popup_id);
+    press_escape(&ctx, &mut |c| editor.export_audio_dialog(c));
+    assert!(export_audio::has_export_audio_dialog(&ctx));
+    press_escape(&ctx, &mut |c| editor.export_audio_dialog(c));
+    assert!(!export_audio::has_export_audio_dialog(&ctx));
+
+    let mut audio_path = PathBuf::from("/tmp/soundtrack.flac");
+    for (fmt, expected) in [
+        (AudioFormat::Wav, "/tmp/soundtrack.wav"),
+        (AudioFormat::Ogg, "/tmp/soundtrack.ogg"),
+        (AudioFormat::Aac, "/tmp/soundtrack.m4a"),
+        (AudioFormat::Mp3, "/tmp/soundtrack.mp3"),
+    ] {
+        export_audio::sync_audio_output_path_extension(&mut audio_path, fmt);
+        assert_eq!(audio_path, PathBuf::from(expected));
+    }
+
+    // 2c. Export image on 0-frame / 0x0 project + two-step Escape + output extension sync
+    editor.open_export_image(&ctx);
+    run_dialog_frame(&ctx, vec![], &mut |c| editor.export_image_dialog(c));
+    assert!(export_image::has_export_image_dialog(&ctx));
+    egui::Popup::open_id(&ctx, fake_popup_id);
+    press_escape(&ctx, &mut |c| editor.export_image_dialog(c));
+    assert!(export_image::has_export_image_dialog(&ctx));
+    press_escape(&ctx, &mut |c| editor.export_image_dialog(c));
+    assert!(!export_image::has_export_image_dialog(&ctx));
+
+    let mut image_path = PathBuf::from("/tmp/frame.png");
+    for (fmt, expected) in [
+        (ImageExportFormat::Jpeg, "/tmp/frame.jpg"),
+        (ImageExportFormat::Webp, "/tmp/frame.webp"),
+        (ImageExportFormat::Svg, "/tmp/frame.svg"),
+        (ImageExportFormat::Png, "/tmp/frame.png"),
+    ] {
+        export_image::sync_image_output_path_extension(&mut image_path, fmt);
+        assert_eq!(image_path, PathBuf::from(expected));
+    }
+
+    // 2d. Export Lottie + Lottie Notes modal on 0-frame / 0x0 project + two-step Escape + extension sync
+    editor.open_export_lottie(None);
+    run_dialog_frame(&ctx, vec![], &mut |c| editor.export_lottie_modal(c));
+    assert!(editor.export_lottie.is_some());
+    editor.export_lottie.as_mut().unwrap().show_notes_modal = true;
+    run_dialog_frame(&ctx, vec![], &mut |c| editor.export_lottie_modal(c));
+    egui::Popup::open_id(&ctx, fake_popup_id);
+    press_escape(&ctx, &mut |c| editor.export_lottie_modal(c));
+    assert!(
+        editor.export_lottie.as_ref().unwrap().show_notes_modal,
+        "Lottie notes modal stays open on first Escape while popup is open"
+    );
+    press_escape(&ctx, &mut |c| editor.export_lottie_modal(c));
+    assert!(
+        !editor.export_lottie.as_ref().unwrap().show_notes_modal,
+        "second Escape closes Lottie notes sub-modal while keeping main Lottie modal open"
+    );
+    assert!(editor.export_lottie.is_some());
+    egui::Popup::open_id(&ctx, fake_popup_id);
+    press_escape(&ctx, &mut |c| editor.export_lottie_modal(c));
+    assert!(editor.export_lottie.is_some());
+    press_escape(&ctx, &mut |c| editor.export_lottie_modal(c));
+    assert!(editor.export_lottie.is_none());
+
+    let mut lottie_path = PathBuf::from("/tmp/anim.json");
+    export_lottie::sync_lottie_output_path_extension(&mut lottie_path, LottieFormat::DotLottie);
+    assert_eq!(lottie_path, PathBuf::from("/tmp/anim.lottie"));
+    export_lottie::sync_lottie_output_path_extension(&mut lottie_path, LottieFormat::Json);
+    assert_eq!(lottie_path, PathBuf::from("/tmp/anim.json"));
+
+    // 2e. Publish settings sprite-sheet / image-sequence path extension sync
+    let known_seq_exts = &["json", "xml", "css", "png", "jpg", "jpeg", "webp"];
+    let mut seq_path = Some("/tmp/out/spritesheet.json".to_owned());
+    sync_publish_sequence_path_extension(&mut seq_path, "xml", known_seq_exts);
+    assert_eq!(seq_path.as_deref(), Some("/tmp/out/spritesheet.xml"));
+    sync_publish_sequence_path_extension(&mut seq_path, "css", known_seq_exts);
+    assert_eq!(seq_path.as_deref(), Some("/tmp/out/spritesheet.css"));
+    let mut img_seq_file = Some("/tmp/out/frame.png".to_owned());
+    sync_publish_sequence_path_extension(&mut img_seq_file, "webp", known_seq_exts);
+    assert_eq!(img_seq_file.as_deref(), Some("/tmp/out/frame.webp"));
+}
+
+#[test]
+fn t320_failed_publish_in_publish_settings_keeps_modal_open_and_preserves_workspace_and_render_mode()
+ {
+    use crate::workspace::{PublishProfilePreset, PublishTarget};
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "neoflash-publish-fail-preserve-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    let foreign_dir = temp_dir.join("foreign-non-empty");
+    std::fs::create_dir_all(&foreign_dir).unwrap();
+    std::fs::write(foreign_dir.join("keep-me.txt"), b"DO_NOT_OVERWRITE").unwrap();
+
+    let mut d = Driver::new(ThemeMode::Dark);
+    assert_eq!(
+        d.editor.project.html_render_mode(),
+        neoflash_core::HtmlRenderMode::Canvas
+    );
+    assert_eq!(
+        d.editor.workspace.publish.render_mode,
+        neoflash_core::HtmlRenderMode::Canvas
+    );
+    assert_eq!(
+        d.editor.workspace.publish.profile,
+        PublishProfilePreset::Default
+    );
+    let initial_jpeg_quality = d.editor.workspace.publish.jpeg_quality;
+
+    // 1. `needs_shared_output == true` (`Some(output)`) branch: switch draft to `Web App · DOM`
+    //    and attempt `Publish` into a foreign non-empty folder -> must fail!
+    d.open();
+    {
+        let draft = d.editor.publish_settings.as_mut().unwrap();
+        draft
+            .settings
+            .apply_profile(PublishProfilePreset::WebAppDom);
+        draft.settings.jpeg_quality = 42;
+        draft.settings.output_folder = Some(foreign_dir.to_string_lossy().into_owned());
+        draft.selected_target = PublishTarget::Html5;
+    }
+    d.settle();
+    d.click("Publish");
+
+    assert!(
+        d.editor.publish_settings.is_some(),
+        "failed Publish must keep Publish settings modal open"
+    );
+    assert!(
+        d.editor
+            .publish_settings
+            .as_ref()
+            .and_then(|dr| dr.error.as_deref())
+            .is_some_and(|e| !e.is_empty()),
+        "failed Publish must populate draft.error for InlineMessage::error banner"
+    );
+    assert_eq!(
+        d.editor.workspace.publish.render_mode,
+        neoflash_core::HtmlRenderMode::Canvas,
+        "failed Publish must NOT overwrite workspace.publish.render_mode with unconfirmed draft"
+    );
+    assert_eq!(
+        d.editor.workspace.publish.profile,
+        PublishProfilePreset::Default,
+        "failed Publish must NOT leak draft profile into workspace.publish"
+    );
+    assert_eq!(
+        d.editor.workspace.publish.jpeg_quality, initial_jpeg_quality,
+        "failed Publish must leave workspace.publish settings unchanged"
+    );
+    assert_eq!(
+        d.editor.project.html_render_mode(),
+        d.editor.workspace.publish.render_mode,
+        "project.html_render_mode() and workspace.publish.render_mode must remain synchronized"
+    );
+    assert_eq!(
+        std::fs::read(foreign_dir.join("keep-me.txt")).unwrap(),
+        b"DO_NOT_OVERWRITE"
+    );
+
+    // 2. `!needs_shared_output` branch: disable HTML5, enable SVG pointed at an existing directory
+    //    (guaranteed write error) while draft is switched to `Web App · DOM` -> must also keep modal
+    //    open with `draft.error.is_some()` and leave `workspace.publish` & `project.html_render_mode()` untouched!
+    let dir_masquerading_as_svg = temp_dir.join("already-a-dir.svg");
+    std::fs::create_dir_all(&dir_masquerading_as_svg).unwrap();
+    {
+        let draft = d.editor.publish_settings.as_mut().unwrap();
+        draft.error = None;
+        draft
+            .settings
+            .apply_profile(PublishProfilePreset::WebAppDom);
+        draft.settings.html5_enabled = false;
+        draft.settings.desktop_app_enabled = false;
+        draft.settings.video_enabled = false;
+        draft.settings.image_sequence_enabled = false;
+        draft.settings.svg_enabled = true;
+        draft.selected_target = PublishTarget::SvgAnimation;
+        draft.settings.svg_file = Some(dir_masquerading_as_svg.to_string_lossy().into_owned());
+    }
+    d.settle();
+    d.click("Publish");
+
+    assert!(
+        d.editor.publish_settings.is_some(),
+        "failed !needs_shared_output Publish must keep Publish settings modal open"
+    );
+    assert!(
+        d.editor
+            .publish_settings
+            .as_ref()
+            .and_then(|dr| dr.error.as_deref())
+            .is_some_and(|e| !e.is_empty()),
+        "failed !needs_shared_output Publish must populate draft.error"
+    );
+    assert_eq!(
+        d.editor.workspace.publish.render_mode,
+        neoflash_core::HtmlRenderMode::Canvas
+    );
+    assert_eq!(
+        d.editor.project.html_render_mode(),
+        d.editor.workspace.publish.render_mode
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
 }

@@ -70,6 +70,7 @@ pub struct SvgExportReport {
 }
 
 fn fmt_num(v: f64, prec: usize) -> String {
+    let v = if v.is_finite() { v } else { 0.0 };
     let p = prec.clamp(1, 6);
     let s = format!("{v:.p$}");
     if s.contains('.') {
@@ -92,19 +93,16 @@ fn apply_color_transform(c: Color, ct: ColorTransform) -> Color {
     if ct.is_identity() {
         return c;
     }
+    let ch = |base: u8, mul: f64, off: f64| -> u8 {
+        let m = if mul.is_finite() { mul } else { 1.0 };
+        let o = if off.is_finite() { off } else { 0.0 };
+        (f64::from(base) * m + o).round().clamp(0.0, 255.0) as u8
+    };
     [
-        (f64::from(c[0]) * ct.multipliers[0] + ct.offsets[0])
-            .round()
-            .clamp(0.0, 255.0) as u8,
-        (f64::from(c[1]) * ct.multipliers[1] + ct.offsets[1])
-            .round()
-            .clamp(0.0, 255.0) as u8,
-        (f64::from(c[2]) * ct.multipliers[2] + ct.offsets[2])
-            .round()
-            .clamp(0.0, 255.0) as u8,
-        (f64::from(c[3]) * ct.multipliers[3] + ct.offsets[3])
-            .round()
-            .clamp(0.0, 255.0) as u8,
+        ch(c[0], ct.multipliers[0], ct.offsets[0]),
+        ch(c[1], ct.multipliers[1], ct.offsets[1]),
+        ch(c[2], ct.multipliers[2], ct.offsets[2]),
+        ch(c[3], ct.multipliers[3], ct.offsets[3]),
     ]
 }
 
@@ -210,33 +208,52 @@ fn emit_gradient_def(
                 defs,
                 "    <linearGradient id=\"{id}\" gradientUnits=\"userSpaceOnUse\" x1=\"-819.2\" y1=\"0\" x2=\"819.2\" y2=\"0\" gradientTransform=\"{xform}\">"
             );
-            for stop in &grad.stops {
-                let col = apply_color_transform(stop.color, ct);
-                let offset = fmt_num(f64::from(stop.ratio) / 255.0 * 100.0, prec);
-                let alpha = fmt_num(f64::from(col[3]) / 255.0, prec);
+            if grad.stops.is_empty() {
                 let _ = writeln!(
                     defs,
-                    "      <stop offset=\"{offset}%\" stop-color=\"{}\" stop-opacity=\"{alpha}\"/>",
-                    svg_color_hex(col)
+                    "      <stop offset=\"0%\" stop-color=\"#000000\" stop-opacity=\"0\"/>"
                 );
+            } else {
+                for stop in &grad.stops {
+                    let col = apply_color_transform(stop.color, ct);
+                    let offset = fmt_num(f64::from(stop.ratio) / 255.0 * 100.0, prec);
+                    let alpha = fmt_num(f64::from(col[3]) / 255.0, prec);
+                    let _ = writeln!(
+                        defs,
+                        "      <stop offset=\"{offset}%\" stop-color=\"{}\" stop-opacity=\"{alpha}\"/>",
+                        svg_color_hex(col)
+                    );
+                }
             }
             let _ = writeln!(defs, "    </linearGradient>");
         }
         GradientKind::Radial => {
-            let fx = fmt_num(grad.focal_point_ratio * 819.2, prec);
+            let focal = if grad.focal_point_ratio.is_finite() {
+                grad.focal_point_ratio.clamp(-1.0, 1.0)
+            } else {
+                0.0
+            };
+            let fx = fmt_num(focal * 819.2, prec);
             let _ = writeln!(
                 defs,
                 "    <radialGradient id=\"{id}\" gradientUnits=\"userSpaceOnUse\" cx=\"0\" cy=\"0\" r=\"819.2\" fx=\"{fx}\" fy=\"0\" gradientTransform=\"{xform}\">"
             );
-            for stop in &grad.stops {
-                let col = apply_color_transform(stop.color, ct);
-                let offset = fmt_num(f64::from(stop.ratio) / 255.0 * 100.0, prec);
-                let alpha = fmt_num(f64::from(col[3]) / 255.0, prec);
+            if grad.stops.is_empty() {
                 let _ = writeln!(
                     defs,
-                    "      <stop offset=\"{offset}%\" stop-color=\"{}\" stop-opacity=\"{alpha}\"/>",
-                    svg_color_hex(col)
+                    "      <stop offset=\"0%\" stop-color=\"#000000\" stop-opacity=\"0\"/>"
                 );
+            } else {
+                for stop in &grad.stops {
+                    let col = apply_color_transform(stop.color, ct);
+                    let offset = fmt_num(f64::from(stop.ratio) / 255.0 * 100.0, prec);
+                    let alpha = fmt_num(f64::from(col[3]) / 255.0, prec);
+                    let _ = writeln!(
+                        defs,
+                        "      <stop offset=\"{offset}%\" stop-color=\"{}\" stop-opacity=\"{alpha}\"/>",
+                        svg_color_hex(col)
+                    );
+                }
             }
             let _ = writeln!(defs, "    </radialGradient>");
         }

@@ -395,3 +395,102 @@ fn export_image_and_native_banner_publish_persist_confirmed_settings_and_discard
     assert!(html.contains("window.clickTag"));
     assert!(!banner_dir.join("neoflash_web.js").exists());
 }
+
+#[test]
+fn t320_atomic_publish_preserves_existing_build_and_emits_jumpable_diagnostics() {
+    use crate::output_pipeline::{OutputSeverity, OutputSource};
+    use crate::workspace::PublishProfilePreset;
+
+    let fixture = Fixture::new();
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.project.format_version = 6;
+    editor.project.script_language = Some(neoflash_core::ScriptLanguage::ActionScript3);
+
+    let out_dir = fixture.0.join("atomic-live-out");
+    let base_settings = editor.workspace.publish.clone();
+    assert!(editor.publish_html5_atomic(&out_dir, &fixture.runtime(), &base_settings));
+    assert!(out_dir.join("index.html").is_file());
+    assert!(out_dir.join("bundle.js").is_file());
+
+    let collect_files = |dir: &Path| -> std::collections::BTreeMap<String, Vec<u8>> {
+        let mut map = std::collections::BTreeMap::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_file() {
+                map.insert(
+                    entry.file_name().to_string_lossy().into_owned(),
+                    std::fs::read(&path).unwrap(),
+                );
+            }
+        }
+        map
+    };
+    let good_files = collect_files(&out_dir);
+
+    // 1. Introduce a blocking AS3 syntax error on Scene 1 frame 1 -> failed atomic publish preserves `out_dir`
+    //    byte-for-byte AND emits jumpable Compiler diagnostics + reveals CompilerErrors & Output panels!
+    let root_id = editor.project.root.clone();
+    editor
+        .project
+        .symbol_mut(&root_id)
+        .unwrap()
+        .timeline
+        .scripts
+        .push(neoflash_core::FrameScript {
+            frame: 0,
+            script: neoflash_core::Script {
+                language: neoflash_core::ScriptLanguage::ActionScript3,
+                source: "var brokenSyntax = (;".into(),
+            },
+        });
+    editor.output.clear();
+    assert!(!editor.publish_html5_atomic(&out_dir, &fixture.runtime(), &base_settings));
+    assert_eq!(
+        collect_files(&out_dir),
+        good_files,
+        "failed script compile must preserve existing output_dir byte-for-byte"
+    );
+    assert!(editor.workspace.panels.compiler_errors);
+    assert!(editor.workspace.panels.output);
+    assert!(
+        editor.output.events().iter().any(|ev| {
+            ev.severity == OutputSeverity::Error
+                && ev.source == OutputSource::Compiler
+                && ev.location.as_ref().is_some_and(|loc| {
+                    loc.symbol_id.as_deref() == Some(root_id.as_str()) && loc.frame_index == Some(0)
+                })
+        }),
+        "expected jumpable Compiler OutputEvent pointing to root frame 0, got: {:?}",
+        editor.output.events()
+    );
+
+    // 2. Restore clean script, then fail `Web Banner · Native` gzip budget -> preserves `out_dir` & emits jumpable Output!
+    editor
+        .project
+        .symbol_mut(&root_id)
+        .unwrap()
+        .timeline
+        .scripts
+        .clear();
+    editor.output.clear();
+    let mut impossible_banner = base_settings.clone();
+    impossible_banner.profile = PublishProfilePreset::WebBannerNative;
+    impossible_banner.banner_max_gzip_kb = 0;
+    assert!(!editor.publish_html5_atomic(&out_dir, &fixture.runtime(), &impossible_banner));
+    assert_eq!(
+        collect_files(&out_dir),
+        good_files,
+        "failed banner publish must preserve existing standard HTML5 package untouched"
+    );
+    assert!(editor.workspace.panels.output);
+    assert!(
+        editor
+            .output
+            .events()
+            .iter()
+            .any(|ev| ev.severity == OutputSeverity::Error && ev.location.is_some()),
+        "failed banner publish must record a jumpable error in Output"
+    );
+}

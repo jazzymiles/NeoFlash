@@ -297,6 +297,392 @@ impl Editor {
             self.publish_controller.poll(ctx);
         }
     }
+
+    /// Record structured, jumpable diagnostics in both `Compiler errors` and `Output` whenever
+    /// HTML5 or Native Banner publishing fails without touching the destination folder.
+    pub(crate) fn record_publish_export_failure(
+        &mut self,
+        resolved_project: &Project,
+        output: &Path,
+        error: &neoflash_export::ExportError,
+        is_native_banner: bool,
+    ) {
+        use crate::output_pipeline::{OutputEvent, OutputLocation, OutputSeverity, OutputSource};
+        use crate::panels::compiler_errors::{
+            CompilerDiagnosticItem, collect_compiler_diagnostics,
+        };
+        use crate::workspace::PanelId;
+
+        self.refresh_compiler_diagnostics();
+        let mut open_compiler_errors = false;
+
+        match error {
+            neoflash_export::ExportError::Scripts(_) => {
+                open_compiler_errors = true;
+                if !self.compiler_errors.items.iter().any(|item| item.is_error) {
+                    self.compiler_errors.items = collect_compiler_diagnostics(resolved_project);
+                }
+                let items = self.compiler_errors.items.clone();
+                for item in items {
+                    if !item.is_error {
+                        continue;
+                    }
+                    let loc = item.script.as_ref().map(|script_loc| {
+                        script_location_to_output_location(
+                            resolved_project,
+                            script_loc,
+                            item.line,
+                            item.column,
+                        )
+                    });
+                    let mut event = OutputEvent::new(
+                        OutputSeverity::Error,
+                        OutputSource::Compiler,
+                        format!("{}: {}", item.location_label, item.message),
+                    );
+                    if let Some(loc) = loc {
+                        event = event.with_location(loc);
+                    }
+                    let _ = self.push_output_unique(event);
+                }
+            }
+            neoflash_export::ExportError::UnsupportedScript(_) if is_native_banner => {
+                let banner_diags = neoflash_export::preflight_native_banner(resolved_project);
+                for diag in banner_diags.into_iter().filter(|d| d.blocking) {
+                    open_compiler_errors = true;
+                    let (script_loc, out_loc) =
+                        banner_diagnostic_to_locations(resolved_project, &diag);
+                    let formatted = format!("[{}] {}", diag.code, diag.message);
+                    if !self.compiler_errors.items.iter().any(|existing| {
+                        existing.location_label == diag.location && existing.message == formatted
+                    }) {
+                        self.compiler_errors.items.push(CompilerDiagnosticItem {
+                            is_error: true,
+                            message: formatted.clone(),
+                            location_label: diag.location.clone(),
+                            script: script_loc,
+                            line: 1,
+                            column: 1,
+                            quick_fixes: Vec::new(),
+                        });
+                    }
+                    let mut event = OutputEvent::new(
+                        OutputSeverity::Error,
+                        OutputSource::Publish,
+                        format!("[{}] {}: {}", diag.code, diag.location, diag.message),
+                    );
+                    if let Some(loc) = out_loc {
+                        event = event.with_location(loc);
+                    }
+                    let _ = self.push_output_unique(event);
+                }
+            }
+            _ => {}
+        }
+
+        let prefix = if is_native_banner {
+            "Banner publish failed"
+        } else {
+            "Export failed"
+        };
+        let _ = self.message_event(
+            OutputSeverity::Error,
+            OutputSource::Publish,
+            format!("{prefix}: {error}"),
+            Some(OutputLocation::for_file(output.to_path_buf())),
+        );
+        if open_compiler_errors {
+            self.show_panel(PanelId::CompilerErrors);
+        }
+        self.show_panel(PanelId::Output);
+    }
+
+    /// Atomic HTML5 / Native Banner publish entry point that validates/compiles completely before
+    /// modifying `output` and surfaces structured jumpable diagnostics on failure.
+    pub(crate) fn publish_html5_atomic(
+        &mut self,
+        output: &Path,
+        runtime_dir: &Path,
+        settings: &PublishPrefs,
+    ) -> bool {
+        use crate::output_pipeline::{OutputEvent, OutputLocation, OutputSeverity, OutputSource};
+        use crate::workspace::{PanelId, PublishProfilePreset};
+
+        self.finish_edits();
+        let mut resolved_project = self.project.with_resolved_script_language().into_owned();
+        resolved_project.set_html_render_mode(settings.render_mode);
+
+        if settings.profile == PublishProfilePreset::WebBannerNative {
+            let out_html = output.join("index.html");
+            let banner_opts = neoflash_export::BannerOptions {
+                max_gzip_bytes: Some(settings.banner_max_gzip_kb as usize * 1024),
+                max_raw_bytes: Some(settings.banner_max_gzip_kb as usize * 4096),
+                loop_timeline: settings.loop_timeline,
+                autoplay: settings.autoplay,
+                jpeg_quality: settings.jpeg_quality,
+                ..neoflash_export::BannerOptions::default()
+            };
+            return match neoflash_export::export_native_banner_html(
+                &resolved_project,
+                &out_html,
+                &banner_opts,
+            ) {
+                Ok(report) => {
+                    let html_loc = OutputLocation::for_file(report.html_path.clone());
+                    let _ = self.message_event(
+                        OutputSeverity::Info,
+                        OutputSource::Publish,
+                        format!(
+                            "Native HTML5 Banner exported: {} ({} B, {} B gzip)",
+                            report.html_path.display(),
+                            report.raw_bytes,
+                            report.gzip_bytes
+                        ),
+                        Some(html_loc),
+                    );
+                    for diag in report.diagnostics {
+                        let (_, out_loc) = banner_diagnostic_to_locations(&resolved_project, &diag);
+                        let msg = format!("[{}] {}: {}", diag.code, diag.location, diag.message);
+                        self.status = msg.clone();
+                        let mut ev =
+                            OutputEvent::new(OutputSeverity::Warning, OutputSource::Publish, msg);
+                        if let Some(loc) = out_loc {
+                            ev = ev.with_location(loc);
+                        }
+                        let _ = self.push_output_unique(ev);
+                    }
+                    true
+                }
+                Err(error) => {
+                    self.record_publish_export_failure(&resolved_project, &out_html, &error, true);
+                    false
+                }
+            };
+        }
+
+        let warnings = neoflash_export::export_warnings(&resolved_project);
+        let options = match settings.export_options(&resolved_project) {
+            Ok(options) => options,
+            Err(error) => {
+                self.refresh_compiler_diagnostics();
+                let _ = self.message_event(
+                    OutputSeverity::Error,
+                    OutputSource::Publish,
+                    format!("Publish failed: {error}"),
+                    Some(OutputLocation::for_file(output.to_path_buf())),
+                );
+                if settings.warnings_as_errors {
+                    self.show_panel(PanelId::CompilerErrors);
+                }
+                self.show_panel(PanelId::Output);
+                return false;
+            }
+        };
+
+        match neoflash_export::export_project_with_config(
+            &resolved_project,
+            output,
+            runtime_dir,
+            &options,
+            &settings.publish_html_config(),
+        ) {
+            Ok(index) => {
+                let _ = self.message_event(
+                    OutputSeverity::Info,
+                    OutputSource::Publish,
+                    format!("HTML5 exported: {}", index.display()),
+                    Some(OutputLocation::for_file(index)),
+                );
+                if let Ok(summary) = neoflash_export::compute_load_summary(&resolved_project) {
+                    self.push_output_coalesced(OutputEvent::new(
+                        OutputSeverity::Info,
+                        OutputSource::Publish,
+                        summary.summary_line(),
+                    ));
+                }
+                if let Ok(report) = neoflash_export::format_size_report(&resolved_project) {
+                    for line in report.lines() {
+                        if !line.trim().is_empty() {
+                            self.push_output_coalesced(OutputEvent::new(
+                                OutputSeverity::Info,
+                                OutputSource::Publish,
+                                line.to_string(),
+                            ));
+                        }
+                    }
+                }
+                let mut seen = std::collections::HashSet::new();
+                for warning in warnings {
+                    self.status = warning.clone();
+                    if seen.insert(warning.clone()) {
+                        let _ = self.push_output_unique(OutputEvent::new(
+                            OutputSeverity::Warning,
+                            OutputSource::Publish,
+                            warning,
+                        ));
+                    }
+                }
+                true
+            }
+            Err(error) => {
+                self.record_publish_export_failure(&resolved_project, output, &error, false);
+                false
+            }
+        }
+    }
+}
+
+fn script_location_to_output_location(
+    project: &Project,
+    location: &crate::panels::actions_sidebar::ScriptLocation,
+    line: usize,
+    column: usize,
+) -> crate::output_pipeline::OutputLocation {
+    use crate::output_pipeline::OutputLocation;
+    use crate::panels::actions_sidebar::ScriptLocation;
+
+    match location {
+        ScriptLocation::Source(id) => {
+            let path = project
+                .sources
+                .iter()
+                .find(|u| &u.id == id)
+                .map_or_else(|| PathBuf::from(id), |u| PathBuf::from(&u.path));
+            OutputLocation::for_source(id.clone(), path).with_line_col(line, column)
+        }
+        ScriptLocation::Frame { symbol, frame } => {
+            let sym_name = project.symbol(symbol).map(|s| s.name.clone());
+            OutputLocation::for_frame(symbol.clone(), sym_name, None, *frame)
+                .with_line_col(line, column)
+        }
+        ScriptLocation::Object {
+            symbol,
+            frame,
+            element,
+            event,
+        } => {
+            let sym = project.symbol(symbol);
+            let sym_name = sym.map(|s| s.name.clone());
+            let layer_idx = sym.and_then(|s| {
+                s.timeline.layers.iter().position(|layer| {
+                    layer
+                        .key_at(*frame)
+                        .is_some_and(|kf| kf.elements.iter().any(|el| &el.id == element))
+                })
+            });
+            OutputLocation::for_object(
+                symbol.clone(),
+                sym_name,
+                layer_idx,
+                *frame,
+                element.clone(),
+                *event,
+            )
+            .with_line_col(line, column)
+        }
+    }
+}
+
+fn banner_diagnostic_to_locations(
+    project: &Project,
+    diag: &neoflash_export::BannerDiagnostic,
+) -> (
+    Option<crate::panels::actions_sidebar::ScriptLocation>,
+    Option<crate::output_pipeline::OutputLocation>,
+) {
+    use crate::output_pipeline::OutputLocation;
+    use crate::panels::actions_sidebar::ScriptLocation;
+
+    let loc = diag.location.trim();
+    if let Some(rest) = loc.strip_prefix("Source '")
+        && let Some(source_path) = rest.strip_suffix('\'')
+        && let Some(unit) = project.sources.iter().find(|u| u.path == source_path)
+    {
+        return (
+            Some(ScriptLocation::Source(unit.id.clone())),
+            Some(OutputLocation::for_source(unit.id.clone(), &unit.path).with_line_col(1, 1)),
+        );
+    }
+
+    if let Some(rest) = loc.strip_prefix("Symbol '") {
+        // Match against known project symbols longest-first in case a symbol name contains quotes/commas.
+        let mut matched_sym = None;
+        for sym in &project.symbols {
+            let prefix = format!("{}', ", sym.name);
+            if let Some(after_sym) = rest.strip_prefix(&prefix) {
+                matched_sym = Some((sym, after_sym));
+                break;
+            }
+        }
+        if let Some((sym, after_sym)) = matched_sym {
+            if let Some(frame_str) = after_sym.strip_prefix("frame ")
+                && let Ok(frame_1) = frame_str.trim().parse::<u32>()
+            {
+                let frame = frame_1.saturating_sub(1);
+                let script_loc = (diag.code == "banner-unsupported-frame-script").then(|| {
+                    ScriptLocation::Frame {
+                        symbol: sym.id.clone(),
+                        frame,
+                    }
+                });
+                let out_loc =
+                    OutputLocation::for_frame(sym.id.clone(), Some(sym.name.clone()), None, frame)
+                        .with_line_col(1, 1);
+                return (script_loc, Some(out_loc));
+            }
+            if let Some(after_layer_kw) = after_sym.strip_prefix("layer '") {
+                for (layer_idx, layer) in sym.timeline.layers.iter().enumerate() {
+                    let lprefix = format!("{}', frame ", layer.name);
+                    if let Some(after_layer) = after_layer_kw.strip_prefix(&lprefix) {
+                        let (frame_part, element_part) =
+                            if let Some((fpart, epart)) = after_layer.split_once(", element '") {
+                                (fpart, epart.strip_suffix('\''))
+                            } else {
+                                (after_layer, None)
+                            };
+                        if let Ok(frame_1) = frame_part.trim().parse::<u32>() {
+                            let frame = frame_1.saturating_sub(1);
+                            if let Some(el_label) = element_part
+                                && let Some(kf) = layer.key_at(frame)
+                                && let Some(el) = kf.elements.iter().find(|el| {
+                                    let shown = if el.name.is_empty() { &el.id } else { &el.name };
+                                    shown == el_label
+                                })
+                                && let Some(obj_script) = el.scripts.first()
+                            {
+                                let script_loc = (diag.code == "banner-unsupported-object-script")
+                                    .then(|| ScriptLocation::Object {
+                                        symbol: sym.id.clone(),
+                                        frame,
+                                        element: el.id.clone(),
+                                        event: obj_script.event,
+                                    });
+                                let out_loc = OutputLocation::for_object(
+                                    sym.id.clone(),
+                                    Some(sym.name.clone()),
+                                    Some(layer_idx),
+                                    frame,
+                                    el.id.clone(),
+                                    obj_script.event,
+                                )
+                                .with_line_col(1, 1);
+                                return (script_loc, Some(out_loc));
+                            }
+                            let out_loc = OutputLocation::for_frame(
+                                sym.id.clone(),
+                                Some(sym.name.clone()),
+                                Some(layer_idx),
+                                frame,
+                            );
+                            return (None, Some(out_loc));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (None, None)
 }
 
 #[cfg(test)]

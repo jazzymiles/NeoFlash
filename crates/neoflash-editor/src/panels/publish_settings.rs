@@ -162,12 +162,7 @@ impl PublishSettingsDraft {
 
     pub(crate) fn export_active_profile_to_path(&self, path: &Path) -> Result<(), String> {
         let json = self.export_active_profile_json()?;
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(path, json).map_err(|e| e.to_string())
+        neoflash_export::atomic_write(path, json.as_bytes()).map_err(|e| e.to_string())
     }
 
     pub(crate) fn import_profile_from_json(
@@ -1119,12 +1114,19 @@ impl Editor {
                     ok &= self.publish_video_with_settings(None, &draft.settings);
                 }
                 if ok && publish_desktop {
-                    self.commit_publish_settings_to_project(&mut draft);
+                    let prev_mode = self.project.html_render_mode();
+                    if prev_mode != draft.settings.render_mode {
+                        self.project
+                            .set_html_render_mode(draft.settings.render_mode);
+                    }
                     ok &= self.publish_desktop_app_with_settings(
                         None,
                         &Self::runtime_dir(),
                         &draft.settings,
                     );
+                    if prev_mode != draft.settings.render_mode {
+                        self.project.set_html_render_mode(prev_mode);
+                    }
                 }
                 if ok && publish_images {
                     ok &= self.publish_image_sequence_with_settings(None, &draft.settings);
@@ -1140,21 +1142,24 @@ impl Editor {
                     draft.error = Some(self.status.clone());
                 }
             } else if let Some(output) = publish_output(&draft.settings) {
-                self.commit_publish_settings_to_project(&mut draft);
                 let mut ok = true;
                 if publish_html5 {
-                    ok &= self.publish_html5_with_settings(
-                        &output,
-                        &Self::runtime_dir(),
-                        &draft.settings,
-                    );
+                    ok &= self.publish_html5_atomic(&output, &Self::runtime_dir(), &draft.settings);
                 }
                 if ok && publish_desktop {
+                    let prev_mode = self.project.html_render_mode();
+                    if prev_mode != draft.settings.render_mode {
+                        self.project
+                            .set_html_render_mode(draft.settings.render_mode);
+                    }
                     ok &= self.publish_desktop_app_with_settings(
                         Some(&output),
                         &Self::runtime_dir(),
                         &draft.settings,
                     );
+                    if prev_mode != draft.settings.render_mode {
+                        self.project.set_html_render_mode(prev_mode);
+                    }
                 }
                 if ok && publish_video {
                     ok &= self.publish_video_with_settings(Some(&output), &draft.settings);
@@ -1166,6 +1171,7 @@ impl Editor {
                     ok &= self.publish_svg_with_settings(Some(&output), &draft.settings);
                 }
                 if ok {
+                    self.commit_publish_settings_to_project(&mut draft);
                     self.workspace.publish = draft.settings.clone();
                     close = true;
                 } else {
@@ -1218,6 +1224,7 @@ impl Editor {
         } else {
             self.publish_settings = Some(draft);
         }
+        super::dialog_helpers::record_end_of_frame_focus(ctx);
     }
 
     pub(crate) fn publish_video_with_settings(
@@ -1264,6 +1271,29 @@ impl Editor {
             opts.fps = self.project.fps.max(1) as f32;
         }
         self.export_video_with_options_to_path(&path, &opts).is_ok()
+    }
+}
+
+fn sync_publish_sequence_path_extension(
+    target: &mut Option<String>,
+    new_ext: &str,
+    known_exts: &[&str],
+) {
+    let Some(raw) = target.as_deref() else {
+        return;
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let mut pb = PathBuf::from(trimmed);
+    let matches_known = pb
+        .extension()
+        .and_then(|s| s.to_str())
+        .is_some_and(|ext| known_exts.iter().any(|k| ext.eq_ignore_ascii_case(k)));
+    if matches_known {
+        pb.set_extension(new_ext);
+        *target = Some(pb.to_string_lossy().into_owned());
     }
 }
 
@@ -1445,6 +1475,7 @@ fn draw_video_target_settings(
                     .width(150.0),
             )
             .changed()
+            && q_val.is_finite()
         {
             opts.quality = q_val.round().clamp(1.0, 100.0) as u8;
             changed = true;
@@ -1501,6 +1532,7 @@ fn draw_video_target_settings(
                         .width(86.0),
                 )
                 .changed()
+                && secs_val.is_finite()
             {
                 opts.stop_mode = VideoStopMode::AfterSeconds(secs_val.clamp(0.1, 3600.0));
                 changed = true;
@@ -1660,6 +1692,11 @@ fn draw_image_sequence_target_settings(
                             .clicked()
                         {
                             draft.settings.atlas_format = fmt;
+                            sync_publish_sequence_path_extension(
+                                &mut draft.settings.image_sequence_folder,
+                                fmt.extension(),
+                                &["json", "xml", "css"],
+                            );
                             draft.error = None;
                             ui.close();
                         }
@@ -1694,6 +1731,7 @@ fn draw_image_sequence_target_settings(
                         .width(120.0),
                 )
                 .changed()
+                && ext_val.is_finite()
             {
                 draft.settings.atlas_extrude = ext_val.round().clamp(0.0, 8.0) as u32;
                 draft.error = None;
@@ -1717,6 +1755,11 @@ fn draw_image_sequence_target_settings(
                             .clicked()
                         {
                             draft.settings.image_sequence_format = fmt;
+                            sync_publish_sequence_path_extension(
+                                &mut draft.settings.image_sequence_folder,
+                                fmt.extension(),
+                                &["png", "jpg", "jpeg", "webp", "svg", "gif", "bmp"],
+                            );
                             draft.error = None;
                             ui.close();
                         }
@@ -1731,6 +1774,7 @@ fn draw_image_sequence_target_settings(
                             .width(160.0),
                     )
                     .changed()
+                    && q.is_finite()
                 {
                     draft.settings.jpeg_quality = q.round().clamp(1.0, 100.0) as u8;
                     draft.error = None;

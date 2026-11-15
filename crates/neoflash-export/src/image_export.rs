@@ -993,6 +993,7 @@ fn build_psd_bytes(
 }
 
 fn ps_num(value: f64) -> String {
+    let value = if value.is_finite() { value } else { 0.0 };
     let mut value = format!("{value:.6}");
     while value.contains('.') && value.ends_with('0') {
         value.pop();
