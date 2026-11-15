@@ -521,6 +521,10 @@
   }
 
   async function boot() {
+    let onPageHide = null;
+    let onUnload = null;
+    global.addEventListener?.('pagehide', event => onPageHide?.(event));
+    global.addEventListener?.('unload', () => onUnload?.());
     const bundle = global.NeoFlashBundle;
     if (!bundle || typeof NeoFlashWasm !== 'function') throw new Error('The HTML5 runtime is incomplete. Re-export this project from NeoFlash.');
     if (bundle.runtime_id && global.NeoFlashRuntimeId !== bundle.runtime_id) {
@@ -662,7 +666,7 @@
     let frameLabelType = null, sceneValueFactory = null;
     const timelineMetadataProperties=Object.freeze({currentLabel:'current_label',currentFrameLabel:'current_frame_label',currentLabels:'labels',framesLoaded:'frames_loaded',isPlaying:'is_playing',currentScene:'scene_name',scenes:'scene_name'});
     let eventFamilies = {};
-    let timerRenderGeneration=0, capturePainter=null, islandPainter=null, inputPaths=null;
+    let timerRenderGeneration=0, timerRenderRafId=0, familyDisposed=false, capturePainter=null, islandPainter=null, inputPaths=null;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
     const hostPlayerConfig = typeof bundle !== 'undefined' && bundle?.player_config ? bundle.player_config : {};
@@ -742,7 +746,7 @@
       return {x:vx-ox,y:vy-oy,inside:vx>=0&&vy>=0&&vx<=width&&vy<=height};
     }
     function updateCursor() {
-      if(typeof canvas==='undefined')return;
+      if(familyDisposed||typeof canvas==='undefined')return;
       const as3Mouse=stageHost?.mouseState?.();
       if(!legacyCursorVisible||(as3Mouse&&!as3Mouse.visible)){canvas.style.cursor='none';return;}
       if(typeof preview!=='undefined'&&preview.panMode){canvas.style.cursor='grab';return;}
@@ -753,23 +757,31 @@
       const cause=unwrapScriptThrow(error),failure=new Error(`Input callback: ${describeThrown(cause)}`,{cause});
       if(typeof fail==='function')fail(failure);else throw failure;
     }
-    function stopTimers() {timerRenderGeneration++;easingHost?.reset?.();broadcasterHost?.reset?.();timerHost?.reset();}
+    function cancelTimerRender() {
+      if (timerRenderRafId && typeof global.cancelAnimationFrame === 'function') {
+        global.cancelAnimationFrame(timerRenderRafId);
+      }
+      timerRenderRafId = 0;
+    }
+    function stopTimers() {timerRenderGeneration++;cancelTimerRender();easingHost?.reset?.();broadcasterHost?.reset?.();timerHost?.reset();}
     function flushStageRender() {
       if(!stageHost)return;
       if(display&&(typeof player.runtime_snapshot_json==='function'||typeof player.display_nodes_json==='function'))stageHost.flushRender(()=>display.nodes().map(node=>display.nodeProxy(node)));
       else stageHost.flushRender([]);
     }
-    function afterTimerEvent() {if(inDispatch)return;dispatchScripts();flushStageRender();if(typeof context!=='undefined')render();}
+    function afterTimerEvent() {if(familyDisposed||inDispatch)return;dispatchScripts();flushStageRender();if(typeof context!=='undefined')render();}
     function timerFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Timer callback: ${describeThrown(cause)}`,{cause});
       if(typeof fail==='function')fail(failure);else {stopTimers();throw failure;}
     }
     function requestTimerRender() {
+      if(familyDisposed||timerRenderRafId)return;
       const generation=timerRenderGeneration;
-      global.requestAnimationFrame(()=>{
-        if(generation!==timerRenderGeneration||(typeof failed!=='undefined'&&failed))return;
+      timerRenderRafId=global.requestAnimationFrame(()=>{
+        timerRenderRafId=0;
+        if(familyDisposed||generation!==timerRenderGeneration||(typeof failed!=='undefined'&&failed))return;
         try {afterTimerEvent();}catch(error){timerFailure(error);}
-      });
+      })||0;
     }
     function netFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Resource callback: ${describeThrown(cause)}`,{cause});
@@ -871,12 +883,12 @@
           onFullScreenSourceRectChanged:()=>{if(ownsViewportFullscreen()||(stageHost?.stage?.displayState&&stageHost.stage.displayState!=='normal')){enableHostStageLayout(false);if(typeof context!=='undefined')render();}},
           onDisplayStateChanged:state=>{if(state!=='normal')enableHostStageLayout(false);else if(!hostStageLayoutPinned)syncInitialStageLayout();else if(typeof preview!=='undefined'&&preview)preview.resize();if(typeof context!=='undefined')render();},
           onColorChanged:()=>{if(typeof context!=='undefined')render();},onInvalidate:requestTimerRender,
-          onFocusChanged:(next,previous)=>{fte3dHost?.handleFocusChange?.(next,previous);return (domStageHost||textInputHost)?.focusChanged(next,previous);},ownsTextInput:node=>(domStageHost||textInputHost)?.owns(node),canFocus:value=>{const ih=domStageHost||textInputHost;if(ih&&!ih.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
+          onFocusChanged:(next,previous)=>{if(familyDisposed)return;fte3dHost?.handleFocusChange?.(next,previous);return (domStageHost||textInputHost)?.focusChanged(next,previous);},ownsTextInput:node=>(domStageHost||textInputHost)?.owns(node),canFocus:value=>{const ih=domStageHost||textInputHost;if(ih&&!ih.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
           hitTest:event=>{const p=stagePointFromEvent(event);return p&&p.inside?display.pick(p.x,p.y):null;},
           coordinates:event=>{const p=stagePointFromEvent(event);return p?[p.x,p.y]:null;},
-          isInputEnabled:()=>typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick),
-          onLegacyInput:(type,target,event)=>display.pointer(type,target,event),
-          afterInput:()=>{dispatchScripts();if(typeof context!=='undefined')render();},onError:inputFailure});
+          isInputEnabled:()=>!familyDisposed&&(typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick)),
+          onLegacyInput:(type,target,event)=>{if(familyDisposed)return;display.pointer(type,target,event);},
+          afterInput:()=>{if(familyDisposed)return;dispatchScripts();if(typeof context!=='undefined')render();},onError:inputFailure});
         if(global.NeoFlashLegacyInput){
           legacyHost=global.NeoFlashLegacyInput.create({stage:stageHost.stage,platform:as2PlatformHost,
             keyTarget:typeof global.addEventListener==='function'?global:null,
@@ -1652,17 +1664,20 @@
       dispatchScripts();
     }
     function disposeFamily() {
+      if(familyDisposed)return;
+      pointerOverContent=false;legacyCursorVisible=true;updateCursor();
+      familyDisposed=true;
       if(fontLoadingDoneHandler&&typeof document!=='undefined'&&document?.fonts?.removeEventListener){
         document.fonts.removeEventListener('loadingdone',fontLoadingDoneHandler);
       }
       fontLoadingDoneHandler=null;
-      pointerOverContent=false;legacyCursorVisible=true;updateCursor();
       capturePainter?.clear();capturePainter=null;islandPainter?.clear();islandPainter=null;
       filterHost?.renderer.clear();
       as2PrintHost?.dispose();as2BoxingHost?.dispose();as2StageHost?.dispose();as2ConnectionsHost?.dispose();as2DepthManagerHost?.dispose();as2TransitionsHost?.dispose();as2MediaHost?.dispose();as2ServicesHost?.dispose();as2FilesHost?.dispose();as2NetworkHost?.dispose();as2LocaleHost?.dispose();as2TextHost?.dispose();as2BindingHost?.dispose();as2DataHost?.dispose();as2ObjectHost?.dispose();
-      as3MediaEventsHost?.dispose();fte3dHost?.dispose();as3NetSysHost?.dispose();airHost?.dispose();externalHost?.dispose();domStageHost?.dispose();textInputHost?.dispose();storageHost?.dispose();amfHost?.reset?.();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();as2CaptureHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
+      as3MediaEventsHost?.dispose();fte3dHost?.dispose();as3NetSysHost?.dispose();airHost?.dispose();externalHost?.dispose();domStageHost?.dispose();textInputHost?.dispose();storageHost?.dispose();amfHost?.reset?.();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();as2CaptureHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;cancelTimerRender();easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
       constructedNodes.clear();superConstructedNodes.clear();offstageLinkedTargets.clear();retiringTargets.clear();constructSessions.length=0;frameLabelDispatchedScopes.clear();boundTextVariables.clear();registeredClasses.clear();executedInitClips.clear();clipFrameLabels.clear();callFrameDepth=0;if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
       as2PlatformHost?.dispose();legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
+      timerRenderGeneration++;cancelTimerRender();
     }
     function as2RootFor(target) {
       const ref=references.get(target);
@@ -2934,7 +2949,37 @@
         reportToggle.setAttribute('aria-pressed', String(open));
       });
     }
-    global.addEventListener('pagehide', event => { storageHost?.flushAll();if(!event.persisted){gradients.clear();clippings.clear();disposeFamily();} });
+    let runtimeDisposed = false;
+    let rafId = 0;
+    let resizeRafId = 0;
+    let resizeObserver = null;
+    function teardownRuntime() {
+      if (runtimeDisposed) return;
+      runtimeDisposed = true;
+      if (rafId && typeof global.cancelAnimationFrame === 'function') {
+        global.cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      if (resizeRafId && typeof global.cancelAnimationFrame === 'function') {
+        global.cancelAnimationFrame(resizeRafId);
+        resizeRafId = 0;
+      }
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+        resizeObserver = null;
+      }
+      disposeFamily();
+      gradients.clear();
+      clippings.clear();
+    }
+    onPageHide = event => {
+      try { storageHost?.flushAll(); } catch (_) {}
+      if (!event?.persisted) teardownRuntime();
+    };
+    onUnload = () => {
+      try { storageHost?.flushAll(); } catch (_) {}
+      teardownRuntime();
+    };
     stopAsyncOnFailure=()=>{as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();gradients.clear();clippings.clear();filterHost?.renderer.clear();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();domStageHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
     await ensureBundleFontsLoaded(typeof document==='undefined'?null:document,bundle?.fonts?.css_rules||'');
     initializeFamily();
@@ -2948,9 +2993,38 @@
     // Startup script failures use the same stopped-but-restartable policy as
     // later events. Keep installing the animation loop after reporting them.
     try { dispatchScripts(); render(); } catch (error) { fail(error); }
-    new ResizeObserver(() => { resize(); render(); }).observe(viewport);
+    if (typeof ResizeObserver === 'function') {
+      let lastObservedWidth = viewport.clientWidth;
+      let lastObservedHeight = viewport.clientHeight;
+      resizeObserver = new ResizeObserver(() => {
+        if (runtimeDisposed) return;
+        const nextWidth = viewport.clientWidth;
+        const nextHeight = viewport.clientHeight;
+        if (nextWidth === lastObservedWidth && nextHeight === lastObservedHeight) return;
+        lastObservedWidth = nextWidth;
+        lastObservedHeight = nextHeight;
+        if (typeof global.requestAnimationFrame === 'function') {
+          if (resizeRafId) return;
+          resizeRafId = global.requestAnimationFrame(() => {
+            resizeRafId = 0;
+            if (!runtimeDisposed) {
+              lastObservedWidth = viewport.clientWidth;
+              lastObservedHeight = viewport.clientHeight;
+              resize();
+              render();
+            }
+          });
+        } else {
+          resize();
+          render();
+        }
+      });
+      resizeObserver.observe(viewport);
+    }
     document.getElementById('loading').style.display = 'none';
     function animate(now) {
+      rafId = 0;
+      if (runtimeDisposed) return;
       if (!failed && !document.hidden) {
         try {
           if (lastTime !== null && player.is_playing()) {
@@ -2981,9 +3055,13 @@
           render();
         } catch (error) { fail(error); }
       }
-      global.requestAnimationFrame(animate);
+      if (!runtimeDisposed) {
+        rafId = global.requestAnimationFrame(animate) || 0;
+      }
     }
-    global.requestAnimationFrame(animate);
+    if (!runtimeDisposed) {
+      rafId = global.requestAnimationFrame(animate) || 0;
+    }
     global.NeoFlashPlayer = Object.freeze({ get root() { return proxyFor([]); }, get measuredFps() { return measuredFps; }, get targetFps() { return runtimeFrameRate; }, loadPublish: (url, target = null) => { if (!loaderHost?.loadPublish) throw new Error('Loader host is unavailable in this publication.'); return loaderHost.loadPublish(url, target); }, pause: () => { player.set_playing(false); resetMeasuredFps(); drainSounds();drainVideos(); }, resume: () => {resetMeasuredFps();player.set_playing(true);drainVideos();}, restart: () => document.getElementById('restart').click() });
   }
   boot().catch(fail);

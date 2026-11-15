@@ -34,8 +34,14 @@
       const center=old?[(v.scrollLeft+v.clientWidth/2-old.left)/old.scale,(v.scrollTop+v.clientHeight/2-old.top)/(old.scaleY||old.scale)]:[this.project.width/2,this.project.height/2];
       this.view=this.stageLayout?this.stageLayout(Math.max(1,v.clientWidth),Math.max(1,v.clientHeight)):layout(this.project.width,this.project.height,v.clientWidth,v.clientHeight,this.mode);
       const next=this.view;
-      Object.assign(this.space.style,{width:next.spaceWidth+'px',height:next.spaceHeight+'px'});
-      Object.assign(this.surface.style,{left:next.left+'px',top:next.top+'px',width:next.stageWidth+'px',height:next.stageHeight+'px'});
+      const spaceW=next.spaceWidth+'px',spaceH=next.spaceHeight+'px';
+      if(this.space.style.width!==spaceW)this.space.style.width=spaceW;
+      if(this.space.style.height!==spaceH)this.space.style.height=spaceH;
+      const surfL=next.left+'px',surfT=next.top+'px',surfW=next.stageWidth+'px',surfH=next.stageHeight+'px';
+      if(this.surface.style.left!==surfL)this.surface.style.left=surfL;
+      if(this.surface.style.top!==surfT)this.surface.style.top=surfT;
+      if(this.surface.style.width!==surfW)this.surface.style.width=surfW;
+      if(this.surface.style.height!==surfH)this.surface.style.height=surfH;
       const logicalWidth=next.logicalWidth||this.project.width,logicalHeight=next.logicalHeight||this.project.height;
       const ratio=Math.min((global.devicePixelRatio||1)*Math.max(next.scale,next.scaleY||next.scale),4,8192/logicalWidth,8192/logicalHeight);
       const width=Math.max(1,Math.round(logicalWidth*ratio)),height=Math.max(1,Math.round(logicalHeight*ratio));

@@ -1041,14 +1041,35 @@
     return `<linearGradient id="${xmlAttrEscape(id)}" gradientUnits="userSpaceOnUse" x1="${-radius}" y1="0" x2="${radius}" y2="0" spreadMethod="${spread}" gradientTransform="${gt}">${stops}</linearGradient>`;
   }
 
-  function computeTextDiff(before, after) {
+  function computeTextDiff(before, after, caretAfter) {
+    if (Number.isInteger(caretAfter) && caretAfter >= 0 && caretAfter <= after.length) {
+      let beforeEnd = before.length;
+      let afterEnd = after.length;
+      while (beforeEnd > 0 && afterEnd > caretAfter && before[beforeEnd - 1] === after[afterEnd - 1]) {
+        beforeEnd--;
+        afterEnd--;
+      }
+      if (afterEnd < after.length && /[\uDC00-\uDFFF]/.test(after[afterEnd])) {
+        beforeEnd++;
+        afterEnd++;
+      }
+      let begin = 0;
+      while (begin < beforeEnd && begin < afterEnd && before[begin] === after[begin]) begin++;
+      if (begin > 0 && begin < afterEnd && /[\uDC00-\uDFFF]/.test(after[begin])) begin--;
+      return { begin, end: beforeEnd, text: after.slice(begin, afterEnd) };
+    }
     let begin = 0;
     while (begin < before.length && begin < after.length && before[begin] === after[begin]) begin++;
+    if (begin > 0 && begin < before.length && /[\uDC00-\uDFFF]/.test(before[begin])) begin--;
     let beforeEnd = before.length;
     let afterEnd = after.length;
     while (beforeEnd > begin && afterEnd > begin && before[beforeEnd - 1] === after[afterEnd - 1]) {
       beforeEnd--;
       afterEnd--;
+    }
+    if (beforeEnd < before.length && /[\uDC00-\uDFFF]/.test(before[beforeEnd])) {
+      beforeEnd++;
+      afterEnd++;
     }
     return { begin, end: beforeEnd, text: after.slice(begin, afterEnd) };
   }
@@ -1711,8 +1732,12 @@
         if (!textHost || !player?.object_text_input || !receiver || (disp && !disp.alive(receiver))) return;
         const base = textHost.info(ownerKey);
         const before = displayedFieldText(base);
-        const normalized = el.value.replace(/\r\n?|\n/g, '\n');
-        const edit = computeTextDiff(before, normalized);
+        const rawValue = String(el.value ?? '');
+        const normalized = rawValue.replace(/\r\n?|\n/g, '\n');
+        const normalizedCaret = Number.isInteger(el.selectionEnd)
+          ? rawValue.slice(0, el.selectionEnd).replace(/\r\n?|\n/g, '\n').length
+          : undefined;
+        const edit = computeTextDiff(before, normalized, normalizedCaret);
         const insert = base.multiline ? edit.text : edit.text.replace(/\n/g, '');
         if (!edit.text.length && edit.begin === edit.end) return;
 
@@ -1732,7 +1757,7 @@
         const postEdit = post.revision === base.revision
           ? { begin: edit.begin, end: edit.end, insert }
           : (() => {
-              const d = computeTextDiff(displayedFieldText(post), normalized);
+              const d = computeTextDiff(displayedFieldText(post), normalized, normalizedCaret);
               return { begin: d.begin, end: d.end, insert: post.multiline ? d.text : d.text.replace(/\n/g, '') };
             })();
         const committed = JSON.parse(player.object_text_input(ownerKey, JSON.stringify({
@@ -1764,10 +1789,35 @@
         afterInput?.();
       });
 
+      const syncSelection = () => guardedCall(() => {
+        if (disposed || rec.syncingValue) return;
+        const textHost = getTextHost();
+        const disp = getDisplay();
+        const receiver = resolveReceiver();
+        if (!textHost?.info || !textHost?.update || !receiver || (disp && !disp.alive(receiver))) return;
+        const field = textHost.info(ownerKey);
+        if (!field) return;
+        const begin = el.selectionStart ?? 0;
+        const end = el.selectionEnd ?? begin;
+        const backward = el.selectionDirection === 'backward';
+        if (
+          begin !== field.selection_begin ||
+          end !== field.selection_end ||
+          (backward ? begin : end) !== field.caret
+        ) {
+          textHost.update(ownerKey, {
+            selection: { begin: backward ? end : begin, end: backward ? begin : end },
+          });
+        }
+      });
+
       const stopClick = ev => ev.stopPropagation();
       el.addEventListener('focus', onFocus);
       el.addEventListener('blur', onBlur);
       el.addEventListener('keydown', onKeyDown);
+      el.addEventListener('keyup', syncSelection);
+      el.addEventListener('mouseup', syncSelection);
+      el.addEventListener('select', syncSelection);
       el.addEventListener('input', onInput);
       el.addEventListener('click', stopClick);
 
@@ -1781,6 +1831,9 @@
           el.removeEventListener('focus', onFocus);
           el.removeEventListener('blur', onBlur);
           el.removeEventListener('keydown', onKeyDown);
+          el.removeEventListener('keyup', syncSelection);
+          el.removeEventListener('mouseup', syncSelection);
+          el.removeEventListener('select', syncSelection);
           el.removeEventListener('input', onInput);
           el.removeEventListener('click', stopClick);
           inputRecordsByRef.delete(ownerKey);
