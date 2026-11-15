@@ -208,6 +208,8 @@ fn main() -> eframe::Result {
         );
     }
 
+    macos_menu::install_prelaunch_hooks();
+
     eframe::run_native(
         "NeoFlash",
         eframe::NativeOptions {

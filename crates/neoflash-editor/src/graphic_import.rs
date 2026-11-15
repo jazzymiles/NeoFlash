@@ -62,7 +62,7 @@ impl From<PreparedGraphic> for PreparedImportGraphic {
 const IMPORT_GRAPHICS_EXTENSIONS: &[&str] = &[
     "svg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "psd", "psb", "fig", "figma",
     "json", "swf", "swc", "pdf", "ai", "fxg", "act", "clr", "ase", "mp3", "wav", "ogg", "flac",
-    "aac", "m4a",
+    "aac", "m4a", "ttf", "otf", "ttc", "otc", "woff", "woff2",
 ];
 
 fn is_figma_graphic_path(path: &std::path::Path, ext: &str) -> bool {
@@ -462,9 +462,10 @@ impl Editor {
             return Err("Import at most 64 graphics at once.".into());
         }
 
-        // Partition SWC libraries, audio files, colour palettes, and graphic/interchange files.
+        // Partition SWC libraries, audio files, font files, colour palettes, and graphic/interchange files.
         let mut swc_paths = Vec::new();
         let mut audio_paths = Vec::new();
+        let mut font_paths = Vec::new();
         let mut palette_paths = Vec::new();
         let mut graphic_paths = Vec::new();
         for path in paths {
@@ -473,6 +474,8 @@ impl Editor {
                 swc_paths.push(path.clone());
             } else if crate::resources::is_audio_import_path(path) {
                 audio_paths.push(path.clone());
+            } else if crate::resources::is_font_import_path(path) {
+                font_paths.push(path.clone());
             } else if is_palette_ext(&ext) {
                 palette_paths.push(path.clone());
             } else {
@@ -561,6 +564,55 @@ impl Editor {
             self.message(format!(
                 "Linked {} SWC library(ies) ({total_symbols} symbol(s), {total_sources} source(s), {total_resources} resource(s)).",
                 reports.len()
+            ));
+            if audio_paths.is_empty()
+                && font_paths.is_empty()
+                && palette_paths.is_empty()
+                && graphic_paths.is_empty()
+            {
+                return Ok(());
+            }
+        }
+
+        if !font_paths.is_empty() {
+            if font_paths.len() + self.project.resources.len() > neoflash_core::MAX_RESOURCES {
+                return Err("The project supports at most 1024 resource files.".into());
+            }
+            let used: usize = self
+                .project
+                .resources
+                .iter()
+                .map(ResourceUnit::byte_len)
+                .sum();
+            let mut font_remaining = MAX_RESOURCE_TOTAL_BYTES.saturating_sub(used);
+            let mut candidate = self.project.clone();
+            candidate.format_version = candidate.format_version.max(3);
+            let mut imported_ids = Vec::with_capacity(font_paths.len());
+            for font_path in &font_paths {
+                let mut unit = crate::resources::read_font_resource(font_path, font_remaining)?;
+                unit.path =
+                    crate::resources::unique_font_resource_path(&candidate.resources, &unit.path);
+                font_remaining = font_remaining.saturating_sub(unit.byte_len());
+                imported_ids.push(unit.id.clone());
+                candidate.resources.push(unit.clone());
+                crate::resources::upsert_imported_font_embedding_metadata(
+                    &mut candidate.resources,
+                    &unit,
+                )?;
+            }
+            crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
+            candidate.validate().map_err(|e| e.to_string())?;
+            let last_id = imported_ids.last().cloned();
+            self.finish_edits();
+            self.transact_named("Import font", |editor| {
+                editor.project = candidate;
+            });
+            self.resource_panel.selected = last_id;
+            self.resource_panel.baseline = None;
+            self.show_panel(crate::workspace::PanelId::Library);
+            self.message(format!(
+                "Imported {} font file(s) into the Library.",
+                font_paths.len()
             ));
             if audio_paths.is_empty() && palette_paths.is_empty() && graphic_paths.is_empty() {
                 return Ok(());

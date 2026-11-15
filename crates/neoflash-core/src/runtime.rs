@@ -151,6 +151,240 @@ pub struct Player {
     pub(crate) video: crate::timeline_video::TimelineVideoState,
 }
 
+fn skip_as2_ws_and_comments(bytes: &[u8], mut i: usize, allow_semicolons: bool) -> Option<usize> {
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b.is_ascii_whitespace() || (allow_semicolons && b == b';') {
+            i += 1;
+        } else if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'/' {
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' && bytes[i] != b'\r' {
+                i += 1;
+            }
+        } else if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            i += 2;
+            let mut closed = false;
+            while i + 1 < bytes.len() {
+                if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    i += 2;
+                    closed = true;
+                    break;
+                }
+                i += 1;
+            }
+            if !closed {
+                return None;
+            }
+        } else {
+            break;
+        }
+    }
+    Some(i)
+}
+
+fn skip_balanced_as2_group(bytes: &[u8], start: usize, open: u8, close: u8) -> Option<usize> {
+    if start >= bytes.len() || bytes[start] != open {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut i = start;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'"' || b == b'\'' {
+            let quote = b;
+            i += 1;
+            while i < bytes.len() {
+                if bytes[i] == b'\\' {
+                    i = (i + 2).min(bytes.len());
+                    continue;
+                }
+                if bytes[i] == quote {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'/' {
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' && bytes[i] != b'\r' {
+                i += 1;
+            }
+            continue;
+        }
+        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            i += 2;
+            let mut closed = false;
+            while i + 1 < bytes.len() {
+                if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    i += 2;
+                    closed = true;
+                    break;
+                }
+                i += 1;
+            }
+            if !closed {
+                return None;
+            }
+            continue;
+        }
+        if b == open {
+            depth += 1;
+        } else if b == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i + 1);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// True when `script` is an AS1/AS2 object script composed solely of top-level `on(...) { ... }`
+/// and/or `onClipEvent(...) { ... }` event-wrapper blocks (plus comments/whitespace).
+///
+/// `neoflash-script` compiles those blocks into `__nfDisplay.addLegacyEvent(...)` registration
+/// stubs, so `Player` must enqueue them once on placement (`ScriptEvent::Load`) regardless of
+/// whether the author or importer stored them under `ObjectEvent::Load`, `ObjectEvent::Click`, or
+/// `ObjectEvent::EnterFrame`, and must not re-enqueue them on every click or frame.
+pub(crate) fn is_as2_legacy_event_wrapper_script(script: &Script) -> bool {
+    if !matches!(
+        script.language,
+        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+    ) {
+        return false;
+    }
+    let bytes = script.source.as_bytes();
+    let mut i = 0usize;
+    let mut saw_wrapper = false;
+    loop {
+        let Some(next) = skip_as2_ws_and_comments(bytes, i, true) else {
+            return false;
+        };
+        i = next;
+        if i >= bytes.len() {
+            return saw_wrapper;
+        }
+        let kw_len = if bytes[i..].starts_with(b"onClipEvent")
+            && bytes
+                .get(i + 11)
+                .is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'_' && *b != b'$')
+        {
+            11
+        } else if bytes[i..].starts_with(b"on")
+            && bytes
+                .get(i + 2)
+                .is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'_' && *b != b'$')
+        {
+            2
+        } else {
+            return false;
+        };
+        let Some(paren_pos) = skip_as2_ws_and_comments(bytes, i + kw_len, false) else {
+            return false;
+        };
+        let Some(after_paren) = skip_balanced_as2_group(bytes, paren_pos, b'(', b')') else {
+            return false;
+        };
+        let Some(brace_pos) = skip_as2_ws_and_comments(bytes, after_paren, false) else {
+            return false;
+        };
+        let Some(after_brace) = skip_balanced_as2_group(bytes, brace_pos, b'{', b'}') else {
+            return false;
+        };
+        saw_wrapper = true;
+        i = after_brace;
+    }
+}
+
+pub(crate) fn contains_uncommented_as2_legacy_event_wrapper(script: &Script) -> bool {
+    if !matches!(
+        script.language,
+        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+    ) {
+        return false;
+    }
+    let bytes = script.source.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'"' || b == b'\'' {
+            let quote = b;
+            i += 1;
+            while i < bytes.len() {
+                if bytes[i] == b'\\' {
+                    i = (i + 2).min(bytes.len());
+                    continue;
+                }
+                if bytes[i] == quote {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'/' {
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' && bytes[i] != b'\r' {
+                i += 1;
+            }
+            continue;
+        }
+        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            i += 2;
+            let mut closed = false;
+            while i + 1 < bytes.len() {
+                if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    i += 2;
+                    closed = true;
+                    break;
+                }
+                i += 1;
+            }
+            if !closed {
+                return false;
+            }
+            continue;
+        }
+        let boundary_before = i == 0
+            || bytes[i - 1].is_ascii_whitespace()
+            || (!bytes[i - 1].is_ascii_alphanumeric()
+                && bytes[i - 1] != b'_'
+                && bytes[i - 1] != b'$'
+                && bytes[i - 1] != b'.');
+        if boundary_before {
+            let kw_len = if bytes[i..].starts_with(b"onClipEvent")
+                && bytes
+                    .get(i + 11)
+                    .is_none_or(|c| !c.is_ascii_alphanumeric() && *c != b'_' && *c != b'$')
+            {
+                Some(11usize)
+            } else if bytes[i..].starts_with(b"on")
+                && bytes
+                    .get(i + 2)
+                    .is_none_or(|c| !c.is_ascii_alphanumeric() && *c != b'_' && *c != b'$')
+            {
+                Some(2usize)
+            } else {
+                None
+            };
+            if let Some(kw_len) = kw_len
+                && let Some(paren_pos) = skip_as2_ws_and_comments(bytes, i + kw_len, false)
+                && let Some(after_paren) = skip_balanced_as2_group(bytes, paren_pos, b'(', b')')
+                && let Some(brace_pos) = skip_as2_ws_and_comments(bytes, after_paren, false)
+                && skip_balanced_as2_group(bytes, brace_pos, b'{', b'}').is_some()
+            {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 impl Player {
     pub fn new(project: &Project) -> Self {
         Self::with_source_root(project, None)
@@ -711,7 +945,9 @@ impl Player {
                 self.lifetimes.insert(node.path.clone(), self.next_lifetime);
                 self.next_lifetime = self.next_lifetime.wrapping_add(1);
                 for handler in &node.scripts {
-                    if handler.event == ObjectEvent::Load {
+                    if handler.event == ObjectEvent::Load
+                        || is_as2_legacy_event_wrapper_script(&handler.script)
+                    {
                         self.enqueue(node.path.clone(), ScriptEvent::Load, handler.script.clone());
                     }
                 }
@@ -758,7 +994,9 @@ impl Player {
         if enter_frame {
             for node in &scene.nodes {
                 for handler in &node.scripts {
-                    if handler.event == ObjectEvent::EnterFrame {
+                    if handler.event == ObjectEvent::EnterFrame
+                        && !is_as2_legacy_event_wrapper_script(&handler.script)
+                    {
                         self.enqueue(
                             node.path.clone(),
                             ScriptEvent::EnterFrame,
@@ -923,7 +1161,9 @@ impl Player {
         for length in (1..=path.len()).rev() {
             if let Some(node) = scene.nodes.iter().find(|n| n.path == path[..length]) {
                 for handler in &node.scripts {
-                    if handler.event == ObjectEvent::Click {
+                    if handler.event == ObjectEvent::Click
+                        && !is_as2_legacy_event_wrapper_script(&handler.script)
+                    {
                         self.enqueue(
                             node.path.clone(),
                             ScriptEvent::Click,
@@ -946,7 +1186,9 @@ impl Player {
             .find(|node| node.path == path)
         {
             for handler in node.scripts {
-                if handler.event == ObjectEvent::Click {
+                if handler.event == ObjectEvent::Click
+                    && !is_as2_legacy_event_wrapper_script(&handler.script)
+                {
                     self.enqueue(node.path.clone(), ScriptEvent::Click, handler.script);
                 }
             }
@@ -995,9 +1237,12 @@ impl Player {
                     ScriptEvent::EnterFrame => ObjectEvent::EnterFrame,
                     ScriptEvent::Frame(_) => unreachable!(),
                 };
-                node.scripts
-                    .iter()
-                    .any(|handler| handler.event == event && handler.script == dispatch.script)
+                node.scripts.iter().any(|handler| {
+                    handler.script == dispatch.script
+                        && (handler.event == event
+                            || (dispatch.event == ScriptEvent::Load
+                                && is_as2_legacy_event_wrapper_script(&handler.script)))
+                })
             }
         }
     }

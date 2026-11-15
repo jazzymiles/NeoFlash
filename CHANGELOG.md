@@ -2,6 +2,12 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Fixed macOS Finder / `Open With` cold-launch `kAEOpenDocuments` (`odoc`) routing before `[NSApplication finishLaunching]`
+  so double-clicking associated documents opens them directly without Winit's default `NSAlert` modal or an extra Start
+  tab; ensured AS1/AS2 `on(...)` and `onClipEvent(...)` object wrappers attached under `Click`/`EnterFrame` register
+  once at placement `Load` in HTML5 WASM so the first click fires immediately without listener stacking; honored
+  `--symbol <scene|symbol>` across `--headless export --target html5|banner|desktop`; and added `.ttf`/`.otf`/`.ttc`/
+  `.otc`/`.woff`/`.woff2` font file import to Library and `--headless import` (`T-323`).
 - Added a permanent Firefox HTML5 compatibility gate (`scripts/verify-firefox-html5-gate.mjs`,
   `web/tests/firefox-html5-gate.test.cjs`) driving real headless Firefox over native WebDriver BiDi across `Full`,
   `Balanced`, and `Compact` `file://` packages and `Shared` HTTP packages in both `Canvas` and `DOM` render modes, and

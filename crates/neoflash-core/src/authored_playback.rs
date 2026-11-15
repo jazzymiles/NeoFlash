@@ -711,9 +711,10 @@ impl AuthoredPlayback {
                 for handler in &node.scripts {
                     if script_is_compiled(project, handler.script.language)
                         && handler.event != crate::ObjectEvent::Load
-                        && (handler.script.source.contains("onClipEvent")
-                            || handler.script.source.contains("on(")
-                            || handler.script.source.contains("on ("))
+                        && !crate::runtime::is_as2_legacy_event_wrapper_script(&handler.script)
+                        && crate::runtime::contains_uncommented_as2_legacy_event_wrapper(
+                            &handler.script,
+                        )
                     {
                         extra_load_dispatches.push(ScriptDispatch {
                             target_path: path.clone(),

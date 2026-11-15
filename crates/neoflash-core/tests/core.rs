@@ -1240,3 +1240,107 @@ fn t315_migration_rule_and_foreign_script_count_messages() {
     assert!(encoded.contains("\"also_compile_compatible_scripts\""));
     assert_eq!(Project::from_json(&encoded).unwrap(), locked);
 }
+
+#[test]
+fn as2_legacy_event_wrapper_scripts_enqueue_once_at_load_in_player_and_authored_playback() {
+    let mut btn_inst = instance("btn", "clip", 20.0);
+    btn_inst.scripts.push(ObjectScript {
+        event: ObjectEvent::Click,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "on(release) {\n  trace(\"BTN_RELEASE\");\n}".into(),
+        },
+    });
+    let mut mover_inst = instance("mover", "clip", 60.0);
+    mover_inst.scripts.push(ObjectScript {
+        event: ObjectEvent::EnterFrame,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "/* legacy clip wrapper */\nonClipEvent(enterFrame) {\n  _x += 5;\n}".into(),
+        },
+    });
+    let mut bare_inst = instance("bare", "clip", 100.0);
+    bare_inst.scripts.push(ObjectScript {
+        event: ObjectEvent::Click,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "// onClipEvent(press)\ntrace(\"BARE_CLICK\");".into(),
+        },
+    });
+
+    let mut btn_as1 = instance("btn_as1", "clip", 140.0);
+    btn_as1.scripts.push(ObjectScript {
+        event: ObjectEvent::Click,
+        script: Script {
+            language: ScriptLanguage::ActionScript1,
+            source: "on(release) {\n  trace(\"AS1_RELEASE\");\n}".into(),
+        },
+    });
+
+    let proj = project(vec![
+        symbol(
+            "root",
+            2,
+            vec![key(0, vec![btn_inst, mover_inst, bare_inst, btn_as1], None)],
+        ),
+        symbol("clip", 1, vec![key(0, vec![shape("box", 0.0)], None)]),
+    ]);
+
+    let mut player = Player::new(&proj);
+    let startup = player.drain_scripts();
+    assert_eq!(
+        startup.len(),
+        3,
+        "pure AS1/AS2 on(...)/onClipEvent(...) wrappers must enqueue at initial Load while commented-out bare Click stays deferred"
+    );
+    assert!(startup.iter().all(|d| d.event == ScriptEvent::Load));
+    assert!(
+        startup.iter().all(|d| player.is_dispatch_current(&proj, d)),
+        "Player::is_dispatch_current must accept Load dispatches for AS1/AS2 wrappers stored under Click/EnterFrame"
+    );
+    let targets: Vec<Vec<String>> = startup.iter().map(|d| d.target_path.clone()).collect();
+    assert_eq!(
+        targets,
+        vec![
+            vec!["btn".to_owned()],
+            vec!["mover".to_owned()],
+            vec!["btn_as1".to_owned()],
+        ]
+    );
+
+    player.dispatch_click(&proj, &["btn".to_owned()]);
+    assert!(
+        player.drain_scripts().is_empty(),
+        "clicking must not re-enqueue the AS2 on(release) registration wrapper"
+    );
+
+    player.dispatch_click(&proj, &["bare".to_owned()]);
+    let bare_dispatches = player.drain_scripts();
+    assert_eq!(bare_dispatches.len(), 1);
+    assert_eq!(bare_dispatches[0].target_path, vec!["bare".to_owned()]);
+    assert_eq!(bare_dispatches[0].event, ScriptEvent::Click);
+
+    player.tick(&proj);
+    assert!(
+        player.drain_scripts().is_empty(),
+        "frame advance must not re-enqueue the AS2 onClipEvent(enterFrame) registration wrapper"
+    );
+
+    let mut authored = AuthoredPlayback::with_live_scripts(&proj, "root", 0, true);
+    assert!(
+        authored.drain_traces().is_empty(),
+        "AuthoredPlayback startup must register wrappers without firing click handlers"
+    );
+    authored.click(&proj, &["btn".to_owned()]);
+    assert_eq!(
+        authored.drain_traces(),
+        vec!["BTN_RELEASE".to_owned()],
+        "AuthoredPlayback must fire on(release) exactly once per click without double-enqueue"
+    );
+    authored.click(&proj, &["btn".to_owned()]);
+    assert_eq!(
+        authored.drain_traces(),
+        vec!["BTN_RELEASE".to_owned()],
+        "second click in AuthoredPlayback must fire once"
+    );
+}

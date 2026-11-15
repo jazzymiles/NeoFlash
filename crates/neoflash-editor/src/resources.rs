@@ -37,7 +37,13 @@ impl Editor {
         let mut units = Vec::with_capacity(paths.len());
         let mut audio_sources = Vec::new();
         for path in paths {
-            let unit = read_resource(path, remaining)?;
+            let unit = if is_font_import_path(path) {
+                let mut f_unit = read_font_resource(path, remaining)?;
+                f_unit.path = unique_font_resource_path(&self.project.resources, &f_unit.path);
+                f_unit
+            } else {
+                read_resource(path, remaining)?
+            };
             remaining -= unit.byte_len();
             if unit.is_audio() {
                 audio_sources.push((unit.id.clone(), path.clone()));
@@ -60,7 +66,15 @@ impl Editor {
         self.finish_edits();
         let mut candidate = self.project.clone();
         candidate.format_version = candidate.format_version.max(3);
+        let font_units: Vec<ResourceUnit> = units
+            .iter()
+            .filter(|u| neoflash_core::is_font_resource_unit(u))
+            .cloned()
+            .collect();
         candidate.resources.extend(units);
+        for font_unit in &font_units {
+            upsert_imported_font_embedding_metadata(&mut candidate.resources, font_unit)?;
+        }
         candidate.validate().map_err(|error| error.to_string())?;
         self.transact(|editor| editor.project = candidate);
         self.resource_panel.selected = selected;
@@ -573,6 +587,238 @@ fn media_icon(media_type: &str) -> neoflash_ui::Icon {
         }
         _ => i16::PACKAGE,
     }
+}
+
+pub(crate) const IMPORT_FONT_EXTENSIONS: &[&str] = &["ttf", "otf", "ttc", "otc", "woff", "woff2"];
+
+pub(crate) fn is_font_import_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|part| part.to_str())
+        .is_some_and(|ext| {
+            IMPORT_FONT_EXTENSIONS
+                .iter()
+                .any(|allowed| allowed.eq_ignore_ascii_case(ext))
+        })
+}
+
+fn is_valid_font_magic(bytes: &[u8]) -> bool {
+    bytes.len() >= 4
+        && matches!(
+            &bytes[..4],
+            b"\x00\x01\x00\x00" | b"true" | b"typ1" | b"OTTO" | b"ttcf" | b"wOFF" | b"wOF2"
+        )
+}
+
+pub(crate) fn unique_font_resource_path(existing: &[ResourceUnit], requested: &str) -> String {
+    if !existing
+        .iter()
+        .any(|r| r.path.eq_ignore_ascii_case(requested))
+    {
+        return requested.to_owned();
+    }
+    let req_path = Path::new(requested);
+    let parent = req_path
+        .parent()
+        .and_then(|p| p.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("fonts");
+    let stem = req_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("font");
+    let ext = req_path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    for idx in 2..=10_000 {
+        let candidate = if ext.is_empty() {
+            format!("{parent}/{stem}-{idx}")
+        } else {
+            format!("{parent}/{stem}-{idx}.{ext}")
+        };
+        if !existing
+            .iter()
+            .any(|r| r.path.eq_ignore_ascii_case(&candidate))
+        {
+            return candidate;
+        }
+    }
+    format!("{parent}/{stem}-{}", new_id("font"))
+}
+
+pub(crate) fn read_font_resource(path: &Path, remaining: usize) -> Result<ResourceUnit, String> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("Font filename must be valid UTF-8.")?;
+    let ext = path
+        .extension()
+        .and_then(|part| part.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "ttc" | "otc" => "font/collection",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        _ => {
+            return Err(format!(
+                "{name}: unsupported font format '.{ext}'. Supported formats: TTF, OTF, TTC, OTC, WOFF, WOFF2."
+            ));
+        }
+    };
+    let file = std::fs::File::open(path).map_err(|error| format!("{name}: {error}"))?;
+    let mut bytes = Vec::new();
+    file.take(MAX_RESOURCE_BYTES.min(remaining) as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("{name}: {error}"))?;
+    if bytes.is_empty() {
+        return Err(format!("{name}: font file is empty."));
+    }
+    if bytes.len() > remaining || bytes.len() > MAX_RESOURCE_BYTES {
+        return Err(format!(
+            "{name}: resource import exceeds the project's 64 MiB limit."
+        ));
+    }
+    if !is_valid_font_magic(&bytes) {
+        return Err(format!(
+            "{name}: invalid or unsupported font binary header (expected TTF, OTF, TTC, WOFF, or WOFF2)."
+        ));
+    }
+    let rel_path = format!("fonts/{name}");
+    ResourceUnit::from_bytes(new_id("res"), rel_path, mime, &bytes)
+        .map_err(|error| format!("{name}: {error}"))
+}
+
+fn fallback_family_and_style_from_stem(stem: &str) -> (String, String) {
+    let trimmed = stem.trim();
+    for (suffix, style) in [
+        ("-BoldItalic", "Bold Italic"),
+        ("_BoldItalic", "Bold Italic"),
+        ("-BoldOblique", "Bold Italic"),
+        ("_BoldOblique", "Bold Italic"),
+        ("-SemiBold", "Semi Bold"),
+        ("_SemiBold", "Semi Bold"),
+        ("-Bold", "Bold"),
+        ("_Bold", "Bold"),
+        ("-Italic", "Italic"),
+        ("_Italic", "Italic"),
+        ("-Oblique", "Italic"),
+        ("_Oblique", "Italic"),
+        ("-Regular", "Regular"),
+        ("_Regular", "Regular"),
+    ] {
+        if trimmed.len() > suffix.len()
+            && trimmed[trimmed.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+        {
+            let fam = trimmed[..trimmed.len() - suffix.len()].trim();
+            if !fam.is_empty() {
+                return (fam.to_owned(), style.to_owned());
+            }
+        }
+    }
+    let fam = if trimmed.is_empty() {
+        "EmbeddedFont"
+    } else {
+        trimmed
+    };
+    (fam.to_owned(), "Regular".to_owned())
+}
+
+pub(crate) fn upsert_imported_font_embedding_metadata(
+    resources: &mut Vec<ResourceUnit>,
+    unit: &ResourceUnit,
+) -> Result<crate::panels::font_embedding::EmbeddedFontEntry, String> {
+    use crate::panels::font_embedding::EmbeddedFontEntry;
+    const META_PATH: &str = "fonts/embedding.json";
+
+    let raw_bytes = unit.decoded_bytes().map_err(|e| e.to_string())?;
+    let stem = Path::new(&unit.path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&unit.id);
+    let (fallback_family, fallback_style) = fallback_family_and_style_from_stem(stem);
+    let (family, style) = if let Some(desc) =
+        neoflash_core::inspect_sfnt_font_descriptor(&raw_bytes, &fallback_family)
+    {
+        let ui_style = match desc.font_style.as_str() {
+            "boldItalic" => "Bold Italic",
+            "bold" => "Bold",
+            "italic" => "Italic",
+            _ => "Regular",
+        };
+        let fam = if desc.font_name.trim().is_empty() {
+            fallback_family
+        } else {
+            desc.font_name.trim().to_owned()
+        };
+        (fam, ui_style.to_owned())
+    } else {
+        (fallback_family, fallback_style)
+    };
+
+    let existing_meta_idx = resources
+        .iter()
+        .position(|r| r.path.eq_ignore_ascii_case(META_PATH));
+    if existing_meta_idx.is_none() && resources.len() >= MAX_RESOURCES {
+        return Err("The project supports at most 1024 resource files.".into());
+    }
+    let metadata_id = existing_meta_idx
+        .map(|i| resources[i].id.clone())
+        .unwrap_or_else(|| new_id("res"));
+    let mut entries: Vec<EmbeddedFontEntry> = existing_meta_idx
+        .and_then(|i| resources[i].decoded_bytes().ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+
+    let display_name = if style.eq_ignore_ascii_case("Regular") {
+        family.clone()
+    } else {
+        format!("{family} {style}")
+    };
+    let mut base_class: String = display_name
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+        .collect();
+    if base_class.starts_with(|c: char| c.is_ascii_digit()) {
+        base_class.insert(0, '_');
+    }
+    let mut class_name = base_class.clone();
+    if !class_name.is_empty() {
+        let mut suffix = 2usize;
+        while entries
+            .iter()
+            .any(|e| e.id != unit.id && e.class_name == class_name)
+        {
+            class_name = format!("{base_class}_{suffix}");
+            suffix += 1;
+        }
+    }
+
+    let entry = EmbeddedFontEntry {
+        id: unit.id.clone(),
+        name: display_name,
+        family,
+        style,
+        ranges: [true, true, true, true, true, false, false, false],
+        extra_chars: String::new(),
+        export_for_actionscript: !class_name.is_empty(),
+        class_name,
+    };
+    if let Some(existing) = entries.iter_mut().find(|e| e.id == unit.id) {
+        *existing = entry.clone();
+    } else {
+        entries.push(entry.clone());
+    }
+    let meta_bytes = serde_json::to_vec(&entries).map_err(|e| e.to_string())?;
+    let meta_unit =
+        ResourceUnit::from_bytes(metadata_id, META_PATH, "application/json", &meta_bytes)
+            .map_err(|e| e.to_string())?;
+    if let Some(idx) = existing_meta_idx {
+        resources[idx] = meta_unit;
+    } else {
+        resources.push(meta_unit);
+    }
+    Ok(entry)
 }
 
 pub(crate) const IMPORT_AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "ogg", "flac", "aac", "m4a"];

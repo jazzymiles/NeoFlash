@@ -1077,7 +1077,7 @@ fn global_help_text() -> &'static str {
         "  eval                    Evaluate deterministic frame poses and optional native AuthoredPlayback script traces\n",
         "  jsfl                    Run capability-gated JSFL scripts cleanly against a project\n",
         "  batch                   Execute a strict JSON batch with atomic final project replacement\n",
-        "  import                  Import FLA/XFL/SWF/SWC/Figma/SVG/PSD/PDF/AI/FXG/image/audio/video/palette into .nflash\n",
+        "  import                  Import FLA/XFL/SWF/SWC/Figma/SVG/PSD/PDF/AI/FXG/image/audio/video/font/palette into .nflash\n",
         "  export                  Publish/export HTML5, SWF, Image, PNG Sequence, AEP, FLA, XFL, SVG, Lottie, Atlas, Video, Audio\n"
     )
 }
@@ -1177,7 +1177,7 @@ fn subcommands_schema() -> Value {
         },
         {
             "name": "import",
-            "summary": "Import document/interchange (.nflash, .fla, .xfl, .swf, .fig, .svg, .psd/.psb, .pdf/.ai, .fxg) or library/asset (.swc, images, sequences, audio, video, palettes) files standalone or into an existing .nflash",
+            "summary": "Import document/interchange (.nflash, .fla, .xfl, .swf, .fig, .svg, .psd/.psb, .pdf/.ai, .fxg) or library/asset (.swc, images, sequences, audio, video, fonts, palettes) files standalone or into an existing .nflash",
             "flags": ["--input <path...>", "--into <project.nflash>", "--out <project.nflash> | --in-place", "--library-only", "--symbol <id|name>", "--layer <id|name>", "--frame <u32>", "--folder <str>", "--swc-conflict <prefer-newer|prefer-existing|error>", "--sequence-placement <single-layer|separate-layers|graphic|movieclip>", "--frame-step <u32>", "-h", "--help"]
         },
         {
@@ -1467,6 +1467,12 @@ fn cmd_capabilities<W1: Write, W2: Write>(
         "mov",
         "ogv",
         "avi",
+        "ttf",
+        "otf",
+        "ttc",
+        "otc",
+        "woff",
+        "woff2",
         "act",
         "clr",
         "ase"
@@ -1556,7 +1562,7 @@ fn cmd_capabilities<W1: Write, W2: Write>(
         OutputFormat::Text => {
             let _ = writeln!(
                 stdout,
-                "NeoFlash {} ({}) headless CLI: capabilities, new, inspect, validate, compile, eval, jsfl, batch, import, export | import_formats=nflash,fla,xfl,swf,swc,fig,svg,psd,pdf,ai,fxg,png,jpg,gif,webp,bmp,mp3,wav,ogg,flac,aac,m4a,mp4,webm,mov,avi,act,clr,ase | export_targets=html5,swf,image,png-sequence,aep,fla,xfl,svg,lottie,dotlottie,atlas,video,audio,banner,desktop | exit_codes=0,1,2",
+                "NeoFlash {} ({}) headless CLI: capabilities, new, inspect, validate, compile, eval, jsfl, batch, import, export | import_formats=nflash,fla,xfl,swf,swc,fig,svg,psd,pdf,ai,fxg,png,jpg,gif,webp,bmp,mp3,wav,ogg,flac,aac,m4a,mp4,webm,mov,avi,ttf,otf,ttc,otc,woff,woff2,act,clr,ase | export_targets=html5,swf,image,png-sequence,aep,fla,xfl,svg,lottie,dotlottie,atlas,video,audio,banner,desktop | exit_codes=0,1,2",
                 id.version,
                 id.commit_short()
             );

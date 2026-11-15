@@ -238,7 +238,8 @@ impl Editor {
         s.workspace =
             WorkspacePrefs::load_for_viewport(storage, cc.egui_ctx.viewport_rect().size().into());
         let env_open = std::env::var_os("NEOFLASH_OPEN");
-        let arg_open = crate::macos_menu::startup_file_args();
+        let mut arg_open = crate::macos_menu::startup_file_args();
+        crate::macos_menu::drain_startup_open_files(&mut arg_open);
         if env_open.is_some() || !arg_open.is_empty() || !is_screenshot {
             s.sessions.clear();
         }
@@ -253,6 +254,7 @@ impl Editor {
         if let Err(error) = crate::macos_menu::install(&cc.egui_ctx) {
             s.message(error);
         }
+        crate::macos_menu::drain_startup_open_files(&mut arg_open);
         s.tablet_input = crate::tablet_input::TabletInput::install();
         if let Some(template) = crate::shell::screenshot_workspace() {
             s.workspace.apply_template(template);

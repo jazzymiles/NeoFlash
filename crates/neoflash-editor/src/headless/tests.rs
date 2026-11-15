@@ -1957,3 +1957,320 @@ fn t321_subcommand_help_strict_json_stdout_errors_and_flfile_copy() {
     assert_eq!(upgraded_jsfl.format_version, 4);
     assert!(upgraded_jsfl.library_folders.iter().any(|f| f == "Icons"));
 }
+
+#[test]
+fn headless_export_html5_symbol_isolates_requested_scene_or_symbol() {
+    if import_export::resolve_web_runtime(None).is_err() {
+        return;
+    }
+    let tmp = TempDirGuard::new("html5_symbol_isolate");
+    let mut proj = Project::blank();
+    proj.format_version = 6;
+    let scene1_id = proj.root.clone();
+    proj.symbols[0].name = "Scene 1".into();
+    proj.symbols[0].timeline.frame_count = 12;
+
+    let scene2_id = new_id("scene");
+    proj.symbols.push(neoflash_core::Symbol {
+        id: scene2_id.clone(),
+        name: "Scene 2".into(),
+        kind: neoflash_core::SymbolKind::MovieClip,
+        folder: String::new(),
+        linkage_id: None,
+        class_name: None,
+        timeline: neoflash_core::Timeline {
+            frame_count: 6,
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    ..Keyframe::default()
+                }],
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    });
+    proj.scenes = vec![scene1_id, scene2_id.clone()];
+
+    let badge_id = new_id("sym");
+    proj.symbols.push(neoflash_core::Symbol {
+        id: badge_id,
+        name: "Badge".into(),
+        kind: neoflash_core::SymbolKind::Graphic,
+        folder: "UI".into(),
+        linkage_id: None,
+        class_name: None,
+        timeline: neoflash_core::Timeline {
+            frame_count: 4,
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    ..Keyframe::default()
+                }],
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    });
+    proj.library_folders.push("UI".into());
+    proj.validate().unwrap();
+
+    let proj_path = tmp.path.join("multi_scene.nflash");
+    fs::write(&proj_path, proj.to_json().unwrap()).unwrap();
+
+    let parse_bundle = |dir: &std::path::Path| -> Value {
+        let raw = fs::read_to_string(dir.join("bundle.js")).unwrap();
+        let json_str = raw
+            .strip_prefix("globalThis.NeoFlashBundle = ")
+            .unwrap()
+            .trim_end()
+            .strip_suffix(';')
+            .unwrap();
+        serde_json::from_str(json_str).unwrap()
+    };
+
+    // Full export (no --symbol) flattens Scene 1 (12f) + Scene 2 (6f) = 18 frames.
+    let full_out = tmp.path.join("out_full");
+    let (code, _, stderr) = run_args(
+        &[
+            "--headless",
+            "export",
+            "--project",
+            proj_path.to_str().unwrap(),
+            "--target",
+            "html5",
+            "--out",
+            full_out.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let full_bundle = parse_bundle(&full_out);
+    assert_eq!(full_bundle["load_summary"]["frames_count"], 18);
+    assert_eq!(full_bundle["scenes"].as_array().unwrap().len(), 2);
+
+    // Scoped export (--symbol "Scene 2") exports ONLY Scene 2 (6 frames) while keeping library symbols.
+    let scene2_out = tmp.path.join("out_scene2");
+    let (code, _, stderr) = run_args(
+        &[
+            "--headless",
+            "export",
+            "--project",
+            proj_path.to_str().unwrap(),
+            "--target",
+            "html5",
+            "--symbol",
+            "Scene 2",
+            "--out",
+            scene2_out.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let scene2_bundle = parse_bundle(&scene2_out);
+    assert_eq!(scene2_bundle["load_summary"]["frames_count"], 6);
+    assert_eq!(scene2_bundle["project"]["root"], scene2_id);
+    assert!(
+        scene2_bundle["project"]["symbols"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["name"] == "Badge"),
+        "library symbols must stay available for Scene 2 instances"
+    );
+    assert!(
+        !scene2_bundle["project"]["symbols"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["name"] == "Scene 1"),
+        "other scenes must not remain in isolated --symbol HTML5 export"
+    );
+
+    // Scoped export (--symbol "Badge") promotes Graphic symbol to 4-frame isolated MovieClip root.
+    let badge_out = tmp.path.join("out_badge");
+    let (code, _, stderr) = run_args(
+        &[
+            "--headless",
+            "export",
+            "--project",
+            proj_path.to_str().unwrap(),
+            "--target",
+            "html5",
+            "--symbol",
+            "Badge",
+            "--out",
+            badge_out.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let badge_bundle = parse_bundle(&badge_out);
+    assert_eq!(badge_bundle["load_summary"]["frames_count"], 4);
+
+    // Unknown --symbol fails closed instead of silently exporting the whole document.
+    let bad_out = tmp.path.join("out_missing");
+    let (code, stdout, _) = run_args(
+        &[
+            "--headless",
+            "export",
+            "--project",
+            proj_path.to_str().unwrap(),
+            "--target",
+            "html5",
+            "--symbol",
+            "MissingScene",
+            "--out",
+            bad_out.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_ne!(code, 0, "unknown --symbol must fail closed: {stdout}");
+}
+
+#[test]
+fn headless_and_editor_import_font_files_into_library_and_embedding_metadata() {
+    let tmp = TempDirGuard::new("font_import");
+    let src_ttf = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../neoflash-ui/assets/fonts/Inter-Regular.ttf");
+    let ttf_input = tmp.path.join("Inter-Regular.ttf");
+    fs::copy(&src_ttf, &ttf_input).unwrap();
+
+    let proj_path = tmp.path.join("fonts_proj.nflash");
+    fs::write(&proj_path, Project::blank().to_json().unwrap()).unwrap();
+
+    // 1. Headless CLI import of a real TrueType/OpenType (.ttf) font.
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "import",
+            "--input",
+            ttf_input.to_str().unwrap(),
+            "--into",
+            proj_path.to_str().unwrap(),
+            "--library-only",
+            "--in-place",
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let res_json: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(res_json["ok"], true);
+
+    let read_embedding = |proj: &Project| -> Vec<crate::panels::font_embedding::EmbeddedFontEntry> {
+        proj.resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case("fonts/embedding.json"))
+            .and_then(|r| r.decoded_bytes().ok())
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    };
+
+    let proj_after_ttf = Project::from_json(&fs::read_to_string(&proj_path).unwrap()).unwrap();
+    proj_after_ttf.validate().unwrap();
+    let ttf_res = proj_after_ttf
+        .resources
+        .iter()
+        .find(|r| r.path == "fonts/Inter-Regular.ttf")
+        .expect("fonts/Inter-Regular.ttf resource");
+    assert_eq!(ttf_res.media_type, "font/ttf");
+    let embedded = read_embedding(&proj_after_ttf);
+    assert!(
+        embedded.iter().any(|f| {
+            f.id == ttf_res.id && f.family == "Inter" && f.style.eq_ignore_ascii_case("Regular")
+        }),
+        "expected Inter Regular in fonts/embedding.json, got: {embedded:?}"
+    );
+
+    // 2. Headless CLI import of a WOFF2 font (.woff2) uses filename stem/style fallback cleanly.
+    let woff2_input = tmp.path.join("BrandDisplay-Bold.woff2");
+    let mut woff2_bytes = b"wOF2".to_vec();
+    woff2_bytes.extend_from_slice(&[0u8; 60]);
+    fs::write(&woff2_input, &woff2_bytes).unwrap();
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "import",
+            "--input",
+            woff2_input.to_str().unwrap(),
+            "--into",
+            proj_path.to_str().unwrap(),
+            "--library-only",
+            "--in-place",
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let proj_after_woff2 = Project::from_json(&fs::read_to_string(&proj_path).unwrap()).unwrap();
+    proj_after_woff2.validate().unwrap();
+    let woff2_res = proj_after_woff2
+        .resources
+        .iter()
+        .find(|r| r.path == "fonts/BrandDisplay-Bold.woff2")
+        .expect("fonts/BrandDisplay-Bold.woff2 resource");
+    assert_eq!(woff2_res.media_type, "font/woff2");
+    assert!(
+        read_embedding(&proj_after_woff2)
+            .iter()
+            .any(|f| { f.id == woff2_res.id && f.family == "BrandDisplay" && f.style == "Bold" }),
+        "expected BrandDisplay Bold metadata for WOFF2 import"
+    );
+
+    // 3. Corrupt font bytes with .ttf extension are rejected without corrupting project.
+    let bad_ttf = tmp.path.join("corrupt.ttf");
+    fs::write(&bad_ttf, b"NOT_A_FONT_HEADER").unwrap();
+    let (code, stdout, _) = run_args(
+        &[
+            "--headless",
+            "import",
+            "--input",
+            bad_ttf.to_str().unwrap(),
+            "--into",
+            proj_path.to_str().unwrap(),
+            "--library-only",
+            "--in-place",
+        ],
+        "",
+    );
+    assert_ne!(code, 0, "corrupt font bytes must fail closed: {stdout}");
+
+    // 4. Authoring Editor::import_graphics_to_library_paths supports font files with full Undo.
+    let ctx = eframe::egui::Context::default();
+    let mut editor = crate::app::Editor::from_project(&ctx, Project::blank());
+    editor
+        .import_graphics_to_library_paths(std::slice::from_ref(&ttf_input))
+        .unwrap();
+    editor.project.validate().unwrap();
+    assert!(
+        editor
+            .project
+            .resources
+            .iter()
+            .any(|r| r.path == "fonts/Inter-Regular.ttf" && r.media_type == "font/ttf")
+    );
+    assert!(
+        read_embedding(&editor.project)
+            .iter()
+            .any(|f| f.family == "Inter")
+    );
+    editor.undo();
+    editor.project.validate().unwrap();
+    assert!(
+        !editor
+            .project
+            .resources
+            .iter()
+            .any(|r| r.path == "fonts/Inter-Regular.ttf"),
+        "Undo must cleanly remove imported font resource and embedding metadata"
+    );
+}

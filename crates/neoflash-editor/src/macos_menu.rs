@@ -253,6 +253,21 @@ impl NativeLifecycleQueue {
             && self.actions.is_empty()
     }
 
+    /// Drain queued cold-launch `open_files` into `into` during `Editor::new`, deduplicating
+    /// canonical/identical paths so Finder double-click / `Open With` cold-launch opens only the
+    /// requested document(s) without creating an extra Start/Demo tab.
+    pub fn drain_startup_open_files(&mut self, into: &mut Vec<PathBuf>) {
+        let raw_paths = std::mem::take(&mut self.open_files);
+        for path in raw_paths {
+            if !into
+                .iter()
+                .any(|seen| crate::document_sessions::same_path(seen, &path))
+            {
+                into.push(path);
+            }
+        }
+    }
+
     /// Drain queued Finder open-file requests, Dock reopen events, and clicked menu actions into
     /// `editor`. If a modal confirmation or timeline drag currently blocks opening files, queued
     /// paths remain buffered for the next frame instead of being dropped.
@@ -2617,6 +2632,14 @@ pub(crate) fn drain_events(editor: &mut Editor, ctx: &egui::Context) {
     }
 }
 
+/// Drain any Finder `odoc` paths queued during `NSApplication` cold-launch before `Editor::new`
+/// decides whether to apply `OnLaunch` Start/Demo defaults.
+pub(crate) fn drain_startup_open_files(into: &mut Vec<PathBuf>) {
+    if let Ok(mut queue) = global_lifecycle_queue().lock() {
+        queue.drain_startup_open_files(into);
+    }
+}
+
 #[cfg(all(target_os = "macos", not(test)))]
 mod native {
     use super::*;
@@ -2728,6 +2751,17 @@ mod native {
         unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>) -> Bool;
     type PerformKeyEquivalentFn =
         unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&NSEvent>) -> Bool;
+    type PrelaunchNotificationFn = unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>);
+
+    unsafe extern "C-unwind" fn prelaunch_will_finish_launching(
+        _observer: &AnyObject,
+        _sel: Sel,
+        _notification: Option<&AnyObject>,
+    ) {
+        if let Some(mtm) = MainThreadMarker::new() {
+            let _ = install_delegate_hooks(mtm);
+        }
+    }
 
     unsafe extern "C-unwind" fn application_open_file(
         _delegate: &AnyObject,
@@ -3019,13 +3053,46 @@ mod native {
         Ok(true)
     }
 
-    pub(super) fn install(ctx: &egui::Context) -> Result<(), String> {
-        let mtm = MainThreadMarker::new().ok_or_else(|| {
-            "Native macOS menu bridge must be installed on the main thread.".to_owned()
-        })?;
-        let _ = ensure_target_class()?;
-        let _ = ensure_main_menu_class()?;
+    fn ensure_prelaunch_observer_class() -> Result<&'static AnyClass, String> {
+        static OBSERVER_CLASS: OnceLock<Result<&'static AnyClass, String>> = OnceLock::new();
+        OBSERVER_CLASS
+            .get_or_init(|| {
+                if let Some(existing) = AnyClass::get(c"NeoFlashPrelaunchObserver") {
+                    return Ok(existing);
+                }
+                let superclass = AnyClass::get(c"NSObject")
+                    .ok_or_else(|| "Could not find NSObject class.".to_owned())?;
+                let cls = unsafe {
+                    ffi::objc_allocateClassPair(
+                        superclass,
+                        c"NeoFlashPrelaunchObserver".as_ptr(),
+                        0,
+                    )
+                };
+                if cls.is_null() {
+                    return Err("Could not allocate NeoFlashPrelaunchObserver class.".to_owned());
+                }
+                let imp = unsafe {
+                    std::mem::transmute::<PrelaunchNotificationFn, Imp>(
+                        prelaunch_will_finish_launching,
+                    )
+                };
+                let added = unsafe {
+                    ffi::class_addMethod(cls, sel!(willFinishLaunching:), imp, c"v@:@".as_ptr())
+                };
+                if !added.as_bool() {
+                    return Err(
+                        "Could not add willFinishLaunching: to NeoFlashPrelaunchObserver.".into(),
+                    );
+                }
+                unsafe { ffi::objc_registerClassPair(cls) };
+                AnyClass::get(c"NeoFlashPrelaunchObserver")
+                    .ok_or_else(|| "Registered NeoFlashPrelaunchObserver class not found.".into())
+            })
+            .clone()
+    }
 
+    fn install_delegate_hooks(mtm: MainThreadMarker) -> Result<(), String> {
         let app = NSApplication::sharedApplication(mtm);
         let delegate = app.delegate().ok_or_else(|| {
             "Native macOS menu bridge could not find the application delegate.".to_owned()
@@ -3065,6 +3132,56 @@ mod native {
             app.setDelegate(None);
             app.setDelegate(Some(&delegate));
         }
+        Ok(())
+    }
+
+    pub(super) fn install_prelaunch_hooks() {
+        static PRELAUNCH_HOOKS: OnceLock<()> = OnceLock::new();
+        PRELAUNCH_HOOKS.get_or_init(|| {
+            let Ok(obs_cls) = ensure_prelaunch_observer_class() else {
+                return;
+            };
+            let Some(notif_name) = ns_string("NSApplicationWillFinishLaunchingNotification") else {
+                return;
+            };
+            let Some(nc_cls) = AnyClass::get(c"NSNotificationCenter") else {
+                return;
+            };
+            unsafe {
+                let raw_obs: *mut AnyObject = msg_send![obs_cls, new];
+                let Some(observer) = Retained::from_raw(raw_obs) else {
+                    return;
+                };
+                let center: *const AnyObject = msg_send![nc_cls, defaultCenter];
+                if !center.is_null() {
+                    let nil_obj: Option<&AnyObject> = None;
+                    let _: () = msg_send![
+                        &*center,
+                        addObserver: &*observer,
+                        selector: sel!(willFinishLaunching:),
+                        name: &*notif_name,
+                        object: nil_obj
+                    ];
+                    // Keep the singleton observer alive for the lifetime of the GUI process.
+                    std::mem::forget(observer);
+                }
+            }
+            if let Some(mtm) = MainThreadMarker::new() {
+                let app = NSApplication::sharedApplication(mtm);
+                if app.delegate().is_some() {
+                    let _ = install_delegate_hooks(mtm);
+                }
+            }
+        });
+    }
+
+    pub(super) fn install(ctx: &egui::Context) -> Result<(), String> {
+        let mtm = MainThreadMarker::new().ok_or_else(|| {
+            "Native macOS menu bridge must be installed on the main thread.".to_owned()
+        })?;
+        let _ = ensure_target_class()?;
+        let _ = ensure_main_menu_class()?;
+        install_delegate_hooks(mtm)?;
 
         *CONTEXT
             .lock()
@@ -3395,6 +3512,17 @@ mod native {
         CACHE.with(|cache| {
             cache.borrow_mut().last_menu_spec = Some(spec);
         });
+    }
+}
+
+/// Register an `NSApplicationWillFinishLaunchingNotification` observer prior to `eframe::run_native`
+/// so `application:openFile:` / `application:openFiles:` / `applicationShouldHandleReopen:hasVisibleWindows:`
+/// are attached onto `WinitApplicationDelegate` BEFORE `[NSApplication finishLaunching]` dispatches
+/// cold-launch Finder `kAEOpenDocuments` (`odoc`) AppleEvents.
+pub(crate) fn install_prelaunch_hooks() {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        native::install_prelaunch_hooks();
     }
 }
 

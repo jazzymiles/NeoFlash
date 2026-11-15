@@ -5,7 +5,10 @@ use super::{
     resolve_symbol, resolve_symbol_mut, save_project_atomic, serialize_json_value, take_flag_value,
     upgrade_project_format_versions, write_json_error,
 };
-use crate::resources::{is_audio_import_path, read_audio_resource, read_resource};
+use crate::resources::{
+    is_audio_import_path, is_font_import_path, read_audio_resource, read_font_resource,
+    read_resource, unique_font_resource_path, upsert_imported_font_embedding_metadata,
+};
 use neoflash_core::{
     Element, ElementKind, FrameSound, GlobalSwatch, InstancePlayback, Keyframe, Layer,
     LayerProperties, LayerRole, MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES,
@@ -963,6 +966,53 @@ fn import_audio_into_project(
     })
 }
 
+fn import_font_into_project(
+    project: &mut Project,
+    path: &Path,
+    standalone_name: bool,
+) -> Result<ImportReport, CliError> {
+    let remaining = remaining_resource_budget(project)?;
+    let mut unit =
+        read_font_resource(path, remaining).map_err(|e| CliError::runtime("import_failed", e))?;
+    unit.path = unique_font_resource_path(&project.resources, &unit.path);
+    if standalone_name {
+        project.name = stem_string(path);
+    }
+    let media_type = unit.media_type.clone();
+    project.resources.push(unit.clone());
+    upsert_imported_font_embedding_metadata(&mut project.resources, &unit)
+        .map_err(|e| CliError::runtime("import_failed", e))?;
+    project.format_version = project.format_version.max(3);
+    finalize_project_format_version(project);
+
+    Ok(ImportReport {
+        source: path.display().to_string(),
+        format: ImportFormat::Unknown,
+        version: Some(media_type),
+        can_import: true,
+        statistics: ImportStatistics {
+            symbols: project.symbols.len(),
+            layers: project
+                .symbols
+                .iter()
+                .map(|s| s.timeline.layers.len())
+                .sum(),
+            keyframes: project
+                .symbols
+                .iter()
+                .flat_map(|s| &s.timeline.layers)
+                .map(|l| l.keyframes.len())
+                .sum(),
+            elements: 0,
+            scripts: 0,
+        },
+        diagnostics: Vec::new(),
+        binary_fla: None,
+        swf: None,
+        swc: None,
+    })
+}
+
 fn import_video_into_project(
     project: &mut Project,
     path: &Path,
@@ -1702,6 +1752,10 @@ fn import_single_input_into_project(
 ) -> Result<(ImportReport, Option<SwcLinkReport>), CliError> {
     if is_audio_import_path(path) {
         let rep = import_audio_into_project(dest, path, opts, standalone_blank)?;
+        return Ok((rep, None));
+    }
+    if is_font_import_path(path) {
+        let rep = import_font_into_project(dest, path, standalone_blank)?;
         return Ok((rep, None));
     }
 
@@ -2573,6 +2627,28 @@ fn export_single_jpeg_to_exact_path(
     result
 }
 
+fn isolate_symbol_for_html5_export(project: &Project, sym_id: &str) -> Project {
+    let mut cloned = project.clone();
+    cloned.script_language = Some(project.effective_script_language());
+    cloned
+        .symbols
+        .retain(|s| s.id == sym_id || !project.is_scene(&s.id));
+    cloned.root = sym_id.to_owned();
+    cloned.scenes.clear();
+    let doc_class = cloned.document_class.clone();
+    if let Some(root_sym) = cloned.symbol_mut(sym_id) {
+        root_sym.kind = SymbolKind::MovieClip;
+        root_sym.folder.clear();
+        root_sym.linkage_id = None;
+        if doc_class.is_some() && root_sym.class_name.is_some() && root_sym.class_name != doc_class
+        {
+            root_sym.class_name = None;
+        }
+    }
+    finalize_project_format_version(&mut cloned);
+    cloned
+}
+
 /// Shared export dispatcher used by both `neoflash-editor --headless export` and `batch` `export` steps.
 pub(crate) fn export_project_with_spec(
     project: &Project,
@@ -2622,6 +2698,10 @@ pub(crate) fn export_project_with_spec(
 
     match target {
         ExportTarget::Html5 => {
+            let isolated_symbol_project = symbol_id
+                .as_deref()
+                .map(|sym_id| isolate_symbol_for_html5_export(project, sym_id));
+            let project = isolated_symbol_project.as_ref().unwrap_or(project);
             let (profile, _has_stored, route) = resolve_publish_profile_and_options(project, spec)?;
             match route {
                 BuiltinHtmlRoute::BannerNative => {

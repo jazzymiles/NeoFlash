@@ -939,3 +939,38 @@ fn t311_swf_export_profiles_and_as1_as2_gui_export_succeed() {
         assert_eq!(vbytes[3], 10);
     }
 }
+
+#[test]
+fn macos_startup_open_files_drain_deduplicates_and_clears_cold_launch_queue() {
+    let (_editor, _ctx, dir) = setup("cold_launch_drain");
+    let first = dir.join("first.nflash");
+    let second = dir.join("second.nflash");
+    std::fs::write(&first, Project::blank().to_json().unwrap()).unwrap();
+    std::fs::write(&second, Project::blank().to_json().unwrap()).unwrap();
+
+    let mut queue = NativeLifecycleQueue::default();
+    queue.push_open_file(first.clone());
+    queue.push_open_file(dir.join(".").join("first.nflash"));
+    queue.push_open_file(second.clone());
+
+    let mut arg_open = vec![dir.join(".").join("first.nflash")];
+    queue.drain_startup_open_files(&mut arg_open);
+
+    assert_eq!(
+        arg_open.len(),
+        2,
+        "cold-launch odoc queue must deduplicate against existing startup paths"
+    );
+    assert_eq!(
+        std::fs::canonicalize(&arg_open[0]).unwrap(),
+        std::fs::canonicalize(&first).unwrap()
+    );
+    assert_eq!(
+        std::fs::canonicalize(&arg_open[1]).unwrap(),
+        std::fs::canonicalize(&second).unwrap()
+    );
+    assert!(
+        queue.is_empty(),
+        "draining cold-launch open_files must leave the lifecycle queue empty"
+    );
+}

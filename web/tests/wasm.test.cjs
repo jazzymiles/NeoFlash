@@ -465,3 +465,134 @@ test('WASM and web/video.js drive Embedded, External and Progressive video deplo
   videoHost.dispose();
   player.free();
 });
+
+test('WASM and runtime host fire AS2 on(release) on first click and onClipEvent(enterFrame) once per frame without stacking',async()=>{
+  await ready;
+  const {homedir}=require('node:os');
+  const {spawnSync}=require('node:child_process');
+  const repoRoot=path.resolve(__dirname,'../..');
+  const localCargo=path.resolve(homedir(),'.cargo/bin/cargo');
+  const cargoBin=process.env.CARGO||(fs.existsSync(localCargo)?localCargo:'cargo');
+
+  const releaseScript={language:'action_script2',source:'on(release) {\n  trace("BTN_CLICK");\n}'};
+  const enterScript={language:'action_script2',source:'onClipEvent(enterFrame) {\n  this._x += 5;\n  trace("TICK:" + this._x);\n}'};
+  const rawList=[releaseScript,enterScript];
+  const comp=spawnSync(cargoBin,['run','--quiet','--locked','-p','neoflash-script','--example','compile_batch'],{
+    cwd:repoRoot,
+    encoding:'utf8',
+    input:JSON.stringify(rawList),
+    maxBuffer:8*1024*1024,
+  });
+  assert.equal(comp.status,0,comp.stderr);
+  const compOut=JSON.parse(comp.stdout);
+  const compiled=rawList.map((s,i)=>{
+    assert.ok(compOut[i].Ok,JSON.stringify(compOut[i]));
+    return {script:s,code:compOut[i].Ok,location:`wasm-as2-wrapper-${i}`};
+  });
+
+  const data={
+    format_version:1,
+    name:'AS2 wrapper WASM regression',
+    width:320,
+    height:200,
+    fps:24,
+    background:[255,255,255,255],
+    root:'root',
+    symbols:[
+      {
+        id:'root',
+        name:'Scene',
+        kind:'movie_clip',
+        timeline:{
+          frame_count:4,
+          layers:[{
+            id:'root-layer',
+            name:'Layer 1',
+            visible:true,
+            locked:false,
+            keyframes:[key(0,[
+              {
+                id:'btn',
+                name:'btn',
+                transform:transform(0),
+                kind:{type:'instance',symbol_id:'clip',playback:'independent'},
+                scripts:[{event:'click',script:releaseScript}],
+              },
+              {
+                id:'mover',
+                name:'mover',
+                transform:transform(0),
+                kind:{type:'instance',symbol_id:'clip',playback:'independent'},
+                scripts:[{event:'enter_frame',script:enterScript}],
+              },
+            ])],
+          }],
+          scripts:[],
+        },
+      },
+      {
+        id:'clip',
+        name:'Clip',
+        kind:'movie_clip',
+        timeline:{
+          frame_count:1,
+          layers:[{
+            id:'clip-layer',
+            name:'Box',
+            visible:true,
+            locked:false,
+            keyframes:[key(0,[{
+              id:'box',
+              name:'box',
+              transform:transform(0),
+              kind:{type:'rectangle',width:40,height:24,fill:[30,120,220,255],stroke:[0,0,0,0],stroke_width:0},
+              scripts:[],
+            }])],
+          }],
+          scripts:[],
+        },
+      },
+    ],
+  };
+
+  const {createRuntimeHost}=await import('../../crates/neoflash-script/tests/host-integration.mjs');
+  const player=new wasm.WebPlayer(JSON.stringify(data));
+  const {host,traceCalls}=createRuntimeHost(repoRoot,player,compiled,{
+    project:data,
+    context:{measureText:line=>({width:line.length*8})},
+  });
+
+  host.dispatchScripts();
+  host.stage().attach();
+  assert.deepEqual(traceCalls,[],'wrapper registration at Load must not prematurely execute handler bodies');
+
+  const btn=host.proxyFor(['btn']);
+  const clickBtn=()=>{
+    host.stage().handlePointer('pointerdown',{button:0,buttons:1,clientX:10,clientY:10},btn);
+    host.stage().handlePointer('pointerup',{button:0,buttons:0,clientX:10,clientY:10},btn);
+    host.stage().handlePointer('click',{button:0,buttons:0,clientX:10,clientY:10},btn);
+    player.click('["btn"]');
+    host.dispatchScripts(btn);
+  };
+
+  clickBtn();
+  assert.deepEqual(traceCalls,[['BTN_CLICK']],'first click must fire AS2 on(release) immediately');
+  clickBtn();
+  assert.deepEqual(traceCalls,[['BTN_CLICK'],['BTN_CLICK']],'second click must fire once without duplicate listener stacking');
+  clickBtn();
+  assert.deepEqual(traceCalls,[['BTN_CLICK'],['BTN_CLICK'],['BTN_CLICK']],'third click must fire once without duplicate listener stacking');
+
+  for(let step=0;step<3;step++){
+    player.tick();
+    host.broadcastFrame();
+    host.dispatchScripts();
+  }
+  assert.deepEqual(
+    traceCalls.slice(3),
+    [['TICK:5'],['TICK:10'],['TICK:15']],
+    'onClipEvent(enterFrame) must fire once per frame without re-registering each tick'
+  );
+
+  host.disposeFamily();
+  player.free();
+});
