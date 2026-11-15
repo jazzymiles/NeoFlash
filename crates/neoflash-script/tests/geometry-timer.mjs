@@ -5,7 +5,58 @@ import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
+import { createRequire } from 'node:module';
 import { createRuntimeHost } from './host-integration.mjs';
+
+const require=createRequire(import.meta.url);
+function verifyTimerFailureRecovery(root,wasm){
+  const jobs=new Map(),cancelled=[],failures=[],diagnostics=[];
+  let time=0,nextId=0,cancelFails=false;
+  const cleanupError=new Error('native timeout cancellation failed');
+  const service=require(resolve(root,'web/timers.js')).create({
+    events:require(resolve(root,'web/events.js')),wasm,now:()=>time,
+    schedule(callback){const id=++nextId;jobs.set(id,callback);return id;},
+    cancel(id){cancelled.push(id);if(cancelFails)throw cleanupError;jobs.delete(id);},
+    onError:error=>failures.push(error),onDiagnostic:error=>diagnostics.push(error),
+  });
+  const fireNext=()=>{const [id,callback]=jobs.entries().next().value;jobs.delete(id);callback();};
+  const original=new Error('authored Timer listener failure');
+  let called=0;
+  const timer=new service.Timer(10);
+  timer.addEventListener('timer',()=>{called++;timer.delay=20;cancelFails=true;throw original;});
+  timer.start();
+  fireNext();
+  assert.equal(failures[0],original,'failed cancellation cannot replace the original callback error');
+  assert.equal(diagnostics[0],cleanupError,'secondary cleanup failure remains observable');
+  assert.equal(timer.running,false,'state retires before native cancellation');
+  for(const callback of jobs.values())callback();jobs.clear();
+  assert.equal(called,1,'a native callback left queued by failed cancellation cannot run again');
+
+  cancelFails=false;
+  const second=new service.Timer(10),third=new service.Timer(10);
+  for(const next of [second,third]){next.addEventListener('timer',()=>called++);next.start();}
+  const callbacksBeforeReset=[...jobs.values()],cancelsBeforeReset=cancelled.length;
+  cancelFails=true;time=100;
+  assert.throws(()=>service.reset(),error=>error instanceof AggregateError&&error.cause===cleanupError);
+  assert.equal(cancelled.length-cancelsBeforeReset,2,'reset attempts cancellation for every running timer');
+  assert.throws(()=>second.start(),/previous publication session/);
+  callbacksBeforeReset.forEach(callback=>callback());jobs.clear();
+  assert.equal(called,1,'reset invalidates all old callbacks even if native cancellation fails');
+
+  cancelFails=false;
+  const id=service.setInterval(()=>called++,10);
+  assert.equal(service.getTimer(),0);
+  fireNext();assert.equal(called,2,'new callbacks work after failed reset');
+  service.clearInterval(id);
+  assert.equal(jobs.size,0);
+  const finalTimer=new service.Timer(10);finalTimer.start();
+  const afterDispose=[...jobs.values()];cancelFails=true;
+  assert.throws(()=>service.dispose(),error=>error===cleanupError);
+  afterDispose.forEach(callback=>callback());jobs.clear();
+  assert.throws(()=>finalTimer.start(),/disposed/);
+  assert.equal(called,2);
+  service.dispose();
+}
 
 export async function verifyGeometryTimer(root, cargo) {
   const directory=mkdtempSync(resolve(root,'target/geometry-timer-'));
@@ -84,6 +135,7 @@ export async function verifyGeometryTimer(root, cargo) {
     assert.throws(()=>oldTimer.start(),/previous publication session|disposed/);
     advance(400);assert.equal(host.proxyFor([]).ticks,1);assert.equal(pending.size,1);
     host.disposeFamily();assert.equal(pending.size,0);advance(2000);
+    verifyTimerFailureRecovery(root,wasm);
   } finally {
     host?.disposeFamily();player?.free();rmSync(directory,{recursive:true,force:true});
   }

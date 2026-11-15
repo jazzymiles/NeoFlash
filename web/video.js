@@ -770,7 +770,22 @@
       }
       const media=options.createVideo?options.createVideo():global.document?.createElement('video');if(!media)throw new Error('HTMLVideoElement is unavailable in this environment.');
       r.media=media;media.muted=true;media.volume=0;media.crossOrigin=options.crossOrigin!==undefined?options.crossOrigin:'anonymous';media.preload='auto';media.playsInline=true;media.loop=false;
-      function listen(type,fn){const callback=()=>{if(!current(r,media,sequence))return;try{fn();}catch(error){if(current(r,media,sequence)){stopMedia(r,false);report(error);}}};media.addEventListener(type,callback);r.listeners.push([type,callback]);}
+      function listen(type,fn){
+        const callback=()=>{
+          if(!current(r,media,sequence))return;
+          try{fn();}catch(error){
+            if(!current(r,media,sequence))return;
+            let cleanupFailed=false,cleanupError;
+            try{stopMedia(r,false);}catch(secondary){cleanupFailed=true;cleanupError=secondary;}
+            try{report(error);}finally{
+              // The callback failure owns the visible error; cleanup diagnostics
+              // must not replace it, including when the observer itself throws.
+              if(cleanupFailed)try{options.onError?.(cleanupError);}catch(_){}
+            }
+          }
+        };
+        media.addEventListener(type,callback);r.listeners.push([type,callback]);
+      }
       listen('loadedmetadata',()=>metadata(r,media,sequence));
       listen('loadeddata',()=>{
         r.serial=++serial;updateBufferedBytes(r);observeController(r,'ready');repaint();

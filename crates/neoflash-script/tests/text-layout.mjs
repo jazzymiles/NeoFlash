@@ -6,6 +6,57 @@ import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
 import { createRuntimeHost } from './host-integration.mjs';
+import runtimeHelpers from '../../../web/runtime.js';
+
+function verifyMeasurementFailures(wasm,player,field) {
+  const {scriptFunction,functionBodyLineOffset,mappedErrorFrames}=runtimeHelpers;
+  const unit={source_url:'neoflash-script-999.js',code:'return new Error("authored measurement failure");',
+    source_locations:[{generated_line:1,generated_column:1,source:'Measurement.as',line:23,column:7}]};
+  const original=scriptFunction(unit,[])();
+  const revoked=Proxy.revocable({},{});revoked.revoke();
+  let reads=0;
+  const hostile=Object.defineProperties({}, {
+    message:{get(){reads++;throw new Error('secondary message access');}},
+    stack:{get(){reads++;throw new Error('secondary stack access');}},
+    toString:{value(){reads++;throw new Error('secondary conversion');}},
+  });
+  const fieldJson=JSON.stringify(field),rootRef=player.object_ref('[]');
+  const bridges=[
+    ['layout',measure=>JSON.parse(player.text_layout_json(fieldJson,measure)),result=>assert.ok(result.lines.length)],
+    ['query',measure=>JSON.parse(player.text_query_json(fieldJson,JSON.stringify({op:'char_boundaries',char_index:0}),measure)),result=>assert.ok(result.width>0)],
+    ['snapshot',measure=>player.as2_snapshot_create(rootRef,measure),handle=>assert.ok(JSON.parse(player.as2_snapshot_command(handle,JSON.stringify({op:'count'})))>0)],
+  ];
+  const measure=strings=>JSON.stringify(JSON.parse(strings).map(text=>Array.from(text).length*10));
+  for(const [name,invoke,verify] of bridges) {
+    for(const sentinel of [original,'native reason',null,undefined,17,hostile,revoked.proxy]) {
+      let caught=false,calls=0;
+      try {invoke(()=>{calls++;throw sentinel;});}
+      catch(error) {
+        caught=true;
+        assert.equal(error,sentinel,`${name} must retain the exact callback exception`);
+        if(error===original) {
+          const location=mappedErrorFrames(error,[unit],functionBodyLineOffset())[0];
+          assert.deepEqual([location.source,location.line,location.column],['Measurement.as',23,7],`${name} retains the authored stack`);
+        }
+      }
+      assert.equal(caught,true,`${name} must reject, including null/undefined throws`);
+      assert.equal(calls,1,`${name} must stop measuring after a callback exception`);
+    }
+    let nested=false;
+    verify(invoke(strings=>{
+      if(!nested) {
+        nested=true;
+        let caught=false;
+        try {wasm.text_layout_json(fieldJson,()=>{throw original;});}
+        catch(error) {caught=true;assert.equal(error,original);}
+        assert.equal(caught,true);
+      }
+      return measure(strings);
+    }));
+    assert.equal(nested,true,`${name} recovers and keeps nested measurement failures local`);
+  }
+  assert.equal(reads,0,'Rust error transport never reads or converts authored error objects');
+}
 
 export async function verifyTextLayout(root,cargo) {
   const directory=mkdtempSync(resolve(root,'target/text-layout-'));
@@ -28,6 +79,7 @@ export async function verifyTextLayout(root,cargo) {
     const format=value=>{const f=value.getTextFormat();return {font:f.font,size:f.size,color:f.color,bold:f.bold,italic:f.italic,leading:f.leading,align:f.align};};
     const drawFor=value=>JSON.parse(player.scene_json()).find(item=>JSON.stringify(item.owner_ref)===JSON.stringify(value.toJSON().object_ref)&&item.kind.type==='text_field');
     const layout=value=>host.text().layout(drawFor(value).kind.field);
+    verifyMeasurementFailures(wasm,player,drawFor(primary).kind.field);
     assert.equal(host.lastTrace(),'text layout ready 340 340 0');
     assert.deepEqual(drawFor(rootObject.instructions).kind.field.box,{width:832,height:48},'the authored TextBox reaches the same layout state as dynamic fields');
     assert.equal(host.program().is(primary,'flash.text.TextField'),true);

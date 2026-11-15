@@ -24,7 +24,8 @@
     const byteLoads=new Set();
     const token=Symbol('LoaderInfo');
     const hub=events.create({weakTargets:true,alive:target=>{const record=infos.get(target);return valid(record);}});
-    class CallbackFailure {constructor(cause){this.cause=cause;}}
+    const callbackFailures=new WeakSet();
+    class CallbackFailure {constructor(cause){this.cause=cause;callbackFailures.add(this);}}
     function open(){if(disposed)throw new Error('The image loading service is disposed.');}
     function valid(record){return Boolean(record&&!disposed&&record.generation===generation&&(record.isRoot||display.alive(record.target)));}
     function state(target){open();const record=loaders.get(target);if(!valid(record))throw new Error('This Loader belongs to a previous session or a removed display object.');return record;}
@@ -45,7 +46,26 @@
     }
     function current(op){return valid(op.record)&&op.generation===generation&&op.record.operation===op;}
     function releaseBytes(op){if(op.bytes){queuedBytes-=op.bytes.length;op.bytes=null;byteLoads.delete(op);}}
-    function cancel(record){const op=record.operation;if(!op)return;record.operation=null;op.transport?.close();if(Array.isArray(op.extraTransports)){for(const t of op.extraTransports){try{t?.close();}catch(_){}}op.extraTransports=null;}releaseBytes(op);const onCancel=op.onCancel;op.onCancel=null;if(typeof onCancel==='function'){try{onCancel();}catch(_){}}}
+    function cancel(record,reason){
+      const op=record.operation;if(!op)return;record.operation=null;const hasReason=arguments.length>1;
+      try{op.transport?.close();}
+      finally{
+        if(Array.isArray(op.extraTransports)){for(const t of op.extraTransports){try{t?.close();}catch(_){}}op.extraTransports=null;}
+        releaseBytes(op);const onCancel=op.onCancel;op.onCancel=null;
+        if(typeof onCancel==='function'){try{onCancel(reason,hasReason);}catch(_){}}
+      }
+    }
+    function retireCallbackFailure(op,error){
+      const cause=callbackFailures.has(error)?error.cause:error;
+      // A callback may have started a replacement load before throwing. Retire only its own
+      // operation, and settle loadPublish with the original error rather than leaving it pending.
+      if(current(op))try{cancel(op.record,cause);}catch(secondary){if(!disposed&&op.generation===generation)try{report(secondary);}catch(_){/* Preserve the primary callback error. */}}
+      return cause;
+    }
+    function reportCallbackFailure(op,error){
+      const cause=retireCallbackFailure(op,error);
+      if(!disposed&&op.generation===generation)report(cause);
+    }
     function guarded(fn){try{return fn();}catch(error){throw new CallbackFailure(error);}}
     function notify(op,event){
       if(!current(op))return false;
@@ -308,11 +328,11 @@
             const pngBytes=Uint8Array.from(raw,ch=>ch.charCodeAt(0));
             commitPixelBytes(op,pngBytes,bytes,'image/svg+xml');
           }catch(error){
-            if(error instanceof CallbackFailure)report(error.cause);
-            else if(current(op))try{failLoad(op,error instanceof Error?error.message:String(error));}catch(cbErr){report(cbErr instanceof CallbackFailure?cbErr.cause:cbErr);}
+            if(callbackFailures.has(error))reportCallbackFailure(op,error);
+            else if(current(op))try{failLoad(op,error instanceof Error?error.message:String(error));}catch(cbErr){reportCallbackFailure(op,cbErr);}
           }
         };
-        img.onerror=()=>{if(current(op)){try{failLoad(op,'Failed to decode SVG graphic.');}catch(cbErr){report(cbErr instanceof CallbackFailure?cbErr.cause:cbErr);}}};
+        img.onerror=()=>{if(current(op)){try{failLoad(op,'Failed to decode SVG graphic.');}catch(cbErr){reportCallbackFailure(op,cbErr);}}};
         img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgText);
         return;
       }
@@ -352,13 +372,13 @@
           if(!current(op))return;
           try{finishPublishedBundleMount(op,value);}
           catch(error){
-            if(error instanceof CallbackFailure)report(error.cause);
-            else if(current(op)){try{failLoad(op,error instanceof Error?error.message:String(error));}catch(callbackError){report(callbackError instanceof CallbackFailure?callbackError.cause:callbackError);}}
+            if(callbackFailures.has(error))reportCallbackFailure(op,error);
+            else if(current(op)){try{failLoad(op,error instanceof Error?error.message:String(error));}catch(callbackError){reportCallbackFailure(op,callbackError);}}
           }
         },error=>{
           if(!current(op))return;
-          if(error instanceof CallbackFailure)report(error.cause);
-          else try{failLoad(op,error instanceof Error?error.message:String(error));}catch(callbackError){report(callbackError instanceof CallbackFailure?callbackError.cause:callbackError);}
+          if(callbackFailures.has(error))reportCallbackFailure(op,error);
+          else try{failLoad(op,error instanceof Error?error.message:String(error));}catch(callbackError){reportCallbackFailure(op,callbackError);}
         });
         return;
       }
@@ -377,7 +397,7 @@
           op.seenUrls?.add(redirectUrl);
           record.url=redirectUrl;
           op.transport=net.loadBytes(new net.URLRequest(redirectUrl),{
-            onEvent:event=>{try{transportEvent(op,event);}catch(error){throw error instanceof CallbackFailure?error.cause:error;}},
+            onEvent:event=>{try{transportEvent(op,event);}catch(error){throw retireCallbackFailure(op,error);}},
             onComplete:nextBytes=>decode(op,nextBytes)
           });
           return;
@@ -398,7 +418,7 @@
                   bundleObj.__hydratedSpriteSheet={pngBytes:gotPng,manifestText:gotJson};
                   commitPublishedBundle(op,bundleObj,bytes);
                 }catch(error){
-                  if(error instanceof CallbackFailure)throw error.cause;
+                  if(callbackFailures.has(error))throw retireCallbackFailure(op,error);
                   if(current(op))failLoad(op,error instanceof Error?error.message:String(error));
                 }
               };
@@ -450,8 +470,8 @@
         }
         commitPixelBytes(op,bytes,bytes,mime);
       }catch(error){
-        if(error instanceof CallbackFailure)throw error.cause;
-        if(current(op)){try{failLoad(op,error instanceof Error?error.message:String(error));}catch(callbackError){throw callbackError instanceof CallbackFailure?callbackError.cause:callbackError;}}
+        if(callbackFailures.has(error))throw retireCallbackFailure(op,error);
+        if(current(op)){try{failLoad(op,error instanceof Error?error.message:String(error));}catch(callbackError){throw retireCallbackFailure(op,callbackError);}}
       }
     }
     function normalizeRequestUrl(rawUrl){
@@ -469,7 +489,7 @@
         if(!sym?.linkage_id){const op=begin(record,request.url);schedule(()=>{if(current(op))failLoad(op,`Embedded symbol "${request.url}" was not found.`);});return;}
         const swfHeader=new Uint8Array([0x46,0x57,0x53,8,8,0,0,0]);
         const op=begin(record,request.url);op.status=200;
-        schedule(()=>{if(!current(op))return;try{transportEvent(op,new events.Event('open'));if(current(op))transportEvent(op,new net.ProgressEvent('progress',false,false,swfHeader.length,swfHeader.length));if(current(op))decode(op,swfHeader);}catch(error){if(op.generation===generation&&!disposed){cancel(record);report(error instanceof CallbackFailure?error.cause:error);}}});
+        schedule(()=>{if(!current(op))return;try{transportEvent(op,new events.Event('open'));if(current(op))transportEvent(op,new net.ProgressEvent('progress',false,false,swfHeader.length,swfHeader.length));if(current(op))decode(op,swfHeader);}catch(error){if(op.generation===generation&&!disposed)report(retireCallbackFailure(op,error));}});
         return;
       }
       // The transport snapshots URLRequest before async work. Its validation is
@@ -481,16 +501,16 @@
         request=nextReq;
       }
       const op=begin(record,request.url);
-      try{op.transport=net.loadBytes(request,{onEvent:event=>{try{transportEvent(op,event);}catch(error){throw error instanceof CallbackFailure?error.cause:error;}},onComplete:bytes=>decode(op,bytes)});}
-      catch(error){if(current(op))cancel(record);throw error;}
+      try{op.transport=net.loadBytes(request,{onEvent:event=>{try{transportEvent(op,event);}catch(error){throw retireCallbackFailure(op,error);}},onComplete:bytes=>decode(op,bytes)});}
+      catch(error){throw retireCallbackFailure(op,error);}
     }
     function loadBytes(record,value,context=null){
       applyContext(record,context);
       const bytes=binary.toBytes(value);if(bytes.length>16*1024*1024)throw new RangeError('Loader.loadBytes exceeds the 16 MiB encoded image limit.');
       if(byteLoads.size>=32||queuedBytes+bytes.length>64*1024*1024)throw new RangeError('Pending Loader.loadBytes snapshots exceed 32 loads or 64 MiB.');
       const op=begin(record,'');op.bytes=bytes;queuedBytes+=bytes.length;byteLoads.add(op);
-      try{schedule(()=>{if(!current(op)){releaseBytes(op);return;}try{transportEvent(op,new events.Event('open'));if(current(op))transportEvent(op,new net.ProgressEvent('progress',false,false,op.bytes.length,op.bytes.length));if(current(op))decode(op,op.bytes);}catch(error){if(op.generation===generation&&!disposed){cancel(record);report(error instanceof CallbackFailure?error.cause:error);}}finally{releaseBytes(op);}});}
-      catch(error){cancel(record);throw error;}
+      try{schedule(()=>{if(!current(op)){releaseBytes(op);return;}try{transportEvent(op,new events.Event('open'));if(current(op))transportEvent(op,new net.ProgressEvent('progress',false,false,op.bytes.length,op.bytes.length));if(current(op))decode(op,op.bytes);}catch(error){if(op.generation===generation&&!disposed)report(retireCallbackFailure(op,error));}finally{releaseBytes(op);}});}
+      catch(error){throw retireCallbackFailure(op,error);}
     }
     function unload(record,stopDetached=false){
       cancel(record);const hadContent=record.content!==null;
@@ -504,7 +524,7 @@
       record.content=null;record.pixel=null;record.width=record.height=record.bytesLoaded=record.bytesTotal=0;record.contentType=null;record.rawBytes=new Uint8Array(0);
       const op=begin(record,'');
       try{guarded(()=>options.onMutation?.(packet?.events||[]));if(!record.as2&&hadContent&&current(op))notify(op,new events.Event('unload'));}
-      catch(error){throw error instanceof CallbackFailure?error.cause:error;}
+      catch(error){throw callbackFailures.has(error)?error.cause:error;}
       finally{if(current(op))record.operation=null;}
     }
     function methods(target){return {
@@ -595,7 +615,7 @@
           rec.info.addEventListener('ioError',onError);
           try{
             load(rec,new net.URLRequest(normalized));
-            if(rec.operation)rec.operation.onCancel=()=>{if(settled)return;settled=true;cleanup();reject(new Error('loadPublish cancelled'));};
+            if(rec.operation)rec.operation.onCancel=(reason,hasReason)=>{if(settled)return;settled=true;cleanup();reject(hasReason?reason:new Error('loadPublish cancelled'));};
           }catch(err){settled=true;cleanup();reject(err);}
         });
       }
@@ -615,7 +635,7 @@
         try{
           const rec=targetRecord(mcl,target,true);
           load(rec,new net.URLRequest(normalized));
-          if(rec.operation)rec.operation.onCancel=()=>{if(settled)return;settled=true;reject(new Error('loadPublish cancelled'));};
+          if(rec.operation)rec.operation.onCancel=(reason,hasReason)=>{if(settled)return;settled=true;reject(hasReason?reason:new Error('loadPublish cancelled'));};
         }catch(err){settled=true;reject(err);}
       });
     }

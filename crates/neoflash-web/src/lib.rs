@@ -238,6 +238,7 @@ fn invoke_text_measure(
     measure: &js_sys::Function,
     strings: &[String],
     format: &neoflash_core::TextFormat,
+    callback_error: &mut Option<JsValue>,
 ) -> Result<Vec<f64>, TextError> {
     let strings = serde_json::to_string(strings).map_err(|e| TextError(e.to_string()))?;
     let format = serde_json::to_string(format).map_err(|e| TextError(e.to_string()))?;
@@ -247,12 +248,11 @@ fn invoke_text_measure(
             &JsValue::from_str(&strings),
             &JsValue::from_str(&format),
         )
-        .map_err(|e| {
-            TextError(format!(
-                "font measurement failed: {}",
-                e.as_string()
-                    .unwrap_or_else(|| "host callback error".into())
-            ))
+        .map_err(|error| {
+            // TextError unwinds the shared core; the bridge rethrows the original JavaScript
+            // value afterwards, retaining identity, primitive values and authored stacks.
+            *callback_error = Some(error);
+            TextError("font measurement callback failed".into())
         })?;
     let json = result
         .as_string()
@@ -263,16 +263,29 @@ fn invoke_text_measure(
     serde_json::from_str(&json).map_err(|e| TextError(format!("invalid font measurement: {e}")))
 }
 
+fn text_measure_result<T, E: std::fmt::Display>(
+    result: Result<T, E>,
+    callback_error: Option<JsValue>,
+) -> Result<T, JsValue> {
+    // Per-invocation storage also keeps nested measurement calls independent. Some(undefined)
+    // and Some(null) are failures just as an Error object is; never test their truthiness.
+    match callback_error {
+        Some(error) => Err(error),
+        None => result.map_err(display_error),
+    }
+}
+
 #[wasm_bindgen]
 pub fn text_layout_json(field_json: &str, measure: &js_sys::Function) -> Result<String, JsValue> {
     if field_json.len() > 8 * 1024 * 1024 {
         return Err(JsValue::from_str("Text layout input exceeds 8 MiB"));
     }
     let field: TextFieldState = serde_json::from_str(field_json).map_err(display_error)?;
+    let mut callback_error = None;
     let layout = layout_text(&field, |strings, format| {
-        invoke_text_measure(measure, strings, format)
-    })
-    .map_err(display_error)?;
+        invoke_text_measure(measure, strings, format, &mut callback_error)
+    });
+    let layout = text_measure_result(layout, callback_error)?;
     serde_json::to_string(&layout).map_err(display_error)
 }
 
@@ -287,10 +300,11 @@ pub fn text_query_json(
     }
     let field: TextFieldState = serde_json::from_str(field_json).map_err(display_error)?;
     let query: TextQuery = serde_json::from_str(query_json).map_err(display_error)?;
+    let mut callback_error = None;
     let result = query_text(&field, &query, |strings, format| {
-        invoke_text_measure(measure, strings, format)
-    })
-    .map_err(display_error)?;
+        invoke_text_measure(measure, strings, format, &mut callback_error)
+    });
+    let result = text_measure_result(result, callback_error)?;
     serde_json::to_string(&result).map_err(display_error)
 }
 

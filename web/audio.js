@@ -831,22 +831,33 @@
     }
     function unregisterResources(ids){
       if(disposed)return;
-      for(const id of ids||[]){dropVoices(id);resourcePaths.delete(id);buffers.delete(id);}
+      for(const id of ids||[]){
+        dropVoices(id);resourcePaths.delete(id);
+        const entry=buffers.get(id);buffers.delete(id);
+        if(entry){decodedBytes-=entry.bytes;entry.bytes=0;entry.buffer=null;}
+      }
     }
     let blockedEvents=0;
     function timelineBuffer(id){
       let entry=buffers.get(id);if(entry)return entry;
-      entry={buffer:null,error:null};buffers.set(id,entry);
-      const epoch=generation,path=resourcePaths.get(id);
-      const decodeBytes=(bytes)=>{
-        const ctx=ensureContext(),profile=formats.inspect(bytes,ctx.sampleRate);
-        if(!Number.isSafeInteger(profile.decodedBytes)||profile.decodedBytes<1||profile.decodedBytes>maxDecodedBytes-decodedBytes)throw new RangeError('Decoded audio would exceed the publication PCM budget.');
-        decodedBytes+=profile.decodedBytes;
-        Promise.resolve(ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength))).then(buffer=>{
-          if(disposed||epoch!==generation)return;
-          if(!buffer||!Number.isFinite(buffer.duration)||buffer.duration<=0)throw new RangeError('Timeline sound decoded to no audio.');
-          entry.buffer=buffer;flushVoices();changed();
-        }).catch(error=>{if(disposed||epoch!==generation)return;entry.error=error;dropVoices(id);report(error);});
+      entry={generation,buffer:null,error:null,reserved:0,bytes:0};buffers.set(id,entry);
+      const path=resourcePaths.get(id),currentEntry=()=>!disposed&&entry.generation===generation&&buffers.get(id)===entry;
+      const failEntry=error=>{if(!currentEntry())return;entry.error=error;try{dropVoices(id);}finally{report(error);}};
+      const decodeBytes=async(bytes)=>{
+        try{
+          if(!currentEntry())return;
+          const ctx=ensureContext(),profile=formats.inspect(bytes,ctx.sampleRate);
+          if(!Number.isSafeInteger(profile.decodedBytes)||profile.decodedBytes<1||profile.decodedBytes>maxDecodedBytes-decodedBytes)throw new RangeError('Decoded audio would exceed the publication PCM budget.');
+          entry.reserved=profile.decodedBytes;decodedBytes+=entry.reserved;decodes.add(entry);
+          const buffer=await ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength));
+          if(!currentEntry())return;
+          const actual=buffer?.length*buffer?.numberOfChannels*4;
+          if(!Number.isSafeInteger(actual)||actual<1||actual>entry.reserved||!Number.isFinite(buffer.duration)||buffer.duration<=0)throw new RangeError('Timeline sound exceeds its preflight PCM reservation.');
+          decodedBytes-=entry.reserved-actual;entry.reserved=0;entry.bytes=actual;entry.buffer=buffer;
+          flushVoices();changed();
+        }finally{
+          decodes.delete(entry);releaseReservation(entry);
+        }
       };
       try{
         if(!path)throw new Error(`Timeline sound resource ${id} is not embedded in this publication. Re-export the project.`);
@@ -854,13 +865,13 @@
         if(src.kind==='http'&&src.url){
           if(typeof global.fetch!=='function')throw new Error('Externalized timeline audio requires browser fetch.');
           global.fetch(src.url).then(resp=>{if(!resp.ok)throw new Error(`Timeline audio HTTP ${resp.status}`);return resp.arrayBuffer();}).then(buf=>{
-            if(disposed||epoch!==generation)return;
-            decodeBytes(new Uint8Array(buf));
-          }).catch(error=>{if(disposed||epoch!==generation)return;entry.error=error;dropVoices(id);report(error);});
+            if(!currentEntry())return;
+            return decodeBytes(new Uint8Array(buf));
+          }).catch(failEntry);
         }else{
-          decodeBytes(src.bytes);
+          decodeBytes(src.bytes).catch(failEntry);
         }
-      }catch(error){entry.error=error;report(error);}
+      }catch(error){failEntry(error);}
       return entry;
     }
     function dropVoices(id){for(const voice of [...voices])if(voice.resource===id)stopVoice(voice);}

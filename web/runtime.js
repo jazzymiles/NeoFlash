@@ -346,7 +346,15 @@
       }));
     } catch (_) { /* Diagnostic observers must never change authored playback. */ }
   }
-  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, scriptFunction, mapScriptStack, sourceLocationText, mappedErrorFrames, emitScriptMessage, ensureBundleFontsLoaded, mountAfterBundleFonts };
+  function completeCleanup(operations) {
+    const errors = [];
+    for (const operation of operations) {
+      try { operation(); } catch (error) { errors.push(error); }
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length) throw new AggregateError(errors, 'Multiple runtime cleanup operations failed.', {cause: errors[0]});
+  }
+  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, scriptFunction, mapScriptStack, sourceLocationText, mappedErrorFrames, emitScriptMessage, completeCleanup, ensureBundleFontsLoaded, mountAfterBundleFonts };
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (typeof document === 'undefined') return;
 
@@ -355,8 +363,10 @@
   let stopAsyncOnFailure = () => {};
   let sourceFrames = () => [];
   function fail(error) {
+    // Cleanup and already queued host callbacks may fail too. Keep the first
+    // authored failure visible until an explicit Restart, and do not recurse.
+    if (failed) { console.error(error); return; }
     failed = true;
-    try { stopAsyncOnFailure(); } catch (cleanupError) { console.error(cleanupError); }
     document.getElementById('loading').style.display = 'none';
     errorElement.style.display = 'block';
     const omitted = global.NeoFlashBundle?.publish?.omitted_modules || [];
@@ -364,8 +374,9 @@
     const frames = sourceFrames(error);
     const location = sourceLocationText(frames[0]);
     errorElement.textContent = 'NeoFlash could not run this project.\n\n' + (location ? location + '\n' : '') + describeThrown(error, true) + hint;
-    emitScriptMessage('error', describeThrown(error), frames);
     console.error(error);
+    try { stopAsyncOnFailure(); } catch (cleanupError) { console.error(cleanupError); }
+    emitScriptMessage('error', describeThrown(error), frames);
   }
 
   function bundleFontDescriptors(cssRules) {
@@ -619,7 +630,9 @@
       }
       stageSurface?.appendChild?.(a11yOverlay);
     }
-    const preview = new global.NeoFlashPreview.Preview(viewport, document.getElementById('stage-space'), document.getElementById('stage-surface'), canvas, project, () => render());
+    const preview = new global.NeoFlashPreview.Preview(viewport, document.getElementById('stage-space'), document.getElementById('stage-surface'), canvas, project, () => {
+      if (!failed) { try { render(); } catch (error) { fail(error); } }
+    });
     const functions = new Map();
     const sourceUnits = bundle.scripts.concat(bundle.program ? [bundle.program] : []);
     const bodyOffset = functionBodyLineOffset();
@@ -758,21 +771,23 @@
       if(typeof fail==='function')fail(failure);else throw failure;
     }
     function cancelTimerRender() {
-      if (timerRenderRafId && typeof global.cancelAnimationFrame === 'function') {
-        global.cancelAnimationFrame(timerRenderRafId);
-      }
+      const pending=timerRenderRafId;
       timerRenderRafId = 0;
+      if (pending && typeof global.cancelAnimationFrame === 'function') global.cancelAnimationFrame(pending);
     }
-    function stopTimers() {timerRenderGeneration++;cancelTimerRender();easingHost?.reset?.();broadcasterHost?.reset?.();timerHost?.reset();}
+    function stopTimers() {
+      timerRenderGeneration++;
+      completeCleanup([cancelTimerRender, () => easingHost?.reset?.(), () => broadcasterHost?.reset?.(), () => timerHost?.reset()]);
+    }
     function flushStageRender() {
       if(!stageHost)return;
       if(display&&(typeof player.runtime_snapshot_json==='function'||typeof player.display_nodes_json==='function'))stageHost.flushRender(()=>display.nodes().map(node=>display.nodeProxy(node)));
       else stageHost.flushRender([]);
     }
-    function afterTimerEvent() {if(familyDisposed||inDispatch)return;dispatchScripts();flushStageRender();if(typeof context!=='undefined')render();}
+    function afterTimerEvent() {if(familyDisposed||inDispatch||(typeof failed!=='undefined'&&failed))return;dispatchScripts();flushStageRender();if(typeof context!=='undefined')render();}
     function timerFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Timer callback: ${describeThrown(cause)}`,{cause});
-      if(typeof fail==='function')fail(failure);else {stopTimers();throw failure;}
+      if(typeof fail==='function')fail(failure);else {try { stopTimers(); } finally { throw failure; }}
     }
     function requestTimerRender() {
       if(familyDisposed||timerRenderRafId)return;
@@ -785,11 +800,11 @@
     }
     function netFailure(error) {
       const cause=unwrapScriptThrow(error),failure=new Error(`Resource callback: ${describeThrown(cause)}`,{cause});
-      if(typeof fail==='function')fail(failure);else {as3MediaEventsHost?.reset();fte3dHost?.reset();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();domStageHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();throw failure;}
+      if(typeof fail==='function')fail(failure);else {try { completeCleanup([() => as3MediaEventsHost?.reset(), () => fte3dHost?.reset(), () => as3NetSysHost?.reset(), () => airHost?.reset(), () => externalHost?.reset(), () => domStageHost?.reset(), () => textInputHost?.reset(), () => storageHost?.reset(), () => amfHost?.reset?.(), () => loaderHost?.reset(), () => xmlHost?.reset(), () => videoHost?.reset(), () => as2CaptureHost?.reset(), () => audioHost?.reset(), () => netHost?.reset(), () => stopTimers()]); } finally { throw failure; }}
     }
     function audioFailure(error){
       const cause=unwrapScriptThrow(error),failure=new Error(`Audio callback: ${describeThrown(cause)}`,{cause});
-      if(typeof fail==='function')fail(failure);else {audioHost?.reset();throw failure;}
+      if(typeof fail==='function')fail(failure);else {try { audioHost?.reset(); } finally { throw failure; }}
     }
     function updateAudioStatus(){
       if(typeof document==='undefined')return;
@@ -826,7 +841,7 @@
       return result;
     }
     let fontLoadingDoneHandler=null;
-    function initializeFamily() {
+    function initializeFamily(initialize = true) {
       if (!global.NeoFlashDisplay || typeof player.display_nodes_json !== 'function') return;
       const wasm=typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm;
       if(global.NeoFlashAS2Platform)as2PlatformHost=global.NeoFlashAS2Platform.create(wasm,{global,document:global.document,onError:inputFailure,requestRender:requestTimerRender});
@@ -1294,7 +1309,7 @@
                 }
                 player.hydrate_sprite_sheet(childBundle.__hydratedSpriteSheet.pngBytes,JSON.stringify(parsedSheet));
               }catch(err){
-                throw new Error(`Failed to hydrate child bundle sprite sheet: ${err instanceof Error?err.message:String(err)}`);
+                throw new Error(`Failed to hydrate child bundle sprite sheet: ${describeThrown(err)}`, {cause: err});
               }
             }
             const addedPaths=netHost?.registerResources?netHost.registerResources(remappedResources,childAssetUrls,childAliases):[];
@@ -1442,7 +1457,7 @@
       if(global.NeoFlashDate)legacyGlobals=Object.freeze({...legacyGlobals,date:global.NeoFlashDate.create(wasm)});
       if(geometryHost.Color)legacyGlobals=Object.freeze({...legacyGlobals,Color:geometryHost.Color});
       enableLifecycleIfReady();
-      initializeProgram();
+      if (initialize) initializeProgram();
     }
     function initializeProgram() {
       if(!display)return;
@@ -1455,7 +1470,7 @@
           constructor(name,frame){
             if(arguments.length!==2||typeof name!=='string'||!Number.isInteger(frame)||frame < -2147483648||frame > 2147483647)throw new TypeError('FrameLabel requires a primitive String name and a signed 32-bit integer frame.');
             if(typeof wasm?.frame_label_json!=='function')throw new Error('Rust FrameLabel values are unavailable; rebuild and re-export this project.');
-            let value;try{value=JSON.parse(wasm.frame_label_json(name,frame));}catch(error){throw new TypeError(String(error?.message??error));}
+            let value;try{value=JSON.parse(wasm.frame_label_json(name,frame));}catch(error){throw new TypeError(describeThrown(error), {cause: error});}
             super();values.set(this,value);
             Object.freeze(this);
           }
@@ -1642,17 +1657,59 @@
         is:(value,name)=>Boolean(builtins[name]?.__nfIs?.(value)),
       };
     }
+    function cleanupAdapters(method) {
+      // Invalidate pending render work first; every adapter must get a chance to
+      // cancel its own async work even when another adapter cannot clean up.
+      const hosts = [as2PrintHost, as2BoxingHost, as2StageHost, as2ConnectionsHost,
+        as2DepthManagerHost, as2TransitionsHost, as2MediaHost, as2ServicesHost,
+        as2FilesHost, as2NetworkHost, as2LocaleHost, as2TextHost, as2BindingHost,
+        as2DataHost, as2ObjectHost, as3MediaEventsHost, fte3dHost, as3NetSysHost,
+        airHost, externalHost, domStageHost, textInputHost, storageHost, loaderHost,
+        xmlHost, videoHost, as2CaptureHost, audioHost, netHost, easingHost,
+        broadcasterHost, timerHost, binaryHost, bitmapHost, textHost];
+      timerRenderGeneration++;
+      completeCleanup([cancelTimerRender, ...hosts.map(host => () => host?.[method]?.()),
+        () => amfHost?.reset?.()]);
+    }
+    function guardHostCallback(callback) {
+      return (...args) => {
+        if(familyDisposed||(typeof failed!=='undefined'&&failed))return;
+        try { return callback(...args); } catch(error) { fail(error); }
+      };
+    }
+    function mediaGesture(host, method, ...args) {
+      const generation=timerRenderGeneration;
+      Promise.resolve(host[method](...args)).catch(error => {
+        if(!familyDisposed&&generation===timerRenderGeneration)audioFailure(error);
+      });
+    }
+    function clearFamilyState() {
+      proxies.clear(); attachedClasses.clear(); constructedNodes.clear(); superConstructedNodes.clear();
+      offstageLinkedTargets.clear(); retiringTargets.clear(); constructSessions.length = 0;
+      frameLabelDispatchedScopes.clear(); boundTextVariables.clear(); registeredClasses.clear();
+      executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0;
+      if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
+    }
+    function clearPainters() {
+      const capture = capturePainter, island = islandPainter;
+      capturePainter=null; islandPainter=null; inputPaths=null;
+      completeCleanup([() => capture?.clear(), () => island?.clear(), () => filterHost?.renderer.clear()]);
+    }
     function resetProject() {
-      pointerOverContent=false;legacyCursorVisible=true;updateCursor();
+      pointerOverContent=false;legacyCursorVisible=true;
       runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
-      capturePainter?.clear();capturePainter=null;islandPainter?.clear();islandPainter=null;inputPaths=null;
-      if(typeof paths!=='undefined')paths?.paths?.clear?.();
-      filterHost?.renderer.clear();
-      if(typeof semanticLayer!=='undefined')semanticLayer?.clear?.();
-      if(typeof a11yOverlay!=='undefined'&&a11yOverlay){if(typeof a11yOverlay.replaceChildren==='function')a11yOverlay.replaceChildren();else if('textContent' in a11yOverlay)a11yOverlay.textContent='';}
-      as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
-      as3MediaEventsHost?.reset();fte3dHost?.reset();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();domStageHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
-      proxies.clear(); attachedClasses.clear(); constructedNodes.clear(); superConstructedNodes.clear(); offstageLinkedTargets.clear(); retiringTargets.clear(); constructSessions.length = 0; frameLabelDispatchedScopes.clear(); boundTextVariables.clear(); registeredClasses.clear(); executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0; if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';lastTraceLocation = '';
+      completeCleanup([
+        updateCursor, clearPainters, () => cleanupAdapters('reset'), clearFamilyState,
+        () => { if(typeof gradients!=='undefined')gradients.clear(); },
+        () => { if(typeof clippings!=='undefined')clippings.clear(); },
+        () => { if(typeof paths!=='undefined')paths?.paths?.clear?.(); },
+        () => { if(typeof semanticLayer!=='undefined')semanticLayer?.clear?.(); },
+        () => { if(typeof a11yOverlay!=='undefined'&&a11yOverlay){if(typeof a11yOverlay.replaceChildren==='function')a11yOverlay.replaceChildren();else if('textContent' in a11yOverlay)a11yOverlay.textContent='';} },
+        () => display?.clear(), () => eventHub?.clear(), () => stageHost?.reset(),
+        () => legacyHost?.reset(), () => as2PlatformHost?.reset(),
+        () => { for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key]; },
+      ]);
+      lastTrace = '';lastTraceLocation = '';
       hostStageLayoutPinned=false;
       syncInitialStageLayout();
       if(typeof resize==='function')resize();
@@ -1665,19 +1722,18 @@
     }
     function disposeFamily() {
       if(familyDisposed)return;
-      pointerOverContent=false;legacyCursorVisible=true;updateCursor();
+      pointerOverContent=false;legacyCursorVisible=true;
       familyDisposed=true;
-      if(fontLoadingDoneHandler&&typeof document!=='undefined'&&document?.fonts?.removeEventListener){
-        document.fonts.removeEventListener('loadingdone',fontLoadingDoneHandler);
-      }
-      fontLoadingDoneHandler=null;
-      capturePainter?.clear();capturePainter=null;islandPainter?.clear();islandPainter=null;
-      filterHost?.renderer.clear();
-      as2PrintHost?.dispose();as2BoxingHost?.dispose();as2StageHost?.dispose();as2ConnectionsHost?.dispose();as2DepthManagerHost?.dispose();as2TransitionsHost?.dispose();as2MediaHost?.dispose();as2ServicesHost?.dispose();as2FilesHost?.dispose();as2NetworkHost?.dispose();as2LocaleHost?.dispose();as2TextHost?.dispose();as2BindingHost?.dispose();as2DataHost?.dispose();as2ObjectHost?.dispose();
-      as3MediaEventsHost?.dispose();fte3dHost?.dispose();as3NetSysHost?.dispose();airHost?.dispose();externalHost?.dispose();domStageHost?.dispose();textInputHost?.dispose();storageHost?.dispose();amfHost?.reset?.();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();as2CaptureHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;cancelTimerRender();easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
-      constructedNodes.clear();superConstructedNodes.clear();offstageLinkedTargets.clear();retiringTargets.clear();constructSessions.length=0;frameLabelDispatchedScopes.clear();boundTextVariables.clear();registeredClasses.clear();executedInitClips.clear();clipFrameLabels.clear();callFrameDepth=0;if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
-      as2PlatformHost?.dispose();legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
-      timerRenderGeneration++;cancelTimerRender();
+      completeCleanup([
+        () => { if(typeof canvas!=='undefined'&&canvas)canvas.style.cursor='default'; },
+        () => {
+          const handler=fontLoadingDoneHandler; fontLoadingDoneHandler=null;
+          if(handler&&typeof document!=='undefined')document?.fonts?.removeEventListener?.('loadingdone',handler);
+        },
+        clearPainters, () => cleanupAdapters('dispose'), clearFamilyState,
+        () => as2PlatformHost?.dispose(), () => legacyHost?.dispose(), () => stageHost?.dispose(),
+        () => eventHub?.clear(), () => display?.clear(),
+      ]);
     }
     function as2RootFor(target) {
       const ref=references.get(target);
@@ -2222,7 +2278,7 @@
       }
       function timelineMetadata(name){
         assertAlive();
-        let value;try{value=JSON.parse(call('clip_metadata'));}catch(error){throw new TypeError(String(error?.message??error));}
+        let value;try{value=JSON.parse(call('clip_metadata'));}catch(error){throw new TypeError(describeThrown(error), {cause: error});}
         if(name==='currentScene'||name==='scenes'){
           if(!sceneValueFactory||!frameLabelType)throw new Error('Scene values are unavailable; rebuild and re-export this project.');
           const rec=ensureClipLabels(value);
@@ -2305,7 +2361,7 @@
             throw new Error(legacy ? 'AS2 goto requires a frame label or integer frame; other argument coercions are not supported.' : 'Frame must be a frame number or a frame label.');
           }
           const request = JSON.stringify({frame: typeof value === 'number' && !Number.isFinite(value) ? String(value) : value, scene: scene == null ? null : String(scene), as2: legacy});
-          try { frame = call('resolve_goto', request); } catch (error) { throw new Error(String(error?.message ?? error)); }
+          try { frame = call('resolve_goto', request); } catch (error) { throw new Error(describeThrown(error), {cause: error}); }
         } else {
           frame = legacy
             ? as2Frame(value, total, label => call('resolve_frame_as2',label))
@@ -2791,16 +2847,15 @@
       }
       return null;
     }
-    canvas.addEventListener('pointerdown', () => {
-      if (failed) return;
+    canvas.addEventListener('pointerdown', guardHostCallback(() => {
       for (const host of [audioHost, videoHost]) {
         if (host && host.status?.().state === 'awaiting_gesture') {
-          host.resumeFromGesture?.().catch(audioFailure);
+          mediaGesture(host, 'resumeFromGesture');
         }
       }
-    });
+    }));
     canvas.addEventListener('click', event => {
-      if (failed || preview.panMode || preview.suppressClick) return;
+      if (familyDisposed || failed || preview.panMode || preview.suppressClick) return;
       try {
         const hit=hitAt(event,true),target=hit?.target||(hit?(graphMode?proxyForRef(hit):proxyFor(hit)):null),authored=hit?.owner||target;
         if(stageHost?.handlePointer('click',event,target||stageHost.stage,true)===false)return;
@@ -2818,28 +2873,28 @@
 
       } catch (error) { fail(error); }
     });
-    canvas.addEventListener('pointermove',event=>{const hit=hitAt(event);pointerOverContent=Boolean(hit&&display.handCursor(graphMode?proxyForRef(hit):proxyFor(hit)));updateCursor();});
-    canvas.addEventListener('pointerleave', () => { pointerOverContent=false;updateCursor(); });
-    toggle.addEventListener('click', () => {
+    canvas.addEventListener('pointermove',guardHostCallback(event=>{const hit=hitAt(event);pointerOverContent=Boolean(hit&&display.handCursor(graphMode?proxyForRef(hit):proxyFor(hit)));updateCursor();}));
+    canvas.addEventListener('pointerleave', guardHostCallback(() => { pointerOverContent=false;updateCursor(); }));
+    toggle.addEventListener('click', guardHostCallback(() => {
       player.set_playing(!player.is_playing());
-      try { drainSounds();drainVideos(); } catch (error) { fail(error); }
+      drainSounds();drainVideos();
       lastTime = null;
       accumulated = 0;
       resetMeasuredFps();
       render();
-    });
+    }));
     document.getElementById('restart').addEventListener('click', () => {
+      if (familyDisposed) return;
       failed = false;
       errorElement.style.display = 'none';
       accumulated = 0; lastTime = null; resetMeasuredFps();
-      try { gradients.clear();clippings.clear();resetProject(); render(); } catch (error) { fail(error); }
+      try { resetProject(); render(); } catch (error) { fail(error); }
     });
-    document.getElementById('audio-toggle')?.addEventListener('click',()=>{
-      if(failed)return;
+    document.getElementById('audio-toggle')?.addEventListener('click',guardHostCallback(()=>{
       const services=[audioHost,videoHost].filter(host=>{if(!host)return false;const state=host.status();return state.state!=='idle'&&state.audible!==false;}),mute=services.length&&services.every(host=>{const state=host.status();return (state.unlocked||state.requiresGesture===false)&&!state.muted&&state.state!=='awaiting_gesture';});
-      Promise.all(services.map(host=>mute?host.setMuted(true):host.resumeFromGesture())).catch(audioFailure);
-    });
-    global.addEventListener('resize', () => { resize(); render(); });
+      for(const host of services)mediaGesture(host,mute?'setMuted':'resumeFromGesture',...(mute?[true]:[]));
+    }));
+    global.addEventListener('resize', guardHostCallback(() => { resize(); render(); }));
     document.addEventListener('visibilitychange', () => { lastTime = null; accumulated = 0; resetMeasuredFps(); });
     const zoomSelect = document.getElementById('zoom');
     zoomSelect?.addEventListener('change', event => {
@@ -2956,33 +3011,29 @@
     function teardownRuntime() {
       if (runtimeDisposed) return;
       runtimeDisposed = true;
-      if (rafId && typeof global.cancelAnimationFrame === 'function') {
-        global.cancelAnimationFrame(rafId);
-        rafId = 0;
-      }
-      if (resizeRafId && typeof global.cancelAnimationFrame === 'function') {
-        global.cancelAnimationFrame(resizeRafId);
-        resizeRafId = 0;
-      }
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-        resizeObserver = null;
-      }
-      disposeFamily();
-      gradients.clear();
-      clippings.clear();
+      const animation=rafId, resizeAnimation=resizeRafId, observer=resizeObserver;
+      rafId=0; resizeRafId=0; resizeObserver=null;
+      completeCleanup([
+        () => { if(animation)global.cancelAnimationFrame?.(animation); },
+        () => { if(resizeAnimation)global.cancelAnimationFrame?.(resizeAnimation); },
+        () => observer?.disconnect(), disposeFamily, () => gradients.clear(), () => clippings.clear(),
+      ]);
     }
     onPageHide = event => {
-      try { storageHost?.flushAll(); } catch (_) {}
-      if (!event?.persisted) teardownRuntime();
+      try { completeCleanup([() => storageHost?.flushAll(), () => { if(!event?.persisted)teardownRuntime(); }]); }
+      catch(error) { console.error(error); }
     };
     onUnload = () => {
-      try { storageHost?.flushAll(); } catch (_) {}
-      teardownRuntime();
+      try { completeCleanup([() => storageHost?.flushAll(), teardownRuntime]); }
+      catch(error) { console.error(error); }
     };
-    stopAsyncOnFailure=()=>{as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();gradients.clear();clippings.clear();filterHost?.renderer.clear();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();domStageHost?.reset();textInputHost?.reset();storageHost?.reset();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();};
+    stopAsyncOnFailure=()=>completeCleanup([
+      () => cleanupAdapters('reset'), () => gradients.clear(), () => clippings.clear(),
+      () => filterHost?.renderer.clear(),
+    ]);
     await ensureBundleFontsLoaded(typeof document==='undefined'?null:document,bundle?.fonts?.css_rules||'');
-    initializeFamily();
+    if (runtimeDisposed) return;
+    initializeFamily(false);
     canvas.tabIndex=-1;
     stageHost?.attach();
     if (playerConfig.autoplay === false) {
@@ -2992,11 +3043,11 @@
     resize();
     // Startup script failures use the same stopped-but-restartable policy as
     // later events. Keep installing the animation loop after reporting them.
-    try { dispatchScripts(); render(); } catch (error) { fail(error); }
+    try { initializeProgram(); dispatchScripts(); render(); } catch (error) { fail(error); }
     if (typeof ResizeObserver === 'function') {
       let lastObservedWidth = viewport.clientWidth;
       let lastObservedHeight = viewport.clientHeight;
-      resizeObserver = new ResizeObserver(() => {
+      resizeObserver = new ResizeObserver(guardHostCallback(() => {
         if (runtimeDisposed) return;
         const nextWidth = viewport.clientWidth;
         const nextHeight = viewport.clientHeight;
@@ -3007,18 +3058,18 @@
           if (resizeRafId) return;
           resizeRafId = global.requestAnimationFrame(() => {
             resizeRafId = 0;
-            if (!runtimeDisposed) {
+            guardHostCallback(() => { if (!runtimeDisposed) {
               lastObservedWidth = viewport.clientWidth;
               lastObservedHeight = viewport.clientHeight;
               resize();
               render();
-            }
+            } })();
           });
         } else {
           resize();
           render();
         }
-      });
+      }));
       resizeObserver.observe(viewport);
     }
     document.getElementById('loading').style.display = 'none';

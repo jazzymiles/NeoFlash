@@ -1008,7 +1008,63 @@ function buildVisualCameraMasksProject(renderMode) {
   };
 }
 
-test('T-320 Canvas + DOM Parity: multi-scene transitions, full Restart hygiene, Graphic/MovieClip/Hit-only Button modes, Alpha masks, Layer+Erase, Camera+scrollRect, and DPR resize', async (t) => {
+function buildFailureRecoveryProject(renderMode) {
+  return {
+    format_version: 10,
+    name: `FailureRecovery_${renderMode}`,
+    width: 320,
+    height: 240,
+    fps: 24,
+    background: [15, 23, 42, 255],
+    root: 'failure-root',
+    scenes: [],
+    script_language: 'java_script',
+    symbols: [{
+      id: 'failure-root',
+      name: 'Failure Recovery',
+      kind: 'movie_clip',
+      timeline: {
+        frame_count: 2,
+        layers: [{
+          id: 'failure-layer', name: 'Main', visible: true, locked: false,
+          keyframes: [{ frame: 0, label: '', tween: null, elements: [] }],
+        }],
+        scripts: [{
+          frame: 0,
+          script: {
+            language: 'java_script',
+            source: [
+              'const probe = globalThis.__failureProbe;',
+              'probe.starts++;',
+              'if (!probe.recover) {',
+              '  probe.original = new Error("T340 authored startup failure");',
+              '  probe.cleanupPending = true;',
+              '  throw probe.original;',
+              '}',
+              'probe.external.marshallExceptions = true;',
+              'probe.external.addCallback("t340Throw", function () {',
+              '  probe.callbackOriginal = new Error("T340 authored external failure");',
+              '  probe.renderPending = true;',
+              '  throw probe.callbackOriginal;',
+              '});',
+              'trace("T340_RECOVERED");',
+            ].join('\n'),
+          },
+        }, {
+          frame: 1,
+          script: {
+            language: 'java_script',
+            source: 'globalThis.__failureProbe.ticks++; trace("T340_TICK=" + globalThis.__failureProbe.ticks);',
+          },
+        }],
+      },
+    }],
+    resources: [],
+    sources: [],
+  };
+}
+
+test('Canvas + DOM publish parity: scenes, symbols, Restart recovery with authored errors, masks, camera and DPR resize', async (t) => {
   const chromeBin = findChromeBinary();
   if (!chromeBin) {
     t.skip('Google Chrome / Chromium binary not available');
@@ -1028,8 +1084,10 @@ test('T-320 Canvas + DOM Parity: multi-scene transitions, full Restart hygiene, 
     for (const mode of ['dom', 'canvas']) {
       const multiPath = path.join(tempRoot, `multi-${mode}.nflash`);
       const visPath = path.join(tempRoot, `vis-${mode}.nflash`);
+      const failurePath = path.join(tempRoot, `failure-${mode}.nflash`);
       fs.writeFileSync(multiPath, JSON.stringify(buildMultiSceneAndSymbolsProject(mode), null, 2));
       fs.writeFileSync(visPath, JSON.stringify(buildVisualCameraMasksProject(mode), null, 2));
+      fs.writeFileSync(failurePath, JSON.stringify(buildFailureRecoveryProject(mode), null, 2));
 
       execFileSync(
         bin,
@@ -1039,6 +1097,11 @@ test('T-320 Canvas + DOM Parity: multi-scene transitions, full Restart hygiene, 
       execFileSync(
         bin,
         ['--runtime', runtimeDir, visPath, '--output', path.join(tempRoot, `vis-${mode}`), '--render-mode', mode],
+        { cwd: repoRoot, encoding: 'utf8' }
+      );
+      execFileSync(
+        bin,
+        ['--runtime', runtimeDir, failurePath, '--output', path.join(tempRoot, `failure-${mode}`), '--render-mode', mode],
         { cwd: repoRoot, encoding: 'utf8' }
       );
     }
@@ -1277,6 +1340,149 @@ test('T-320 Canvas + DOM Parity: multi-scene transitions, full Restart hygiene, 
 
     await cdp.navigateAndWait('about:blank');
     assert.deepEqual(cdp.errors, [], `Uncaught browser errors during T-320 parity suite: ${cdp.errors.join('\n')}`);
+
+    // Keep the actual exported WASM, adapters, renderer and frame loop. Inject
+    // faults at host boundaries, retaining the thrown objects for identity checks.
+    const preload = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `
+      const probe = globalThis.__failureProbe = {
+        starts: 0, ticks: 0, resets: 0, errors: [], warnings: [], messages: [],
+        cleanupError: new Error('T340 secondary cleanup failure'),
+        renderError: new Error('T340 secondary renderer failure'),
+      };
+      for (const [method, values] of [['error', probe.errors], ['warn', probe.warnings]]) {
+        const original = console[method];
+        console[method] = (...args) => { values.push(args); original.apply(console, args); };
+      }
+      addEventListener('neoflash-script-message', event => {
+        if (event.detail.kind === 'error') probe.messages.push(event.detail);
+      });
+      Object.defineProperty(globalThis, 'NeoFlashExternal', {
+        configurable: true,
+        set(api) {
+          Object.defineProperty(globalThis, 'NeoFlashExternal', { configurable: true, value: {
+            ...api,
+            create(options) {
+              const adapter = api.create(options);
+              probe.external = adapter.ExternalInterface;
+              return { ...adapter, reset() {
+                probe.resets++;
+                adapter.reset();
+                if (probe.cleanupPending) {
+                  probe.cleanupPending = false;
+                  throw probe.cleanupError;
+                }
+              } };
+            },
+          } });
+        },
+      });
+      const clearRect = CanvasRenderingContext2D.prototype.clearRect;
+      CanvasRenderingContext2D.prototype.clearRect = function (...args) {
+        if (this.canvas.id === 'stage' && probe.renderPending) {
+          probe.renderPending = false;
+          throw probe.renderError;
+        }
+        return clearRect.apply(this, args);
+      };
+    ` });
+    for (const mode of ['dom', 'canvas']) {
+      const firstExpectedError = cdp.errors.length;
+      await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/failure-${mode}/index.html`);
+      const failure = await cdp.evalJson(`new Promise((resolve, reject) => {
+        const deadline = Date.now() + 10000;
+        const poll = () => {
+          const probe = globalThis.__failureProbe;
+          if (globalThis.NeoFlashPlayer && probe.errors.length >= 2) {
+            const error = document.getElementById('error');
+            resolve({
+              messages: probe.messages, text: error.textContent, visible: error.style.display,
+              original: probe.errors[0][0].cause === probe.original,
+              secondary: probe.errors[1][0] === probe.cleanupError,
+              errors: probe.errors.length, starts: probe.starts, ticks: probe.ticks,
+            });
+          } else if (Date.now() > deadline) reject(new Error('Startup failure did not leave a restartable player'));
+          else setTimeout(poll, 25);
+        };
+        poll();
+      })`);
+      assert.equal(failure.original, true, `${mode}: runtime wrapper must retain the authored Error object`);
+      assert.equal(failure.secondary, true, `${mode}: cleanup must report its own original error separately`);
+      assert.equal(failure.errors, 2);
+      assert.equal(failure.messages.length, 1, `${mode}: a secondary error must not replace the first diagnostic`);
+      assert.equal(failure.messages[0].location.source, 'Failure Recovery / frame 1');
+      assert.equal(failure.messages[0].location.line, 4);
+      assert.ok(failure.messages[0].location.column > 0);
+      assert.match(failure.messages[0].message, /T340 authored startup failure/);
+      assert.match(failure.text, /Failure Recovery \/ frame 1:4:/);
+      assert.match(failure.text, /T340 authored startup failure/);
+      assert.doesNotMatch(failure.text, /secondary cleanup failure/);
+      assert.equal(failure.visible, 'block');
+      assert.equal(failure.starts, 1);
+      assert.equal(failure.ticks, 0);
+
+      const recovered = await cdp.evalJson(`new Promise((resolve, reject) => {
+        const probe = globalThis.__failureProbe;
+        probe.recover = true;
+        NeoFlashPlayer.restart();
+        const deadline = Date.now() + 10000;
+        const poll = () => {
+          if (probe.ticks >= 2) resolve({
+            ticks: probe.ticks, starts: probe.starts, resets: probe.resets,
+            visible: document.getElementById('error').style.display,
+            errors: probe.errors.length, messages: probe.messages.length,
+          });
+          else if (Date.now() > deadline) reject(new Error('Restart did not resume timeline ticks'));
+          else setTimeout(poll, 25);
+        };
+        poll();
+      })`);
+      assert.ok(recovered.starts >= 2 && recovered.ticks >= 2, `${mode}: Restart must execute scripts and keep ticking`);
+      assert.ok(recovered.resets >= 2, `${mode}: both failure and Restart must reset adapters`);
+      assert.equal(recovered.visible, 'none');
+      assert.equal(recovered.errors, 2);
+      assert.equal(recovered.messages, 1);
+
+      if (mode === 'canvas') {
+        const callback = await cdp.evalJson(`new Promise((resolve, reject) => {
+          const probe = globalThis.__failureProbe, before = probe.ticks;
+          let caught, threw = false;
+          try { document.getElementById('stage').t340Throw(); }
+          catch (error) { caught = error; threw = true; }
+          const result = {
+            original: threw && caught === probe.callbackOriginal,
+            stack: caught?.stack || '',
+            renderer: probe.warnings.length === 1 && probe.warnings[0][1] === probe.renderError,
+            renderPending: probe.renderPending,
+          };
+          const deadline = Date.now() + 10000;
+          const poll = () => {
+            if (probe.ticks > before) resolve({ ...result, messages: probe.messages.length,
+              errors: probe.errors.length, visible: document.getElementById('error').style.display });
+            else if (Date.now() > deadline) reject(new Error('External callback failure stopped playback'));
+            else setTimeout(poll, 25);
+          };
+          poll();
+        })`);
+        assert.equal(callback.original, true, 'ExternalInterface must return the authored Error despite a render failure');
+        assert.match(callback.stack, /neoflash-script-0\.js:/);
+        assert.equal(callback.renderer, true, 'Renderer error must be diagnosed separately by identity');
+        assert.equal(callback.renderPending, false, 'Real stage renderer must have reached the injected failure');
+        assert.equal(callback.messages, 1);
+        assert.equal(callback.errors, 2);
+        assert.equal(callback.visible, 'none');
+      }
+      // These two intentional console errors were verified by object identity;
+      // uncaught exceptions and any extra console failures still fail the batch.
+      const expectedErrors = cdp.errors.slice(firstExpectedError);
+      assert.equal(expectedErrors.length, 2, `${mode}: unexpected browser errors: ${expectedErrors.join('\n')}`);
+      assert.ok(expectedErrors.every(error => error.startsWith('console.error:')));
+      assert.match(expectedErrors[0], /T340 authored startup failure/);
+      assert.match(expectedErrors[1], /T340 secondary cleanup failure/);
+    }
+    await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: preload.identifier });
+    const expectedErrorCount = cdp.errors.length;
+    await cdp.navigateAndWait('about:blank');
+    assert.equal(cdp.errors.length, expectedErrorCount, 'Failure recovery teardown must not add browser errors');
   } finally {
     try {
       cdp?.ws?.close();

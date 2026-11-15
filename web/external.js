@@ -26,8 +26,15 @@
     function current(token){if(disposed||token!==generation)throw new Error('This ExternalInterface call belongs to a retired publication session.');}
     function diagnostic(error){try{if(options.onDiagnostic)options.onDiagnostic(error);else global.console?.warn?.('NeoFlash ExternalInterface:',error);}catch(_){/* Diagnostics must not alter the bridge result. */}}
     function exception(error,enabled){
-      const cause=options.unwrapError?options.unwrapError(error):error;
-      if(enabled){if(cause instanceof Error)throw cause;throw new Error('ExternalInterface callback failed: '+String(cause),{cause});}
+      let cause=error;
+      try{if(options.unwrapError)cause=options.unwrapError(error);}catch(secondary){diagnostic(secondary);}
+      if(enabled){
+        let nativeError=false,label='<unprintable thrown value>';
+        try{nativeError=cause instanceof Error;}catch(secondary){diagnostic(secondary);}
+        if(nativeError)throw cause;
+        try{label=String(cause);}catch(secondary){diagnostic(secondary);}
+        throw new Error('ExternalInterface callback failed: '+label,{cause});
+      }
       diagnostic(cause);return null;
     }
     function copy(value,token){
@@ -75,9 +82,9 @@
             method=Reflect.get(Object(receiver),parts[i]);current(token);
             if(i<parts.length-1)receiver=method;
           }
-        }catch(error){current(token);return exception(error,enabled);}
+        }catch(error){return exception(error,enabled);}
         if(typeof method!=='function')return null;
-        let result;try{result=Reflect.apply(method,receiver,input);}catch(error){current(token);return exception(error,enabled);}
+        let result;try{result=Reflect.apply(method,receiver,input);}catch(error){return exception(error,enabled);}
         current(token);return copy(result,token);
       });
     }
@@ -97,11 +104,18 @@
         return boundary(legacy,()=>{
           const input=copy(args,token);let result,failure,threw=false;
           try{result=Reflect.apply(method,legacy?receiver:null,input);}catch(error){failure=error;threw=true;}
+          if(threw){
+            // Drain valid display mutations, but a renderer failure or Restart during cleanup
+            // cannot replace the authored exception (and its source location).
+            if(!disposed&&token===generation){
+              try{options.afterCallback?.();current(token);}catch(secondary){diagnostic(secondary);}
+            }
+            return exception(failure,enabled);
+          }
           current(token);
           // Rendering belongs to this generation, even if user code threw after
           // changing display state. Stale callbacks never publish a new frame.
           options.afterCallback?.();current(token);
-          if(threw)return exception(failure,enabled);
           return copy(result,token);
         });
       };
@@ -161,7 +175,7 @@
       const fn=(prefix&&typeof hostGlobal[prefix]==='function'?hostGlobal[prefix]:null)||(typeof hostGlobal.DoFSCommand==='function'?hostGlobal.DoFSCommand:null);
       if(!fn)return;
       boundary(true,()=>{
-        try{Reflect.apply(fn,hostGlobal,[cmd,param]);}catch(error){current(token);exception(error,false);return null;}
+        try{Reflect.apply(fn,hostGlobal,[cmd,param]);}catch(error){exception(error,false);return null;}
         current(token);options.afterCallback?.();return null;
       });
     }

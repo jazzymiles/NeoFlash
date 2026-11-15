@@ -122,6 +122,13 @@ Generated instructions have bounded step continuation; unresolved locations rema
 expansion and exact shared-handler occurrence identity remain unavailable.
 See [Actions tooling](NF2-ACTIONS-EDITOR.md#56-source-maps-and-test-movie) for setup and controls.
 
+An uncaught runtime failure keeps its original error and mapped source visible until Restart. Secondary cleanup
+errors are reported separately; cleanup attempts every service even when one fails. Browser callback errors,
+ExternalInterface exceptions and WASM text-measurement callbacks retain their original cause. Restart retires old
+loads, timers and media completions; pending native audio decodes keep their memory reservation until they settle.
+These recovery guarantees do not imply complete Flash exception classes, coercions or lifecycle conformance.
+
+
 ## Project source and class profile
 
 Version-2 documents store source units with stable IDs, normalized project-relative paths, language and source text, plus optional document-class and symbol-class names. Existing version-1 documents remain supported; adding project source/linkage promotes the document to version 2. Source paths identify files inside the saved snapshot, not arbitrary filesystem/network dependencies. Validation rejects duplicate paths, invalid linkage names and conflicting root/document linkage. Limits are 4,096 units and 16 MiB of combined source, within the document limit.
@@ -495,7 +502,7 @@ The [ActionScript declaration audit](progress/ACTIONSCRIPT.md) tracks 2,307 AS2 
 
 ## Runtime image, media and published-package loading
 
-AS3 `Loader`/`LoaderInfo` and AS2 `MovieClipLoader` use the shared resource/HTTP byte transport and bounded Rust pixel/vector/SWF/bundle decoders. `Loader.load` and `loadBytes` decode `PNG`, `JPEG`, `GIF`, `WebP`, `BMP` and `TIFF` through the shared Rust `resource_image` pixel arena, rasterize `SVG` graphics at authored dimensions, inspect `SWF` (`FWS`/`CWS`/`ZWS`) headers into display containers, and dynamically mount published NeoFlash HTML5 packages (`bundle.js`, `index.html` or `neoflash-export.json`). Its inherited child mutation methods reject; unload/replacement detaches previous AS3 content while retained `Bitmap`/`BitmapData` references remain valid until explicit disposal or publication reset. Existing arena budgets remain enforced; full garbage collection is not implemented. Encoded images are bounded to 16 MiB, dimensions to 4096, decoded pixels to 128 MiB/256 records and tracked load targets to 256. Pending loads retain committed content until successful replacement; this timing profile is explicit rather than claimed as complete Flash load-transition parity.
+AS3 `Loader`/`LoaderInfo` and AS2 `MovieClipLoader` use the shared resource/HTTP byte transport and bounded Rust pixel/vector/SWF/bundle decoders. `Loader.load` and `loadBytes` decode `PNG`, `JPEG`, `GIF`, `WebP`, `BMP` and `TIFF` through the shared Rust `resource_image` pixel arena, rasterize `SVG` graphics at authored dimensions, inspect `SWF` (`FWS`/`CWS`/`ZWS`) headers into placeholder display containers without executing their display list, timeline or bytecode, and dynamically mount published NeoFlash HTML5 packages (`bundle.js`, `index.html` or `neoflash-export.json`). Its inherited child mutation methods reject; unload/replacement detaches previous AS3 content while retained `Bitmap`/`BitmapData` references remain valid until explicit disposal or publication reset. Existing arena budgets remain enforced; full garbage collection is not implemented. Encoded images are bounded to 16 MiB, dimensions to 4096, decoded pixels to 128 MiB/256 records and tracked load targets to 256. Pending loads retain committed content until successful replacement; this timing profile is explicit rather than claimed as complete Flash load-transition parity.
 
 AS2 `loadClip` replaces the original non-root `MovieClip` artwork/descendants, clears its `Graphics`, stops its timeline and suppresses original authored dispatches. Target identity and transforms remain; `unloadClip` leaves an empty target. Listener callbacks and `getProgress` share the current load operation. AS3 `INIT` precedes `COMPLETE`, while AS2 `onLoadComplete` precedes `onLoadInit`. New loads, `close`/`unload` and Restart invalidate obsolete callbacks. Application/security domains, native `Loader` subclasses and arbitrary legacy string/numeric target addressing remain outside this profile. See [ADR 0024](decisions/0024-runtime-image-loading.md) and delivery evidence in VERIFICATION.md.
 

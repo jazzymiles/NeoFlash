@@ -191,6 +191,7 @@ test('script NetStream uses the canonical HTTP URL and can switch back to bundle
     },
   };
   const media = [];
+  const failures = [];
   function createVideo() {
     const listeners = new Map();
     const element = {
@@ -198,6 +199,9 @@ test('script NetStream uses the canonical HTTP URL and can switch back to bundle
       volume: 1,
       paused: true,
       readyState: 0,
+      videoWidth: 320,
+      videoHeight: 180,
+      duration: 4,
       currentTime: 0,
       src: '',
       addEventListener(type, fn) {
@@ -209,11 +213,19 @@ test('script NetStream uses the canonical HTTP URL and can switch back to bundle
         const index = list.indexOf(fn);
         if (index >= 0) list.splice(index, 1);
       },
+      emit(type) { for (const fn of [...(listeners.get(type) || [])]) fn(); },
       setAttribute(name, value) { this[name] = value; },
       removeAttribute(name) { this[name] = ''; },
       load() {},
       play() { this.paused = false; return Promise.resolve(); },
-      pause() { this.paused = true; },
+      pause() {
+        this.paused = true;
+        if (this.pauseFailure) {
+          const failure = this.pauseFailure;
+          this.pauseFailure = null;
+          throw failure;
+        }
+      },
     };
     media.push(element);
     return element;
@@ -226,6 +238,7 @@ test('script NetStream uses the canonical HTTP URL and can switch back to bundle
     createObjectURL: () => 'blob:embedded-video',
     revokeObjectURL() {},
     isUserGesture: () => true,
+    onError(error) { failures.push(error); throw error; },
   });
   const connection = new video.NetConnection();
   connection.connect(null);
@@ -237,6 +250,23 @@ test('script NetStream uses the canonical HTTP URL and can switch back to bundle
   stream.play('media/embedded.mp4');
   assert.equal(media[1].src, 'blob:embedded-video');
   assert.deepEqual(requested, ['/video-fixture.mp4', 'media/embedded.mp4']);
+
+  for (const cleanupThrows of [false, true]) {
+    const original = new Error('authored metadata callback failed');
+    const secondary = new Error('browser video cleanup failed');
+    failures.length = 0;
+    stream.client = { onMetaData() { throw original; } };
+    if (cleanupThrows) media.at(-1).pauseFailure = secondary;
+    assert.throws(() => media.at(-1).emit('loadedmetadata'), error => error === original);
+    assert.deepEqual(failures, cleanupThrows ? [original, secondary] : [original]);
+    assert.equal(video.status().error, original.message);
+
+    let metadata = null;
+    stream.client = { onMetaData(value) { metadata = value; } };
+    stream.play('/video-fixture.mp4');
+    media.at(-1).emit('loadedmetadata');
+    assert.equal(metadata.width, 320, 'the stream can load again after callback and cleanup failures');
+  }
 
   video.dispose();
 });

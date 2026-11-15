@@ -7,6 +7,10 @@ const vm = require('node:vm');
 test('the actual host keeps scheduling after a startup script failure so Restart can recover', async () => {
   const listeners = new Map(), animation = [], errors = [];
   const elements = new Map();
+  const cleanupError = new Error('secondary painter cleanup failure');
+  const resizeError = new Error('original resize failure');
+  let cleanupFails = true, resizeFails = false, clipClears = 0;
+  const paths = require('../path.js');
   const context2d = { setTransform() {}, clearRect() {}, fillRect() {} };
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
@@ -42,16 +46,26 @@ test('the actual host keeps scheduling after a startup script failure so Restart
     NeoFlashWasm: wasm,
     NeoFlashBundle: { wasm: '', project: { width: 320, height: 200, fps: 24, background: [255, 255, 255, 255] }, warnings: [],
       scripts: [{ ...script, location: 'Startup / frame 1', code: 'if (!globalThis.hasAttempted) { globalThis.hasAttempted = true; throw null; }' }] },
-    NeoFlashPaths: require('../path.js'),
+    NeoFlashPaths: { ...paths,
+      GradientRenderer: class extends paths.GradientRenderer {
+        clear() { super.clear(); if(cleanupFails) { cleanupFails=false; throw cleanupError; } }
+      },
+      ClipRenderer: class extends paths.ClipRenderer {
+        clear() { clipClears++; super.clear(); }
+      },
+    },
     NeoFlashAccessibility: { SemanticLayer: class { update() { return 0; } } },
-    NeoFlashPreview: { Preview: class { constructor() { this.view = { scale: 1 }; } resize() {} } },
-    ResizeObserver: class { observe() {} },
-    addEventListener() {}, requestAnimationFrame: callback => animation.push(callback),
+    NeoFlashPreview: { Preview: class { constructor() { this.view = { scale: 1 }; } resize() { if(resizeFails)throw resizeError; } } },
+    ResizeObserver: class { observe() {} disconnect() { throw new Error('observer disposal failure'); } },
+    addEventListener(name, fn) { listeners.set(`window:${name}`, fn); },
+    requestAnimationFrame: callback => animation.push(callback),
   });
   vm.runInContext(fs.readFileSync(resolve(__dirname, '../runtime.js'), 'utf8'), context);
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(errors.length, 1);
+  assert.equal(errors.length, 2);
   assert.equal(errors[0].cause, null);
+  assert.equal(errors[1], cleanupError, 'cleanup errors are reported without replacing the primary error');
+  assert.equal(clipClears, 1, 'a failed cleanup does not prevent later services from retiring');
   assert.match(element('error').textContent, /Startup \/ frame 1: null/);
   assert.equal(animation.length, 1, 'startup failure must not prevent the animation loop from being installed');
   animation.shift()(0);
@@ -67,6 +81,21 @@ test('the actual host keeps scheduling after a startup script failure so Restart
   assert.equal(context.NeoFlashPlayer.measuredFps, 0, 'Pause clears the stale FPS window');
   context.NeoFlashPlayer.resume();
   assert.equal(context.NeoFlashPlayer.measuredFps, 0, 'Resume starts a fresh FPS window');
-  assert.equal(errors.length, 1);
+  assert.equal(errors.length, 2);
   assert.equal(animation.length, 1, 'recovery does not install a duplicate animation loop');
+  resizeFails=true;
+  assert.doesNotThrow(() => listeners.get('window:resize')());
+  assert.equal(errors.at(-1), resizeError, 'browser callbacks use the same original-error boundary');
+  assert.match(element('error').textContent, /original resize failure/);
+  resizeFails=false;
+  listeners.get('restart:click')();
+  assert.equal(element('error').style.display, 'none');
+  const clearsBeforeDispose=clipClears;
+  assert.doesNotThrow(() => listeners.get('window:pagehide')({persisted:false}));
+  assert.match(errors.at(-1).message, /observer disposal failure/);
+  assert.ok(clipClears>clearsBeforeDispose, 'disposal finishes despite an earlier observer failure');
+  const frame=player.frame;
+  animation.shift()(250);
+  listeners.get('restart:click')();
+  assert.equal(player.frame,frame,'disposed callbacks cannot revive the publication');
 });

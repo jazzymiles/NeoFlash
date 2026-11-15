@@ -2,6 +2,13 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Preserved original runtime errors and authored source locations across browser callbacks, ExternalInterface,
+  text measurement and asynchronous loading. Cleanup failures remain separately visible, every service gets a
+  cleanup attempt, and Restart can recover without old callbacks taking over the new session. Failed child loads
+  settle their promises, timer retirement survives cancellation failures, and pending timeline audio decoding keeps
+  correct memory reservations across Restart and resource replacement. Raw SWF Loader loading remains partial:
+  it creates header-derived containers without executing the loaded movie's display list, timeline or bytecode.
+
 - Completed the post-Wave-1 correctness audit (`T-333`) without changing the locked NF2 design: replaced the
   hand-maintained grapheme table with the maintained UAX #29 implementation; restored Adobe's read-only desktop
   `TextField.textInteractionMode` contract; corrected local `NetStream` reset `0`–`3`, playlist `Switch`/cumulative

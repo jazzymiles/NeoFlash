@@ -354,6 +354,76 @@ test('flash.external.ExternalInterface and flash.globalization full suite + exam
   assert.equal(ExternalInterface.call('echoHost', 'left', 'right'), 'left:right');
   assert.throws(() => ExternalInterface.call('throwHost'), /host-boom/);
 
+  // An authored exception remains primary when render/drain or Restart fails afterward.
+  // Use the real bridge boundary in both exception modes; secondary diagnostics are independent.
+  for (const marshal of [false, true]) {
+    for (const retire of ['none', 'callback', 'afterCallback']) {
+      const original = new Error('authored external callback failure');
+      const secondary = new Error('render after external callback failed');
+      const diagnostics = [], hostObject = {};
+      let drained = 0, bridge;
+      bridge = NeoFlashExternal.create({
+        hostObject, hostGlobal: {}, onDiagnostic: error => diagnostics.push(error),
+        afterCallback() {
+          drained++;
+          if (retire === 'afterCallback') bridge.reset();
+          throw secondary;
+        },
+      });
+      bridge.ExternalInterface.marshallExceptions = marshal;
+      bridge.ExternalInterface.addCallback('fail', () => {
+        if (retire === 'callback') bridge.reset();
+        throw original;
+      });
+      const callback = hostObject.fail;
+      if (marshal) assert.throws(callback, error => error === original);
+      else assert.equal(callback(), null);
+      assert.equal(drained, retire === 'callback' ? 0 : 1, 'retired callbacks never render');
+      assert.deepEqual(diagnostics, [
+        ...(retire === 'callback' ? [] : [secondary]), ...(marshal ? [] : [original]),
+      ]);
+      bridge.ExternalInterface.addCallback('recover', value => value);
+      // A successful callback must still expose a real render error.
+      assert.throws(() => hostObject.recover('ok'), error => error === secondary);
+      bridge.dispose();
+    }
+  }
+  {
+    const original = new Error('host callback failed after Restart');
+    const unwrapFailure = new Error('exception adapter failed');
+    const diagnostics = [], hostObject = {};
+    let bridge;
+    bridge = NeoFlashExternal.create({
+      hostObject,
+      hostGlobal: { fail() { bridge.reset(); throw original; }, recover() { return 'ok'; } },
+      unwrapError() { throw unwrapFailure; },
+      onDiagnostic(error) { diagnostics.push(error); throw new Error('diagnostic sink failed'); },
+    });
+    bridge.ExternalInterface.marshallExceptions = true;
+    assert.throws(() => bridge.ExternalInterface.call('fail'), error => error === original);
+    assert.deepEqual(diagnostics, [unwrapFailure]);
+    assert.equal(bridge.ExternalInterface.call('recover'), 'ok');
+    bridge.dispose();
+  }
+  {
+    const formattingFailure = new Error('hostile thrown value cannot be formatted');
+    const hostile = { [Symbol.toPrimitive]() { throw formattingFailure; } };
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    const diagnostics = [], hostObject = {};
+    const bridge = NeoFlashExternal.create({
+      hostObject, hostGlobal: {}, onDiagnostic: error => diagnostics.push(error),
+    });
+    bridge.ExternalInterface.marshallExceptions = true;
+    for (const thrown of [hostile, revoked.proxy]) {
+      bridge.ExternalInterface.addCallback('fail', () => { throw thrown; });
+      assert.throws(() => hostObject.fail(), error =>
+        error instanceof Error && error.cause === thrown && error.message.endsWith('<unprintable thrown value>'));
+    }
+    assert.equal(diagnostics[0], formattingFailure);
+    bridge.dispose();
+  }
+
   // Constants
   assert.equal(LastOperationStatus.NO_ERROR, 'noError');
   assert.equal(LastOperationStatus.USING_FALLBACK_WARNING, 'usingFallbackWarning');

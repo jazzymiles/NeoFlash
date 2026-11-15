@@ -44,6 +44,7 @@ test('actual failure panel keeps the original error when stack/message/conversio
   assert.equal(errors[0], hostile);
   const ordinary = new Error('original error');
   fail(ordinary);
-  assert.equal(elements.error.textContent, 'NeoFlash could not run this project.\n\n' + ordinary.stack);
+  assert.equal(elements.error.textContent, 'NeoFlash could not run this project.\n\n<unprintable thrown value>', 'late secondary errors cannot replace the original failure before Restart');
+  assert.equal(errors[1], ordinary, 'secondary errors remain observable');
   assert.equal(describeThrown({ get stack() { throw 1; }, message: 'surviving reason' }, true), 'surviving reason');
 });

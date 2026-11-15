@@ -260,10 +260,10 @@ test('AS3 navigateToURL and URLRequest handle web links, window targets, POST va
 });
 
 test('NeoFlashAudio timeline honors in_point and out_point trim windows and loop bounds', async () => {
-  // Minimal valid 16-bit mono 8 kHz WAV header + 16 samples so format inspection passes.
-  const wav = Buffer.alloc(44 + 32);
+  // Two seconds of 16-bit mono 8 kHz WAV matches the decoder's buffer below.
+  const wav = Buffer.alloc(44 + 32000);
   wav.write('RIFF', 0);
-  wav.writeUInt32LE(36 + 32, 4);
+  wav.writeUInt32LE(36 + 32000, 4);
   wav.write('WAVEfmt ', 8);
   wav.writeUInt32LE(16, 16);
   wav.writeUInt16LE(1, 20);
@@ -273,7 +273,7 @@ test('NeoFlashAudio timeline honors in_point and out_point trim windows and loop
   wav.writeUInt16LE(2, 32);
   wav.writeUInt16LE(16, 34);
   wav.write('data', 36);
-  wav.writeUInt32LE(32, 40);
+  wav.writeUInt32LE(32000, 40);
 
   const sources = [];
   let time = 1.0;
@@ -336,6 +336,66 @@ test('NeoFlashAudio timeline honors in_point and out_point trim windows and loop
   assert.equal(sources[0].loopEnd, 0.75);
   assert.ok(Math.abs(sources[0].stopped - 2.0) < 1e-9, '2 loops of 0.5 s trim window stops at t=2.0');
   audio.dispose();
+});
+
+test('NeoFlashAudio timeline releases failed PCM reservations and retires replaced or restarted decodes', async () => {
+  const pending=[],errors=[],sources=[];
+  const node=()=>({gain:{value:1},connect(){},disconnect(){}});
+  const context={
+    state:'suspended',sampleRate:8000,currentTime:0,destination:node(),
+    resume(){this.state='running';return Promise.resolve();},close(){return Promise.resolve();},
+    createGain:node,createStereoPanner:node,
+    decodeAudioData(){return new Promise((resolve,reject)=>pending.push({resolve,reject}));},
+    createBufferSource(){const source={...node(),start(){},stop(){}};sources.push(source);return source;},
+  };
+  const resource={id:'clip',path:'clip.wav'};
+  const audio=require('../audio.js').create({
+    events:require('../events.js'),
+    net:{URLLoader:class{},mediaSource:()=>({bytes:new Uint8Array([1])})},
+    binary:{toBytes:value=>value},formats:{inspect:()=>({decodedBytes:64})},
+    resources:[resource],maxDecodedBytes:128,createContext:()=>context,
+    isUserGesture:()=>true,now:()=>0,onError:error=>errors.push(error),
+  });
+  const flush=()=>new Promise(resolve=>setImmediate(resolve));
+  const buffer=()=>({duration:1,length:8,numberOfChannels:1});
+  try{
+    audio.preloadTimeline(['clip']);
+    assert.equal(audio.status().decodedBytes,64);
+    const original=new Error('original native decode failure');
+    pending.shift().reject(original);await flush();
+    assert.equal(errors[0],original,'native decode failure retains its original value');
+    assert.equal(audio.status().decodedBytes,0,'failed decode releases its complete reservation');
+
+    audio.unregisterResources(['clip']);audio.registerResources([resource]);audio.preloadTimeline(['clip']);
+    const beforeRestart=pending.shift();
+    audio.reset();
+    assert.equal(audio.status().decodedBytes,64,'unabortable native decoding stays budgeted across Restart');
+    audio.preloadTimeline(['clip']);
+    const afterRestart=pending.shift();
+    assert.equal(audio.status().decodedBytes,128);
+    beforeRestart.resolve(buffer());await flush();
+    assert.equal(audio.status().decodedBytes,64,'stale decode only releases its own reservation');
+    afterRestart.resolve(buffer());await flush();
+    assert.equal(audio.status().decodedBytes,32,'successful decode accounts for actual PCM size');
+    audio.unregisterResources(['clip']);
+    assert.equal(audio.status().decodedBytes,0,'unregister releases committed PCM bytes');
+
+    audio.registerResources([resource]);audio.preloadTimeline(['clip']);
+    const removed=pending.shift();
+    audio.unregisterResources(['clip']);audio.registerResources([resource]);audio.preloadTimeline(['clip']);
+    const replacement=pending.shift();
+    await audio.resumeFromGesture();
+    audio.timeline([{op:'stream_start',resource:'clip',channel:'music',offset:0,loops:1}]);
+    replacement.resolve(buffer());await flush();
+    assert.equal(audio.status().active,1);
+    const activeSource=sources.at(-1);
+    removed.reject(new Error('obsolete resource decode failure'));await flush();
+    assert.equal(audio.status().active,1,'an old same-ID completion cannot stop a replacement voice');
+    assert.equal(typeof activeSource.onended,'function');
+    assert.equal(errors.length,1,'retired resource failure cannot reach the replacement publication');
+    assert.equal(audio.status().decodedBytes,32);
+  }finally{audio.dispose();}
+  assert.equal(audio.status().decodedBytes,0);
 });
 
 test('NeoFlashPreview.layout supports Fit, 100% (No scale), Exact fit (stretch) and Fill (crop)', () => {

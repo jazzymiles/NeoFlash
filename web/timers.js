@@ -5,7 +5,7 @@
  * TIMER-before-TIMER_COMPLETE ordering was cross-checked with Ruffle Timer.as,
  * revision fe6cfc545405b888ebb478ce1c211d63147ca49b. No upstream code is copied.
  *
- * create({wasm,events,now,schedule,cancel,onError,afterEvent,requestRender,maxRunning})
+ * create({wasm,events,now,schedule,cancel,onError,onDiagnostic,afterEvent,requestRender,maxRunning})
  * returns Timer/TimerEvent/getTimer, callback timer functions, legacy and lifecycle.
  * Callback IDs/liveness are owned by Rust ScriptTimerIds; callbacks/targets stay
  * at this browser boundary. Both dialects reuse the same Timer scheduler.
@@ -58,12 +58,26 @@
       const pending=record.pending;record.pending=null;
       if(pending)cancel(pending.handle);
     }
-    function stop(record){cancelPending(record);record.running=false;running.delete(record);}
+    function stop(record){record.running=false;running.delete(record);cancelPending(record);}
     function report(error){if(options.onError)options.onError(error);else throw error;}
+    function cleanupAll(operations){
+      const errors=[];
+      for(const operation of operations)try{operation();}catch(error){errors.push(error);}
+      if(errors.length===1)throw errors[0];
+      if(errors.length)throw new AggregateError(errors,'Timer cleanup failed.',{cause:errors[0]});
+    }
+    function preserveFailure(error,cleanup){
+      try{cleanup();}catch(secondary){
+        // The authored callback remains the failure delivered to the host. Cleanup
+        // diagnostics stay observable without changing that value or its stack.
+        try{if(options.onDiagnostic)options.onDiagnostic(secondary);else global.console?.error?.('NeoFlash Timer cleanup:',secondary);}catch(_){}
+      }
+      return error;
+    }
     function arm(record){
       const pending={handle:null};record.pending=pending;
       try {pending.handle=schedule(()=>fire(record,pending),Math.max(1,record.delay));}
-      catch(error){stop(record);throw error;}
+      catch(error){throw preserveFailure(error,()=>stop(record));}
     }
     function fire(record,pending){
       if(disposed||record.generation!==generation||!record.running||record.pending!==pending)return;
@@ -82,7 +96,7 @@
         options.afterEvent?.();
         // A listener can stop/reset/change delay; never schedule a second job.
         if(record.running&&!record.pending)arm(record);
-      } catch(error){stop(record);report(error);}
+      } catch(error){report(preserveFailure(error,()=>stop(record)));}
     }
     function initialize(receiver,args){
       open();
@@ -95,7 +109,7 @@
     class Timer extends events.EventDispatcher {
       constructor(delay,repeatCount=0){super();initialize(this,[delay,repeatCount]);}
       get delay(){return state(this).delay;}
-      set delay(value){const next=delayValue(value),record=state(this);record.delay=next;if(record.running){cancelPending(record);arm(record);}}
+      set delay(value){const next=delayValue(value),record=state(this);record.delay=next;if(record.running){stop(record);record.running=true;running.add(record);arm(record);}}
       get repeatCount(){return state(this).repeat;}
       set repeatCount(value){const next=repeatValue(value),record=state(this);record.repeat=next;if(next!==0&&next<=record.count)stop(record);}
       get currentCount(){return state(this).count;}
@@ -107,7 +121,7 @@
         record.running=true;running.add(record);arm(record);
       }
       stop(){stop(state(this));}
-      reset(){const record=state(this);stop(record);record.count=0;}
+      reset(){const record=state(this);record.count=0;stop(record);}
     }
     Timer.__nfIs=value=>states.has(value);
     Timer.__nfInitialize=(receiver,args=[])=>initialize(receiver,args);
@@ -165,30 +179,29 @@
             if(typeof fn!=='function')throw new TypeError(`Callback timer method '${method}' is not callable.`);
             Reflect.apply(fn,receiver,parameters);
           }catch(error){
-            if(!disposed&&ownerGeneration===generation){registry.clear(id);callbacks.delete(id);timer.stop();}
-            throw error;
+            throw preserveFailure(error,()=>{
+              if(!disposed&&ownerGeneration===generation)cleanupAll([()=>registry.clear(id),()=>callbacks.delete(id),()=>timer.stop()]);
+            });
           }
         });
         timer.start();return id;
-      }catch(error){registry.clear(id);callbacks.delete(id);if(timer)timer.stop();throw error;}
+      }catch(error){throw preserveFailure(error,()=>cleanupAll([()=>registry.clear(id),()=>callbacks.delete(id),()=>timer?.stop()]));}
     }
     const setInterval=(...args)=>createCallback(true,false,args);
     const setTimeout=(...args)=>createCallback(false,false,args);
     const legacy=Object.freeze({setInterval:(...args)=>createCallback(true,true,args),setTimeout:(...args)=>createCallback(false,true,args),clearInterval:clearCallback,clearTimeout:clearCallback});
     function clearCallbacks(){
-      callbackIds?.reset();callbacks.clear();
+      callbacks.clear();callbackIds?.reset();
     }
     function reset(){
-      open();const nextOrigin=clock();
-      clearCallbacks();
-      for(const record of [...running])stop(record);
-      generation++;hub.clear();origin=nextOrigin;
+      open();const retiring=[...running];generation++;
+      cleanupAll([()=>{origin=clock();},clearCallbacks,()=>hub.clear(),...retiring.map(record=>()=>stop(record))]);
     }
     function dispose(){
       if(disposed)return;
-      clearCallbacks();
-      for(const record of [...running])stop(record);
-      generation++;hub.clear();callbackIds?.free();callbackIds=null;disposed=true;
+      const retiring=[...running],registry=callbackIds;
+      generation++;disposed=true;callbackIds=null;callbacks.clear();
+      cleanupAll([()=>hub.clear(),...retiring.map(record=>()=>stop(record)),()=>registry?.free()]);
     }
     function getTimer(){
       open();const elapsed=clock()-origin;
