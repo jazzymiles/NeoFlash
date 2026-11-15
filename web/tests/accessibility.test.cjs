@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict');const test=require('node:test');
-const {itemBounds,targetBounds,SemanticLayer}=require('../accessibility.js');
+const {itemBounds,targetBounds,SemanticLayer,applyDomAccessibility}=require('../accessibility.js');
 const {layout}=require('../preview.js');
 const rectangle=(path=['clip','shape'],matrix=[1,0,0,1,0,0])=>({instance_path:path,transform:matrix,alpha:1,kind:{type:'rectangle',width:40,height:20,fill:[255,0,0,255],stroke:[0,0,0,0],stroke_width:0}});
 const measure=()=>30;
@@ -27,11 +27,15 @@ test('curved bounds use actual extrema plus affine stroke radius',()=>{
 });
 class Element{
  constructor(doc,tag){this.ownerDocument=doc;this.tagName=tag;this.children=[];this.style={};this.attrs={};this.events={};this.parentNode=null;this.disabled=false;this.textContent='';}
- setAttribute(k,v){this.attrs[k]=v;}getAttribute(k){return this.attrs[k]??null;}removeAttribute(k){delete this.attrs[k];}
+ setAttribute(k,v){this.attrs[k]=String(v);}getAttribute(k){return this.attrs[k]??null;}removeAttribute(k){delete this.attrs[k];}hasAttribute(k){return Object.hasOwn(this.attrs,k);}
+ get tabIndex(){return this.hasAttribute('tabindex')?Number(this.attrs.tabindex):(['button','input','textarea','select'].includes(this.tagName.toLowerCase())?0:-1);}set tabIndex(v){this.setAttribute('tabindex',v);}
  appendChild(el){this.insertBefore(el,null);return el;}
  insertBefore(el,before){el.remove();const i=before?this.children.indexOf(before):this.children.length;this.children.splice(i,0,el);el.parentNode=this;}
- remove(){if(this.parentNode){const p=this.parentNode;p.children.splice(p.children.indexOf(this),1);this.parentNode=null;if(this.ownerDocument.activeElement===this)this.ownerDocument.activeElement=null;}}
- addEventListener(k,fn){this.events[k]=fn;}focus(){this.ownerDocument.activeElement=this;this.events.focus?.();}scrollIntoView(){this.scrollCalls=(this.scrollCalls||0)+1;}
+ remove(){if(this.parentNode){const p=this.parentNode;p.children.splice(p.children.indexOf(this),1);this.parentNode=null;this.blur();}}
+ addEventListener(k,fn){this.events[k]=fn;}
+ focus(){const previous=this.ownerDocument.activeElement;if(previous&&previous!==this){this.ownerDocument.activeElement=null;previous.events?.blur?.({relatedTarget:this});}this.ownerDocument.activeElement=this;this.events.focus?.({relatedTarget:previous});}
+ blur(){if(this.ownerDocument.activeElement===this){this.ownerDocument.activeElement=null;this.events.blur?.({relatedTarget:null});}}
+ scrollIntoView(){this.scrollCalls=(this.scrollCalls||0)+1;}
  get firstElementChild(){return this.children[0]||null;}get nextElementSibling(){if(!this.parentNode)return null;return this.parentNode.children[this.parentNode.children.indexOf(this)+1]||null;}
 }
 function dom(){const doc={activeElement:null,createElement(tag){return new Element(doc,tag)}};return new Element(doc,'div');}
@@ -67,7 +71,19 @@ test('native-button adapter forwards current lifetime once and suppresses disabl
  manager.update([node()],[rectangle()],project,1,measure);const button=container.firstElementChild;
  assert.equal(button.events.keydown,undefined);assert.equal(button.events.keyup,undefined);
  button.events.click();assert.equal(received.length,1);assert.equal(received[0].lifetime_id,'1');
+ button.focus();
  const disabled=node();disabled.accessibility.disabled=true;manager.update([disabled],[rectangle()],project,1,measure);button.events.click();assert.equal(received.length,1);
+ assert.equal(button.tabIndex,-1);assert.equal(button.getAttribute('aria-disabled'),'true');assert.equal(container.ownerDocument.activeElement,null);
+ const renamed=node('1','button','Current target');manager.update([renamed],[rectangle()],project,1,measure);
+ assert.equal(button.tabIndex,0);assert.equal(button.getAttribute('aria-disabled'),null);button.events.click();assert.equal(received.at(-1),renamed);
+ manager.update([node('2')],[rectangle()],project,1,measure);button.events.click();assert.equal(received.length,2,'a retained handler cannot activate a retired lifetime');
+ const replacement=container.firstElementChild;replacement.events.click();assert.equal(received.at(-1).lifetime_id,'2');
+ const silent=node('2');silent.accessibility.silent=true;replacement.focus();manager.update([silent],[rectangle()],project,1,measure);
+ replacement.events.click();assert.equal(received.length,3);assert.equal(container.children.length,0);assert.equal(container.ownerDocument.activeElement,null);
+ manager.update([node('3')],[rectangle()],project,1,measure);const cleared=container.firstElementChild;manager.clear();cleared.events.click();assert.equal(received.length,3,'Restart/clear retires retained handlers too');
+ const link=node('4','link','Open details');link.accessibility.activateButton=true;
+ manager.update([link],[rectangle()],project,1,measure);const overridden=container.firstElementChild;
+ assert.equal(overridden.tagName,'button');assert.equal(overridden.getAttribute('role'),'link');overridden.events.click();assert.equal(received.at(-1),link,'an explicit role override preserves original native-button activation');
 });
 test('Fit and 100 percent preserve authored pixels and expose scrollable narrow-stage area',()=>{
  const fit=layout(960,600,390,650,'fit');assert.ok(fit.stageWidth<=390);assert.ok(fit.stageHeight<=650);assert.equal(fit.spaceWidth,390);
@@ -116,4 +132,84 @@ test('authored reorder restores focused button without undoing manual pan',()=>{
  manager.update([a,b],scene,project,1,measure);const focused=container.children[1];focused.focus();assert.equal(focused.scrollCalls,1);
  manager.update([b,a],scene,project,1,measure);assert.equal(container.ownerDocument.activeElement,focused);assert.equal(focused.scrollCalls,1);
  focused.focus();assert.equal(focused.scrollCalls,2);
+ a.accessibility.tab_order=1;b.accessibility.tab_order=2;
+ manager.update([b,a],scene,project,1,measure);assert.equal(container.children[0].getAttribute('aria-label'),'First');
+ assert.equal(container.children[0].tabIndex,1);assert.equal(focused.tabIndex,2);assert.equal(container.ownerDocument.activeElement,focused);
+ a.accessibility.reading_order=2;b.accessibility.reading_order=1;
+ manager.update([a,b],scene,project,1,measure);assert.equal(container.children[0],focused,'explicit reading order is separate from keyboard tab order');assert.equal(focused.tabIndex,2);
+ b.input={tab_enabled:false};manager.update([a,b],scene,project,1,measure);assert.equal(focused.tabIndex,-1);assert.equal(container.ownerDocument.activeElement,null);
+});
+
+test('semantic role/live transitions preserve current text and clear retired semantics',()=>{
+ const container=dom(),manager=new SemanticLayer(container,()=>{}),project={width:300,height:200};
+ const status=node('1','status','Ready');status.accessibility.live='polite';
+ manager.update([status],[rectangle()],project,1,measure);const element=container.firstElementChild;
+ assert.equal(element.getAttribute('role'),'status');assert.equal(element.getAttribute('aria-live'),'polite');assert.equal(element.tabIndex,-1);
+ assert.equal(element.children[0].textContent,'Ready');
+ status.accessibility.name='Saved';status.accessibility.live='assertive';status.accessibility.description='';
+ manager.update([status],[rectangle()],project,1,measure);
+ assert.equal(container.firstElementChild,element);assert.equal(element.children[0].textContent,'Saved');assert.equal(element.getAttribute('aria-live'),'assertive');assert.equal(element.getAttribute('aria-describedby'),null);
+ status.accessibility.live='off';manager.update([status],[rectangle()],project,1,measure);
+ assert.equal(element.getAttribute('aria-live'),'off');assert.equal(element.children[0].textContent,'');
+ status.accessibility.role='image';manager.update([status],[rectangle()],project,1,measure);
+ assert.notEqual(container.firstElementChild,element);assert.equal(container.firstElementChild.getAttribute('role'),'img');assert.equal(container.firstElementChild.tabIndex,-1);
+ const child={...node('2','button','Nested action'),instance_path:['clip','shape']};
+ status.accessibility.silent=true;manager.update([status,child],[rectangle()],project,1,measure);assert.equal(container.children.length,0,'a silent authored ancestor suppresses descendants too');
+ status.accessibility.silent=false;status.accessibility.forceSimple=true;manager.update([status,child],[rectangle()],project,1,measure);assert.equal(container.children.length,1);
+ status.accessibility.forceSimple=false;manager.update([status,child],[rectangle()],project,1,measure);assert.equal(container.children.length,2,'removing ancestor suppression restores eligible descendants');
+ const parentRef={id:'1',generation:'1'},childRef={id:'2',generation:'1'},otherRef={id:'3',generation:'1'};
+ const parent={...status,owner_ref:parentRef,accessibility:{...status.accessibility,silent:true}};
+ const nested={...child,owner_ref:childRef,ancestry_refs:[childRef,parentRef]},other={...child,owner_ref:otherRef,ancestry_refs:[otherRef],accessibility:{...child.accessibility,name:'Other namespace'}};
+ manager.update([parent,nested,other],[{...rectangle(),owner_ref:childRef,ancestry_refs:nested.ancestry_refs},{...rectangle(),owner_ref:otherRef,ancestry_refs:other.ancestry_refs}],project,1,measure);
+ assert.equal(container.children.length,1);assert.equal(container.firstElementChild.getAttribute('aria-label'),'Other namespace','matching source paths in an unrelated namespace do not inherit suppression');
+});
+
+test('DOM metadata transitions remove stale roles, live state and keyboard eligibility',()=>{
+ const container=dom(),element=container.ownerDocument.createElement('span');container.appendChild(element);
+ const meta={name:'Updates',description:'Recent changes',role:'tab_panel',live:'polite',shortcut:'Alt+U',tab_order:3};
+ applyDomAccessibility(element,meta);assert.equal(element.getAttribute('role'),'tabpanel');assert.equal(element.tabIndex,3);assert.equal(element.getAttribute('aria-live'),'polite');
+ element.focus();applyDomAccessibility(element,{...meta,disabled:true});assert.equal(element.tabIndex,-1);assert.equal(element.getAttribute('aria-disabled'),'true');assert.equal(container.ownerDocument.activeElement,null);
+ applyDomAccessibility(element,{...meta,silent:true});
+ for(const name of ['role','aria-label','aria-description','aria-keyshortcuts','aria-live','aria-disabled'])assert.equal(element.getAttribute(name),null,name);
+ assert.equal(element.getAttribute('aria-hidden'),'true');assert.equal(element.tabIndex,-1);
+ applyDomAccessibility(element,{name:'Artwork',role:'image',tab_order:0});assert.equal(element.getAttribute('role'),'img');assert.equal(element.tabIndex,-1,'default order does not turn artwork into a keyboard stop');
+ applyDomAccessibility(element,null);for(const name of ['role','aria-label','aria-hidden','aria-disabled','aria-live','tabindex'])assert.equal(element.getAttribute(name),null,name);
+ const button=container.ownerDocument.createElement('button');container.appendChild(button);
+ applyDomAccessibility(button,{role:'check_box',name:'Choice',live:'off'},{isInteractive:true});assert.equal(button.getAttribute('role'),'checkbox');assert.equal(button.getAttribute('aria-live'),'off');assert.equal(button.tabIndex,0);
+ button.focus();applyDomAccessibility(button,{silent:true});assert.equal(button.tabIndex,-1,'a silent native control is excluded even without isInteractive');assert.equal(container.ownerDocument.activeElement,null);
+ applyDomAccessibility(button,null,{isInteractive:true,explicitTabIndex:0});assert.equal(button.getAttribute('role'),null,'native button semantics return after an override is removed');assert.equal(button.tabIndex,0);
+ applyDomAccessibility(button,{tab_order:4},{isInteractive:true,tabEnabled:false});assert.equal(button.tabIndex,-1);
+ applyDomAccessibility(button,{tab_order:4},{isInteractive:true,explicitTabIndex:-1});assert.equal(button.tabIndex,4,'the runtime unset sentinel falls back to authored order');
+ applyDomAccessibility(button,{live:'invalid',role:'auto'},{isInteractive:true});assert.equal(button.getAttribute('role'),null);assert.equal(button.getAttribute('aria-live'),null);assert.equal(button.tabIndex,0);
+});
+
+test('semantic native and programmatic focus share Stage events without reorder or retirement duplicates',()=>{
+ const Events=require('../events.js'),{create}=require('../stage.js');
+ const container=dom(),project={width:300,height:200},a={id:'a',node:node('a')},b={id:'b',node:{...node('b'),instance_path:['other']}};
+ const targets=new Map([['a',a],['b',b]]),seen=[];let manager,stageHost;
+ const hub=Events.create({alive:()=>true,parentOf:target=>target===stageHost?.stage?null:stageHost?.stage});
+ for(const target of [a,b]){
+   Object.assign(target,hub.methods(target));
+   target.addEventListener('focusIn',event=>seen.push(['in',target.id,event.relatedObject?.id||null]));
+   target.addEventListener('focusOut',event=>seen.push(['out',target.id,event.relatedObject?.id||null]));
+ }
+ stageHost=create({events:hub,width:300,height:200,frameRate:24,alive:()=>true,onFocusChanged:(next,previous)=>{
+   manager?.blurTarget(previous?.node);return manager?.focusTarget(next?.node);
+ }});
+ manager=new SemanticLayer(container,()=>{}, {
+   onFocus:(n,event)=>{if(!stageHost.changeFocus(targets.get(n.lifetime_id),'key',event))manager.focusTarget(stageHost.stage.focus?.node);},
+   onBlur:n=>{if(stageHost.stage.focus===targets.get(n.lifetime_id))stageHost.stage.focus=null;},
+ });
+ const scene=[rectangle(),rectangle(['other','shape'],[1,0,0,1,100,0])];
+ manager.update([a.node,b.node],scene,project,1,measure);const [first,second]=container.children;
+ first.focus();second.focus();assert.equal(stageHost.stage.focus,b);
+ assert.deepEqual(seen,[['in','a',null],['out','a','b'],['in','b','a']]);
+ stageHost.stage.focus=a;assert.equal(container.ownerDocument.activeElement,first);assert.deepEqual(seen.slice(-2),[['out','b','a'],['in','a','b']]);
+ let cancel=true;a.addEventListener('keyFocusChange',event=>{if(cancel)event.preventDefault();});
+ const before=seen.length;second.focus();assert.equal(stageHost.stage.focus,a);assert.equal(container.ownerDocument.activeElement,first);assert.equal(seen.length,before,'canceled keyboard focus returns to the previous native target');cancel=false;
+ manager.update([b.node,a.node],scene,project,1,measure);assert.equal(container.ownerDocument.activeElement,first);assert.equal(seen.length,before,'stable reordering emits no synthetic focus pair');
+ a.node.accessibility.disabled=true;manager.update([b.node,a.node],scene,project,1,measure);assert.equal(stageHost.stage.focus,null);assert.deepEqual(seen.at(-1),['out','a',null]);
+ second.focus();const focused=seen.length;manager.clear();assert.equal(stageHost.stage.focus,null);assert.equal(seen.length,focused+1);assert.deepEqual(seen.at(-1),['out','b',null]);
+ second.events.focus({});second.events.blur({});assert.equal(stageHost.stage.focus,null);assert.equal(seen.length,focused+1,'retained handlers cannot refocus a cleared lifetime');
+ stageHost.dispose();
 });

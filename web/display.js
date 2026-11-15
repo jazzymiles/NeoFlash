@@ -1170,7 +1170,9 @@
       else if(name==='focusRect'){if(value!==null&&typeof value!=='boolean')throw new TypeError('focusRect requires Boolean or null.');normalized=value;}
       else if(typeof value!=='boolean')throw new TypeError(`${name} requires a Boolean.`);
       const previous=input[key];
-      try{player.object_input_update(referenceOf(target).key,JSON.stringify({...input,[key]:normalized}));}catch(error){if(error instanceof Error)throw error;throw new Error(String(error),{cause:error});}
+      const next={...input,[key]:normalized};
+      if(name==='tabEnabled')next.tab_enabled_override=normalized;
+      try{player.object_input_update(referenceOf(target).key,JSON.stringify(next));}catch(error){if(error instanceof Error)throw error;throw new Error(String(error),{cause:error});}
       if(previous!==normalized){
         if(name==='tabEnabled')onTabChange(target,'tabEnabledChange');
         else if(name==='tabIndex')onTabChange(target,'tabIndexChange');

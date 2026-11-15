@@ -1,6 +1,6 @@
 # Interactive HTML5 projects
 
-NeoFlash publishes a fixed-size authored stage using the shared Rust/WASM timeline engine and a Canvas renderer. Semantic targets describe individual authored buttons and images to browsers. Rich DOM text, inputs, responsive layout and arbitrary web components remain planned.
+NeoFlash publishes an authored stage using the shared Rust/WASM timeline engine with Canvas or Web App · DOM rendering. Both modes expose placement metadata to browser accessibility APIs; DOM mode also provides native text and form controls. See the [compatibility matrix](COMPATIBILITY.md) for layout and rendering limits.
 
 ## Describe an object
 
@@ -9,7 +9,7 @@ Select an object or symbol instance and open the **Accessibility** panel. Enable
 - **Button** is an action. It participates in keyboard focus unless disabled. Enter and Space activate its Click handler through the same runtime event path as pointer input.
 - **Image** describes visual content. It is available to assistive technology but does not enter the keyboard focus sequence.
 
-Reading/focus order is an authored ordering value. Smaller numbers come first; equal values retain authored display order. The browser uses ordinary sequential DOM focus rather than positive HTML `tabindex` values. Disable a button when its action is unavailable. A disabled button also blocks click activation in its descendants.
+Keyboard order follows positive authored `tabIndex` values, with stable order for ties. Canvas semantic reading order additionally follows the authored reading-order field; DOM browse order follows the rendered document hierarchy. `tabEnabled=false` removes a control from Tab traversal without disabling pointer activation. Input TextFields, SimpleButtons, button-mode clips and authored semantic buttons participate by default. Explicit Tab settings survive unrelated property changes. Disable a button when its action is unavailable; disabled buttons also block click activation in their descendants.
 
 Use **Edit Click action** to switch to the selected object's Actions handler. For example:
 
@@ -18,13 +18,13 @@ this.rotation += 15;
 trace("Activated once");
 ```
 
-Names are not inferred from an object's artwork or script. Existing projects have no semantic targets until the author enables them. Frame and object script language support is described in COMPATIBILITY.md.
+Names are not inferred from artwork. Text can supply an automatic label from its current runtime content; explicit names override it. Authored role, description, shortcut and live-region metadata share one target with the runtime placement in both publication modes. Clearing metadata removes its old browser attributes. Silent containers hide descendant semantics and Tab stops; simple containers expose their own semantics while suppressing descendants. Frame and object script language support is described in COMPATIBILITY.md.
 
 ## Animation and focus
 
 Metadata belongs to a placement and follows its keyframes. Nested instances expose separate targets even when they share a library symbol. Converting an object to a symbol preserves one semantic target on the instance; it does not create a duplicate inside the symbol.
 
-Targets with zero effective opacity or singular transforms are excluded by the runtime. The browser also needs visible display geometry to place a focus indicator. A button keeps its DOM identity while its current placement moves, and its focus outline follows the displayed bounds. Removing and recreating the same object path creates a new lifetime. Delayed activation from an earlier lifetime is rejected, so it cannot operate a replacement object.
+Targets with zero effective opacity or singular transforms are excluded by the runtime. The browser also needs visible display geometry to place a focus indicator. A button keeps its DOM identity while its current placement moves, and its focus outline follows the displayed bounds. Native control focus and programmatic `Stage.focus` use the same focus-event path. Removing and recreating the same object path creates a new lifetime. Delayed activation from an earlier lifetime is rejected, so it cannot operate a replacement object.
 
 Pointer input continues to use Canvas geometry, including path holes and strokes. Runtime mask unions and inherited scroll rectangles also constrain picking. Semantic bounds come from the already clipped artwork; fully clipped targets are omitted. The semantic DOM layer must not turn the transparent bounding-box corners into clickable artwork.
 
@@ -38,7 +38,7 @@ The original example [keyboard-controls.nflash](../examples/keyboard-controls.nf
 
 ## Current verification boundary
 
-Core tests cover source persistence, focus ordering, disabled/hidden targets, nested placements and lifetime protection. Native authoring tests cover key insertion, Undo and symbol conversion. Actual browser keyboard, focus and narrow-viewport checks must be recorded separately in VERIFICATION.md. Passing generated-markup tests alone does not establish screen-reader usability. VoiceOver, other assistive technologies, Safari and more semantic roles still require dedicated verification.
+Core tests cover source persistence, focus ordering, disabled/hidden targets, nested placements and lifetime protection. Native authoring tests cover key insertion, Undo and symbol conversion. The shared browser family checks live accessibility-tree metadata, Tab/Enter, focus events, disabled/hidden controls, clearing metadata and retired controls in Canvas and DOM. Passing these checks does not establish spoken screen-reader usability. VoiceOver, Safari, separate DOM browse ordering and semantic coverage of raster islands still need dedicated work. Custom `AccessibilityImplementation` currently supplies only placement name/value through child ID 0; custom child trees, roles, states, selection and default actions are not bridged.
 
 ## Resource files and data requests
 

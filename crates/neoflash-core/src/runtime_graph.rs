@@ -1495,7 +1495,15 @@ impl Player {
                 (vec![], false)
             };
             result.objects.push(RuntimeObject {
-                input: self.graph.input_state(&reference, &display.owner),
+                input: self.graph.input_state(
+                    &reference,
+                    &display.owner,
+                    text.as_ref()
+                        .is_some_and(|field| field.field_type == TextFieldType::Input),
+                    metadata
+                        .get(&reference)
+                        .is_some_and(|accessibility| accessibility.role == AccessibleRole::Button),
+                ),
                 display,
                 object_ref: reference.clone(),
                 parent_ref: if capture_root.is_some() {

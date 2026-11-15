@@ -615,7 +615,7 @@
     const semanticLayer = new global.NeoFlashAccessibility.SemanticLayer(document.getElementById('semantic-layer'), node => {
       if (failed) return;
       try {activateSemantic(node);} catch (error) {fail(error);}
-    });
+    }, {onFocus:semanticNativeFocus,onBlur:semanticNativeBlur});
     const stageSurface = document.getElementById('stage-surface') || document.getElementById('stage-wrap');
     let a11yOverlay = document.getElementById('stage-a11y-overlay');
     if (!a11yOverlay && typeof document.createElement === 'function') {
@@ -899,7 +899,7 @@
           onFullScreenSourceRectChanged:()=>{if(ownsViewportFullscreen()||(stageHost?.stage?.displayState&&stageHost.stage.displayState!=='normal')){enableHostStageLayout(false);if(typeof context!=='undefined')render();}},
           onDisplayStateChanged:state=>{if(state!=='normal')enableHostStageLayout(false);else if(!hostStageLayoutPinned)syncInitialStageLayout();else if(typeof preview!=='undefined'&&preview)preview.resize();if(typeof context!=='undefined')render();},
           onColorChanged:()=>{if(typeof context!=='undefined')render();},onInvalidate:requestTimerRender,
-          onFocusChanged:(next,previous)=>{if(familyDisposed)return;fte3dHost?.handleFocusChange?.(next,previous);return (domStageHost||textInputHost)?.focusChanged(next,previous);},ownsTextInput:node=>(domStageHost||textInputHost)?.owns(node),canFocus:value=>{const ih=domStageHost||textInputHost;if(ih&&!ih.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
+          onFocusChanged:(next,previous)=>{if(familyDisposed)return;fte3dHost?.handleFocusChange?.(next,previous);const handled=(domStageHost||textInputHost)?.focusChanged(next,previous);return syncSemanticFocus(next,previous,handled)||handled;},ownsTextInput:node=>(domStageHost||textInputHost)?.owns(node),canFocus:value=>{const ih=domStageHost||textInputHost;if(ih&&!ih.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
           hitTest:event=>{const p=stagePointFromEvent(event);return p&&p.inside?display.pick(p.x,p.y):null;},
           coordinates:event=>{const p=stagePointFromEvent(event);return p?[p.x,p.y]:null;},
           isInputEnabled:()=>!familyDisposed&&(typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick)),
@@ -974,8 +974,9 @@
           const [w,h]=logicalSize(),[ox,oy]=stageOrigin(),sc=typeof preview==='undefined'?1:{x:preview.view.scale,y:preview.view.scaleY||preview.view.scale};
           const rawNodes=snap.semantics.filter(node=>Boolean(semanticRoute(node,snap.objects)));
           const semNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawNodes;
-          semanticLayer.update(semNodes,semScene,{width:w,height:h},sc,(line,kind)=>{if(typeof context==='undefined')return line.length*kind.font_size*0.6;context.font=font(kind);return context.measureText(line).width;},{x:ox,y:oy});
-          syncStageAccessibilityOverlay(semNodes);
+          const prepared=prepareStageAccessibility(semNodes,snap);
+          semanticLayer.update(prepared.nodes,semScene,{width:w,height:h},sc,(line,kind)=>{if(typeof context==='undefined')return line.length*kind.font_size*0.6;context.font=font(kind);return context.measureText(line).width;},{x:ox,y:oy});
+          syncStageAccessibilityOverlay(prepared.fallback,semScene);
         }
         if(!inDispatch&&typeof context!=='undefined')render();
       }
@@ -2713,77 +2714,115 @@
     function stopTimelineSounds(){if(typeof player.stop_all_sounds==='function'){player.stop_all_sounds();drainSounds();}}
     function stopAllSounds(){audioHost?.stopAllLegacySounds();stopTimelineSounds();}
     const SoundMixer=Object.freeze({stopAll(){audioHost?.stopAllChannels();stopTimelineSounds();},areSoundsInaccessible(){return false;}});
-    function syncStageAccessibilityOverlay(semNodes = []) {
-      if (typeof a11yOverlay === 'undefined' || !a11yOverlay || !global.NeoFlashStage?.syncAccessibilityOverlay) return;
+    function semanticNodeForTarget(target) {
+      const ref=target && references.get(target);
+      return ref ? {owner_ref:ref.objectRef,instance_path:ref.path,lifetime_id:ref.lifetime} : null;
+    }
+    function syncSemanticFocus(next,previous,inputHandled=false) {
+      if(typeof semanticLayer==='undefined' || !semanticLayer || domStageHost?.isActive?.())return false;
+      if(previous && previous!==next)semanticLayer.blurTarget(semanticNodeForTarget(previous));
+      return Boolean(next && !inputHandled && semanticLayer.focusTarget(semanticNodeForTarget(next)));
+    }
+    function semanticNativeFocus(node,event={}) {
+      if(familyDisposed || failed || !stageHost)return;
+      try {
+        const target=node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path);
+        if(!display?.alive(target))return;
+        if(stageHost.stage.focus!==target && !stageHost.changeFocus(target,'key',event)){
+          syncSemanticFocus(stageHost.stage.focus,null);
+          return;
+        }
+        requestTimerRender();
+      } catch(error) {inputFailure(error);}
+    }
+    function semanticNativeBlur(node) {
+      if(familyDisposed || failed || !stageHost)return;
+      try {
+        const focused=stageHost.stage.focus,ref=focused && references.get(focused);
+        if(ref && (node.owner_ref?JSON.stringify(node.owner_ref)===ref.key:JSON.stringify(node.instance_path)===ref.key && node.lifetime_id===ref.lifetime)){
+          stageHost.changeFocus(null);
+          requestTimerRender();
+        }
+      } catch(error) {inputFailure(error);}
+    }
+    function prepareStageAccessibility(semNodes = [], snapshot = null) {
       const currentFrame = typeof player.current_frame === 'function' ? player.current_frame() : 0;
-      const entries = global.NeoFlashStage.collectProjectAccessibilityEntries
+      const objects = snapshot?.objects || (graphMode && display?.nodes ? display.nodes() : []);
+      const byRef = new Map(objects.map(object => [JSON.stringify(object.object_ref), object]));
+      const byTarget = new Map();
+      for (const object of objects) if (object.object_ref) byTarget.set(proxyForRef(object.object_ref), object);
+      const raw = (Array.isArray(semNodes) ? semNodes : []).filter(node => node && typeof node === 'object');
+      const targetFor = node => node.owner_ref ? proxyForRef(node.owner_ref) : proxyFor(node.instance_path || []);
+      const rawTargets = new Map(raw.map(node => [node, targetFor(node)]));
+      const entries = global.NeoFlashStage?.collectProjectAccessibilityEntries
         ? global.NeoFlashStage.collectProjectAccessibilityEntries(project, currentFrame, {
             resolveTarget: el => {
               if (!el) return null;
-              if (el.name) {
-                const byPath = proxies.get(JSON.stringify([el.name]));
-                if (byPath && byPath.proxy) return byPath.proxy;
+              if (graphMode) {
+                // Root authored IDs cannot accidentally select a same-named linked/nested instance.
+                const matches = objects.filter(object => Array.isArray(object.authored_path) && object.authored_path.length === 1 && object.authored_path[0] === el.id);
+                return matches.length === 1 ? proxyForRef(matches[0].object_ref) : null;
               }
-              if (typeof display !== 'undefined' && display && typeof display.nodes === 'function') {
-                for (const node of display.nodes()) {
-                  const sourcePath = Array.isArray(node?.source_path)
-                    ? node.source_path
-                    : (Array.isArray(node?.authored_path) ? node.authored_path : node?.path);
-                  const sameAuthoredPlacement = Array.isArray(sourcePath) && sourcePath[sourcePath.length - 1] === el.id;
-                  if (node && (sameAuthoredPlacement || (el.name && node.name === el.name)) && node.object_ref) {
-                    const byRef = proxies.get(JSON.stringify(node.object_ref));
-                    if (byRef && byRef.proxy) return byRef.proxy;
-                  }
-                }
-              }
-              return null;
+              const matches = raw.filter(node => node.instance_path?.length === 1 && (node.instance_path[0] === el.id || (el.name && node.instance_path[0] === el.name)));
+              return matches.length === 1 ? rawTargets.get(matches[0]) : null;
             },
           })
         : [];
-      for (const node of (Array.isArray(semNodes) ? semNodes : [])) {
-        if (!node || typeof node !== 'object') continue;
-        const instancePath = Array.isArray(node.instance_path) ? node.instance_path : [];
-        const nodeId = String(node.id || (instancePath.length ? instancePath.join('.') : ''));
-        const nodeName = instancePath.length ? String(instancePath[instancePath.length - 1]) : '';
-        const accessibility = node.accessibility && typeof node.accessibility === 'object'
-          ? node.accessibility
-          : node;
-        const runtimeTarget = node.owner_ref && typeof proxyForRef === 'function'
-          ? proxyForRef(node.owner_ref)
-          : (instancePath.length && typeof proxyFor === 'function'
-            ? proxyFor(instancePath)
-            : null);
-        const lifetimeTarget = runtimeTarget || `runtime-a11y:${node.owner_ref ? JSON.stringify(node.owner_ref) : ''}:${String(node.lifetime_id || '')}:${nodeId}`;
-        const existing = entries.find(entry =>
-          (nodeId && String(entry.id) === nodeId) ||
-          (nodeName && String(entry.name || '') === nodeName));
-        if (existing) {
-          // Authored metadata owns labels/order/extensions, while the runtime identity owns DOM
-          // lifetime. Re-instantiating the same authored placement therefore retires its focused
-          // node instead of leaking focus across generations.
-          existing.target = lifetimeTarget;
-          existing.disabled = Boolean(existing.disabled || accessibility.disabled);
-          continue;
-        }
-        entries.push({
-          id: nodeId || `sem-${entries.length + 1}`,
-          name: nodeName,
-          target: lifetimeTarget,
-          role: accessibility.role === 'button' ? 'button' : (accessibility.role === 'image' ? 'img' : (accessibility.role || 'group')),
-          ariaLabel: String(accessibility.name || nodeName || nodeId || ''),
-          ariaDescription: String(accessibility.description || ''),
-          ariaLive: accessibility.live || 'off',
-          shortcut: String(accessibility.shortcut || ''),
-          silent: Boolean(accessibility.silent),
-          disabled: Boolean(accessibility.disabled),
-          tabIndex: Number.isInteger(Number(accessibility.tab_order)) && Number(accessibility.tab_order) > 0 ? Number(accessibility.tab_order) : undefined,
-        });
+      const entriesByTarget = new Map(entries.map(entry => [entry.target, entry]));
+      const covered = new Set();
+      const merge = (node, entry, object = null) => {
+        const base = node.accessibility || {};
+        const accessibility = entry ? {
+          ...base,
+          role: entry.roleOverride || !base.role ? entry.role : base.role,
+          name: entry.autoTextLabel ? entry.ariaLabel : (base.name || entry.ariaLabel),
+          description: base.description || entry.ariaDescription,
+          live: entry.ariaLive,
+          shortcut: entry.shortcut || base.shortcut || '',
+          reading_order: entry.readingOrder,
+          tab_order: entry.tabIndex ?? base.tab_order ?? 0,
+          tabEnabled: entry.tabEnabled ?? base.tabEnabled,
+          disabled: Boolean(base.disabled || entry.disabled),
+          silent: Boolean(base.silent || entry.silent),
+          forceSimple: Boolean(base.forceSimple || base.force_simple || entry.forceSimple),
+          noAutoLabeling: Boolean(base.noAutoLabeling || base.no_auto_labeling || entry.noAutoLabeling),
+          activateButton: Boolean(base.activateButton || base.role === 'button'),
+        } : base;
+        const ancestry_refs = [];
+        for (let parent = object; parent; parent = byRef.get(JSON.stringify(parent.parent_ref))) ancestry_refs.push(parent.object_ref);
+        return {...node, accessibility, ...(object ? {input:object.input, ancestry_refs} : {})};
+      };
+      const nodes = raw.map(node => {
+        const target = rawTargets.get(node), entry = entriesByTarget.get(target);
+        if (entry) covered.add(entry);
+        return merge(node, entry, byTarget.get(target));
+      });
+      const fallback = [];
+      for (const entry of entries) {
+        if (covered.has(entry)) continue;
+        const object = byTarget.get(entry.target);
+        if (object) {
+          // Static text/artwork with extended authoring metadata may have no legacy semantic node.
+          // The runtime reference and draw coverage still own its identity and visibility.
+          if (object.on_stage === false || object.effective_visible === false) continue;
+          nodes.push(merge({owner_ref:object.object_ref,instance_path:object.source_path || object.authored_path || object.path || [],lifetime_id:object.object_ref.generation,accessibility:{}},entry,object));
+        } else if (!graphMode) fallback.push(entry);
       }
+      return {nodes, fallback};
+    }
+    function syncStageAccessibilityOverlay(entries = [], semanticScene = []) {
+      if (typeof a11yOverlay === 'undefined' || !a11yOverlay || !global.NeoFlashStage?.syncAccessibilityOverlay) return 0;
+      const [width,height]=logicalSize(),[x,y]=stageOrigin();
+      const visible = global.NeoFlashAccessibility.sceneBoundsByPath(semanticScene,width,height,(line,kind)=>{context.font=font(kind);return context.measureText(line).width;},{x,y});
+      // Legacy static-only fallback requires actual visible draw coverage too. A missing graph
+      // object or a clipped semantic target must never reappear as an inert overlay tab stop.
+      entries = entries.filter(entry => !entry.silent && (visible.has(JSON.stringify([entry.id])) || (entry.name && visible.has(JSON.stringify([entry.name])))));
       if (typeof stageHost !== 'undefined' && stageHost?.syncAccessibilityOverlay) {
         stageHost.syncAccessibilityOverlay(a11yOverlay, entries);
       } else {
         global.NeoFlashStage.syncAccessibilityOverlay(a11yOverlay, entries);
       }
+      return entries.length;
     }
     function resize() { preview.resize(); }
     function font(kind) { return `${kind.font_size}px ${global.NeoFlashText?.cssFontFamily ? global.NeoFlashText.cssFontFamily(kind.font_family) : `${JSON.stringify(kind.font_family)}, sans-serif`}`; }
@@ -2809,9 +2848,11 @@
       assertUnfilteredEditing(stageHost?.stage.focus);
       const [width,height]=logicalSize();
       const [originX,originY]=stageOrigin();
+      const rawSemNodes=snapshot?(snapshot.semantics.length?snapshot.semantics.filter(node=>Boolean(semanticRoute(node,snapshot.objects))):[]):JSON.parse(player.accessibility_json());
+      const runtimeSemNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawSemNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawSemNodes;
+      const preparedAccessibility=prepareStageAccessibility(runtimeSemNodes,snapshot);
+      const enrichedSemNodes=preparedAccessibility.nodes;
       if(domStageHost?.isActive?.()){
-        const rawSemNodes=snapshot?(snapshot.semantics.length?snapshot.semantics.filter(node=>Boolean(semanticRoute(node,snapshot.objects))):[]):JSON.parse(player.accessibility_json());
-        const enrichedSemNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawSemNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawSemNodes;
         semanticLayer.clear?.();
         if(typeof a11yOverlay!=='undefined'&&a11yOverlay)a11yOverlay.replaceChildren?.();
         canvas.setAttribute('aria-hidden','true');
@@ -2842,13 +2883,12 @@
       const painter=createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,context,matrix:bitmapMatrix,hidden:ref=>Boolean(textInputHost?.hidden(ref))});
       const {clippedBounds,objects}=painter.draw(context,snapshot||{draws:scene,objects:[],semantics:[],clips:[],filter_groups:[]},{minX:-originX,minY:-originY,width:width-originX,height:height-originY});
       const focusBounds=display?.as2FocusBounds?.();if(focusBounds){context.save();context.strokeStyle='#ffcc00';context.lineWidth=2;context.strokeRect(focusBounds.x,focusBounds.y,focusBounds.width,focusBounds.height);context.restore();}
-      const rawSemNodes=snapshot?(snapshot.semantics.length?snapshot.semantics.filter(node=>Boolean(semanticRoute(node,snapshot.objects))):[]):JSON.parse(player.accessibility_json());
-      const enrichedSemNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawSemNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawSemNodes;
-      const semanticScene=enrichedSemNodes.length?(snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene):[];
+      const semanticScene=enrichedSemNodes.length || preparedAccessibility.fallback.length?(snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene):[];
       const targetCount = semanticLayer.update(enrichedSemNodes, semanticScene, {...project,width,height}, {x:preview.view.scale,y:preview.view.scaleY||preview.view.scale}, (line, kind) => { context.font = font(kind); return context.measureText(line).width; }, {x:originX,y:originY});
-      syncStageAccessibilityOverlay(enrichedSemNodes);
+      syncSemanticFocus(stageHost?.stage?.focus,null,textInputHost?.owns?.(document.activeElement));
+      const fallbackTargetCount=syncStageAccessibilityOverlay(preparedAccessibility.fallback,semanticScene);
       bitmapHost?.cache.endFrame();
-      if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
+      if (targetCount || fallbackTargetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
       }
       status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;
       if (typeof measuredFps === 'number' && measuredFps > 0) {

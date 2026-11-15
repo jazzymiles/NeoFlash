@@ -2,6 +2,12 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Improved accessibility without changing editor visuals: function search exposes its selected result and
+  notifications expose complete announcements with their severity and repeat count. HTML5 Canvas and DOM controls
+  share authored/live semantics, native and scripted focus, explicit Tab eligibility and retired-target cleanup;
+  default input/button Tab behavior remains available. VoiceOver speech and complete native/custom semantic trees
+  remain outside the verified coverage.
+
 - Fixed repeated scripts on one-frame MovieClips and lost initialization queued from `EXIT_FRAME`.
   Reentrant navigation now preserves pending removal callbacks and the removed object's last frame data, rejects
   stale frame reads after delivery, and safely handles constructors that remove their ancestors. Direct Stage

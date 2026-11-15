@@ -1087,7 +1087,14 @@
     return `rgb(${r}, ${g}, ${b})`;
   }
 
-  function syncChildrenOrder(parent, desired) {
+  function containsNode(parent, node) {
+    for (let current = node; current; current = current.parentNode) {
+      if (current === parent) return true;
+    }
+    return false;
+  }
+
+  function syncChildrenOrder(parent, desired, preserveFocus = fn => fn()) {
     const desiredList = desired.filter(Boolean);
     const desiredSet = new Set(desiredList);
     for (let cur = parent.firstElementChild; cur;) {
@@ -1099,22 +1106,27 @@
     const active = doc?.activeElement || null;
     const selStart = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
     const selEnd = active && typeof active.selectionEnd === 'number' ? active.selectionEnd : null;
-    let cursor = parent.firstElementChild;
-    for (const child of desiredList) {
-      if (child === cursor) {
-        cursor = cursor.nextElementSibling;
-      } else {
-        parent.insertBefore(child, cursor);
-      }
-    }
-    if (active && desiredSet.has(active) && doc?.activeElement !== active && !active.disabled) {
-      try {
-        active.focus({ preventScroll: true });
-        if (selStart !== null && selEnd !== null && typeof active.setSelectionRange === 'function') {
-          active.setSelectionRange(selStart, selEnd);
+    const selDirection = active?.selectionDirection;
+    const retainedFocus = active && desiredList.some(child => containsNode(child, active));
+    const reorder = () => {
+      let cursor = parent.firstElementChild;
+      for (const child of desiredList) {
+        if (child === cursor) {
+          cursor = cursor.nextElementSibling;
+        } else {
+          parent.insertBefore(child, cursor);
         }
-      } catch (_) {}
-    }
+      }
+      if (retainedFocus && doc?.activeElement !== active && !active.disabled) {
+        try {
+          active.focus({ preventScroll: true });
+          if (selStart !== null && selEnd !== null && typeof active.setSelectionRange === 'function') {
+            active.setSelectionRange(selStart, selEnd, selDirection);
+          }
+        } catch (_) {}
+      }
+    };
+    if (retainedFocus) preserveFocus(reorder); else reorder();
   }
 
   function defaultViewportBreakpointName(vw) {
@@ -1236,7 +1248,65 @@
     const inputRecordsByRef = new Map();
     const bitmapUrlCache = new Map();
     const ownedInputControls = new WeakSet();
+    const ownedFocusControls = new WeakSet();
+    const suppressedAccessibility = new Map();
     const cleanups = [];
+    let reconcilingFocus = false;
+    let pendingNativeFocus = null;
+    let rendering = false;
+    let queuedFrameState = null;
+    let inputUpdatePending = false;
+
+    function notifyAfterInput() {
+      if (rendering) inputUpdatePending = true;
+      else afterInput?.();
+    }
+
+    function preserveNativeFocus(fn) {
+      const previous = reconcilingFocus;
+      reconcilingFocus = true;
+      try { return fn(); } finally { reconcilingFocus = previous; }
+    }
+
+    function clearControlFocus(ownerKey) {
+      const sh = getStageHost();
+      const focused = sh?.stage?.focus;
+      if (focused && referenceOf(focused)?.key === ownerKey) sh.stage.focus = null;
+    }
+
+    function restoreSuppressedAccessibility() {
+      for (const [element, state] of suppressedAccessibility) {
+        for (const [attribute, value] of Object.entries(state)) {
+          if (value === null) element.removeAttribute(attribute);
+          else element.setAttribute(attribute, value);
+        }
+      }
+      suppressedAccessibility.clear();
+    }
+
+    function suppressDescendantAccessibility(owners) {
+      const visit = (element, suppressed) => {
+        if (suppressed) {
+          suppressedAccessibility.set(element, {
+            'aria-hidden': element.getAttribute('aria-hidden'),
+            tabindex: element.getAttribute('tabindex'),
+          });
+          element.setAttribute('aria-hidden', 'true');
+          if (/^(?:A|BUTTON|INPUT|TEXTAREA|SELECT)$/.test(element.tagName || '') || element.hasAttribute('tabindex')) {
+            element.setAttribute('tabindex', '-1');
+          }
+          if (doc.activeElement === element) element.blur?.();
+        }
+        const owner = owners.get(element);
+        const hideChildren = Boolean(owner)
+          || element.getAttribute('aria-hidden') === 'true'
+          || element.getAttribute('data-force-simple') === 'true';
+        for (const child of Array.from(element.children || [])) {
+          visit(child, suppressed || (hideChildren && child !== owner?.control));
+        }
+      };
+      visit(sceneElement, false);
+    }
 
     function guardedCall(fn) {
       try {
@@ -1632,10 +1702,31 @@
           if ((!disp || disp.alive(resolved)) && typeof onActivateObject === 'function') {
             onActivateObject(resolved, activationOwner, syn);
           } else {
-            afterInput?.();
+            notifyAfterInput();
           }
         });
       };
+      const onFocus = () => guardedCall(() => {
+        if (disposed || record.syncingFocus || reconcilingFocus) return;
+        const sh = getStageHost(), disp = getDisplay(), target = resolveProxy();
+        if (!sh || !target || (disp && !disp.alive(target))) return;
+        if (sh.stage.focus !== target) {
+          sh.stage.focus = target;
+          notifyAfterInput();
+        }
+      });
+      const onBlur = ev => guardedCall(() => {
+        if (disposed || record.syncingFocus || reconcilingFocus) return;
+        if (ev?.relatedTarget && ownedFocusControls.has(ev.relatedTarget)) return;
+        const sh = getStageHost(), target = resolveProxy();
+        if (sh && target && sh.stage.focus === target) {
+          sh.stage.focus = null;
+          notifyAfterInput();
+        }
+      });
+      ownedFocusControls.add(btn);
+      btn.addEventListener('focus', onFocus);
+      btn.addEventListener('blur', onBlur);
       btn.addEventListener('pointerenter', onEnter);
       btn.addEventListener('pointermove', onMove);
       btn.addEventListener('pointerdown', onDown);
@@ -1644,7 +1735,11 @@
       btn.addEventListener('click', onClick);
       const record = {
         element: btn,
+        syncingFocus: false,
         cleanup() {
+          ownedFocusControls.delete(btn);
+          btn.removeEventListener('focus', onFocus);
+          btn.removeEventListener('blur', onBlur);
           btn.removeEventListener('pointerenter', onEnter);
           btn.removeEventListener('pointermove', onMove);
           btn.removeEventListener('pointerdown', onDown);
@@ -1652,6 +1747,7 @@
           btn.removeEventListener('pointerleave', onLeave);
           btn.removeEventListener('click', onClick);
           btn.remove();
+          clearControlFocus(ownerKey);
         },
       };
       containerRec.buttonRecord = record;
@@ -1678,6 +1774,7 @@
       el.setAttribute('autocapitalize', 'off');
       el.setAttribute('spellcheck', 'false');
       ownedInputControls.add(el);
+      ownedFocusControls.add(el);
 
       const resolveReceiver = () => {
         try {
@@ -1689,7 +1786,7 @@
       };
 
       const onFocus = () => guardedCall(() => {
-        if (disposed || rec.syncingFocus) return;
+        if (disposed || rec.syncingFocus || reconcilingFocus) return;
         const sh = getStageHost();
         const disp = getDisplay();
         const receiver = resolveReceiver();
@@ -1699,22 +1796,22 @@
           sh.stage.focus = receiver;
           receiver.onSetFocus?.(prev);
           getAs2TextHost()?.textEvent?.(ownerKey, 'onSetFocus', [prev]);
-          afterInput?.();
+          notifyAfterInput();
         }
       });
 
       const onBlur = ev => guardedCall(() => {
-        if (disposed || rec.syncingFocus) return;
+        if (disposed || rec.syncingFocus || reconcilingFocus) return;
         const sh = getStageHost();
         const receiver = resolveReceiver();
         if (!sh || !receiver) return;
         const related = ev?.relatedTarget;
-        if (related && ownedInputControls.has(related)) return;
+        if (related && ownedFocusControls.has(related)) return;
         if (sh.stage.focus === receiver) {
           sh.stage.focus = null;
           receiver.onKillFocus?.(null);
           getAs2TextHost()?.textEvent?.(ownerKey, 'onKillFocus', [null]);
-          afterInput?.();
+          notifyAfterInput();
         }
       });
 
@@ -1749,7 +1846,7 @@
             const current = textHost.info(ownerKey);
             rec.syncingValue = true;
             try { el.value = displayedFieldText(current); } finally { rec.syncingValue = false; }
-            afterInput?.();
+            notifyAfterInput();
             return;
           }
         }
@@ -1786,7 +1883,7 @@
           receiver.onChanged?.(receiver);
           getAs2TextHost()?.textEvent?.(ownerKey, 'onChanged', [receiver]);
         }
-        afterInput?.();
+        notifyAfterInput();
       });
 
       const syncSelection = () => guardedCall(() => {
@@ -1828,6 +1925,8 @@
         syncingValue: false,
         syncingFocus: false,
         cleanup() {
+          ownedInputControls.delete(el);
+          ownedFocusControls.delete(el);
           el.removeEventListener('focus', onFocus);
           el.removeEventListener('blur', onBlur);
           el.removeEventListener('keydown', onKeyDown);
@@ -1838,6 +1937,7 @@
           el.removeEventListener('click', stopClick);
           inputRecordsByRef.delete(ownerKey);
           el.remove();
+          clearControlFocus(ownerKey);
         },
       };
       leafRecords.set(leafKey, rec);
@@ -1892,6 +1992,7 @@
       a11yApi?.applyDomAccessibility?.(el, semanticMeta, {
         autoLabel: semanticMeta?.name || field.variable || '',
         isInteractive: true,
+        tabEnabled: nodeInput?.tab_enabled,
         explicitTabIndex: nodeInput?.tab_index,
         disabled: !enabled,
       });
@@ -1936,6 +2037,7 @@
             node.addEventListener('click', ev => {
               ev.preventDefault?.();
               ev.stopPropagation?.();
+              if (disposed || !containsNode(sceneElement, node)) return;
               guardedCall(() => onTextLink?.(ownerKey, trimmedUrl.slice(6)));
             });
           } else if (isAsfunctionLink) {
@@ -1944,6 +2046,7 @@
             node.addEventListener('click', ev => {
               ev.preventDefault?.();
               ev.stopPropagation?.();
+              if (disposed || !containsNode(sceneElement, node)) return;
               guardedCall(() => onAsfunction?.(ownerKey, trimmedUrl.slice(11)));
             });
           } else {
@@ -1958,6 +2061,7 @@
               node.addEventListener('click', ev => {
                 ev.preventDefault?.();
                 ev.stopPropagation?.();
+                if (disposed || !containsNode(sceneElement, node)) return;
                 guardedCall(() => onNavigateUrl(safeHref, safeTarget));
               });
             }
@@ -2330,6 +2434,27 @@
 
     function render(frameState) {
       if (disposed) return;
+      // Native blur can fire inside remove()/insertBefore(). Its authored events
+      // still run immediately, but their redraw must wait for the current tree.
+      if (rendering) {
+        queuedFrameState = frameState;
+        return;
+      }
+      let nextFrameState = frameState;
+      do {
+        queuedFrameState = null;
+        rendering = true;
+        try { renderFrame(nextFrameState); } finally { rendering = false; }
+        nextFrameState = queuedFrameState;
+      } while (nextFrameState && !disposed);
+      if (inputUpdatePending && !disposed) {
+        inputUpdatePending = false;
+        afterInput?.();
+      }
+    }
+
+    function renderFrame(frameState) {
+      restoreSuppressedAccessibility();
       const {
         snapshot,
         semantics = [],
@@ -2411,6 +2536,7 @@
       const seenIslands = new Set();
       const desiredChildrenByContainer = new Map();
       const sceneDesired = [];
+      const suppressionOwners = new Map();
 
       const interactiveOwnerKeys = new Set();
       for (const [k, n] of objectsByKey) {
@@ -2640,7 +2766,6 @@
             img.className = 'nf-dom-bitmap';
             img.setAttribute('data-nf-id', leafKey);
             img.setAttribute('data-nf-kind', 'bitmap');
-            img.alt = semMeta?.name || '';
             img.decoding = 'sync';
             img.draggable = false;
             rec = { kind: 'bitmap', element: img, lastUrl: null, cleanup() { img.remove(); } };
@@ -2648,6 +2773,7 @@
           }
           seenLeaves.add(leafKey);
           const img = rec.element;
+          img.alt = semMeta?.name || '';
           if (rec.lastUrl !== url) {
             rec.lastUrl = url;
             img.src = url;
@@ -2741,6 +2867,7 @@
             a11yApi?.applyDomAccessibility?.(btn, semMeta, {
               autoLabel,
               isInteractive: true,
+              tabEnabled: node.input?.tab_enabled,
               explicitTabIndex: node.input?.tab_index,
               disabled,
             });
@@ -2754,19 +2881,21 @@
           rec.buttonRecord = null;
         }
         const semMeta = !interactiveOwnerKeys.has(key) ? (semByRef.get(key)?.accessibility || null) : null;
-        if (semMeta) {
-          a11yApi?.applyDomAccessibility?.(rec.element, semMeta, {
+        a11yApi?.applyDomAccessibility?.(rec.element, semMeta, semMeta ? {
             autoLabel: node?.name || '',
             isInteractive: false,
-            tabEnabled: node?.input?.tab_enabled ? true : undefined,
+            tabEnabled: node?.input?.tab_enabled,
             explicitTabIndex: node?.input?.tab_index,
-          });
+          } : {});
+        const ownerMeta = semByRef.get(key)?.accessibility;
+        if (ownerMeta?.silent || ownerMeta?.forceSimple || ownerMeta?.force_simple) {
+          suppressionOwners.set(rec.element, { control: rec.buttonRecord?.element });
         }
         if (rec.clipWrapper && rec.clipInner) {
-          syncChildrenOrder(rec.clipInner, childList);
-          syncChildrenOrder(rec.element, [rec.clipWrapper]);
+          syncChildrenOrder(rec.clipInner, childList, preserveNativeFocus);
+          syncChildrenOrder(rec.element, [rec.clipWrapper], preserveNativeFocus);
         } else {
-          syncChildrenOrder(rec.element, childList);
+          syncChildrenOrder(rec.element, childList, preserveNativeFocus);
         }
       }
 
@@ -2790,7 +2919,11 @@
         }
       }
 
-      syncChildrenOrder(sceneElement, sceneDesired);
+      syncChildrenOrder(sceneElement, sceneDesired, preserveNativeFocus);
+      suppressDescendantAccessibility(suppressionOwners);
+      if (pendingNativeFocus && getStageHost()?.stage?.focus === pendingNativeFocus && canFocus(pendingNativeFocus)) {
+        if (focusNativeControl(pendingNativeFocus)) pendingNativeFocus = null;
+      }
     }
 
     function sync(refKey) {
@@ -2818,27 +2951,39 @@
       const ref = referenceOf(target);
       if (!ref || !disp?.alive?.(target)) return true;
       const desc = disp.descriptor(target);
+      // Native controls reflect the last render; script may enable and focus an
+      // object in the same turn, so eligibility comes from its current runtime state.
+      if (desc?.on_stage === false || desc?.effective_visible === false || desc?.visible === false
+          || (desc?.owner === 'button' && desc.input?.button_enabled === false)
+          || (desc?.owner === 'movie_clip' && desc.input?.movieclip_enabled === false)) return false;
       if (desc?.owner !== 'text') return true;
       return desc.text?.field_type === 'input' || desc.text?.selectable !== false;
     }
 
+    function focusNativeControl(target) {
+      const ref = referenceOf(target);
+      const rec = ref ? (inputRecordsByRef.get(ref.key) || containerRecords.get(ref.key)?.buttonRecord) : null;
+      if (!rec || rec.element.disabled || rec.element.getAttribute('aria-hidden') === 'true') return false;
+      if (doc.activeElement !== rec.element) {
+        rec.syncingFocus = true;
+        try { rec.element.focus?.({ preventScroll: true }); } finally { rec.syncingFocus = false; }
+      }
+      return doc.activeElement === rec.element;
+    }
+
     function focusChanged(next, previous) {
       if (disposed) return true;
+      pendingNativeFocus = null;
       if (previous) {
         const prevRef = referenceOf(previous);
-        const prevRec = prevRef ? inputRecordsByRef.get(prevRef.key) : null;
+        const prevRec = prevRef ? (inputRecordsByRef.get(prevRef.key) || containerRecords.get(prevRef.key)?.buttonRecord) : null;
         if (prevRec && doc.activeElement === prevRec.element) {
           prevRec.syncingFocus = true;
           try { prevRec.element.blur?.(); } finally { prevRec.syncingFocus = false; }
         }
       }
       if (next) {
-        const nextRef = referenceOf(next);
-        const nextRec = nextRef ? inputRecordsByRef.get(nextRef.key) : null;
-        if (nextRec && doc.activeElement !== nextRec.element && !nextRec.element.disabled) {
-          nextRec.syncingFocus = true;
-          try { nextRec.element.focus?.({ preventScroll: true }); } finally { nextRec.syncingFocus = false; }
-        }
+        if (!focusNativeControl(next)) pendingNativeFocus = next;
       }
       return true;
     }
@@ -2883,6 +3028,8 @@
     });
 
     function clearSceneRecords() {
+      pendingNativeFocus = null;
+      restoreSuppressedAccessibility();
       for (const rec of leafRecords.values()) rec.cleanup?.();
       for (const rec of islandRecords.values()) rec.cleanup?.();
       for (const rec of containerRecords.values()) rec.cleanup?.();

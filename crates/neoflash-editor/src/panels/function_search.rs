@@ -229,6 +229,9 @@ impl Editor {
         let width = (content.width() - space::S5 * 2.0).clamp(1.0, 560.0);
         let mut activated = None;
         let mut open_manual = false;
+        let mut search_edit_id = None;
+        let mut results_id = None;
+        let mut result_rows = Vec::new();
 
         let area = egui::Area::new(egui::Id::new("nf2-function-search-area"))
             .order(egui::Order::Foreground)
@@ -243,6 +246,7 @@ impl Editor {
                             .width(width),
                     );
                     let edit_id = search.id.with("edit");
+                    search_edit_id = Some(edit_id);
                     if ui.memory(|memory| memory.has_focus(edit_id)) {
                         state.focus_attempts = 0;
                     } else if state.focus_attempts > 0 {
@@ -269,6 +273,7 @@ impl Editor {
                         .max_height(RESULTS_MAX_HEIGHT)
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
+                            results_id = Some(ui.unique_id());
                             ui.set_width(ui.available_width());
                             ui.spacing_mut().item_spacing.y = 0.0;
                             if visible == 0 {
@@ -287,6 +292,7 @@ impl Editor {
                                         .shortcut(&shortcut)
                                         .highlighted(index == state.active),
                                 );
+                                result_rows.push(row.id);
                                 if index == state.active {
                                     row.scroll_to_me(Some(egui::Align::Center));
                                 }
@@ -361,6 +367,34 @@ impl Editor {
         if activated.is_some() || open_manual || close {
             state.open = false;
         }
+        // Keep the native TextEdit role, value and caret intact. Its active
+        // descendant identifies the same result that Enter would execute while
+        // keyboard focus remains in the search field.
+        if let Some(results_id) = results_id {
+            ctx.accesskit_node_builder(results_id, |node| {
+                node.set_role(egui::accesskit::Role::ListBox);
+            });
+        }
+        for (index, row_id) in result_rows.iter().enumerate() {
+            ctx.accesskit_node_builder(*row_id, |node| {
+                node.set_role(egui::accesskit::Role::ListBoxOption);
+                node.set_selected(state.open && index == state.active);
+            });
+        }
+        if let Some(edit_id) = search_edit_id {
+            ctx.accesskit_node_builder(edit_id, |node| {
+                node.clear_controls();
+                node.clear_active_descendant();
+                if state.open {
+                    if let Some(results_id) = results_id {
+                        node.push_controlled(results_id.value().into());
+                    }
+                    if let Some(active_id) = result_rows.get(state.active) {
+                        node.set_active_descendant(active_id.value().into());
+                    }
+                }
+            });
+        }
         store_state(ctx, state);
 
         if open_manual {
@@ -424,6 +458,12 @@ mod tests {
             ..Default::default()
         };
         let _ = ctx.run(input(Vec::new()), |ctx| editor.function_search_popover(ctx));
+        // Opening requests focus after Search paints. Let its native TextEdit
+        // register the arrow-key focus filter before sending navigation input.
+        let _ = ctx.run(input(Vec::new()), |ctx| editor.function_search_popover(ctx));
+        let focus = ctx
+            .memory(|memory| memory.focused())
+            .expect("search keeps focus");
         for _ in 0..20 {
             let _ = ctx.run(
                 input(vec![egui::Event::Key {
@@ -465,6 +505,116 @@ mod tests {
         assert!(
             active.y1 <= f64::from(visible_results_bottom),
             "active keyboard result must remain inside the results viewport"
+        );
+        let assert_search_relation = |output: &egui::FullOutput, expected: Option<&str>| {
+            let update = output.platform_output.accesskit_update.as_ref().unwrap();
+            let search_id = egui::accesskit::NodeId::from(focus.value());
+            let search = &update
+                .nodes
+                .iter()
+                .find(|(id, _)| *id == search_id)
+                .unwrap()
+                .1;
+            assert_eq!(search.role(), egui::accesskit::Role::TextInput);
+            let list = search
+                .controls()
+                .first()
+                .expect("search controls its result list");
+            assert_eq!(
+                update
+                    .nodes
+                    .iter()
+                    .find(|(id, _)| id == list)
+                    .unwrap()
+                    .1
+                    .role(),
+                egui::accesskit::Role::ListBox
+            );
+            let selected: Vec<_> = update
+                .nodes
+                .iter()
+                .filter(|(_, node)| {
+                    node.role() == egui::accesskit::Role::ListBoxOption
+                        && node.is_selected() == Some(true)
+                })
+                .collect();
+            if let Some(expected) = expected {
+                assert_eq!(selected.len(), 1);
+                assert_eq!(selected[0].1.label(), Some(expected));
+                assert_eq!(search.active_descendant(), Some(selected[0].0));
+            } else {
+                assert!(selected.is_empty());
+                assert!(search.active_descendant().is_none());
+            }
+            assert_eq!(update.focus, search_id);
+            assert_eq!(ctx.memory(|memory| memory.focused()), Some(focus));
+        };
+        assert_search_relation(&output, Some(&active_label));
+
+        let output = ctx.run(input(vec![egui::Event::Text("gradient".into())]), |ctx| {
+            editor.function_search_popover(ctx)
+        });
+        let state = function_search_state(&ctx);
+        assert_eq!(state.query, "gradient");
+        let filtered_label = results_for_editor(&editor, Some(&ctx), &state.query)[state.active]
+            .menu_path()
+            .replace(" ▸ ", " > ");
+        assert_search_relation(&output, Some(&filtered_label));
+        let search = &output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == focus.value().into())
+            .unwrap()
+            .1;
+        assert_eq!(
+            search.value(),
+            Some("gradient"),
+            "native text value is preserved"
+        );
+
+        let output = ctx.run(
+            input(vec![egui::Event::Text("zzzzzzzzzzzz".into())]),
+            |ctx| editor.function_search_popover(ctx),
+        );
+        assert_search_relation(&output, None);
+        let output = ctx.run(
+            input(vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }]),
+            |ctx| editor.function_search_popover(ctx),
+        );
+        assert!(!is_function_search_open(&ctx));
+        let search = &output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == focus.value().into())
+            .unwrap()
+            .1;
+        assert!(search.active_descendant().is_none());
+        assert!(search.controls().is_empty());
+        let output = ctx.run(input(Vec::new()), |ctx| editor.function_search_popover(ctx));
+        assert!(
+            output
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .all(|(id, node)| *id != focus.value().into()
+                    && node.role() != egui::accesskit::Role::ListBoxOption)
         );
     }
 

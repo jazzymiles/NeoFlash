@@ -99,7 +99,11 @@ function makeFakeElement(tag = 'div') {
     placeholder: '',
     name: '',
     type: '',
-    tabIndex: 0,
+    get tabIndex() {
+      if (attrs.has('tabindex')) return Number(attrs.get('tabindex'));
+      return /^(?:INPUT|TEXTAREA|BUTTON|SELECT|A)$/.test(el.tagName) ? 0 : -1;
+    },
+    set tabIndex(value) { attrs.set('tabindex', String(value)); },
     setAttribute(k, v) {
       attrs.set(String(k), String(v));
     },
@@ -138,6 +142,9 @@ function makeFakeElement(tag = 'div') {
     removeChild(child) {
       const idx = children.indexOf(child);
       if (idx >= 0) {
+        if (el.ownerDocument?.simulateFocusEvents && child.contains(el.ownerDocument.activeElement)) {
+          el.ownerDocument.activeElement.blur();
+        }
         children.splice(idx, 1);
         child.parentNode = null;
       }
@@ -167,16 +174,31 @@ function makeFakeElement(tag = 'div') {
       return !evt.defaultPrevented;
     },
     focus() {
-      if (el.ownerDocument) el.ownerDocument.activeElement = el;
+      const doc = el.ownerDocument;
+      if (!doc || el.disabled || doc.activeElement === el) return;
+      const previous = doc.activeElement;
+      doc.activeElement = el;
+      if (doc.simulateFocusEvents) {
+        previous?.dispatchEvent({ type: 'blur', relatedTarget: el });
+        el.dispatchEvent({ type: 'focus', relatedTarget: previous });
+      }
     },
     blur() {
       if (el.ownerDocument && el.ownerDocument.activeElement === el) {
         el.ownerDocument.activeElement = null;
+        if (el.ownerDocument.simulateFocusEvents) el.dispatchEvent({ type: 'blur', relatedTarget: null });
       }
     },
-    setSelectionRange(s, e) {
+    contains(node) {
+      for (let current = node; current; current = current.parentNode) {
+        if (current === el) return true;
+      }
+      return false;
+    },
+    setSelectionRange(s, e, direction = 'none') {
       el.selectionStart = s;
       el.selectionEnd = e;
+      el.selectionDirection = direction;
     },
     getBoundingClientRect() {
       return { left: 0, top: 0, width: 400, height: 300 };
@@ -573,7 +595,7 @@ test('DOM link sanitization: blocks unsafe schemes/obfuscation with plain <span>
   assert.equal(domStage.sceneElement.children.length, 0, 'domStageHost.reset() must clear mounted DOM leaves');
 });
 
-test('DOM stage preserves real pointer coordinates at viewport 0,0 while centring keyboard clicks', () => {
+test('DOM stage preserves pointer coordinates, native focus, semantics and target cleanup', () => {
   const domLayout = require('../dom-layout.js');
   const doc = makeFakeDocument();
   const surface = doc.createElement('div');
@@ -624,6 +646,165 @@ test('DOM stage preserves real pointer coordinates at viewport 0,0 while centrin
   assert.deepEqual(picked.shift(), [200, 150]);
   assert.deepEqual(handled.shift(), ['click', 200, 150, stage]);
   domStage.dispose();
+
+  // Real Stage events with browser-like native focus/blur and detach behavior.
+  const events = require('../events.js');
+  const stageApi = require('../stage.js');
+  const focusDoc = makeFakeDocument();
+  focusDoc.simulateFocusEvents = true;
+  const focusSurface = focusDoc.createElement('div');
+  focusSurface.querySelector = () => null;
+  const matrix = [1, 0, 0, 1, 0, 0];
+  const ref = id => ({ id, generation: 1 });
+  const rootRef = ref(0), groupRef = ref(1), inputRef = ref(2), buttonRef = ref(3), linkRef = ref(4), bitmapRef = ref(5);
+  const objects = [
+    { object_ref: rootRef, owner: 'movie_clip', parent_ref: null },
+    { object_ref: groupRef, owner: 'sprite', parent_ref: rootRef, name: 'section' },
+    { object_ref: inputRef, owner: 'text', parent_ref: groupRef, name: 'entry', input: { tab_enabled: true, tab_index: 1 }, text: { field_type: 'input' } },
+    { object_ref: buttonRef, owner: 'button', parent_ref: rootRef, name: 'action', input: { tab_enabled: true, tab_index: 2 } },
+    { object_ref: linkRef, owner: 'text', parent_ref: groupRef, name: 'help' },
+    { object_ref: bitmapRef, owner: 'bitmap', parent_ref: rootRef, name: 'picture' },
+  ].map(node => ({ ...node, visible: true, effective_visible: true, world: matrix, local_matrix: matrix }));
+  const proxies = new Map(objects.map(node => [JSON.stringify(node.object_ref), { name: node.name, ref: node.object_ref }]));
+  const entry = proxies.get(JSON.stringify(inputRef)), action = proxies.get(JSON.stringify(buttonRef));
+  let host, controller;
+  const hub = events.create({ parentOf: target => target === controller?.stage ? null : controller?.stage });
+  const focusEvents = [];
+  for (const target of [entry, action]) {
+    Object.assign(target, hub.methods(target));
+    for (const type of ['focusIn', 'focusOut']) {
+      target.addEventListener(type, () => focusEvents.push(`${target.name}:${type}`));
+    }
+  }
+  controller = stageApi.create({
+    events: hub, width: 400, height: 300,
+    canFocus: target => host.canFocus(target),
+    onFocusChanged: (next, previous) => host.focusChanged(next, previous),
+  });
+  const navigation = [];
+  host = domLayout.createDomStageHost({
+    document: focusDoc, surface: focusSurface, project: { width: 400, height: 300, symbols: [] },
+    getStageHost: () => controller,
+    getDisplay: () => ({
+      alive: target => [...proxies.values()].includes(target),
+      descriptor: target => objects.find(node => node.object_ref === target.ref),
+    }),
+    proxyForRef: objectRef => proxies.get(JSON.stringify(objectRef)),
+    referenceOf: target => target?.ref ? { key: JSON.stringify(target.ref) } : null,
+    getBitmapHost: () => ({ cache: { paint: (_kind, callback) => callback({ width: 1, height: 1, canvas: { toDataURL: () => 'data:image/png;base64,AA==' } }) } }),
+    onNavigateUrl: url => navigation.push(url),
+  });
+  const inputDraw = {
+    owner_ref: inputRef, transform: matrix, alpha: 1,
+    kind: { type: 'text_field', field: { field_type: 'input', text: 'Editable', box: { width: 160, height: 24 }, format: { size: 14 } } },
+  };
+  const buttonDraw = {
+    owner_ref: buttonRef, transform: matrix, alpha: 1,
+    kind: { type: 'rectangle', width: 100, height: 24, fill: [10, 20, 30, 255], stroke_width: 0 },
+  };
+  const linkDraw = {
+    owner_ref: linkRef, element_id: 'help-link', transform: matrix, alpha: 1,
+    kind: { type: 'text_field', field: { field_type: 'dynamic', text: 'Guide', box: { width: 160, height: 24 }, format: { size: 14, url: 'https://example.com/guide' } } },
+  };
+  const bitmapDraw = { owner_ref: bitmapRef, transform: matrix, alpha: 1, kind: { type: 'bitmap_pixels', width: 1, height: 1, id: 'image' } };
+  const bitmapMeta = { role: 'image', name: 'Initial picture' };
+  const groupMeta = { role: 'group', name: 'Section', description: 'Form section', live: 'polite' };
+  const semantics = [
+    { owner_ref: groupRef, accessibility: groupMeta },
+    { owner_ref: inputRef, accessibility: { name: 'Entry' } },
+    { owner_ref: buttonRef, accessibility: { role: 'button', name: 'Action' } },
+    { owner_ref: bitmapRef, accessibility: bitmapMeta },
+  ];
+  const snapshot = { objects, draws: [buttonDraw, inputDraw, linkDraw, bitmapDraw], clips: [], filter_groups: [] };
+  const render = () => host.render({ snapshot, semantics });
+  const descendants = element => [element, ...element.children.flatMap(descendants)];
+  const find = kind => descendants(host.sceneElement).find(el => el.getAttribute('data-nf-kind') === kind);
+  render();
+  const input = find('input'), button = find('button'), link = descendants(host.sceneElement).find(el => el.tagName === 'A');
+  const group = descendants(host.sceneElement).find(el => el.getAttribute('data-nf-name') === 'section');
+  assert.equal(input.tabIndex, 1);
+  assert.equal(button.tabIndex, 2);
+  const image = find('bitmap');
+  assert.equal(image.alt, 'Initial picture');
+  delete bitmapMeta.name;
+  render();
+  assert.equal(image.alt, '', 'clearing runtime metadata must clear the native image name too');
+  input.focus();
+  assert.equal(controller.stage.focus, entry);
+  input.setSelectionRange(1, 5, 'backward');
+  const focusBeforeReorder = focusEvents.length;
+  snapshot.draws = [inputDraw, linkDraw, buttonDraw, bitmapDraw];
+  render();
+  assert.equal(focusDoc.activeElement, input, 'moving the focused input’s ancestor retains the same control');
+  assert.equal(controller.stage.focus, entry);
+  assert.deepEqual([input.selectionStart, input.selectionEnd, input.selectionDirection], [1, 5, 'backward']);
+  assert.equal(focusEvents.length, focusBeforeReorder, 'DOM reconciliation does not synthesize Stage focus transitions');
+  button.focus();
+  assert.equal(controller.stage.focus, action);
+  assert.deepEqual(focusEvents, ['entry:focusIn', 'entry:focusOut', 'action:focusIn']);
+  controller.stage.focus = entry;
+  assert.equal(focusDoc.activeElement, input);
+  controller.stage.focus = action;
+  assert.equal(focusDoc.activeElement, button, 'programmatic Stage.focus reaches DOM buttons');
+  objects[3].input.button_enabled = false;
+  render();
+  assert.equal(button.disabled, true);
+  assert.equal(host.canFocus(action), false);
+  objects[3].input.button_enabled = true;
+  controller.stage.focus = action;
+  assert.equal(controller.stage.focus, action, 'same-turn enable and Stage.focus uses current runtime state');
+  render();
+  assert.equal(focusDoc.activeElement, button, 'deferred native focus follows the enabled control on render');
+  objects[2].input.tab_enabled = false;
+  objects[3].input.tab_enabled = false;
+  render();
+  assert.equal(input.tabIndex, -1);
+  assert.equal(button.tabIndex, -1);
+  assert.equal(button.disabled, false, 'tabEnabled controls keyboard traversal, not pointer activation');
+  assert.equal(controller.stage.focus, null);
+  objects[2].input.tab_enabled = true;
+  objects[3].input.tab_enabled = true;
+  render();
+  input.focus();
+  groupMeta.forceSimple = true;
+  render();
+  assert.equal(group.getAttribute('aria-label'), 'Section');
+  assert.equal(input.tabIndex, -1);
+  assert.ok(host.sceneElement.contains(link), 'the retained link belongs to the current rendered lifetime');
+  assert.equal(link.tabIndex, -1);
+  assert.equal(link.getAttribute('aria-hidden'), 'true');
+  assert.equal(controller.stage.focus, null);
+  delete groupMeta.forceSimple;
+  render();
+  assert.equal(input.tabIndex, 1);
+  assert.equal(link.tabIndex, 0);
+  assert.equal(link.getAttribute('aria-hidden'), null);
+  groupMeta.silent = true;
+  render();
+  assert.equal(link.tabIndex, -1, 'aria-hidden content cannot leave a nested link in the Tab order');
+  semantics.shift();
+  render();
+  for (const attribute of ['role', 'aria-label', 'aria-description', 'aria-live', 'aria-hidden', 'data-force-simple']) {
+    assert.equal(group.getAttribute(attribute), null, `removed metadata clears ${attribute}`);
+  }
+  assert.equal(link.tabIndex, 0);
+  button.focus();
+  snapshot.draws = [inputDraw, linkDraw];
+  objects[3].visible = false;
+  render();
+  assert.equal(controller.stage.focus, null, 'removing a focused native button clears runtime focus');
+  assert.equal(find('button'), undefined);
+  button.focus();
+  assert.equal(controller.stage.focus, null, 'a retired button has no focus listeners');
+  input.focus();
+  host.reset();
+  assert.equal(controller.stage.focus, null);
+  assert.equal(host.owns(input), false, 'retired inputs are not treated as live editor controls');
+  link.dispatchEvent({ type: 'click', preventDefault() {}, stopPropagation() {} });
+  assert.deepEqual(navigation, [], 'a detached rich-text link cannot invoke the old target');
+  assert.equal(host.sceneElement.children.length, 0);
+  host.dispose();
+  controller.dispose();
 });
 
 test('AMF & SharedObject: native .sol binary container with typed aliases and BroadcastChannel remote sync', async () => {

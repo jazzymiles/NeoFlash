@@ -181,12 +181,24 @@ function buildInteractiveAs3Project() {
   const frame0Script = [
     'import flash.events.Event;',
     'import flash.events.MouseEvent;',
+    'import flash.events.FocusEvent;',
+    'import flash.accessibility.AccessibilityProperties;',
     'stop();',
     'var self:* = this;',
     'var nameInput:* = self.getChildByName("nameInput");',
     'var statusField:* = self.getChildByName("statusField");',
     'var nextBtn:* = self.getChildByName("nextBtn");',
     'var presetBtn:* = self.getChildByName("presetBtn");',
+    'self.focusEvents = "";',
+    'self.textAccess = new AccessibilityProperties();',
+    'self.cardAccess = new AccessibilityProperties();',
+    'function recordFocus(e:FocusEvent):void { self.focusEvents += e.type + ":" + e.target.name + ";"; }',
+    'nameInput.addEventListener(FocusEvent.FOCUS_IN, recordFocus);',
+    'nameInput.addEventListener(FocusEvent.FOCUS_OUT, recordFocus);',
+    'nextBtn.addEventListener(FocusEvent.FOCUS_IN, recordFocus);',
+    'nextBtn.addEventListener(FocusEvent.FOCUS_OUT, recordFocus);',
+    'presetBtn.addEventListener(FocusEvent.FOCUS_IN, recordFocus);',
+    'presetBtn.addEventListener(FocusEvent.FOCUS_OUT, recordFocus);',
     'nameInput.tabIndex = 1;',
     'nextBtn.tabIndex = 2;',
     'presetBtn.tabIndex = 3;',
@@ -319,7 +331,7 @@ function buildInteractiveAs3Project() {
   };
 
   return {
-    format_version: 7,
+    format_version: 9,
     name: 'DomPortalApp',
     width: 640,
     height: 400,
@@ -356,6 +368,10 @@ function buildInteractiveAs3Project() {
                   frame: 0,
                   label: 'form_view',
                   tween: null,
+                  extended_accessibility: [
+                    { element_id: 'el-status', role: 'region', live: 'polite', reading_order: 4 },
+                    { element_id: 'el-next-btn', role: 'button', shortcut: 'Enter', reading_order: 1 },
+                  ],
                   elements: [
                     {
                       id: 'el-header',
@@ -858,6 +874,17 @@ async function launchCdpSession(chromeBin, userDataDir) {
   return { chromeProc, ws, send, navigateAndWait, evalJson, waitBooted, pressKey, errors };
 }
 
+async function afterRender(cdp, expression) {
+  return cdp.evalJson(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(${expression}))))`);
+}
+
+async function assertLiveAccessibility(cdp, name) {
+  const tree = await cdp.send('Accessibility.getFullAXTree');
+  const regions = tree.nodes.filter(node => !node.ignored && node.role?.value === 'region' && node.name?.value === name);
+  assert.equal(regions.length, 1, `one accessible live region for ${name}`);
+  assert.ok(regions[0].properties.some(property => property.name === 'live' && property.value?.value === 'polite'));
+}
+
 test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms, Tab order, breakpoints, Canvas islands, lifecycle, AS2, and Canvas baseline', async (t) => {
   const chromeBin = findChromeBinary();
   if (!chromeBin) {
@@ -1023,6 +1050,40 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
       ]
     );
 
+    // Authored live metadata reaches the actual DOM, while transient runtime
+    // metadata must leave neither stale names nor hidden link Tab stops behind.
+    await assertLiveAccessibility(cdp, 'Ready: Portal Guide (Initial)');
+    await cdp.evalJson(`(() => {
+      const root = NeoFlashPlayer.root;
+      root.textAccess.silent = true;
+      root.getChildByName('statusField').accessibilityProperties = root.textAccess;
+      root.cardAccess.name = 'Temporary card name';
+      root.cardAccess.description = 'Temporary description';
+      root.cardAccess.live = 'polite';
+      root.getChildByName('cardClip').accessibilityProperties = root.cardAccess;
+      return true;
+    })()`);
+    const suppressed = await afterRender(cdp, `(() => ({
+      linkTabIndex: document.querySelector('#stage-dom-root a')?.tabIndex,
+      cardName: document.querySelector('[data-nf-name="cardClip"]')?.getAttribute('aria-label'),
+    }))()`);
+    assert.equal(suppressed.linkTabIndex, -1);
+    assert.equal(suppressed.cardName, 'Temporary card name');
+    await cdp.evalJson(`(() => {
+      const root = NeoFlashPlayer.root;
+      root.getChildByName('statusField').accessibilityProperties = null;
+      root.getChildByName('cardClip').accessibilityProperties = null;
+      return true;
+    })()`);
+    const restoredSemantics = await afterRender(cdp, `(() => ({
+      linkTabIndex: document.querySelector('#stage-dom-root a')?.tabIndex,
+      staleNameCount: document.querySelectorAll('[aria-label="Temporary card name"]').length,
+      staleDescriptionCount: document.querySelectorAll('[aria-description="Temporary description"]').length,
+    }))()`);
+    assert.equal(restoredSemantics.linkTabIndex, 0);
+    assert.equal(restoredSemantics.staleNameCount, 0);
+    assert.equal(restoredSemantics.staleDescriptionCount, 0);
+
     await cdp.evalJson(`(() => {
       const inp = document.querySelector('#stage-dom-root input.nf-dom-input');
       window.__nfSavedInput = inp;
@@ -1051,6 +1112,7 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
     assert.equal(afterTyping.inputValue, 'Grace Hopper');
     assert.ok(afterTyping.texts.includes('Typed: Grace Hopper'), `Dynamic text must reflect typed input: ${JSON.stringify(afterTyping.texts)}`);
     assert.ok(afterTyping.trace.includes('AS3_CHANGE=Grace Hopper'), `Expected AS3 Event.CHANGE trace, got ${afterTyping.trace}`);
+    await assertLiveAccessibility(cdp, 'Typed: Grace Hopper');
 
     // Real Tab traversal: tabIndex 1 (input) -> tabIndex 2 (Submit & Next) -> tabIndex 3 (Preset Ada)
     await cdp.pressKey('Tab', 'Tab', 9);
@@ -1060,6 +1122,53 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
     await cdp.pressKey('Tab', 'Tab', 9);
     const tabStop3 = await cdp.evalJson(`document.activeElement?.getAttribute('aria-label')`);
     assert.equal(tabStop3, 'Preset Ada');
+
+    const focusBridge = await cdp.evalJson(`(() => {
+      const root = NeoFlashPlayer.root;
+      return { focused: root.stage.focus === root.getChildByName('presetBtn'), events: root.focusEvents };
+    })()`);
+    assert.equal(focusBridge.focused, true, 'native Tab updates Stage.focus for buttons');
+    for (const event of ['focusIn:nameInput;', 'focusOut:nameInput;', 'focusIn:nextBtn;', 'focusOut:nextBtn;', 'focusIn:presetBtn;']) {
+      assert.ok(focusBridge.events.includes(event), `missing ${event}: ${focusBridge.events}`);
+    }
+    await cdp.evalJson(`(() => {
+      const root = NeoFlashPlayer.root;
+      root.getChildByName('nameInput').tabEnabled = false;
+      root.getChildByName('presetBtn').tabEnabled = false;
+      root.getChildByName('nextBtn').enabled = false;
+      return true;
+    })()`);
+    const excluded = await afterRender(cdp, `(() => ({
+      input: document.querySelector('#stage-dom-root input').tabIndex,
+      preset: document.querySelector('button[aria-label="Preset Ada"]').tabIndex,
+      disabled: document.querySelector('button[aria-label="Submit & Next"]').disabled,
+    }))()`);
+    assert.deepEqual(excluded, { input: -1, preset: -1, disabled: true });
+    await cdp.evalJson(`(() => {
+      const root = NeoFlashPlayer.root;
+      root.getChildByName('nameInput').tabEnabled = true;
+      root.getChildByName('presetBtn').tabEnabled = true;
+      root.getChildByName('nextBtn').enabled = true;
+      root.stage.focus = root.getChildByName('nextBtn');
+      return true;
+    })()`);
+    assert.equal(await afterRender(cdp, `document.activeElement?.getAttribute('aria-label')`), 'Submit & Next', 'Stage.focus updates the native button');
+    await cdp.evalJson(`(() => {
+      const root = NeoFlashPlayer.root;
+      window.__nfRetiredButton = document.querySelector('button[aria-label="Submit & Next"]');
+      root.getChildByName('nextBtn').visible = false;
+      return true;
+    })()`);
+    assert.equal(await afterRender(cdp, `document.querySelectorAll('button[aria-label="Submit & Next"]').length`), 0);
+    await cdp.evalJson(`(() => { window.__nfRetiredButton.click(); return true; })()`);
+    assert.equal(await cdp.evalJson('NeoFlashPlayer.root.currentFrame'), 1, 'retired native button cannot navigate');
+    await cdp.evalJson(`(() => {
+      const root = NeoFlashPlayer.root;
+      root.getChildByName('nextBtn').visible = true;
+      root.stage.focus = root.getChildByName('presetBtn');
+      return true;
+    })()`);
+    assert.equal(await afterRender(cdp, `document.activeElement?.getAttribute('aria-label')`), 'Preset Ada');
 
     // Activate "Preset Ada" via keyboard Space/Enter or click -> AS3 script mutates nameInput.text -> syncs back into <input>.value!
     await cdp.pressKey('Enter', 'Enter', 13);
@@ -1290,6 +1399,51 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
     assert.equal(canvasCheck.bodyRenderMode, null, 'Default Canvas export must not set data-render-mode');
     assert.equal(canvasCheck.domStageCount, 0, 'Default Canvas export must not mount <neoflash-stage>');
     assert.ok(canvasCheck.nonBg > 50, `Default Canvas export must paint stage artwork onto <canvas>, got ${canvasCheck.nonBg}`);
+
+    // Canvas publishes the same authored live metadata through one semantic
+    // control per object, without duplicate inert overlay Tab stops.
+    await assertLiveAccessibility(cdp, 'Ready: Portal Guide (Initial)');
+    const canvasSemantics = await cdp.evalJson(`(() => ({
+      nextCount: document.querySelectorAll('[aria-label="Submit & Next"]').length,
+      nextTab: document.querySelector('#semantic-layer [aria-label="Submit & Next"]')?.tabIndex,
+      nextShortcut: document.querySelector('#semantic-layer [aria-label="Submit & Next"]')?.getAttribute('aria-keyshortcuts'),
+      presetCount: document.querySelectorAll('[aria-label="Preset Ada"]').length,
+    }))()`);
+    assert.deepEqual(canvasSemantics, { nextCount: 1, nextTab: 2, nextShortcut: 'Enter', presetCount: 1 });
+    // Chrome can update activeElement in an inactive CDP page without dispatching focus events.
+    // Activate this page before testing native focus and keyboard behavior.
+    await cdp.send('Page.bringToFront');
+    assert.equal(await cdp.evalJson('document.hasFocus()'), true, 'Canvas focus acceptance requires an active browser page');
+    await cdp.evalJson(`(() => {
+      window.__nfCanvasOldButton = document.querySelector('#semantic-layer [aria-label="Submit & Next"]');
+      window.__nfCanvasOldButton.focus();
+      return true;
+    })()`);
+    assert.equal(await afterRender(cdp, 'document.activeElement === window.__nfCanvasOldButton'), true);
+    assert.equal(await cdp.evalJson("NeoFlashPlayer.root.stage.focus === NeoFlashPlayer.root.getChildByName('nextBtn')"), true);
+    assert.match(await cdp.evalJson('NeoFlashPlayer.root.focusEvents'), /focusIn:nextBtn;/);
+    await cdp.evalJson("NeoFlashPlayer.root.stage.focus = NeoFlashPlayer.root.getChildByName('presetBtn')");
+    assert.equal(await afterRender(cdp, "document.activeElement?.getAttribute('aria-label')"), 'Preset Ada');
+    await cdp.evalJson("NeoFlashPlayer.root.stage.focus = NeoFlashPlayer.root.getChildByName('nextBtn')");
+    await cdp.pressKey('Enter', 'Enter', 13);
+    assert.equal(await afterRender(cdp, 'NeoFlashPlayer.root.currentFrame'), 2);
+    assert.equal(await cdp.evalJson('window.__nfCanvasOldButton.isConnected'), false);
+    await cdp.evalJson('NeoFlashPlayer.restart()');
+    await cdp.waitBooted('BOOT_F1=1');
+    await cdp.evalJson('window.__nfCanvasOldButton.click()');
+    assert.equal(await cdp.evalJson('NeoFlashPlayer.root.currentFrame'), 1, 'pre-Restart control cannot activate a new lifetime');
+    await cdp.evalJson(`(() => {
+      const root = NeoFlashPlayer.root;
+      root.getChildByName('nextBtn').visible = false;
+      root.getChildByName('presetBtn').enabled = false;
+      return true;
+    })()`);
+    const canvasExcluded = await afterRender(cdp, `(() => ({
+      hiddenCount: document.querySelectorAll('[aria-label="Submit & Next"]').length,
+      disabled: document.querySelector('#semantic-layer [aria-label="Preset Ada"]')?.disabled,
+      tabIndex: document.querySelector('#semantic-layer [aria-label="Preset Ada"]')?.tabIndex,
+    }))()`);
+    assert.deepEqual(canvasExcluded, { hiddenCount: 0, disabled: true, tabIndex: -1 });
 
     // Final navigate to about:blank and assert zero uncaught exceptions or console.errors across all 8 navigations!
     await cdp.navigateAndWait('about:blank');

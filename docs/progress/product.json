@@ -3925,8 +3925,8 @@
       "category": "platform",
       "title": "Editor accessibility and overall verification",
       "status": "partial",
-      "scope": "Authored Button/Image metadata and individual browser keyboard/focus checks exist; HTML5 focus rectangle chrome is gated to keyboard focus navigation or explicit authored accessibility/`_focusrect` rather than plain mouse clicks, and published HTML5 packages emit `#stage-a11y-overlay` with live per-frame DOM synchronization (`syncAccessibilityOverlay`) of ARIA roles, labels, descriptions, live regions and deterministic tab order. Semantic targets carry authored identity plus runtime placement lifetime, so synchronization reuses a DOM node and retains browser focus while that lifetime is unchanged, then replaces it when the placement is recreated.",
-      "limitations": "The native accessibility tree, VoiceOver and end-to-end accessibility verification for authors and visitors are still needed.",
+      "scope": "Authored and runtime accessibility metadata share live placement identity in Canvas and DOM publication, including role/name/description/shortcut/live attributes, native keyboard controls, Stage focus events and cleanup. Disabled, hidden, silent and retired controls leave the appropriate focus/semantic paths. Canvas supports authored reading order; DOM preserves its rendered hierarchy. Native function search exposes a selected result list without losing text focus, and notifications expose complete polite Status or assertive Alert announcements without taking focus.",
+      "limitations": "Native coverage is partial: the complete Stage/Timeline/custom-control accessibility tree and VoiceOver speech remain unverified. DOM browse order is not independently reordered, raster-island semantics remain bounded, and custom accessibility child trees/roles/states/actions are not bridged. Chrome accessibility-tree checks do not prove spoken announcements or all browser/assistive-technology combinations.",
       "items": [
         {
           "id": "authored-metadata",
@@ -3946,7 +3946,7 @@
         {
           "id": "native-a11y-tree",
           "title": "Native accessibility tree",
-          "status": "planned"
+          "status": "partial"
         },
         {
           "id": "voiceover",
@@ -3959,7 +3959,12 @@
         "crates/neoflash-editor/src/panels/accessibility.rs",
         "docs/WEB.md",
         "docs/VERIFICATION.md",
-        "docs/BACKLOG.md"
+        "docs/BACKLOG.md",
+        "crates/neoflash-editor/src/notifications.rs",
+        "crates/neoflash-editor/src/panels/function_search.rs",
+        "web/tests/accessibility.test.cjs",
+        "web/tests/dom-publish-mode.test.cjs",
+        "web/tests/as3-media-events.test.cjs"
       ]
     }
   ]

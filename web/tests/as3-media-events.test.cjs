@@ -1875,6 +1875,28 @@ test('Wave 6: GameInput live gamepad sync, StageVideo canvas compositing, Microp
     assert.equal(domRecords[0].getAttribute('aria-keyshortcuts'), 'Ctrl+T');
     assert.equal(domRecords[0].getAttribute('data-force-simple'), 'true');
     assert.equal(domRecords[0].getAttribute('data-no-auto-labeling'), 'true');
+
+    // The custom implementation bridge consumes only the placement's name/value (child 0).
+    // Child inventories and role/state/action overrides do not manufacture an ARIA widget tree.
+    const implementationCalls = [];
+    const implementation = {
+      stub: false,
+      get_accName(child) { implementationCalls.push(['name', child]); return 'Custom control'; },
+      get_accValue(child) { implementationCalls.push(['value', child]); return 'Custom value'; },
+      getChildIDArray() { implementationCalls.push(['children']); return [1, 2]; },
+      get_accRole(child) { implementationCalls.push(['role', child]); return 0x2a; },
+      get_accState(child) { implementationCalls.push(['state', child]); return 1; },
+      accDoDefaultAction(child) { implementationCalls.push(['action', child]); },
+    };
+    const customSource = {...rawNodes[0], accessibility:{role:'button',name:'Authored name',description:''}};
+    const customNodes = host.applyAccessibilityPropertiesToSemanticNodes([customSource],()=>({accessibilityImplementation:implementation}));
+    assert.deepEqual(implementationCalls,[['name',0],['value',0]]);
+    assert.equal(customNodes[0].accessibility.name,'Custom control');assert.equal(customNodes[0].accessibility.description,'Custom value');assert.equal(customNodes[0].accessibility.role,'button');
+    semanticLayer.update(customNodes,sceneItems,{width:800,height:600},1,()=>20);
+    assert.equal(domRecords.length,1);assert.equal(domRecords[0].getAttribute('aria-label'),'Custom control');assert.deepEqual(implementationCalls,[['name',0],['value',0]]);
+    implementation.stub=true;
+    assert.equal(host.applyAccessibilityPropertiesToSemanticNodes([customSource],()=>({accessibilityImplementation:implementation}))[0].accessibility.name,'Authored name');
+    assert.deepEqual(implementationCalls,[['name',0],['value',0]],'stub implementations are not queried');
   } finally {
     h.dispose();
   }

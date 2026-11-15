@@ -807,7 +807,21 @@ fn movieclip_button_labels_follow_mouse_input(mut project: Project) {
     );
 }
 
-fn mouse_input_capabilities_follow_identity(project: Project) {
+fn mouse_input_capabilities_follow_identity(mut project: Project) {
+    let root_id = project.root.clone();
+    for keyframe in &mut project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes {
+        for element in &mut keyframe.elements {
+            if element.id == "authored-container" {
+                element.accessibility = Some(Accessibility {
+                    name: "Authored action".into(),
+                    description: String::new(),
+                    role: AccessibleRole::Button,
+                    tab_order: 1,
+                    disabled: false,
+                });
+            }
+        }
+    }
     let original = project.to_json().unwrap();
     let mut player = Player::new(&project);
     let root = player.object_ref(&[]).unwrap();
@@ -815,16 +829,143 @@ fn mouse_input_capabilities_follow_identity(project: Project) {
     let target = player.create_display(DynamicKind::Sprite).unwrap();
     let source = player.create_display(DynamicKind::MovieClip).unwrap();
     let text = player.create_display(DynamicKind::TextField).unwrap();
+    let button = player.create_display(DynamicKind::Button).unwrap();
     let shape = player.create_display(DynamicKind::Shape).unwrap();
     let mut input = player.object_input_info(&project, &target).unwrap();
     assert!(input.mouse_enabled && input.mouse_children && input.use_hand_cursor);
     assert!(!input.button_mode && input.hit_area.is_none());
+    assert!(!input.tab_enabled && input.tab_enabled_override.is_none());
+    assert!(
+        player
+            .object_input_info(&project, &button)
+            .unwrap()
+            .tab_enabled
+    );
+    assert!(
+        player
+            .object_input_info(&project, &authored)
+            .unwrap()
+            .tab_enabled
+    );
+    // Older native/WASM callers mutate the public bool, not the new override.
+    // Keep both direct assignments and their serialized form authoritative.
+    for (reference, values, automatic) in [
+        (&button, [false, true], true),
+        (&target, [true, false], false),
+    ] {
+        for enabled in values {
+            let mut state = player.object_input_info(&project, reference).unwrap();
+            state.tab_enabled = enabled;
+            let state = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+            player
+                .object_input_update(&project, reference, state)
+                .unwrap();
+            let resolved = player.object_input_info(&project, reference).unwrap();
+            assert_eq!(resolved.tab_enabled, enabled);
+            assert_eq!(resolved.tab_enabled_override, Some(enabled));
+        }
+        let mut state = player.object_input_info(&project, reference).unwrap();
+        state.tab_enabled_override = None;
+        state.tab_enabled = !automatic;
+        player
+            .object_input_update(&project, reference, state)
+            .unwrap();
+        let restored = player.object_input_info(&project, reference).unwrap();
+        assert_eq!(
+            restored.tab_enabled, automatic,
+            "explicitly clearing the override wins over a stale resolved bool"
+        );
+        assert_eq!(restored.tab_enabled_override, None);
+    }
+    // Dynamic selectable text is not a tab stop until its type becomes input.
+    assert!(player.object_text_info(&project, &text).unwrap().selectable);
+    let mut text_input = player.object_input_info(&project, &text).unwrap();
+    assert!(!text_input.tab_enabled);
+    text_input.tab_index = 4;
+    player
+        .object_input_update(&project, &text, text_input)
+        .unwrap();
+    for field_type in [
+        TextFieldType::Input,
+        TextFieldType::Dynamic,
+        TextFieldType::Input,
+    ] {
+        player
+            .object_text_update(
+                &project,
+                &text,
+                &TextPatch {
+                    field_type: Some(field_type),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let state = player.object_input_info(&project, &text).unwrap();
+        assert_eq!(state.tab_enabled, field_type == TextFieldType::Input);
+        assert_eq!(state.tab_enabled_override, None);
+        assert_eq!(
+            state.tab_index, 4,
+            "unrelated writes retain automatic Tab defaults"
+        );
+        assert_eq!(
+            object(&player.runtime_snapshot(&project), &text).input,
+            Some(state)
+        );
+    }
+    let mut text_input = player.object_input_info(&project, &text).unwrap();
+    text_input.tab_enabled_override = Some(false);
+    player
+        .object_input_update(&project, &text, text_input)
+        .unwrap();
+    for field_type in [TextFieldType::Dynamic, TextFieldType::Input] {
+        player
+            .object_text_update(
+                &project,
+                &text,
+                &TextPatch {
+                    field_type: Some(field_type),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(
+            !player
+                .object_input_info(&project, &text)
+                .unwrap()
+                .tab_enabled
+        );
+    }
     input.mouse_children = false;
     input.button_mode = true;
     input.hit_area = Some(source.clone());
     player
         .object_input_update(&project, &target, input.clone())
         .unwrap();
+    input = player.object_input_info(&project, &target).unwrap();
+    assert!(
+        input.tab_enabled,
+        "buttonMode opts a Sprite into Tab by default"
+    );
+    for button_mode in [false, true] {
+        input.button_mode = button_mode;
+        player
+            .object_input_update(&project, &target, input.clone())
+            .unwrap();
+        input = player.object_input_info(&project, &target).unwrap();
+        assert_eq!(input.tab_enabled, button_mode);
+    }
+    // An explicit false survives default changes and unrelated input writes.
+    input.tab_enabled_override = Some(false);
+    for button_mode in [false, true] {
+        input.button_mode = button_mode;
+        input.tab_index = 2;
+        player
+            .object_input_update(&project, &target, input.clone())
+            .unwrap();
+        input = player.object_input_info(&project, &target).unwrap();
+        assert!(!input.tab_enabled);
+        assert_eq!(input.tab_enabled_override, Some(false));
+    }
     assert_eq!(player.object_input_info(&project, &target).unwrap(), input);
     // Sources remain ordinary display objects; the caller controls visibility
     // and mouseEnabled separately. Detached relations do not change identity.
@@ -889,6 +1030,7 @@ fn mouse_input_capabilities_follow_identity(project: Project) {
         .unwrap();
     let mut authored_input = player.object_input_info(&project, &authored).unwrap();
     authored_input.mouse_enabled = false;
+    authored_input.tab_enabled_override = Some(false);
     player
         .object_input_update(&project, &authored, authored_input)
         .unwrap();
@@ -909,6 +1051,12 @@ fn mouse_input_capabilities_follow_identity(project: Project) {
             .object_input_info(&project, &replacement)
             .unwrap()
             .mouse_enabled
+    );
+    let replacement_input = player.object_input_info(&project, &replacement).unwrap();
+    assert!(replacement_input.tab_enabled);
+    assert_eq!(
+        replacement_input.tab_enabled_override, None,
+        "new lifetimes do not inherit an old explicit Tab exclusion"
     );
     player.reset(&project);
     assert!(player.object_input_info(&project, &target).is_err());

@@ -141,154 +141,197 @@
     return sceneBoundsByPath(scene,width,height,measureText).get(JSON.stringify(path)) || null;
   }
 
+  const roleAliases={image:'img',check_box:'checkbox',radio_button:'radio',combo_box:'combobox',list_item:'listitem',menu_item:'menuitem',progress_bar:'progressbar',tab_panel:'tabpanel'};
+  function ariaRole(role) {
+    const value=String(role || '').trim().toLowerCase();
+    return !value || value==='auto' ? null : (Object.hasOwn(roleAliases,value) ? roleAliases[value] : value);
+  }
+  function attribute(element,name,value) {
+    if (value===null) { if(element.getAttribute(name)!==null)element.removeAttribute(name); }
+    else if(element.getAttribute(name)!==String(value))element.setAttribute(name,String(value));
+  }
+  function nonnegativeOrder(value) {
+    if(value===undefined || value===null || value==='')return null;
+    const order=Number(value);
+    return Number.isInteger(order) && order>=0 ? order : null;
+  }
+  function metadataOrder(metadata) { return nonnegativeOrder(metadata?.tab_order ?? metadata?.tabIndex); }
+  const semanticKey=node=>node.owner_ref?referenceKey(node.owner_ref):JSON.stringify(node.instance_path)+'\u0000'+node.lifetime_id;
+
   class SemanticLayer {
-    constructor(container, onActivate) { this.container=container; this.onActivate=onActivate; this.records=new Map(); this.nextId=1; this.restoringFocus=false; }
+    constructor(container, onActivate, options = {}) {
+      this.container=container;this.onActivate=onActivate;this.onFocus=options.onFocus;this.onBlur=options.onBlur;
+      this.records=new Map();this.elements=new WeakMap();this.nextId=1;this.restoringFocus=false;this.syncingFocus=false;
+    }
+    eligible(record) { return Boolean(record?.active && record.element.parentNode===this.container && !record.element.disabled && record.element.tabIndex>=0); }
+    focusTarget(node) {
+      const record=node && this.records.get(semanticKey(node));
+      if(!this.eligible(record))return false;
+      if(this.container.ownerDocument.activeElement!==record.element){
+        this.syncingFocus=true;
+        try {record.element.focus({preventScroll:true});} finally {this.syncingFocus=false;}
+      }
+      return this.container.ownerDocument.activeElement===record.element;
+    }
+    blurTarget(node) {
+      const record=node && this.records.get(semanticKey(node));
+      if(record && this.container.ownerDocument.activeElement===record.element){
+        this.syncingFocus=true;
+        try {record.element.blur?.();} finally {this.syncingFocus=false;}
+      }
+    }
+    retire(record) {
+      const focused=this.container.ownerDocument.activeElement===record.element;
+      record.active=false;
+      if(focused)record.element.blur?.();
+      record.element.remove();
+      if(focused && !this.syncingFocus)this.onBlur?.(record.node,{relatedTarget:null});
+    }
     update(nodes, scene, project, scale, measureText, origin = null) {
       const scaleX=typeof scale==='object'?scale.x:scale,scaleY=typeof scale==='object'?scale.y:scale;
       const originX=Number(origin?.x)||0,originY=Number(origin?.y)||0;
       const doc=this.container.ownerDocument, previouslyFocused=doc.activeElement, wanted=[];
       const boundsByPath=sceneBoundsByPath(scene,project.width,project.height,measureText,origin);
-      const forceSimplePaths=[], forceSimpleRefs=new Set();
+      const collapsedPaths=[], collapsedRefs=new Set();
       for (const node of nodes) {
         const meta=node&&node.accessibility;
-        if (!meta || meta.silent) continue;
-        if (meta.forceSimple || meta.force_simple) {
-          if (Array.isArray(node.instance_path)) forceSimplePaths.push(node.instance_path);
-          if (node.owner_ref) forceSimpleRefs.add(referenceKey(node.owner_ref));
+        if (!meta) continue;
+        if (meta.silent || meta.forceSimple || meta.force_simple) {
+          if (Array.isArray(node.instance_path)) collapsedPaths.push(node.instance_path);
+          if (node.owner_ref) collapsedRefs.add(referenceKey(node.owner_ref));
         }
       }
-      const isSuppressedByForceSimple=node=>{
-        if (Array.isArray(node.instance_path)) {
-          for (const prefix of forceSimplePaths) {
+      const isSuppressedByAncestor=node=>{
+        if (!node.owner_ref && Array.isArray(node.instance_path)) {
+          for (const prefix of collapsedPaths) {
             if (node.instance_path.length>prefix.length && prefix.every((seg,idx)=>node.instance_path[idx]===seg)) return true;
           }
         }
-        if (forceSimpleRefs.size && Array.isArray(node.ancestry_refs)) {
+        if (collapsedRefs.size && Array.isArray(node.ancestry_refs)) {
           const ownKey=node.owner_ref?referenceKey(node.owner_ref):null;
           for (const ref of node.ancestry_refs) {
             const rk=referenceKey(ref);
-            if (rk!==ownKey && forceSimpleRefs.has(rk)) return true;
+            if (rk!==ownKey && collapsedRefs.has(rk)) return true;
           }
         }
         return false;
       };
       for (const node of nodes) {
         const metadata=node&&node.accessibility;
-        if (!metadata || metadata.silent || isSuppressedByForceSimple(node)) continue;
+        if (!metadata || metadata.silent || isSuppressedByAncestor(node)) continue;
         const bounds=boundsByPath.get(node.owner_ref?referenceKey(node.owner_ref):JSON.stringify(node.instance_path));
         if (!bounds) continue;
-        const key=node.owner_ref?referenceKey(node.owner_ref):JSON.stringify(node.instance_path)+'\u0000'+node.lifetime_id;
+        const key=semanticKey(node);
         let record=this.records.get(key);
-        if (record && record.role!==metadata.role) { record.element.remove(); this.records.delete(key); record=null; }
+        const role=ariaRole(metadata.role);
+        const activateButton=metadata.activateButton===undefined ? role==='button' : metadata.activateButton===true;
+        if (record && (record.role!==role || record.activateButton!==activateButton)) { this.retire(record); this.records.delete(key); record=null; }
         if (!record) {
-          const element=doc.createElement(metadata.role==='button'?'button':'span');
+          const element=doc.createElement(activateButton?'button':'span');
           element.className='semantic-target';
-          if (metadata.role==='button') element.type='button'; else element.setAttribute('role','img');
+          if (activateButton) element.type='button';
           const description=doc.createElement('span'); description.hidden=true; description.id='nf-description-'+this.nextId++;
           element.appendChild(description);
-          record={element,description,role:metadata.role,node};
-          if (metadata.role==='button') {
+          record={element,description,liveContent:null,role,activateButton,node,active:true};
+          if (activateButton) {
             // Native button activation supplies Enter/Space exactly once. No key handler.
-            element.addEventListener('click',()=>{ if (!element.disabled) this.onActivate(record.node); });
-            element.addEventListener('focus',()=>{ if(!this.restoringFocus)element.scrollIntoView({block:'nearest',inline:'nearest'}); });
+            element.addEventListener('click',()=>{
+              if(record.active && this.records.get(key)===record && element.parentNode===this.container && !element.disabled)this.onActivate(record.node);
+            });
           }
+          element.addEventListener('focus',event=>{
+            if(this.syncingFocus || !this.eligible(record))return;
+            if(!this.restoringFocus)element.scrollIntoView({block:'nearest',inline:'nearest'});
+            this.onFocus?.(record.node,event);
+          });
+          element.addEventListener('blur',event=>{
+            if(this.syncingFocus || !record.active)return;
+            if(this.eligible(this.elements.get(event?.relatedTarget)))return;
+            this.onBlur?.(record.node,event);
+          });
+          this.elements.set(element,record);
           this.records.set(key,record);
         }
         record.node=node;
         const element=record.element;
-        if (element.getAttribute('aria-label')!==metadata.name) element.setAttribute('aria-label',metadata.name);
+        applyDomAccessibility(element,metadata,{isInteractive:activateButton,tabEnabled:node.input?.tab_enabled ?? metadata.tabEnabled,explicitTabIndex:node.input?.tab_index});
+        // A live region needs changed text content, not only a changed accessible name.
+        // The existing semantic-target style keeps this text visually transparent.
+        const live=element.getAttribute('aria-live');
+        const liveText=live==='polite' || live==='assertive' || (live===null && ['status','alert','log'].includes(role)) ? String(metadata.name || '') : '';
+        if(liveText && !record.liveContent){record.liveContent=doc.createElement('span');element.insertBefore(record.liveContent,record.description);}
+        if(record.liveContent && record.liveContent.textContent!==liveText)record.liveContent.textContent=liveText;
         if (metadata.description) { if(record.description.textContent!==metadata.description)record.description.textContent=metadata.description; if(element.getAttribute('aria-describedby')!==record.description.id)element.setAttribute('aria-describedby',record.description.id); }
         else { if(record.description.textContent)record.description.textContent=''; if(element.getAttribute('aria-describedby'))element.removeAttribute('aria-describedby'); }
-        if (metadata.shortcut) { if(element.getAttribute('aria-keyshortcuts')!==metadata.shortcut)element.setAttribute('aria-keyshortcuts',metadata.shortcut); }
-        else if (element.getAttribute('aria-keyshortcuts')) element.removeAttribute('aria-keyshortcuts');
-        if (metadata.forceSimple || metadata.force_simple) element.setAttribute('data-force-simple','true');
-        else if (element.getAttribute('data-force-simple')) element.removeAttribute('data-force-simple');
-        if (metadata.noAutoLabeling || metadata.no_auto_labeling) element.setAttribute('data-no-auto-labeling','true');
-        else if (element.getAttribute('data-no-auto-labeling')) element.removeAttribute('data-no-auto-labeling');
-        if (metadata.role==='button') element.disabled=Boolean(metadata.disabled);
         Object.assign(element.style,{left:(bounds.left+originX)*scaleX+'px',top:(bounds.top+originY)*scaleY+'px',width:(bounds.right-bounds.left)*scaleX+'px',height:(bounds.bottom-bounds.top)*scaleY+'px'});
         wanted.push(record);
       }
+      // Preserve runtime reading order when no explicit authored order is present.
+      wanted.sort((a,b)=>{
+        const am=a.node.accessibility,bm=b.node.accessibility;
+        const reading=m=>nonnegativeOrder(m.reading_order ?? m.readingOrder) || Infinity;
+        const tab=m=>metadataOrder(m) || Infinity;
+        return reading(am)-reading(bm) || tab(am)-tab(bm) || 0;
+      });
       const retained=new Set(wanted);
-      for (const [key,record] of this.records) if (!retained.has(record)) { record.element.remove(); this.records.delete(key); }
-      let cursor=this.container.firstElementChild;
-      for (const record of wanted) {
-        if (record.element===cursor) cursor=cursor.nextElementSibling;
-        else this.container.insertBefore(record.element,cursor);
-      }
-      // Reordering can detach a focused node on some engines. Stable buttons retain focus.
-      if (previouslyFocused && doc.activeElement!==previouslyFocused && wanted.some(r=>r.element===previouslyFocused && r.role==='button' && !r.element.disabled)) {
-        this.restoringFocus=true;
-        try { previouslyFocused.focus({preventScroll:true}); } finally { this.restoringFocus=false; }
-      }
+      for (const [key,record] of this.records) if (!retained.has(record)) { this.retire(record); this.records.delete(key); }
+      // Reordering may detach and blur a node. Restore native focus without a second Stage transition.
+      this.syncingFocus=true;
+      try {
+        let cursor=this.container.firstElementChild;
+        for (const record of wanted) {
+          if (record.element===cursor) cursor=cursor.nextElementSibling;
+          else this.container.insertBefore(record.element,cursor);
+        }
+        if(previouslyFocused && doc.activeElement!==previouslyFocused && wanted.some(r=>r.element===previouslyFocused && this.eligible(r))){
+          this.restoringFocus=true;
+          try {previouslyFocused.focus({preventScroll:true});} finally {this.restoringFocus=false;}
+        }
+      } finally {this.syncingFocus=false;}
       return wanted.length;
     }
     clear() {
-      for (const record of this.records.values()) record.element.remove();
+      for (const record of this.records.values()) this.retire(record);
       this.records.clear();
     }
   }
   function applyDomAccessibility(element, metadata = null, options = {}) {
     if (!element) return;
-    const { autoLabel = '', isInteractive = false, tabEnabled = undefined, explicitTabIndex = undefined, disabled = false } = options;
+    const { autoLabel = '', isInteractive = false, explicitTabIndex = undefined, disabled = false } = options;
+    const tabEnabled=options.tabEnabled ?? metadata?.tabEnabled ?? metadata?.tab_enabled;
     const silent = Boolean(metadata?.silent);
     const suppressAuto = Boolean(metadata?.noAutoLabeling || metadata?.no_auto_labeling);
     const label = String(metadata?.name || (!suppressAuto ? autoLabel : '') || '').trim();
-    if (silent) {
-      element.setAttribute('aria-hidden', 'true');
-      if (element.hasAttribute('aria-label')) element.removeAttribute('aria-label');
-    } else {
-      if (element.getAttribute('aria-hidden') === 'true') element.removeAttribute('aria-hidden');
-      if (label) {
-        if (element.getAttribute('aria-label') !== label) element.setAttribute('aria-label', label);
-      } else if (element.hasAttribute('aria-label')) {
-        element.removeAttribute('aria-label');
-      }
-    }
+    attribute(element,'aria-hidden',silent ? 'true' : null);
+    attribute(element,'aria-label',!silent && label ? label : null);
     const description = String(metadata?.description || '').trim();
-    if (description && !silent) {
-      if (element.getAttribute('aria-description') !== description) element.setAttribute('aria-description', description);
-    } else if (element.hasAttribute('aria-description')) {
-      element.removeAttribute('aria-description');
-    }
+    attribute(element,'aria-description',!silent && description ? description : null);
     const shortcut = String(metadata?.shortcut || '').trim();
-    if (shortcut && !silent) {
-      if (element.getAttribute('aria-keyshortcuts') !== shortcut) element.setAttribute('aria-keyshortcuts', shortcut);
-    } else if (element.hasAttribute('aria-keyshortcuts')) {
-      element.removeAttribute('aria-keyshortcuts');
-    }
-    const live = String(metadata?.live || '').trim();
-    if (live && live !== 'off' && !silent) {
-      if (element.getAttribute('aria-live') !== live) element.setAttribute('aria-live', live);
-    } else if (element.hasAttribute('aria-live')) {
-      element.removeAttribute('aria-live');
-    }
-    if (metadata?.forceSimple || metadata?.force_simple) element.setAttribute('data-force-simple', 'true');
-    else if (element.hasAttribute('data-force-simple')) element.removeAttribute('data-force-simple');
-    if (suppressAuto) element.setAttribute('data-no-auto-labeling', 'true');
-    else if (element.hasAttribute('data-no-auto-labeling')) element.removeAttribute('data-no-auto-labeling');
+    attribute(element,'aria-keyshortcuts',!silent && shortcut ? shortcut : null);
+    const live = String(metadata?.live || '').trim().toLowerCase();
+    // Keep an explicit "off": status/alert roles otherwise retain their implicit live behavior.
+    attribute(element,'aria-live',!silent && ['off','polite','assertive'].includes(live) ? live : null);
+    attribute(element,'role',silent ? null : ariaRole(metadata?.role));
+    attribute(element,'data-force-simple',metadata?.forceSimple || metadata?.force_simple ? 'true' : null);
+    attribute(element,'data-no-auto-labeling',suppressAuto ? 'true' : null);
     const tag = (element.tagName || '').toUpperCase();
     const isNativeControl = tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
     const effectiveDisabled = Boolean(disabled || metadata?.disabled);
-    if (isNativeControl) {
-      element.disabled = effectiveDisabled;
-    } else if (metadata?.role && !silent) {
-      const role = metadata.role === 'image' ? 'img' : String(metadata.role);
-      if (element.getAttribute('role') !== role) element.setAttribute('role', role);
-    }
-    const rawOrder = explicitTabIndex !== undefined && explicitTabIndex !== null && Number(explicitTabIndex) >= 0
-      ? Number(explicitTabIndex)
-      : (metadata?.tab_order ?? metadata?.tabIndex);
-    const parsedOrder = rawOrder !== undefined && rawOrder !== null && rawOrder !== '' ? Number(rawOrder) : NaN;
-    const positiveOrder = Number.isInteger(parsedOrder) && parsedOrder > 0 ? parsedOrder : null;
+    if (isNativeControl) element.disabled = effectiveDisabled;
+    attribute(element,'aria-disabled',!silent && effectiveDisabled ? 'true' : null);
+    const explicitOrder=nonnegativeOrder(explicitTabIndex),parsedOrder=explicitOrder ?? metadataOrder(metadata);
+    const positiveOrder = parsedOrder!==null && parsedOrder>0 ? parsedOrder : null;
     if (silent || effectiveDisabled || tabEnabled === false) {
-      if (isInteractive || element.hasAttribute('tabindex')) element.tabIndex = -1;
+      // Native controls remain focusable without an explicit tabindex, including silent inputs.
+      if (isInteractive || isNativeControl || element.getAttribute('tabindex')!==null || positiveOrder!==null) element.tabIndex = -1;
+      if(element.ownerDocument?.activeElement===element)element.blur?.();
     } else if (positiveOrder !== null) {
       if (element.tabIndex !== positiveOrder) element.tabIndex = positiveOrder;
-    } else if (isInteractive || tabEnabled === true || parsedOrder === 0) {
+    } else if (isInteractive || isNativeControl || tabEnabled === true || explicitOrder === 0) {
       if (element.tabIndex !== 0) element.tabIndex = 0;
-    } else if (element.hasAttribute('tabindex')) {
+    } else if (element.getAttribute('tabindex')!==null) {
       element.removeAttribute('tabindex');
+      if(element.ownerDocument?.activeElement===element)element.blur?.();
     }
   }
   const api={itemBounds,targetBounds,sceneBoundsByPath,pathBounds,areaCapable,SemanticLayer,applyDomAccessibility};

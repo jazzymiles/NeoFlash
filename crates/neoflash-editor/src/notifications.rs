@@ -177,7 +177,7 @@ impl Editor {
             if bottom <= viewport.top() {
                 break;
             }
-            let message = if toast.count > 1 {
+            let announcement = if toast.count > 1 {
                 format!("{} ×{}", toast.message, toast.count)
             } else {
                 toast.message.clone()
@@ -185,7 +185,7 @@ impl Editor {
             let text_width = ctx.fonts_mut(|fonts| {
                 fonts
                     .layout_no_wrap(
-                        message.clone(),
+                        announcement.clone(),
                         neoflash_ui::typography::font(TextStyle::Body),
                         text_color,
                     )
@@ -216,7 +216,7 @@ impl Editor {
             let message = ctx.fonts_mut(|fonts| {
                 fonts
                     .layout(
-                        message,
+                        announcement.clone(),
                         neoflash_ui::typography::font(TextStyle::Body),
                         text_color,
                         (width - controls_width).max(1.),
@@ -234,6 +234,21 @@ impl Editor {
                 .fixed_pos(egui::pos2(viewport.center().x, bottom))
                 .constrain_to(viewport)
                 .show(ctx, |ui| {
+                    ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
+                        let (role, live) = match toast.kind {
+                            nf::ToastType::Info | nf::ToastType::Success => {
+                                (egui::accesskit::Role::Status, egui::accesskit::Live::Polite)
+                            }
+                            nf::ToastType::Warning | nf::ToastType::Error => (
+                                egui::accesskit::Role::Alert,
+                                egui::accesskit::Live::Assertive,
+                            ),
+                        };
+                        node.set_role(role);
+                        node.set_live(live);
+                        node.set_live_atomic();
+                        node.set_label(announcement.clone());
+                    });
                     ui.set_clip_rect(viewport);
                     ui.set_max_width(width);
                     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
@@ -300,8 +315,49 @@ mod tests {
                     events,
                     ..Default::default()
                 },
-                |ctx| editor.notification_host(ctx, Some(canvas)),
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let mut text = String::new();
+                        ui.add(
+                            egui::TextEdit::singleline(&mut text)
+                                .id(egui::Id::new("notification-keeps-authoring-focus")),
+                        );
+                    });
+                    editor.notification_host(ctx, Some(canvas));
+                },
             )
+        }
+        fn live_node(
+            output: &egui::FullOutput,
+            message: &str,
+            role: egui::accesskit::Role,
+            live: egui::accesskit::Live,
+        ) -> egui::accesskit::NodeId {
+            let update = output.platform_output.accesskit_update.as_ref().unwrap();
+            let (id, node) = update
+                .nodes
+                .iter()
+                .find(|(_, node)| node.role() == role && node.label() == Some(message))
+                .expect("notification exposes its complete announcement");
+            assert_eq!(node.live(), Some(live));
+            assert!(node.is_live_atomic());
+            assert_ne!(update.focus, *id, "notification must not take focus");
+            *id
+        }
+        fn assert_no_live_notifications(output: &egui::FullOutput) {
+            assert!(
+                output
+                    .platform_output
+                    .accesskit_update
+                    .as_ref()
+                    .unwrap()
+                    .nodes
+                    .iter()
+                    .all(|(_, node)| !matches!(
+                        node.role(),
+                        egui::accesskit::Role::Status | egui::accesskit::Role::Alert
+                    ))
+            );
         }
         fn button(output: &egui::FullOutput, label: &str) -> Rect {
             let bounds = output
@@ -395,17 +451,41 @@ mod tests {
             assert!((rect.bottom() - (canvas.bottom() - space::S4)).abs() < 1.);
             assert!((320. ..=482.).contains(&rect.width()));
             assert_message_bounds(&output, error, rect, true);
+            let error_id = live_node(
+                &output,
+                error,
+                egui::accesskit::Role::Alert,
+                egui::accesskit::Live::Assertive,
+            );
             assert!(
                 editor
                     .output
                     .iter()
                     .any(|message| message.contains("read-only destination"))
             );
-            // The host makes no focus request: any surviving authoring focus keeps its identity.
-            assert!(
-                ctx.memory(|memory| memory.focused())
-                    .is_none_or(|id| id == focus)
+            assert_eq!(ctx.memory(|memory| memory.focused()), Some(focus));
+            assert_eq!(
+                output
+                    .platform_output
+                    .accesskit_update
+                    .as_ref()
+                    .unwrap()
+                    .focus,
+                focus.value().into()
             );
+            editor.notify_with_output(nf::ToastType::Error, error);
+            let output = frame(&mut editor, &ctx, canvas, vec![]);
+            assert_eq!(
+                live_node(
+                    &output,
+                    &format!("{error} ×2"),
+                    egui::accesskit::Role::Alert,
+                    egui::accesskit::Live::Assertive,
+                ),
+                error_id,
+                "coalesced notifications update the existing live node"
+            );
+            assert_eq!(ctx.memory(|memory| memory.focused()), Some(focus));
             let at = button(&output, "Show").center();
             click(&mut editor, &ctx, canvas, at);
             assert!(editor.notifications.visible.is_empty());
@@ -421,6 +501,12 @@ mod tests {
             let rect = editor.notifications.visible[0].rect;
             assert!((320. ..=482.).contains(&rect.width()));
             assert_message_bounds(&output, warning, rect, false);
+            live_node(
+                &output,
+                warning,
+                egui::accesskit::Role::Alert,
+                egui::accesskit::Live::Assertive,
+            );
             click(
                 &mut editor,
                 &ctx,
@@ -428,6 +514,36 @@ mod tests {
                 button(&output, "Dismiss").center(),
             );
             assert!(editor.notifications.visible.is_empty());
+            assert_no_live_notifications(&frame(&mut editor, &ctx, canvas, vec![]));
+
+            editor.show_about = true;
+            editor.notify(nf::ToastType::Info, "Information notification");
+            assert_no_live_notifications(&frame(&mut editor, &ctx, canvas, vec![]));
+            editor.show_about = false;
+            ctx.memory_mut(|memory| memory.request_focus(focus));
+            frame(&mut editor, &ctx, canvas, vec![]);
+            let output = frame(&mut editor, &ctx, canvas, vec![]);
+            live_node(
+                &output,
+                "Information notification",
+                egui::accesskit::Role::Status,
+                egui::accesskit::Live::Polite,
+            );
+            assert_eq!(ctx.memory(|memory| memory.focused()), Some(focus));
+            editor.notify(nf::ToastType::Success, "Success notification");
+            frame(&mut editor, &ctx, canvas, vec![]);
+            let output = frame(&mut editor, &ctx, canvas, vec![]);
+            live_node(
+                &output,
+                "Success notification",
+                egui::accesskit::Role::Status,
+                egui::accesskit::Live::Polite,
+            );
+            assert_eq!(ctx.memory(|memory| memory.focused()), Some(focus));
+            editor
+                .notifications
+                .advance(Duration::from_secs(5), false, None);
+            assert_no_live_notifications(&frame(&mut editor, &ctx, canvas, vec![]));
             assert_eq!(editor.project, project);
             assert!(!editor.history.can_undo());
         }

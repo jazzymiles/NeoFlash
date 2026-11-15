@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Events = require('../events.js');
 const { create, computeStageLayout, Stage, StageScaleMode, StageAlign, StageDisplayState, StageQuality,
-  Keyboard, KeyLocation, KeyboardType, MouseCursor, MouseCursorData, AccessibilityProperties } = require('../stage.js');
+  Keyboard, KeyLocation, KeyboardType, MouseCursor, MouseCursorData, AccessibilityProperties, collectProjectAccessibilityEntries } = require('../stage.js');
 
 // A real EventTarget drives the adapter's installed native listeners; no direct callback invocation.
 class Surface extends EventTarget {
@@ -642,4 +642,23 @@ test('syncAccessibilityOverlay synchronizes deterministic tabIndex read order, r
   assert.equal(conflictDiagnostics.length, 2);
   assert.match(conflictDiagnostics[0], /conflict: tabIndex 1/i);
   assert.match(conflictDiagnostics[1], /gap: missing tabIndex 2\.\.3/i);
+
+  // The authored-entry adapter supplies both render modes with live runtime text and independent
+  // reading/tab order; extension flags survive without inventing a focus stop for static content.
+  const textTarget={text:'Ready',tabEnabled:false},buttonTarget={tabEnabled:true};
+  const project={root:'scene',symbols:[{id:'scene',timeline:{layers:[{visible:true,keyframes:[{frame:0,elements:[
+    {id:'status',name:'statusField',kind:{type:'text_box',text:'Booting',format:{fieldOptions:{field_type:'input'}}}},
+    {id:'play',name:'playButton',kind:{type:'rectangle',width:40,height:20},accessibility:{role:'button',name:'Play',tab_order:2}},
+  ],extended_accessibility:[
+    {element_id:'status',live:'polite',reading_order:4},
+    {element_id:'play',role:'link',force_simple:true,no_auto_labeling:true,shortcut:'Enter',reading_order:1},
+  ]}]}]}}]};
+  const options={resolveTarget:element=>element.id==='status'?textTarget:buttonTarget};
+  let entries=collectProjectAccessibilityEntries(project,0,options);
+  const status=entries.find(entry=>entry.id==='status'),play=entries.find(entry=>entry.id==='play');
+  assert.equal(status.role,'textbox');assert.equal(status.ariaLabel,'Ready');assert.equal(status.ariaLive,'polite');assert.equal(status.tabEnabled,false);
+  assert.equal(status.readingOrder,4);assert.equal(status.tabIndex,undefined,'reading order is not a keyboard focus opt-in');
+  assert.equal(play.role,'link');assert.equal(play.roleOverride,true);assert.equal(play.forceSimple,true);assert.equal(play.noAutoLabeling,true);assert.equal(play.tabIndex,2);assert.equal(play.readingOrder,1);
+  textTarget.text='Saved';entries=collectProjectAccessibilityEntries(project,0,options);assert.equal(entries.find(entry=>entry.id==='status').ariaLabel,'Saved');
+  textTarget.visible=false;assert.equal(collectProjectAccessibilityEntries(project,0,options).some(entry=>entry.id==='status'),false);
 });

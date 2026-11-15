@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "73aa8ee2d892926e5ef42fa78a6692ac4dd7ff9fd8c67822ddefb29208b74b9e",
+  "reviews": [
+    {
+      "id": "AS3-ACCESSIBILITY-HOST-20261115",
+      "date": "2026-11-15",
+      "commit": "f83d9ceb82525100c7b9b9827e5441248a056a86",
+      "title": "Accessibility implementation host boundary",
+      "summary": "The HTML5 adapter consumes child-zero name/value callbacks for placement semantics. The shared host family verifies that custom child trees, roles, states and actions remain unconnected; the existing Partial classification is retained with a precise limitation.",
+      "tests": [
+        "web/tests/as3-media-events.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:class:flash/accessibility/AccessibilityImplementation.html#",
+          "status": "partial",
+          "note": "The HTML5 host uses get_accName(0) and get_accValue(0) for a placement's label and description. Child-ID trees and custom role, state, selection and default-action behavior are not bridged."
+        }
+      ]
+    }
+  ]
+}

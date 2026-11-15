@@ -668,7 +668,7 @@ test('Compact and Balanced packages boot directly over file:// using NeoFlashWas
   assert.equal(elements.get('trace').textContent, '', 'include_trace=false suppresses trace() DOM output');
 });
 
-test('runtime render loop automatically synchronizes #stage-a11y-overlay DOM nodes as frames advance (T-265)', async () => {
+test('runtime merges authored accessibility into one visible semantic target per lifetime as frames advance', async () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const vm = require('node:vm');
@@ -681,29 +681,29 @@ test('runtime render loop automatically synchronizes #stage-a11y-overlay DOM nod
   const stageJs = fs.readFileSync(path.resolve(__dirname, '../stage.js'), 'utf8');
   const displayJs = fs.readFileSync(path.resolve(__dirname, '../display.js'), 'utf8');
 
-  function makeElement(id = '') {
+  const mockDocument = {activeElement:null,createElement:tag=>makeElement('',tag)};
+  function makeElement(id = '', tag = 'div') {
     const attrs = new Map();
     const children = [];
     return {
       id,
+      tagName:tag.toUpperCase(),
+      parentNode:null,
+      listeners:{},
       hidden: false,
       disabled: false,
       textContent: '',
       title: '',
       value: 'fit',
-      tabIndex: 0,
+      get tabIndex() {return attrs.has('tabindex') ? Number(attrs.get('tabindex')) : (tag === 'button' ? 0 : -1);},
+      set tabIndex(value) {attrs.set('tabindex',String(value));},
       clientWidth: 800,
       clientHeight: 600,
       scrollLeft: 0,
       scrollTop: 0,
       dataset: {},
       children,
-      ownerDocument: {
-        activeElement: null,
-        createElement(tag) {
-          return makeElement(tag);
-        },
-      },
+      ownerDocument: mockDocument,
       style: { display: 'none' },
       classList: { toggle() {} },
       setAttribute(k, v) {
@@ -712,14 +712,23 @@ test('runtime render loop automatically synchronizes #stage-a11y-overlay DOM nod
       },
       getAttribute(k) { return attrs.get(k) ?? null; },
       removeAttribute(k) { attrs.delete(k); },
-      addEventListener() {},
+      addEventListener(name,handler) {this.listeners[name]=handler;},
       removeEventListener() {},
       replaceChildren(...next) {
-        children.splice(0, children.length, ...next);
+        for(const child of children.slice())child.remove();
+        for(const child of next)this.appendChild(child);
       },
       appendChild(child) {
-        children.push(child);
+        this.insertBefore(child,null);return child;
       },
+      insertBefore(child,before) {child.remove();children.splice(before?children.indexOf(before):children.length,0,child);child.parentNode=this;},
+      removeChild(child) {child.remove();},
+      remove() {if(this.parentNode){const siblings=this.parentNode.children;siblings.splice(siblings.indexOf(this),1);this.parentNode=null;this.blur();}},
+      focus() {mockDocument.activeElement=this;this.listeners.focus?.();},
+      blur() {if(mockDocument.activeElement===this)mockDocument.activeElement=null;},
+      scrollIntoView() {},
+      get firstElementChild() {return children[0]||null;},
+      get nextElementSibling() {return this.parentNode?.children[this.parentNode.children.indexOf(this)+1]||null;},
       getBoundingClientRect() { return { left: 0, top: 0, width: 800, height: 600 }; },
       getContext() {
         return {
@@ -730,6 +739,7 @@ test('runtime render loop automatically synchronizes #stage-a11y-overlay DOM nod
           restore() {},
           transform() {},
           beginPath() {},
+          rect() {},
           arc() {},
           fill() {},
           stroke() {},
@@ -768,6 +778,8 @@ test('runtime render loop automatically synchronizes #stage-a11y-overlay DOM nod
   const body = makeElement('body');
 
   let activeFrame = 0;
+  let sceneVisible = true;
+  let activations = 0;
   let playingState = true;
   let rafCallback = null;
   const lifetimes = new Map([
@@ -818,9 +830,10 @@ test('runtime render loop automatically synchronizes #stage-a11y-overlay DOM nod
       activeFrame = 0;
       playingState = true;
     },
-    scene_json: () => '[]',
+    scene_json: () => JSON.stringify(sceneVisible ? runtimeAccessibility().map((node,index)=>({instance_path:node.instance_path,transform:[1,0,0,1,40,30+index*60],alpha:1,kind:{type:'rectangle',width:120,height:40,fill:[40,80,160,255],stroke:[0,0,0,0],stroke_width:0}})) : []),
     scripts_json: () => '[]',
     accessibility_json: () => JSON.stringify(runtimeAccessibility()),
+    activate_accessible: () => {activations++;return false;},
     is_dispatch_current: () => true,
     script_overflowed: () => false,
     lifetime_id: key => lifetimes.get(key) || '',
@@ -932,7 +945,7 @@ test('runtime render loop automatically synchronizes #stage-a11y-overlay DOM nod
                     },
                     {
                       element_id: 'el-f0-cta',
-                      role: 'button',
+                      role: 'link',
                       live: 'off',
                       shortcut: 'Enter',
                       silent: false,
@@ -988,48 +1001,50 @@ test('runtime render loop automatically synchronizes #stage-a11y-overlay DOM nod
 
   assert.equal(elements.get('error').style.display, 'none', `unexpected boot error: ${elements.get('error').textContent}`);
   assert.equal(overlayEl.getAttribute('role'), 'region');
-  assert.equal(overlayEl.children.length, 2, 'frame 0 populates 2 accessibility nodes in #stage-a11y-overlay');
-  assert.equal(overlayEl.children[0].getAttribute('data-element-id'), 'el-f0-title');
-  assert.equal(overlayEl.children[0].getAttribute('role'), 'heading');
-  assert.equal(overlayEl.children[0].getAttribute('aria-label'), 'Welcome Hero Heading');
-  assert.equal(overlayEl.children[0].getAttribute('aria-description'), 'Main screen banner');
-  assert.equal(overlayEl.children[0].getAttribute('aria-live'), 'polite');
-  assert.equal(overlayEl.children[0].getAttribute('tabindex'), '1');
+  const semanticEl=elements.get('semantic-layer');
+  assert.equal(overlayEl.children.length, 0, 'runtime-covered targets have no second inert overlay node');
+  assert.equal(semanticEl.children.length, 2);
+  assert.equal(semanticEl.children[0].getAttribute('role'), 'heading');
+  assert.equal(semanticEl.children[0].getAttribute('aria-label'), 'Welcome Hero Heading');
+  assert.equal(semanticEl.children[0].getAttribute('aria-description'), 'Main screen banner');
+  assert.equal(semanticEl.children[0].getAttribute('aria-live'), 'polite');
+  assert.equal(semanticEl.children[0].getAttribute('tabindex'), '1');
 
-  assert.equal(overlayEl.children[1].getAttribute('data-element-id'), 'el-f0-cta');
-  assert.equal(overlayEl.children[1].getAttribute('role'), 'button');
-  assert.equal(overlayEl.children[1].getAttribute('aria-label'), 'Begin Quest');
-  assert.equal(overlayEl.children[1].getAttribute('aria-keyshortcuts'), 'Enter');
-  assert.equal(overlayEl.children[1].getAttribute('tabindex'), '2');
+  assert.equal(semanticEl.children[1].tagName, 'BUTTON');
+  assert.equal(semanticEl.children[1].getAttribute('role'), 'link');
+  assert.equal(semanticEl.children[1].getAttribute('aria-label'), 'Begin Quest');
+  assert.equal(semanticEl.children[1].getAttribute('aria-keyshortcuts'), 'Enter');
+  assert.equal(semanticEl.children[1].getAttribute('tabindex'), '2');
 
-  // Matching runtime semantics use nested `accessibility` metadata and instance-path names.
-  // They must enrich the authored entries rather than doubling the browser's controls.
-  const stableTitleNode = overlayEl.children[0];
-  const stableButtonNode = overlayEl.children[1];
+  const stableTitleNode = semanticEl.children[0];
+  const stableButtonNode = semanticEl.children[1];
+  stableButtonNode.focus();stableButtonNode.listeners.click();assert.equal(activations,1);
   assert.equal(typeof rafCallback, 'function');
   rafCallback(1000);
-  assert.equal(overlayEl.children.length, 2);
-  assert.equal(overlayEl.children[0], stableTitleNode, 'same authored/runtime lifetime preserves the focused DOM node');
-  assert.equal(overlayEl.children[1], stableButtonNode);
+  assert.equal(semanticEl.children.length, 2);
+  assert.equal(semanticEl.children[0], stableTitleNode, 'same authored/runtime lifetime preserves the DOM node');
+  assert.equal(semanticEl.children[1], stableButtonNode);assert.equal(mockDocument.activeElement,stableButtonNode);
 
   // Re-instantiating one placement with the same authored name but a fresh lifetime retires only
   // that placement's DOM node; the sibling keeps its identity and focus state.
   lifetimes.set('["intro_heading"]', 'heading-life-2');
   rafCallback(1001);
-  assert.equal(overlayEl.children.length, 2);
-  assert.notEqual(overlayEl.children[0], stableTitleNode);
-  assert.equal(overlayEl.children[1], stableButtonNode);
+  assert.equal(semanticEl.children.length, 2);
+  assert.notEqual(semanticEl.children[0], stableTitleNode);
+  assert.equal(semanticEl.children[1], stableButtonNode);
 
   // Advance runtime frame loop via requestAnimationFrame (10 fps => 100ms step).
   rafCallback(1120);
 
   assert.equal(activeFrame, 1, 'runtime advanced to frame 1');
-  assert.equal(overlayEl.children.length, 1, 'frame 1 replaces #stage-a11y-overlay children with frame 1 nodes');
-  assert.equal(overlayEl.children[0].getAttribute('data-element-id'), 'el-f1-dialog');
-  assert.equal(overlayEl.children[0].getAttribute('role'), 'dialog');
-  assert.equal(overlayEl.children[0].getAttribute('aria-label'), 'Mission Complete');
-  assert.equal(overlayEl.children[0].getAttribute('aria-description'), 'All objectives cleared');
-  assert.equal(overlayEl.children[0].getAttribute('aria-live'), 'assertive');
-  assert.equal(overlayEl.children[0].getAttribute('aria-keyshortcuts'), 'Escape');
-  assert.equal(overlayEl.children[0].getAttribute('tabindex'), '1');
+  assert.equal(semanticEl.children.length, 1, 'frame 1 replaces the semantic targets');
+  assert.equal(semanticEl.children[0].getAttribute('role'), 'dialog');
+  assert.equal(semanticEl.children[0].getAttribute('aria-label'), 'Mission Complete');
+  assert.equal(semanticEl.children[0].getAttribute('aria-description'), 'All objectives cleared');
+  assert.equal(semanticEl.children[0].getAttribute('aria-live'), 'assertive');
+  assert.equal(semanticEl.children[0].getAttribute('aria-keyshortcuts'), 'Escape');
+  assert.equal(semanticEl.children[0].getAttribute('tabindex'), '1');
+  stableButtonNode.listeners.click();assert.equal(activations,1,'the removed frame cannot activate through a retained DOM handler');
+  sceneVisible=false;rafCallback(1121);
+  assert.equal(semanticEl.children.length,0);assert.equal(overlayEl.children.length,0,'absent artwork cannot reappear through the authored fallback overlay');
 });

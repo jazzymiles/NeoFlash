@@ -15,6 +15,9 @@ pub struct DisplayInputState {
     pub double_click_enabled: bool,
     #[serde(default)]
     pub tab_enabled: bool,
+    /// Runtime assignment, separate from the resolved type/button-mode default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_enabled_override: Option<bool>,
     #[serde(default = "tab_index_default")]
     pub tab_index: i32,
     #[serde(default = "enabled_default")]
@@ -74,7 +77,8 @@ impl DisplayInputState {
             hit_area: None,
             movieclip_enabled: true,
             double_click_enabled: false,
-            tab_enabled: false,
+            tab_enabled: owner == "button",
+            tab_enabled_override: None,
             tab_index: -1,
             tab_children: true,
             focus_rect: None,
@@ -82,12 +86,23 @@ impl DisplayInputState {
             track_as_menu: false,
         })
     }
+
+    fn resolve_tab_enabled(&mut self, owner: &str, input_text: bool, authored_button: bool) {
+        self.tab_enabled = self.tab_enabled_override.unwrap_or(
+            owner == "button"
+                || input_text
+                || (sprite(owner) && self.button_mode)
+                || authored_button,
+        );
+    }
 }
 impl RuntimeGraph {
     pub(super) fn input_state(
         &self,
         reference: &ObjectRef,
         owner: &str,
+        input_text: bool,
+        authored_button: bool,
     ) -> Option<DisplayInputState> {
         let defaults = DisplayInputState::for_owner(owner)?;
         let mut state = self
@@ -119,6 +134,7 @@ impl RuntimeGraph {
         if !matches!(owner, "button" | "movie_clip") {
             state.track_as_menu = false;
         }
+        state.resolve_tab_enabled(owner, input_text, authored_button);
         Some(state)
     }
     pub(super) fn retire_input(&mut self, retired: &BTreeSet<ObjectRef>) {
@@ -170,6 +186,29 @@ impl RuntimeGraph {
     }
 }
 impl Player {
+    fn input_default_context(&self, project: &Project, target: &ObjectRef) -> (bool, bool) {
+        let input_text = self
+            .object_text_info(project, target)
+            .is_ok_and(|field| field.field_type == TextFieldType::Input);
+        let authored = if let Some(path) = self.graph.paths.get(target) {
+            self.previous.get(path)
+        } else if let Some(address) = self.graph.linked_paths.get(target) {
+            self.graph
+                .namespaces
+                .get(&address.namespace)
+                .and_then(|scope| scope.player.previous.get(&address.path))
+        } else {
+            self.graph
+                .namespaces
+                .get(target)
+                .and_then(|scope| scope.player.previous.get(&[][..]))
+        };
+        let authored_button = authored
+            .and_then(|node| node.accessibility.as_ref())
+            .is_some_and(|accessibility| accessibility.role == AccessibleRole::Button);
+        (input_text, authored_button)
+    }
+
     pub fn object_input_info(
         &self,
         project: &Project,
@@ -183,7 +222,8 @@ impl Player {
         let owner = self
             .object_owner(project, target)
             .ok_or_else(|| error("Mouse input state requires an InteractiveObject; Shape, Bitmap and Video are not interactive"))?;
-        let mut state = self.graph.input_state(target, owner).ok_or_else(|| {
+        let (input_text, authored_button) = self.input_default_context(project, target);
+        let mut state = self.graph.input_state(target, owner, input_text, authored_button).ok_or_else(|| {
             error("Mouse input state requires an InteractiveObject; Shape, Bitmap and Video are not interactive")
         })?;
         if state
@@ -199,7 +239,7 @@ impl Player {
         &mut self,
         project: &Project,
         target: &ObjectRef,
-        state: DisplayInputState,
+        mut state: DisplayInputState,
     ) -> Result<(), DisplayError> {
         if !self.graph.alive(target) {
             return Err(error(
@@ -209,8 +249,22 @@ impl Player {
         let owner = self
             .object_owner(project, target)
             .ok_or_else(|| error("Input target is absent from the display graph"))?;
-        let defaults = DisplayInputState::for_owner(owner)
+        let mut defaults = DisplayInputState::for_owner(owner)
             .ok_or_else(|| error("Mouse input state requires an InteractiveObject; Shape, Bitmap and Video are not interactive"))?;
+        let (input_text, authored_button) = self.input_default_context(project, target);
+        defaults.resolve_tab_enabled(owner, input_text, authored_button);
+        // Existing Rust/WASM callers edit the resolved public bool directly.
+        // Preserve that assignment when they leave the override unchanged;
+        // changing the override explicitly (including clearing it) takes priority.
+        if let Some(current) = self
+            .graph
+            .input_state(target, owner, input_text, authored_button)
+            && state.tab_enabled_override == current.tab_enabled_override
+            && state.tab_enabled != current.tab_enabled
+        {
+            state.tab_enabled_override = Some(state.tab_enabled);
+        }
+        state.resolve_tab_enabled(owner, input_text, authored_button);
         if owner != "movie_clip" && !state.movieclip_enabled {
             return Err(error("MovieClip enabled requires a MovieClip instance"));
         }

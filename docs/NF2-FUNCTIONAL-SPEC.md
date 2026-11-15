@@ -477,6 +477,8 @@ actions are tracked separately.
 **ST-09 · Toasts / progress / spinner** — partial
 - Available: one R-044 notification host, at most three toasts, newest at the bottom, centred 16 pt above the canvas
   bottom outside docks; with no canvas, above the status bar. Repeated messages coalesce and restart the timer.
+  Info/Success expose polite Status announcements; Warning/Error expose assertive Alert announcements, with the
+  complete message and coalesced count, without taking authoring focus.
   Info/Success expire after 4 s, Warning after 6 s, Error stays until dismissed or its action is used; hover pauses
   expiry. New notifications wait while a modal is open.
 - Routing: partial-stroke refusals use Warning; failed Save and explicit external-change reload use Error with
@@ -1043,7 +1045,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 | Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Live ActionScript, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |
 | Document | Document settings; open-document list and Next/Previous document | Requires an open document for settings and navigation |
 | Window | `Panels` groups all real authoring panels including Brushes; built-in and named workspaces, Save/Update/Reset/Rename/Delete layouts, Hide panels, detach/dock, Appearance ▸ Dark / Light / Mid Neutral Gray / Dark Graphite | Duplicate window disabled; Debugger is connected; Follow system is not exposed; other planned panels retain their stated limits |
-| Help | `Search functions…` (F1) opens an immediate focused fuzzy-search palette of registered menu commands, accepts the first keystroke after menu dismissal, supports ↑/↓/↵/Esc and runs the chosen command; NeoFlash Help & Reference keeps fixed bounds with independently scrolling chapters/article and can open a portable English text edition in the browser; that edition inherits the active theme and its single header control cycles all four NF2 themes; Open example; About NeoFlash | Keyboard shortcuts remains a separate Preferences page |
+| Help | `Search functions…` (F1) opens an immediate focused fuzzy-search palette of registered menu commands, accepts the first keystroke after menu dismissal, supports ↑/↓/↵/Esc and runs the chosen command; its native text field controls a semantic result list and identifies the selected result without losing text/caret focus; NeoFlash Help & Reference keeps fixed bounds with independently scrolling chapters/article and can open a portable English text edition in the browser; that edition inherits the active theme and its single header control cycles all four NF2 themes; Open example; About NeoFlash | Keyboard shortcuts remains a separate Preferences page |
 
 New/Open insert a tab after the active tab; opening an already open path activates it without replacing edits.
 Each document keeps its selection, playhead, script state, Undo and recovery. Dirty Close/Close all/Quit prompts

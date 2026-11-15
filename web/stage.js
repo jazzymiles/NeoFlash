@@ -424,7 +424,7 @@
         } else if (kindType === 'text') {
           role = 'note';
         } else if (kindType === 'text_box') {
-          const fieldType = element.kind?.format?.field?.type || element.kind?.format?.field_type;
+          const fieldType = element.kind?.format?.fieldOptions?.field_type || element.kind?.format?.field?.type || element.kind?.format?.field_type;
           role = fieldType === 'input' ? 'textbox' : 'note';
         } else if (kindType === 'instance') {
           const symKind = symbolsById.get(element.kind?.symbol_id)?.kind || 'graphic';
@@ -437,7 +437,8 @@
         if (explicitName) {
           ariaLabel = explicitName;
         } else if (autoLabel) {
-          const textVal = (kindType === 'text' || kindType === 'text_box') ? String(element.kind?.text || '').trim() : '';
+          const runtimeText = safeGet(runtimeTarget, 'text');
+          const textVal = (kindType === 'text' || kindType === 'text_box') ? String(runtimeText ?? element.kind?.text ?? '').trim() : '';
           if (textVal) {
             ariaLabel = textVal;
           } else if (typeof element.name === 'string' && element.name.trim()) {
@@ -470,10 +471,11 @@
         const ariaLive = (liveRaw === 'polite' || liveRaw === 'assertive') ? liveRaw : 'off';
         const shortcut = String((runtimeAcc && runtimeAcc.shortcut) || (ext && ext.shortcut) || '').trim();
         const silent = Boolean((runtimeAcc && runtimeAcc.silent) || (ext && ext.silent));
+        const forceSimple = Boolean((runtimeAcc && runtimeAcc.forceSimple) || (ext && ext.force_simple));
         const rtEnabled = safeGet(runtimeTarget, 'enabled');
         const disabled = Boolean((element.accessibility && element.accessibility.disabled) || rtEnabled === false);
         const rtTabEnabled = safeGet(runtimeTarget, 'tabEnabled');
-        const tabEnabled = rtTabEnabled !== undefined ? Boolean(rtTabEnabled) : true;
+        const tabEnabled = rtTabEnabled !== undefined ? Boolean(rtTabEnabled) : undefined;
         const runtimeTab = Number(safeGet(runtimeTarget, 'tabIndex'));
         const accTab = Number(element.accessibility && element.accessibility.tab_order);
         const extOrder = Number(ext && ext.reading_order);
@@ -481,7 +483,7 @@
           ? runtimeTab
           : ((Number.isInteger(accTab) && accTab > 0)
             ? accTab
-            : ((Number.isInteger(extOrder) && extOrder > 0) ? extOrder : undefined));
+            : undefined);
         const [bx, by, bw, bh] = elementStageBounds(element);
         const rtx = Number(safeGet(runtimeTarget, 'x'));
         const rty = Number(safeGet(runtimeTarget, 'y'));
@@ -500,11 +502,15 @@
           // genuinely replaced element with the same authored ID still receives a fresh node.
           target: runtimeTarget || element,
           role,
+          roleOverride: Boolean((runtimeAcc && runtimeAcc.role) || (ext && ext.role && ext.role !== 'auto')),
           ariaLabel: ariaLabel || String(element.id || `el-${entries.length + 1}`),
+          autoTextLabel: !explicitName && autoLabel && (kindType === 'text' || kindType === 'text_box'),
           ariaDescription,
           ariaLive,
           shortcut,
           silent,
+          forceSimple,
+          noAutoLabeling: !autoLabel,
           disabled,
           tabEnabled,
           tabIndex,
