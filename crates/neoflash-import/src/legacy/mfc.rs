@@ -2,6 +2,7 @@
 //! neither byte-pattern scans nor guessed record boundaries are used.
 use super::{BinaryStreamInspection, RecordCounts, geometry, timeline::*};
 mod actions;
+pub(super) use actions::translate_partial_actions;
 mod filters;
 mod instances;
 mod morph;

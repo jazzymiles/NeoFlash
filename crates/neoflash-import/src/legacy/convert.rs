@@ -446,6 +446,17 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         scene_indices.push(descriptor.stream_index.ok_or("Missing scene stream")?);
     }
     let root_index = *scene_indices.first().ok_or("The document has no scene")?;
+    let has_any_scene_root = scene_indices.iter().any(|&idx| {
+        document
+            .streams
+            .iter()
+            .find(|s| s.index == idx)
+            .and_then(|s| s.root.and_then(|r| object(s, r).ok()))
+            .is_some()
+    });
+    if !has_any_scene_root {
+        return Err("Missing root timeline object".into());
+    }
     let size = settings.size_twips().ok_or("Invalid stage bounds")?;
     if settings.bounds_words[0] != 0 || settings.bounds_words[2] != 0 {
         report.warning("fla_stage_origin","Document settings","The stage bounds start away from 0,0; content keeps its authored coordinates relative to a stage at the origin.");
@@ -480,22 +491,63 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             true
         }
     };
-    let (mut resources, bitmaps, sounds) = assets::resources(document, report)?;
-    let (folders, folder_paths) = assets::folders(c)?;
+    let (folders, folder_paths) = match assets::folders(c) {
+        Ok((mut list, paths)) => {
+            if list.len() > 10_000 {
+                report.warning(
+                    "fla_library_folder",
+                    "Contents",
+                    format!(
+                        "Library contains {} folders (limit 10000); excess folder entries are omitted.",
+                        list.len()
+                    ),
+                );
+                list.truncate(10_000);
+            }
+            (list, paths)
+        }
+        Err(reason) => {
+            report.warning(
+                "fla_library_folder",
+                "Contents",
+                format!(
+                    "Library folder hierarchy could not be reconstructed ({reason}); items are placed at the library root."
+                ),
+            );
+            (Vec::new(), BTreeMap::new())
+        }
+    };
+    let (mut resources, bitmaps, sounds, skipped_bitmaps) =
+        assets::resources(document, &folder_paths, report)?;
     let mut library = BTreeMap::new();
     for d in &c.descriptors {
-        if let (Some(id), Some(index)) = (d.library_id, d.stream_index)
-            && !c.scenes.contains(&d.object_id)
-            && library.insert(id, sid(index)).is_some()
-        {
-            return Err("Duplicate library ID".into());
+        if d.class != ContentsDescriptorClass::DocumentPage || c.scenes.contains(&d.object_id) {
+            continue;
+        }
+        if let Some(id) = d.library_id {
+            let sym_id = match d.stream_index {
+                Some(index) => sid(index),
+                None => format!("fla-symbol-missing-{}", d.object_id),
+            };
+            if library.insert(id, sym_id).is_some() {
+                return Err("Duplicate library ID".into());
+            }
         }
     }
+    let stream_stops: std::collections::BTreeSet<usize> = document
+        .inspection
+        .streams
+        .iter()
+        .filter(|s| s.stop_code.is_some())
+        .map(|s| s.index)
+        .collect();
     let mut context = Context {
         report,
         library,
         bitmaps,
         sounds,
+        skipped_bitmaps,
+        stream_stops,
         language,
         include_hidden,
         contents_revision: c.revision,
@@ -504,18 +556,15 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         missing_bitmaps: BTreeMap::new(),
     };
     let mut symbols = Vec::new();
+    let mut seen_export_ids = std::collections::HashSet::new();
+    let mut seen_export_classes = std::collections::HashSet::new();
     for d in &c.descriptors {
         if d.class != ContentsDescriptorClass::DocumentPage {
             continue;
         }
-        let index = d.stream_index.ok_or("Library descriptor has no stream")?;
-        let stream = document
-            .streams
-            .iter()
-            .find(|s| s.index == index)
-            .ok_or("Library timeline is missing")?;
         let name = read_string(&c.original_bytes, &d.name)?;
-        let kind = if scene_indices.contains(&index) {
+        let is_scene = d.stream_index.is_some_and(|i| scene_indices.contains(&i));
+        let kind = if is_scene {
             SymbolKind::MovieClip
         } else {
             match d.symbol_type {
@@ -537,38 +586,92 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             .as_ref()
             .and_then(|m| m.parent)
             .filter(|id| *id != [0, 0]);
-        let folder = match parent.map(|id| folder_paths.get(&id)) {
-            Some(Some(path)) => path.clone(),
-            Some(None) => {
-                context.report.warning(
-                    "fla_library_folder",
-                    &name,
-                    "Library folder record is unresolved; the item is placed at the library root.",
-                );
-                String::new()
+        let folder = if d.stream_index == Some(root_index) {
+            String::new()
+        } else {
+            match parent.map(|id| folder_paths.get(&id)) {
+                Some(Some(path)) if valid_library_folder(path) => path.clone(),
+                Some(Some(_)) | Some(None) => {
+                    context.report.warning(
+                        "fla_library_folder",
+                        &name,
+                        "Library folder record is unresolved; the item is placed at the library root.",
+                    );
+                    String::new()
+                }
+                None => String::new(),
             }
-            None => String::new(),
         };
         let linkage = d
             .linkage
             .as_ref()
             .or_else(|| d.library_metadata.as_ref().and_then(|m| m.linkage.as_ref()));
-        let linkage_id = linkage
+        let mut linkage_id = linkage
             .map(|l| read_string(&c.original_bytes, &l.identifier))
             .transpose()?
             .filter(|v| !v.is_empty());
-        let class_name = optional_text(
+        let mut class_name = optional_text(
             &c.original_bytes,
             linkage.and_then(|l| l.class_name.as_ref()),
-        )?;
-        let timeline = context.timeline(stream)?;
+        )
+        .map(|s| (!s.is_empty()).then_some(s))?;
+        if let Some(lid_val) = &linkage_id {
+            let valid_export_target = !is_scene
+                && d.stream_index != Some(root_index)
+                && matches!(kind, SymbolKind::MovieClip | SymbolKind::Button)
+                && lid_val.len() <= 512
+                && !lid_val.chars().any(char::is_control)
+                && seen_export_ids.insert(lid_val.clone());
+            if !valid_export_target {
+                context.report.warning(
+                    "fla_linkage_approximated",
+                    &name,
+                    "Symbol linkage identifier is invalid, duplicate or attached to a scene/Graphic symbol and was omitted.",
+                );
+                linkage_id = None;
+            }
+        }
+        if let Some(cls) = &class_name {
+            let valid_cls = is_valid_qualified_class_name(cls)
+                && (linkage_id.is_none() || seen_export_classes.insert(cls.clone()));
+            if !valid_cls {
+                context.report.warning(
+                    "fla_linkage_approximated",
+                    &name,
+                    "Symbol ActionScript class name is invalid or duplicated across exported symbols and was omitted.",
+                );
+                class_name = None;
+            }
+        }
+        let (sym_id, timeline) = match d.stream_index.and_then(|index| {
+            document
+                .streams
+                .iter()
+                .find(|s| s.index == index)
+                .map(|s| (index, s))
+        }) {
+            Some((index, stream)) => (sid(index), context.timeline(stream)?),
+            None if !is_scene => {
+                context.report.warning(
+                    "fla_timeline_empty",
+                    &name,
+                    "Library symbol has no resolved timeline stream in the archive; imported as an empty 1-frame symbol.",
+                );
+                let sym_id = match d.stream_index {
+                    Some(index) => sid(index),
+                    None => format!("fla-symbol-missing-{}", d.object_id),
+                };
+                (sym_id.clone(), empty_timeline(&format!("{sym_id}-layer")))
+            }
+            None => return Err("Missing scene timeline stream".into()),
+        };
         symbols.push(Symbol {
-            id: sid(index),
+            id: sym_id,
             name,
             folder,
             kind,
             timeline,
-            class_name: (!class_name.is_empty()).then_some(class_name),
+            class_name,
             linkage_id,
         });
     }
@@ -635,19 +738,30 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         .publish_property(0, "Vector::DocumentClass")
         .or_else(|| c.publish_property(0, "DocumentClass"))
         .map(|s| s.trim().to_owned())
-        .filter(|name| {
-            !name.is_empty()
-                && name.len() <= 1024
-                && name.split('.').all(|part| {
-                    !part.is_empty()
-                        && part.chars().enumerate().all(|(i, ch)| {
-                            ch == '_'
-                                || ch == '$'
-                                || ch.is_alphabetic()
-                                || (i > 0 && ch.is_numeric())
-                        })
-                })
-        });
+        .filter(|name| is_valid_qualified_class_name(name));
+    if let Some(root_sym) = symbols.iter_mut().find(|s| s.id == sid(root_index))
+        && root_sym.class_name.is_some()
+        && document_class.is_some()
+        && root_sym.class_name != document_class
+    {
+        root_sym.class_name = None;
+    }
+    let raw_width = ((size[0] + 10) / 20).max(1);
+    let raw_height = ((size[1] + 10) / 20).max(1);
+    let raw_fps = if settings.frame_rate().is_finite() {
+        (settings.frame_rate().round() as i64).max(1)
+    } else {
+        24
+    };
+    if raw_width > 65_535 || raw_height > 65_535 || raw_fps > 1_000 {
+        context.report.warning(
+            "fla_stage_clamped",
+            "Document settings",
+            format!(
+                "Stage size or frame rate ({raw_width} x {raw_height} px, {raw_fps} fps) exceeds project bounds and was clamped to 1..=65535 px and 1..=1000 fps."
+            ),
+        );
+    }
     let mut project = Project {
         format_version: 5,
         name: std::path::Path::new(&context.report.source)
@@ -655,15 +769,9 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned(),
-        width: u32::try_from((size[0] + 10) / 20)
-            .ok()
-            .filter(|v| *v > 0)
-            .ok_or("Stage width overflow")?,
-        height: u32::try_from((size[1] + 10) / 20)
-            .ok()
-            .filter(|v| *v > 0)
-            .ok_or("Stage height overflow")?,
-        fps: (settings.frame_rate().round() as u32).max(1),
+        width: raw_width.clamp(1, 65_535) as u32,
+        height: raw_height.clamp(1, 65_535) as u32,
+        fps: raw_fps.clamp(1, 1_000) as u32,
         background: shape::color(settings.background_rgba_word),
         root: sid(root_index),
         symbols,
@@ -679,6 +787,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         script_language: Some(context.language),
         also_compile_compatible_scripts: true,
     };
+    enforce_project_structural_limits(&mut project, &mut context.provenance, context.report);
     // Size the converted document first: the original shares both the resource
     // budget and the project's encoded JSON limit with the converted content.
     // Saved projects are pretty-printed JSON; measure that form.
@@ -832,6 +941,8 @@ struct Context<'a> {
     library: BTreeMap<u32, String>,
     bitmaps: BTreeMap<u16, assets::BitmapAsset>,
     sounds: BTreeMap<u16, assets::SoundAsset>,
+    skipped_bitmaps: std::collections::BTreeSet<u16>,
+    stream_stops: std::collections::BTreeSet<usize>,
     language: ScriptLanguage,
     include_hidden: bool,
     contents_revision: Option<u8>,
@@ -840,6 +951,30 @@ struct Context<'a> {
     missing_bitmaps: BTreeMap<u16, String>,
 }
 impl Context<'_> {
+    fn ensure_placeholder_symbol(&mut self) {
+        if !self.generated.iter().any(|g| g.id == PLACEHOLDER) {
+            self.generated.push(group_symbol(
+                PLACEHOLDER,
+                "Unsupported source object (see import report)".into(),
+                vec![],
+            ));
+        }
+    }
+    fn placeholder_element(&mut self, id: String, transform: Transform) -> Element {
+        self.ensure_placeholder_symbol();
+        Element {
+            id,
+            name: String::new(),
+            transform,
+            kind: ElementKind::Instance {
+                symbol_id: PLACEHOLDER.into(),
+                playback: InstancePlayback::SingleFrame(0),
+            },
+            scripts: vec![],
+            accessibility: None,
+            ..Element::default()
+        }
+    }
     fn frame_sound(
         &mut self,
         s: &BinaryTimelineStream,
@@ -1082,6 +1217,7 @@ impl Context<'_> {
         actions: Option<&TimelineActions>,
     ) -> Result<Option<Script>, String> {
         let Some(a) = actions else { return Ok(None) };
+        let loc = format!("stream #{} @0x{:x}", stream.index, a.encoded.start);
         match a.presence {
             TimelineActionPresence::Empty => Ok(None),
             TimelineActionPresence::Source if a.complete => Ok(Some(Script {
@@ -1091,6 +1227,28 @@ impl Context<'_> {
                     a.source.as_ref().ok_or("Missing action source")?,
                 )?,
             })),
+            TimelineActionPresence::Source => {
+                if let Some(span) = a.source.as_ref()
+                    && let Ok(source) = read_string(&stream.original_bytes, span)
+                {
+                    self.report.warning(
+                        "fla_actions_partial",
+                        &loc,
+                        "Source action record stopped after reading its script text; the recovered script is preserved.",
+                    );
+                    Ok((!source.trim().is_empty()).then_some(Script {
+                        language: self.language,
+                        source,
+                    }))
+                } else {
+                    self.report.warning(
+                        "fla_actions_partial",
+                        &loc,
+                        "Source action record stopped before its script string completed; the incomplete record remains in the embedded source.",
+                    );
+                    Ok(None)
+                }
+            }
             // Historical and compiled-mode command lists carry no source text;
             // the reader's ActionScript 1 translation stands in for it.
             TimelineActionPresence::Historical | TimelineActionPresence::Compiled if a.complete => {
@@ -1101,7 +1259,7 @@ impl Context<'_> {
                 if decoded.needs_review {
                     self.report.warning(
                         "fla_actions_translated",
-                        format!("stream #{} @0x{:x}", stream.index, a.encoded.start),
+                        loc,
                         format!(
                             "ActionScript 1 translation of legacy action commands needs review: {} of {} commands remain as marked comments (or a block was repaired); the original commands stay in the embedded FLA.",
                             decoded.untranslated.len(),
@@ -1114,14 +1272,60 @@ impl Context<'_> {
                     source: decoded.source.clone(),
                 }))
             }
-            _ => Err(format!(
-                "Stream #{} @0x{:x}: compiled/historical action records need a dedicated importer",
-                stream.index, a.encoded.start
-            )),
+            TimelineActionPresence::Historical | TimelineActionPresence::Compiled => {
+                if let Some(decoded) = a.decoded.as_ref()
+                    && let Some((mut source, complete_count, untranslated_count)) =
+                        crate::legacy::mfc::translate_partial_actions(
+                            &stream.original_bytes,
+                            decoded,
+                        )
+                {
+                    source.push_str(&format!(
+                        "// NeoFlash: action record stopped at @0x{:x} after {complete_count} complete command(s)\n",
+                        a.encoded.end
+                    ));
+                    self.report.warning(
+                        "fla_actions_partial",
+                        &loc,
+                        format!(
+                            "Legacy action command list stopped before completion; {complete_count} complete command(s) before the stop were translated to ActionScript 1 ({untranslated_count} kept as comments)."
+                        ),
+                    );
+                    Ok(Some(Script {
+                        language: ScriptLanguage::ActionScript1,
+                        source,
+                    }))
+                } else {
+                    self.report.warning(
+                        "fla_actions_partial",
+                        &loc,
+                        "Legacy action command list stopped before any complete statement could be translated; the raw bytes remain in the embedded source.",
+                    );
+                    Ok(None)
+                }
+            }
+            TimelineActionPresence::Unknown => {
+                self.report.warning(
+                    "fla_actions_partial",
+                    &loc,
+                    "Action record stopped before its encoding mode was identified; the raw bytes remain in the embedded source.",
+                );
+                Ok(None)
+            }
         }
     }
     fn timeline(&mut self, s: &BinaryTimelineStream) -> Result<Timeline, String> {
-        let page = object(s, s.root.ok_or("Timeline has no root")?)?;
+        const MAX_TIMELINE_FRAMES: u32 = 1_000_000;
+        let Some(page) = s.root.and_then(|r| object(s, r).ok()) else {
+            if !self.stream_stops.contains(&s.index) {
+                self.report.warning(
+                    "fla_timeline_empty",
+                    format!("stream #{}", s.index),
+                    "Timeline stream contains no readable root page record; imported as an empty 1-frame timeline.",
+                );
+            }
+            return Ok(empty_timeline(&format!("fla-layer-{}-0", s.index)));
+        };
         let mut timeline = Timeline {
             guides: vec![],
             frame_count: 1,
@@ -1132,11 +1336,27 @@ impl Context<'_> {
         let mut sources = Vec::new();
         for id in &page.children {
             let o = object(s, *id)?;
-            let Some(TimelinePayload::Layer(l)) = &o.payload else {
-                self.report.warning("fla_layer_skipped",format!("stream #{} object #{id}",s.index),if o.complete {"A timeline child is not a layer record; it remains in the embedded source."} else {"The layer record stops before its settings; it remains in the embedded source."});
-                continue;
+            let default_layer = TimelineLayer::default();
+            let (l, name) = match &o.payload {
+                Some(TimelinePayload::Layer(l)) => {
+                    (l, optional_text(&s.original_bytes, l.name.as_ref())?)
+                }
+                None if o.class == TimelineClass::Layer && !o.children.is_empty() => {
+                    let fallback = format!("Layer {}", timeline.layers.len() + 1);
+                    self.report.warning(
+                        "fla_layer_partial",
+                        format!("stream #{} object #{id}", s.index),
+                        format!(
+                            "Layer record stopped before its settings after reading frame records; recovered frames are imported on default normal layer '{fallback}'."
+                        ),
+                    );
+                    (&default_layer, fallback)
+                }
+                _ => {
+                    self.report.warning("fla_layer_skipped",format!("stream #{} object #{id}",s.index),if o.complete {"A timeline child is not a layer record; it remains in the embedded source."} else {"The layer record stops before its settings; it remains in the embedded source."});
+                    continue;
+                }
             };
-            let name = optional_text(&s.original_bytes, l.name.as_ref())?;
             if !o.complete && o.children.is_empty() {
                 self.report.warning(
                     "fla_layer_skipped",
@@ -1224,18 +1444,54 @@ impl Context<'_> {
             let mut cursor = 0u32;
             let mut pending_morphs: Vec<(usize, u32)> = Vec::new();
             for frame_id in &o.children {
+                if cursor >= MAX_TIMELINE_FRAMES {
+                    self.report.warning(
+                        "fla_frame_limit",
+                        format!("stream #{} layer {}", s.index, layer.name),
+                        format!(
+                            "Layer exceeds the {MAX_TIMELINE_FRAMES}-frame timeline limit; trailing keyframes are omitted."
+                        ),
+                    );
+                    break;
+                }
                 let frame = object(s, *frame_id)?;
-                let Some(TimelinePayload::Frame(f)) = &frame.payload else {
+                if frame.class != TimelineClass::Frame {
                     self.report.warning(
                         "fla_frame_skipped",
                         format!("stream #{} layer {}", s.index, layer.name),
                         "A layer child is not a frame record; it remains in the embedded source.",
                     );
                     continue;
+                }
+                let default_frame = TimelineFrame::default();
+                let f = match &frame.payload {
+                    Some(TimelinePayload::Frame(f)) => f.as_ref(),
+                    _ => &default_frame,
                 };
                 if !frame.complete {
-                    // Only fully read frames are converted; the stream stop is reported.
-                    break;
+                    let has_recoverable = !frame.children.is_empty()
+                        || frame.shape_index.is_some()
+                        || f.duration.is_some()
+                        || f.label.is_some()
+                        || f.sound_media_id.unwrap_or(0) != 0
+                        || f.actions
+                            .as_ref()
+                            .is_some_and(|a| a.presence != TimelineActionPresence::Empty);
+                    if !has_recoverable {
+                        break;
+                    }
+                    if frame.payload.is_none() || f.duration.is_none() {
+                        self.report.warning(
+                            "fla_frame_partial",
+                            format!(
+                                "stream #{} layer {} frame {}",
+                                s.index,
+                                layer.name,
+                                cursor + 1
+                            ),
+                            "Keyframe stopped before all frame properties were read; decoded elements, shapes and scripts before the stop are preserved with a 1-frame fallback duration.",
+                        );
+                    }
                 }
                 if f.duration == Some(0) {
                     // Flash writes empty zero-length keys at the start of some
@@ -1248,6 +1504,9 @@ impl Context<'_> {
                             .is_some_and(|a| a.presence != TimelineActionPresence::Empty)
                     {
                         self.report.warning("fla_frame_duration",format!("stream #{} layer {} frame {}",s.index,layer.name,cursor+1),"A zero-length keyframe with content occupies no frame in Flash and is skipped; it remains in the embedded source.");
+                    }
+                    if !frame.complete {
+                        break;
                     }
                     continue;
                 }
@@ -1283,9 +1542,11 @@ impl Context<'_> {
                     self.provenance.push(serde_json::json!({"stream":s.index,"object":child,"layer":layer.id,"frame":cursor,"slot":slot}));
                 }
                 if let Some(index) = frame.shape_index {
+                    let shape_id = format!("fla-{}-{}-shape-{frame_id}", s.index, id);
+                    let shape_record = &s.shapes[index].record;
                     match shape::convert_shape_with_effects(
-                        &s.shapes[index].record,
-                        &format!("fla-{}-{}-shape-{frame_id}", s.index, id),
+                        shape_record,
+                        &shape_id,
                         &self.bitmaps,
                         self.report,
                         &format!("stream #{} frame {cursor}", s.index),
@@ -1296,7 +1557,19 @@ impl Context<'_> {
                             appearances.extend(converted.appearances);
                             vector_effects.extend(converted.vector_effects);
                         }
-                        Err(e) => self.report.warning("fla_shape_skipped",&at,format!("Frame artwork was not converted: {e}. It remains in the embedded source.")),
+                        Err(e) => {
+                            self.report.warning(
+                                "fla_shape_skipped",
+                                &at,
+                                format!(
+                                    "Frame artwork was not converted: {e}. A placeholder keeps its slot and the original shape remains in the embedded source."
+                                ),
+                            );
+                            if !shape_record.edges.is_empty() {
+                                elements
+                                    .push(self.placeholder_element(shape_id, Transform::default()));
+                            }
+                        }
                     }
                 }
                 let (tween, tween_kind) = match ease(f) {
@@ -1391,10 +1664,23 @@ impl Context<'_> {
                     label: optional_text(&s.original_bytes, f.label.as_ref())?,
                     ..Default::default()
                 });
-                let duration = u32::from(f.duration.ok_or("Frame duration absent")?);
-                cursor = cursor
-                    .checked_add(duration)
-                    .ok_or("Timeline length overflow")?;
+                let duration = u32::from(f.duration.unwrap_or(1)).max(1);
+                let next_cursor = u64::from(cursor) + u64::from(duration);
+                if next_cursor > u64::from(MAX_TIMELINE_FRAMES) {
+                    self.report.warning(
+                        "fla_frame_limit",
+                        &at,
+                        format!(
+                            "Keyframe duration extends beyond the {MAX_TIMELINE_FRAMES}-frame timeline limit and was clamped."
+                        ),
+                    );
+                    cursor = MAX_TIMELINE_FRAMES;
+                } else {
+                    cursor = next_cursor as u32;
+                }
+                if !frame.complete {
+                    break;
+                }
             }
             if let Some(last) = layer.keyframes.last_mut()
                 && last.tween.is_some()
@@ -1761,10 +2047,23 @@ impl Context<'_> {
                         playback: InstancePlayback::SingleFrame(0),
                     };
                     element.name = format!("Unresolved source bitmap #{media}");
-                    self.report.warning("fla_source_bitmap_missing",&location,format!("Bitmap #{media} is already absent from the source archive. The placement and unresolved reference are retained; no image was invented."));
+                    if self.skipped_bitmaps.contains(&media) {
+                        self.report.warning(
+                            "fla_bitmap_skipped",
+                            &location,
+                            format!(
+                                "Bitmap #{media} could not be decoded or exceeded project resource limits; an unresolved placeholder preserves its stage transform."
+                            ),
+                        );
+                    } else {
+                        self.report.warning("fla_source_bitmap_missing",&location,format!("Bitmap #{media} is already absent from the source archive. The placement and unresolved reference are retained; no image was invented."));
+                    }
                 }
             }
             Some(TimelinePayload::Shape) => {
+                if !o.complete && o.children.is_empty() && o.shape_index.is_none() {
+                    return Err("Shape record stopped before completion".into());
+                }
                 let mut members = Vec::new();
                 let mut bitmap_fills = Vec::new();
                 let mut appearances = Vec::new();
@@ -1778,9 +2077,11 @@ impl Context<'_> {
                     ))
                 }
                 if let Some(index) = o.shape_index {
+                    let paint_id = format!("{id}-paint");
+                    let shape_record = &s.shapes[index].record;
                     match shape::convert_shape_with_effects(
-                        &s.shapes[index].record,
-                        &format!("{id}-paint"),
+                        shape_record,
+                        &paint_id,
                         &self.bitmaps,
                         self.report,
                         &location,
@@ -1791,7 +2092,19 @@ impl Context<'_> {
                             appearances.extend(converted.appearances);
                             vector_effects.extend(converted.vector_effects);
                         }
-                        Err(e) => self.report.warning("fla_shape_skipped",&location,format!("Group artwork was not converted: {e}. It remains in the embedded source.")),
+                        Err(e) => {
+                            self.report.warning(
+                                "fla_shape_skipped",
+                                &location,
+                                format!(
+                                    "Group artwork was not converted: {e}. A placeholder keeps its slot and the original shape remains in the embedded source."
+                                ),
+                            );
+                            if !shape_record.edges.is_empty() {
+                                members
+                                    .push(self.placeholder_element(paint_id, Transform::default()));
+                            }
+                        }
                     }
                 }
                 // A one-frame graphic keeps group membership and vector paint order editable.
@@ -1834,9 +2147,10 @@ impl Context<'_> {
                     if let Some(index) = o.shape_index
                         && let Some(shape_rec) = s.shapes.get(index)
                     {
+                        let paint_id = format!("{id}-paint");
                         match shape::convert_shape_with_effects(
                             &shape_rec.record,
-                            &format!("{id}-paint"),
+                            &paint_id,
                             &self.bitmaps,
                             self.report,
                             &location,
@@ -1847,7 +2161,20 @@ impl Context<'_> {
                                 appearances.extend(converted.appearances);
                                 vector_effects.extend(converted.vector_effects);
                             }
-                            Err(e) => self.report.warning("fla_shape_skipped",&location,format!("Primitive artwork was not converted: {e}. It remains in the embedded source.")),
+                            Err(e) => {
+                                self.report.warning(
+                                    "fla_shape_skipped",
+                                    &location,
+                                    format!(
+                                        "Primitive artwork was not converted: {e}. A placeholder keeps its slot and the original shape remains in the embedded source."
+                                    ),
+                                );
+                                if !shape_rec.record.edges.is_empty() {
+                                    members.push(
+                                        self.placeholder_element(paint_id, Transform::default()),
+                                    );
+                                }
+                            }
                         }
                     }
                     let symbol_id = format!("{id}-group");
@@ -1940,6 +2267,74 @@ impl Context<'_> {
                 element.kind = ElementKind::Instance {
                     symbol_id,
                     playback: InstancePlayback::Independent,
+                };
+            }
+            None if matches!(
+                o.class,
+                TimelineClass::Shape | TimelineClass::Rect | TimelineClass::Oval
+            ) && (!o.children.is_empty() || o.shape_index.is_some()) =>
+            {
+                self.report.warning(
+                    "fla_group_partial",
+                    &location,
+                    "Group or primitive record stopped before completion; decoded child records and artwork before the stop are preserved.",
+                );
+                let mut members = Vec::new();
+                let mut bitmap_fills = Vec::new();
+                let mut appearances = Vec::new();
+                let mut vector_effects = Vec::new();
+                for (slot, child) in o.children.iter().enumerate() {
+                    members.push(self.element_or_placeholder(
+                        s,
+                        *child,
+                        &format!("{id}-member-{slot}"),
+                        depth + 1,
+                    ));
+                }
+                if let Some(index) = o.shape_index
+                    && let Some(shape_rec) = s.shapes.get(index)
+                {
+                    let paint_id = format!("{id}-paint");
+                    match shape::convert_shape_with_effects(
+                        &shape_rec.record,
+                        &paint_id,
+                        &self.bitmaps,
+                        self.report,
+                        &location,
+                    ) {
+                        Ok(converted) => {
+                            members.extend(converted.elements);
+                            bitmap_fills.extend(converted.bitmap_fills);
+                            appearances.extend(converted.appearances);
+                            vector_effects.extend(converted.vector_effects);
+                        }
+                        Err(e) => {
+                            self.report.warning(
+                                "fla_shape_skipped",
+                                &location,
+                                format!(
+                                    "Group artwork was not converted: {e}. A placeholder keeps its slot and the original shape remains in the embedded source."
+                                ),
+                            );
+                            if !shape_rec.record.edges.is_empty() {
+                                members
+                                    .push(self.placeholder_element(paint_id, Transform::default()));
+                            }
+                        }
+                    }
+                }
+                let symbol_id = format!("{id}-group");
+                self.generated.push(group_symbol_with_effects(
+                    &symbol_id,
+                    format!("Source group {object_id}"),
+                    members,
+                    bitmap_fills,
+                    appearances,
+                    vector_effects,
+                ));
+                element.kind = ElementKind::Instance {
+                    symbol_id,
+                    playback: InstancePlayback::SingleFrame(0),
                 };
             }
             _ => {
@@ -2761,6 +3156,8 @@ fn fit_project_json_budget(
         if !shed_bitmap_resources(project, report, excess) {
             break;
         }
+        project.format_version = 5;
+        project.upgrade_format_for_features();
         *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
     }
 
@@ -2949,9 +3346,9 @@ fn shed_bitmap_resources(project: &mut Project, report: &mut ImportReport, exces
                                     symbol_id: sid.clone(),
                                     playback: InstancePlayback::SingleFrame(0),
                                 },
-                                _ => ElementKind::Rectangle {
-                                    width: 0.0,
-                                    height: 0.0,
+                                _ => ElementKind::Path {
+                                    commands: vec![],
+                                    fill_rule: FillRule::EvenOdd,
                                     fill: [0; 4],
                                     stroke: [0; 4],
                                     stroke_width: 0.0,
@@ -3113,9 +3510,9 @@ fn degrade_excess_vector_shapes(
                                     playback: InstancePlayback::SingleFrame(0),
                                 }
                             } else {
-                                ElementKind::Rectangle {
-                                    width: 0.0,
-                                    height: 0.0,
+                                ElementKind::Path {
+                                    commands: vec![],
+                                    fill_rule: FillRule::EvenOdd,
                                     fill: [0; 4],
                                     stroke: [0; 4],
                                     stroke_width: 0.0,
@@ -3169,6 +3566,825 @@ fn degrade_excess_vector_shapes(
         }
     }
     saved > 0
+}
+
+fn empty_timeline(layer_id: &str) -> Timeline {
+    Timeline {
+        guides: vec![],
+        frame_count: 1,
+        layers: vec![Layer {
+            id: layer_id.into(),
+            name: "Layer 1".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![],
+                tween: None,
+                label: String::new(),
+                ..Default::default()
+            }],
+            properties: LayerProperties::default(),
+        }],
+        scripts: vec![],
+    }
+}
+
+fn is_valid_qualified_class_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 1024
+        && name.split('.').all(|part| {
+            !part.is_empty()
+                && part.chars().enumerate().all(|(i, ch)| {
+                    ch == '_' || ch == '$' || ch.is_alphabetic() || (i > 0 && ch.is_numeric())
+                })
+        })
+}
+
+fn leaf_placeholder_element(id: String, transform: Transform) -> Element {
+    Element {
+        id,
+        name: String::new(),
+        transform,
+        kind: ElementKind::Path {
+            commands: vec![],
+            fill_rule: FillRule::EvenOdd,
+            fill: [0; 4],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        scripts: vec![],
+        accessibility: None,
+        ..Element::default()
+    }
+}
+
+fn prune_keyframe_side_tables(key: &mut Keyframe) {
+    let kept: std::collections::HashSet<&str> =
+        key.elements.iter().map(|e| e.id.as_str()).collect();
+    key.bitmap_fills
+        .retain(|bf| kept.contains(bf.element_id.as_str()));
+    key.appearances
+        .retain(|app| kept.contains(app.element_id.as_str()));
+    key.vector_effects
+        .retain(|fx| kept.contains(fx.element_id.as_str()));
+    key.asset_warps
+        .retain(|w| kept.contains(w.element_id.as_str()));
+    key.element_parents
+        .retain(|ep| kept.contains(ep.child_id.as_str()) && kept.contains(ep.parent_id.as_str()));
+}
+
+fn enforce_project_structural_limits(
+    project: &mut Project,
+    provenance: &mut [serde_json::Value],
+    report: &mut ImportReport,
+) {
+    const MAX_SYMBOLS: usize = 10_000;
+    const MAX_NESTING_DEPTH: usize = 64;
+    const MAX_PLACED_BITMAPS: usize = 256;
+    const MAX_AUTHORED_ELEMENTS: usize = 100_000;
+    const MAX_EXPANDED_NODES: usize = 100_000;
+
+    // 1. Break symbol cycles and nesting deeper than 64 levels first so later
+    //    bottom-up traversals operate on a bounded DAG.
+    loop {
+        let index_by_id: std::collections::HashMap<String, usize> = project
+            .symbols
+            .iter()
+            .enumerate()
+            .map(|(idx, s)| (s.id.clone(), idx))
+            .collect();
+        let mut active = std::collections::HashSet::<String>::new();
+        let mut good_max_depth = std::collections::HashMap::<String, usize>::new();
+        let mut bad_edge: Option<(usize, usize, usize, usize, String)> = None;
+
+        fn find_bad_instance(
+            sym_idx: usize,
+            depth: usize,
+            symbols: &[Symbol],
+            index_by_id: &std::collections::HashMap<String, usize>,
+            active: &mut std::collections::HashSet<String>,
+            good_max_depth: &mut std::collections::HashMap<String, usize>,
+        ) -> Result<usize, (usize, usize, usize, usize, String)> {
+            let sym = &symbols[sym_idx];
+            if let Some(&sub_height) = good_max_depth.get(&sym.id)
+                && depth + sub_height <= MAX_NESTING_DEPTH + 1
+            {
+                return Ok(sub_height);
+            }
+            active.insert(sym.id.clone());
+            let mut max_sub = 1usize;
+            for (li, layer) in sym.timeline.layers.iter().enumerate() {
+                for (ki, key) in layer.keyframes.iter().enumerate() {
+                    for (ei, elem) in key.elements.iter().enumerate() {
+                        if let ElementKind::Instance { symbol_id, .. } = &elem.kind {
+                            if active.contains(symbol_id) {
+                                active.remove(&sym.id);
+                                return Err((
+                                    sym_idx,
+                                    li,
+                                    ki,
+                                    ei,
+                                    "cyclic symbol reference".into(),
+                                ));
+                            }
+                            if depth >= MAX_NESTING_DEPTH {
+                                active.remove(&sym.id);
+                                return Err((
+                                    sym_idx,
+                                    li,
+                                    ki,
+                                    ei,
+                                    format!("symbol nesting exceeds {MAX_NESTING_DEPTH} levels"),
+                                ));
+                            }
+                            if let Some(&child_idx) = index_by_id.get(symbol_id) {
+                                let child_h = find_bad_instance(
+                                    child_idx,
+                                    depth + 1,
+                                    symbols,
+                                    index_by_id,
+                                    active,
+                                    good_max_depth,
+                                )?;
+                                max_sub = max_sub.max(1 + child_h);
+                            }
+                        }
+                    }
+                }
+            }
+            active.remove(&sym.id);
+            good_max_depth.insert(sym.id.clone(), max_sub);
+            Ok(max_sub)
+        }
+
+        for idx in 0..project.symbols.len() {
+            if let Err(found) = find_bad_instance(
+                idx,
+                1,
+                &project.symbols,
+                &index_by_id,
+                &mut active,
+                &mut good_max_depth,
+            ) {
+                bad_edge = Some(found);
+                break;
+            }
+        }
+        let Some((si, li, ki, ei, reason)) = bad_edge else {
+            break;
+        };
+        let sym_name = project.symbols[si].name.clone();
+        let layer_name = project.symbols[si].timeline.layers[li].name.clone();
+        let frame_no = project.symbols[si].timeline.layers[li].keyframes[ki].frame + 1;
+        let elem = &mut project.symbols[si].timeline.layers[li].keyframes[ki].elements[ei];
+        *elem = leaf_placeholder_element(elem.id.clone(), elem.transform);
+        report.warning(
+            "fla_symbol_nesting_limit",
+            format!("{sym_name} layer {layer_name} frame {frame_no}"),
+            format!(
+                "Symbol placement replaced by a placeholder ({reason}); original symbol remains in the library."
+            ),
+        );
+    }
+
+    // 2. Enforce runtime placed-bitmap budgets (256 distinct bitmap buffers and
+    //    MAX_BITMAP_BYTES = 128 MiB of decoded RGBA pixels).
+    let mut kept_placed_bitmaps = std::collections::HashSet::<String>::new();
+    let mut placed_rgba_bytes = 0usize;
+    let mut degraded_bitmap_placements = Vec::<(usize, usize, usize, usize, String)>::new();
+    for (si, sym) in project.symbols.iter().enumerate() {
+        for (li, layer) in sym.timeline.layers.iter().enumerate() {
+            for (ki, key) in layer.keyframes.iter().enumerate() {
+                for (ei, elem) in key.elements.iter().enumerate() {
+                    if let ElementKind::Bitmap {
+                        resource_id,
+                        width,
+                        height,
+                        ..
+                    } = &elem.kind
+                    {
+                        if kept_placed_bitmaps.contains(resource_id) {
+                            continue;
+                        }
+                        let rgba = (*width as usize)
+                            .saturating_mul(*height as usize)
+                            .saturating_mul(4);
+                        if kept_placed_bitmaps.len() < MAX_PLACED_BITMAPS
+                            && placed_rgba_bytes
+                                .checked_add(rgba)
+                                .is_some_and(|n| n <= MAX_BITMAP_BYTES)
+                        {
+                            kept_placed_bitmaps.insert(resource_id.clone());
+                            placed_rgba_bytes += rgba;
+                        } else {
+                            degraded_bitmap_placements.push((si, li, ki, ei, resource_id.clone()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if !degraded_bitmap_placements.is_empty() {
+        if !project.symbols.iter().any(|s| s.id == PLACEHOLDER)
+            && project.symbols.len() < MAX_SYMBOLS
+        {
+            project.symbols.push(group_symbol(
+                PLACEHOLDER,
+                "Unsupported source object (see import report)".into(),
+                vec![],
+            ));
+        }
+        let has_placeholder = project.symbols.iter().any(|s| s.id == PLACEHOLDER);
+        let allowed_leaf = symbols_allowing_leaf_instance(&project.symbols);
+        for (si, li, ki, ei, res_id) in degraded_bitmap_placements {
+            let sym_id = project.symbols[si].id.clone();
+            let sym_name = project.symbols[si].name.clone();
+            let layer_name = project.symbols[si].timeline.layers[li].name.clone();
+            let frame_no = project.symbols[si].timeline.layers[li].keyframes[ki].frame + 1;
+            let use_inst = has_placeholder && allowed_leaf.contains(&sym_id);
+            let elem = &mut project.symbols[si].timeline.layers[li].keyframes[ki].elements[ei];
+            elem.name = format!("Budget-limited bitmap ({res_id})");
+            elem.kind = if use_inst {
+                ElementKind::Instance {
+                    symbol_id: PLACEHOLDER.into(),
+                    playback: InstancePlayback::SingleFrame(0),
+                }
+            } else {
+                ElementKind::Path {
+                    commands: vec![],
+                    fill_rule: FillRule::EvenOdd,
+                    fill: [0; 4],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                }
+            };
+            report.warning(
+                "fla_bitmap_skipped",
+                format!("{sym_name} layer {layer_name} frame {frame_no}"),
+                "Placed bitmap exceeds the 256-bitmap or 128 MiB runtime pixel budget; a placeholder preserves its stage transform.",
+            );
+        }
+    }
+
+    // 3. Deduplicate groups/media first whenever symbol, element or expanded-node
+    //    counts approach document limits.
+    let authored_count = |proj: &Project| -> usize {
+        proj.symbols
+            .iter()
+            .flat_map(|s| &s.timeline.layers)
+            .flat_map(|l| &l.keyframes)
+            .map(|k| k.elements.len())
+            .sum()
+    };
+    let symbol_expanded_bound =
+        |sym: &Symbol, child_bounds: &std::collections::HashMap<String, usize>| -> usize {
+            let cap = MAX_EXPANDED_NODES + 1;
+            let mut count = 1usize;
+            for layer in &sym.timeline.layers {
+                let mut max_key = 0usize;
+                for key in &layer.keyframes {
+                    let mut key_count = 0usize;
+                    for elem in &key.elements {
+                        let nodes = match &elem.kind {
+                            ElementKind::Instance { symbol_id, .. } => {
+                                child_bounds.get(symbol_id).copied().unwrap_or(1)
+                            }
+                            _ => 1,
+                        };
+                        key_count = key_count.saturating_add(nodes).min(cap);
+                    }
+                    max_key = max_key.max(key_count);
+                }
+                count = count.saturating_add(max_key).min(cap);
+            }
+            count
+        };
+    let compute_expanded_bounds = |symbols: &[Symbol]| -> std::collections::HashMap<String, usize> {
+        let by_id: std::collections::HashMap<&str, &Symbol> =
+            symbols.iter().map(|s| (s.id.as_str(), s)).collect();
+        let mut memo = std::collections::HashMap::<String, usize>::new();
+        let mut active = std::collections::HashSet::<String>::new();
+        fn eval(
+            id: &str,
+            by_id: &std::collections::HashMap<&str, &Symbol>,
+            active: &mut std::collections::HashSet<String>,
+            memo: &mut std::collections::HashMap<String, usize>,
+        ) -> usize {
+            if let Some(&v) = memo.get(id) {
+                return v;
+            }
+            let Some(&sym) = by_id.get(id) else {
+                return 1;
+            };
+            if !active.insert(id.to_owned()) {
+                return 1;
+            }
+            let cap = MAX_EXPANDED_NODES + 1;
+            let mut count = 1usize;
+            for layer in &sym.timeline.layers {
+                let mut max_key = 0usize;
+                for key in &layer.keyframes {
+                    let mut key_count = 0usize;
+                    for elem in &key.elements {
+                        let nodes = match &elem.kind {
+                            ElementKind::Instance { symbol_id, .. } => {
+                                eval(symbol_id, by_id, active, memo)
+                            }
+                            _ => 1,
+                        };
+                        key_count = key_count.saturating_add(nodes).min(cap);
+                    }
+                    max_key = max_key.max(key_count);
+                }
+                count = count.saturating_add(max_key).min(cap);
+            }
+            active.remove(id);
+            memo.insert(id.to_owned(), count);
+            count
+        }
+        for s in symbols {
+            eval(&s.id, &by_id, &mut active, &mut memo);
+        }
+        memo
+    };
+
+    if project.symbols.len() > MAX_SYMBOLS
+        || authored_count(project) > MAX_AUTHORED_ELEMENTS
+        || compute_expanded_bounds(&project.symbols)
+            .values()
+            .any(|&n| n > MAX_EXPANDED_NODES)
+    {
+        deduplicate_project_for_budget(project, provenance);
+    }
+
+    // 3a. Cap symbol count at 10,000.
+    if project.symbols.len() > MAX_SYMBOLS {
+        let protected: std::collections::HashSet<String> = std::iter::once(project.root.clone())
+            .chain(project.scenes.iter().cloned())
+            .chain(std::iter::once(PLACEHOLDER.to_owned()))
+            .collect();
+        let protected_present = project
+            .symbols
+            .iter()
+            .filter(|sym| protected.contains(&sym.id))
+            .count();
+        let reserve_placeholder = usize::from(
+            !project
+                .symbols
+                .iter()
+                .any(|sym| sym.id.as_str() == PLACEHOLDER),
+        );
+        let max_unprotected = MAX_SYMBOLS.saturating_sub(protected_present + reserve_placeholder);
+        let mut unprotected_kept = 0usize;
+        let mut kept = Vec::with_capacity(MAX_SYMBOLS);
+        let mut dropped = std::collections::HashSet::<String>::new();
+        for sym in project.symbols.drain(..) {
+            if protected.contains(&sym.id) {
+                kept.push(sym);
+            } else if unprotected_kept < max_unprotected {
+                unprotected_kept += 1;
+                kept.push(sym);
+            } else {
+                report.warning(
+                    "fla_symbol_limit",
+                    &sym.name,
+                    format!(
+                        "Symbol omitted because the document exceeds the {MAX_SYMBOLS}-symbol limit; placements become placeholders."
+                    ),
+                );
+                dropped.insert(sym.id);
+            }
+        }
+        project.symbols = kept;
+        for sym in &mut project.symbols {
+            for layer in &mut sym.timeline.layers {
+                for key in &mut layer.keyframes {
+                    for elem in &mut key.elements {
+                        if let ElementKind::Instance { symbol_id, .. } = &elem.kind
+                            && dropped.contains(symbol_id)
+                        {
+                            *elem = leaf_placeholder_element(elem.id.clone(), elem.transform);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3b. Cap total authored elements at 100,000.
+    let mut total_elements = authored_count(project);
+    if total_elements > MAX_AUTHORED_ELEMENTS {
+        for sym in project.symbols.iter_mut().rev() {
+            if total_elements <= MAX_AUTHORED_ELEMENTS {
+                break;
+            }
+            for layer in sym.timeline.layers.iter_mut().rev() {
+                if total_elements <= MAX_AUTHORED_ELEMENTS {
+                    break;
+                }
+                for key in layer.keyframes.iter_mut().rev() {
+                    if total_elements <= MAX_AUTHORED_ELEMENTS {
+                        break;
+                    }
+                    if key.elements.len() <= 1 {
+                        continue;
+                    }
+                    let removed = key.elements.len() - 1;
+                    let first = &key.elements[0];
+                    key.elements =
+                        vec![leaf_placeholder_element(first.id.clone(), first.transform)];
+                    prune_keyframe_side_tables(key);
+                    total_elements = total_elements.saturating_sub(removed);
+                    report.warning(
+                        "fla_element_limit",
+                        format!("{} layer {} frame {}", sym.name, layer.name, key.frame + 1),
+                        format!(
+                            "Keyframe elements collapsed into a placeholder to fit the {MAX_AUTHORED_ELEMENTS}-element project limit."
+                        ),
+                    );
+                }
+            }
+        }
+        if total_elements > MAX_AUTHORED_ELEMENTS {
+            for sym in project.symbols.iter_mut().rev() {
+                for layer in sym.timeline.layers.iter_mut().rev() {
+                    for key in layer.keyframes.iter_mut().rev() {
+                        if total_elements <= MAX_AUTHORED_ELEMENTS {
+                            break;
+                        }
+                        if !key.elements.is_empty() {
+                            total_elements = total_elements.saturating_sub(key.elements.len());
+                            key.elements.clear();
+                            prune_keyframe_side_tables(key);
+                            report.warning(
+                                "fla_element_limit",
+                                format!("{} layer {} frame {}", sym.name, layer.name, key.frame + 1),
+                                format!(
+                                    "Trailing keyframe cleared to fit the {MAX_AUTHORED_ELEMENTS}-element project limit."
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3c. Cap expanded scene/symbol node bound at 100,000 (bottom-up over the DAG).
+    loop {
+        let bounds = compute_expanded_bounds(&project.symbols);
+        let Some(target_idx) = (0..project.symbols.len()).find(|&idx| {
+            let sym = &project.symbols[idx];
+            bounds.get(&sym.id).copied().unwrap_or(0) > MAX_EXPANDED_NODES
+                && sym
+                    .timeline
+                    .layers
+                    .iter()
+                    .flat_map(|l| &l.keyframes)
+                    .flat_map(|k| &k.elements)
+                    .all(|e| match &e.kind {
+                        ElementKind::Instance { symbol_id, .. } => {
+                            bounds.get(symbol_id).copied().unwrap_or(0) <= MAX_EXPANDED_NODES
+                        }
+                        _ => true,
+                    })
+        }) else {
+            break;
+        };
+        let sym_name = project.symbols[target_idx].name.clone();
+        // First degrade heavy child instances in keyframes whose per-keyframe bound contributes
+        // to the over-budget layer maximum, recomputing the exact symbol bound after each step.
+        while symbol_expanded_bound(&project.symbols[target_idx], &bounds) > MAX_EXPANDED_NODES {
+            // Find the layer with the largest `max_key`, and within it the last keyframe
+            // holding a child instance with `child_cost > 1`.
+            let mut best: Option<(usize, usize, usize, usize)> = None; // (layer_max, li, ki, ei)
+            for (li, layer) in project.symbols[target_idx]
+                .timeline
+                .layers
+                .iter()
+                .enumerate()
+            {
+                for (ki, key) in layer.keyframes.iter().enumerate() {
+                    let mut key_cost = 0usize;
+                    let mut last_heavy_elem = None;
+                    for (ei, elem) in key.elements.iter().enumerate() {
+                        let nodes = match &elem.kind {
+                            ElementKind::Instance { symbol_id, .. } => {
+                                let c = bounds.get(symbol_id).copied().unwrap_or(1);
+                                if c > 1 {
+                                    last_heavy_elem = Some(ei);
+                                }
+                                c
+                            }
+                            _ => 1,
+                        };
+                        key_cost = key_cost.saturating_add(nodes);
+                    }
+                    if let Some(ei) = last_heavy_elem
+                        && best.is_none_or(|(b_cost, ..)| key_cost >= b_cost)
+                    {
+                        best = Some((key_cost, li, ki, ei));
+                    }
+                }
+            }
+            let Some((_, li, ki, ei)) = best else {
+                break;
+            };
+            let layer_name = project.symbols[target_idx].timeline.layers[li].name.clone();
+            let frame_no = project.symbols[target_idx].timeline.layers[li].keyframes[ki].frame + 1;
+            let elem =
+                &mut project.symbols[target_idx].timeline.layers[li].keyframes[ki].elements[ei];
+            *elem = leaf_placeholder_element(elem.id.clone(), elem.transform);
+            report.warning(
+                "fla_expanded_node_limit",
+                format!("{sym_name} layer {layer_name} frame {frame_no}"),
+                format!(
+                    "Symbol instance replaced by a placeholder so expanded scene/symbol nodes stay within {MAX_EXPANDED_NODES}."
+                ),
+            );
+        }
+        // If leaf elements alone still exceed 100,000, collapse the heaviest keyframes.
+        while symbol_expanded_bound(&project.symbols[target_idx], &bounds) > MAX_EXPANDED_NODES {
+            let mut best_kf: Option<(usize, usize, usize)> = None; // (len, li, ki)
+            for (li, layer) in project.symbols[target_idx]
+                .timeline
+                .layers
+                .iter()
+                .enumerate()
+            {
+                for (ki, key) in layer.keyframes.iter().enumerate() {
+                    if !key.elements.is_empty()
+                        && best_kf.is_none_or(|(b_len, ..)| key.elements.len() >= b_len)
+                    {
+                        best_kf = Some((key.elements.len(), li, ki));
+                    }
+                }
+            }
+            let Some((len, li, ki)) = best_kf else {
+                break;
+            };
+            let layer_name = project.symbols[target_idx].timeline.layers[li].name.clone();
+            let key = &mut project.symbols[target_idx].timeline.layers[li].keyframes[ki];
+            if len > 1 {
+                let first = &key.elements[0];
+                key.elements = vec![leaf_placeholder_element(first.id.clone(), first.transform)];
+                prune_keyframe_side_tables(key);
+                report.warning(
+                    "fla_expanded_node_limit",
+                    format!("{sym_name} layer {layer_name} frame {}", key.frame + 1),
+                    format!(
+                        "Keyframe collapsed to a placeholder so expanded nodes stay within {MAX_EXPANDED_NODES}."
+                    ),
+                );
+            } else {
+                key.elements.clear();
+                prune_keyframe_side_tables(key);
+            }
+        }
+    }
+
+    // 4. Sanitize Folder layers carrying stage artwork and broken/cyclic layer relations.
+    for sym in &mut project.symbols {
+        let sym_name = sym.name.clone();
+        let layers = &mut sym.timeline.layers;
+        for li in 0..layers.len() {
+            if layers[li].properties.role == LayerRole::Folder
+                && layers[li].keyframes.iter().any(|k| !k.elements.is_empty())
+            {
+                let folder_id = layers[li].id.clone();
+                let has_children = layers.iter().enumerate().any(|(j, other)| {
+                    j != li && other.properties.parent.as_deref() == Some(folder_id.as_str())
+                });
+                let loc = format!("{sym_name} layer {}", layers[li].name);
+                if !has_children {
+                    layers[li].properties.role = LayerRole::Normal;
+                    layers[li].properties.collapsed = false;
+                    report.warning(
+                        "fla_layer_type",
+                        loc,
+                        "Folder layer contains stage elements and has no child layers; imported as a normal layer.",
+                    );
+                } else {
+                    for key in &mut layers[li].keyframes {
+                        key.elements.clear();
+                        key.tween = None;
+                        key.tween_kind = TweenKind::Classic;
+                        key.keyed_properties = None;
+                        key.orient_to_path = false;
+                        key.sync_symbols = false;
+                        key.snap_to_guide = false;
+                        key.classic_rotate_dir = ClassicRotateDirection::Auto;
+                        key.classic_rotate_turns = 0;
+                        key.shape_hints.clear();
+                        prune_keyframe_side_tables(key);
+                    }
+                    report.warning(
+                        "fla_layer_type",
+                        loc,
+                        "Folder layer cannot contain stage artwork; elements on the folder row were omitted.",
+                    );
+                }
+            }
+        }
+        for li in 0..layers.len() {
+            if layers[li].properties.role != LayerRole::Mask {
+                layers[li].properties.mask_mode = MaskMode::Geometry;
+                layers[li].properties.mask_invert = false;
+            }
+            if let Some(mask_id) = layers[li].properties.mask.clone() {
+                let valid = layers[li].properties.role == LayerRole::Normal
+                    && mask_id != layers[li].id
+                    && layers
+                        .iter()
+                        .any(|l| l.id == mask_id && l.properties.role == LayerRole::Mask);
+                if !valid {
+                    layers[li].properties.mask = None;
+                    report.warning(
+                        "fla_layer_relation",
+                        format!("{sym_name} layer {}", layers[li].name),
+                        "The layer's mask relation is invalid and was cleared.",
+                    );
+                }
+            }
+            if let Some(guide_id) = layers[li].properties.motion_guide.clone() {
+                let valid = layers[li].properties.role == LayerRole::Normal
+                    && guide_id != layers[li].id
+                    && layers
+                        .iter()
+                        .any(|l| l.id == guide_id && l.properties.role == LayerRole::Guide);
+                if !valid {
+                    layers[li].properties.motion_guide = None;
+                    report.warning(
+                        "fla_layer_relation",
+                        format!("{sym_name} layer {}", layers[li].name),
+                        "The layer's motion-guide relation is invalid and was cleared.",
+                    );
+                }
+            }
+            if layers[li].properties.parent.is_some() {
+                let mut seen = std::collections::HashSet::from([layers[li].id.clone()]);
+                let mut next = layers[li].properties.parent.clone();
+                let mut valid = true;
+                while let Some(pid) = next {
+                    if !seen.insert(pid.clone()) {
+                        valid = false;
+                        break;
+                    }
+                    let Some(parent_layer) = layers
+                        .iter()
+                        .find(|l| l.id == pid && l.properties.role == LayerRole::Folder)
+                    else {
+                        valid = false;
+                        break;
+                    };
+                    next = parent_layer.properties.parent.clone();
+                }
+                if !valid {
+                    layers[li].properties.parent = None;
+                    report.warning(
+                        "fla_layer_relation",
+                        format!("{sym_name} layer {}", layers[li].name),
+                        "The layer's folder ancestry is missing or cyclic and was moved to the timeline root.",
+                    );
+                }
+            }
+        }
+    }
+
+    // 5. Validate mask layers to a fixpoint mirroring `authored_layers::validate_layers`:
+    //    upgrade bitmap-containing Geometry masks to Alpha, or demote non-maskable
+    //    mask layers to Normal (resetting mask_mode, mask_invert, and sibling mask links).
+    fn mask_source_ok<'a>(
+        kind: &'a ElementKind,
+        mode: MaskMode,
+        by_id: &std::collections::HashMap<&'a str, &'a Symbol>,
+        decodable_bitmaps: &std::collections::HashSet<String>,
+        visiting: &mut std::collections::HashSet<&'a str>,
+    ) -> bool {
+        match kind {
+            ElementKind::Instance { symbol_id, .. } => {
+                let Some(&sym) = by_id.get(symbol_id.as_str()) else {
+                    return false;
+                };
+                if !visiting.insert(sym.id.as_str()) {
+                    return false;
+                }
+                let valid = sym
+                    .timeline
+                    .layers
+                    .iter()
+                    .filter(|l| l.properties.role != LayerRole::Guide)
+                    .all(|layer| {
+                        let child_mode = if layer.properties.role == LayerRole::Mask {
+                            layer.properties.mask_mode
+                        } else {
+                            mode
+                        };
+                        layer.keyframes.iter().flat_map(|k| &k.elements).all(|e| {
+                            mask_source_ok(&e.kind, child_mode, by_id, decodable_bitmaps, visiting)
+                        })
+                    });
+                visiting.remove(sym.id.as_str());
+                valid
+            }
+            ElementKind::Bitmap { resource_id, .. } if mode.uses_paint_coverage() => {
+                decodable_bitmaps.contains(resource_id.as_str())
+            }
+            ElementKind::Rectangle { width, height, .. }
+            | ElementKind::Ellipse { width, height, .. } => *width > 0.0 && *height > 0.0,
+            ElementKind::Path { .. } | ElementKind::PaintedPath { .. } => true,
+            _ => false,
+        }
+    }
+
+    let decodable_bitmaps: std::collections::HashSet<String> = project
+        .resources
+        .iter()
+        .filter(|r| r.decode_image().is_ok())
+        .map(|r| r.id.clone())
+        .collect();
+    loop {
+        let mut mask_fixes = Vec::<(usize, usize, bool)>::new();
+        {
+            let by_id: std::collections::HashMap<&str, &Symbol> =
+                project.symbols.iter().map(|s| (s.id.as_str(), s)).collect();
+            for (si, sym) in project.symbols.iter().enumerate() {
+                for (li, layer) in sym.timeline.layers.iter().enumerate() {
+                    if layer.properties.role != LayerRole::Mask {
+                        continue;
+                    }
+                    let current_ok = layer
+                        .keyframes
+                        .iter()
+                        .flat_map(|k| &k.elements)
+                        .all(|elem| {
+                            let mut visiting = std::collections::HashSet::new();
+                            mask_source_ok(
+                                &elem.kind,
+                                layer.properties.mask_mode,
+                                &by_id,
+                                &decodable_bitmaps,
+                                &mut visiting,
+                            )
+                        });
+                    if current_ok {
+                        continue;
+                    }
+                    if layer.properties.mask_mode.is_geometry() {
+                        let alpha_ok =
+                            layer
+                                .keyframes
+                                .iter()
+                                .flat_map(|k| &k.elements)
+                                .all(|elem| {
+                                    let mut visiting = std::collections::HashSet::new();
+                                    mask_source_ok(
+                                        &elem.kind,
+                                        MaskMode::Alpha,
+                                        &by_id,
+                                        &decodable_bitmaps,
+                                        &mut visiting,
+                                    )
+                                });
+                        mask_fixes.push((si, li, alpha_ok));
+                    } else {
+                        mask_fixes.push((si, li, false));
+                    }
+                }
+            }
+        }
+        if mask_fixes.is_empty() {
+            break;
+        }
+        for (si, li, promote_to_alpha) in mask_fixes {
+            let sym = &mut project.symbols[si];
+            let mask_id = sym.timeline.layers[li].id.clone();
+            let loc = format!("{} layer {}", sym.name, sym.timeline.layers[li].name);
+            if promote_to_alpha {
+                sym.timeline.layers[li].properties.mask_mode = MaskMode::Alpha;
+                report.warning(
+                    "fla_mask_layer_approximated",
+                    loc,
+                    "Mask layer contains bitmap elements and was promoted to alpha masking.",
+                );
+            } else {
+                sym.timeline.layers[li].properties.role = LayerRole::Normal;
+                sym.timeline.layers[li].properties.mask_mode = MaskMode::Geometry;
+                sym.timeline.layers[li].properties.mask_invert = false;
+                for sibling in &mut sym.timeline.layers {
+                    if sibling.properties.mask.as_deref() == Some(mask_id.as_str()) {
+                        sibling.properties.mask = None;
+                    }
+                }
+                report.warning(
+                    "fla_mask_layer_approximated",
+                    loc,
+                    "Mask layer contains text, video or unresolved elements not supported as a mask and is imported as a normal layer.",
+                );
+            }
+        }
+    }
 }
 
 const KNOWN_CPIC_TEXT_FLAGS: u32 = 0x0003_ffff;

@@ -375,7 +375,7 @@ fn preflight(bytes: &[u8]) -> Result<u16, ImportError> {
 }
 
 fn role(name: &str) -> BinaryStreamRole {
-    if name == "Contents" {
+    if name.eq_ignore_ascii_case("Contents") {
         return BinaryStreamRole::Contents;
     }
     for (prefix, role) in [
@@ -386,7 +386,11 @@ fn role(name: &str) -> BinaryStreamRole {
         ("S ", BinaryStreamRole::Symbol),
         ("M ", BinaryStreamRole::Media),
     ] {
-        if let Some(tail) = name.strip_prefix(prefix) {
+        if name
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+        {
+            let tail = &name[prefix.len()..];
             // Timestamped CS4 names are hexadecimal identifiers with separators.
             if !tail.is_empty()
                 && tail

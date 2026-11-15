@@ -8,7 +8,7 @@ use super::{BinaryStreamInspection, BinaryStreamRole};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-const MAX_BYTES: usize = 8 * 1024 * 1024;
+const MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ITEMS: usize = 50_000;
 const MAX_STRING_BYTES: usize = 1024 * 1024;
 
@@ -455,7 +455,7 @@ impl Reader<'_> {
     }
     fn prefix(&mut self, out: &mut BinaryContentsPrefix) -> Result<()> {
         if self.bytes.len() > MAX_BYTES {
-            return Err(self.error("fla_contents_budget", "Contents stream exceeds 8 MiB."));
+            return Err(self.error("fla_contents_budget", "Contents stream exceeds 64 MiB."));
         }
         let v = self.u8()?;
         out.revision = Some(v);

@@ -572,3 +572,38 @@ fn push(command: &mut TimelineActionCommand, name: &str, value: TimelineActionVa
         value,
     });
 }
+
+/// Translate the completed prefix of legacy authoring commands before a stream stop.
+pub(in crate::legacy) fn translate_partial_actions(
+    data: &[u8],
+    decoded: &TimelineDecodedActions,
+) -> Option<(String, usize, usize)> {
+    let complete: Vec<TimelineActionCommand> = decoded
+        .commands
+        .iter()
+        .take_while(|c| c.complete)
+        .cloned()
+        .collect();
+    if complete.is_empty() {
+        return None;
+    }
+    if decoded.form == TimelineActionForm::HistoricalCommand
+        && complete.first().is_some_and(|c| c.kind == 0)
+    {
+        return None;
+    }
+    let complete_count = complete.len();
+    let mut partial = TimelineDecodedActions {
+        form: decoded.form,
+        list_revision: decoded.list_revision,
+        commands: complete,
+        source: String::new(),
+        untranslated: vec![],
+        needs_review: false,
+    };
+    translate::translate(data, &mut partial);
+    if partial.source.trim().is_empty() {
+        return None;
+    }
+    Some((partial.source, complete_count, partial.untranslated.len()))
+}

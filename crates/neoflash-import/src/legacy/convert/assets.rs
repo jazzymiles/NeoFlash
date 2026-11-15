@@ -184,20 +184,22 @@ pub(super) fn folders(contents: &BinaryContentsPrefix) -> Result<FolderPaths, St
     Ok((paths, by_id))
 }
 
-type ExtractedAssets = (
+pub(super) type ExtractedAssets = (
     Vec<ResourceUnit>,
     BTreeMap<u16, BitmapAsset>,
     BTreeMap<u16, SoundAsset>,
+    std::collections::BTreeSet<u16>,
 );
 
 pub(super) fn resources(
     document: &BinaryTimelineDocument,
+    folders: &BTreeMap<[u32; 2], String>,
     report: &mut ImportReport,
 ) -> Result<ExtractedAssets, String> {
-    let (_, folders) = folders(&document.contents)?;
     let mut resources = Vec::new();
     let mut bitmaps = BTreeMap::new();
     let mut sounds = BTreeMap::new();
+    let mut skipped_bitmaps = std::collections::BTreeSet::new();
     let mut total = 0usize;
     let mut streams = BTreeMap::new();
     let mut decoded_streams = std::collections::BTreeSet::new();
@@ -224,13 +226,14 @@ pub(super) fn resources(
                 }
                 continue;
             };
-            let stream = streams
-                .get(
-                    &descriptor
-                        .stream_index
-                        .ok_or("A sound descriptor has no resolved stream identity.")?,
-                )
-                .ok_or("The resolved sound stream bytes are absent.")?;
+            let Some(stream) = descriptor.stream_index.and_then(|idx| streams.get(&idx)) else {
+                report.warning(
+                    "fla_media_not_imported",
+                    &location,
+                    "Sound descriptor has no resolved media stream in the archive; it is not imported.",
+                );
+                continue;
+            };
             if stream.role != crate::legacy::BinaryStreamRole::Media
                 || !stream
                     .name
@@ -238,7 +241,12 @@ pub(super) fn resources(
                     .unwrap_or(&stream.name)
                     .eq_ignore_ascii_case(&descriptor.stream_name)
             {
-                return Err("The sound descriptor and immutable media stream disagree.".into());
+                report.warning(
+                    "fla_media_not_imported",
+                    &location,
+                    "Sound descriptor and media stream do not match; this sound remains in the embedded source.",
+                );
+                continue;
             }
             decoded_streams.insert(stream.index);
             let decoded = match decode_binary_sound(
@@ -258,6 +266,14 @@ pub(super) fn resources(
                     continue;
                 }
             };
+            if decoded.bytes.len() > MAX_RESOURCE_BYTES {
+                report.warning(
+                    "fla_media_not_imported",
+                    &location,
+                    "Decoded sound exceeds the 16 MiB single-resource limit; this sound remains in the embedded source.",
+                );
+                continue;
+            }
             let over_count = resources.len() >= MAX_RESOURCES - 2;
             let over_bytes = total
                 .checked_add(decoded.bytes.len())
@@ -400,17 +416,27 @@ pub(super) fn resources(
             }
             continue;
         }
-        let settings = descriptor
-            .bitmap
-            .as_ref()
-            .ok_or("A bitmap descriptor has no typed bitmap settings.")?;
-        let stream = streams
-            .get(
-                &descriptor
-                    .stream_index
-                    .ok_or("A bitmap descriptor has no resolved stream identity.")?,
-            )
-            .ok_or("The resolved bitmap stream bytes are absent.")?;
+        let Some(settings) = descriptor.bitmap.as_ref() else {
+            report.warning(
+                "fla_bitmap_skipped",
+                &location,
+                "Bitmap descriptor has no typed bitmap settings; it becomes an unresolved placeholder.",
+            );
+            skipped_bitmaps.insert(id);
+            if let Some(index) = descriptor.stream_index {
+                decoded_streams.insert(index);
+            }
+            continue;
+        };
+        let Some(stream) = descriptor.stream_index.and_then(|idx| streams.get(&idx)) else {
+            report.warning(
+                "fla_bitmap_skipped",
+                &location,
+                "Bitmap descriptor has no resolved media stream in the archive; it becomes an unresolved placeholder.",
+            );
+            skipped_bitmaps.insert(id);
+            continue;
+        };
         if stream.role != crate::legacy::BinaryStreamRole::Media
             || !stream
                 .name
@@ -418,17 +444,25 @@ pub(super) fn resources(
                 .unwrap_or(&stream.name)
                 .eq_ignore_ascii_case(&descriptor.stream_name)
         {
-            return Err("The bitmap descriptor and immutable media stream disagree.".into());
+            report.warning(
+                "fla_bitmap_skipped",
+                &location,
+                "Bitmap descriptor and media stream do not match; it becomes an unresolved placeholder.",
+            );
+            skipped_bitmaps.insert(id);
+            continue;
         }
         decoded_streams.insert(stream.index);
         let decoded = match decode_binary_bitmap(&stream.bytes, settings.encoded_byte_count) {
             Ok(decoded) if decoded.original_bytes == stream.bytes => decoded,
             Ok(_) => {
                 report.warning("fla_bitmap_skipped",&location,"The bitmap payload does not match its media stream; it becomes an unresolved placeholder.");
+                skipped_bitmaps.insert(id);
                 continue;
             }
             Err(e) => {
                 report.warning("fla_bitmap_skipped",&location,format!("The bitmap could not be decoded ({e}); it becomes an unresolved placeholder and its bytes remain in the embedded source."));
+                skipped_bitmaps.insert(id);
                 continue;
             }
         };
@@ -437,6 +471,15 @@ pub(super) fn resources(
         }
         let average_color = sample_average_rgba(&decoded.rgba);
         let png = decoded.png_bytes().map_err(|e| e.to_string())?;
+        if png.len() > MAX_RESOURCE_BYTES {
+            report.warning(
+                "fla_bitmap_skipped",
+                &location,
+                "Encoded bitmap PNG exceeds the 16 MiB single-resource limit; this bitmap becomes an unresolved placeholder.",
+            );
+            skipped_bitmaps.insert(id);
+            continue;
+        }
         let over_count = resources.len() >= MAX_RESOURCES - 2;
         let over_bytes = total
             .checked_add(png.len())
@@ -469,6 +512,7 @@ pub(super) fn resources(
         }
         if resources.len() >= MAX_RESOURCES - 2 {
             report.warning("fla_bitmap_skipped",&location,"The project resource limit is reached; this bitmap becomes an unresolved placeholder.");
+            skipped_bitmaps.insert(id);
             continue;
         }
         // Keep room for the embedded original FLA and provenance.
@@ -479,6 +523,7 @@ pub(super) fn resources(
             Some(n) => total = n,
             None => {
                 report.warning("fla_bitmap_skipped",&location,"Decoded bitmaps exceed the project's resource budget (64 MiB including import provenance); this bitmap becomes an unresolved placeholder.");
+                skipped_bitmaps.insert(id);
                 continue;
             }
         }
@@ -547,7 +592,7 @@ pub(super) fn resources(
     }) {
         report.warning("fla_media_unreferenced","Media streams","Some media streams have no library descriptor (typically deleted items); they remain only in the embedded source.");
     }
-    Ok((resources, bitmaps, sounds))
+    Ok((resources, bitmaps, sounds, skipped_bitmaps))
 }
 
 #[cfg(test)]

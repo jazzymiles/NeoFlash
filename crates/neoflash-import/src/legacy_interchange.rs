@@ -1399,6 +1399,87 @@ fn parse_fxg_node_into_elements(
         "Path" => {
             let data = node.attribute("data").unwrap_or("");
             let commands = parse_svg_path_data(data);
+            if commands.len() > neoflash_core::MAX_PATH_COMMANDS {
+                let loc = fxg_node_location(doc, node, source_name);
+                report.warning(
+                    "fxg-path-approximated",
+                    loc,
+                    format!(
+                        "FXG <Path> contains {} commands (limit {}); replaced by its bounding-box placeholder",
+                        commands.len(),
+                        neoflash_core::MAX_PATH_COMMANDS
+                    ),
+                );
+                let (mut transform, blend_mode, visible, filters) =
+                    extract_fxg_transform_and_filters(node, doc, source_name, report);
+                let (fill, _fill_grad, stroke, _stroke_grad, stroke_width) =
+                    extract_fxg_fill_and_stroke(node, doc, source_name, report);
+                let mut min = [f64::INFINITY; 2];
+                let mut max = [f64::NEG_INFINITY; 2];
+                for cmd in &commands {
+                    let pts: &[[f64; 2]] = match *cmd {
+                        PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => &[[x, y]],
+                        PathCommand::QuadraticTo { cx, cy, x, y } => &[[cx, cy], [x, y]],
+                        PathCommand::CubicTo {
+                            cx1,
+                            cy1,
+                            cx2,
+                            cy2,
+                            x,
+                            y,
+                        } => &[[cx1, cy1], [cx2, cy2], [x, y]],
+                        PathCommand::Close => &[],
+                    };
+                    for &[px, py] in pts {
+                        if px.is_finite() && py.is_finite() && px.abs() <= 1e9 && py.abs() <= 1e9 {
+                            min[0] = min[0].min(px);
+                            min[1] = min[1].min(py);
+                            max[0] = max[0].max(px);
+                            max[1] = max[1].max(py);
+                        }
+                    }
+                }
+                let (width, height) = if min[0] <= max[0] && min[1] <= max[1] {
+                    let rot = transform.rotation.to_radians();
+                    let y_ang = rot + transform.skew.to_radians();
+                    let a = transform.scale_x * rot.cos();
+                    let b = transform.scale_x * rot.sin();
+                    let c = -transform.scale_y * y_ang.sin();
+                    let d = transform.scale_y * y_ang.cos();
+                    let tx = transform.x + a * min[0] + c * min[1];
+                    let ty = transform.y + b * min[0] + d * min[1];
+                    if tx.is_finite() && ty.is_finite() && tx.abs() <= 1e12 && ty.abs() <= 1e12 {
+                        transform.x = tx;
+                        transform.y = ty;
+                    }
+                    (
+                        (max[0] - min[0]).clamp(0.0, 1e9),
+                        (max[1] - min[1]).clamp(0.0, 1e9),
+                    )
+                } else {
+                    (0.0, 0.0)
+                };
+                out.push(Element {
+                    id: new_id("element"),
+                    name,
+                    transform,
+                    kind: ElementKind::Rectangle {
+                        width,
+                        height,
+                        fill,
+                        stroke,
+                        stroke_width,
+                    },
+                    scripts: Vec::new(),
+                    accessibility: None,
+                    visible,
+                    cache_as_bitmap: false,
+                    blend_mode,
+                    filters,
+                    merge: false,
+                });
+                return;
+            }
             if commands.is_empty() || validate_path_commands(&commands).is_err() {
                 let loc = fxg_node_location(doc, node, source_name);
                 report.warning(

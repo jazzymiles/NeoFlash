@@ -6,7 +6,7 @@ use super::contents::ContentsSoundSettings;
 use image::{ExtendedColorType, ImageEncoder, ImageFormat, ImageReader, Limits};
 use std::io::Cursor;
 
-const MAX_INPUT: usize = 8 * 1024 * 1024;
+const MAX_INPUT: usize = 64 * 1024 * 1024;
 const MAX_PIXELS: usize = 4096 * 4096;
 const MAX_BYTES: usize = MAX_PIXELS * 4;
 
@@ -180,7 +180,7 @@ pub fn decode_binary_bitmap(bytes: &[u8], encoded_byte_count: i32) -> Result<Dec
         return Err(error(
             "fla_bitmap_limit",
             0,
-            "Bitmap input exceeds 8 MiB or has a negative encoded length.",
+            "Bitmap input exceeds 64 MiB or has a negative encoded length.",
         ));
     }
     let encoded = if encoded_byte_count == 0 && bytes.starts_with(&[0xff, 0xd8, 0xff, 0xe0]) {
@@ -308,7 +308,7 @@ pub fn decode_binary_bitmap(bytes: &[u8], encoded_byte_count: i32) -> Result<Dec
                 break;
             }
             chunks += 1;
-            if chunks > 50_000 {
+            if chunks > 262_144 {
                 return Err(error("fla_bitmap_limit", r.at, "Too many zlib chunks."));
             }
             compressed.extend_from_slice(r.take(length)?);

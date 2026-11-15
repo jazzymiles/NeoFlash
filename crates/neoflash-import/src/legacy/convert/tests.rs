@@ -128,6 +128,8 @@ fn convert_timeline_reporting(
         library: BTreeMap::from([(100, "graphic".into())]),
         bitmaps: BTreeMap::new(),
         sounds: BTreeMap::new(),
+        skipped_bitmaps: std::collections::BTreeSet::new(),
+        stream_stops: std::collections::BTreeSet::new(),
         language: ScriptLanguage::ActionScript2,
         include_hidden: true,
         contents_revision: None,
@@ -407,6 +409,8 @@ fn translated_legacy_actions_become_as1_scripts_and_flag_untranslated_parts() {
         library: BTreeMap::new(),
         bitmaps: BTreeMap::new(),
         sounds: BTreeMap::new(),
+        skipped_bitmaps: std::collections::BTreeSet::new(),
+        stream_stops: std::collections::BTreeSet::new(),
         language: ScriptLanguage::ActionScript2,
         include_hidden: true,
         contents_revision: None,
@@ -447,7 +451,35 @@ fn translated_legacy_actions_become_as1_scripts_and_flag_untranslated_parts() {
     context.actions(&stream, Some(&actions)).unwrap();
     assert_eq!(context.report.diagnostics[0].code, "fla_actions_translated");
     actions.complete = false;
-    assert!(context.actions(&stream, Some(&actions)).is_err());
+    assert_eq!(context.actions(&stream, Some(&actions)).unwrap(), None);
+    assert!(
+        context
+            .report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "fla_actions_partial")
+    );
+    let decoded = actions.decoded.as_mut().unwrap();
+    decoded.commands = vec![
+        TimelineActionCommand {
+            encoded: TimelineByteSpan { start: 0, end: 4 },
+            complete: true,
+            kind: 2,
+            revision: Some(0),
+            body_present: false,
+            fields: vec![],
+        },
+        TimelineActionCommand {
+            encoded: TimelineByteSpan { start: 4, end: 5 },
+            complete: false,
+            kind: 99,
+            revision: None,
+            body_present: true,
+            fields: vec![],
+        },
+    ];
+    let partial_script = context.actions(&stream, Some(&actions)).unwrap().unwrap();
+    assert!(partial_script.source.starts_with("stop();\n"));
 }
 
 #[test]
@@ -470,6 +502,8 @@ fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_
         library: BTreeMap::new(),
         bitmaps: BTreeMap::new(),
         sounds,
+        skipped_bitmaps: std::collections::BTreeSet::new(),
+        stream_stops: std::collections::BTreeSet::new(),
         language: ScriptLanguage::ActionScript2,
         include_hidden: true,
         contents_revision: None,
@@ -2025,4 +2059,182 @@ fn flash8_mixed_utf16_runs_justify_playback_and_budget_dedup_preserve_fidelity()
     assert_eq!(prov[0]["target"], "fla-0-1-10-member-0");
     proj.upgrade_format_for_features();
     proj.validate().expect("deduplicated project validates");
+}
+
+#[test]
+fn luminance_inverted_mask_demotion_and_deep_mask_vector_budget_stay_valid() {
+    // 1) Luminance + mask_invert Mask layer with TextBox resets mask_mode & mask_invert on demotion.
+    let mut proj = Project::blank();
+    proj.format_version = 9;
+    proj.symbols[0].timeline.layers = vec![
+        Layer {
+            id: "mask-lum".into(),
+            name: "LumMask".into(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties {
+                role: LayerRole::Mask,
+                mask_mode: MaskMode::Luminance,
+                mask_invert: true,
+                ..LayerProperties::default()
+            },
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![Element {
+                    id: "bad-txt".into(),
+                    kind: ElementKind::Text {
+                        text: "mask".into(),
+                        font_family: "Sans".into(),
+                        font_size: 16.0,
+                        color: [0, 0, 0, 255],
+                    },
+                    ..Element::default()
+                }],
+                ..Keyframe::default()
+            }],
+        },
+        Layer {
+            id: "masked-child".into(),
+            name: "Child".into(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties {
+                role: LayerRole::Normal,
+                mask: Some("mask-lum".into()),
+                ..LayerProperties::default()
+            },
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![],
+                ..Keyframe::default()
+            }],
+        },
+    ];
+    let mut rep = report();
+    super::enforce_project_structural_limits(&mut proj, &mut [], &mut rep);
+    assert_eq!(
+        proj.symbols[0].timeline.layers[0].properties.role,
+        LayerRole::Normal
+    );
+    assert_eq!(
+        proj.symbols[0].timeline.layers[0].properties.mask_mode,
+        MaskMode::Geometry
+    );
+    assert!(!proj.symbols[0].timeline.layers[0].properties.mask_invert);
+    assert!(proj.symbols[0].timeline.layers[1].properties.mask.is_none());
+    proj.upgrade_format_for_features();
+    proj.validate()
+        .expect("demoted luminance+inverted mask validates");
+
+    // 2) `degrade_excess_vector_shapes` at ancestor depth 64 (`!use_placeholder`) on a Mask layer
+    //    replaces dense vector geometry with an empty `ElementKind::Path` (valid in `clipping::vector_path`).
+    let mut deep = Project::blank();
+    deep.format_version = 5;
+    deep.root = "root".into();
+    deep.scenes.clear();
+    deep.symbols.clear();
+    for depth in 0..63_usize {
+        let id = if depth == 0 {
+            "root".to_owned()
+        } else {
+            format!("chain-{depth}")
+        };
+        let child_id = if depth == 62 {
+            "leaf-63".to_owned()
+        } else {
+            format!("chain-{}", depth + 1)
+        };
+        deep.symbols.push(Symbol {
+            id,
+            name: format!("Chain {depth}"),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            timeline: Timeline {
+                frame_count: 1,
+                guides: vec![],
+                scripts: vec![],
+                layers: vec![Layer {
+                    id: format!("l-{depth}"),
+                    name: "L".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: format!("inst-{depth}"),
+                            kind: ElementKind::Instance {
+                                symbol_id: child_id,
+                                playback: InstancePlayback::Loop,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    }],
+                }],
+            },
+            class_name: None,
+            linkage_id: None,
+        });
+    }
+    let dense_cmds: Vec<PathCommand> = std::iter::once(PathCommand::MoveTo { x: 0.0, y: 0.0 })
+        .chain((1..=60).map(|i| PathCommand::LineTo {
+            x: i as f64 * 2.0,
+            y: (i % 7) as f64 * 3.0,
+        }))
+        .chain(std::iter::once(PathCommand::Close))
+        .collect();
+    deep.symbols.push(Symbol {
+        id: "leaf-63".into(),
+        name: "LeafMaskSym".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: 1,
+            guides: vec![],
+            scripts: vec![],
+            layers: vec![Layer {
+                id: "leaf-mask-layer".into(),
+                name: "Mask".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties {
+                    role: LayerRole::Mask,
+                    ..LayerProperties::default()
+                },
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "dense-mask-path".into(),
+                        kind: ElementKind::Path {
+                            commands: dense_cmds,
+                            fill_rule: FillRule::EvenOdd,
+                            fill: [255, 0, 0, 255],
+                            stroke: [0; 4],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+            }],
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+    let mut deep_rep = report();
+    assert!(super::degrade_excess_vector_shapes(
+        &mut deep,
+        &mut deep_rep,
+        500
+    ));
+    let leaf_elem = &deep.symbol("leaf-63").unwrap().timeline.layers[0].keyframes[0].elements[0];
+    assert!(
+        matches!(&leaf_elem.kind, ElementKind::Path { commands, .. } if commands.is_empty()),
+        "expected empty Path fallback on deep Mask layer, got {:?}",
+        leaf_elem.kind
+    );
+    deep.upgrade_format_for_features();
+    deep.validate()
+        .expect("deep mask fallback element passes validate()");
 }

@@ -47,8 +47,116 @@ pub(super) fn color(w: u32) -> Color {
     w.to_le_bytes()
 }
 
+const MAX_FILL_EDGES: usize = 100_000;
+const MAX_STROKE_EDGES: usize = 250_000;
+
+fn edges_bounding_rect(
+    edges: &[Edge],
+    raw_matrix: [f64; 6],
+    base: Transform,
+) -> (Transform, f64, f64) {
+    let mut min = [f64::INFINITY; 2];
+    let mut max = [f64::NEG_INFINITY; 2];
+    for e in edges {
+        for axis in 0..2 {
+            let p = f64::from(e.start[axis]) / 5120.0;
+            let q = f64::from(e.end[axis]) / 5120.0;
+            min[axis] = min[axis].min(p.min(q));
+            max[axis] = max[axis].max(p.max(q));
+            if let Some(ctrl) = e.control {
+                let c = f64::from(ctrl[axis]) / 5120.0;
+                let denom = p - 2.0 * c + q;
+                if denom.abs() > 1e-12 {
+                    let t = (p - c) / denom;
+                    if t > 0.0 && t < 1.0 {
+                        let u = 1.0 - t;
+                        let v = u * u * p + 2.0 * u * t * c + t * t * q;
+                        min[axis] = min[axis].min(v);
+                        max[axis] = max[axis].max(v);
+                    }
+                }
+            }
+        }
+    }
+    if min[0].is_finite() && min[1].is_finite() && min[0] <= max[0] && min[1] <= max[1] {
+        let mut placed = base;
+        let tx = placed.x + raw_matrix[0] * min[0] + raw_matrix[2] * min[1];
+        let ty = placed.y + raw_matrix[1] * min[0] + raw_matrix[3] * min[1];
+        if tx.is_finite() && ty.is_finite() && tx.abs() <= 1e12 && ty.abs() <= 1e12 {
+            placed.x = tx;
+            placed.y = ty;
+        }
+        (
+            placed,
+            (max[0] - min[0]).clamp(0.0, 1e9),
+            (max[1] - min[1]).clamp(0.0, 1e9),
+        )
+    } else {
+        (base, 0.0, 0.0)
+    }
+}
+
+fn split_stroke_commands(commands: Vec<PathCommand>, max_commands: usize) -> Vec<Vec<PathCommand>> {
+    if commands.len() <= max_commands {
+        return vec![commands];
+    }
+    let mut chunks = Vec::new();
+    let mut current = Vec::new();
+    let mut last_point = [0.0, 0.0];
+    let mut subpath_start = [0.0, 0.0];
+    for cmd in commands {
+        if current.len() >= max_commands {
+            chunks.push(std::mem::take(&mut current));
+            if !matches!(cmd, PathCommand::MoveTo { .. }) {
+                current.push(PathCommand::MoveTo {
+                    x: last_point[0],
+                    y: last_point[1],
+                });
+            }
+        }
+        match cmd {
+            PathCommand::MoveTo { x, y } => {
+                if current.len() + 1 >= max_commands && !current.is_empty() {
+                    chunks.push(std::mem::take(&mut current));
+                }
+                last_point = [x, y];
+                subpath_start = [x, y];
+                current.push(cmd);
+            }
+            PathCommand::LineTo { x, y }
+            | PathCommand::QuadraticTo { x, y, .. }
+            | PathCommand::CubicTo { x, y, .. } => {
+                last_point = [x, y];
+                current.push(cmd);
+            }
+            PathCommand::Close => {
+                if current.is_empty() {
+                    current.push(PathCommand::MoveTo {
+                        x: last_point[0],
+                        y: last_point[1],
+                    });
+                }
+                current.push(PathCommand::LineTo {
+                    x: subpath_start[0],
+                    y: subpath_start[1],
+                });
+                last_point = subpath_start;
+            }
+        }
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
+}
+
 fn paths(edges: Vec<Edge>, closed: bool) -> Result<Vec<PathCommand>, String> {
-    if edges.len() > 100_000 {
+    let limit = if closed {
+        MAX_FILL_EDGES
+    } else {
+        MAX_STROKE_EDGES
+    };
+    if edges.len() > limit {
         return Err("Shape exceeds edge budget".into());
     }
     let mut outgoing: BTreeMap<[i32; 2], Vec<usize>> = BTreeMap::new();
@@ -299,8 +407,8 @@ pub(super) fn convert_shape_with_effects(
     report: &mut ImportReport,
     location: &str,
 ) -> Result<ConvertedShape, String> {
-    let transform =
-        Transform::from_matrix(matrix(shape.matrix_words)).ok_or("Invalid shape matrix")?;
+    let raw_matrix = matrix(shape.matrix_words);
+    let transform = Transform::from_matrix(raw_matrix).ok_or("Invalid shape matrix")?;
     let mut output = ConvertedShape::default();
     // Each paint converts independently; approximations are reported once per shape.
     let mut notes = Vec::new();
@@ -326,6 +434,33 @@ pub(super) fn convert_shape_with_effects(
         if edges.is_empty() {
             continue;
         }
+        let (fill_color, fill_gradient, bitmap_spec, note) = paint(fill, bitmaps);
+        let elem_id = format!("{id}-fill-{i}");
+        if edges.len() > MAX_FILL_EDGES {
+            notes.extend(note.map(str::to_owned));
+            notes.push(format!(
+                "fill {} exceeds edge budget and is represented by its bounding box",
+                i + 1
+            ));
+            let (placed, rect_w, rect_h) = edges_bounding_rect(&edges, raw_matrix, transform);
+            output.elements.push(Element {
+                id: elem_id,
+                name: format!("Fill {} (budget placeholder)", i + 1),
+                transform: placed,
+                kind: ElementKind::Rectangle {
+                    width: rect_w,
+                    height: rect_h,
+                    fill: fill_color,
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                scripts: vec![],
+                accessibility: None,
+                ..Element::default()
+            });
+            continue;
+        }
+        let bounds_fallback = edges_bounding_rect(&edges, raw_matrix, transform);
         let commands = match paths(edges, true) {
             Ok(commands) => commands,
             Err(e) => {
@@ -333,9 +468,30 @@ pub(super) fn convert_shape_with_effects(
                 continue;
             }
         };
-        let (fill, fill_gradient, bitmap_spec, note) = paint(fill, bitmaps);
         notes.extend(note.map(str::to_owned));
-        let elem_id = format!("{id}-fill-{i}");
+        if commands.len() > MAX_PATH_COMMANDS {
+            notes.push(format!(
+                "fill {} exceeds the {}-command path limit and is represented by its bounding box",
+                i + 1,
+                MAX_PATH_COMMANDS
+            ));
+            output.elements.push(Element {
+                id: elem_id,
+                name: format!("Fill {} (budget placeholder)", i + 1),
+                transform: bounds_fallback.0,
+                kind: ElementKind::Rectangle {
+                    width: bounds_fallback.1,
+                    height: bounds_fallback.2,
+                    fill: fill_color,
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                scripts: vec![],
+                accessibility: None,
+                ..Element::default()
+            });
+            continue;
+        }
         if let Some((media_id, fill_matrix, repeat, smoothing)) = bitmap_spec
             && let Some(asset) = bitmaps.get(&media_id)
         {
@@ -354,7 +510,7 @@ pub(super) fn convert_shape_with_effects(
             kind: ElementKind::PaintedPath {
                 commands,
                 fill_rule: FillRule::NonZero,
-                fill,
+                fill: fill_color,
                 stroke: [0; 4],
                 fill_gradient,
                 stroke_gradient: None,
@@ -398,6 +554,29 @@ pub(super) fn convert_shape_with_effects(
             report.warning("fla_hairline_rendering",location,"A device hairline is represented as a one-pixel stroke; the original width remains in source provenance.")
         }
         let stroke_width = if width == 0. { 1. } else { width };
+        if edges.len() > MAX_STROKE_EDGES {
+            notes.push(format!(
+                "stroke {} exceeds edge budget and is represented by its bounding box",
+                i + 1
+            ));
+            let (placed, rect_w, rect_h) = edges_bounding_rect(&edges, raw_matrix, transform);
+            output.elements.push(Element {
+                id: format!("{id}-stroke-{i}"),
+                name: format!("Stroke {} (budget placeholder)", i + 1),
+                transform: placed,
+                kind: ElementKind::Rectangle {
+                    width: rect_w,
+                    height: rect_h,
+                    fill: [0; 4],
+                    stroke: stroke_color,
+                    stroke_width,
+                },
+                scripts: vec![],
+                accessibility: None,
+                ..Element::default()
+            });
+            continue;
+        }
         let commands = match paths(edges, false) {
             Ok(commands) => commands,
             Err(e) => {
@@ -415,150 +594,163 @@ pub(super) fn convert_shape_with_effects(
         {
             report.warning("fla_stroke_rendering",location,"Stroke cap/join/scale editor settings remain in the embedded source; this renderer uses scaling round strokes.");
         }
-        let elem_id = format!("{id}-stroke-{i}");
-        if let Some((media_id, fill_matrix, repeat, smoothing)) = stroke_bitmap
-            && let Some(asset) = bitmaps.get(&media_id)
-        {
-            output.bitmap_fills.push(AuthoredBitmapFill {
-                element_id: elem_id.clone(),
-                resource_id: asset.resource_id.clone(),
-                matrix: fill_matrix,
-                repeat,
-                smoothing,
+        let chunks = split_stroke_commands(commands, MAX_PATH_COMMANDS);
+        let chunk_count = chunks.len();
+        for (chunk_idx, chunk_commands) in chunks.into_iter().enumerate() {
+            let elem_id = if chunk_idx == 0 {
+                format!("{id}-stroke-{i}")
+            } else {
+                format!("{id}-stroke-{i}-part-{chunk_idx}")
+            };
+            let elem_name = if chunk_count == 1 {
+                format!("Stroke {}", i + 1)
+            } else {
+                format!("Stroke {} (part {})", i + 1, chunk_idx + 1)
+            };
+            if let Some((media_id, fill_matrix, repeat, smoothing)) = stroke_bitmap
+                && let Some(asset) = bitmaps.get(&media_id)
+            {
+                output.bitmap_fills.push(AuthoredBitmapFill {
+                    element_id: elem_id.clone(),
+                    resource_id: asset.resource_id.clone(),
+                    matrix: fill_matrix,
+                    repeat,
+                    smoothing,
+                });
+            }
+            match stroke_type {
+                1 => {
+                    let dash = (f64::from(first_style) / 20.0).clamp(0.5, 1000.0);
+                    let gap = (f64::from(second_style & 0x7fff) / 20.0).clamp(0.5, 1000.0);
+                    output.appearances.push(ElementAppearance {
+                        element_id: elem_id.clone(),
+                        entries: vec![AppearancePaintEntry::Stroke {
+                            color: stroke_color,
+                            gradient: stroke_gradient.clone(),
+                            width: stroke_width,
+                            swatch_id: None,
+                            offset_distance: 0.0,
+                            pattern_brush: Some(PatternBrushKind::DashPattern { dash, gap }),
+                            opacity: 1.0,
+                        }],
+                        ..ElementAppearance::default()
+                    });
+                }
+                2 => {
+                    let dash = stroke_width.clamp(0.5, 1000.0);
+                    let gap = (f64::from(second_style >> 3) / 20.0).clamp(0.5, 1000.0);
+                    output.appearances.push(ElementAppearance {
+                        element_id: elem_id.clone(),
+                        entries: vec![AppearancePaintEntry::Stroke {
+                            color: stroke_color,
+                            gradient: stroke_gradient.clone(),
+                            width: stroke_width,
+                            swatch_id: None,
+                            offset_distance: 0.0,
+                            pattern_brush: Some(PatternBrushKind::DashPattern { dash, gap }),
+                            opacity: 1.0,
+                        }],
+                        ..ElementAppearance::default()
+                    });
+                }
+                3 => {
+                    let pattern = (second_style >> 3) & 7;
+                    let wave_height = (second_style >> 6) & 3;
+                    let wave_length = (second_style >> 8) & 3;
+                    output.vector_effects.push(ElementVectorEffects {
+                        element_id: elem_id.clone(),
+                        procedural_effects: vec![ProceduralVectorEffect::ZigZag {
+                            size: match wave_height {
+                                0 => 0.5,
+                                1 => 2.0,
+                                2 => 4.0,
+                                _ => 7.0,
+                            },
+                            ridges_per_segment: match wave_length {
+                                0 => 8,
+                                1 => 5,
+                                2 => 3,
+                                _ => 2,
+                            },
+                            smooth: (pattern & 1) != 0,
+                        }],
+                        ..ElementVectorEffects::default()
+                    });
+                }
+                4 => {
+                    let dot_size = (second_style >> 3) & 3;
+                    let variation = (second_style >> 5) & 3;
+                    let density = (second_style >> 7) & 3;
+                    output.vector_effects.push(ElementVectorEffects {
+                        element_id: elem_id.clone(),
+                        procedural_effects: vec![ProceduralVectorEffect::Roughen {
+                            size: match dot_size {
+                                0 => 0.75,
+                                1 => 1.5,
+                                2 => 3.0,
+                                _ => 5.0,
+                            },
+                            detail: match density {
+                                0 => 8,
+                                1 => 6,
+                                2 => 4,
+                                _ => 2,
+                            },
+                            seed: u32::from(variation) + 1,
+                        }],
+                        ..ElementVectorEffects::default()
+                    });
+                }
+                5 => {
+                    let hatch_thickness = (second_style >> 3) & 3;
+                    let space = (second_style >> 5) & 3;
+                    let rotate = (second_style >> 7) & 3;
+                    let jiggle = (second_style >> 9) & 3;
+                    let curve = (second_style >> 11) & 3;
+                    let length = (second_style >> 13) & 3;
+                    output.vector_effects.push(ElementVectorEffects {
+                        element_id: elem_id.clone(),
+                        procedural_effects: vec![ProceduralVectorEffect::Roughen {
+                            size: match length {
+                                0 => 1.5,
+                                1 => 2.5,
+                                2 => 4.0,
+                                _ => 6.0,
+                            },
+                            detail: match space {
+                                0 => 8,
+                                1 => 6,
+                                2 => 4,
+                                _ => 2,
+                            },
+                            seed: u32::from(hatch_thickness)
+                                | (u32::from(rotate) << 2)
+                                | (u32::from(jiggle) << 4)
+                                | (u32::from(curve) << 6),
+                        }],
+                        ..ElementVectorEffects::default()
+                    });
+                }
+                _ => {}
+            }
+            output.elements.push(Element {
+                id: elem_id,
+                name: elem_name,
+                transform,
+                kind: ElementKind::PaintedPath {
+                    commands: chunk_commands,
+                    fill_rule: FillRule::NonZero,
+                    fill: [0; 4],
+                    stroke: stroke_color,
+                    fill_gradient: None,
+                    stroke_gradient: stroke_gradient.clone(),
+                    stroke_width,
+                },
+                scripts: vec![],
+                accessibility: None,
+                ..Element::default()
             });
         }
-        match stroke_type {
-            1 => {
-                let dash = (f64::from(first_style) / 20.0).clamp(0.5, 1000.0);
-                let gap = (f64::from(second_style & 0x7fff) / 20.0).clamp(0.5, 1000.0);
-                output.appearances.push(ElementAppearance {
-                    element_id: elem_id.clone(),
-                    entries: vec![AppearancePaintEntry::Stroke {
-                        color: stroke_color,
-                        gradient: stroke_gradient.clone(),
-                        width: stroke_width,
-                        swatch_id: None,
-                        offset_distance: 0.0,
-                        pattern_brush: Some(PatternBrushKind::DashPattern { dash, gap }),
-                        opacity: 1.0,
-                    }],
-                    ..ElementAppearance::default()
-                });
-            }
-            2 => {
-                let dash = stroke_width.clamp(0.5, 1000.0);
-                let gap = (f64::from(second_style >> 3) / 20.0).clamp(0.5, 1000.0);
-                output.appearances.push(ElementAppearance {
-                    element_id: elem_id.clone(),
-                    entries: vec![AppearancePaintEntry::Stroke {
-                        color: stroke_color,
-                        gradient: stroke_gradient.clone(),
-                        width: stroke_width,
-                        swatch_id: None,
-                        offset_distance: 0.0,
-                        pattern_brush: Some(PatternBrushKind::DashPattern { dash, gap }),
-                        opacity: 1.0,
-                    }],
-                    ..ElementAppearance::default()
-                });
-            }
-            3 => {
-                let pattern = (second_style >> 3) & 7;
-                let wave_height = (second_style >> 6) & 3;
-                let wave_length = (second_style >> 8) & 3;
-                output.vector_effects.push(ElementVectorEffects {
-                    element_id: elem_id.clone(),
-                    procedural_effects: vec![ProceduralVectorEffect::ZigZag {
-                        size: match wave_height {
-                            0 => 0.5,
-                            1 => 2.0,
-                            2 => 4.0,
-                            _ => 7.0,
-                        },
-                        ridges_per_segment: match wave_length {
-                            0 => 8,
-                            1 => 5,
-                            2 => 3,
-                            _ => 2,
-                        },
-                        smooth: (pattern & 1) != 0,
-                    }],
-                    ..ElementVectorEffects::default()
-                });
-            }
-            4 => {
-                let dot_size = (second_style >> 3) & 3;
-                let variation = (second_style >> 5) & 3;
-                let density = (second_style >> 7) & 3;
-                output.vector_effects.push(ElementVectorEffects {
-                    element_id: elem_id.clone(),
-                    procedural_effects: vec![ProceduralVectorEffect::Roughen {
-                        size: match dot_size {
-                            0 => 0.75,
-                            1 => 1.5,
-                            2 => 3.0,
-                            _ => 5.0,
-                        },
-                        detail: match density {
-                            0 => 8,
-                            1 => 6,
-                            2 => 4,
-                            _ => 2,
-                        },
-                        seed: u32::from(variation) + 1,
-                    }],
-                    ..ElementVectorEffects::default()
-                });
-            }
-            5 => {
-                let hatch_thickness = (second_style >> 3) & 3;
-                let space = (second_style >> 5) & 3;
-                let rotate = (second_style >> 7) & 3;
-                let jiggle = (second_style >> 9) & 3;
-                let curve = (second_style >> 11) & 3;
-                let length = (second_style >> 13) & 3;
-                output.vector_effects.push(ElementVectorEffects {
-                    element_id: elem_id.clone(),
-                    procedural_effects: vec![ProceduralVectorEffect::Roughen {
-                        size: match length {
-                            0 => 1.5,
-                            1 => 2.5,
-                            2 => 4.0,
-                            _ => 6.0,
-                        },
-                        detail: match space {
-                            0 => 8,
-                            1 => 6,
-                            2 => 4,
-                            _ => 2,
-                        },
-                        seed: u32::from(hatch_thickness)
-                            | (u32::from(rotate) << 2)
-                            | (u32::from(jiggle) << 4)
-                            | (u32::from(curve) << 6),
-                    }],
-                    ..ElementVectorEffects::default()
-                });
-            }
-            _ => {}
-        }
-        output.elements.push(Element {
-            id: elem_id,
-            name: format!("Stroke {}", i + 1),
-            transform,
-            kind: ElementKind::PaintedPath {
-                commands,
-                fill_rule: FillRule::NonZero,
-                fill: [0; 4],
-                stroke: stroke_color,
-                fill_gradient: None,
-                stroke_gradient,
-                stroke_width,
-            },
-            scripts: vec![],
-            accessibility: None,
-            ..Element::default()
-        });
     }
     if !notes.is_empty() {
         notes.dedup();
