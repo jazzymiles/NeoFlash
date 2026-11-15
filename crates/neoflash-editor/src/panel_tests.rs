@@ -1157,6 +1157,7 @@ fn actions_reparent_keeps_cursor_and_visibility_alone_does_not_pause_preview() {
     let ctx = egui::Context::default();
     let mut project = Project::blank();
     project.symbols[0].timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -3254,10 +3255,12 @@ fn code_editor_preferences_wire_ui_editing_hints_layout_and_format_on_save() {
     );
 
     // Open Actions on an AS3 frame script to verify highlight_current_line, Tab, auto-close, and hints.
+    let actions_layer = d.editor.symbol().timeline.layers[d.editor.layer].id.clone();
     d.editor.project.symbols[0]
         .timeline
         .scripts
         .push(FrameScript {
+            layer: Some(actions_layer),
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -4886,6 +4889,7 @@ fn compiler_errors_panel_collects_all_diagnostics_and_jumps_to_source() {
         let root = project.symbol_mut(&root_id).unwrap();
         root.timeline.frame_count = 5;
         root.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 2,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -4936,6 +4940,7 @@ fn compiler_errors_panel_collects_all_diagnostics_and_jumps_to_source() {
             && i.script
                 == Some(ScriptLocation::Frame {
                     symbol: root_id.clone(),
+                    layer: None,
                     frame: 2,
                 })),
         "expected frame script error in {items:#?}"
@@ -4962,6 +4967,7 @@ fn compiler_errors_panel_collects_all_diagnostics_and_jumps_to_source() {
             i.script
                 == Some(ScriptLocation::Frame {
                     symbol: root_id.clone(),
+                    layer: None,
                     frame: 2,
                 })
         })
@@ -5147,6 +5153,7 @@ fn movie_explorer_builds_tree_filters_searches_and_navigates() {
         let sym = e.symbol_mut();
         sym.timeline.frame_count = 6;
         sym.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 3,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -5314,6 +5321,7 @@ fn generated_actions_2_layer_owns_explorer_and_compiler_script_locations() {
         editor.symbol().timeline.layers.last().unwrap().name,
         "actions 2"
     );
+    let generated_layer = editor.symbol().timeline.layers.last().unwrap().id.clone();
     editor.symbol_mut().timeline.scripts[0].script.source = "if (".into();
 
     let rows = build_movie_explorer_rows(&editor);
@@ -5323,6 +5331,7 @@ fn generated_actions_2_layer_owns_explorer_and_compiler_script_locations() {
             row.target
                 == MovieTarget::Script(ScriptLocation::Frame {
                     symbol: root.clone(),
+                    layer: Some(generated_layer.clone()),
                     frame: 1,
                 })
         })
@@ -5340,6 +5349,7 @@ fn generated_actions_2_layer_owns_explorer_and_compiler_script_locations() {
             item.script
                 == Some(ScriptLocation::Frame {
                     symbol: root.clone(),
+                    layer: Some(generated_layer.clone()),
                     frame: 1,
                 })
         })
@@ -5424,6 +5434,7 @@ fn find_and_replace_covers_text_regex_font_colour_symbol_sound_and_undoes() {
     {
         let root = project.symbol_mut(&root_id).unwrap();
         root.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -9103,6 +9114,7 @@ fn stage_live_preview_clicks_execute_button_and_movieclip_instance_handlers() {
     let root = project.root.clone();
     project.symbol_mut(&root).unwrap().timeline.frame_count = 3;
     project.symbol_mut(&root).unwrap().timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,
@@ -10457,6 +10469,7 @@ fn t291_actions_debugger_and_output_tooltip_and_shortcut_hygiene() {
     ctx.enable_accesskit();
     let mut editor = Editor::from_project(&ctx, Project::blank());
     editor.symbol_mut().timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript3,
@@ -11517,6 +11530,16 @@ impl T319Driver {
             .rect
     }
 
+    fn panel_tab_rect(&self, panel: PanelId) -> Rect {
+        self.editor
+            .detached
+            .dock_groups
+            .iter()
+            .flat_map(|group| &group.tabs)
+            .find_map(|(candidate, rect)| (*candidate == panel).then_some(*rect))
+            .unwrap_or_else(|| panic!("dock tab for {panel:?} not found"))
+    }
+
     fn find_in(&self, label: &str, container: Rect) -> Option<Rect> {
         let to_rect = |r: egui::accesskit::Rect| {
             Rect::from_min_max(
@@ -11645,6 +11668,228 @@ impl T319Driver {
         ]);
         self.settle();
     }
+}
+
+#[test]
+fn t353_symbol_dialog_name_defaults_and_explicit_linkage_work() {
+    let mut d = T319Driver::new(Project::blank());
+    d.editor.add_element(
+        ElementKind::Rectangle {
+            width: 40.0,
+            height: 24.0,
+            fill: [91, 140, 255, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        40.0,
+        50.0,
+    );
+    let original_id = d.editor.selected_element().unwrap().id.clone();
+    let before = d.editor.project.clone();
+
+    d.editor.convert_to_symbol();
+    d.settle();
+    d.replace_focused_text("Badge");
+    d.click("Advanced");
+    d.click("Export for ActionScript");
+    let draft = d.editor.symbol_conversion.as_ref().unwrap();
+    assert_eq!(draft.name, "Badge");
+    assert_eq!(draft.linkage_id, "Badge");
+    assert!(draft.export_enabled);
+
+    d.click("Convert");
+    assert!(d.editor.symbol_conversion.is_none());
+    let instance = d.editor.selected_element().unwrap();
+    assert_eq!(instance.name, "Badge");
+    let ElementKind::Instance { symbol_id, .. } = &instance.kind else {
+        panic!("conversion must place a symbol instance")
+    };
+    let created = d.editor.project.symbol(symbol_id).unwrap();
+    assert_eq!(created.name, "Badge");
+    assert_eq!(created.linkage_id.as_deref(), Some("Badge"));
+    d.editor.project.validate().unwrap();
+
+    d.editor.undo();
+    assert_eq!(d.editor.project, before);
+    d.editor.select_single_id(original_id);
+    d.settle();
+
+    d.editor.convert_to_symbol();
+    d.settle();
+    d.replace_focused_text("Initial Badge");
+    d.click("Export for ActionScript");
+    d.click("Identifier");
+    d.replace_focused_text("ui.badge");
+    assert_eq!(
+        d.editor.symbol_conversion.as_ref().unwrap().linkage_id,
+        "ui.badge"
+    );
+    let name_edit_id = d
+        .ctx
+        .data(|data| data.get_temp::<egui::Id>(egui::Id::new("nf2-symbol-dialog-name-edit")))
+        .expect("symbol dialog Name edit id");
+    let name_rect = d
+        .ctx
+        .read_response(name_edit_id)
+        .expect("symbol dialog Name response")
+        .rect;
+    d.click_at(name_rect.center());
+    d.replace_focused_text("Renamed Badge");
+    let draft = d.editor.symbol_conversion.as_ref().unwrap();
+    assert_eq!(draft.name, "Renamed Badge");
+    assert_eq!(draft.linkage_id, "ui.badge");
+    assert!(draft.export_enabled);
+
+    d.click("Convert");
+    let instance = d.editor.selected_element().unwrap();
+    assert_eq!(instance.name, "Renamed Badge");
+    let ElementKind::Instance { symbol_id, .. } = &instance.kind else {
+        panic!("conversion must place a symbol instance")
+    };
+    let created = d.editor.project.symbol(symbol_id).unwrap();
+    assert_eq!(created.name, "Renamed Badge");
+    assert_eq!(created.linkage_id.as_deref(), Some("ui.badge"));
+    d.editor.project.validate().unwrap();
+    d.editor.undo();
+    assert_eq!(d.editor.project, before);
+}
+
+#[test]
+fn t353_actions_shortcut_and_panel_activation_follow_selected_object_context() {
+    use crate::app::ScriptTarget;
+    use crate::panels::actions_sidebar::ScriptLocation;
+
+    let mut project = Project::blank();
+    let root_id = project.root.clone();
+    let mut movie_clip = project.symbols[0].clone();
+    movie_clip.id = "actions-context-movie-symbol".to_owned();
+    movie_clip.name = "Context Movie".to_owned();
+    movie_clip.kind = SymbolKind::MovieClip;
+    movie_clip.timeline.layers[0].id = "actions-context-movie-layer".to_owned();
+    let movie_symbol_id = movie_clip.id.clone();
+    project.symbols.push(movie_clip);
+
+    let mut button = project.symbols[0].clone();
+    button.id = "actions-context-button-symbol".to_owned();
+    button.name = "Context Button".to_owned();
+    button.kind = SymbolKind::Button;
+    button.timeline.layers[0].id = "actions-context-button-layer".to_owned();
+    let button_symbol_id = button.id.clone();
+    project.symbols.push(button);
+    project.sources.push(SourceUnit {
+        id: "actions-context-source".to_owned(),
+        path: "Context.as".to_owned(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package { public class Context {} }\n".to_owned(),
+    });
+    project.script_language = Some(ScriptLanguage::ActionScript3);
+    project.enable_program();
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    let mut d = T319Driver::new(project);
+    d.editor.add_element(
+        ElementKind::Instance {
+            symbol_id: movie_symbol_id,
+            playback: InstancePlayback::Loop,
+        },
+        40.0,
+        40.0,
+    );
+    let movie_instance_id = d.editor.selected_element().unwrap().id.clone();
+    d.editor.add_element(
+        ElementKind::Instance {
+            symbol_id: button_symbol_id,
+            playback: InstancePlayback::Loop,
+        },
+        120.0,
+        40.0,
+    );
+    let button_instance_id = d.editor.selected_element().unwrap().id.clone();
+    d.editor.project.validate().unwrap();
+    let project_before = d.editor.project.clone();
+    let undo_before = d.editor.history.undo_len();
+
+    // The actual global F9 path must resolve both symbol kinds from a stale Frame target.
+    d.editor.set_panel_visible(PanelId::Actions, false);
+    d.editor.select_single_id(movie_instance_id.clone());
+    d.editor.script_target = ScriptTarget::Frame;
+    d.editor.script_event = ObjectEvent::Click;
+    d.key_tap(egui::Key::F9, egui::Modifiers::NONE);
+    assert_eq!(
+        d.editor.current_script_location(),
+        Some(ScriptLocation::Object {
+            symbol: root_id.clone(),
+            frame: 0,
+            element: movie_instance_id.clone(),
+            event: ObjectEvent::Load,
+        })
+    );
+
+    d.editor.set_panel_visible(PanelId::Actions, false);
+    d.editor.select_single_id(button_instance_id.clone());
+    d.editor.script_target = ScriptTarget::Frame;
+    d.editor.script_event = ObjectEvent::EnterFrame;
+    d.key_tap(egui::Key::F9, egui::Modifiers::NONE);
+    assert_eq!(
+        d.editor.current_script_location(),
+        Some(ScriptLocation::Object {
+            symbol: root_id.clone(),
+            frame: 0,
+            element: button_instance_id,
+            event: ObjectEvent::Click,
+        })
+    );
+
+    // Selecting while Actions is a background tab must not leave its old Frame target behind
+    // when the user activates the real dock tab.
+    d.editor.show_panel(PanelId::Timeline);
+    d.editor.script_target = ScriptTarget::Frame;
+    d.editor.script_event = ObjectEvent::Click;
+    d.editor.select_single_id(movie_instance_id.clone());
+    d.settle();
+    assert!(!d.editor.workspace.is_panel_active(PanelId::Actions));
+    assert!(d.editor.script_target == ScriptTarget::Frame);
+    let actions_tab = d.panel_tab_rect(PanelId::Actions);
+    d.click_at(actions_tab.center());
+    assert_eq!(
+        d.editor.current_script_location(),
+        Some(ScriptLocation::Object {
+            symbol: root_id,
+            frame: 0,
+            element: movie_instance_id,
+            event: ObjectEvent::Load,
+        })
+    );
+
+    // A Project source is an explicit target; reopening the generic panel must not replace it
+    // with the still-selected Stage object.
+    d.editor.show_panel(PanelId::Timeline);
+    d.editor.selected_source = Some("actions-context-source".to_owned());
+    d.editor.script_target = ScriptTarget::Source;
+    d.settle();
+    let actions_tab = d.panel_tab_rect(PanelId::Actions);
+    d.click_at(actions_tab.center());
+    assert_eq!(
+        d.editor.current_script_location(),
+        Some(ScriptLocation::Source("actions-context-source".to_owned()))
+    );
+
+    // Timeline/Properties frame entry points are explicit and must stay on Frame even while an
+    // actionable object remains selected.
+    d.editor.open_frame_actions();
+    assert_eq!(
+        d.editor.current_script_location(),
+        Some(ScriptLocation::Frame {
+            symbol: d.editor.project.root.clone(),
+            layer: Some(d.editor.symbol().timeline.layers[0].id.clone()),
+            frame: 0,
+        })
+    );
+
+    assert_eq!(d.editor.project, project_before);
+    assert_eq!(d.editor.history.undo_len(), undo_before);
+    d.editor.project.validate().unwrap();
 }
 
 #[test]
@@ -12540,6 +12785,7 @@ fn t319_click_to_jump_compiler_errors_movie_explorer_find_replace_and_actions_sc
             frame_count: 5,
             guides: vec![],
             scripts: vec![FrameScript {
+                layer: None,
                 frame: 2,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,
@@ -12627,6 +12873,7 @@ fn t319_click_to_jump_compiler_errors_movie_explorer_find_replace_and_actions_sc
             i.script
                 == Some(ScriptLocation::Frame {
                     symbol: scene2_id.clone(),
+                    layer: None,
                     frame: 2,
                 })
         })

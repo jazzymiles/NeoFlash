@@ -387,6 +387,7 @@ fn as2_level_bitmap_fill_call_frame_loaded_and_accessibility_semantics() {
         });
     project.symbols[0].timeline.scripts = vec![
         FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript2,
@@ -394,6 +395,7 @@ fn as2_level_bitmap_fill_call_frame_loaded_and_accessibility_semantics() {
             },
         },
         FrameScript {
+            layer: None,
             frame: 1,
             script: Script {
                 language: ScriptLanguage::ActionScript2,
@@ -456,6 +458,7 @@ fn as2_level_bitmap_fill_call_frame_loaded_and_accessibility_semantics() {
                 ],
             }],
             scripts: vec![FrameScript {
+                layer: None,
                 frame: 1,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,

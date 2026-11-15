@@ -75,6 +75,7 @@ fn symbol(id: &str, kind: SymbolKind, keys: Vec<Keyframe>) -> Symbol {
                 keyframes: keys,
             }],
             scripts: vec![FrameScript {
+                layer: None,
                 frame: 3,
                 script: Script {
                     language: ScriptLanguage::TypeScript,
@@ -662,6 +663,7 @@ fn candidate_only_insertion_materializes_sampled_pose_without_copying_labels_or_
         key(10, vec![end], None, "End label"),
     ];
     destination.symbols[0].timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 5,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -945,10 +947,12 @@ fn pasted_nested_movieclips_run_independent_clocks_dispatch_and_overrides_after_
             symbol.kind = SymbolKind::MovieClip;
             symbol.timeline.scripts = vec![
                 FrameScript {
+                    layer: None,
                     frame: 0,
                     script: script(&format!("{}-frame0", symbol.id)),
                 },
                 FrameScript {
+                    layer: None,
                     frame: 1,
                     script: script(&format!("{}-frame1", symbol.id)),
                 },

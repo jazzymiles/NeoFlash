@@ -218,6 +218,7 @@ fn project_from_root(name: &str, root: Symbol, extra_symbols: Vec<Symbol>) -> Pr
 
 fn frame_script(frame: u32, language: ScriptLanguage, source: &str) -> FrameScript {
     FrameScript {
+        layer: None,
         frame,
         script: Script {
             language,

@@ -329,6 +329,7 @@ fn build_stress_project(
         .timeline
         .scripts
         .push(neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: neoflash_core::Script {
                 language,
@@ -1206,6 +1207,7 @@ fn high_vertex_tween_and_shape_tween_stress_with_measured_fps() {
         root_sym.timeline.frame_count = 60;
         // Real measured FPS counter script alongside target FPS
         root_sym.timeline.scripts = vec![neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript2,
@@ -1520,6 +1522,7 @@ fn behavioral_verification_of_eight_imported_fla_archetypes_in_html5() {
         root_sym.timeline.frame_count = 2;
         root_sym.timeline.scripts = vec![
             FrameScript {
+                layer: None,
                 frame: 0,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,
@@ -1527,6 +1530,7 @@ fn behavioral_verification_of_eight_imported_fla_archetypes_in_html5() {
                 },
             },
             FrameScript {
+                layer: None,
                 frame: 1,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,
@@ -1583,6 +1587,7 @@ fn behavioral_verification_of_eight_imported_fla_archetypes_in_html5() {
             timeline: Timeline {
                 frame_count: 4,
                 scripts: vec![FrameScript {
+                    layer: None,
                     frame: 0,
                     script: Script {
                         language: ScriptLanguage::ActionScript2,
@@ -1649,6 +1654,7 @@ fn behavioral_verification_of_eight_imported_fla_archetypes_in_html5() {
             ..TextFormat::default()
         };
         root_sym.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript2,
@@ -1687,6 +1693,7 @@ fn behavioral_verification_of_eight_imported_fla_archetypes_in_html5() {
         root_sym.timeline.frame_count = 5;
         root_sym.timeline.scripts = vec![
             FrameScript {
+                layer: None,
                 frame: 0,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,
@@ -1694,6 +1701,7 @@ fn behavioral_verification_of_eight_imported_fla_archetypes_in_html5() {
                 },
             },
             FrameScript {
+                layer: None,
                 frame: 3,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,
@@ -1723,6 +1731,7 @@ fn behavioral_verification_of_eight_imported_fla_archetypes_in_html5() {
         let root_id = p.root.clone();
         let root_sym = p.symbol_mut(&root_id).unwrap();
         root_sym.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript2,
@@ -1919,6 +1928,7 @@ this.xmlRootName = xml.firstChild.nodeName;
         let root_id = p.root.clone();
         let root_sym = p.symbol_mut(&root_id).unwrap();
         root_sym.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,

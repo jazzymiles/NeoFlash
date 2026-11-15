@@ -637,12 +637,12 @@
       "category": "editor",
       "title": "Library and nested editing",
       "status": "partial",
-      "scope": "Reusable instances and nested editing preserve authored identity and scripts. Edit in place resolves one exact visible placement, composes its invertible affine transform through nested levels, dims the frozen parent context and inverse-maps rendering, picking, selection, transforms, vector tools, drops, snapping and motion overlays; clean isolated definition editing remains a separate route. The session restores each level's playhead, active layer, selection, zoom/pan, ruler zero, frame range and Timeline focus, including paused independent-clip frames. A double-click on genuinely empty canvas with no active draft/gesture consumes the full press/release gesture and leaves exactly one hierarchy level without changing the sticky tool or immediately reopening the restored child; repeating the gesture continues upward. Entering a MovieClip by double-click requires an actual hit on that placement. Breadcrumbs retain direct navigation. Convert to Symbol offers aligned name/type/folder, nine-point registration and export identifier/existing-class fields. The Library shows a real first-frame preview, persistent folders, inline and drag-and-drop folder/symbol organization (`drag_drop_symbol_to_folder`, `drag_drop_folder_to_folder`), search by name/path/linkage/class, Name/Type/Linkage sorting and visible linkage, plus Select unused items, Delete unused items, bulk folder moves and bulk symbol-type changes in one Undo step. Duplicate symbol clones non-scene symbols with fresh IDs and cleared linkage (including Stage context-menu `Duplicate symbol…` and Properties `Duplicate…` on a selected instance); Delete symbol removes the symbol and cleans up any placed instances across timelines in one Undo step; Swap symbol in the Library, Stage context-menu `Swap symbol…`, Properties `Swap…` symbol-picker popover or holding ⌥ (Alt) while dragging a symbol from the Library onto the Stage or a Timeline layer row/frame span replaces the symbol on the selected stage instance or active/hovered layer across its keyframes while preserving transform, name, scripts, filters, blend mode and compatible playback. Selected symbol-instance Properties also exposes behavior switching (`Movie Clip` / `Button` / `Graphic`), `Edit symbol`, `Position and size` (`X`/`Y`, `W`/`H` + `Constrain instance proportions`, `Scale X`/`Scale Y`, `Rotation`/`Skew`), `Colour effect` (`Style: None / Brightness / Tint / Advanced / Alpha`), `Display` and `Filters`, and `Break Apart` (`⌘B` or Stage context menu) expands a MovieClip, Button or Graphic instance into the evaluated child elements, groups and bitmap fills of its visible layers at the current frame. Symbols also support 9-slice scaling grids (`Scale9Mapping`, keeping the 4 corner regions unstretched while scaling edge and centre regions inversely to the instance's `scale_x`/`scale_y`, with interactive Stage 9-slice guide dragging, live clamping, `Escape` cancellation and 1-Undo) and portable Shared Library linkage (`SharedLibraryLinkage` in `library/shared_libraries.json`, `set_symbol_shared_library`, `sync_shared_library`, and external `.nflash` donor selection via the file chooser). Folder paths survive symbol clipboard transfers; conflicts reject before mutation. Empty symbol creation opens nested editing. Buttons expose Up/Over/Down/Hit, instance actions and authored/export-linked SimpleButton typing. Library Properties changes kind across references while preserving keys/scripts and refusing incompatible class linkage.",
+      "scope": "Reusable instances and nested editing preserve authored identity and scripts. Edit in place resolves one exact visible placement, composes its invertible affine transform through nested levels, dims the frozen parent context and inverse-maps rendering, picking, selection, transforms, vector tools, drops, snapping and motion overlays; clean isolated definition editing remains a separate route. The session restores each level's playhead, active layer, selection, zoom/pan, ruler zero, frame range and Timeline focus, including paused independent-clip frames. A double-click on genuinely empty canvas with no active draft/gesture consumes the full press/release gesture and leaves exactly one hierarchy level without changing the sticky tool or immediately reopening the restored child; repeating the gesture continues upward. Entering a MovieClip by double-click requires an actual hit on that placement. Breadcrumbs retain direct navigation. Convert to Symbol offers aligned name/type/folder, nine-point registration and export identifier/existing-class fields; the entered Name seeds the Identifier until it is edited explicitly and names the generated or unnamed converted instance. The Library shows a real first-frame preview, persistent folders, inline and drag-and-drop folder/symbol organization (`drag_drop_symbol_to_folder`, `drag_drop_folder_to_folder`), search by name/path/linkage/class, Name/Type/Linkage sorting and visible linkage, plus Select unused items, Delete unused items, bulk folder moves and bulk symbol-type changes in one Undo step. Duplicate symbol clones non-scene symbols with fresh IDs and cleared linkage (including Stage context-menu `Duplicate symbol…` and Properties `Duplicate…` on a selected instance); Delete symbol removes the symbol and cleans up any placed instances across timelines in one Undo step; Swap symbol in the Library, Stage context-menu `Swap symbol…`, Properties `Swap…` symbol-picker popover or holding ⌥ (Alt) while dragging a symbol from the Library onto the Stage or a Timeline layer row/frame span replaces the symbol on the selected stage instance or active/hovered layer across its keyframes while preserving transform, name, scripts, filters, blend mode and compatible playback. Selected symbol-instance Properties also exposes behavior switching (`Movie Clip` / `Button` / `Graphic`), `Edit symbol`, `Position and size` (`X`/`Y`, `W`/`H` + `Constrain instance proportions`, `Scale X`/`Scale Y`, `Rotation`/`Skew`), `Colour effect` (`Style: None / Brightness / Tint / Advanced / Alpha`), `Display` and `Filters`, and `Break Apart` (`⌘B` or Stage context menu) expands a MovieClip, Button or Graphic instance into the evaluated child elements, groups and bitmap fills of its visible layers at the current frame. Symbols also support 9-slice scaling grids (`Scale9Mapping`, keeping the 4 corner regions unstretched while scaling edge and centre regions inversely to the instance's `scale_x`/`scale_y`, with interactive Stage 9-slice guide dragging, live clamping, `Escape` cancellation and 1-Undo) and portable Shared Library linkage (`SharedLibraryLinkage` in `library/shared_libraries.json`, `set_symbol_shared_library`, `sync_shared_library`, and external `.nflash` donor selection via the file chooser). Folder paths survive symbol clipboard transfers; conflicts reject before mutation. Empty symbol creation opens nested editing. Buttons expose Up/Over/Down/Hit, instance actions and authored/export-linked SimpleButton typing. Library Properties changes kind across references while preserving keys/scripts and refusing incompatible class linkage.",
       "limitations": "Edit in place refuses singular/non-finite transforms and non-affine 9-slice scaling instead of mutating geometry in the wrong coordinate space. Local guides and grid work for axis-preserving and quarter-turn mappings. The ruler uses local values only when both mapped axes increase screen-right/down and otherwise falls back to screen values; signed/reflected labels, arbitrary oblique/skewed chrome and the corresponding affine Brush cursor await the locked NF2 contract in R-063. Dedicated ⌥-drag replacement badges wait for NF2 request R-041. Arbitrary runtime state-object assignment and empty SimpleButton construction remain unsupported. Multi-object conversion requires a contiguous stack on one layer. Preview is the first frame. Resource files remain outside the symbol-folder tree.",
       "items": [
         {
           "id": "convert-to-symbol",
-          "title": "Convert to Symbol with name, type, folder and registration",
+          "title": "Convert to Symbol with Name defaults for export Identifier and generated instance name",
           "status": "working"
         },
         {
@@ -1244,12 +1244,17 @@
       "category": "animation",
       "title": "Keyframes, blank frames and holds",
       "status": "implemented",
-      "scope": "F5/F6/F7 and moving/copying individual keyframes; insertion uses the visible interpolated pose. Held content and blank spans are drawn to the next chronological key or symbol end. Frame rows are separated from scrollbars; key dragging uses the original pressed frame, a destination preview and edge scrolling. Frame zoom and Fit change cell width with adaptive ruler labels and selected-frame recentering, without changing authored timing. Compact FPS and total-duration fields preserve frame count and set the nearest integer FPS when duration changes.",
+      "scope": "File ▸ New starts with exactly one frame and one blank keyframe. F5/F6/F7 and moving/copying individual keyframes use the visible interpolated pose. Held content and blank spans are drawn to the next chronological key or symbol end. Frame rows are separated from scrollbars; key dragging uses the original pressed frame, a destination preview and edge scrolling. Frame zoom and Fit change cell width with adaptive ruler labels and selected-frame recentering, without changing authored timing. Compact FPS and total-duration fields preserve frame count and set the nearest integer FPS when duration changes.",
       "limitations": "The last key holds content to the explicit layer end or symbol end. Blank keys stop visible content earlier. Range operations and their tween-baking boundaries are tracked separately.",
       "items": [
         {
           "id": "insert-frames-keys",
           "title": "Insert frames, keyframes and blank keyframes (F5/F6/F7)",
+          "status": "working"
+        },
+        {
+          "id": "one-frame-new-documents",
+          "title": "Start new documents with one frame and one blank keyframe",
           "status": "working"
         },
         {
@@ -1284,6 +1289,7 @@
         "crates/neoflash-editor/src/panels/timeline.rs",
         "crates/neoflash-editor/src/timeline_paint.rs",
         "crates/neoflash-editor/src/panel_tests.rs",
+        "crates/neoflash-editor/src/document_sessions_tests.rs",
         "crates/neoflash-core/tests/core.rs",
         "crates/neoflash-editor/src/timeline_commands_tests.rs"
       ]
@@ -1656,12 +1662,12 @@
       "category": "animation",
       "title": "Frame-range operations",
       "status": "implemented",
-      "scope": "Rectangular multi-layer selection; copy, cut, paste, move, clear, insert and remove time as atomic Undo operations. Range edits splitting cubic-representable tweens (`Linear`, `EaseIn`, `EaseOut`, `EaseInOut`, `Flash` and `CubicBezier`, including motion `property_eases`) subdivide editable `CubicBezier` sub-curves via De Casteljau subdivision instead of integer-frame pose baking. Explicit Include frame scripts transfers symbol-level code once and rejects destination collisions; object scripts travel with placements. Independent layer ends can be set numerically or dragged and stop exposure in native and HTML5 evaluation. Range clipboard works within and across open document tabs, preserving visible layer order, stable animation identities and transitive symbols/resources/fonts/swatches/styles while remapping collisions. Edit multiple frames renders every keyframe in the onion range opaque, allows selecting objects that exist only on neighbouring keyframes, and applies Move, Resize, Scale, Rotate and Skew across all keyframes in the range in one Undo step. Pasting a multi-layer range creates missing destination layers in the same Undo transaction.",
+      "scope": "An ordinary click selects one frame; Shift-click and pointer drag create exact rectangular layer/frame ranges. Copy, cut, paste, move, clear, insert and remove time are atomic Undo operations. Right-clicking blank Layers-column space below the rows opens the existing active-layer menu. Right-clicking a selected frame preserves the chosen range, and Remove Frames applies to it with Undo/Redo. Range edits splitting cubic-representable tweens (`Linear`, `EaseIn`, `EaseOut`, `EaseInOut`, `Flash` and `CubicBezier`, including motion `property_eases`) subdivide editable `CubicBezier` sub-curves via De Casteljau subdivision instead of integer-frame pose baking. Explicit Include frame scripts transfers each selected layer-owned script once and rejects destination collisions; object scripts travel with placements. Independent layer ends can be set numerically or dragged and stop exposure in native and HTML5 evaluation. Range clipboard works within and across open document tabs, preserving visible layer order, stable animation identities and transitive symbols/resources/fonts/swatches/styles while remapping collisions. Edit multiple frames renders every keyframe in the onion range opaque, allows selecting objects that exist only on neighbouring keyframes, and applies Move, Resize, Scale, Rotate and Skew across all keyframes in the range in one Undo step. Pasting a multi-layer range creates missing destination layers in the same Undo transaction.",
       "limitations": "Paste creates missing destination layers and validates the complete candidate before committing. Trimming deletes later keys with Undo recovery. Range cuts through analytical Bounce/Elastic presets or guided motion spans fall back to frame-accurate pose keyframes, and reversing a motion tween turns its ◆ poses into classic keyframes. Edit multiple frames applies selection and transform gestures across the onion range; drawing and path-point reshape edits still target the current keyframe. Group requires members on the current keyframe and diagnoses selections that exist only on other frames. Reverse mirrors keyframe positions and time-inverts tween easing curves (baking spatial motion curves and one-way Bounce/Elastic spans into frame-accurate keyframes).",
       "items": [
         {
           "id": "range-selection",
-          "title": "Select frame ranges across layers",
+          "title": "Select one frame by ordinary click or exact ranges with Shift-click and drag",
           "status": "working"
         },
         {
@@ -1677,6 +1683,11 @@
         {
           "id": "insert-remove-time",
           "title": "Insert and remove time",
+          "status": "working"
+        },
+        {
+          "id": "timeline-context-remove-frames",
+          "title": "Open the active layer menu from blank Layers space and apply Remove Frames to the preserved range",
           "status": "working"
         },
         {
@@ -1723,7 +1734,9 @@
         "crates/neoflash-editor/src/tests.rs",
         "docs/COMPATIBILITY.md",
         "crates/neoflash-core/tests/timeline_tweens.rs",
-        "crates/neoflash-editor/src/timeline_commands_tests.rs"
+        "crates/neoflash-editor/src/timeline_commands_tests.rs",
+        "crates/neoflash-editor/src/selection_tests.rs",
+        "crates/neoflash-editor/src/timeline_regression_tests.rs"
       ]
     },
     {
@@ -2123,7 +2136,7 @@
       "category": "web",
       "title": "JavaScript frame and object handlers",
       "status": "implemented",
-      "scope": "Oxc parses synchronous frame/object function bodies, which the HTML5 host executes with the specified owner. The web-container family connects AS2/AS3 ExternalInterface callbacks and named page calls to this same browser publication, with ordinary authored JavaScript for HTML controls.",
+      "scope": "Oxc parses synchronous frame/object function bodies, which the HTML5 host executes with the specified owner. Actions follows the exact selected layer/frame or object/event: format-13 layer-owned scripts remain independent on different layers at the same frame, and an empty context never falls back to unrelated code. The web-container family connects AS2/AS3 ExternalInterface callbacks and named page calls to this same browser publication, with ordinary authored JavaScript for HTML controls.",
       "limitations": "Project modules/imports and top-level await are outside this item. Code has the privileges of its containing browser page.",
       "items": [
         {
@@ -2134,6 +2147,11 @@
         {
           "id": "js-object-handlers",
           "title": "JavaScript object handlers",
+          "status": "working"
+        },
+        {
+          "id": "actions-context-ownership",
+          "title": "Actions follows the exact layer/frame or selected object and keeps same-frame layer scripts independent",
           "status": "working"
         },
         {
@@ -2150,6 +2168,8 @@
       "evidence": [
         "crates/neoflash-script/src/lib.rs",
         "web/runtime.js",
+        "crates/neoflash-editor/src/timeline_commands_tests.rs",
+        "crates/neoflash-editor/src/selection_tests.rs",
         "docs/COMPATIBILITY.md",
         "web/external.js",
         "web/net.js",
@@ -3410,7 +3430,7 @@
       "category": "platform",
       "title": "Independent project format",
       "status": "implemented",
-      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable. Authored Bitmap elements reference portable PNG/JPEG resource IDs with validated intrinsic dimensions; mutable runtime pixels stay outside the document. TextBox stores explicit layout dimensions and uniform formatting; legacy Text remains readable without conversion, and runtime insertion defaults stay outside authored state. Format 4 adds authored layer roles/relationships and logical library folders with backward-compatible defaults. Format 5 adds affine skew, inherited color transforms, authored gradient paths, Flash easing and an explicit AS1 script identity. Format 6 adds multi-scene lists, tween kinds, motion property keys, motion and ruler guides and frame sounds. Format 7 adds parametric rectangle corner radii, oval start/end angles, inner radius and close-path options (`Transform.primitive`), custom transform pivots (`Transform.pivot`), Bounce and Elastic ease presets (`Easing::{Bounce, Elastic}`), per-property motion eases (`Keyframe.property_eases`), motion graphic synchronization and guide snapping (`Keyframe.{sync_symbols, snap_to_guide}`), custom stereo sound envelopes and playback trim windows (`SoundEffect::Custom`, `FrameSound.{envelope, in_point, out_point}`), and authored display filters, blend modes, `cacheAsBitmap` and visibility (`Element.{filters, blend_mode, cache_as_bitmap, visible}`). Format 8 adds editable spatial Motion paths, classic endpoint snapping, layer blending and synchronized layer timelines. Format 9 adds painted mask modes/inversion, per-resource export settings, roving Motion keys and live Stage authoring controls for Envelope (4×4), Perspective (2×2), Asset Warp and IK armatures. Format 10 adds sparse stable-ID `motion_tracks` and authoritative per-object `motion_keys`, while documents without them retain their exact legacy shared settings and paths. Format 11 adds layer/keyframe display-filter stacks and External/Progressive timeline-video deployment. Format 12 adds authored timeline-video out-points. Document ▸ Document settings… (⌘J) edits stage size, Match contents, anchored content scaling, units, background and frame rate in one Undo step and saves new-document defaults in workspace prefs; a blank Stage click clears Timeline frame/range focus so Properties exposes the Stage Background control.",
+      "scope": "Versioned JSON stores stable symbols/placements/frames/scripts; version 2 adds logical project source units and document/symbol linkage with path, size and reference validation. Existing version-1 projects remain supported. Version 3 adds portable resource bytes, normalized logical paths/types, strict base64/size validation and shared immutable storage across native snapshots; versions 1 and 2 remain readable. Authored Bitmap elements reference portable PNG/JPEG resource IDs with validated intrinsic dimensions; mutable runtime pixels stay outside the document. TextBox stores explicit layout dimensions and uniform formatting; legacy Text remains readable without conversion, and runtime insertion defaults stay outside authored state. Format 4 adds authored layer roles/relationships and logical library folders with backward-compatible defaults. Format 5 adds affine skew, inherited color transforms, authored gradient paths, Flash easing and an explicit AS1 script identity. Format 6 adds multi-scene lists, tween kinds, motion property keys, motion and ruler guides and frame sounds. Format 7 adds parametric rectangle corner radii, oval start/end angles, inner radius and close-path options (`Transform.primitive`), custom transform pivots (`Transform.pivot`), Bounce and Elastic ease presets (`Easing::{Bounce, Elastic}`), per-property motion eases (`Keyframe.property_eases`), motion graphic synchronization and guide snapping (`Keyframe.{sync_symbols, snap_to_guide}`), custom stereo sound envelopes and playback trim windows (`SoundEffect::Custom`, `FrameSound.{envelope, in_point, out_point}`), and authored display filters, blend modes, `cacheAsBitmap` and visibility (`Element.{filters, blend_mode, cache_as_bitmap, visible}`). Format 8 adds editable spatial Motion paths, classic endpoint snapping, layer blending and synchronized layer timelines. Format 9 adds painted mask modes/inversion, per-resource export settings, roving Motion keys and live Stage authoring controls for Envelope (4×4), Perspective (2×2), Asset Warp and IK armatures. Format 10 adds sparse stable-ID `motion_tracks` and authoritative per-object `motion_keys`, while documents without them retain their exact legacy shared settings and paths. Format 11 adds layer/keyframe display-filter stacks and External/Progressive timeline-video deployment. Format 12 adds authored timeline-video out-points. Format 13 adds explicit `FrameScript.layer` ownership while legacy layerless scripts remain readable through deterministic inference. Document ▸ Document settings… (⌘J) edits stage size, Match contents, anchored content scaling, units, background and frame rate in one Undo step and saves new-document defaults in workspace prefs; a blank Stage click clears Timeline frame/range focus so Properties exposes the Stage Background control.",
       "limitations": "Additional media consumers, embedded font layout and broader asset dependency authoring remain separate work. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified. Independent 1bd0e3c evidence (BITMAP-HTML5-20261027T0345Z) is restricted to the PNG/shared pixel, AS2 attachment, disposal and Restart observations in VERIFICATION.md. JPEG, rasterization options, alpha hits and native image authoring do not inherit that pass.",
       "items": [
         {
@@ -3481,6 +3501,11 @@
         {
           "id": "format12-video-out-points",
           "title": "Authored timeline-video out-points (format 12)",
+          "status": "working"
+        },
+        {
+          "id": "format13-frame-script-ownership",
+          "title": "Explicit layer ownership for frame scripts with legacy layerless fallback (format 13)",
           "status": "working"
         }
       ],

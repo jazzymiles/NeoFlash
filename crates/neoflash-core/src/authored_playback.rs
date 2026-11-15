@@ -3355,6 +3355,7 @@ mod tests {
             .timeline
             .scripts
             .push(crate::FrameScript {
+                layer: None,
                 frame: 1,
                 script: crate::Script {
                     language: crate::ScriptLanguage::JavaScript,
@@ -3397,6 +3398,7 @@ mod tests {
         let root = project.root.clone();
         project.symbol_mut(&root).unwrap().timeline.scripts = vec![
             crate::FrameScript {
+                layer: None,
                 frame: 0,
                 script: crate::Script {
                     language: crate::ScriptLanguage::JavaScript,
@@ -3404,6 +3406,7 @@ mod tests {
                 },
             },
             crate::FrameScript {
+                layer: None,
                 frame: 1,
                 script: crate::Script {
                     language: crate::ScriptLanguage::JavaScript,
@@ -3440,6 +3443,7 @@ mod tests {
         child.timeline.frame_count = 3;
         child.timeline.layers[0].id = "live-toggle-child-layer".into();
         child.timeline.scripts = vec![crate::FrameScript {
+            layer: None,
             frame: 0,
             script: crate::Script {
                 language: crate::ScriptLanguage::JavaScript,
@@ -3498,6 +3502,7 @@ mod tests {
         let root_sym = project.symbol_mut(&root).unwrap();
         root_sym.timeline.frame_count = 5;
         root_sym.timeline.scripts = vec![crate::FrameScript {
+            layer: None,
             frame: 0,
             script: crate::Script {
                 language: crate::ScriptLanguage::ActionScript2,
@@ -3716,6 +3721,7 @@ mod tests {
         let mut project = Project::blank();
         let root = project.root.clone();
         project.symbol_mut(&root).unwrap().timeline.scripts = vec![crate::FrameScript {
+            layer: None,
             frame: 0,
             script: crate::Script {
                 language: crate::ScriptLanguage::ActionScript3,
@@ -3766,6 +3772,7 @@ mod tests {
             let mut project = Project::blank();
             let root = project.root.clone();
             project.symbol_mut(&root).unwrap().timeline.scripts = vec![crate::FrameScript {
+                layer: None,
                 frame: 0,
                 script: crate::Script {
                     language,
@@ -3834,6 +3841,7 @@ mod tests {
             root_sym.timeline.frame_count = 2;
             root_sym.timeline.scripts = vec![
                 crate::FrameScript {
+                    layer: None,
                     frame: 0,
                     script: crate::Script {
                         language: crate::ScriptLanguage::ActionScript3,
@@ -3841,6 +3849,7 @@ mod tests {
                     },
                 },
                 crate::FrameScript {
+                    layer: None,
                     frame: 0,
                     script: crate::Script {
                         language: crate::ScriptLanguage::ActionScript2,
@@ -3848,6 +3857,7 @@ mod tests {
                     },
                 },
                 crate::FrameScript {
+                    layer: None,
                     frame: 0,
                     script: crate::Script {
                         language: crate::ScriptLanguage::JavaScript,
@@ -3935,6 +3945,7 @@ mod tests {
         project.also_compile_compatible_scripts = true;
         project.symbol_mut(&root).unwrap().timeline.scripts = vec![
             crate::FrameScript {
+                layer: None,
                 frame: 0,
                 script: crate::Script {
                     language: crate::ScriptLanguage::TypeScript,
@@ -3942,6 +3953,7 @@ mod tests {
                 },
             },
             crate::FrameScript {
+                layer: None,
                 frame: 0,
                 script: crate::Script {
                     language: crate::ScriptLanguage::ActionScript2,
@@ -3983,6 +3995,7 @@ mod tests {
         });
         s2.timeline.scripts = vec![
             crate::FrameScript {
+                layer: None,
                 frame: 0,
                 script: crate::Script {
                     language: crate::ScriptLanguage::ActionScript3,
@@ -3990,6 +4003,7 @@ mod tests {
                 },
             },
             crate::FrameScript {
+                layer: None,
                 frame: 1,
                 script: crate::Script {
                     language: crate::ScriptLanguage::ActionScript3,
@@ -4063,6 +4077,7 @@ mod tests {
 
         // 3. AS3 `nextScene()` / `prevScene()`, 2-arg `(frame, scene)`, and cross-scene 1-arg label.
         project.symbol_mut(&s1_id).unwrap().timeline.scripts = vec![crate::FrameScript {
+            layer: None,
             frame: 0,
             script: crate::Script {
                 language: crate::ScriptLanguage::ActionScript3,
@@ -4075,6 +4090,7 @@ mod tests {
         assert_eq!(pb_label.drain_traces(), vec!["S2_F2".to_owned()]);
 
         project.symbol_mut(&s1_id).unwrap().timeline.scripts = vec![crate::FrameScript {
+            layer: None,
             frame: 0,
             script: crate::Script {
                 language: crate::ScriptLanguage::ActionScript3,
@@ -4086,6 +4102,7 @@ mod tests {
         assert_eq!(pb_next.drain_traces(), vec!["S2_F1".to_owned()]);
 
         project.symbol_mut(&s2_id).unwrap().timeline.scripts[0] = crate::FrameScript {
+            layer: None,
             frame: 0,
             script: crate::Script {
                 language: crate::ScriptLanguage::ActionScript3,
@@ -4102,6 +4119,7 @@ mod tests {
         // 4. AS2 2-arg `gotoAndStop("Scene 2", 2)` uses `(scene, frame)` argument order!
         project.script_language = Some(crate::ScriptLanguage::ActionScript2);
         project.symbol_mut(&s1_id).unwrap().timeline.scripts = vec![crate::FrameScript {
+            layer: None,
             frame: 0,
             script: crate::Script {
                 language: crate::ScriptLanguage::ActionScript2,
@@ -4109,6 +4127,7 @@ mod tests {
             },
         }];
         project.symbol_mut(&s2_id).unwrap().timeline.scripts = vec![crate::FrameScript {
+            layer: None,
             frame: 1,
             script: crate::Script {
                 language: crate::ScriptLanguage::ActionScript2,

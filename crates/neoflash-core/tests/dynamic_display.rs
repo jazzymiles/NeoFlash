@@ -441,6 +441,7 @@ fn authored_children_follow_runtime_parents_until_source_retirement(mut project:
             ..Element::default()
         });
     component.timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 1,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -665,6 +666,7 @@ fn movieclip_button_labels_follow_mouse_input(mut project: Project) {
         })
         .collect();
     component.timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 1,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -2048,6 +2050,7 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
         ..Default::default()
     });
     pulse.timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 1,
         script: script("pulse();"),
     }];
@@ -2080,10 +2083,12 @@ fn linked_timelines_are_independent_namespaces(mut project: Project) {
     ];
     component.timeline.scripts = vec![
         FrameScript {
+            layer: None,
             frame: 0,
             script: script("initial();"),
         },
         FrameScript {
+            layer: None,
             frame: 1,
             script: script("turn();"),
         },
@@ -2535,6 +2540,7 @@ fn image_loading_owns_content_and_replaces_timelines(mut project: Project) {
     let component = project.symbol_mut("component").unwrap();
     component.timeline.frame_count = 2;
     component.timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 1,
         script: Script {
             language: ScriptLanguage::JavaScript,

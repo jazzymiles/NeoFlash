@@ -302,9 +302,12 @@ fn conversion_preserves_appearance_identity_and_scripts_on_the_new_instance() {
     editor.convert_to_symbol();
     let mut draft = editor.symbol_conversion.take().unwrap();
     draft.registration = 4;
-    draft.name = "Card".into();
+    draft.set_name("Initial Card");
     draft.export_enabled = true;
-    draft.linkage_id = "card-export".into();
+    draft.set_linkage_id("card-export");
+    draft.set_name("Card");
+    draft.class_name = "app.Card".into();
+    assert_eq!(draft.linkage_id, "card-export");
     editor
         .commit_symbol_conversion(
             &draft,
@@ -317,6 +320,8 @@ fn conversion_preserves_appearance_identity_and_scripts_on_the_new_instance() {
         .unwrap();
     assert_eq!(symbol.name, "Card");
     assert_eq!(symbol.linkage_id.as_deref(), Some("card-export"));
+    assert_eq!(symbol.class_name.as_deref(), Some("app.Card"));
+    assert_eq!(editor.selected_element().unwrap().name, "moving_shape");
     let converted = evaluate(&editor.project, editor.symbol_id(), editor.frame);
     for (before, after) in visible.iter().zip(&converted) {
         assert_eq!(before.kind, after.kind);
@@ -363,6 +368,83 @@ fn conversion_preserves_appearance_identity_and_scripts_on_the_new_instance() {
         assert_eq!(before.kind, after.kind);
         assert_eq!(before.transform, after.transform);
     }
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn conversion_uses_entered_name_for_default_linkage_and_generated_or_empty_instances() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.begin_new_symbol();
+    let mut create_draft = editor.symbol_conversion.take().unwrap();
+    assert!(!create_draft.export_enabled);
+    assert!(create_draft.class_name.is_empty());
+    assert_eq!(create_draft.linkage_id, create_draft.name);
+    create_draft.set_name("Created Badge");
+    assert_eq!(create_draft.linkage_id, "Created Badge");
+    create_draft.set_linkage_id("app.createdBadge");
+    create_draft.set_name("Renamed Badge");
+    assert_eq!(create_draft.linkage_id, "app.createdBadge");
+
+    editor.add_element(rectangle(), 12., 34.);
+    let original_id = editor.selected_element().unwrap().id.clone();
+    assert!(
+        editor
+            .selected_element()
+            .unwrap()
+            .name
+            .starts_with("rectangle_")
+    );
+    let before = editor.project.clone();
+
+    editor.convert_to_symbol();
+    let mut draft = editor.symbol_conversion.take().unwrap();
+    assert!(!draft.export_enabled);
+    assert!(draft.class_name.is_empty());
+    assert_eq!(draft.linkage_id, draft.name);
+    draft.set_name("Badge");
+    assert_eq!(draft.linkage_id, "Badge");
+    draft.export_enabled = true;
+    editor
+        .commit_symbol_conversion(
+            &draft,
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(20., 12.)),
+        )
+        .unwrap();
+
+    let instance = editor.selected_element().unwrap();
+    assert_eq!(instance.name, "Badge");
+    let ElementKind::Instance { symbol_id, .. } = &instance.kind else {
+        panic!("conversion must place a symbol instance")
+    };
+    let symbol = editor.project.symbol(symbol_id).unwrap();
+    assert_eq!(symbol.name, "Badge");
+    assert_eq!(symbol.linkage_id.as_deref(), Some("Badge"));
+    assert_eq!(symbol.class_name, None);
+    editor.project.validate().unwrap();
+    assert_eq!(
+        Project::from_json(&editor.project.to_json().unwrap()).unwrap(),
+        editor.project
+    );
+
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    editor.select_single_id(original_id);
+    editor.selected_element_mut().unwrap().name.clear();
+    let before = editor.project.clone();
+    editor.convert_to_symbol();
+    let mut draft = editor.symbol_conversion.take().unwrap();
+    draft.set_name("Unnamed Badge");
+    editor
+        .commit_symbol_conversion(
+            &draft,
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(20., 12.)),
+        )
+        .unwrap();
+    assert_eq!(editor.selected_element().unwrap().name, "Unnamed Badge");
+    editor.project.validate().unwrap();
     editor.undo();
     assert_eq!(editor.project, before);
 }
@@ -469,6 +551,7 @@ fn moving_key_preserves_instance_identity_tween_and_label_and_is_one_undo_step()
     let mut editor = editor_at_middle(Easing::Linear);
     editor.symbol_mut().timeline.layers[0].keyframes[0].tween = None;
     editor.symbol_mut().timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -531,6 +614,86 @@ fn moving_key_preserves_instance_identity_tween_and_label_and_is_one_undo_step()
     editor.undo();
     assert_eq!(editor.project, before);
     assert!(!editor.history.can_undo());
+}
+
+#[test]
+fn rectangular_frame_move_keeps_other_layer_script_and_is_one_undo_step() {
+    let mut project = Project::blank();
+    project.format_version = 13;
+    let root = project.root.clone();
+    let first_layer: Id = "editor-range-first".into();
+    let second_layer: Id = "editor-range-second".into();
+    let timeline = &mut project.symbol_mut(&root).unwrap().timeline;
+    timeline.frame_count = 8;
+    timeline.layers[0].id = first_layer.clone();
+    timeline.layers[0].properties.end_frame = Some(8);
+    timeline.layers.push(Layer {
+        id: second_layer.clone(),
+        name: "Second".into(),
+        visible: true,
+        locked: false,
+        keyframes: vec![Keyframe::default()],
+        properties: LayerProperties {
+            end_frame: Some(8),
+            ..LayerProperties::default()
+        },
+    });
+    timeline.scripts = vec![
+        FrameScript {
+            layer: Some(first_layer.clone()),
+            frame: 2,
+            script: Script {
+                language: ScriptLanguage::JavaScript,
+                source: "first".into(),
+            },
+        },
+        FrameScript {
+            layer: Some(second_layer.clone()),
+            frame: 2,
+            script: Script {
+                language: ScriptLanguage::JavaScript,
+                source: "second".into(),
+            },
+        },
+    ];
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&egui::Context::default(), project);
+    editor.clear_history();
+    let before = editor.project.clone();
+    assert!(editor.apply_frame_edit(TimelineEdit::Move {
+        range: FrameRange {
+            layers: vec![first_layer.clone()],
+            start: 2,
+            end: 2,
+        },
+        layers: vec![first_layer.clone()],
+        at: 4,
+        copy: false,
+        include_scripts: true,
+    }));
+
+    let scripts = &editor.symbol().timeline.scripts;
+    assert!(scripts.iter().any(|script| {
+        script.script.source == "first"
+            && script.layer.as_ref() == Some(&first_layer)
+            && script.frame == 4
+    }));
+    assert!(scripts.iter().any(|script| {
+        script.script.source == "second"
+            && script.layer.as_ref() == Some(&second_layer)
+            && script.frame == 2
+    }));
+    editor.project.validate().unwrap();
+    let moved = editor.project.clone();
+    assert!(editor.history.can_undo());
+
+    editor.undo();
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+    editor.redo();
+    assert_eq!(editor.project, moved);
+    editor.project.validate().unwrap();
 }
 
 #[test]
@@ -1467,6 +1630,7 @@ fn switching_live_scripts_rebuilds_the_editor_preview_tree() {
     child.timeline.frame_count = 3;
     child.timeline.layers[0].id = "editor-live-toggle-child-layer".into();
     child.timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -1570,6 +1734,7 @@ fn derived_fla_export_does_not_authorize_discarding_unsaved_native_edits() {
     editor.transact(|editor| {
         editor.project.name = "Unsaved native project".into();
         editor.symbol_mut().timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript2,

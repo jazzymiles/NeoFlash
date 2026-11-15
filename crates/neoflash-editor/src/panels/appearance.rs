@@ -2833,6 +2833,7 @@ mod appearance_tests {
             ..ExtendedAccessibility::default()
         });
         editor.project.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript2,

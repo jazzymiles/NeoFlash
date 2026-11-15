@@ -689,6 +689,7 @@ fn pass4_all_publish_and_export_targets_desktop_images_spritesheet_svg_lottie_vi
             }],
         }];
         sym.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: lang,

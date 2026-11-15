@@ -114,10 +114,14 @@ fn real_browser_breakpoint_step_locals_restart_and_disconnect() {
         .unwrap()
         .timeline
         .scripts
-        .push(FrameScript { frame: 0, script });
+        .push(FrameScript {
+            layer: None,
+            frame: 0,
+            script,
+        });
     let timeline = &mut project.symbol_mut(&project.root.clone()).unwrap().timeline;
     timeline.frame_count = timeline.frame_count.max(2);
-    timeline.scripts.push(FrameScript { frame:1, script:Script {
+    timeline.scripts.push(FrameScript { layer: None, frame:1, script:Script {
         language:ScriptLanguage::JavaScript,
         source:"if (!globalThis.__neoflashDebugTimer) {\n  globalThis.__neoflashDebugTicks = 0;\n  globalThis.__neoflashDebugTimer = globalThis.setInterval(function debugTick() {\n    globalThis.__neoflashDebugTicks += 1;\n  }, 20);\n}".into()
     }});

@@ -46,6 +46,15 @@ fn accessible_bounds(output: &egui::FullOutput, label: &str) -> Option<egui::Rec
         })
 }
 
+fn secondary_button(pos: egui::Pos2, pressed: bool) -> egui::Event {
+    egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Secondary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    }
+}
+
 fn click_timeline_control(
     editor: &mut Editor,
     ctx: &egui::Context,
@@ -92,6 +101,162 @@ fn object(id: &str, x: f64, y: f64) -> Element {
         },
         ..Element::default()
     }
+}
+
+#[test]
+fn blank_layers_area_opens_the_existing_active_layer_menu() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.clear_history();
+    let baseline = editor.project.clone();
+    let mut time = 0.1;
+
+    timeline_panel_frame(&mut editor, &ctx, time, vec![]);
+    time += 0.1;
+    let output = timeline_panel_frame(&mut editor, &ctx, time, vec![]);
+    let row = accessible_bounds(&output, "Layer 1 (Layer)")
+        .expect("the active Timeline layer row must be accessible");
+    let blank = egui::pos2(row.center().x, row.bottom() + row.height() * 2.0);
+
+    time += 0.1;
+    timeline_panel_frame(
+        &mut editor,
+        &ctx,
+        time,
+        vec![
+            egui::Event::PointerMoved(blank),
+            secondary_button(blank, true),
+        ],
+    );
+    time += 0.1;
+    timeline_panel_frame(
+        &mut editor,
+        &ctx,
+        time,
+        vec![secondary_button(blank, false)],
+    );
+    time += 0.1;
+    let menu = timeline_panel_frame(&mut editor, &ctx, time, vec![]);
+    assert!(
+        accessible_bounds(&menu, "Insert layer").is_some(),
+        "blank Layers space must reuse the active layer context menu"
+    );
+
+    let output = click_timeline_control(&mut editor, &ctx, &mut time, &menu, "Insert layer");
+    assert!(
+        accessible_bounds(&output, "Insert layer").is_none(),
+        "choosing a layer command closes the context menu"
+    );
+    assert_eq!(editor.symbol().timeline.layers.len(), 2);
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, baseline);
+    editor.redo();
+    assert_eq!(editor.symbol().timeline.layers.len(), 2);
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn selected_frame_context_remove_frames_keeps_the_range_and_is_undoable() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 8;
+    project.symbols[0].timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            elements: vec![object("hero", 20.0, 30.0)],
+            ..Keyframe::default()
+        },
+        Keyframe {
+            frame: 7,
+            ..Keyframe::default()
+        },
+    ];
+    let layer_id = project.symbols[0].timeline.layers[0].id.clone();
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.clear_history();
+    let baseline = editor.project.clone();
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id],
+        start: 2,
+        end: 3,
+    });
+    let mut time = 0.1;
+
+    timeline_panel_frame(&mut editor, &ctx, time, vec![]);
+    time += 0.1;
+    let output = timeline_panel_frame(&mut editor, &ctx, time, vec![]);
+    let first_key = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::epaint::Shape::Circle(circle)
+                if (1.5..=3.5).contains(&circle.radius)
+                    && circle.fill == neoflash_ui::palette(&ctx).timeline_marker
+                    && shape.clip_rect.contains(circle.center) =>
+            {
+                Some(circle.center)
+            }
+            _ => None,
+        })
+        .min_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)))
+        .expect("the Timeline must paint its first keyframe marker");
+    let selected_cell = first_key + egui::vec2(editor.timeline_cell * 2.0, 0.0);
+
+    time += 0.1;
+    timeline_panel_frame(
+        &mut editor,
+        &ctx,
+        time,
+        vec![
+            egui::Event::PointerMoved(selected_cell),
+            secondary_button(selected_cell, true),
+        ],
+    );
+    time += 0.1;
+    timeline_panel_frame(
+        &mut editor,
+        &ctx,
+        time,
+        vec![secondary_button(selected_cell, false)],
+    );
+    assert_eq!(
+        editor.selected_frame_range(),
+        Some((2, 3, 1)),
+        "right-click inside the range must not collapse it to one frame"
+    );
+    time += 0.1;
+    let menu = timeline_panel_frame(&mut editor, &ctx, time, vec![]);
+    let remove_label = format!(
+        "Remove frames ({})",
+        editor.sc(crate::commands::CommandId::EditTimelineRemoveFrames)
+    );
+    assert!(
+        accessible_bounds(&menu, &remove_label).is_some(),
+        "selected-frame context must expose the existing Remove frames command"
+    );
+
+    click_timeline_control(&mut editor, &ctx, &mut time, &menu, &remove_label);
+    assert_eq!(editor.symbol().timeline.frame_count, 6);
+    assert_eq!(
+        editor.symbol().timeline.layers[0]
+            .keyframes
+            .iter()
+            .map(|key| key.frame)
+            .collect::<Vec<_>>(),
+        vec![0, 5]
+    );
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.project.validate().unwrap();
+    let removed = editor.project.clone();
+    editor.undo();
+    assert_eq!(editor.project, baseline);
+    editor.redo();
+    assert_eq!(editor.project, removed);
+    editor.project.validate().unwrap();
 }
 
 #[test]

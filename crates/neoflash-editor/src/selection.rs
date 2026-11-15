@@ -64,6 +64,7 @@ impl Editor {
             symbol: self.symbol_id().to_owned(),
             targets: vec![],
         };
+        self.sync_active_actions_context();
     }
     pub(crate) fn target_for_id(&self, id: &str) -> Option<SelectionTarget> {
         self.symbol().timeline.layers.iter().find_map(|layer| {
@@ -156,6 +157,7 @@ impl Editor {
             symbol: self.symbol_id().to_owned(),
             targets: unique,
         };
+        self.sync_active_actions_context();
     }
     pub(crate) fn grouped_targets(&self, target: &SelectionTarget) -> Vec<SelectionTarget> {
         let Some(layer) = self
@@ -434,6 +436,52 @@ impl Editor {
     pub(crate) fn ensure_key_at(&mut self, layer_id: &str, frame: u32, blank: bool) {
         let symbol_id = self.symbol_id().to_owned();
         Self::ensure_key_at_project(&mut self.project, &symbol_id, layer_id, frame, blank);
+    }
+
+    /// Make `frame` an ordinary key that can visibly own a frame Actions marker.
+    ///
+    /// A generic F6-style insertion inside a Motion span creates a ◆ property key. Frame Actions
+    /// cannot use that marker slot, so isolate the single frame through the range engine instead;
+    /// it splits the tween around the sampled pose and preserves the authored animation. Ordinary
+    /// held exposures keep the cheaper direct key insertion path.
+    pub(crate) fn ensure_frame_script_key_at(&mut self, layer_id: &str, frame: u32) {
+        let symbol_id = self.symbol_id().to_owned();
+        let needs_motion_split = self
+            .project
+            .symbol(&symbol_id)
+            .and_then(|symbol| {
+                symbol
+                    .timeline
+                    .layers
+                    .iter()
+                    .find(|layer| layer.id == layer_id)
+            })
+            .is_some_and(|layer| {
+                layer
+                    .keyframes
+                    .iter()
+                    .find(|key| key.frame == frame)
+                    .is_some_and(|key| key.keyed_properties.is_some())
+                    || motion_span(layer, frame).is_some()
+            });
+        if needs_motion_split
+            && edit_frames(
+                &mut self.project,
+                &symbol_id,
+                TimelineEdit::ConvertToKeyframes {
+                    range: FrameRange {
+                        layers: vec![layer_id.to_owned()],
+                        start: frame,
+                        end: frame,
+                    },
+                    blank: false,
+                },
+            )
+            .is_ok()
+        {
+            return;
+        }
+        Self::ensure_key_at_project(&mut self.project, &symbol_id, layer_id, frame, false);
     }
 
     fn ensure_key_at_project(

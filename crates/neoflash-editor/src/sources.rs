@@ -1103,12 +1103,13 @@ impl Editor {
             }
             ScriptTarget::Frame => {
                 let frame = self.frame;
+                let layer_index = self.layer;
+                let layer_id = self.symbol().timeline.layers[layer_index].id.clone();
                 let Some(existing) = self
                     .symbol()
                     .timeline
-                    .scripts
-                    .iter()
-                    .find(|fs| fs.frame == frame && !fs.script.source.is_empty())
+                    .frame_script_for_layer(layer_index, frame)
+                    .filter(|fs| !fs.script.source.is_empty())
                     .map(|fs| fs.script.clone())
                 else {
                     return false;
@@ -1119,13 +1120,13 @@ impl Editor {
                 self.finish_edits();
                 self.transact_named("Mark script language", |editor| {
                     editor.project.script_language.get_or_insert(proj_lang);
-                    if let Some(fs) = editor
-                        .symbol_mut()
+                    if let Some(index) = editor
+                        .symbol()
                         .timeline
-                        .scripts
-                        .iter_mut()
-                        .find(|fs| fs.frame == frame)
+                        .frame_script_index_for_layer(layer_index, frame)
                     {
+                        let fs = &mut editor.symbol_mut().timeline.scripts[index];
+                        fs.layer = Some(layer_id.clone());
                         fs.script.language = proj_lang;
                     }
                     editor.project.upgrade_format_for_features();
@@ -1988,6 +1989,7 @@ mod integration_tests {
                 .elements
                 .push(element);
             project.symbols[0].timeline.scripts.push(FrameScript {
+                layer: None,
                 frame: 0,
                 script: script.clone(),
             });
@@ -2151,6 +2153,7 @@ mod integration_tests {
         };
         let mut project = Project::blank();
         project.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: script.clone(),
         });
@@ -2597,6 +2600,7 @@ function onEnterFrame() {
         // Project with AS2 scripts or explicit project script_language honors that language when inserting new scripts
         let mut as2_proj = Project::blank();
         as2_proj.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript2,
@@ -4486,31 +4490,37 @@ impl Editor {
             }
             ScriptTarget::Frame => {
                 let frame = self.frame;
+                let layer_index = self.layer;
+                let layer_id = self.symbol().timeline.layers[layer_index].id.clone();
                 let default_lang = self.default_script_language_for_project();
                 let language = self
                     .symbol()
                     .timeline
-                    .scripts
-                    .iter()
-                    .find(|s| s.frame == frame && !s.script.source.trim().is_empty())
+                    .frame_script_for_layer(layer_index, frame)
                     .map_or(default_lang, |s| s.script.language);
                 let snippet = format_script_assist_snippet(&template, language);
                 self.transact_named("Script assist", |editor| {
-                    if frame >= editor.symbol().timeline.frame_count {
-                        editor.ensure_key(false);
-                    }
+                    editor.ensure_frame_script_key_at(&layer_id, frame);
+                    let existing = editor
+                        .symbol()
+                        .timeline
+                        .frame_script_index_for_layer(layer_index, frame);
                     let scripts = &mut editor.symbol_mut().timeline.scripts;
-                    if let Some(existing) = scripts.iter_mut().find(|s| s.frame == frame) {
+                    if let Some(index) = existing {
+                        let existing = &mut scripts[index];
+                        existing.layer = Some(layer_id.clone());
                         existing.script.language = language;
                         append_script_assist_to_source(&mut existing.script.source, &snippet);
                     } else {
                         scripts.push(neoflash_core::FrameScript {
+                            layer: Some(layer_id.clone()),
                             frame,
                             script: Script {
                                 language,
                                 source: snippet,
                             },
                         });
+                        scripts.sort_by_key(|script| script.frame);
                     }
                 });
                 true

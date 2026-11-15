@@ -54,6 +54,7 @@ impl Default for ActionsUi {
 pub(crate) enum ScriptLocation {
     Frame {
         symbol: String,
+        layer: Option<String>,
         frame: u32,
     },
     Object {
@@ -380,24 +381,39 @@ impl Editor {
         let Some(symbol) = self.project.symbol(symbol_id) else {
             return Vec::new();
         };
-        let mut frames: Vec<u32> = symbol
+        let mut frame_scripts: Vec<_> = symbol
             .timeline
             .scripts
             .iter()
             .filter(|s| !s.script.source.trim().is_empty())
-            .map(|s| s.frame)
             .collect();
-        frames.sort_unstable();
-        frames.dedup();
-        let mut entries: Vec<NavEntry> = frames
+        frame_scripts.sort_by_key(|script| script.frame);
+        let mut entries: Vec<NavEntry> = frame_scripts
             .into_iter()
-            .map(|frame| NavEntry {
-                label: format!("{} : Frame {}", symbol.name, frame + 1),
-                icon: i16::FRAME,
-                location: ScriptLocation::Frame {
-                    symbol: symbol.id.clone(),
-                    frame,
-                },
+            .map(|script| {
+                let layer = script.layer.clone().or_else(|| {
+                    symbol
+                        .timeline
+                        .action_layer_for_script(script)
+                        .and_then(|index| symbol.timeline.layers.get(index))
+                        .map(|layer| layer.id.clone())
+                });
+                let layer_name = layer
+                    .as_deref()
+                    .and_then(|id| symbol.timeline.layers.iter().find(|item| item.id == id))
+                    .map(|layer| layer.name.as_str());
+                NavEntry {
+                    label: layer_name.map_or_else(
+                        || format!("{} : Frame {}", symbol.name, script.frame + 1),
+                        |name| format!("{name} : Frame {}", script.frame + 1),
+                    ),
+                    icon: i16::FRAME,
+                    location: ScriptLocation::Frame {
+                        symbol: symbol.id.clone(),
+                        layer,
+                        frame: script.frame,
+                    },
+                }
             })
             .collect();
         let mut seen = HashSet::new();
@@ -438,6 +454,12 @@ impl Editor {
         match self.script_target {
             ScriptTarget::Frame => Some(ScriptLocation::Frame {
                 symbol: self.symbol_id().to_owned(),
+                layer: self
+                    .symbol()
+                    .timeline
+                    .layers
+                    .get(self.layer)
+                    .map(|layer| layer.id.clone()),
                 frame: self.frame,
             }),
             ScriptTarget::Object => self.selected_element().map(|element| {
@@ -485,15 +507,25 @@ impl Editor {
             true
         };
         match location {
-            ScriptLocation::Frame { symbol, frame } => {
+            ScriptLocation::Frame {
+                symbol,
+                layer,
+                frame,
+            } => {
                 if !enter(self, &symbol, frame) {
                     return;
                 }
-                if let Some(action_layer) =
-                    self.symbol().timeline.action_layer_for_frame(self.frame)
-                {
-                    self.layer = action_layer;
-                }
+                self.layer = layer
+                    .as_deref()
+                    .and_then(|id| {
+                        self.symbol()
+                            .timeline
+                            .layers
+                            .iter()
+                            .position(|item| item.id == id)
+                    })
+                    .or_else(|| self.symbol().timeline.action_layer_for_frame(self.frame))
+                    .unwrap_or(self.layer);
                 self.script_target = ScriptTarget::Frame;
                 self.normalize_selection();
             }

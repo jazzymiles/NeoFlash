@@ -102,7 +102,14 @@ impl Editor {
             ));
         }
         let target = match self.script_target {
-            ScriptTarget::Frame => "frame".to_owned(),
+            ScriptTarget::Frame => format!(
+                "frame:{}",
+                self.symbol()
+                    .timeline
+                    .layers
+                    .get(self.layer)
+                    .map_or("", |layer| layer.id.as_str())
+            ),
             ScriptTarget::Source => {
                 format!("source:{}", self.selected_source.as_deref().unwrap_or(""))
             }
@@ -421,10 +428,21 @@ impl Editor {
     }
 
     fn actions_body(&mut self, ui: &mut egui::Ui) {
-        let has_frame_script =
-            self.symbol().timeline.scripts.iter().any(|script| {
-                script.frame == self.frame && !script.script.source.trim().is_empty()
-            });
+        let active_layer_name = self
+            .symbol()
+            .timeline
+            .layers
+            .get(self.layer)
+            .map(|layer| layer.name.clone())
+            .unwrap_or_else(|| "Layer".to_owned());
+        let active_frame_script = self
+            .symbol()
+            .timeline
+            .frame_script_for_layer(self.layer, self.frame)
+            .cloned();
+        let has_frame_script = active_frame_script
+            .as_ref()
+            .is_some_and(|script| !script.script.source.trim().is_empty());
         let object_id = self.selected_element().map(|element| element.id.clone());
         if self.script_target == ScriptTarget::Source
             && !self
@@ -440,13 +458,7 @@ impl Editor {
         let location_before = self.current_script_location();
         let stored = match self.script_target {
             ScriptTarget::Source => None,
-            ScriptTarget::Frame => self
-                .symbol()
-                .timeline
-                .scripts
-                .iter()
-                .find(|s| s.frame == self.frame)
-                .map(|s| s.script.clone()),
+            ScriptTarget::Frame => active_frame_script.map(|s| s.script),
             ScriptTarget::Object => self
                 .selected_element()
                 .and_then(|e| e.scripts.iter().find(|s| s.event == self.script_event))
@@ -464,8 +476,9 @@ impl Editor {
         let mut script = original.clone();
         let context = match self.script_target {
             ScriptTarget::Frame => format!(
-                "{} · Frame {}{}",
+                "{} · {} · Frame {}{}",
                 self.symbol().name,
+                active_layer_name,
                 self.frame + 1,
                 if has_frame_script { " · script" } else { "" }
             ),
@@ -613,13 +626,33 @@ impl Editor {
                 ScriptTarget::Source => unreachable!("Project files use their own editor"),
                 ScriptTarget::Frame => {
                     let frame = s.frame;
-                    if has_new_code && frame >= s.symbol().timeline.frame_count {
-                        s.ensure_key(false);
-                    }
-                    let scripts = &mut s.symbol_mut().timeline.scripts;
-                    scripts.retain(|fs| fs.frame != frame);
+                    let layer_index = s.layer;
+                    let layer_id = s.symbol().timeline.layers[layer_index].id.clone();
                     if has_new_code {
-                        scripts.push(FrameScript { frame, script });
+                        s.ensure_frame_script_key_at(&layer_id, frame);
+                    }
+                    let existing_index = {
+                        let timeline = &s.symbol().timeline;
+                        timeline
+                            .frame_script_for_layer(layer_index, frame)
+                            .and_then(|target| {
+                                timeline
+                                    .scripts
+                                    .iter()
+                                    .position(|script| std::ptr::eq(script, target))
+                            })
+                    };
+                    let scripts = &mut s.symbol_mut().timeline.scripts;
+                    if let Some(index) = existing_index {
+                        scripts.remove(index);
+                    }
+                    if has_new_code {
+                        scripts.push(FrameScript {
+                            layer: Some(layer_id),
+                            frame,
+                            script,
+                        });
+                        scripts.sort_by_key(|script| script.frame);
                     }
                 }
                 ScriptTarget::Object => {
@@ -988,24 +1021,37 @@ impl Editor {
         let Some(symbol) = self.project.symbol(symbol_id) else {
             return Vec::new();
         };
-        let mut frames: Vec<u32> = symbol
+        let mut frame_scripts: Vec<_> = symbol
             .timeline
             .scripts
             .iter()
             .filter(|s| !s.script.source.trim().is_empty())
-            .map(|s| s.frame)
             .collect();
-        frames.sort_unstable();
-        frames.dedup();
-        let mut entries: Vec<(String, Icon, ScriptLocation)> = frames
+        frame_scripts.sort_by_key(|script| script.frame);
+        let mut entries: Vec<(String, Icon, ScriptLocation)> = frame_scripts
             .into_iter()
-            .map(|frame| {
+            .map(|script| {
+                let layer = script.layer.clone().or_else(|| {
+                    symbol
+                        .timeline
+                        .action_layer_for_script(script)
+                        .and_then(|index| symbol.timeline.layers.get(index))
+                        .map(|layer| layer.id.clone())
+                });
+                let layer_name = layer
+                    .as_deref()
+                    .and_then(|id| symbol.timeline.layers.iter().find(|item| item.id == id))
+                    .map(|layer| layer.name.as_str());
                 (
-                    format!("{} : Frame {}", symbol.name, frame + 1),
+                    layer_name.map_or_else(
+                        || format!("{} : Frame {}", symbol.name, script.frame + 1),
+                        |name| format!("{name} : Frame {}", script.frame + 1),
+                    ),
                     i16::FRAME,
                     ScriptLocation::Frame {
                         symbol: symbol.id.clone(),
-                        frame,
+                        layer,
+                        frame: script.frame,
                     },
                 )
             })
@@ -1142,6 +1188,7 @@ mod tests {
         ctx.enable_accesskit();
         let mut project = Project::blank();
         project.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -1341,6 +1388,7 @@ mod tests {
         let src = "function update():void {\n    if (true) {\n        trace(1);\n    }\n}\n";
         let mut project = Project::blank();
         project.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,

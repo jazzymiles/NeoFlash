@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub const PREFS_KEY: &str = "neoflash.workspace.v2";
 // Includes up to 32 complete user layouts, each with its own floating windows.
 pub const MAX_PREFS_BYTES: usize = 1024 * 1024;
-const VERSION: u32 = 6;
+const VERSION: u32 = 7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -3697,10 +3697,11 @@ impl WorkspacePrefs {
             return Self::default();
         }
         let saved_version = prefs.version;
-        // Version 1 shipped Span-based selection as an always-on default. Restore the ordinary
-        // timeline contract for existing workspaces: a plain click targets exactly one frame.
-        // Later versions still preserve an explicit opt-in chosen after this migration.
-        if saved_version == 1 {
+        // Span-based selection was briefly persisted as an always-on default, and workspaces
+        // saved after that release can still carry the accidental value even though the default
+        // was corrected later. Reset it once for every pre-v7 workspace so an ordinary click
+        // reliably targets one frame after updating. An explicit opt-in made on v7+ persists.
+        if saved_version < 7 {
             prefs.timeline_prefs.span_selection = false;
         }
         // Earlier preferences stored fixed panel sizes and detached flags.
@@ -4560,7 +4561,7 @@ mod tests {
         assert_eq!(WorkspacePrefs::load(Some(&storage)), prefs);
     }
     #[test]
-    fn version_one_span_selection_default_migrates_off_but_version_two_opt_in_persists() {
+    fn pre_v7_span_selection_migrates_off_but_v7_opt_in_persists() {
         let migrated =
             WorkspacePrefs::from_json(r#"{"version":1,"timeline_prefs":{"span_selection":true}}"#);
         assert_eq!(migrated.version, VERSION);
@@ -4579,6 +4580,10 @@ mod tests {
         assert!(v5_migrated.is_panel_active(PanelId::Timeline));
         assert!(v5_migrated.dock.location(PanelId::Output).is_some());
         assert!(!v5_migrated.is_panel_active(PanelId::Debugger));
+
+        let legacy_v6 =
+            WorkspacePrefs::from_json(r#"{"version":6,"timeline_prefs":{"span_selection":true}}"#);
+        assert!(!legacy_v6.timeline_prefs.span_selection);
 
         let mut opted_in = migrated;
         opted_in.timeline_prefs.span_selection = true;
@@ -4643,7 +4648,7 @@ mod tests {
             "",
             "{",
             "null",
-            r#"{"version":7,"theme":"dark"}"#,
+            r#"{"version":8,"theme":"dark"}"#,
             r#"{"theme":"system"}"#,
             r#"{"sizes":{"timeline_height":null}}"#,
         ] {

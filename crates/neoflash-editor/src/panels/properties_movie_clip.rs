@@ -147,20 +147,51 @@ impl Editor {
         true
     }
 
-    /// Open Actions (`F9`) for the current context (`T-190`):
-    /// - If a single eligible MovieClip/Button instance is selected (and the user hasn't focused a Project source with no selection),
-    ///   target `ScriptTarget::Object` with the symbol-appropriate default event (`Click` for Button, `Load` for MovieClip).
-    /// - Otherwise target the current Frame (`ScriptTarget::Frame`) or preserve an explicitly focused `ScriptTarget::Source`.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn open_actions_for_current_context(&mut self) {
-        if self.can_open_selected_object_actions() {
-            self.open_selected_object_actions();
+    /// Keep an already active Actions panel attached to the current Stage context without opening
+    /// or activating the panel as a side effect of ordinary selection changes.
+    pub(crate) fn sync_active_actions_context(&mut self) {
+        if self.panels_hidden
+            || !self
+                .workspace
+                .is_panel_active(crate::workspace::PanelId::Actions)
+        {
             return;
         }
-        self.set_playing(false);
-        if !(self.script_target == ScriptTarget::Source && self.selected_source.is_some()) {
+        self.sync_actions_context_for_activation();
+    }
+
+    /// Resolve the target when a generic Actions panel activation has no more specific target.
+    /// A Project source selected explicitly remains authoritative even when the Stage still has a
+    /// stale object selection.
+    pub(crate) fn sync_actions_context_for_activation(&mut self) {
+        if self.script_target == ScriptTarget::Source
+            && self.selected_source.as_ref().is_some_and(|selected| {
+                self.project
+                    .sources
+                    .iter()
+                    .any(|source| source.id == *selected)
+            })
+        {
+            return;
+        }
+        if let Some((_target, element, kind)) = self.selected_actionable_instance() {
+            self.script_target = ScriptTarget::Object;
+            self.script_event =
+                Self::default_object_event_for_instance(&element, kind, self.script_event);
+        } else {
             self.script_target = ScriptTarget::Frame;
         }
+    }
+
+    /// Open Actions (`F9`) for the current context (`T-190`):
+    /// - Preserve an explicitly focused valid Project source.
+    /// - Otherwise, if a single eligible MovieClip/Button instance is selected,
+    ///   target `ScriptTarget::Object` with the symbol-appropriate default event (`Click` for Button, `Load` for MovieClip).
+    /// - Otherwise target the current Frame (`ScriptTarget::Frame`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn open_actions_for_current_context(&mut self) {
+        self.set_playing(false);
+        self.sync_actions_context_for_activation();
         self.show_panel(crate::workspace::PanelId::Actions);
     }
 

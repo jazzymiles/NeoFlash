@@ -259,6 +259,12 @@ impl Editor {
 
     pub(crate) fn new_document_session(&mut self, ctx: &egui::Context) -> usize {
         let mut project = Project::blank();
+        // A newly created file starts with exactly one blank keyframe and one frame of
+        // duration. `Project::blank()` remains the broad 120-frame fixture used by the demo and
+        // model/editor tests; the product's File ▸ New contract is intentionally narrower.
+        if let Some(root) = project.symbol_mut(&project.root.clone()) {
+            root.timeline.frame_count = 1;
+        }
         let mut defaults = self.workspace.document_defaults.unwrap_or_default();
         defaults.sanitize();
         project.width = defaults.width;

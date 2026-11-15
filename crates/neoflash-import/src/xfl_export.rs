@@ -484,7 +484,12 @@ fn can_exclude_hidden_layers(project: &Project) -> bool {
             } else {
                 saw_hidden = true;
                 excluded_end = excluded_end.max(layer_end);
-                if layer.keyframes.iter().any(|k| !k.label.is_empty()) {
+                if layer.keyframes.iter().any(|k| !k.label.is_empty())
+                    || timeline
+                        .scripts
+                        .iter()
+                        .any(|script| script.layer.as_ref() == Some(&layer.id))
+                {
                     return false;
                 }
             }
@@ -1323,25 +1328,66 @@ fn render_dom_timeline(
     // XFL stores topmost layers first.
     painter_layers.reverse();
 
-    // Attach frame scripts to existing frame boundaries on published layers,
-    // creating a topmost "Actions" layer for any script frame without a matching boundary.
-    let mut scripts_by_frame: BTreeMap<u32, String> = BTreeMap::new();
-    for fs in &timeline.scripts {
-        if fs.script.source.trim().is_empty() {
-            continue;
-        }
-        let encoded = encode_script_with_language_tag(&fs.script);
-        scripts_by_frame
-            .entry(fs.frame)
+    // Explicitly owned frame scripts stay on their stable authoring layer. This preserves two
+    // independent scripts at the same timeline frame instead of merging them onto the first row.
+    // A legacy layerless script retains the previous deterministic topmost-boundary fallback.
+    let append_source = |scripts: &mut BTreeMap<u32, String>, frame: u32, source: String| {
+        scripts
+            .entry(frame)
             .and_modify(|existing| {
                 existing.push('\n');
-                existing.push_str(&encoded);
+                existing.push_str(&source);
             })
-            .or_insert(encoded);
+            .or_insert(source);
+    };
+    let mut unplaced_scripts: BTreeMap<u32, String> = BTreeMap::new();
+    for fs in timeline
+        .scripts
+        .iter()
+        .filter(|script| script.layer.is_some() && !script.script.source.trim().is_empty())
+    {
+        let owner = fs.layer.as_ref().expect("filtered owned frame script");
+        let encoded = encode_script_with_language_tag(&fs.script);
+        let placed = painter_layers
+            .iter_mut()
+            .find(|layer| {
+                layer.is_primary_for_id
+                    && layer.original_id.as_ref() == Some(owner)
+                    && layer.properties.role != LayerRole::Folder
+            })
+            .and_then(|layer| {
+                layer
+                    .frames
+                    .iter_mut()
+                    .find(|frame| frame.index == fs.frame)
+            })
+            .is_some_and(|slot| {
+                if let Some(existing) = &mut slot.script {
+                    existing.push('\n');
+                    existing.push_str(&encoded);
+                } else {
+                    slot.script = Some(encoded.clone());
+                }
+                true
+            });
+        if !placed {
+            append_source(&mut unplaced_scripts, fs.frame, encoded);
+        }
     }
 
-    let mut unplaced_scripts: Vec<(u32, String)> = Vec::new();
-    for (frame_idx, source_code) in scripts_by_frame {
+    let mut legacy_scripts: BTreeMap<u32, String> = BTreeMap::new();
+    for fs in timeline
+        .scripts
+        .iter()
+        .filter(|script| script.layer.is_none() && !script.script.source.trim().is_empty())
+    {
+        append_source(
+            &mut legacy_scripts,
+            fs.frame,
+            encode_script_with_language_tag(&fs.script),
+        );
+    }
+    for (frame_idx, source_code) in legacy_scripts {
         let mut placed = false;
         for layer in &mut painter_layers {
             if layer.properties.role == LayerRole::Folder {
@@ -1361,11 +1407,12 @@ fn render_dom_timeline(
             }
         }
         if !placed {
-            unplaced_scripts.push((frame_idx, source_code));
+            append_source(&mut unplaced_scripts, frame_idx, source_code);
         }
     }
 
     if !unplaced_scripts.is_empty() {
+        let unplaced_scripts: Vec<_> = unplaced_scripts.into_iter().collect();
         painter_layers.insert(
             0,
             build_synthetic_actions_layer(&unplaced_scripts, timeline_frames),
@@ -4140,6 +4187,145 @@ mod tests {
     }
 
     #[test]
+    fn layer_owned_same_frame_scripts_export_to_their_layers_and_legacy_uses_topmost_key() {
+        use neoflash_core::FrameScript;
+
+        let mut project = Project::blank();
+        project.format_version = 13;
+        let timeline = &mut project.symbols[0].timeline;
+        timeline.frame_count = 2;
+        timeline.layers[0].id = "lower-layer".into();
+        timeline.layers[0].name = "Lower".into();
+        timeline.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                ..Default::default()
+            },
+            Keyframe {
+                frame: 1,
+                ..Default::default()
+            },
+        ];
+        timeline.layers.push(Layer {
+            id: "upper-layer".into(),
+            name: "Upper".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![
+                Keyframe {
+                    frame: 0,
+                    ..Default::default()
+                },
+                Keyframe {
+                    frame: 1,
+                    ..Default::default()
+                },
+            ],
+            properties: LayerProperties::default(),
+        });
+        let js = |source: &str| Script {
+            language: ScriptLanguage::JavaScript,
+            source: source.into(),
+        };
+        timeline.scripts = vec![
+            FrameScript {
+                layer: Some("lower-layer".into()),
+                frame: 0,
+                script: js("trace('owned lower');"),
+            },
+            FrameScript {
+                layer: Some("upper-layer".into()),
+                frame: 0,
+                script: js("trace('owned upper');"),
+            },
+            FrameScript {
+                layer: None,
+                frame: 1,
+                script: js("trace('legacy topmost');"),
+            },
+        ];
+        project.validate().unwrap();
+
+        let ctx = ExportContext::build(&project).unwrap();
+        let xml = render_dom_document(&project, &ctx);
+        let layer_block = |name: &str| {
+            let start = xml
+                .find(&format!("<DOMLayer name=\"{name}\""))
+                .unwrap_or_else(|| panic!("missing XFL layer {name}"));
+            let tail = &xml[start..];
+            &tail[..tail.find("</DOMLayer>").expect("closed XFL layer")]
+        };
+        let lower = layer_block("Lower");
+        let upper = layer_block("Upper");
+        assert!(lower.contains("owned lower"));
+        assert!(!lower.contains("owned upper"));
+        assert!(!lower.contains("legacy topmost"));
+        assert!(upper.contains("owned upper"));
+        assert!(!upper.contains("owned lower"));
+        assert!(upper.contains("legacy topmost"));
+        assert!(!xml.contains("<DOMLayer name=\"Actions\""));
+
+        let output = std::env::temp_dir().join(format!(
+            "neoflash-xfl-owned-frame-scripts-{}.fla",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&output);
+        export_fla(&project, &output).unwrap();
+        let imported = crate::import_project(&output).unwrap();
+        let _ = fs::remove_file(&output);
+        let imported_timeline = &imported.symbol(&imported.root).unwrap().timeline;
+        let owner_name = |script: &FrameScript| {
+            script.layer.as_ref().and_then(|owner| {
+                imported_timeline
+                    .layers
+                    .iter()
+                    .find(|layer| &layer.id == owner)
+                    .map(|layer| layer.name.as_str())
+            })
+        };
+        assert_eq!(imported_timeline.scripts.len(), 3);
+        for (source, expected_layer) in [
+            ("owned lower", "Lower"),
+            ("owned upper", "Upper"),
+            ("legacy topmost", "Upper"),
+        ] {
+            let script = imported_timeline
+                .scripts
+                .iter()
+                .find(|script| script.script.source.contains(source))
+                .unwrap_or_else(|| panic!("missing round-tripped script {source}"));
+            assert_eq!(owner_name(script), Some(expected_layer));
+        }
+    }
+
+    #[test]
+    fn hidden_owned_frame_script_forces_hidden_layer_publication() {
+        use neoflash_core::FrameScript;
+
+        let mut project = Project::blank();
+        project.format_version = 13;
+        let timeline = &mut project.symbols[0].timeline;
+        timeline.layers[0].visible = false;
+        let layer_id = timeline.layers[0].id.clone();
+        timeline.scripts.push(FrameScript {
+            layer: Some(layer_id),
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::JavaScript,
+                source: "trace('hidden owner');".into(),
+            },
+        });
+        project.validate().unwrap();
+
+        assert!(!can_exclude_hidden_layers(&project));
+        let ctx = ExportContext::build(&project).unwrap();
+        assert!(ctx.include_hidden_layers);
+        assert!(
+            render_publish_settings(&project, &ctx).contains("<InvisibleLayer>1</InvisibleLayer>")
+        );
+    }
+
+    #[test]
     fn motion_expression_baking_uses_the_document_frame_rate() {
         use neoflash_core::{PropertyExpression, TweenProperty};
 
@@ -4554,6 +4740,7 @@ mod tests {
 
         let root_sym = project.symbol_mut(&project.root.clone()).unwrap();
         root_sym.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::TypeScript,

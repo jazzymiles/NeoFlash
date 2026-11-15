@@ -2994,6 +2994,7 @@ mod skipped_foreign_export_tests {
         // those optional host modules in `SizeLevel::Compact` or count toward `published`.
         project.symbols[0].class_name = Some("app.EnemyClip".into());
         project.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript2,

@@ -2490,6 +2490,7 @@ impl Parser<'_> {
                                     strip_neoflash_language_marker(&source)
                                 {
                                     timeline.scripts.push(FrameScript {
+                                        layer: Some(layer.id.clone()),
                                         frame,
                                         script: Script {
                                             language,
@@ -2500,6 +2501,7 @@ impl Parser<'_> {
                                     self.resolve_script_language(&source, &script_loc)
                                 {
                                     timeline.scripts.push(FrameScript {
+                                        layer: Some(layer.id.clone()),
                                         frame,
                                         script: Script { language, source },
                                     });

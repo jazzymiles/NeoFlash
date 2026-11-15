@@ -358,6 +358,12 @@ impl Timeline {
         for layer in &self.layers {
             layer_map.insert(layer.id.clone(), fresh_id("lyr"));
         }
+        for script in &mut self.scripts {
+            script.layer = script
+                .layer
+                .as_ref()
+                .and_then(|id| layer_map.get(id).cloned());
+        }
         for layer in &mut self.layers {
             let mut elem_map = std::collections::HashMap::new();
             for kf in &layer.keyframes {
@@ -560,6 +566,28 @@ impl Project {
         }
     }
 
+    /// Remove frame scripts whose explicitly owning layer was deleted or became a folder. This is
+    /// layer content: it must never be silently reassigned to a neighboring row. A script may
+    /// remain owned by an existing layer without an exact key, in which case its marker is shown
+    /// on the ruler until the key exists again.
+    pub fn prune_frame_script_layers(&mut self) {
+        for symbol in &mut self.symbols {
+            let valid: HashSet<Id> = symbol
+                .timeline
+                .layers
+                .iter()
+                .filter(|layer| layer.properties.role != LayerRole::Folder)
+                .map(|layer| layer.id.clone())
+                .collect();
+            symbol.timeline.scripts.retain(|script| {
+                script
+                    .layer
+                    .as_ref()
+                    .is_none_or(|layer| valid.contains(layer))
+            });
+        }
+    }
+
     /// Raise the format version after an edit that uses a newer document feature.
     pub fn upgrade_format_for_features(&mut self) {
         if self.uses_format_6() {
@@ -583,6 +611,17 @@ impl Project {
         if self.uses_format_12() {
             self.format_version = self.format_version.max(12);
         }
+        if self.uses_format_13() {
+            self.format_version = self.format_version.max(13);
+        }
+    }
+
+    /// Explicit authoring ownership of frame scripts by layer (format 13).
+    pub fn uses_format_13(&self) -> bool {
+        self.symbols
+            .iter()
+            .flat_map(|symbol| &symbol.timeline.scripts)
+            .any(|script| script.layer.is_some())
     }
 
     /// Timeline-video out-point trims and linked montage layers (format 12).
@@ -3299,6 +3338,10 @@ impl Default for Script {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FrameScript {
+    /// Authoring layer whose ordinary keyframe owns this Actions marker. Runtime execution stays
+    /// timeline-wide. `None` is the legacy representation and uses deterministic row inference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer: Option<Id>,
     pub frame: u32,
     pub script: Script,
 }

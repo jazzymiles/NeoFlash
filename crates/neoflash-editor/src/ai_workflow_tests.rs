@@ -1254,6 +1254,7 @@ fn t305_send_to_ai_consent_pack_omissions_and_checkbox_filtering() {
     project.symbols[0].timeline.layers[0].keyframes[0].video =
         Some(TimelineVideoSpan::embedded("res-vid"));
     project.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript3,
@@ -1414,6 +1415,7 @@ fn t305_ai_answer_streaming_stop_proposal_validation_apply_and_single_step_undo(
     project.symbols[0].timeline.frame_count = 20;
     project.symbols[0].timeline.layers[0].name = "Layer 1".into();
     project.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript3,

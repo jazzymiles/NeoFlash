@@ -63,6 +63,7 @@ fn t315_pre_r102_migration_preserves_untouched_project_and_renders_publish_count
     });
     legacy.symbols[0].timeline.frame_count = 3;
     legacy.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::TypeScript,
@@ -70,6 +71,7 @@ fn t315_pre_r102_migration_preserves_untouched_project_and_renders_publish_count
         },
     });
     legacy.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 1,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -77,6 +79,7 @@ fn t315_pre_r102_migration_preserves_untouched_project_and_renders_publish_count
         },
     });
     legacy.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 2,
         script: Script {
             language: ScriptLanguage::ActionScript2,
@@ -130,6 +133,7 @@ fn t315_document_settings_make_default_and_properties_publish_roundtrip_with_sin
 
     let mut project = Project::blank();
     project.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -278,6 +282,7 @@ fn t315_actions_and_project_files_badges_notice_rows_new_class_gating_and_mark_a
     // Frame 1 (index 0): AS2 script -> Skipped in TypeScript project.
     let verbatim_as2_code = "// keep-exact-text\nstop();\n";
     project.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,
@@ -286,6 +291,7 @@ fn t315_actions_and_project_files_badges_notice_rows_new_class_gating_and_mark_a
     });
     // Frame 2 (index 1): JS script -> Compatible in TypeScript project.
     project.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 1,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -519,6 +525,7 @@ fn t315_compiler_errors_emits_located_foreign_warnings_and_jumps_to_actions_noti
 
     // Frame 1 (index 0): compatible JS script -> 1 located warning (not an error).
     project.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -527,6 +534,7 @@ fn t315_compiler_errors_emits_located_foreign_warnings_and_jumps_to_actions_noti
     });
     // Frame 2 (index 1): skipped AS3 script with BROKEN syntax -> 1 located warning at 1:1, ZERO syntax errors!
     project.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 1,
         script: Script {
             language: ScriptLanguage::ActionScript3,
@@ -546,6 +554,7 @@ fn t315_compiler_errors_emits_located_foreign_warnings_and_jumps_to_actions_noti
             item.script
                 == Some(ScriptLocation::Frame {
                     symbol: root_id.clone(),
+                    layer: None,
                     frame: 0,
                 })
                 && item.message.contains("Compiled as compatible language")
@@ -559,6 +568,7 @@ fn t315_compiler_errors_emits_located_foreign_warnings_and_jumps_to_actions_noti
             item.script
                 == Some(ScriptLocation::Frame {
                     symbol: root_id.clone(),
+                    layer: None,
                     frame: 1,
                 })
                 && item.message.contains("Skipped when publishing")
@@ -659,6 +669,7 @@ fn t311_project_new_file_language_policy_and_legacy_none_fla_save() {
         source: "export const ready: number = 1;".into(),
     });
     legacy_mixed.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,

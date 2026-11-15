@@ -929,6 +929,7 @@ fn as2_initclip_intrinsic_legacy_statements_and_video_types_compile_and_diagnose
         source.language = ScriptLanguage::ActionScript2;
     }
     intrinsic_proj.symbols[0].timeline.scripts = vec![neoflash_core::FrameScript {
+        layer: None,
         frame: 0,
         script: neoflash_core::Script {
             language: ScriptLanguage::ActionScript2,
@@ -1315,6 +1316,7 @@ fn actionscript1_project_compilation_operators_events_and_diagnostics() {
         timeline: empty_timeline.clone(),
     };
     widget_sym.timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript1,
@@ -1440,6 +1442,7 @@ fn actionscript1_project_compilation_operators_events_and_diagnostics() {
         timeline: empty_timeline,
     };
     bad_sym.timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript1,
@@ -1740,6 +1743,7 @@ fn flash_mx_prototype_super_with_closures_computed_methods_and_includes_compile(
         .timeline
         .scripts
         .push(neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: as2_frame.clone(),
         });

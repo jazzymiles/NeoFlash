@@ -1207,6 +1207,7 @@ mod tests {
             .timeline
             .scripts
             .push(neoflash_core::FrameScript {
+                layer: None,
                 frame: 0,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,

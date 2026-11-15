@@ -256,6 +256,7 @@ impl Project {
             ),
         ];
         root.timeline.scripts = vec![FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::JavaScript,

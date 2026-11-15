@@ -139,6 +139,11 @@ groups.
 
 ## 1. Timeline controls (`crates/neoflash-editor/src/panels/timeline_controls.rs`, `panels/timeline.rs`)
 
+**Frame selection contract.** An ordinary frame click selects exactly that one cell and moves the playhead; clicking
+inside an existing range collapses it to that cell. Shift-click extends from the exact anchor, and pointer drag selects
+the exact rectangular layer/frame range. Span-based click selection remains an explicit Timeline preference, with
+⌘-click as its single-cell override. Selecting another layer must not leave a range from the previous layer active.
+
 **TL-01 · Add motion guide** — `timeline_layer_actions` · done
 - Done (2026-11-01): `LayerProperties.motion_guide` link to a Guide-role layer (format 6); Timeline button, Insert ▸ Motion guide and layer menu Add classic motion guide; the guided layer indents under the guide, which shows the Motion guide type. Classic tweens follow the guide's first stroke (`evaluate::sample_layer_in`). `Keyframe.orient_to_path` turns the object with the guide tangent (editor and HTML5; `Editor::set_orient_to_path`). Classic Tween Properties exposes Orient / Snap only on guided layers (R-007); drawing the path when the guide has no stroke is the author's step.
 - Purpose: insert a classic motion guide layer above the current layer and make the current layer guided by it.
@@ -743,6 +748,12 @@ their own layout.
 
 Status: AC-02, AC-04, AC-05 and AC-06 work, AC-01 re-indents only, bounded AC-07 statement insertion works (details in [NF2-ACTIONS-EDITOR.md](NF2-ACTIONS-EDITOR.md)), AC-03 connects to the docked `Debugger` (`PanelId::Debugger`), and AC-08 is partial.
 
+Actions follows the exact current authoring context. A frame target reads and writes the selected layer's ordinary key
+at the selected frame through format-13 `FrameScript.layer`; scripts owned by different layers at the same frame stay
+independent. An object target follows the exact selected object and event. A context with no script opens empty instead
+of falling back to code from another explicitly owned layer, frame or object. Compatible legacy layerless frame scripts
+remain timeline-global until the next edit assigns them to the selected layer.
+
 | ID | Element | Purpose / behaviour | Data / engine | Acceptance |
 | --- | --- | --- | --- | --- |
 | AC-01 | Auto-format | Reformat the current script (indent, braces, spacing) per language; one Undo; refuses on parse error with the error shown. | Needs a formatter per language: JS/TS via the existing oxc stack in `neoflash-script` (verify printer availability); AS2/AS3 needs a pretty-printer on the AS parser. | Formatting is idempotent; comments preserved. |
@@ -903,7 +914,7 @@ page's group. Wired across all 8 working pages:
   (`1.0–3.0`), Line numbers (with marker-only gutter strip when off), Word wrap, Auto-close brackets/quotes, Code hints
   + delay (`0–1000 ms`; `⌃Space` always immediate), Tab size (`2` / `4` / `8` spaces for `Tab`/`⇧Tab`, Auto-format and
   line comments), Format on save, Highlight current line, plus live 5-line preview.
-- **Timeline:** single-frame selection by default; opt-in Span-based selection (`⌘`-click single-cell override), Default frame view and row height, Show seconds,
+- **Timeline:** ordinary click selects one frame; Shift-click and drag select exact ranges; opt-in Span-based selection (`⌘`-click single-cell override), Default frame view and row height, Show seconds,
   Snap playhead to keyframes, Onion range, linear Onion opacity falloff (`15–100 % → 15 %`, unified with the Timeline
   onion popover), Create keyframe on transform (when off, in-between transforms edit the span keyframe), Default ease,
   Tween type on drag (`None` / `Classic tween` / `Motion tween` in one Undo step).
@@ -1069,6 +1080,6 @@ These checks do not claim end-to-end acceptance of every context-dependent comma
 
 | Menu | Still absent or disabled | Depends on |
 | --- | --- | --- |
-| Frame | Working: tweens, Ease…, Clear / Convert keyframes, Select all frames, Copy / Paste motion, Paste motion special, Reverse frames, Synchronise symbols | Appropriate frame/span selection |
-| Layer | — (Add classic motion guide, Guide / Mask toggles, `Sync layer to timeline` and `Blending` submenu work; `Folder and mask…` also edits layer blend mode and timeline sync; `Window ▸ Panels ▸ Filters` edits layer `Blending` when no stage object is selected) | — |
+| Frame | Working: tweens, Ease…, Clear / Convert keyframes, Select all frames, Remove Frames, Copy / Paste motion, Paste motion special, Reverse frames, Synchronise symbols | Appropriate frame/span selection |
+| Layer | — (Add classic motion guide, Guide / Mask toggles, `Sync layer to timeline` and `Blending` submenu work; `Folder and mask…` also edits layer blend mode and timeline sync; `Window ▸ Panels ▸ Filters` edits layer `Blending` when no stage object is selected). Right-clicking blank Layers-column space below the rows opens this same menu for the active layer. | — |
 | Stage object | Working under every active tool: Edit in place defaults to the exact selected instance with its affine parent context dimmed; Library/Explorer definition editing remains isolated. Nested sessions preserve each level's frame, selection, viewport, ruler zero and Timeline focus, and restore them on exit. Double-clicking genuinely empty canvas with no active draft/gesture consumes the complete gesture and leaves exactly one hierarchy level without changing the sticky tool or reopening the restored child; repeat the gesture to continue upward, while breadcrumbs provide direct deliberate navigation. Swap symbol…, Duplicate symbol…, Create motion tween, Show in library, Break apart (⌘B), Group (⌘G), Ungroup (⇧⌘G) and Distribute to layers ⇧⌘D work. Edit in new window stays disabled; Bitmap Trace awaits R-060. Non-affine 9-slice instances refuse in-place editing. Local guides/grid work for axis-preserving and quarter-turn mappings; signed/reflected ruler labels and arbitrary oblique local guide/grid/ruler chrome await R-063, with a safe screen-ruler fallback. | PR-06, LI-01, R-060, R-063 |

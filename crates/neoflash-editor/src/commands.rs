@@ -3720,7 +3720,11 @@ impl Editor {
                     _ => unreachable!(),
                 };
                 let visible = !self.panels_hidden && self.workspace.is_panel_active(panel);
-                self.set_panel_visible(panel, !visible);
+                if panel == PanelId::Actions && !visible {
+                    self.open_actions_for_current_context();
+                } else {
+                    self.set_panel_visible(panel, !visible);
+                }
             }
             CommandId::WindowHidePanels => self.set_panels_hidden(!self.panels_hidden),
             CommandId::WindowInspectorPriority => self.give_dock_priority(PanelId::Properties),

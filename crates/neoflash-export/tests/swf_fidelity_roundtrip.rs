@@ -361,6 +361,7 @@ fn build_t325_authored_project(script_lang: ScriptLanguage) -> Project {
     let root_scripts = if script_lang == ScriptLanguage::ActionScript2 {
         vec![
             FrameScript {
+                layer: None,
                 frame: 0,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,
@@ -368,6 +369,7 @@ fn build_t325_authored_project(script_lang: ScriptLanguage) -> Project {
                 },
             },
             FrameScript {
+                layer: None,
                 frame: 1,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,
@@ -378,6 +380,7 @@ fn build_t325_authored_project(script_lang: ScriptLanguage) -> Project {
     } else {
         vec![
             FrameScript {
+                layer: None,
                 frame: 0,
                 script: Script {
                     language: ScriptLanguage::ActionScript3,
@@ -385,6 +388,7 @@ fn build_t325_authored_project(script_lang: ScriptLanguage) -> Project {
                 },
             },
             FrameScript {
+                layer: None,
                 frame: 1,
                 script: Script {
                     language: ScriptLanguage::ActionScript3,
@@ -942,6 +946,7 @@ fn avm1_function_values_run_on_call_and_unsupported_closures_block() {
     let root = &mut project.symbols[0];
     root.timeline.frame_count = 1;
     root.timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,

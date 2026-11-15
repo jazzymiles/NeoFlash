@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Fixed Timeline selection so an ordinary click targets one frame, Shift-click and drag create exact ranges, and
+  switching layers cannot leave a stale range active. Right-clicking blank Layers-column space now opens the existing
+  active-layer menu; right-clicking a selected frame preserves its range, so Remove Frames follows that range in one
+  Undo/Redo operation.
+- New documents now begin with one frame and one blank keyframe. Convert to Symbol uses the entered Name as the
+  default export Identifier and for a generated or unnamed converted instance, while preserving an explicitly edited
+  Identifier.
+- Actions now follows the exact selected layer/frame or object/event. Format 13 stores explicit frame-script layer
+  ownership so different layers can keep independent scripts at the same frame; legacy layerless scripts remain
+  readable through deterministic row inference.
+
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
 - Improved native `.sol` save exchange for AMF0/AMF3: real Flash files preserve typed values, object cycles,

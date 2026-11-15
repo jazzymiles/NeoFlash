@@ -219,7 +219,7 @@ fn prune_modified_timeline_side_tables(before: &Project, project: &mut Project) 
     }
 }
 
-/// Upgrade `project.format_version` across all format gates (v2..=v12) whenever corresponding
+/// Upgrade `project.format_version` across all format gates (v2..=v13) whenever corresponding
 /// document features are present, while preserving `format_version == 1` for plain v1 documents.
 pub(crate) fn upgrade_all_format_versions(project: &mut Project) {
     if project.has_program() {
@@ -274,6 +274,7 @@ impl Editor {
                 record_motion_property_keys(before, project);
                 project.prune_authoring_groups();
                 project.prune_motion_guides();
+                project.prune_frame_script_layers();
                 upgrade_all_format_versions(project);
             });
         if committed && self.normalize_symbol_edit_session() {
@@ -2679,7 +2680,9 @@ impl Editor {
             }
             return false;
         }
-        if timeline.key_carries_frame_script(layer, from) && timeline.has_frame_script(to) {
+        if timeline.key_carries_frame_script(layer, from)
+            && timeline.frame_script_for_layer(layer, to).is_some()
+        {
             if self.frame == to && from < timeline.frame_count {
                 self.frame = from;
                 self.reset_authored_preview();
@@ -3931,8 +3934,10 @@ impl Editor {
                 .flatten()
             })
             .collect();
-        let script_bearing_layers: std::collections::HashSet<usize> = (0..timeline.frame_count)
-            .filter_map(|f| timeline.action_layer_for_frame(f))
+        let script_bearing_layers: std::collections::HashSet<usize> = timeline
+            .scripts
+            .iter()
+            .filter_map(|script| timeline.action_layer_for_script(script))
             .collect();
 
         let normal_indices: Vec<usize> = timeline
@@ -4149,10 +4154,11 @@ impl Editor {
                 });
                 timeline.layers.len() - 1
             };
-            let _ = actions_idx;
-            if let Some(existing_script) =
-                timeline.scripts.iter_mut().find(|s| s.frame == last_frame)
-            {
+            let actions_layer_id = timeline.layers[actions_idx].id.clone();
+            let existing_index = timeline.frame_script_index_for_layer(actions_idx, last_frame);
+            if let Some(index) = existing_index {
+                let existing_script = &mut timeline.scripts[index];
+                existing_script.layer = Some(actions_layer_id.clone());
                 if existing_script.script.source.trim().is_empty() {
                     existing_script.script.source = "stop();".to_owned();
                 } else if !existing_script.script.source.contains("stop()") {
@@ -4160,6 +4166,7 @@ impl Editor {
                 }
             } else {
                 timeline.scripts.push(FrameScript {
+                    layer: Some(actions_layer_id),
                     frame: last_frame,
                     script: Script {
                         language: script_language,

@@ -1822,3 +1822,17 @@ wires them with the components named in each answer.
 - **Checked:** `docs/DESIGN-SYSTEM.md` (`DL-03`), `interface/design-system/outlines/panels-dialog-publish-settings.txt`, `crates/neoflash-editor/src/panels/publish_settings.rs`.
 - **Proposal (optional):** add a paired `Select` row `Render: Canvas | DOM` beside `Acceleration` (disabling `Acceleration` when `DOM` is selected, since `Acceleration` hints apply to the primary `<canvas>` host).
 - **Answer:** *(pending design track)*
+
+### R-105 · Timeline frame context menu hierarchy and bounded size
+- **Status:** open
+- **Requested by / for:** project owner, 5 November 2026 · Timeline regression follow-up (`T-353`)
+- **Where:** Timeline frame context menu in `crates/neoflash-editor/src/panels/timeline.rs`; locked Figma file
+  `BUz3pseopiuOg2Uiy3Fog7` and the owner's 5 November screenshots (16:16, 16:18, 16:19 and 17:21).
+- **Need:** define the approved menu hierarchy, section order, submenu boundaries and bounded width/height or overflow
+  behaviour for the full frame-command set.
+- **Why:** the existing commands are functional, but the flat menu can become disproportionately large and obscure
+  the Timeline. Implementation cannot regroup, resize or introduce submenus while the NF2 composition is locked.
+- **Proposal (optional):** keep the most frequent frame actions at the first level and move coherent command families
+  into named submenus, with an explicit maximum visible height and scrolling rule. The design track decides the exact
+  grouping, labels and dimensions.
+- **Answer:** *(pending design track)*

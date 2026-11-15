@@ -598,7 +598,7 @@ fn read_utf8_file_limited(path: &Path, max_bytes: usize, label: &str) -> Result<
     Ok(raw)
 }
 
-/// Upgrade document `format_version` across all v2..=v12 feature gates enforced by `validation.rs`.
+/// Upgrade document `format_version` across all v2..=v13 feature gates enforced by `validation.rs`.
 pub(crate) fn upgrade_project_format_versions(project: &mut Project) {
     if project.has_program() {
         project.format_version = project.format_version.max(2);
@@ -963,6 +963,7 @@ pub(crate) fn build_new_project(
         && root.timeline.scripts.is_empty()
     {
         root.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: lang,

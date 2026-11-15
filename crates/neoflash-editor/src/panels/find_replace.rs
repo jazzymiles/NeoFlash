@@ -65,6 +65,7 @@ pub(crate) enum MatchTarget {
     },
     FrameScript {
         symbol: Id,
+        layer: Option<Id>,
         frame: u32,
         range: (usize, usize),
         line: usize,
@@ -893,7 +894,12 @@ pub(crate) fn collect_find_hits(
                             let (line, column, preview) =
                                 line_col_and_preview(&fs.script.source, range.0);
                             hits.push(FindHit {
-                                place_key: format!("fs:{}:{}", sym.id, fs.frame),
+                                place_key: format!(
+                                    "fs:{}:{}:{}",
+                                    sym.id,
+                                    fs.layer.as_deref().unwrap_or("legacy"),
+                                    fs.frame
+                                ),
                                 location_label: format!(
                                     "{sym_prefix} › Frame {} · line {line}",
                                     fs.frame + 1
@@ -901,6 +907,7 @@ pub(crate) fn collect_find_hits(
                                 found_preview: preview,
                                 target: MatchTarget::FrameScript {
                                     symbol: sym.id.clone(),
+                                    layer: fs.layer.clone(),
                                     frame: fs.frame,
                                     range,
                                     line,
@@ -1482,6 +1489,7 @@ fn apply_single_replacement(
         }
         MatchTarget::FrameScript {
             symbol,
+            layer,
             frame,
             range,
             ..
@@ -1489,12 +1497,13 @@ fn apply_single_replacement(
             let Some(sym) = project.symbol_mut(symbol) else {
                 return false;
             };
-            let Some(fs) = sym
-                .timeline
-                .scripts
-                .iter_mut()
-                .find(|fs| fs.frame == *frame)
-            else {
+            let Some(fs) = sym.timeline.scripts.iter_mut().find(|fs| {
+                fs.frame == *frame
+                    && match layer.as_deref() {
+                        Some(id) => fs.layer.as_deref() == Some(id),
+                        None => fs.layer.is_none(),
+                    }
+            }) else {
                 return false;
             };
             replace_range(&mut fs.script.source, *range, replacement, false)
@@ -1954,6 +1963,7 @@ impl Editor {
             }
             MatchTarget::FrameScript {
                 symbol,
+                layer,
                 frame,
                 line,
                 column,
@@ -1961,6 +1971,7 @@ impl Editor {
             } => {
                 let loc = ScriptLocation::Frame {
                     symbol: symbol.clone(),
+                    layer: layer.clone(),
                     frame: *frame,
                 };
                 let src = self.script_source_for(&loc).unwrap_or_default();

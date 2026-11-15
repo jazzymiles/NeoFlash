@@ -87,6 +87,7 @@ fn project_diagnostics_fingerprint(project: &Project) -> u64 {
         symbol.class_name.hash(&mut hash);
         symbol.linkage_id.hash(&mut hash);
         for fs in &symbol.timeline.scripts {
+            fs.layer.hash(&mut hash);
             fs.frame.hash(&mut hash);
             std::mem::discriminant(&fs.script.language).hash(&mut hash);
             fs.script.source.hash(&mut hash);
@@ -285,19 +286,22 @@ pub(crate) fn collect_located_script_diagnostics(
             if fs.script.source.trim().is_empty() {
                 continue;
             }
-            let actions_layer = symbol
+            let actions_layer_index = symbol
                 .timeline
-                .action_layer_for_frame(fs.frame)
-                .and_then(|index| symbol.timeline.layers.get(index))
+                .action_layer_for_script(fs)
                 .or_else(|| {
                     symbol
                         .timeline
                         .layers
                         .iter()
+                        .enumerate()
                         .rev()
-                        .find(|layer| layer.name.eq_ignore_ascii_case("actions"))
+                        .find(|(_, layer)| layer.name.eq_ignore_ascii_case("actions"))
+                        .map(|(index, _)| index)
                 })
-                .or_else(|| symbol.timeline.layers.last())
+                .or_else(|| symbol.timeline.layers.len().checked_sub(1));
+            let actions_layer = actions_layer_index
+                .and_then(|index| symbol.timeline.layers.get(index))
                 .map(|layer| layer.name.as_str());
             let frame_path = format!("{} / frame {}", symbol.name, fs.frame + 1);
             if let Some(proj_lang) = policy_lang {
@@ -336,6 +340,7 @@ pub(crate) fn collect_located_script_diagnostics(
                         location_label,
                         script: Some(ScriptLocation::Frame {
                             symbol: symbol.id.clone(),
+                            layer: fs.layer.clone(),
                             frame: fs.frame,
                         }),
                         quick_fixes: Vec::new(),
@@ -388,6 +393,7 @@ pub(crate) fn collect_located_script_diagnostics(
                     location_label,
                     script: Some(ScriptLocation::Frame {
                         symbol: symbol.id.clone(),
+                        layer: fs.layer.clone(),
                         frame: fs.frame,
                     }),
                     quick_fixes,
@@ -564,7 +570,7 @@ impl Editor {
                     .iter()
                     .find(|unit| &unit.id == id)
                     .map_or_else(|| "Project source".into(), |unit| unit.path.clone()),
-                ScriptLocation::Frame { symbol, frame } => format!(
+                ScriptLocation::Frame { symbol, frame, .. } => format!(
                     "{} · frame {}",
                     self.project
                         .symbol(symbol)
@@ -652,14 +658,28 @@ impl Editor {
 
     pub(crate) fn script_source_for(&self, location: &ScriptLocation) -> Option<String> {
         match location {
-            ScriptLocation::Frame { symbol, frame } => self
-                .project
-                .symbol(symbol)?
-                .timeline
-                .scripts
-                .iter()
-                .find(|fs| fs.frame == *frame)
-                .map(|fs| fs.script.source.clone()),
+            ScriptLocation::Frame {
+                symbol,
+                layer,
+                frame,
+            } => {
+                let timeline = &self.project.symbol(symbol)?.timeline;
+                let script = layer
+                    .as_deref()
+                    .and_then(|id| {
+                        timeline
+                            .scripts
+                            .iter()
+                            .find(|fs| fs.frame == *frame && fs.layer.as_deref() == Some(id))
+                    })
+                    .or_else(|| {
+                        timeline
+                            .scripts
+                            .iter()
+                            .find(|fs| fs.frame == *frame && fs.layer.is_none())
+                    })?;
+                Some(script.script.source.clone())
+            }
             ScriptLocation::Object {
                 symbol,
                 frame,
@@ -733,13 +753,19 @@ impl Editor {
         let loc_for_edit = loc.clone();
         let updated_for_edit = updated_source.clone();
         self.transact_named("Apply quick fix", move |ed| match &loc_for_edit {
-            ScriptLocation::Frame { symbol, frame } => {
+            ScriptLocation::Frame {
+                symbol,
+                layer,
+                frame,
+            } => {
                 if let Some(sym) = ed.project.symbols.iter_mut().find(|s| s.id == *symbol)
-                    && let Some(fs) = sym
-                        .timeline
-                        .scripts
-                        .iter_mut()
-                        .find(|fs| fs.frame == *frame)
+                    && let Some(fs) = sym.timeline.scripts.iter_mut().find(|fs| {
+                        fs.frame == *frame
+                            && match layer.as_deref() {
+                                Some(id) => fs.layer.as_deref() == Some(id),
+                                None => fs.layer.is_none(),
+                            }
+                    })
                 {
                     fs.script.source = updated_for_edit;
                 }
@@ -906,6 +932,7 @@ mod tests {
         let mut project = Project::blank();
         project.format_version = 8;
         project.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -1002,6 +1029,7 @@ mod tests {
         let mut project = Project::blank();
         project.format_version = 8;
         project.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::TypeScript,

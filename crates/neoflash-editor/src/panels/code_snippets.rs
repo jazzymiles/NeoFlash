@@ -1239,9 +1239,8 @@ impl Editor {
         if let Some(fs) = self
             .symbol()
             .timeline
-            .scripts
-            .iter()
-            .find(|fs| fs.frame == self.frame && !fs.script.source.trim().is_empty())
+            .frame_script_for_layer(self.layer, self.frame)
+            .filter(|fs| !fs.script.source.trim().is_empty())
         {
             return fs.script.language;
         }
@@ -1324,27 +1323,31 @@ impl Editor {
                 }
             }
             let frame = s.frame;
-            if frame >= s.symbol().timeline.frame_count {
-                s.ensure_key(false);
-            }
-            let existing = s
+            let layer_index = s.layer;
+            let layer_id = s.symbol().timeline.layers[layer_index].id.clone();
+            s.ensure_frame_script_key_at(&layer_id, frame);
+            let existing_index = s
                 .symbol()
                 .timeline
-                .scripts
-                .iter()
-                .find(|fs| fs.frame == frame)
+                .frame_script_index_for_layer(layer_index, frame);
+            let existing = existing_index
+                .and_then(|index| s.symbol().timeline.scripts.get(index))
                 .map_or("", |fs| fs.script.source.as_str())
                 .to_owned();
             let merged = snippet.merge_into(&existing, language, &target);
             let scripts = &mut s.symbol_mut().timeline.scripts;
-            scripts.retain(|fs| fs.frame != frame);
+            if let Some(index) = existing_index {
+                scripts.remove(index);
+            }
             scripts.push(FrameScript {
+                layer: Some(layer_id),
                 frame,
                 script: Script {
                     language,
                     source: merged,
                 },
             });
+            scripts.sort_by_key(|script| script.frame);
         });
         self.script_target = ScriptTarget::Frame;
         self.open_actions();

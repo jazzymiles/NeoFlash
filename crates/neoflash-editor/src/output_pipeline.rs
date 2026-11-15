@@ -1343,13 +1343,22 @@ impl Editor {
                         .map_or_else(|| PathBuf::from(&source_id), |u| PathBuf::from(&u.path));
                     OutputLocation::for_source(source_id, path)
                 }
-                ScriptLocation::Frame { symbol, frame } => {
+                ScriptLocation::Frame {
+                    symbol,
+                    layer,
+                    frame,
+                } => {
                     let sym_name = self.project.symbol(&symbol).map(|s| s.name.clone());
                     let layer_idx = self.project.symbol(&symbol).and_then(|sym| {
-                        sym.timeline
-                            .layers
-                            .iter()
-                            .position(|l| l.name.eq_ignore_ascii_case("actions"))
+                        layer
+                            .as_deref()
+                            .and_then(|id| sym.timeline.layers.iter().position(|l| l.id == id))
+                            .or_else(|| {
+                                sym.timeline
+                                    .layers
+                                    .iter()
+                                    .position(|l| l.name.eq_ignore_ascii_case("actions"))
+                            })
                             .or_else(|| {
                                 (self.layer < sym.timeline.layers.len()).then_some(self.layer)
                             })
@@ -1398,12 +1407,18 @@ impl Editor {
                     .map_or_else(|| PathBuf::from(id), |u| PathBuf::from(&u.path));
                 OutputLocation::for_source(id.clone(), path)
             }
-            ScriptLocation::Frame { symbol, frame } => {
+            ScriptLocation::Frame {
+                symbol,
+                layer,
+                frame,
+            } => {
                 let sym_name = self.project.symbol(symbol).map(|s| s.name.clone());
-                let layer_idx = self
-                    .project
-                    .symbol(symbol)
-                    .and_then(|sym| sym.timeline.action_layer_for_frame(*frame));
+                let layer_idx = self.project.symbol(symbol).and_then(|sym| {
+                    layer
+                        .as_deref()
+                        .and_then(|id| sym.timeline.layers.iter().position(|item| item.id == id))
+                        .or_else(|| sym.timeline.action_layer_for_frame(*frame))
+                });
                 OutputLocation::for_frame(symbol.clone(), sym_name, layer_idx, *frame)
             }
             ScriptLocation::Object {
@@ -1561,6 +1576,12 @@ impl Editor {
             let frame = loc.frame_index.unwrap_or(self.frame).min(max_frame);
             let script_loc = ScriptLocation::Frame {
                 symbol: symbol.clone(),
+                layer: loc.layer_index.and_then(|index| {
+                    self.project
+                        .symbol(&symbol)
+                        .and_then(|sym| sym.timeline.layers.get(index))
+                        .map(|layer| layer.id.clone())
+                }),
                 frame,
             };
             let frame_source = self.script_source_for(&script_loc);

@@ -128,6 +128,7 @@ fn fixture(theme: ThemeMode, target: ScriptTarget) -> (Editor, egui::Context, St
     };
     let mut project = Project::blank();
     project.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: script.clone(),
     });

@@ -6,6 +6,7 @@ use neoflash_core::{
 
 fn as3_frame_script(frame: u32, source: &str) -> FrameScript {
     FrameScript {
+        layer: None,
         frame,
         script: Script {
             language: ScriptLanguage::ActionScript3,

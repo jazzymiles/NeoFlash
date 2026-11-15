@@ -334,6 +334,7 @@ fn sequence_export_covers_ai_svg_png_jpg_webp_gif_bmp_on_scripted_timeline() {
     project.fps = 24;
     project.symbols[0].timeline.frame_count = 3;
     project.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,

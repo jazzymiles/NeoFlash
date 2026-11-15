@@ -446,15 +446,6 @@ impl Editor {
                 .collect();
             script_frames.sort_unstable();
             script_frames.dedup();
-            // Frame scripts belong to the whole timeline. Like Flash's actions layer, they show as
-            // Action keyframes on the topmost visible non-folder row that has an ordinary keyframe at
-            // that frame; otherwise on the ruler.
-            let action_row = {
-                let timeline = &self.symbol().timeline;
-                layer_indices
-                    .iter()
-                    .position(|&idx| timeline.layers[idx].properties.role != LayerRole::Folder)
-            };
             let content_height = total_rows as f32 * row_height;
             // Solid scrollbars own a separate strip instead of covering the last
             // visible key. Content drags belong to frames, not kinetic scrolling.
@@ -823,7 +814,7 @@ impl Editor {
                                 self.timeline_grid_interact(ui, &response, rect, grid_clip, cell_width, grid_count, &layer_indices, resize.is_some() || reorder.is_some());
                                 let painter = ui.painter_at(rect);
                                 painter.rect_filled(rect, 0, palette.panel_fill);
-                                let mut stats = self.paint_timeline_rows(&painter, rect, grid_clip, cell_width, &layer_indices, action_row, &script_frames, view.tinted);
+                                let mut stats = self.paint_timeline_rows(&painter, rect, grid_clip, cell_width, &layer_indices, &script_frames, view.tinted);
                                 stats.drawn_layer_rows = drawn_layer_rows;
                                 virtual_stats = Some(stats);
                                 self.paint_frame_selection(ui, rect, cell_width, &layer_indices);
@@ -944,6 +935,35 @@ impl Editor {
             if let Some(stats) = virtual_stats {
                 ctx.data_mut(|data| {
                     data.insert_temp(egui::Id::new(TIMELINE_VIRTUAL_STATS_ID), stats);
+                });
+            }
+            // The unused part of the Layers column is still layer context: right-clicking below
+            // the final visible row applies the existing layer menu to the active layer. Keep this
+            // response invisible and outside the frame grid so blank space never becomes a frame
+            // selection target.
+            let blank_layers_rect = Rect::from_min_max(
+                Pos2::new(header.left(), grid_rect.top() + content_height),
+                Pos2::new(divider_x - 3.0, rows.inner_rect.bottom()),
+            )
+            .intersect(rows.inner_rect)
+            .intersect(ui.clip_rect());
+            if blank_layers_rect.is_positive() {
+                let response = ui.interact(
+                    blank_layers_rect,
+                    ui.id().with("blank-layers-context"),
+                    Sense::click(),
+                );
+                response.context_menu(|ui| {
+                    if self.timeline_layer_menu(ui, self.layer)
+                        && let Some(layer) = self.symbol().timeline.layers.get(self.layer)
+                    {
+                        rename = Some(LayerRename {
+                            layer: layer.id.clone(),
+                            text: layer.name.clone(),
+                            focus: true,
+                        });
+                        ui.ctx().request_repaint();
+                    }
                 });
             }
             // Continue an existing frame-range drag at the vertical viewport edge.
@@ -1165,8 +1185,9 @@ impl Editor {
                     if frame > ruler_last {
                         break;
                     }
-                    let on_row = self.symbol().timeline.action_layer_for_frame(frame).is_some();
-                    if !on_row && frame < count {
+                    let needs_ruler_marker =
+                        self.symbol().timeline.frame_has_unplaced_script(frame);
+                    if needs_ruler_marker && frame < count {
                         let cell = geo.cell(ruler, frame + 1);
                         rp.text(Pos2::new(cell.center().x, ruler.top() + seconds_row / 2. + space::S1), Align2::CENTER_CENTER, "a", typography::font(TextStyle::MonoSmall), palette.timeline_script);
                     }
@@ -1409,7 +1430,6 @@ impl Editor {
         clip: Rect,
         cell: f32,
         layer_indices: &[usize],
-        _action_row: Option<usize>,
         script_frames: &[u32],
         tinted: bool,
     ) -> TimelineVirtualStats {
@@ -1680,8 +1700,7 @@ impl Editor {
                     && self
                         .symbol()
                         .timeline
-                        .action_layer_for_frame(start)
-                        .is_some_and(|idx| idx == layer_idx);
+                        .key_carries_frame_script(layer_idx, start);
                 let key = &self.symbol().timeline.layers[layer_idx].keyframes[ki];
                 let marker = match (key.elements.is_empty(), action) {
                     _ if key.keyed_properties.is_some() => MarkerKind::PropertyKeyframe,

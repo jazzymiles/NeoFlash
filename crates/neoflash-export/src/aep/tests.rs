@@ -132,6 +132,7 @@ fn aep_export_preserves_vectors_gradients_precomps_footage_and_compiles_scripts_
                 properties: Default::default(),
             }],
             scripts: vec![FrameScript {
+                layer: None,
                 frame: 11,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,
@@ -155,6 +156,7 @@ fn aep_export_preserves_vectors_gradients_precomps_footage_and_compiles_scripts_
     let root_sym = project.symbol_mut(&root_id).unwrap();
     root_sym.timeline.frame_count = 24;
     root_sym.timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,
@@ -704,6 +706,7 @@ fn t259_export_hardening_smoothing_false_banner_clicktag_and_aep_edge_cases() {
     //    `var` / identifier-boundary `_currentframe`, and pipe/newline marker sanitization.
     proj.symbols[0].folder = "constructor/toString".into();
     proj.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,

@@ -102,6 +102,86 @@ fn ids(editor: &Editor) -> Vec<&str> {
     values
 }
 
+#[test]
+fn active_actions_panel_follows_movieclip_button_and_empty_frame_contexts() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    let make_symbol = |id: &str, kind: SymbolKind| Symbol {
+        id: id.into(),
+        name: id.into(),
+        kind,
+        folder: String::new(),
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: format!("{id}-layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe::default()],
+            }],
+            scripts: vec![],
+            guides: vec![],
+        },
+    };
+    project
+        .symbols
+        .push(make_symbol("empty-movie", SymbolKind::MovieClip));
+    project
+        .symbols
+        .push(make_symbol("empty-button", SymbolKind::Button));
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .extend([
+            Element {
+                id: "movie-instance".into(),
+                name: "movie".into(),
+                kind: ElementKind::Instance {
+                    symbol_id: "empty-movie".into(),
+                    playback: InstancePlayback::Independent,
+                },
+                ..Element::default()
+            },
+            Element {
+                id: "button-instance".into(),
+                name: "button".into(),
+                kind: ElementKind::Instance {
+                    symbol_id: "empty-button".into(),
+                    playback: InstancePlayback::Independent,
+                },
+                ..Element::default()
+            },
+        ]);
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.show_panel(crate::workspace::PanelId::Actions);
+    editor.script_target = crate::app::ScriptTarget::Frame;
+
+    select(&mut editor, &["movie-instance"]);
+    assert!(editor.script_target == crate::app::ScriptTarget::Object);
+    assert_eq!(editor.script_event, ObjectEvent::Load);
+    assert!(editor.selected_element().unwrap().scripts.is_empty());
+
+    select(&mut editor, &["button-instance"]);
+    assert!(editor.script_target == crate::app::ScriptTarget::Object);
+    assert_eq!(editor.script_event, ObjectEvent::Click);
+    assert!(editor.selected_element().unwrap().scripts.is_empty());
+
+    editor.clear_selection();
+    assert!(editor.script_target == crate::app::ScriptTarget::Frame);
+    assert!(
+        editor
+            .symbol()
+            .timeline
+            .frame_script_for_layer(editor.layer, editor.frame)
+            .is_none()
+    );
+}
+
 fn sampled(editor: &Editor, id: &str) -> Element {
     editor
         .symbol()
@@ -4316,6 +4396,7 @@ fn classic_flash_group_ungroup_and_break_apart_support_single_multi_layer_moviec
     mc_sym.timeline.frame_count = 4;
     mc_sym.timeline.layers = vec![mc_layer_0, mc_layer_1];
     mc_sym.timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,

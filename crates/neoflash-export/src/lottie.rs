@@ -6677,6 +6677,7 @@ mod tests {
         let root = project.symbol_mut(&root_id).unwrap();
         root.timeline.frame_count = 5;
         root.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -10574,6 +10575,7 @@ mod tests {
             scene1.timeline.frame_count = 48;
             // Live ActionScript HUD measuring real FPS during HTML5 playback
             scene1.timeline.scripts = vec![FrameScript {
+                layer: None,
                 frame: 0,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,

@@ -2646,6 +2646,7 @@ fn structured_diagnostics_cover_every_unsupported_or_approximated_construct_with
         let root = project.symbol_mut(&root_id).unwrap();
         root.timeline.frame_count = 8;
         root.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 2,
             script: Script {
                 language: ScriptLanguage::ActionScript2,

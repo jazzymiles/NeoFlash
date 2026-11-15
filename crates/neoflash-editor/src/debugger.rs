@@ -671,9 +671,7 @@ impl Editor {
                     &self
                         .symbol()
                         .timeline
-                        .scripts
-                        .iter()
-                        .find(|frame| frame.frame == self.frame)?
+                        .frame_script_for_layer(self.layer, self.frame)?
                         .script
                 }
                 ScriptTarget::Object => {
@@ -718,9 +716,7 @@ impl Editor {
             ScriptTarget::Frame => self
                 .symbol()
                 .timeline
-                .scripts
-                .iter()
-                .find(|frame| frame.frame == self.frame)
+                .frame_script_for_layer(self.layer, self.frame)
                 .map(|frame| format!("{} / frame {}", self.symbol().name, frame.frame + 1)),
             ScriptTarget::Object => {
                 let element_id = self.selected_element()?.id.clone();
@@ -764,6 +760,7 @@ impl Editor {
                 {
                     return Some(ScriptLocation::Frame {
                         symbol: symbol.id.clone(),
+                        layer: frame.layer.clone(),
                         frame: frame.frame,
                     });
                 }
@@ -1493,6 +1490,7 @@ mod tests {
         ctx.enable_accesskit();
         let mut editor = Editor::from_project(&ctx, Project::blank());
         editor.symbol_mut().timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 1,
             script: Script {
                 language: ScriptLanguage::ActionScript3,

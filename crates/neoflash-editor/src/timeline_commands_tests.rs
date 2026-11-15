@@ -872,6 +872,7 @@ fn test_scene_isolates_current_scene_timeline_and_exports_clean_bundle() {
     editor.symbol_mut().timeline.layers[0].keyframes.truncate(1);
     editor.symbol_mut().timeline.frame_count = 5;
     editor.symbol_mut().timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -910,6 +911,7 @@ fn test_scene_isolates_current_scene_timeline_and_exports_clean_bundle() {
         ..Default::default()
     }];
     editor.symbol_mut().timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -4739,6 +4741,8 @@ fn nested_orbit_direct_key_drag_moves_and_copies_frame_script_atomically() {
     assert_eq!(editor.project, with_dest_key);
     editor.project = after_tween.clone();
 
+    let orbit_layer_id = editor.symbol().timeline.layers[2].id.clone();
+    editor.project.format_version = 13;
     editor
         .project
         .symbol_mut(&root)
@@ -4746,6 +4750,7 @@ fn nested_orbit_direct_key_drag_moves_and_copies_frame_script_atomically() {
         .timeline
         .scripts
         .push(FrameScript {
+            layer: Some(orbit_layer_id.clone()),
             frame: 13,
             script: Script {
                 language: ScriptLanguage::JavaScript,
@@ -4760,6 +4765,51 @@ fn nested_orbit_direct_key_drag_moves_and_copies_frame_script_atomically() {
         "refused script collision restores playhead to source keyframe"
     );
     assert_eq!(editor.project, with_dest_script);
+
+    // A script owned by a neighboring layer at the destination is not a collision. Both scripts
+    // may execute on the same timeline frame while retaining independent authoring rows.
+    editor.project = after_tween.clone();
+    editor.project.format_version = 13;
+    let accents_layer_id = editor.symbol().timeline.layers[1].id.clone();
+    editor.project.symbol_mut(&root).unwrap().timeline.layers[1]
+        .keyframes
+        .push(Keyframe {
+            frame: 13,
+            ..Keyframe::default()
+        });
+    editor
+        .project
+        .symbol_mut(&root)
+        .unwrap()
+        .timeline
+        .scripts
+        .push(FrameScript {
+            layer: Some(accents_layer_id.clone()),
+            frame: 13,
+            script: Script {
+                language: ScriptLanguage::JavaScript,
+                source: "trace(\"accent destination\");".into(),
+            },
+        });
+    editor.frame = 13;
+    assert!(editor.move_key(2, 0, 13, false));
+    assert!(editor.symbol().timeline.key_carries_frame_script(1, 13));
+    assert!(editor.symbol().timeline.key_carries_frame_script(2, 13));
+    assert_eq!(
+        editor
+            .symbol()
+            .timeline
+            .scripts
+            .iter()
+            .filter(|script| script.frame == 13)
+            .map(|script| script.layer.as_deref())
+            .collect::<std::collections::HashSet<_>>(),
+        std::collections::HashSet::from([
+            Some(accents_layer_id.as_str()),
+            Some(orbit_layer_id.as_str()),
+        ])
+    );
+    editor.project.validate().unwrap();
 }
 
 #[test]
@@ -4886,6 +4936,468 @@ fn empty_actions_targets_have_no_placeholder_hint_and_do_not_create_scripts_unti
             .any(|s| s.frame == 1),
         "clearing the last real code must remove the FrameScript entry"
     );
+}
+
+#[test]
+fn layer_owned_frame_scripts_stay_independent_across_actions_move_copy_and_json() {
+    use crate::app::ScriptTarget;
+    use crate::panels::actions_sidebar::ScriptLocation;
+
+    fn collect_texts(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect_texts(shape, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut project = Project::blank();
+    project.format_version = 13;
+    project.script_language = Some(ScriptLanguage::ActionScript3);
+    let root = project.root.clone();
+    {
+        let timeline = &mut project.symbol_mut(&root).unwrap().timeline;
+        timeline.frame_count = 6;
+        timeline.layers = vec![
+            Layer {
+                id: "layer_background".into(),
+                name: "Background actions".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties::default(),
+            },
+            Layer {
+                id: "layer_character".into(),
+                name: "Character actions".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties::default(),
+            },
+        ];
+        timeline.scripts = vec![
+            FrameScript {
+                layer: Some("layer_background".into()),
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript3,
+                    source: "var brokenBackground = ;".into(),
+                },
+            },
+            FrameScript {
+                layer: Some("layer_character".into()),
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript3,
+                    source: "var brokenCharacter = ;".into(),
+                },
+            },
+        ];
+    }
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.show_panel(crate::workspace::PanelId::Actions);
+    editor.script_target = ScriptTarget::Frame;
+    editor.frame = 0;
+    let render = |editor: &mut Editor| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400., 520.),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.actions_contents(ui));
+            },
+        )
+    };
+    let painted_text = |output: &egui::FullOutput| {
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            collect_texts(&clipped.shape, &mut texts);
+        }
+        texts.join("\n")
+    };
+
+    // Both same-frame scripts have their own row marker and contextual Actions target.
+    assert!(editor.symbol().timeline.key_carries_frame_script(0, 0));
+    assert!(editor.symbol().timeline.key_carries_frame_script(1, 0));
+    assert_eq!(
+        editor.current_script_location(),
+        Some(ScriptLocation::Frame {
+            symbol: root.clone(),
+            layer: Some("layer_background".into()),
+            frame: 0,
+        })
+    );
+    let background_editor_id = editor.actions_editor_id();
+    let background_text = painted_text(&render(&mut editor));
+    assert!(background_text.contains("var brokenBackground = ;"));
+    assert!(background_text.contains("Background actions : Frame 1"));
+    assert!(background_text.contains("Character actions : Frame 1"));
+
+    editor.layer = 1;
+    assert_ne!(background_editor_id, editor.actions_editor_id());
+    assert_eq!(
+        editor.current_script_location(),
+        Some(ScriptLocation::Frame {
+            symbol: root.clone(),
+            layer: Some("layer_character".into()),
+            frame: 0,
+        })
+    );
+    let character_text = painted_text(&render(&mut editor));
+    assert!(character_text.contains("var brokenCharacter = ;"));
+
+    // Compiler diagnostics retain both layer-aware locations even though the scripts share a frame.
+    editor.refresh_compiler_diagnostics();
+    for layer in ["layer_background", "layer_character"] {
+        let location = ScriptLocation::Frame {
+            symbol: root.clone(),
+            layer: Some(layer.into()),
+            frame: 0,
+        };
+        assert!(
+            editor
+                .compiler_errors
+                .items
+                .iter()
+                .any(|item| item.is_error && item.script == Some(location.clone())),
+            "missing diagnostic for {location:?}: {:#?}",
+            editor.compiler_errors.items
+        );
+    }
+
+    // Editing Background through the real Actions text command cannot overwrite Character.
+    editor.layer = 0;
+    let _ = render(&mut editor);
+    let mut state = egui::text_edit::TextEditState::default();
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(0),
+            egui::text::CCursor::new("var brokenBackground = ;".chars().count()),
+        )));
+    state.store(&ctx, editor.actions_editor_id());
+    let edited_background = "trace(\"background edited\");";
+    editor.actions_ui.pending = Some(crate::code_tools::CodeCommand::Insert {
+        text: edited_background.into(),
+        caret: edited_background.chars().count(),
+        import: None,
+    });
+    let _ = render(&mut editor);
+    assert_eq!(
+        editor
+            .symbol()
+            .timeline
+            .frame_script_for_layer(0, 0)
+            .unwrap()
+            .script
+            .source,
+        edited_background
+    );
+    assert_eq!(
+        editor
+            .symbol()
+            .timeline
+            .frame_script_for_layer(1, 0)
+            .unwrap()
+            .script
+            .source,
+        "var brokenCharacter = ;"
+    );
+    editor.project.validate().unwrap();
+    let after_background_edit = editor.project.clone();
+
+    // Deleting Character through its own Actions editor removes only that layer's script; Undo
+    // restores the exact two-script document in one step.
+    editor.layer = 1;
+    let _ = render(&mut editor);
+    let mut state = egui::text_edit::TextEditState::default();
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(0),
+            egui::text::CCursor::new("var brokenCharacter = ;".chars().count()),
+        )));
+    state.store(&ctx, editor.actions_editor_id());
+    editor.actions_ui.pending = Some(crate::code_tools::CodeCommand::Insert {
+        text: String::new(),
+        caret: 0,
+        import: None,
+    });
+    let _ = render(&mut editor);
+    assert!(
+        editor
+            .symbol()
+            .timeline
+            .frame_script_for_layer(1, 0)
+            .is_none()
+    );
+    assert_eq!(
+        editor
+            .symbol()
+            .timeline
+            .frame_script_for_layer(0, 0)
+            .unwrap()
+            .script
+            .source,
+        edited_background
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, after_background_edit);
+    editor.project.validate().unwrap();
+
+    // Moving one key carries only its owned script; the neighboring layer's same-frame script
+    // stays put. One Undo restores both key and script atomically.
+    editor.frame = 2;
+    assert!(editor.move_key(0, 0, 2, false));
+    assert!(editor.symbol().timeline.key_carries_frame_script(0, 2));
+    assert!(editor.symbol().timeline.key_carries_frame_script(1, 0));
+    assert!(
+        editor
+            .symbol()
+            .timeline
+            .frame_script_for_layer(0, 0)
+            .is_none()
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, after_background_edit);
+
+    // Option-drag/copy duplicates only Character's owned script and leaves Background untouched.
+    editor.frame = 3;
+    assert!(editor.move_key(1, 0, 3, true));
+    assert!(editor.symbol().timeline.key_carries_frame_script(0, 0));
+    assert!(editor.symbol().timeline.key_carries_frame_script(1, 0));
+    assert!(editor.symbol().timeline.key_carries_frame_script(1, 3));
+    assert_eq!(
+        editor
+            .symbol()
+            .timeline
+            .scripts
+            .iter()
+            .filter(|script| script.layer.as_deref() == Some("layer_background"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        editor
+            .symbol()
+            .timeline
+            .scripts
+            .iter()
+            .filter(|script| script.layer.as_deref() == Some("layer_character"))
+            .count(),
+        2
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, after_background_edit);
+
+    // Native JSON and the editor's `.nflash` save/reopen path preserve both owners.
+    let json = editor.project.to_json().unwrap();
+    let from_json = Project::from_json(&json).unwrap();
+    assert_eq!(from_json, after_background_edit);
+    from_json.validate().unwrap();
+
+    let dir = std::env::temp_dir().join(format!(
+        "neoflash_layer_actions_{}_{}",
+        std::process::id(),
+        root
+    ));
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("two-layer-frame-scripts.nflash");
+    assert!(editor.save_to_path(path.clone()));
+    let mut reopened = Editor::from_project(&ctx, Project::blank());
+    assert!(reopened.try_open_path(path, &ctx));
+    reopened.project.validate().unwrap();
+    assert_eq!(reopened.project, after_background_edit);
+    assert!(reopened.symbol().timeline.key_carries_frame_script(0, 0));
+    assert!(reopened.symbol().timeline.key_carries_frame_script(1, 0));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn actions_creation_on_an_exposure_frame_adds_an_ordinary_key_to_the_selected_layer() {
+    use crate::app::ScriptTarget;
+
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    let root = project.root.clone();
+    {
+        let timeline = &mut project.symbol_mut(&root).unwrap().timeline;
+        timeline.frame_count = 5;
+        timeline.layers[0].id = "lower".into();
+        timeline.layers[0].name = "Lower".into();
+        timeline.layers.push(Layer {
+            id: "selected".into(),
+            name: "Selected".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe::default()],
+            properties: LayerProperties::default(),
+        });
+    }
+    project.validate().unwrap();
+    let baseline = project.clone();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.layer = 1;
+    editor.frame = 3;
+    editor.script_target = ScriptTarget::Frame;
+    let render = |editor: &mut Editor| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000., 420.),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.actions_contents(ui));
+            },
+        )
+    };
+
+    let _ = render(&mut editor);
+    let source = "this.stop();";
+    editor.actions_ui.pending = Some(crate::code_tools::CodeCommand::Insert {
+        text: source.into(),
+        caret: source.chars().count(),
+        import: None,
+    });
+    let _ = render(&mut editor);
+
+    assert_eq!(
+        editor.symbol().timeline.layers[0]
+            .keyframes
+            .iter()
+            .map(|key| key.frame)
+            .collect::<Vec<_>>(),
+        vec![0],
+        "the neighboring layer must not be split"
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[1]
+            .keyframes
+            .iter()
+            .map(|key| key.frame)
+            .collect::<Vec<_>>(),
+        vec![0, 3]
+    );
+    let created_key = editor.symbol().timeline.layers[1]
+        .keyframes
+        .iter()
+        .find(|key| key.frame == 3)
+        .unwrap();
+    assert!(created_key.keyed_properties.is_none());
+    assert!(created_key.motion_keys.is_none());
+    let created_script = editor
+        .symbol()
+        .timeline
+        .frame_script_for_layer(1, 3)
+        .unwrap();
+    assert_eq!(created_script.layer.as_deref(), Some("selected"));
+    assert_eq!(created_script.script.source, source);
+    assert!(editor.symbol().timeline.key_carries_frame_script(1, 3));
+    assert!(editor.project.format_version >= 13);
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    assert_eq!(editor.project, baseline);
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn actions_creation_inside_motion_preserves_animation_and_owns_an_ordinary_key() {
+    use crate::app::ScriptTarget;
+
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 11;
+    let layer_id = project.symbols[0].timeline.layers[0].id.clone();
+    project.symbols[0].timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            elements: vec![element("moving", rectangle(), 0.0)],
+            tween: Some(Easing::Linear),
+            tween_kind: TweenKind::Motion,
+            ..Default::default()
+        },
+        Keyframe {
+            frame: 10,
+            elements: vec![element("moving", rectangle(), 100.0)],
+            ..Default::default()
+        },
+    ];
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+    let baseline = project.clone();
+    let poses_before: Vec<_> = (0..=10)
+        .map(|frame| sample_layer(&project.symbols[0].timeline.layers[0], frame))
+        .collect();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.frame = 5;
+    editor.script_target = ScriptTarget::Frame;
+    let render = |editor: &mut Editor| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000., 420.),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.actions_contents(ui));
+            },
+        )
+    };
+    let _ = render(&mut editor);
+    let source = "trace('motion action');";
+    editor.actions_ui.pending = Some(crate::code_tools::CodeCommand::Insert {
+        text: source.into(),
+        caret: source.chars().count(),
+        import: None,
+    });
+    let _ = render(&mut editor);
+
+    let timeline = &editor.symbol().timeline;
+    let action_key = timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|key| key.frame == 5)
+        .expect("Actions creates a physical key at the selected motion frame");
+    assert!(action_key.keyed_properties.is_none());
+    assert!(action_key.motion_keys.is_none());
+    assert!(timeline.key_carries_frame_script(0, 5));
+    assert_eq!(
+        timeline.frame_script_for_layer(0, 5).unwrap().layer,
+        Some(layer_id)
+    );
+    let poses_after: Vec<_> = (0..=10)
+        .map(|frame| sample_layer(&timeline.layers[0], frame))
+        .collect();
+    assert_eq!(poses_after, poses_before);
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    assert_eq!(editor.project, baseline);
+    editor.project.validate().unwrap();
 }
 
 #[test]

@@ -512,7 +512,7 @@ tests; Phase 3 last.
 
 Read this before touching the timeline. AGENTS.md › "Timeline engine" is the short version of §7.1–§7.3.
 
-### 7.1 Document model (formats 6–10, `crates/neoflash-core/src/model.rs`)
+### 7.1 Document model (formats 6–13, `crates/neoflash-core/src/model.rs`)
 
 | Field | Meaning |
 | --- | --- |
@@ -532,16 +532,19 @@ Read this before touching the timeline. AGENTS.md › "Timeline engine" is the s
 | `LayerProperties.motion_guide: Option<Id>` | A `Normal` layer guided by a `LayerRole::Guide` layer of the same timeline. The guide's first stroke is the path. |
 | `Project.scenes: Vec<Id>` | Scene timelines in play order (MovieClip symbol IDs). Empty = one scene, `root`; otherwise `scenes[0] == root`. Scene symbols are not library items and are never instantiated. |
 | `Timeline.guides: Vec<Guide>` | Ruler guides (authoring only, stripped from HTML5). See [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md). |
+| `FrameScript.layer: Option<Id>` | Format-13 stable authoring owner for an Actions marker. `Some(layer)` identifies one non-folder layer in the same timeline; different layers may own independent scripts at the same frame. `None` is the legacy representation and uses deterministic topmost-key inference. Runtime execution remains timeline-wide. |
 
-`Project::uses_format_6()` through `uses_format_12()` detect these features; `upgrade_format_for_features()` raises
-`format_version` only as far as the document requires. Validation (`validation.rs`) accepts versions 1–12, rejects
+`Project::uses_format_6()` through `uses_format_13()` detect these features; `upgrade_format_for_features()` raises
+`format_version` only as far as the document requires. Validation (`validation.rs`) accepts versions 1–13, rejects
 newer-version fields in older documents, ◆ keys outside a motion span, shared or object-specific easing/path data on
 the wrong key, duplicate/missing object IDs, invalid spatial paths, malformed per-object property keys, custom sound
 envelopes outside `1..=8` sorted finite `[0..=1]` stereo points, invalid motion guides/scenes and frame sounds without
-an audio resource. Format 11 gates layer/keyframe display-filter stacks and External/Progressive timeline-video
-deployment; format 12 gates authored video out-points. Every new field is `#[serde(default, skip_serializing_if = …)]`,
-so documents without format-10 object data, format-11 deployment data or format-12 video trimming retain their earlier
-serialized meaning and evaluation.
+an audio resource. An explicit frame-script owner must be an existing non-folder layer and each layer/frame pair may
+own at most one script; an owner temporarily lacking an ordinary key remains valid and is shown on the ruler. Format
+11 gates layer/keyframe display-filter stacks and External/Progressive timeline-video deployment; format 12 gates
+authored video out-points; format 13 gates explicit frame-script ownership. Every new field is
+`#[serde(default, skip_serializing_if = …)]`, so documents without format-10 object data, format-11 deployment data,
+format-12 video trimming or format-13 script ownership retain their earlier serialized meaning and evaluation.
 
 ### 7.2 Where each behaviour lives
 

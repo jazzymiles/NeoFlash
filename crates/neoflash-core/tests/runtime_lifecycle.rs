@@ -112,6 +112,7 @@ fn one_frame_timelines_keep_their_visit_while_children_and_enter_frame_keep_tick
             1,
             vec![key(vec![one_placement, instance("sibling", "ticker")])],
             vec![FrameScript {
+                layer: None,
                 frame: 0,
                 script: script("root-frame"),
             }],
@@ -121,6 +122,7 @@ fn one_frame_timelines_keep_their_visit_while_children_and_enter_frame_keep_tick
             1,
             vec![key(vec![instance("nested", "ticker")])],
             vec![FrameScript {
+                layer: None,
                 frame: 0,
                 script: script("one-frame"),
             }],
@@ -132,6 +134,7 @@ fn one_frame_timelines_keep_their_visit_while_children_and_enter_frame_keep_tick
             vec![key(vec![])],
             (0..2)
                 .map(|frame| FrameScript {
+                    layer: None,
                     frame,
                     script: script(&format!("ticker-{frame}")),
                 })
@@ -239,6 +242,7 @@ fn late_frame_work_survives_outer_render_and_empty_inner_exit() {
             2,
             vec![Keyframe::default()],
             vec![FrameScript {
+                layer: None,
                 frame: 1,
                 script: as3("late-root-frame"),
             }],
@@ -251,6 +255,7 @@ fn late_frame_work_survives_outer_render_and_empty_inner_exit() {
                 ..Default::default()
             }],
             vec![FrameScript {
+                layer: None,
                 frame: 0,
                 script: as3("late-linked-frame"),
             }],
@@ -341,10 +346,12 @@ fn startup_and_tick_emit_ordered_lifecycle_phases_and_display_events() {
         ],
         vec![
             FrameScript {
+                layer: None,
                 frame: 0,
                 script: as3("root-f0"),
             },
             FrameScript {
+                layer: None,
                 frame: 1,
                 script: as3("root-f1"),
             },
@@ -361,6 +368,7 @@ fn startup_and_tick_emit_ordered_lifecycle_phases_and_display_events() {
             ..Default::default()
         }],
         vec![FrameScript {
+            layer: None,
             frame: 0,
             script: as3("child-f0"),
         }],
@@ -451,10 +459,12 @@ fn reentrant_inner_goto_pushes_bounded_continuation_and_supersedes_old_visit() {
         }],
         vec![
             FrameScript {
+                layer: None,
                 frame: 0,
                 script: as3("child-f0"),
             },
             FrameScript {
+                layer: None,
                 frame: 1,
                 script: as3("child-f1"),
             },
@@ -472,14 +482,17 @@ fn reentrant_inner_goto_pushes_bounded_continuation_and_supersedes_old_visit() {
         }],
         vec![
             FrameScript {
+                layer: None,
                 frame: 0,
                 script: as3("root-f0"),
             },
             FrameScript {
+                layer: None,
                 frame: 1,
                 script: as3("root-f1"),
             },
             FrameScript {
+                layer: None,
                 frame: 2,
                 script: as3("root-f2"),
             },

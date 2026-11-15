@@ -827,13 +827,19 @@ impl Editor {
         self.show_panel(panel);
         self.workspace.dock.give_priority(panel);
     }
-    pub(crate) fn show_panel(&mut self, panel: PanelId) {
+    fn reveal_panel(&mut self, panel: PanelId) {
         self.panels_hidden = false;
         self.workspace.show_panel(panel);
         self.bottom = self.workspace.active_bottom;
         if panel.detachable() && !self.workspace.is_panel_docked(panel) {
             self.detached.focus = Some(panel);
         }
+    }
+    pub(crate) fn show_panel(&mut self, panel: PanelId) {
+        if panel == PanelId::Actions {
+            self.sync_actions_context_for_activation();
+        }
+        self.reveal_panel(panel);
     }
     pub(crate) fn open_frame_actions(&mut self) {
         self.script_target = ScriptTarget::Frame;
@@ -844,12 +850,15 @@ impl Editor {
         if self.script_target == ScriptTarget::Object && !self.selected_editable() {
             self.script_target = ScriptTarget::Frame;
         }
-        self.show_panel(PanelId::Actions);
+        self.reveal_panel(PanelId::Actions);
         self.detached.focus_docked_actions = self.workspace.is_panel_docked(PanelId::Actions);
     }
     pub(crate) fn set_panel_visible(&mut self, panel: PanelId, visible: bool) {
         if visible {
             self.panels_hidden = false;
+            if panel == PanelId::Actions {
+                self.sync_actions_context_for_activation();
+            }
         }
         self.workspace.active_bottom = self.bottom;
         self.workspace.set_panel_visible(panel, visible);
@@ -3352,7 +3361,7 @@ impl Editor {
             self.export(true);
         }
         if self.take_command_shortcut(ctx, C::WindowActions) {
-            self.open_actions();
+            self.open_actions_for_current_context();
         }
 
         let typing = self.blocks_unmodified_shortcuts(ctx);

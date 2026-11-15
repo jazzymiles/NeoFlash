@@ -439,6 +439,7 @@ fn t320_atomic_publish_preserves_existing_build_and_emits_jumpable_diagnostics()
         .timeline
         .scripts
         .push(neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: neoflash_core::Script {
                 language: neoflash_core::ScriptLanguage::ActionScript3,

@@ -1678,6 +1678,7 @@ impl Context<'_> {
                 }
                 if let Some(script) = self.actions(s, f.actions.as_ref())? {
                     timeline.scripts.push(FrameScript {
+                        layer: None,
                         frame: cursor,
                         script,
                     })

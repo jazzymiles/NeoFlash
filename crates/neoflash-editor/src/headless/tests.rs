@@ -303,6 +303,7 @@ fn compile_and_validate_fail_closed_with_located_diagnostics() {
     {
         let root = project.symbol_mut(&root_id).unwrap();
         root.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -331,6 +332,7 @@ fn compile_and_validate_fail_closed_with_located_diagnostics() {
     {
         let root = broken.symbol_mut(&broken.root.clone()).unwrap();
         root.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -486,6 +488,7 @@ fn eval_returns_poses_and_native_authored_playback_traces() {
             properties: LayerProperties::default(),
         }];
         sym.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -493,6 +496,7 @@ fn eval_returns_poses_and_native_authored_playback_traces() {
             },
         });
         sym.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 2,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -1621,6 +1625,7 @@ fn t311_capabilities_schema_batch_script_language_and_legacy_none_export() {
     legacy_as2.enable_program();
     legacy_as2.script_language = None;
     legacy_as2.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,

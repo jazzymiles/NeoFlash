@@ -266,8 +266,6 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     let selection = editor.selection.clone();
     editor.frame = 7;
     editor.tool = Tool::Pencil;
-    editor.script_target = ScriptTarget::Object;
-    editor.script_event = ObjectEvent::EnterFrame;
     editor.zoom = 1.25;
     let draft_id = egui::Id::new("in-progress-widget-draft");
     ctx.data_mut(|d| d.insert_temp(draft_id, "unfinished text".to_owned()));
@@ -276,6 +274,11 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     }
     editor.set_theme(&ctx, ThemeMode::Dark);
     editor.show_panel(PanelId::Actions);
+    // Generic Actions activation deliberately resolves the current Stage context. Set an
+    // in-progress Actions draft after opening it so the workspace reset below proves that layout
+    // changes preserve that editor state rather than retesting panel activation semantics.
+    editor.script_target = ScriptTarget::Object;
+    editor.script_event = ObjectEvent::EnterFrame;
     editor.reset_active_workspace(&ctx);
     assert_eq!(editor.project, project);
     assert_eq!(editor.selection, selection);
@@ -896,6 +899,7 @@ fn f9_reveals_hidden_actions_even_while_a_text_field_has_focus() {
         .timeline
         .scripts
         .push(neoflash_core::FrameScript {
+            layer: None,
             frame: 4,
             script: neoflash_core::Script {
                 language: neoflash_core::ScriptLanguage::JavaScript,
@@ -1030,6 +1034,7 @@ fn nf2_actions_panel_reports_caret_planned_tools_and_jumps_to_diagnostics() {
         .timeline
         .scripts
         .push(neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: neoflash_core::Script {
                 language: neoflash_core::ScriptLanguage::JavaScript,
@@ -1123,6 +1128,7 @@ fn actions_code_hints_toolbox_and_commands_edit_the_open_script() {
         .timeline
         .scripts
         .push(neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: neoflash_core::Script {
                 language: neoflash_core::ScriptLanguage::ActionScript3,
@@ -1616,6 +1622,7 @@ fn t319_all_6_workspaces_3_densities_4_themes_2_resolutions_matrix() {
                 frame_count: 8,
                 guides: vec![],
                 scripts: vec![FrameScript {
+                    layer: None,
                     frame: 0,
                     script: Script {
                         language: ScriptLanguage::ActionScript3,

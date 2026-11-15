@@ -722,9 +722,7 @@ impl Editor {
             ScriptTarget::Frame => self
                 .symbol()
                 .timeline
-                .scripts
-                .iter()
-                .find(|s| s.frame == self.frame)
+                .frame_script_for_layer(self.layer, self.frame)
                 .filter(|s| !s.script.source.trim().is_empty())
                 .map(|s| (s.script.source.clone(), s.script.language)),
         };
@@ -888,7 +886,10 @@ impl Editor {
         if code.is_empty() || !self.has_document() {
             return false;
         }
-        self.show_panel(crate::workspace::PanelId::Actions);
+        // Applying a proposal is an explicit edit of the target already open in Actions.  Do not
+        // run the generic panel-activation resolver here: it would replace a deliberately chosen
+        // editable Object target (for example a shape with an object script) with Frame.
+        self.open_actions();
         let editor_id = self.actions_editor_id();
         let caret_chars = egui::text_edit::TextEditState::load(ctx, editor_id)
             .and_then(|s| s.cursor.char_range().map(|r| r.primary.index));
@@ -960,6 +961,8 @@ impl Editor {
             }
             _ => {
                 let frame = self.frame;
+                let layer_index = self.layer;
+                let layer_id = self.symbol().timeline.layers[layer_index].id.clone();
                 self.transact_named("Insert AI code proposal", |ed| {
                     let proj_lang = ed.project.effective_script_language();
                     let resolved_lang = if ed
@@ -975,22 +978,28 @@ impl Editor {
                     } else {
                         proj_lang
                     };
-                    if frame >= ed.symbol().timeline.frame_count {
-                        ed.ensure_key(false);
-                    }
+                    ed.ensure_frame_script_key_at(&layer_id, frame);
+                    let existing = ed
+                        .symbol()
+                        .timeline
+                        .frame_script_index_for_layer(layer_index, frame);
                     let scripts = &mut ed.symbol_mut().timeline.scripts;
-                    if let Some(existing) = scripts.iter_mut().find(|s| s.frame == frame) {
+                    if let Some(index) = existing {
+                        let existing = &mut scripts[index];
+                        existing.layer = Some(layer_id.clone());
                         new_caret_chars = Some(insert_at_caret(&mut existing.script.source));
                     } else {
                         let mut src = String::new();
                         new_caret_chars = Some(insert_at_caret(&mut src));
                         scripts.push(FrameScript {
+                            layer: Some(layer_id.clone()),
                             frame,
                             script: Script {
                                 language: resolved_lang,
                                 source: src,
                             },
                         });
+                        scripts.sort_by_key(|script| script.frame);
                     }
                 });
             }

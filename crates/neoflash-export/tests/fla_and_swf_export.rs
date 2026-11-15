@@ -467,6 +467,7 @@ fn build_rich_authoring_project(script_lang: ScriptLanguage) -> Project {
                 },
             ],
             scripts: vec![FrameScript {
+                layer: None,
                 frame: 0,
                 script: Script {
                     language: script_lang,
@@ -630,6 +631,7 @@ fn t188_preflight_blocks_js_ts_and_mixed_vm_unless_strip_enabled() {
     let mut project = build_rich_authoring_project(ScriptLanguage::ActionScript3);
     // Add a TypeScript frame script -> should block Flash/Animate export by default
     project.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 1,
         script: Script {
             language: ScriptLanguage::TypeScript,
@@ -967,6 +969,7 @@ fn t192_swf_preflight_blocks_incompatible_scripts_unless_scriptless_mode() {
 
     // Adding a JavaScript frame script blocks AVM2 publish unless scriptless_mode is true
     project.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 2,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -989,6 +992,7 @@ fn t192_swf_preflight_blocks_incompatible_scripts_unless_scriptless_mode() {
         .expect("demo root")
         .timeline
         .scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript3,
@@ -1046,6 +1050,7 @@ fn t205_expanded_avm1_and_avm2_swf_compiler_executes_control_flow_functions_and_
         .expect("root")
         .timeline
         .scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,
@@ -1066,6 +1071,7 @@ fn t205_expanded_avm1_and_avm2_swf_compiler_executes_control_flow_functions_and_
         .expect("root")
         .timeline
         .scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,
@@ -1158,6 +1164,7 @@ fn t205_expanded_avm1_and_avm2_swf_compiler_executes_control_flow_functions_and_
         .expect("root")
         .timeline
         .scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript3,
@@ -1576,6 +1583,7 @@ fn t241_avm1_raw_bytecode_opcodes_short_circuit_and_nested_movieclips() {
     strip_project_scripts(&mut proj);
     let root_id = proj.root.clone();
     proj.symbol_mut(&root_id).unwrap().timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,
@@ -1681,6 +1689,7 @@ fn t241_avm2_raw_bytecode_short_circuit_register_params_method_metrics_and_scene
 
     // Reject package/class declarations inside frame scripts during preflight so preflight and emission never disagree.
     proj.symbols[0].timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript3,
@@ -1706,6 +1715,7 @@ fn t241_avm2_raw_bytecode_short_circuit_register_params_method_metrics_and_scene
     // Now configure multi-scene AS3 frame scripts, register-based FunctionDecl, short-circuit &&/||,
     // and nested MovieClip property reads/writes.
     proj.symbols[0].timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript3,
@@ -1736,6 +1746,7 @@ fn t241_avm2_raw_bytecode_short_circuit_register_params_method_metrics_and_scene
         },
     }];
     proj.symbols[1].timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript3,
@@ -2373,6 +2384,7 @@ fn t293_as2_swf_matrix_masks_sounds_buttons_gradients_includes_and_fail_closed()
 
         root_sym.timeline.layers = vec![masked_layer, mask_layer, btn_layer];
         root_sym.timeline.scripts = vec![FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript2,
@@ -2603,6 +2615,7 @@ fn t293_as3_swf_matrix_document_class_symbols_includes_and_fail_closed() {
     ];
     let root_id = proj.root.clone();
     proj.symbol_mut(&root_id).unwrap().timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript3,
@@ -2613,6 +2626,7 @@ fn t293_as3_swf_matrix_document_class_symbols_includes_and_fail_closed() {
     }];
     // Symbol with class_name + frame script + another symbol with only linkage_id (valid QName)
     proj.symbol_mut("sym_badge").unwrap().timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript3,

@@ -124,11 +124,11 @@ fn validate_with_options(
 ) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=12) {
+    if !matches!(project.format_version, 1..=13) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1 through 12",
+                "unsupported version {}; supported versions are 1 through 13",
                 project.format_version
             ),
         );
@@ -179,6 +179,12 @@ fn validate_with_options(
             "format_version".into(),
             "timeline-video out-point trims and linked montage layers require document version 12"
                 .into(),
+        );
+    }
+    if project.uses_format_13() && project.format_version < 13 {
+        add(
+            "format_version".into(),
+            "layer-owned frame scripts require document version 13".into(),
         );
     }
     let mut scene_ids = HashSet::new();
@@ -592,12 +598,36 @@ fn validate_with_options(
                 );
             }
         }
-        for script in &symbol.timeline.scripts {
+        let mut owned_script_keys = HashSet::new();
+        for (script_index, script) in symbol.timeline.scripts.iter().enumerate() {
             if script.frame >= symbol.timeline.frame_count {
                 add(
                     format!("{sp}.timeline.scripts"),
                     "script frame is outside the timeline".into(),
                 );
+            }
+            if let Some(layer_id) = &script.layer {
+                let script_path = format!("{sp}.timeline.scripts[{script_index}].layer");
+                match symbol
+                    .timeline
+                    .layers
+                    .iter()
+                    .find(|layer| &layer.id == layer_id)
+                {
+                    Some(layer) if layer.properties.role != LayerRole::Folder => {
+                        if !owned_script_keys.insert((layer_id.as_str(), script.frame)) {
+                            add(
+                                script_path,
+                                "a layer can own only one frame script at a frame".into(),
+                            );
+                        }
+                    }
+                    Some(_) => add(
+                        script_path,
+                        "a folder layer cannot own a frame script".into(),
+                    ),
+                    None => add(script_path, "the owning layer does not exist".into()),
+                }
             }
         }
         for error in crate::authored_layers::validate_layers(project, symbol) {

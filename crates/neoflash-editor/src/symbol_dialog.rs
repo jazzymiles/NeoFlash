@@ -29,10 +29,25 @@ pub(crate) struct SymbolConversion {
     pub export_enabled: bool,
     pub linkage_id: String,
     pub class_name: String,
+    linkage_follows_name: bool,
     pub scale9_enabled: bool,
     pub scale9_grid: [f64; 4],
     focus_name: bool,
     error: Option<String>,
+}
+
+impl SymbolConversion {
+    pub(crate) fn set_name(&mut self, name: impl Into<String>) {
+        self.name = name.into();
+        if self.linkage_follows_name {
+            self.linkage_id.clone_from(&self.name);
+        }
+    }
+
+    pub(crate) fn set_linkage_id(&mut self, linkage_id: impl Into<String>) {
+        self.linkage_id = linkage_id.into();
+        self.linkage_follows_name = false;
+    }
 }
 
 impl Editor {
@@ -63,6 +78,7 @@ impl Editor {
             export_enabled: false,
             linkage_id: name,
             class_name: String::new(),
+            linkage_follows_name: true,
             scale9_enabled: false,
             scale9_grid: [10.0, 10.0, 80.0, 80.0],
             focus_name: true,
@@ -98,6 +114,7 @@ impl Editor {
             export_enabled: false,
             linkage_id: name,
             class_name: String::new(),
+            linkage_follows_name: true,
             scale9_enabled: false,
             scale9_grid: [10.0, 10.0, 80.0, 80.0],
             focus_name: true,
@@ -184,6 +201,7 @@ impl Editor {
             export_enabled: false,
             linkage_id: unique_name,
             class_name: String::new(),
+            linkage_follows_name: true,
             scale9_enabled: false,
             scale9_grid: [10.0, 10.0, 80.0, 80.0],
             focus_name: true,
@@ -212,7 +230,11 @@ impl Editor {
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = space::S1;
                 field_caption(ui, "Name");
-                let name = ui.add(TextField::new(&mut draft.name, "Name"));
+                let mut edited_name = draft.name.clone();
+                let name = ui.add(TextField::new(&mut edited_name, "Name"));
+                if name.changed() {
+                    draft.set_name(edited_name);
+                }
                 let name_edit_id = TextField::edit_id(name.id);
                 if std::mem::take(&mut draft.focus_name) {
                     ctx.memory_mut(|memory| memory.request_focus(name_edit_id));
@@ -280,7 +302,10 @@ impl Editor {
                     ui.label(rich("ActionScript linkage", TextStyle::Overline).color(if ui.is_enabled() { p.text_secondary } else { p.text_disabled }));
                     ui.add(Checkbox::new(&mut draft.export_enabled, "Export for ActionScript"));
                     ui.add_enabled_ui_semantic(draft.export_enabled, |ui| {
-                        crate::paint_controls::text_row(ui, "Identifier", &mut draft.linkage_id);
+                        let mut linkage_id = draft.linkage_id.clone();
+                        if crate::paint_controls::text_row(ui, "Identifier", &mut linkage_id).changed() {
+                            draft.set_linkage_id(linkage_id);
+                        }
                         let class_resp = crate::paint_controls::text_row(ui, "Class", &mut draft.class_name);
                         crate::ui_icons::hover_tooltip(class_resp, "Optional existing class, such as app.Card", None, None);
                     });
@@ -466,6 +491,9 @@ impl Editor {
             .collect();
         let mut instance = if elements.len() == 1 {
             let mut instance = elements[0].clone();
+            if has_generated_instance_name(&instance) {
+                instance.name = name.to_owned();
+            }
             let shifted = crate::transform_geometry::transformed_point(
                 instance.transform,
                 [anchor.x as f64, anchor.y as f64],
@@ -612,6 +640,47 @@ impl Editor {
     pub(crate) fn symbol_conversion_draft(&mut self) -> Option<&mut SymbolConversion> {
         self.symbol_conversion.as_mut()
     }
+}
+
+fn has_generated_instance_name(element: &Element) -> bool {
+    if element.name.is_empty() {
+        return true;
+    }
+    let Some(id_suffix) = element.id.strip_prefix("object-") else {
+        return false;
+    };
+    if id_suffix.is_empty() || !id_suffix.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    let stems: &[&str] = match &element.kind {
+        ElementKind::Rectangle { .. } => &["rectangle"],
+        ElementKind::Ellipse { .. } => &["oval"],
+        ElementKind::Text { .. } | ElementKind::TextBox { .. } => &["text"],
+        ElementKind::Instance { .. } => &["clip"],
+        ElementKind::Path { .. } | ElementKind::PaintedPath { .. } => &["path", "fill", "stroke"],
+        ElementKind::Bitmap { .. } => &["bitmap"],
+        ElementKind::Video { .. } => &["video"],
+    };
+    stems
+        .iter()
+        .any(|stem| generated_name_matches(&element.name, stem, id_suffix))
+}
+
+fn generated_name_matches(name: &str, stem: &str, id_suffix: &str) -> bool {
+    let Some(rest) = name
+        .strip_prefix(stem)
+        .and_then(|rest| rest.strip_prefix('_'))
+    else {
+        return false;
+    };
+    let mut last = None;
+    for part in rest.split("_copy_") {
+        if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+            return false;
+        }
+        last = Some(part);
+    }
+    last == Some(id_suffix)
 }
 
 fn symbol_from_draft(

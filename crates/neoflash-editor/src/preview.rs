@@ -2362,6 +2362,7 @@ mod timeline_video_preview_tests {
         s2.timeline.frame_count = 2;
         s2.timeline.layers[0].id = "s2-layer".into();
         s2.timeline.scripts = vec![neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: neoflash_core::Script {
                 language: neoflash_core::ScriptLanguage::ActionScript3,
@@ -2414,6 +2415,7 @@ mod timeline_video_preview_tests {
         editor.output.clear();
         editor.project.symbol_mut(&s1_id).unwrap().timeline.scripts =
             vec![neoflash_core::FrameScript {
+                layer: None,
                 frame: 1,
                 script: neoflash_core::Script {
                     language: neoflash_core::ScriptLanguage::ActionScript3,

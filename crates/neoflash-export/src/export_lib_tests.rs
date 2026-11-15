@@ -384,6 +384,7 @@ fn size_levels_change_delivery_and_leave_out_only_unnamed_families() {
         .timeline
         .scripts
         .push(neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -569,6 +570,7 @@ fn multiple_scenes_publish_one_main_timeline_with_scene_ranges() {
     second.timeline.frame_count = 4;
     second.timeline.layers[0].id = "scene-two-layer".into();
     second.timeline.scripts.push(neoflash_core::FrameScript {
+        layer: None,
         frame: 1,
         script: Script {
             language: ScriptLanguage::ActionScript3,
@@ -670,6 +672,7 @@ fn publication_maps_handlers_and_groups_identical_authored_origins() {
     let source = "// ё\ntrace('mapped');\nthrow new Error('boom');";
     project.symbols[0].timeline.scripts = (0..2)
         .map(|frame| neoflash_core::FrameScript {
+            layer: None,
             frame,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -712,6 +715,7 @@ fn unsupported_script_blocks_export_before_writing() {
         .timeline
         .scripts
         .push(neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -758,6 +762,7 @@ fn size_report_breaks_down_scenes_frames_symbols_fonts_resources_and_scripts() {
         .timeline
         .scripts
         .push(neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,
@@ -1961,6 +1966,7 @@ fn t315_compile_and_html5_export_enforce_foreign_script_policy() {
         .timeline
         .scripts
         .push(neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::JavaScript,
@@ -2051,6 +2057,7 @@ fn t315_compile_and_html5_export_enforce_foreign_script_policy() {
         .timeline
         .scripts
         .push(neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript1,
@@ -2121,6 +2128,7 @@ fn t320_atomic_publish_and_secondary_exporters_edge_case_hardening() {
         .timeline
         .scripts
         .push(neoflash_core::FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript3,

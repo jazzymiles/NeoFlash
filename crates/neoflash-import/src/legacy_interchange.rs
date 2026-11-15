@@ -2122,6 +2122,7 @@ pub fn import_flash_screens_xml_into_project(
         let mut scripts = Vec::new();
         if let Some(code) = &screen.script {
             scripts.push(FrameScript {
+                layer: None,
                 frame: 0,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,

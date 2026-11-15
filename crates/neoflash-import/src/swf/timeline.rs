@@ -1926,6 +1926,7 @@ impl SwfBuilder<'_> {
                     let source = snap.actions.join("\n\n");
                     if !source.trim().is_empty() {
                         scripts.push(FrameScript {
+                            layer: None,
                             frame: f_idx as u32,
                             script: Script {
                                 language: lang,
@@ -3048,6 +3049,7 @@ fn prepend_frame_script(timeline: &mut Timeline, frame: u32, lang: ScriptLanguag
         timeline.scripts.insert(
             0,
             FrameScript {
+                layer: None,
                 frame,
                 script: Script {
                     language: lang,
@@ -3295,6 +3297,7 @@ fn attach_as3_frame_scripts(timeline: &mut Timeline, fscripts: &[(u32, String)])
                 existing.script.source.push_str(code);
             } else {
                 timeline.scripts.push(FrameScript {
+                    layer: None,
                     frame: *frame,
                     script: Script {
                         language: ScriptLanguage::ActionScript3,

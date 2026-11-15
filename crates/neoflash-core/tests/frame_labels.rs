@@ -141,6 +141,7 @@ fn as2_resolves_only_the_target_timeline() {
 
 fn as3_script(frame: u32, source: &str) -> FrameScript {
     FrameScript {
+        layer: None,
         frame,
         script: Script {
             language: ScriptLanguage::ActionScript3,

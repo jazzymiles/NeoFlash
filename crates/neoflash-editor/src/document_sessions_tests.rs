@@ -27,6 +27,31 @@ fn recovery_files(dir: &std::path::Path) -> usize {
 }
 
 #[test]
+fn new_document_starts_with_one_frame_and_round_trips_that_duration() {
+    let (mut editor, ctx, dir) = setup("new-one-frame");
+    editor.new_document_session(&ctx);
+
+    let timeline = &editor
+        .project
+        .symbol(&editor.project.root)
+        .unwrap()
+        .timeline;
+    assert_eq!(timeline.frame_count, 1);
+    assert_eq!(timeline.layers.len(), 1);
+    assert_eq!(timeline.layers[0].keyframes.len(), 1);
+    assert_eq!(timeline.layers[0].keyframes[0].frame, 0);
+    editor.project.validate().unwrap();
+
+    let path = dir.join("one-frame.nflash");
+    assert!(editor.save_to_path(path.clone()));
+    let reopened = Project::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let reopened_timeline = &reopened.symbol(&reopened.root).unwrap().timeline;
+    assert_eq!(reopened_timeline.frame_count, 1);
+    assert_eq!(reopened_timeline.layers[0].keyframes.len(), 1);
+    reopened.validate().unwrap();
+}
+
+#[test]
 fn document_sessions_preserve_selection_history_views_and_independent_recovery() {
     let (mut editor, ctx, dir) = setup("switch");
     let original = editor.project.clone();
@@ -267,6 +292,7 @@ fn document_close_quit_cancel_and_failed_open_preserve_all_unsaved_documents() {
             .timeline
             .scripts
             .push(neoflash_core::FrameScript {
+                layer: None,
                 frame: 0,
                 script: neoflash_core::Script {
                     language: neoflash_core::ScriptLanguage::ActionScript2,
@@ -1256,6 +1282,7 @@ fn t276_fresh_profile_authoring_conflict_recovery_test_movie_and_publish_journey
         let root_id = ed.project.root.clone();
         let root_sym = ed.project.symbol_mut(&root_id).unwrap();
         root_sym.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 0,
             script: Script {
                 language: ScriptLanguage::ActionScript2,
@@ -1938,6 +1965,7 @@ fn t318_multi_tab_switch_close_stops_audio_resets_transients_and_zero_tab_comman
             .timeline
             .scripts
             .push(neoflash_core::FrameScript {
+                layer: None,
                 frame: 0,
                 script: Script {
                     language: ScriptLanguage::JavaScript,

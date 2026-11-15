@@ -4239,11 +4239,15 @@ impl<'a> JsflVm<'a> {
             }
             JsflValue::Frame(fh) => {
                 let sym = self.symbol_ref(&fh.symbol_id, span)?;
+                let layer_index = sym
+                    .timeline
+                    .layers
+                    .iter()
+                    .position(|layer| layer.id == fh.layer_id)
+                    .ok_or_else(|| self.err(span, "Frame layer no longer exists."))?;
                 let script_src = sym
                     .timeline
-                    .scripts
-                    .iter()
-                    .find(|s| s.frame == fh.frame)
+                    .frame_script_for_layer(layer_index, fh.frame)
                     .map(|s| s.script.source.clone())
                     .unwrap_or_default();
                 let (_layer, kf, duration) = self.resolve_frame_keyframe(fh, span)?;
@@ -4868,18 +4872,28 @@ impl<'a> JsflVm<'a> {
                     }
                     "actionScript" => {
                         let code = val.to_display_string();
-                        let sym = self.symbol_mut(&fh.symbol_id, span)?;
-                        if code.trim().is_empty() {
-                            sym.timeline.scripts.retain(|s| s.frame != kf_start);
-                        } else if let Some(slot) = sym
+                        let layer_index = self
+                            .symbol_ref(&fh.symbol_id, span)?
                             .timeline
-                            .scripts
-                            .iter_mut()
-                            .find(|s| s.frame == kf_start)
-                        {
+                            .layers
+                            .iter()
+                            .position(|layer| layer.id == fh.layer_id)
+                            .ok_or_else(|| self.err(span, "Frame layer no longer exists."))?;
+                        let sym = self.symbol_mut(&fh.symbol_id, span)?;
+                        let existing = sym
+                            .timeline
+                            .frame_script_index_for_layer(layer_index, kf_start);
+                        if code.trim().is_empty() {
+                            if let Some(index) = existing {
+                                sym.timeline.scripts.remove(index);
+                            }
+                        } else if let Some(index) = existing {
+                            let slot = &mut sym.timeline.scripts[index];
+                            slot.layer = Some(fh.layer_id.clone());
                             slot.script.source = code;
                         } else {
                             sym.timeline.scripts.push(FrameScript {
+                                layer: Some(fh.layer_id.clone()),
                                 frame: kf_start,
                                 script: Script {
                                     language: ScriptLanguage::ActionScript2,
@@ -8278,6 +8292,7 @@ mod tests {
         timeline.scripts = [(1, "removed();"), (3, "atBoundary();"), (5, "after();")]
             .into_iter()
             .map(|(frame, source)| FrameScript {
+                layer: None,
                 frame,
                 script: Script {
                     language: ScriptLanguage::JavaScript,

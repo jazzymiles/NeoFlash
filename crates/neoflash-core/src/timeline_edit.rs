@@ -1,5 +1,5 @@
-//! Atomic authoring edits over rectangular frame ranges. Frame scripts belong to
-//! the symbol, so their inclusion is always explicit and never repeated per row.
+//! Atomic authoring edits over rectangular frame ranges. Format-13 frame scripts follow their
+//! explicitly owning row; compatible legacy layerless scripts retain their global semantics.
 use crate::*;
 use std::collections::{HashMap, HashSet};
 
@@ -115,6 +115,20 @@ fn range_end(timeline: &Timeline, range: &FrameRange) -> Result<u32, String> {
     }
     Ok(range.end + 1)
 }
+
+/// Whether a frame script follows a rectangular edit of `layers`.
+///
+/// Format-13 scripts have a stable authoring owner and only follow that selected row. A legacy
+/// layerless script has no safe row to infer during a structural edit, so it deliberately keeps
+/// the pre-format-13 global Include frame scripts behaviour: any selected row includes, removes,
+/// or ripples it. This avoids guessing an owner or silently changing old documents.
+fn script_follows_layers(script: &FrameScript, layers: &[Id]) -> bool {
+    script
+        .layer
+        .as_ref()
+        .is_none_or(|owner| layers.iter().any(|layer| layer == owner))
+}
+
 fn exposure(layer: &Layer, count: u32) -> u32 {
     layer.properties.end_frame.unwrap_or(count)
 }
@@ -1245,7 +1259,11 @@ pub fn copy_frames(
         timeline
             .scripts
             .iter()
-            .filter(|script| script.frame >= range.start && script.frame < end)
+            .filter(|script| {
+                script.frame >= range.start
+                    && script.frame < end
+                    && script_follows_layers(script, &range.layers)
+            })
             .cloned()
             .map(|mut script| {
                 script.frame -= range.start;
@@ -1305,9 +1323,11 @@ fn clear_rows(
     Ok(())
 }
 fn remove_scripts(timeline: &mut Timeline, range: &FrameRange) {
-    timeline
-        .scripts
-        .retain(|script| script.frame < range.start || script.frame > range.end);
+    timeline.scripts.retain(|script| {
+        script.frame < range.start
+            || script.frame > range.end
+            || !script_follows_layers(script, &range.layers)
+    });
 }
 fn paste_rows(
     project: &mut Project,
@@ -1343,15 +1363,47 @@ fn paste_rows(
         .ok_or("The edited symbol no longer exists.")?
         .timeline;
     let indices = layer_indices(timeline, layers)?;
+    let script_layer_map: HashMap<Id, Id> = clip
+        .layers
+        .iter()
+        .zip(&indices)
+        .map(|(source, &index)| {
+            (
+                source.source_layer.clone(),
+                timeline.layers[index].id.clone(),
+            )
+        })
+        .collect();
     if include_scripts
-        && clip.scripts.iter().any(|incoming| {
-            timeline
-                .scripts
-                .iter()
-                .any(|existing| existing.frame == at + incoming.frame)
+        && clip.scripts.iter().any(|script| {
+            script
+                .layer
+                .as_ref()
+                .is_some_and(|owner| !script_layer_map.contains_key(owner))
         })
     {
-        return Err("A destination frame already has global code. Move it first or paste without frame scripts; no code was replaced.".into());
+        return Err(
+            "Frame clipboard contains a script whose owning layer was not copied; no frames or code were pasted."
+                .into(),
+        );
+    }
+    if include_scripts
+        && clip.scripts.iter().any(|incoming| {
+            let incoming_layer = incoming
+                .layer
+                .as_ref()
+                .and_then(|layer| script_layer_map.get(layer));
+            timeline.scripts.iter().any(|existing| {
+                existing.frame == at + incoming.frame
+                    && match (existing.layer.as_ref(), incoming_layer) {
+                        (Some(existing), Some(incoming)) => existing == incoming,
+                        // A legacy layerless record has no safe independent destination.
+                        _ => true,
+                    }
+            })
+        })
+    {
+        return Err("A destination layer/frame already has code, or legacy layerless code makes the destination global. Move it first or paste without frame scripts; no code was replaced.".into());
     }
     let mut owners: HashMap<Id, Id> = project
         .symbols
@@ -1483,6 +1535,17 @@ fn paste_rows(
             .scripts
             .extend(clip.scripts.iter().cloned().map(|mut script| {
                 script.frame += at;
+                if let Some(source_owner) = script.layer.take() {
+                    // Preflight above guarantees a destination owner. Preserve the explicit
+                    // source ID even if that invariant is changed later; never degrade an owned
+                    // script into the legacy layerless representation.
+                    script.layer = Some(
+                        script_layer_map
+                            .get(&source_owner)
+                            .cloned()
+                            .unwrap_or(source_owner),
+                    );
+                }
                 script
             }));
         timeline.scripts.sort_by_key(|script| script.frame);
@@ -1894,7 +1957,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             if include_scripts {
                 remove_scripts(timeline, &range);
                 for script in &mut timeline.scripts {
-                    if script.frame >= end {
+                    if script.frame >= end && script_follows_layers(script, &range.layers) {
                         script.frame -= count;
                     }
                 }
@@ -1944,7 +2007,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             }
             if include_scripts {
                 for script in &mut timeline.scripts {
-                    if script.frame > at {
+                    if script.frame > at && script_follows_layers(script, &layers) {
                         script.frame += count;
                     }
                 }
@@ -2368,9 +2431,10 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
     for layer in &mut timeline.layers {
         layer.normalize_motion_keys();
     }
+    candidate.prune_authoring_groups();
+    candidate.prune_frame_script_layers();
     candidate.format_version = candidate.format_version.max(5);
     candidate.upgrade_format_for_features();
-    candidate.prune_authoring_groups();
     candidate.validate().map_err(|error| error.to_string())?;
     *project = candidate;
     Ok(())
@@ -2425,14 +2489,26 @@ impl Timeline {
             .any(|script| script.frame == frame && !script.script.source.trim().is_empty())
     }
 
-    /// Returns the layer index (`self.layers[index]`) whose keyframe at `frame` displays
-    /// and owns the `a` marker for the timeline's `FrameScript` at `frame`, or `None` when
-    /// there is no non-empty `FrameScript` at `frame` or no visible non-folder layer has an
-    /// ordinary keyframe at `frame` (in which case the `a` marker is shown on the ruler).
-    pub fn action_layer_for_frame(&self, frame: u32) -> Option<usize> {
-        if frame >= self.frame_count || !self.has_frame_script(frame) {
+    /// Resolve the authoring row for one frame script. New documents store the stable layer ID;
+    /// legacy scripts without it retain the old deterministic topmost-key fallback.
+    pub fn action_layer_for_script(&self, script: &FrameScript) -> Option<usize> {
+        if script.frame >= self.frame_count || script.script.source.trim().is_empty() {
             return None;
         }
+        if let Some(layer_id) = &script.layer {
+            return self.layers.iter().position(|layer| {
+                &layer.id == layer_id
+                    && layer.properties.role != LayerRole::Folder
+                    && layer
+                        .keyframes
+                        .iter()
+                        .any(|key| key.frame == script.frame && key.keyed_properties.is_none())
+            });
+        }
+        self.inferred_action_layer_for_frame(script.frame)
+    }
+
+    fn inferred_action_layer_for_frame(&self, frame: u32) -> Option<usize> {
         self.visible_layer_indices().into_iter().find(|&index| {
             let layer = &self.layers[index];
             if layer.properties.role == LayerRole::Folder {
@@ -2451,10 +2527,69 @@ impl Timeline {
         })
     }
 
+    /// The script visible in Actions for one exact layer/frame context. Explicitly owned scripts
+    /// win. A layerless legacy script uses its inferred marker row when one exists; if no exact
+    /// ordinary key can host the marker, it retains its historical global authoring visibility
+    /// from any non-folder row while the Timeline keeps the marker on the ruler.
+    pub fn frame_script_for_layer(&self, layer_index: usize, frame: u32) -> Option<&FrameScript> {
+        self.frame_script_index_for_layer(layer_index, frame)
+            .and_then(|index| self.scripts.get(index))
+    }
+
+    /// Index form of [`Timeline::frame_script_for_layer`] for layer-aware mutation paths.
+    pub fn frame_script_index_for_layer(&self, layer_index: usize, frame: u32) -> Option<usize> {
+        let layer_id = &self.layers.get(layer_index)?.id;
+        self.scripts
+            .iter()
+            .position(|script| script.frame == frame && script.layer.as_ref() == Some(layer_id))
+            .or_else(|| {
+                self.scripts.iter().position(|script| {
+                    script.frame == frame
+                        && !script.script.source.trim().is_empty()
+                        && script.layer.is_none()
+                        && self.action_layer_for_script(script).map_or_else(
+                            || {
+                                self.layers
+                                    .get(layer_index)
+                                    .is_some_and(|layer| layer.properties.role != LayerRole::Folder)
+                            },
+                            |owner| owner == layer_index,
+                        )
+                })
+            })
+    }
+
+    /// Returns the layer index (`self.layers[index]`) whose keyframe at `frame` displays
+    /// and owns the `a` marker for the timeline's `FrameScript` at `frame`, or `None` when
+    /// there is no non-empty `FrameScript` at `frame` or no visible non-folder layer has an
+    /// ordinary keyframe at `frame` (in which case the `a` marker is shown on the ruler).
+    pub fn action_layer_for_frame(&self, frame: u32) -> Option<usize> {
+        if frame >= self.frame_count || !self.has_frame_script(frame) {
+            return None;
+        }
+        self.scripts
+            .iter()
+            .filter(|script| script.frame == frame)
+            .find_map(|script| self.action_layer_for_script(script))
+    }
+
+    /// Returns true when at least one non-empty script at `frame` cannot be shown on a layer row.
+    /// The Timeline paints one ruler marker in that case, even if another same-frame script does
+    /// have a valid row owner.
+    pub fn frame_has_unplaced_script(&self, frame: u32) -> bool {
+        self.scripts.iter().any(|script| {
+            script.frame == frame
+                && !script.script.source.trim().is_empty()
+                && self.action_layer_for_script(script).is_none()
+        })
+    }
+
     /// Returns true if the keyframe on `layer_index` at `frame` is the action-bearing
     /// keyframe that carries the timeline's `FrameScript` at `frame`.
     pub fn key_carries_frame_script(&self, layer_index: usize, frame: u32) -> bool {
-        self.action_layer_for_frame(frame) == Some(layer_index)
+        self.scripts.iter().any(|script| {
+            script.frame == frame && self.action_layer_for_script(script) == Some(layer_index)
+        })
     }
 }
 
@@ -2509,17 +2644,16 @@ impl Project {
             .find(|k| k.frame == from)
             .cloned()
             .ok_or(KeyMoveError::MissingSourceKey)?;
+        let layer_id = l.id.clone();
         let carries_script = timeline.key_carries_frame_script(layer, from);
-        let script = carries_script
+        let script_index = carries_script
             .then(|| {
-                timeline
-                    .scripts
-                    .iter()
-                    .find(|script| script.frame == from && !script.script.source.trim().is_empty())
-                    .cloned()
+                timeline.scripts.iter().position(|script| {
+                    script.frame == from && timeline.action_layer_for_script(script) == Some(layer)
+                })
             })
             .flatten();
-        if script.is_some() && timeline.has_frame_script(to) {
+        if script_index.is_some() && timeline.frame_script_for_layer(layer, to).is_some() {
             return Err(KeyMoveError::DestinationScriptConflict);
         }
 
@@ -2531,7 +2665,6 @@ impl Project {
             .iter()
             .filter(|k| k.frame != from)
             .all(|k| k.frame < to);
-        let layer_id = l.id.clone();
         let was_trailing_single =
             !copy && from > 0 && was_last && still_last && old_end == from + 1;
         let new_layer_end = if was_trailing_single {
@@ -2555,14 +2688,16 @@ impl Project {
         l.keyframes.sort_by_key(|k| k.frame);
         l.normalize_motion_keys();
 
-        let moved_script = script.is_some();
-        if let Some(mut script) = script {
+        let moved_script = script_index.is_some();
+        if let Some(script_index) = script_index {
             let scripts = &mut symbol_mut.timeline.scripts;
-            if !copy {
-                scripts.retain(|item| item.frame != from);
-            }
-            scripts.retain(|item| item.frame != to);
+            let mut script = if copy {
+                scripts[script_index].clone()
+            } else {
+                scripts.remove(script_index)
+            };
             script.frame = to;
+            script.layer = Some(layer_id.clone());
             scripts.push(script);
             scripts.sort_by_key(|item| item.frame);
         }
@@ -2607,6 +2742,60 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn format13_range_script_project() -> (Project, Id, Id, Id) {
+        let mut project = Project::blank();
+        project.format_version = 13;
+        let root = project.root.clone();
+        let first_layer: Id = "range-script-first".into();
+        let second_layer: Id = "range-script-second".into();
+        let timeline = &mut project.symbol_mut(&root).unwrap().timeline;
+        timeline.frame_count = 10;
+        timeline.layers[0].id = first_layer.clone();
+        timeline.layers[0].name = "First".into();
+        timeline.layers[0].properties.end_frame = Some(10);
+        timeline.layers.push(Layer {
+            id: second_layer.clone(),
+            name: "Second".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![blank(0)],
+            properties: LayerProperties {
+                end_frame: Some(10),
+                ..LayerProperties::default()
+            },
+        });
+        timeline.scripts = [
+            ("first-2", first_layer.clone(), 2),
+            ("second-2", second_layer.clone(), 2),
+            ("first-6", first_layer.clone(), 6),
+            ("second-6", second_layer.clone(), 6),
+        ]
+        .into_iter()
+        .map(|(source, layer, frame)| FrameScript {
+            layer: Some(layer),
+            frame,
+            script: Script {
+                language: ScriptLanguage::JavaScript,
+                source: source.into(),
+            },
+        })
+        .collect();
+        project.validate().unwrap();
+        (project, root, first_layer, second_layer)
+    }
+
+    fn script_position(project: &Project, root: &Id, source: &str) -> (Option<Id>, u32) {
+        let script = project
+            .symbol(root)
+            .unwrap()
+            .timeline
+            .scripts
+            .iter()
+            .find(|script| script.script.source == source)
+            .unwrap_or_else(|| panic!("missing test frame script {source}"));
+        (script.layer.clone(), script.frame)
+    }
 
     #[test]
     fn reverse_frames_inverts_easing_curves_to_mirror_poses_in_time() {
@@ -2695,39 +2884,57 @@ mod tests {
 
     #[test]
     fn move_keyframe_moves_and_copies_attached_frame_script_without_stealing_from_other_layers() {
-        let demo = Project::demo();
+        let mut demo = Project::demo();
         let root = demo.root.clone();
         // In Project::demo() ("Ideas in motion"), Scene 1 has layers:
         // [0: Typography, 1: Accents, 2: Orbit instances].
-        // Top visible row is layer 2 ("Orbit instances"), which carries the frame 1 (0) script.
+        // Give two layers independent scripts at the same timeline frame. Runtime execution is
+        // timeline-wide, while authoring ownership and direct-key drag remain layer-specific.
+        demo.format_version = 13;
+        let orbit_layer = demo.symbol(&root).unwrap().timeline.layers[2].id.clone();
+        let accents_layer = demo.symbol(&root).unwrap().timeline.layers[1].id.clone();
+        demo.symbol_mut(&root).unwrap().timeline.scripts[0].layer = Some(orbit_layer.clone());
+        demo.symbol_mut(&root)
+            .unwrap()
+            .timeline
+            .scripts
+            .push(FrameScript {
+                layer: Some(accents_layer.clone()),
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::JavaScript,
+                    source: "trace(\"accent action\");".into(),
+                },
+            });
+        demo.validate().unwrap();
+
         let timeline = &demo.symbol(&root).unwrap().timeline;
         assert_eq!(timeline.action_layer_for_frame(0), Some(2));
         assert!(timeline.key_carries_frame_script(2, 0));
-        assert!(!timeline.key_carries_frame_script(1, 0));
+        assert!(timeline.key_carries_frame_script(1, 0));
         assert!(!timeline.key_carries_frame_script(0, 0));
 
-        // Moving a non-bearing layer's keyframe at frame 0 (e.g. Typography or Accents) must not steal the script.
+        // Moving a non-bearing layer's keyframe at frame 0 must not steal either script.
         let mut non_bearing = demo.clone();
         let moved_script = non_bearing
             .move_keyframe(&root, 0, 0, 13, false, true)
             .unwrap();
         assert!(!moved_script);
         assert_eq!(
-            non_bearing.symbol(&root).unwrap().timeline.scripts[0].frame,
-            0
-        );
-        assert_eq!(
             non_bearing
                 .symbol(&root)
                 .unwrap()
                 .timeline
-                .action_layer_for_frame(0),
-            Some(2)
+                .scripts
+                .iter()
+                .map(|script| script.frame)
+                .collect::<Vec<_>>(),
+            vec![0, 0]
         );
         non_bearing.validate().unwrap();
 
         // Moving the action-bearing keyframe on Orbit instances (layer 2) from frame 0 to 13
-        // moves the keyframe AND its attached FrameScript atomically.
+        // moves only its attached FrameScript; the Accents script stays at frame 0.
         let mut moved = demo.clone();
         moved.symbol_mut(&root).unwrap().timeline.layers[2].keyframes[0].tween =
             Some(Easing::Linear);
@@ -2746,13 +2953,23 @@ mod tests {
         );
         assert_eq!(
             tl.scripts.iter().map(|s| s.frame).collect::<Vec<_>>(),
-            vec![13]
+            vec![0, 13]
         );
-        assert_eq!(tl.action_layer_for_frame(0), None);
+        assert!(tl.scripts.iter().any(|script| {
+            script.layer.as_ref() == Some(&accents_layer)
+                && script.frame == 0
+                && script.script.source.contains("accent action")
+        }));
+        assert!(
+            tl.scripts.iter().any(|script| {
+                script.layer.as_ref() == Some(&orbit_layer) && script.frame == 13
+            })
+        );
+        assert_eq!(tl.action_layer_for_frame(0), Some(1));
         assert_eq!(tl.action_layer_for_frame(13), Some(2));
         moved.validate().unwrap();
 
-        // Option-drag / copy duplicates both the keyframe and the FrameScript.
+        // Option-drag / copy duplicates the Orbit script and leaves the same-frame Accents script.
         let mut copied = demo.clone();
         let copied_script = copied.move_keyframe(&root, 2, 0, 13, true, true).unwrap();
         assert!(copied_script);
@@ -2767,10 +2984,24 @@ mod tests {
         );
         assert_eq!(
             tl.scripts.iter().map(|s| s.frame).collect::<Vec<_>>(),
-            vec![0, 13]
+            vec![0, 0, 13]
         );
         assert_eq!(tl.action_layer_for_frame(0), Some(2));
         assert_eq!(tl.action_layer_for_frame(13), Some(2));
+        assert_eq!(
+            tl.scripts
+                .iter()
+                .filter(|script| script.layer.as_ref() == Some(&accents_layer))
+                .count(),
+            1
+        );
+        assert_eq!(
+            tl.scripts
+                .iter()
+                .filter(|script| script.layer.as_ref() == Some(&orbit_layer))
+                .count(),
+            2
+        );
         copied.validate().unwrap();
 
         // Destination key collision or script collision refuses the whole gesture atomically.
@@ -2781,6 +3012,48 @@ mod tests {
         );
         assert_eq!(copied, before_collision);
 
+        // A script on another layer at the destination is not a collision.
+        let mut neighbor_destination = demo.clone();
+        neighbor_destination
+            .symbol_mut(&root)
+            .unwrap()
+            .timeline
+            .scripts
+            .push(FrameScript {
+                layer: Some(accents_layer.clone()),
+                frame: 13,
+                script: Script {
+                    language: ScriptLanguage::JavaScript,
+                    source: "this.stop();".into(),
+                },
+            });
+        assert!(
+            neighbor_destination
+                .move_keyframe(&root, 2, 0, 13, false, true)
+                .unwrap()
+        );
+        let destination_scripts = neighbor_destination
+            .symbol(&root)
+            .unwrap()
+            .timeline
+            .scripts
+            .iter()
+            .filter(|script| script.frame == 13)
+            .collect::<Vec<_>>();
+        assert_eq!(destination_scripts.len(), 2);
+        assert!(
+            destination_scripts
+                .iter()
+                .any(|script| script.layer.as_ref() == Some(&accents_layer))
+        );
+        assert!(
+            destination_scripts
+                .iter()
+                .any(|script| script.layer.as_ref() == Some(&orbit_layer))
+        );
+        neighbor_destination.validate().unwrap();
+
+        // A script owned by the moved key's layer at the destination remains a collision.
         let mut script_conflict = demo.clone();
         script_conflict
             .symbol_mut(&root)
@@ -2788,6 +3061,7 @@ mod tests {
             .timeline
             .scripts
             .push(FrameScript {
+                layer: Some(orbit_layer),
                 frame: 13,
                 script: Script {
                     language: ScriptLanguage::JavaScript,
@@ -2800,6 +3074,305 @@ mod tests {
             Err(KeyMoveError::DestinationScriptConflict)
         );
         assert_eq!(script_conflict, before_script_conflict);
+    }
+
+    #[test]
+    fn rectangular_frame_edits_follow_only_the_selected_format13_script_owner() {
+        let (project, root, first, second) = format13_range_script_project();
+        let range = FrameRange {
+            layers: vec![first.clone()],
+            start: 2,
+            end: 2,
+        };
+
+        let clip = copy_frames(&project, &root, &range, true).unwrap();
+        assert_eq!(clip.scripts.len(), 1);
+        assert_eq!(clip.scripts[0].layer.as_ref(), Some(&first));
+        assert_eq!(clip.scripts[0].script.source, "first-2");
+
+        let mut pasted = project.clone();
+        edit_frames(
+            &mut pasted,
+            &root,
+            TimelineEdit::Paste {
+                clip: clip.clone(),
+                layers: vec![second.clone()],
+                at: 4,
+                include_scripts: true,
+            },
+        )
+        .unwrap();
+        assert!(
+            pasted
+                .symbol(&root)
+                .unwrap()
+                .timeline
+                .scripts
+                .iter()
+                .any(|script| {
+                    script.script.source == "first-2"
+                        && script.layer.as_ref() == Some(&second)
+                        && script.frame == 4
+                })
+        );
+        assert_eq!(
+            script_position(&pasted, &root, "second-2"),
+            (Some(second.clone()), 2)
+        );
+        pasted.validate().unwrap();
+
+        let mut moved = project.clone();
+        edit_frames(
+            &mut moved,
+            &root,
+            TimelineEdit::Move {
+                range: range.clone(),
+                layers: vec![first.clone()],
+                at: 4,
+                copy: false,
+                include_scripts: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            script_position(&moved, &root, "first-2"),
+            (Some(first.clone()), 4)
+        );
+        assert_eq!(
+            script_position(&moved, &root, "second-2"),
+            (Some(second.clone()), 2)
+        );
+        moved.validate().unwrap();
+
+        let mut cleared = project.clone();
+        edit_frames(
+            &mut cleared,
+            &root,
+            TimelineEdit::Clear {
+                range: range.clone(),
+                include_scripts: true,
+            },
+        )
+        .unwrap();
+        assert!(
+            cleared
+                .symbol(&root)
+                .unwrap()
+                .timeline
+                .scripts
+                .iter()
+                .all(|script| script.script.source != "first-2")
+        );
+        assert_eq!(
+            script_position(&cleared, &root, "second-2"),
+            (Some(second.clone()), 2)
+        );
+        cleared.validate().unwrap();
+
+        let mut deleted = project.clone();
+        edit_frames(
+            &mut deleted,
+            &root,
+            TimelineEdit::Delete {
+                range: FrameRange {
+                    layers: vec![first.clone()],
+                    start: 2,
+                    end: 3,
+                },
+                include_scripts: true,
+            },
+        )
+        .unwrap();
+        assert!(
+            deleted
+                .symbol(&root)
+                .unwrap()
+                .timeline
+                .scripts
+                .iter()
+                .all(|script| script.script.source != "first-2")
+        );
+        assert_eq!(
+            script_position(&deleted, &root, "first-6"),
+            (Some(first.clone()), 4)
+        );
+        assert_eq!(
+            script_position(&deleted, &root, "second-2"),
+            (Some(second.clone()), 2)
+        );
+        assert_eq!(
+            script_position(&deleted, &root, "second-6"),
+            (Some(second.clone()), 6)
+        );
+        deleted.validate().unwrap();
+
+        let mut inserted = project.clone();
+        edit_frames(
+            &mut inserted,
+            &root,
+            TimelineEdit::Insert {
+                layers: vec![first.clone()],
+                at: 1,
+                count: 2,
+                include_scripts: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            script_position(&inserted, &root, "first-2"),
+            (Some(first.clone()), 4)
+        );
+        assert_eq!(
+            script_position(&inserted, &root, "first-6"),
+            (Some(first.clone()), 8)
+        );
+        assert_eq!(
+            script_position(&inserted, &root, "second-2"),
+            (Some(second.clone()), 2)
+        );
+        assert_eq!(
+            script_position(&inserted, &root, "second-6"),
+            (Some(second), 6)
+        );
+        inserted.validate().unwrap();
+
+        let mut invalid_clip = clip;
+        invalid_clip.scripts[0].layer = Some("not-a-copied-layer".into());
+        let mut atomic = project.clone();
+        let before = atomic.clone();
+        let error = edit_frames(
+            &mut atomic,
+            &root,
+            TimelineEdit::Paste {
+                clip: invalid_clip,
+                layers: vec![first],
+                at: 4,
+                include_scripts: true,
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("owning layer was not copied"));
+        assert_eq!(atomic, before);
+    }
+
+    #[test]
+    fn legacy_layerless_scripts_keep_global_rectangular_edit_semantics() {
+        let (mut project, root, first, second) = format13_range_script_project();
+        project.symbol_mut(&root).unwrap().timeline.scripts.extend([
+            FrameScript {
+                layer: None,
+                frame: 2,
+                script: Script {
+                    language: ScriptLanguage::JavaScript,
+                    source: "legacy-2".into(),
+                },
+            },
+            FrameScript {
+                layer: None,
+                frame: 6,
+                script: Script {
+                    language: ScriptLanguage::JavaScript,
+                    source: "legacy-6".into(),
+                },
+            },
+        ]);
+        project.validate().unwrap();
+
+        // Layerless records intentionally retain the old global Include frame scripts contract:
+        // selecting any row copies/removes them and ripples their time.
+        let clip = copy_frames(
+            &project,
+            &root,
+            &FrameRange {
+                layers: vec![first.clone()],
+                start: 2,
+                end: 2,
+            },
+            true,
+        )
+        .unwrap();
+        assert!(
+            clip.scripts
+                .iter()
+                .any(|script| script.layer.is_none() && script.script.source == "legacy-2")
+        );
+        assert!(
+            clip.scripts
+                .iter()
+                .all(|script| script.script.source != "second-2")
+        );
+
+        let mut cleared = project.clone();
+        edit_frames(
+            &mut cleared,
+            &root,
+            TimelineEdit::Clear {
+                range: FrameRange {
+                    layers: vec![first.clone()],
+                    start: 2,
+                    end: 2,
+                },
+                include_scripts: true,
+            },
+        )
+        .unwrap();
+        assert!(
+            cleared
+                .symbol(&root)
+                .unwrap()
+                .timeline
+                .scripts
+                .iter()
+                .all(|script| script.script.source != "legacy-2")
+        );
+        assert_eq!(
+            script_position(&cleared, &root, "second-2"),
+            (Some(second.clone()), 2)
+        );
+
+        let mut deleted = project.clone();
+        edit_frames(
+            &mut deleted,
+            &root,
+            TimelineEdit::Delete {
+                range: FrameRange {
+                    layers: vec![first.clone()],
+                    start: 2,
+                    end: 3,
+                },
+                include_scripts: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(script_position(&deleted, &root, "legacy-6"), (None, 4));
+        assert_eq!(
+            script_position(&deleted, &root, "second-6"),
+            (Some(second.clone()), 6)
+        );
+
+        let mut inserted = project;
+        edit_frames(
+            &mut inserted,
+            &root,
+            TimelineEdit::Insert {
+                layers: vec![first],
+                at: 1,
+                count: 2,
+                include_scripts: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(script_position(&inserted, &root, "legacy-2"), (None, 4));
+        assert_eq!(script_position(&inserted, &root, "legacy-6"), (None, 8));
+        assert_eq!(
+            script_position(&inserted, &root, "second-2"),
+            (Some(second.clone()), 2)
+        );
+        assert_eq!(
+            script_position(&inserted, &root, "second-6"),
+            (Some(second), 6)
+        );
+        inserted.validate().unwrap();
     }
 
     #[test]

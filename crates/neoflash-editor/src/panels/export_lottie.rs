@@ -1563,6 +1563,7 @@ mod tests {
         );
         project.symbols[0].timeline.frame_count = 10;
         project.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 4,
             script: Script {
                 language: ScriptLanguage::ActionScript2,

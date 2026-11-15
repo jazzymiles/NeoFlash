@@ -387,6 +387,7 @@ fn authored_playback_advances_independent_clips_without_scripts_or_editor_outlin
     movie.timeline.layers[0].properties.outline = true;
     movie.timeline.layers[0].properties.outline_color = Some([255, 0, 255]);
     movie.timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,

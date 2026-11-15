@@ -372,24 +372,6 @@ fn push_symbol_rows(
     let filtering = !query.is_empty();
 
     if state.show_frames_and_layers {
-        // Match the Timeline's actual per-frame action-bearing row. Keep the historical
-        // named/top-layer fallback for scripts whose frame has no ordinary visible keyframe.
-        let top_layer_idx = sym.timeline.layers.len().checked_sub(1);
-        let named_actions_idx = sym
-            .timeline
-            .layers
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, l)| l.name.eq_ignore_ascii_case("actions"))
-            .map(|(i, _)| i);
-        let script_layer_idx = |frame| {
-            sym.timeline
-                .action_layer_for_frame(frame)
-                .or(named_actions_idx)
-                .or(top_layer_idx)
-        };
-
         let has_timeline_scripts = cats[CAT_SCRIPTS]
             && sym
                 .timeline
@@ -423,7 +405,7 @@ fn push_symbol_rows(
             if has_timeline_scripts {
                 for fs in &sym.timeline.scripts {
                     if !fs.script.source.trim().is_empty()
-                        && script_layer_idx(fs.frame) == Some(layer_idx)
+                        && sym.timeline.action_layer_for_script(fs) == Some(layer_idx)
                         && !frame_numbers.contains(&fs.frame)
                     {
                         frame_numbers.push(fs.frame);
@@ -498,12 +480,11 @@ fn push_symbol_rows(
                     }
                 }
                 if has_timeline_scripts
-                    && let Some(fs) = sym
-                        .timeline
-                        .scripts
-                        .iter()
-                        .find(|fs| fs.frame == frame_num && !fs.script.source.trim().is_empty())
-                    && script_layer_idx(frame_num) == Some(layer_idx)
+                    && let Some(fs) = sym.timeline.scripts.iter().find(|fs| {
+                        fs.frame == frame_num
+                            && !fs.script.source.trim().is_empty()
+                            && sym.timeline.action_layer_for_script(fs) == Some(layer_idx)
+                    })
                 {
                     let label = format!("Actions for Frame {}", fs.frame + 1);
                     if !filtering
@@ -511,12 +492,13 @@ fn push_symbol_rows(
                         || fs.script.source.to_ascii_lowercase().contains(query)
                     {
                         leaves.push(LeafEntry {
-                            key: format!("fs:{}:{}", sym.id, fs.frame),
+                            key: format!("fs:{}:{}:{}", sym.id, layer.id, fs.frame),
                             label: label.clone(),
                             breadcrumb_leaf: label,
                             icon: i16::CODE,
                             target: MovieTarget::Script(ScriptLocation::Frame {
                                 symbol: sym.id.clone(),
+                                layer: fs.layer.clone(),
                                 frame: fs.frame,
                             }),
                         });
@@ -630,7 +612,12 @@ fn push_symbol_rows(
                     || fs.script.source.to_ascii_lowercase().contains(query)
                 {
                     rows.push(MovieRow {
-                        key: format!("fs:{}:{}", sym.id, fs.frame),
+                        key: format!(
+                            "fs:{}:{}:{}",
+                            sym.id,
+                            fs.layer.as_deref().unwrap_or("legacy"),
+                            fs.frame
+                        ),
                         label: label.clone(),
                         breadcrumb: format!("{bc_prefix} › Frame {} › {label}", fs.frame + 1),
                         depth: base_depth,
@@ -639,6 +626,7 @@ fn push_symbol_rows(
                         leaf_icon: Some(i16::CODE),
                         target: MovieTarget::Script(ScriptLocation::Frame {
                             symbol: sym.id.clone(),
+                            layer: fs.layer.clone(),
                             frame: fs.frame,
                         }),
                     });

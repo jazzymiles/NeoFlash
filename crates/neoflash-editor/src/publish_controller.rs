@@ -550,7 +550,7 @@ fn script_location_to_output_location(
                 .map_or_else(|| PathBuf::from(id), |u| PathBuf::from(&u.path));
             OutputLocation::for_source(id.clone(), path).with_line_col(line, column)
         }
-        ScriptLocation::Frame { symbol, frame } => {
+        ScriptLocation::Frame { symbol, frame, .. } => {
             let sym_name = project.symbol(symbol).map(|s| s.name.clone());
             OutputLocation::for_frame(symbol.clone(), sym_name, None, *frame)
                 .with_line_col(line, column)
@@ -622,6 +622,7 @@ fn banner_diagnostic_to_locations(
                 let script_loc = (diag.code == "banner-unsupported-frame-script").then(|| {
                     ScriptLocation::Frame {
                         symbol: sym.id.clone(),
+                        layer: None,
                         frame,
                     }
                 });

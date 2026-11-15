@@ -1344,6 +1344,7 @@ fn execute_batch_op(
                     };
                 } else {
                     sym.timeline.scripts.push(FrameScript {
+                        layer: None,
                         frame,
                         script: Script {
                             language: resolved_lang,

@@ -38,7 +38,11 @@ fn panel_drag_previews_actual_contents_including_inactive_tabs_and_cancels_clean
         let body_label = match panel {
             PanelId::Properties => "HTML5 · Rust / WebAssembly".to_owned(),
             PanelId::Timeline => editor.symbol().timeline.layers[0].name.clone(),
-            PanelId::Actions => format!("{} · Frame 1", editor.symbol().name),
+            PanelId::Actions => format!(
+                "{} · {} · Frame 1",
+                editor.symbol().name,
+                editor.symbol().timeline.layers[editor.layer].name
+            ),
             PanelId::Output => "No output yet".to_owned(),
             _ => "No object selected".to_owned(),
         };

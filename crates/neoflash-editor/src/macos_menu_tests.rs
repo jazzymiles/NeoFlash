@@ -907,6 +907,7 @@ fn t311_swf_export_profiles_and_as1_as2_gui_export_succeed() {
             .timeline
             .scripts
             .push(neoflash_core::FrameScript {
+                layer: None,
                 frame: 0,
                 script: neoflash_core::Script {
                     language: lang,

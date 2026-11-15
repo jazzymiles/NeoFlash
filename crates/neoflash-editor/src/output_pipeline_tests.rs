@@ -543,6 +543,7 @@ fn t310_zero_duplicate_messages_across_compiler_runtime_debugger_import_and_expo
         .timeline
         .scripts
         .push(FrameScript {
+            layer: None,
             frame: 0,
             script: faulty_script.clone(),
         });
@@ -583,6 +584,7 @@ fn t310_zero_duplicate_messages_across_compiler_runtime_debugger_import_and_expo
         .unwrap()
         .timeline
         .scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,
@@ -798,6 +800,7 @@ fn t310_click_output_row_jumps_to_symbol_frame_object_and_source_line_span() {
                 }],
             }],
             scripts: vec![FrameScript {
+                layer: None,
                 frame: 2,
                 script: Script {
                     language: ScriptLanguage::TypeScript,
@@ -1005,6 +1008,7 @@ fn t310_clear_and_ring_eviction_never_break_active_debugger_session() {
     let mut project = Project::blank();
     let root = project.root.clone();
     project.symbol_mut(&root).unwrap().timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript2,
@@ -1375,6 +1379,7 @@ fn t319_output_click_to_jump_switches_scenes_nested_symbols_and_soloed_object_sc
             frame_count: 6,
             guides: vec![],
             scripts: vec![FrameScript {
+                layer: None,
                 frame: 1,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,
@@ -1529,6 +1534,7 @@ fn t319_output_click_to_jump_switches_scenes_nested_symbols_and_soloed_object_sc
             }],
         });
         s1.timeline.scripts.push(FrameScript {
+            layer: None,
             frame: 4,
             script: Script {
                 language: ScriptLanguage::ActionScript2,
@@ -1552,6 +1558,7 @@ fn t319_output_click_to_jump_switches_scenes_nested_symbols_and_soloed_object_sc
             frame_count: 5,
             guides: vec![],
             scripts: vec![FrameScript {
+                layer: None,
                 frame: 2,
                 script: Script {
                     language: ScriptLanguage::ActionScript2,
@@ -1648,6 +1655,7 @@ fn t319_output_click_to_jump_switches_scenes_nested_symbols_and_soloed_object_sc
     let scene2_frame_loc = editor.output_location_from_script(
         &ScriptLocation::Frame {
             symbol: scene2_id.clone(),
+            layer: None,
             frame: 2,
         },
         Some(2),
@@ -1689,6 +1697,7 @@ fn t319_output_click_to_jump_switches_scenes_nested_symbols_and_soloed_object_sc
     let nested_frame_loc = editor.output_location_from_script(
         &ScriptLocation::Frame {
             symbol: nested_id.clone(),
+            layer: None,
             frame: 1,
         },
         Some(2),

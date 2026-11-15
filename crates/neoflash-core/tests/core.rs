@@ -425,20 +425,24 @@ fn frame_load_enter_and_click_dispatch_order_is_defined() {
     ]);
     p.symbols[0].timeline.scripts = vec![
         FrameScript {
+            layer: None,
             frame: 0,
             script: js("root-frame0"),
         },
         FrameScript {
+            layer: None,
             frame: 1,
             script: js("root-frame1"),
         },
     ];
     p.symbols[1].timeline.scripts = vec![
         FrameScript {
+            layer: None,
             frame: 0,
             script: js("clip-frame0"),
         },
         FrameScript {
+            layer: None,
             frame: 1,
             script: js("clip-frame1"),
         },
@@ -472,6 +476,7 @@ fn frame_load_enter_and_click_dispatch_order_is_defined() {
 fn self_goto_dispatches_are_bounded_across_drains() {
     let mut p = project(vec![symbol("root", 1, vec![key(0, vec![], None)])]);
     p.symbols[0].timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 0,
         script: js("gotoAndStop(1)"),
     }];
@@ -676,6 +681,7 @@ fn drained_scripts_become_stale_when_a_prior_handler_navigates() {
         vec![key(0, vec![leaf], None), key(1, vec![], None)],
     )]);
     p.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: js("old frame"),
     });
@@ -784,12 +790,73 @@ fn ruler_guides_are_validated() {
             .iter()
             .any(|i| i.message.contains("guide count"))
     );
-    project.format_version = 13;
+    project.format_version = 14;
     assert!(
         validate(&project)
             .iter()
-            .any(|i| i.message.contains("unsupported version 13"))
+            .any(|i| i.message.contains("unsupported version 14"))
     );
+}
+
+#[test]
+fn format_13_frame_script_layer_ownership_roundtrips_and_validates_per_layer() {
+    let mut p = project(vec![symbol("root", 1, vec![key(0, vec![], None)])]);
+    p.symbols[0].timeline.layers.push(Layer {
+        id: "root-layer-2".into(),
+        name: "Layer 2".into(),
+        visible: true,
+        locked: false,
+        properties: LayerProperties::default(),
+        keyframes: vec![key(0, vec![], None)],
+    });
+    p.symbols[0].timeline.scripts = vec![
+        FrameScript {
+            layer: Some("root-layer".into()),
+            frame: 0,
+            script: js("first();"),
+        },
+        FrameScript {
+            layer: Some("root-layer-2".into()),
+            frame: 0,
+            script: js("second();"),
+        },
+    ];
+
+    assert!(p.uses_format_13());
+    assert!(p.validate().unwrap_err().to_string().contains("version 13"));
+    p.upgrade_format_for_features();
+    assert_eq!(p.format_version, 13);
+    p.validate().unwrap();
+    let executed: Vec<_> = Player::new(&p)
+        .drain_scripts()
+        .into_iter()
+        .map(|dispatch| dispatch.script.source)
+        .collect();
+    assert_eq!(executed, vec!["first();", "second();"]);
+    let reopened = Project::from_json(&p.to_json().unwrap()).unwrap();
+    assert_eq!(reopened, p);
+
+    let mut duplicate = p.clone();
+    duplicate.symbols[0].timeline.scripts[1].layer = Some("root-layer".into());
+    assert!(
+        duplicate
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("only one frame script")
+    );
+
+    let mut legacy = project(vec![symbol("legacy", 1, vec![key(0, vec![], None)])]);
+    legacy.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
+        frame: 0,
+        script: js("legacy();"),
+    });
+    let legacy_json = legacy.to_json().unwrap();
+    let legacy_script = &serde_json::from_str::<serde_json::Value>(&legacy_json).unwrap()["symbols"]
+        [0]["timeline"]["scripts"][0];
+    assert!(legacy_script.get("layer").is_none());
+    assert_eq!(Project::from_json(&legacy_json).unwrap(), legacy);
 }
 
 #[test]
@@ -1030,6 +1097,7 @@ fn t315_migration_rule_and_foreign_script_count_messages() {
         source: "console.log(1);".into(),
     });
     majority.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -1037,6 +1105,7 @@ fn t315_migration_rule_and_foreign_script_count_messages() {
         },
     });
     majority.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 1,
         script: Script {
             language: ScriptLanguage::ActionScript3,
@@ -1059,6 +1128,7 @@ fn t315_migration_rule_and_foreign_script_count_messages() {
     // Tie-breaking follows canonical order: AS3 > AS2 > AS1 > TS > JS.
     let mut tie_ts_js = Project::blank();
     tie_ts_js.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 0,
         script: Script {
             language: ScriptLanguage::JavaScript,
@@ -1066,6 +1136,7 @@ fn t315_migration_rule_and_foreign_script_count_messages() {
         },
     });
     tie_ts_js.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
         frame: 1,
         script: Script {
             language: ScriptLanguage::TypeScript,
@@ -1127,6 +1198,7 @@ fn t315_migration_rule_and_foreign_script_count_messages() {
     .enumerate()
     {
         mixed.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
             frame: idx as u32,
             script: Script {
                 language: lang,

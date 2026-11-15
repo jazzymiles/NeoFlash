@@ -204,6 +204,7 @@ pub fn flatten_scenes_cow(project: &Project) -> (std::borrow::Cow<'_, Project>, 
             layers.push(layer);
         }
         scripts.extend(symbol.timeline.scripts.iter().map(|script| FrameScript {
+            layer: None,
             frame: script.frame.saturating_add(offset),
             script: script.script.clone(),
         }));
@@ -490,6 +491,7 @@ mod tests {
 
     fn script(frame: u32, source: &str) -> FrameScript {
         FrameScript {
+            layer: None,
             frame,
             script: Script {
                 language: ScriptLanguage::ActionScript3,

@@ -74,6 +74,7 @@ fn fixture() -> Project {
     child.timeline.layers[0].id = "shared-layer".into();
     child.timeline.layers[0].keyframes[0].elements = vec![leaf("leaf")];
     child.timeline.scripts = vec![FrameScript {
+        layer: None,
         frame: 1,
         script: script("trace('frame one');"),
     }];
