@@ -13,15 +13,15 @@ Both languages are counted against the same eight Flash Player areas. Areas 1–
 | Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Mathematics and 2D geometry | 155 | 155 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 2. Objects, language and collections | 582 | 569 | 12 | 1 | 0 | 97.8% | 99.8% |
+| 2. Objects, language and collections | 582 | 567 | 14 | 1 | 0 | 97.4% | 99.8% |
 | 3. MovieClip and timeline | 37 | 37 | 0 | 0 | 0 | 100.0% | 100.0% |
 | 4. Display, events and basic input | 678 | 663 | 1 | 14 | 0 | 97.8% | 97.9% |
 | 5. Graphics, bitmaps and filters | 313 | 298 | 2 | 13 | 0 | 95.2% | 95.8% |
 | 6. Text and fonts | 174 | 159 | 2 | 13 | 0 | 91.4% | 92.5% |
 | 7. File audio and video playback | 91 | 89 | 2 | 0 | 0 | 97.8% | 100.0% |
 | 8. Services and advanced Player APIs | 2,134 | 1,691 | 443 | 0 | 0 | 79.2% | 100.0% |
-| **Now: areas 1–6** | 1,939 | 1,881 | 17 | 41 | 0 | 97.0% | 97.9% |
-| **All Flash Player areas** | 4,164 | 3,661 | 462 | 41 | 0 | 87.9% | 99.0% |
+| **Now: areas 1–6** | 1,939 | 1,879 | 19 | 41 | 0 | 96.9% | 97.9% |
+| **All Flash Player areas** | 4,164 | 3,659 | 464 | 41 | 0 | 87.9% | 99.0% |
 
 Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
 
@@ -59,7 +59,7 @@ Every documented declaration, including AIR, Flex and components, for provenance
 | AS3 | framework | 35,790 | 0 | 0 | 35,790 | 0 |
 | AS3 | language | 124 | 118 | 5 | 1 | 0 |
 | AS3 | platform_extension | 161 | 0 | 0 | 161 | 0 |
-| AS3 | runtime | 5,250 | 4,044 | 1,040 | 166 | 0 |
+| AS3 | runtime | 5,250 | 4,042 | 1,042 | 166 | 0 |
 
 Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:00, baseline `f05cd2e35a34`) set the starting statuses; later reviews below change them.
 
@@ -67,6 +67,7 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-AMF-SOL-20261115` | 2026-11-15 | `bb6a850a0484` | 2 → partial |
 | `AS3-ACCESSIBILITY-HOST-20261115` | 2026-11-15 | `f83d9ceb8252` |  |
 | `AS3-LIFECYCLE-MASK-20261115` | 2026-11-15 | `5bb0e9278d32` |  |
 | `AS3-LOADER-RECOVERY-20261115` | 2026-11-15 | `e48ea02adf62` | 2 → partial |
@@ -13078,3 +13079,14 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:class:flash/accessibility/AccessibilityImplementation.html#` — **partial**: The HTML5 host uses get_accName(0) and get_accValue(0) for a placement's label and description. Child-ID trees and custom role, state, selection and default-action behavior are not bridged.
 
 Evidence: [web/tests/as3-media-events.test.cjs](../../web/tests/as3-media-events.test.cjs)
+
+### AS3-AMF-SOL-20261115 — AMF XML and sparse arrays with explicit complex-type limits
+
+Native SOL exchange now has independent fixtures and browser file/reload coverage. ByteArray object records support XML and sparse indices, but Vector, Dictionary and IExternalizable remain unsupported; readObject/writeObject are corrected to Partial rather than implying complete AMF type coverage.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:method:flash/utils/ByteArray.html#readObject()` — **partial**: Reads bounded AMF0/AMF3 graphs with aliases, shared/cyclic references, sparse indices, Date, ByteArray and XML/XMLDocument. AMF3 Vector, Dictionary and IExternalizable payloads remain unsupported.
+- `AS3:method:flash/utils/ByteArray.html#writeObject()` — **partial**: Writes bounded AMF0/AMF3 graphs with aliases, shared/cyclic references, sparse indices, Date, ByteArray and XML/XMLDocument. AMF3 Vector, Dictionary and IExternalizable serialization remain unsupported.
+
+Evidence: [crates/neoflash-core/tests/amf.rs](../../crates/neoflash-core/tests/amf.rs), [crates/neoflash-core/tests/sol.rs](../../crates/neoflash-core/tests/sol.rs), [web/tests/amf-sol.test.cjs](../../web/tests/amf-sol.test.cjs), [web/tests/publish-parity-polish.test.cjs](../../web/tests/publish-parity-polish.test.cjs), [crates/neoflash-script/tests/saved-game.mjs](../../crates/neoflash-script/tests/saved-game.mjs)

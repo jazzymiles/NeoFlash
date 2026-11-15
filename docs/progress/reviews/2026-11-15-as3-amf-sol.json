@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "5bd949d309b6dfc6f7a69e7efc1aa8ebc5bf25b5d03ec1470f538fe48302298b",
+  "reviews": [
+    {
+      "id": "AS3-AMF-SOL-20261115",
+      "date": "2026-11-15",
+      "commit": "bb6a850a04843d5b446b0f7f41c0c5ef1ad12609",
+      "title": "AMF XML and sparse arrays with explicit complex-type limits",
+      "summary": "Native SOL exchange now has independent fixtures and browser file/reload coverage. ByteArray object records support XML and sparse indices, but Vector, Dictionary and IExternalizable remain unsupported; readObject/writeObject are corrected to Partial rather than implying complete AMF type coverage.",
+      "tests": [
+        "crates/neoflash-core/tests/amf.rs",
+        "crates/neoflash-core/tests/sol.rs",
+        "web/tests/amf-sol.test.cjs",
+        "web/tests/publish-parity-polish.test.cjs",
+        "crates/neoflash-script/tests/saved-game.mjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
+          "status": "partial",
+          "note": "Reads bounded AMF0/AMF3 graphs with aliases, shared/cyclic references, sparse indices, Date, ByteArray and XML/XMLDocument. AMF3 Vector, Dictionary and IExternalizable payloads remain unsupported."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
+          "status": "partial",
+          "note": "Writes bounded AMF0/AMF3 graphs with aliases, shared/cyclic references, sparse indices, Date, ByteArray and XML/XMLDocument. AMF3 Vector, Dictionary and IExternalizable serialization remain unsupported."
+        }
+      ]
+    }
+  ]
+}

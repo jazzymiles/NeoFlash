@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "5bd949d309b6dfc6f7a69e7efc1aa8ebc5bf25b5d03ec1470f538fe48302298b",
+  "catalogSha256": "1277e3e10a103d82433c8488f42e7cd6aab0c20263de51e76d20813a1ecfd12d",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -35781,6 +35781,14 @@
         "reviewIds": [
           "AS3-ACCESSIBILITY-HOST-20261115"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-15-as3-amf-sol.json",
+        "sha256": "6b0d2294512fcf1498793142a05a2151894f1dc964440e1f28e80d3d5b8db30c",
+        "baseCatalogSha256": "5bd949d309b6dfc6f7a69e7efc1aa8ebc5bf25b5d03ec1470f538fe48302298b",
+        "reviewIds": [
+          "AS3-AMF-SOL-20261115"
+        ]
       }
     ],
     "statusReviews": [
@@ -36158,13 +36166,22 @@
         "commit": "f83d9ceb82525100c7b9b9827e5441248a056a86",
         "path": "docs/progress/reviews/2026-11-15-as3-accessibility-host.json",
         "changes": {}
+      },
+      {
+        "id": "AS3-AMF-SOL-20261115",
+        "date": "2026-11-15",
+        "commit": "bb6a850a04843d5b446b0f7f41c0c5ef1ad12609",
+        "path": "docs/progress/reviews/2026-11-15-as3-amf-sol.json",
+        "changes": {
+          "partial": 2
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 5723,
-      "partial": 1643,
+      "implemented_subset": 5721,
+      "partial": 1645,
       "missing": 38681,
       "needs_review": 0,
       "total": 46047
@@ -36178,8 +36195,8 @@
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 4534,
-        "partial": 1173,
+        "implemented_subset": 4532,
+        "partial": 1175,
         "missing": 38033,
         "needs_review": 0,
         "total": 43740
@@ -36222,8 +36239,8 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 4906,
-        "partial": 1077,
+        "implemented_subset": 4904,
+        "partial": 1079,
         "missing": 175,
         "needs_review": 0,
         "total": 6158
@@ -36311,8 +36328,8 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 4044,
-          "partial": 1040,
+          "implemented_subset": 4042,
+          "partial": 1042,
           "missing": 166,
           "needs_review": 0,
           "total": 5250
@@ -176321,6 +176338,60 @@
           "catalogId": "AS3:class:flash/accessibility/AccessibilityImplementation.html#",
           "status": "partial",
           "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-AMF-SOL-20261115",
+      "title": "AMF XML and sparse arrays with explicit complex-type limits",
+      "reason": "Native SOL exchange now has independent fixtures and browser file/reload coverage. ByteArray object records support XML and sparse indices, but Vector, Dictionary and IExternalizable remain unsupported; readObject/writeObject are corrected to Partial rather than implying complete AMF type coverage.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/tests/amf.rs",
+          "sha256": "1805e2a7edf118c65c5b48515f5c3b0c955d2b29f9d820a75060775defb97941"
+        },
+        {
+          "path": "crates/neoflash-core/tests/sol.rs",
+          "sha256": "b9b6ab2208faae3f28e9ed8f2068c3f2a130e472869ae16643f01309e35867b9"
+        },
+        {
+          "path": "web/tests/amf-sol.test.cjs",
+          "sha256": "c45b69ef98437e86c1bfaac41316a9831a232ea6d2cedbeb6e2f5a95aba030ba"
+        },
+        {
+          "path": "web/tests/publish-parity-polish.test.cjs",
+          "sha256": "16c9a906920e4dda6007187735c65126149a8342a5c92dc6e677329603246828"
+        },
+        {
+          "path": "crates/neoflash-script/tests/saved-game.mjs",
+          "sha256": "52cfb9cb1f5b7d43e72615e741bc2d6364b67f47567797cb137d037cb1d8cd76"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
+          "status": "partial",
+          "scopeNote": "Reads bounded AMF0/AMF3 graphs with aliases, shared/cyclic references, sparse indices, Date, ByteArray and XML/XMLDocument. AMF3 Vector, Dictionary and IExternalizable payloads remain unsupported."
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
+          "status": "partial",
+          "scopeNote": "Writes bounded AMF0/AMF3 graphs with aliases, shared/cyclic references, sparse indices, Date, ByteArray and XML/XMLDocument. AMF3 Vector, Dictionary and IExternalizable serialization remain unsupported."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#readObject()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/utils/ByteArray.html#writeObject()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-INTERACTIVE-E4X-TEXT-20261101",
           "evidenceKind": "test_backed_review"
         }
       ]
