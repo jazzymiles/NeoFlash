@@ -5727,6 +5727,50 @@ impl<'a> JsflVm<'a> {
                 })?;
                 Ok(JsflValue::Bool(removed))
             }
+            "copy" => {
+                if !self.sandbox.flfile_caps.allow_read {
+                    return Err(
+                        self.err(span, "FLfile.copy denied: read capability is not enabled.")
+                    );
+                }
+                if !self.sandbox.flfile_caps.allow_write {
+                    return Err(
+                        self.err(span, "FLfile.copy denied: write capability is not enabled.")
+                    );
+                }
+                let dst_str = args
+                    .get(1)
+                    .map(JsflValue::to_display_string)
+                    .unwrap_or_default();
+                let src_path = resolve_scoped_flfile_path(
+                    &self.sandbox.flfile_caps,
+                    self.sandbox.fs.as_ref(),
+                    &self.current_file,
+                    span,
+                    &first_str,
+                )?;
+                let dst_path = resolve_scoped_flfile_path(
+                    &self.sandbox.flfile_caps,
+                    self.sandbox.fs.as_ref(),
+                    &self.current_file,
+                    span,
+                    &dst_str,
+                )?;
+                if !self.sandbox.fs.exists(&src_path)
+                    || self.sandbox.fs.is_folder(&src_path)
+                    || self.sandbox.fs.exists(&dst_path)
+                {
+                    return Ok(JsflValue::Bool(false));
+                }
+                let content = self.sandbox.fs.read_file(&src_path).map_err(|e| {
+                    self.err(span, format!("FLfile.copy('{first_str}') failed: {e}"))
+                })?;
+                self.sandbox
+                    .fs
+                    .write_file(&dst_path, &content)
+                    .map_err(|e| self.err(span, format!("FLfile.copy('{dst_str}') failed: {e}")))?;
+                Ok(JsflValue::Bool(true))
+            }
             "listFolder" => {
                 if !self.sandbox.flfile_caps.allow_read {
                     return Err(self.err(

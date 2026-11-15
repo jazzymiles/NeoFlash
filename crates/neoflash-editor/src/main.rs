@@ -172,10 +172,11 @@ fn app_icon() -> std::sync::Arc<eframe::egui::IconData> {
 }
 
 fn main() -> eframe::Result {
+    // Headless CLI, `NEOFLASH_HEADLESS=1`, `--help`/`-h`, and `--version`/`-V` MUST execute and
+    // terminate here BEFORE any `eframe`/`winit`/`AppKit` (`NSApplication`) or macOS menu setup
+    // so invoking `NeoFlash.app/Contents/MacOS/neoflash-editor --headless ...` from scripts or CI
+    // never creates a Dock icon or touches windowing APIs (`T-321`).
     if let Some(exit_code) = headless::maybe_run_from_env() {
-        if exit_code == 0 {
-            return Ok(());
-        }
         std::process::exit(exit_code);
     }
 

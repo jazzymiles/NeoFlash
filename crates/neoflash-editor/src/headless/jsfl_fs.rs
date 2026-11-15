@@ -1,7 +1,7 @@
 //! Host filesystem adapter and CLI execution helpers for sandboxed JSFL scripts.
 use super::{
     CliError, OutputFormat, load_project_valid, resolve_symbol, save_project_atomic,
-    serialize_json_value, take_flag_value, write_json_error,
+    serialize_json_value, take_flag_value, upgrade_project_format_versions, write_json_error,
 };
 use neoflash_core::{
     FlFileCapabilities, JsflAuthoringState, JsflDiagnostic, JsflFileSystem, JsflResult,
@@ -141,10 +141,11 @@ impl JsflFileSystem for HostJsflFileSystem {
 
     fn create_folder(&self, path: &Path) -> Result<(), String> {
         // `JsflSandbox::with_flfile_capabilities` calls `create_folder(allowed_root)` even when
-        // only read access was granted; treat an already-existing read root as a no-op.
+        // only read access was granted or `allowed_root` is a common ancestor of read/write roots;
+        // treat an already-existing root or ancestor directory as a no-op.
         if let Ok(canon) = Self::canonicalize_anchored(path)
-            && self.read_roots.iter().any(|root| root == &canon)
             && canon.is_dir()
+            && self.all_roots().iter().any(|root| root.starts_with(&canon))
         {
             return Ok(());
         }
@@ -263,6 +264,33 @@ pub(crate) fn execute_jsfl_on_project(
     if req.allow_read.is_some() || req.allow_write.is_some() {
         let mut read_roots = Vec::new();
         let mut write_roots = Vec::new();
+        if let Some(write_dir) = req.allow_write {
+            fs::create_dir_all(write_dir).map_err(|e| {
+                CliError::runtime(
+                    "invalid_jsfl_root",
+                    format!(
+                        "Failed to create --allow-write dir '{}': {e}",
+                        write_dir.display()
+                    ),
+                )
+            })?;
+            let canon = HostJsflFileSystem::canonicalize_anchored(write_dir).map_err(|e| {
+                CliError::runtime(
+                    "invalid_jsfl_root",
+                    format!("Invalid --allow-write dir: {e}"),
+                )
+            })?;
+            if !canon.is_dir() {
+                return Err(CliError::usage(
+                    "invalid_jsfl_root",
+                    format!(
+                        "--allow-write path '{}' is not a directory",
+                        write_dir.display()
+                    ),
+                ));
+            }
+            write_roots.push(canon);
+        }
         if let Some(read_dir) = req.allow_read {
             let canon = HostJsflFileSystem::canonicalize_anchored(read_dir).map_err(|e| {
                 CliError::usage(
@@ -280,24 +308,6 @@ pub(crate) fn execute_jsfl_on_project(
                 ));
             }
             read_roots.push(canon);
-        }
-        if let Some(write_dir) = req.allow_write {
-            fs::create_dir_all(write_dir).map_err(|e| {
-                CliError::runtime(
-                    "invalid_jsfl_root",
-                    format!(
-                        "Failed to create --allow-write dir '{}': {e}",
-                        write_dir.display()
-                    ),
-                )
-            })?;
-            let canon = HostJsflFileSystem::canonicalize_anchored(write_dir).map_err(|e| {
-                CliError::runtime(
-                    "invalid_jsfl_root",
-                    format!("Invalid --allow-write dir: {e}"),
-                )
-            })?;
-            write_roots.push(canon);
         }
 
         let allowed_root = match (read_roots.first(), write_roots.first()) {
@@ -354,7 +364,7 @@ pub(crate) fn cmd_jsfl<R: Read, W1: Write, W2: Write>(
     match run_cmd_jsfl(args, format, pretty, stdin, stdout) {
         Ok(()) => 0,
         Err(err) => {
-            write_json_error(&err, format, pretty, stderr);
+            write_json_error(&err, format, pretty, stdout, stderr);
             err.exit_code
         }
     }
@@ -375,6 +385,7 @@ fn run_cmd_jsfl<R: Read, W1: Write>(
     let mut in_place = false;
     let mut symbol_selector: Option<String> = None;
     let mut frame: Option<u32> = None;
+    let mut flfile_root: Option<PathBuf> = None;
     let mut allow_read: Option<PathBuf> = None;
     let mut allow_write: Option<PathBuf> = None;
     let mut allow_delete = false;
@@ -405,6 +416,13 @@ fn run_cmd_jsfl<R: Read, W1: Write>(
                     CliError::usage("invalid_argument", format!("Invalid --frame value '{raw}'"))
                 })?);
             }
+            "--flfile-root" => {
+                flfile_root = Some(PathBuf::from(take_flag_value(
+                    args,
+                    &mut i,
+                    "--flfile-root",
+                )?));
+            }
             "--allow-read" => {
                 allow_read = Some(PathBuf::from(take_flag_value(
                     args,
@@ -428,6 +446,15 @@ fn run_cmd_jsfl<R: Read, W1: Write>(
             }
         }
         i += 1;
+    }
+
+    if let Some(root) = flfile_root {
+        if allow_read.is_none() {
+            allow_read = Some(root.clone());
+        }
+        if allow_write.is_none() {
+            allow_write = Some(root);
+        }
     }
 
     let project_path = project_path.ok_or_else(|| {
@@ -486,7 +513,7 @@ fn run_cmd_jsfl<R: Read, W1: Write>(
         },
     )?;
 
-    result.project.upgrade_format_for_features();
+    upgrade_project_format_versions(&mut result.project);
     result.project.validate().map_err(|e| {
         CliError::runtime(
             "validation_failed",
@@ -508,6 +535,7 @@ fn run_cmd_jsfl<R: Read, W1: Write>(
             let val = json!({
                 "ok": true,
                 "command": "jsfl",
+                "traces": result.output_lines,
                 "output_lines": result.output_lines,
                 "mutations": result.mutations,
                 "steps_executed": result.steps_executed,

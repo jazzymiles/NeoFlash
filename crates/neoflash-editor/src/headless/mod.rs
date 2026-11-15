@@ -111,13 +111,16 @@ pub(crate) fn maybe_run_from_env() -> Option<i32> {
     let mut stdin = io::stdin().lock();
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
-    Some(run_cli_with_io(
+    let exit_code = run_cli_with_io(
         &args,
         detection.explicit_headless,
         &mut stdin,
         &mut stdout,
         &mut stderr,
-    ))
+    );
+    let _ = stdout.flush();
+    let _ = stderr.flush();
+    Some(exit_code)
 }
 
 /// Detect whether CLI mode should handle the launch while ignoring macOS Finder `-psn_*` args.
@@ -133,14 +136,20 @@ pub(crate) fn detect_headless_mode(args: &[String], headless_env: Option<&OsStr>
 
     let mut has_headless_arg = false;
     let mut has_help_or_version = false;
+    let mut saw_positional = false;
     for arg in args {
         if arg.starts_with("-psn_") {
             continue;
         }
         match arg.as_str() {
-            "--headless" | "headless" => has_headless_arg = true,
+            "--headless" | "--headless=1" | "--headless=true" => has_headless_arg = true,
+            "headless" if !saw_positional => has_headless_arg = true,
             "--help" | "-h" | "--version" | "-V" => has_help_or_version = true,
-            _ => {}
+            other => {
+                if !other.starts_with('-') {
+                    saw_positional = true;
+                }
+            }
         }
     }
 
@@ -149,6 +158,69 @@ pub(crate) fn detect_headless_mode(args: &[String], headless_env: Option<&OsStr>
         active: explicit_headless || has_help_or_version,
         explicit_headless,
     }
+}
+
+fn detect_error_output_prefs(
+    raw_args: &[String],
+    default_format: OutputFormat,
+) -> (OutputFormat, bool) {
+    let mut format = default_format;
+    let mut explicit_format = false;
+    let mut pretty = false;
+    let mut saw_subcmd = false;
+    let mut saw_headless = false;
+    let mut i = 0usize;
+    while i < raw_args.len() {
+        let arg = raw_args[i].as_str();
+        if arg.starts_with("-psn_") {
+            i += 1;
+            continue;
+        }
+        match arg {
+            "--headless" | "--headless=1" | "--headless=true" => {
+                if !explicit_format {
+                    format = OutputFormat::Json;
+                }
+                saw_headless = true;
+            }
+            "headless" if !saw_subcmd && !saw_headless => {
+                if !explicit_format {
+                    format = OutputFormat::Json;
+                }
+                saw_headless = true;
+            }
+            "--pretty" => pretty = true,
+            "--format" => {
+                if let Some(next) = raw_args.get(i + 1) {
+                    if next.eq_ignore_ascii_case("json") {
+                        format = OutputFormat::Json;
+                        explicit_format = true;
+                    } else if next.eq_ignore_ascii_case("text") {
+                        format = OutputFormat::Text;
+                        explicit_format = true;
+                    }
+                    i += 1;
+                }
+            }
+            _ if arg.starts_with("--format=") => {
+                let val = &arg["--format=".len()..];
+                if val.eq_ignore_ascii_case("json") {
+                    format = OutputFormat::Json;
+                    explicit_format = true;
+                } else if val.eq_ignore_ascii_case("text") {
+                    format = OutputFormat::Text;
+                    explicit_format = true;
+                }
+            }
+            _ => {
+                if !arg.starts_with('-') {
+                    saw_subcmd = true;
+                }
+            }
+        }
+        i += 1;
+    }
+    (format, pretty)
 }
 
 /// Execute headless CLI against explicit I/O streams (used by both binary entry and unit tests).
@@ -164,10 +236,11 @@ pub(crate) fn run_cli_with_io<R: Read, W1: Write, W2: Write>(
     } else {
         OutputFormat::Text
     };
+    let (fallback_format, fallback_pretty) = detect_error_output_prefs(raw_args, default_format);
     let parsed = match parse_global_args(raw_args, default_format) {
         Ok(p) => p,
         Err(err) => {
-            write_json_error(&err, default_format, false, stderr);
+            write_json_error(&err, fallback_format, fallback_pretty, stdout, stderr);
             return err.exit_code;
         }
     };
@@ -196,16 +269,34 @@ pub(crate) fn run_cli_with_io<R: Read, W1: Write, W2: Write>(
                     "unknown_flag",
                     format!("Unknown argument '{}' for '{subcmd}'", parsed.rest[0]),
                 );
-                write_json_error(&err, parsed.format, parsed.pretty, stderr);
+                write_json_error(&err, parsed.format, parsed.pretty, stdout, stderr);
                 return err.exit_code;
             }
             cmd_capabilities(parsed.format, parsed.pretty, stdout, stderr)
         }
         "help" => {
+            if parsed.rest.len() > 1 {
+                let err = CliError::usage(
+                    "unknown_flag",
+                    format!("Unexpected argument '{}' for 'help'", parsed.rest[1]),
+                );
+                write_json_error(&err, parsed.format, parsed.pretty, stdout, stderr);
+                return err.exit_code;
+            }
             let topic = parsed.rest.first().map(String::as_str);
             emit_help(topic, parsed.format, parsed.pretty, stdout, stderr)
         }
-        "version" => emit_version(parsed.format, parsed.pretty, stdout, stderr),
+        "version" => {
+            if !parsed.rest.is_empty() {
+                let err = CliError::usage(
+                    "unknown_flag",
+                    format!("Unknown argument '{}' for 'version'", parsed.rest[0]),
+                );
+                write_json_error(&err, parsed.format, parsed.pretty, stdout, stderr);
+                return err.exit_code;
+            }
+            emit_version(parsed.format, parsed.pretty, stdout, stderr)
+        }
         "new" => cmd_new(&parsed.rest, parsed.format, parsed.pretty, stdout, stderr),
         "inspect" => cmd_inspect(&parsed.rest, parsed.format, parsed.pretty, stdout, stderr),
         "validate" => cmd_validate(&parsed.rest, parsed.format, parsed.pretty, stdout, stderr),
@@ -240,7 +331,7 @@ pub(crate) fn run_cli_with_io<R: Read, W1: Write, W2: Write>(
                     "Unknown headless subcommand '{other}'. Run with --help or 'capabilities' for available commands."
                 ),
             );
-            write_json_error(&err, parsed.format, parsed.pretty, stderr);
+            write_json_error(&err, parsed.format, parsed.pretty, stdout, stderr);
             err.exit_code
         }
     }
@@ -260,6 +351,7 @@ fn parse_global_args(
     default_format: OutputFormat,
 ) -> Result<ParsedGlobalArgs, CliError> {
     let mut format = default_format;
+    let mut explicit_format = false;
     let mut pretty = false;
     let mut wants_help = false;
     let mut wants_version = false;
@@ -275,12 +367,16 @@ fn parse_global_args(
             continue;
         }
         match arg.as_str() {
-            "--headless" => {
-                format = OutputFormat::Json;
+            "--headless" | "--headless=1" | "--headless=true" => {
+                if !explicit_format {
+                    format = OutputFormat::Json;
+                }
                 saw_headless_token = true;
             }
             "headless" if subcommand.is_none() && !saw_headless_token => {
-                format = OutputFormat::Json;
+                if !explicit_format {
+                    format = OutputFormat::Json;
+                }
                 saw_headless_token = true;
             }
             "--pretty" => {
@@ -290,7 +386,7 @@ fn parse_global_args(
                 }
             }
             "--help" | "-h" => wants_help = true,
-            "--version" | "-V" => wants_version = true,
+            "--version" | "-V" if subcommand.is_none() => wants_version = true,
             "--format" => {
                 let raw = take_flag_value(raw_args, &mut i, "--format")?;
                 format = match raw.trim().to_ascii_lowercase().as_str() {
@@ -303,10 +399,30 @@ fn parse_global_args(
                         ));
                     }
                 };
+                explicit_format = true;
+            }
+            other if other.starts_with("--format=") => {
+                let raw = &other["--format=".len()..];
+                format = match raw.trim().to_ascii_lowercase().as_str() {
+                    "json" => OutputFormat::Json,
+                    "text" => OutputFormat::Text,
+                    bad => {
+                        return Err(CliError::usage(
+                            "invalid_argument",
+                            format!("Unsupported --format '{bad}' (expected json|text)"),
+                        ));
+                    }
+                };
+                explicit_format = true;
             }
             _ => {
                 if subcommand.is_none() && !arg.starts_with('-') {
                     subcommand = Some(arg.clone());
+                } else if subcommand.is_none() && arg.starts_with('-') {
+                    return Err(CliError::usage(
+                        "unknown_flag",
+                        format!("Unknown global flag '{arg}'"),
+                    ));
                 } else {
                     rest.push(arg.clone());
                 }
@@ -354,11 +470,18 @@ pub(crate) fn serialize_json_value(value: &Value, pretty: bool) -> Result<String
     })
 }
 
-pub(crate) fn write_json_error<W: Write>(
+/// Emit a structured CLI error.
+///
+/// Contract (`T-321`): When `format == OutputFormat::Json`, `stdout` ALWAYS receives a single valid
+/// JSON object (`ok: false`, `exit_code`, `error: { code, message, details? }`) and no plain-text
+/// output is written to `stdout`. When `format == OutputFormat::Text`, `stderr` receives a concise
+/// human-readable error line.
+pub(crate) fn write_json_error<W1: Write, W2: Write>(
     err: &CliError,
     format: OutputFormat,
     pretty: bool,
-    stderr: &mut W,
+    stdout: &mut W1,
+    stderr: &mut W2,
 ) {
     match format {
         OutputFormat::Json => {
@@ -370,16 +493,18 @@ pub(crate) fn write_json_error<W: Write>(
             }
             let payload = json!({
                 "ok": false,
+                "exit_code": err.exit_code,
                 "error": Value::Object(err_obj),
             });
             let line = serialize_json_value(&payload, pretty).unwrap_or_else(|_| {
                 format!(
-                    "{{\"ok\":false,\"error\":{{\"code\":{},\"message\":{}}}}}",
+                    "{{\"ok\":false,\"exit_code\":{},\"error\":{{\"code\":{},\"message\":{}}}}}",
+                    err.exit_code,
                     serde_json::to_string(err.code).unwrap_or_else(|_| "\"error\"".into()),
                     serde_json::to_string(&err.message).unwrap_or_else(|_| "\"error\"".into()),
                 )
             });
-            let _ = writeln!(stderr, "{line}");
+            let _ = writeln!(stdout, "{line}");
         }
         OutputFormat::Text => {
             let _ = writeln!(stderr, "Error [{}]: {}", err.code, err.message);
@@ -428,9 +553,63 @@ pub(crate) fn load_project_valid(path: &Path) -> Result<Project, CliError> {
     })
 }
 
+/// Upgrade document `format_version` across all v2..=v12 feature gates enforced by `validation.rs`.
+pub(crate) fn upgrade_project_format_versions(project: &mut Project) {
+    if project.has_program() {
+        project.format_version = project.format_version.max(2);
+    }
+    let has_bitmap_el = project
+        .symbols
+        .iter()
+        .flat_map(|s| &s.timeline.layers)
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+        .any(|e| matches!(e.kind, ElementKind::Bitmap { .. }));
+    if !project.resources.is_empty() || has_bitmap_el {
+        project.format_version = project.format_version.max(3);
+    }
+    if !project.library_folders.is_empty() || project.symbols.iter().any(|s| !s.folder.is_empty()) {
+        project.format_version = project.format_version.max(4);
+    }
+    let uses_v5 = project.symbols.iter().any(|s| {
+        s.timeline.layers.iter().any(|l| {
+            l.properties.end_frame.is_some()
+                || l.keyframes.iter().any(|k| {
+                    matches!(k.tween, Some(Easing::Flash { .. }))
+                        || k.property_eases
+                            .iter()
+                            .any(|(_, e)| matches!(e, Easing::Flash { .. }))
+                        || k.elements.iter().any(|el| {
+                            el.transform.skew != 0.0
+                                || !el.transform.color_transform.is_identity()
+                                || matches!(el.kind, ElementKind::PaintedPath { .. })
+                        })
+                })
+        })
+    });
+    if uses_v5 {
+        project.format_version = project.format_version.max(5);
+    }
+    let has_timeline_video = project
+        .symbols
+        .iter()
+        .flat_map(|s| &s.timeline.layers)
+        .flat_map(|l| &l.keyframes)
+        .any(|k| {
+            k.video.is_some()
+                || k.elements
+                    .iter()
+                    .any(|e| matches!(e.kind, ElementKind::Video { .. }))
+        });
+    if has_timeline_video {
+        project.format_version = project.format_version.max(9);
+    }
+    project.upgrade_format_for_features();
+}
+
 /// Upgrade document format version, validate invariants, serialize JSON, and save atomically.
 pub(crate) fn save_project_atomic(project: &mut Project, path: &Path) -> Result<(), CliError> {
-    project.upgrade_format_for_features();
+    upgrade_project_format_versions(project);
     let json = project
         .to_json()
         .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
@@ -746,7 +925,7 @@ pub(crate) fn build_new_project(
             },
         });
     }
-    project.upgrade_format_for_features();
+    upgrade_project_format_versions(&mut project);
     project
         .validate()
         .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
@@ -778,7 +957,7 @@ fn emit_version<W1: Write, W2: Write>(
                     0
                 }
                 Err(err) => {
-                    write_json_error(&err, format, pretty, stderr);
+                    write_json_error(&err, format, pretty, stdout, stderr);
                     err.exit_code
                 }
             }
@@ -796,36 +975,66 @@ fn emit_version<W1: Write, W2: Write>(
     }
 }
 
-fn help_text(topic: Option<&str>) -> String {
+fn subcommand_help_text(topic: &str) -> Option<&'static str> {
     match topic {
-        Some("new") => "Usage: neoflash-editor --headless new --output <file.nflash> [--name STR] [--width N] [--height N] [--fps F] [--bg #RRGGBB[AA]] [--script as3|as2|as1|ts|js] [--language as1|as2|as3|js|ts] [--demo]".into(),
-        Some("inspect") => "Usage: neoflash-editor --headless inspect --project <file.nflash> [--symbol ID|NAME] [--frame N] [--no-elements] [--no-scripts] [--no-resources]".into(),
-        Some("validate") => "Usage: neoflash-editor --headless validate --project <file.nflash> [--strict]".into(),
-        Some("compile") => "Usage: neoflash-editor --headless compile --project <file.nflash> [--strict]".into(),
-        Some("eval") => "Usage: neoflash-editor --headless eval --project <file.nflash> [--scene ID|NAME] [--symbol ID|NAME] [--frame N | --frames START..=END] [--scripts]".into(),
-        Some("jsfl") => "Usage: neoflash-editor --headless jsfl --project <file.nflash> (--script FILE | --eval CODE | --stdin) [--out FILE | --in-place] [--symbol ID|NAME] [--frame N] [--allow-read DIR] [--allow-write DIR] [--allow-delete]".into(),
-        Some("batch") => "Usage: neoflash-editor --headless batch (--file OPS.json | --stdin) [--project IN.nflash] [--out OUT.nflash | --in-place]".into(),
-        Some("import") => "Usage: neoflash-editor --headless import --input <path...> --out <project.nflash>".into(),
-        Some("export") => "Usage: neoflash-editor --headless export --project <file.nflash> --target html5|fla|xfl|swf|svg|lottie|dotlottie|atlas|sequence|video|audio|banner|desktop --out <path> [--profile NAME|ID] [--size-level full|balanced|compact|shared] [--runtime DIR] [--runtime-url URL] [--html-preview] ...".into(),
-        _ => concat!(
-            "NeoFlash Editor Headless CLI\n",
-            "\n",
-            "Triggers: --headless, headless, --help/-h, --version/-V, or NEOFLASH_HEADLESS=1\n",
-            "Global options: --format <json|text>  --pretty\n",
-            "\n",
-            "Subcommands:\n",
-            "  capabilities | schema   Print machine-readable capabilities, build identity, and batch schema\n",
-            "  new                     Create and validate a new .nflash project\n",
-            "  inspect                 Inspect metadata, scenes, symbols, elements, scripts, resources, and fonts\n",
-            "  validate                Validate document model invariants and compile all scripts\n",
-            "  compile                 Compile/check all scripts with located diagnostics\n",
-            "  eval                    Evaluate deterministic frame poses and optional native AuthoredPlayback script traces\n",
-            "  jsfl                    Run capability-gated JSFL scripts cleanly against a project\n",
-            "  batch                   Execute a strict JSON batch with atomic final project replacement\n",
-            "  import                  Import FLA/XFL/SWF/SWC/SVG/PSD/PDF/AI/FXG/Figma/palette/sequence into .nflash\n",
-            "  export                  Publish/export HTML5, Desktop, Banner, FLA, XFL, SWF, SVG, Lottie, Atlas, Sequence, Video, Audio\n"
-        ).into(),
+        "capabilities" | "schema" => {
+            Some("Usage: neoflash-editor --headless capabilities [--format json|text] [--pretty]")
+        }
+        "new" => Some(
+            "Usage: neoflash-editor --headless new --output <file.nflash> [--name STR] [--width N] [--height N] [--fps F] [--bg #RRGGBB[AA]] [--script as3|as2|as1|ts|js] [--language as1|as2|as3|js|ts] [--demo]",
+        ),
+        "inspect" => Some(
+            "Usage: neoflash-editor --headless inspect --project <file.nflash> [--symbol ID|NAME] [--frame N] [--no-elements] [--no-scripts] [--no-resources]",
+        ),
+        "validate" => {
+            Some("Usage: neoflash-editor --headless validate --project <file.nflash> [--strict]")
+        }
+        "compile" => {
+            Some("Usage: neoflash-editor --headless compile --project <file.nflash> [--strict]")
+        }
+        "eval" => Some(
+            "Usage: neoflash-editor --headless eval --project <file.nflash> [--scene ID|NAME] [--symbol ID|NAME] [--frame N | --frames START..=END] [--scripts]",
+        ),
+        "jsfl" => Some(
+            "Usage: neoflash-editor --headless jsfl --project <file.nflash> (--script FILE | --eval CODE | --stdin) [--out FILE | --in-place] [--symbol ID|NAME] [--frame N] [--flfile-root DIR] [--allow-read DIR] [--allow-write DIR] [--allow-delete]",
+        ),
+        "batch" => Some(
+            "Usage: neoflash-editor --headless batch (--file OPS.json | --stdin) [--project IN.nflash] [--out OUT.nflash | --in-place]",
+        ),
+        "import" => Some(
+            "Usage: neoflash-editor --headless import --input <path...> [--into <project.nflash>] (--out <project.nflash> | --in-place) [--library-only] [--symbol ID|NAME] [--layer ID|NAME] [--frame N] [--folder STR] [--swc-conflict prefer-newer|prefer-existing|error] [--sequence-placement single-layer|separate-layers|graphic|movieclip] [--frame-step N]",
+        ),
+        "export" => Some(
+            "Usage: neoflash-editor --headless export --project <file.nflash> --target html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop --out <path> [--profile NAME|ID] [--render-mode canvas|dom] [--swf-target fp8|fp9|fp10|fp10-scriptless] [--image-format png|jpeg|webp|gif|bmp|psd|pdf|ai|svg] [--frame 1-based] [--scale F] [--symbol ID|NAME] ...",
+        ),
+        "help" => Some("Usage: neoflash-editor --headless help [<subcommand>]"),
+        "version" => {
+            Some("Usage: neoflash-editor --headless version [--format json|text] [--pretty]")
+        }
+        _ => None,
     }
+}
+
+fn global_help_text() -> &'static str {
+    concat!(
+        "NeoFlash Editor Headless CLI\n",
+        "\n",
+        "Triggers: --headless, headless, --help/-h, --version/-V, or NEOFLASH_HEADLESS=1\n",
+        "Global options: --format <json|text>  --pretty\n",
+        "Exit codes: 0 = success, 1 = validation/compile/JSFL/runtime/IO error, 2 = CLI usage/flag/schema error\n",
+        "\n",
+        "Subcommands:\n",
+        "  capabilities | schema   Print machine-readable capabilities, build identity, and batch schema\n",
+        "  new                     Create and validate a new .nflash project\n",
+        "  inspect                 Inspect metadata, scenes, symbols, elements, scripts, resources, and fonts\n",
+        "  validate                Validate document model invariants and compile project scripts\n",
+        "  compile                 Compile/check project scripts with R-102 language policy and located diagnostics\n",
+        "  eval                    Evaluate deterministic frame poses and optional native AuthoredPlayback script traces\n",
+        "  jsfl                    Run capability-gated JSFL scripts cleanly against a project\n",
+        "  batch                   Execute a strict JSON batch with atomic final project replacement\n",
+        "  import                  Import FLA/XFL/SWF/SWC/Figma/SVG/PSD/PDF/AI/FXG/image/audio/video/palette into .nflash\n",
+        "  export                  Publish/export HTML5, SWF, Image, PNG Sequence, AEP, FLA, XFL, SVG, Lottie, Atlas, Video, Audio\n"
+    )
 }
 
 fn emit_help<W1: Write, W2: Write>(
@@ -835,13 +1044,29 @@ fn emit_help<W1: Write, W2: Write>(
     stdout: &mut W1,
     stderr: &mut W2,
 ) -> i32 {
+    let usage = match topic {
+        Some(t) => match subcommand_help_text(t) {
+            Some(text) => text,
+            None => {
+                let err = CliError::usage(
+                    "unknown_subcommand",
+                    format!(
+                        "Unknown headless subcommand '{t}'. Run with --help or 'capabilities' for available commands."
+                    ),
+                );
+                write_json_error(&err, format, pretty, stdout, stderr);
+                return err.exit_code;
+            }
+        },
+        None => global_help_text(),
+    };
     match format {
         OutputFormat::Json => {
             let val = json!({
                 "ok": true,
                 "command": "help",
                 "topic": topic,
-                "usage": help_text(topic),
+                "usage": usage,
                 "subcommands": subcommands_schema(),
             });
             match serialize_json_value(&val, pretty) {
@@ -850,13 +1075,13 @@ fn emit_help<W1: Write, W2: Write>(
                     0
                 }
                 Err(err) => {
-                    write_json_error(&err, format, pretty, stderr);
+                    write_json_error(&err, format, pretty, stdout, stderr);
                     err.exit_code
                 }
             }
         }
         OutputFormat::Text => {
-            let _ = writeln!(stdout, "{}", help_text(topic));
+            let _ = writeln!(stdout, "{usage}");
             0
         }
     }
@@ -867,55 +1092,289 @@ fn subcommands_schema() -> Value {
         {
             "name": "capabilities",
             "aliases": ["schema"],
-            "summary": "Report build identity, supported subcommands, batch ops schema, JSFL security, import formats, and export targets",
-            "flags": ["--pretty", "--format <json|text>"]
+            "summary": "Report build identity, supported subcommands, batch ops schema, JSFL security, import formats, export targets, and exit code contracts",
+            "flags": ["--pretty", "--format <json|text>", "-h", "--help"]
         },
         {
             "name": "new",
             "summary": "Create, validate, and atomically write a new .nflash document",
-            "flags": ["--output <file.nflash>", "--name <str>", "--width <u32>", "--height <u32>", "--fps <u32>", "--bg <#RRGGBB[AA]>", "--script <as3|as2|as1|ts|js>", "--language <as1|as2|as3|js|ts>", "--demo"]
+            "flags": ["--output <file.nflash>", "--name <str>", "--width <u32>", "--height <u32>", "--fps <u32>", "--bg <#RRGGBB[AA]>", "--script <as3|as2|as1|ts|js>", "--language <as1|as2|as3|js|ts>", "--demo", "-h", "--help"]
         },
         {
             "name": "inspect",
             "summary": "Dump structured JSON inspection of document metadata, scenes, symbols, layers/keyframes/elements, scripts, resources, fonts, publish profiles, and validation issues",
-            "flags": ["--project <file.nflash>", "--symbol <id|name>", "--frame <u32>", "--no-elements", "--no-scripts", "--no-resources"]
+            "flags": ["--project <file.nflash>", "--symbol <id|name>", "--frame <u32>", "--no-elements", "--no-scripts", "--no-resources", "-h", "--help"]
         },
         {
             "name": "validate",
-            "summary": "Validate document model invariants and script compilation",
-            "flags": ["--project <file.nflash>", "--strict"]
+            "summary": "Validate document model invariants and R-102 script compilation",
+            "flags": ["--project <file.nflash>", "--strict", "-h", "--help"]
         },
         {
             "name": "compile",
-            "summary": "Compile and check all project scripts returning located diagnostics",
-            "flags": ["--project <file.nflash>", "--strict"]
+            "summary": "Compile and check project scripts honoring R-102 language policy and returning located diagnostics",
+            "flags": ["--project <file.nflash>", "--strict", "-h", "--help"]
         },
         {
             "name": "eval",
             "summary": "Evaluate frame display poses, transforms, and optional AuthoredPlayback script execution with trace() output",
-            "flags": ["--project <file.nflash>", "--scene <id|name>", "--symbol <id|name>", "--frame <u32>", "--frames <start..=end>", "--scripts"]
+            "flags": ["--project <file.nflash>", "--scene <id|name>", "--symbol <id|name>", "--frame <u32>", "--frames <start..=end>", "--scripts", "-h", "--help"]
         },
         {
             "name": "jsfl",
-            "summary": "Run sandboxed JSFL scripts against a project with deny-all FLfile defaults",
-            "flags": ["--project <file.nflash>", "--script <file.jsfl> | --eval <code> | --stdin", "--out <out.nflash> | --in-place", "--symbol <id|name>", "--frame <u32>", "--allow-read <dir>", "--allow-write <dir>", "--allow-delete"]
+            "summary": "Run sandboxed JSFL scripts against a project with deny-all FLfile defaults, trace capture, and atomic saves",
+            "flags": ["--project <file.nflash>", "--script <file.jsfl> | --eval <code> | --stdin", "--out <out.nflash> | --in-place", "--symbol <id|name>", "--frame <u32>", "--flfile-root <dir>", "--allow-read <dir>", "--allow-write <dir>", "--allow-delete", "-h", "--help"]
         },
         {
             "name": "batch",
             "summary": "Execute a strict JSON sequence with atomic final project replacement after validation",
-            "flags": ["--file <ops.json> | --stdin", "--project <in.nflash>", "--out <out.nflash> | --in-place"]
+            "flags": ["--file <ops.json> | --stdin", "--project <in.nflash>", "--out <out.nflash> | --in-place", "-h", "--help"]
         },
         {
             "name": "import",
-            "summary": "Import external vector, bitmap sequence, palette, Figma, SWF, or FLA/XFL sources via neoflash_import into .nflash",
-            "flags": ["--input <path...>", "--out <project.nflash>"]
+            "summary": "Import document/interchange (.nflash, .fla, .xfl, .swf, .fig, .svg, .psd/.psb, .pdf/.ai, .fxg) or library/asset (.swc, images, sequences, audio, video, palettes) files standalone or into an existing .nflash",
+            "flags": ["--input <path...>", "--into <project.nflash>", "--out <project.nflash> | --in-place", "--library-only", "--symbol <id|name>", "--layer <id|name>", "--frame <u32>", "--folder <str>", "--swc-conflict <prefer-newer|prefer-existing|error>", "--sequence-placement <single-layer|separate-layers|graphic|movieclip>", "--frame-step <u32>", "-h", "--help"]
         },
         {
             "name": "export",
-            "summary": "Publish or export HTML5, FLA, XFL, SWF, SVG, Lottie/dotLottie, Atlas, Sequence, Video, Audio, Banner, or Desktop targets",
-            "flags": ["--project <file.nflash>", "--target <html5|fla|xfl|swf|svg|lottie|dotlottie|atlas|sequence|video|audio|banner|desktop>", "--out <path>", "--profile <name|id>", "--size-level <full|balanced|compact|shared>", "--runtime <dir>", "--runtime-url <url>", "--font-policy <device|embed|subset|outlines>", "--render-mode <canvas|dom>", "--clean", "--fla-profile <...>", "--swf-profile <fp8|fp9|fp10>", "--symbol <id|name>", "--frame <u32>", "--end-frame <u32>", "--image-format <original|png|jpeg|webp>", "--html-preview"]
+            "summary": "Publish or export HTML5, SWF, Image (PNG/JPEG/WebP/GIF/BMP/PSD/PDF/AI), PNG/Image Sequence, After Effects (AEP), FLA, XFL, SVG, Lottie/dotLottie, Atlas, Video, Audio, Banner, or Desktop targets",
+            "flags": ["--project <file.nflash>", "--target <html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop>", "--out <path>", "--profile <name|id>", "--size-level <full|balanced|compact|shared>", "--runtime <dir>", "--runtime-url <url>", "--font-policy <device|embed|subset|outlines>", "--audio-policy <original|preserve|strip|disabled|wav16|mp3-64|mp3-96|mp3-128|mp3-160|mp3-192|mp3-256|mp3-320>", "--render-mode <canvas|dom>", "--clean", "--sprite-sheets", "--no-sprite-sheets", "--assets-folder", "--scale-mode <show-all|no-scale|exact-fit|no-border>", "--stage-align <str>", "--fullscreen", "--fla-profile <...>", "--swf-target <fp8|fp9|fp10|fp10-scriptless>", "--swf-profile <fp8|fp9|fp10>", "--scriptless", "--outline-text", "--symbol <id|name>", "--frame <u32>", "--end-frame <u32>", "--scale <f32>", "--width <u32>", "--height <u32>", "--transparent", "--jpeg-quality <1..=100>", "--text-as-outlines", "--pretty", "--atlas-format <...>", "--atlas-extrude <u32>", "--audio-format <wav|mp3|ogg|flac|aac>", "--banner-max-gzip <usize>", "--image-format <original|png|jpeg|webp|gif|bmp|psd|pdf|ai|svg>", "--html-preview", "--no-aepx", "--no-jsx", "--no-translate-scripts", "--shape-morph-step <u32>", "-h", "--help"]
         }
     ])
+}
+
+fn batch_operations_schema() -> Value {
+    let mut ops = serde_json::Map::new();
+    ops.insert(
+        "new".into(),
+        json!([
+            "name?",
+            "width?",
+            "height?",
+            "fps?",
+            "bg?",
+            "language?",
+            "script_language?",
+            "also_compile_compatible_scripts?",
+            "demo?"
+        ]),
+    );
+    ops.insert("open".into(), json!(["path"]));
+    ops.insert(
+        "set_project".into(),
+        json!([
+            "name?",
+            "width?",
+            "height?",
+            "fps?",
+            "bg?",
+            "script_language?",
+            "also_compile_compatible_scripts?"
+        ]),
+    );
+    ops.insert(
+        "add_symbol".into(),
+        json!([
+            "id?",
+            "name",
+            "kind?",
+            "frame_count?",
+            "linkage_id?",
+            "class_name?",
+            "folder?",
+            "as_scene?"
+        ]),
+    );
+    ops.insert(
+        "add_layer".into(),
+        json!([
+            "symbol?",
+            "id?",
+            "name",
+            "role?",
+            "visible?",
+            "locked?",
+            "mask_layer?",
+            "motion_guide?"
+        ]),
+    );
+    ops.insert(
+        "add_keyframe".into(),
+        json!([
+            "symbol?",
+            "layer",
+            "frame",
+            "label?",
+            "tween?",
+            "tween_kind?",
+            "copy_previous?",
+            "clear_elements?"
+        ]),
+    );
+    ops.insert(
+        "add_element".into(),
+        json!([
+            "symbol?",
+            "layer?",
+            "frame?",
+            "id?",
+            "name?",
+            "kind (rectangle|oval|ellipse|text|text_box|path|instance)",
+            "transform?",
+            "x?",
+            "y?",
+            "scale_x?",
+            "scale_y?",
+            "rotation?",
+            "skew?",
+            "alpha?",
+            "visible?",
+            "width?",
+            "height?",
+            "fill?",
+            "stroke?",
+            "stroke_width?",
+            "text?",
+            "font_family?",
+            "font_size?",
+            "color?",
+            "word_wrap?",
+            "multiline?",
+            "commands?",
+            "d?",
+            "fill_rule?",
+            "symbol_id?",
+            "playback?"
+        ]),
+    );
+    ops.insert(
+        "set_script".into(),
+        json!([
+            "symbol?",
+            "layer?",
+            "frame?",
+            "element?",
+            "event?",
+            "path?",
+            "id?",
+            "language?",
+            "source",
+            "remove_empty?"
+        ]),
+    );
+    ops.insert(
+        "remove_element".into(),
+        json!(["symbol?", "layer?", "frame?", "element"]),
+    );
+    ops.insert(
+        "apply_command_steps".into(),
+        json!(["symbol?", "layer?", "frame?", "elements", "steps"]),
+    );
+    ops.insert(
+        "jsfl".into(),
+        json!([
+            "exactly one of code? | source? | script_file?",
+            "symbol?",
+            "frame?",
+            "flfile_root?",
+            "allow_read?",
+            "allow_write?",
+            "allow_delete?"
+        ]),
+    );
+    ops.insert("validate".into(), json!(["strict?"]));
+    ops.insert("compile".into(), json!(["strict?"]));
+    ops.insert(
+        "eval".into(),
+        json!(["scene?", "symbol?", "frame?", "frames?", "scripts?"]),
+    );
+    ops.insert(
+        "inspect".into(),
+        json!([
+            "symbol?",
+            "frame?",
+            "no_elements?",
+            "no_scripts?",
+            "no_resources?"
+        ]),
+    );
+    ops.insert(
+        "export".into(),
+        json!([
+            "target",
+            "out",
+            "profile?",
+            "size_level?",
+            "runtime?",
+            "runtime_url?",
+            "font_policy?",
+            "audio_policy?",
+            "render_mode?",
+            "clean?",
+            "sprite_sheets?",
+            "assets_folder?",
+            "scale_mode?",
+            "stage_align?",
+            "allow_fullscreen?",
+            "fla_profile?",
+            "swf_target?",
+            "swf_profile?",
+            "scriptless?",
+            "outline_text?",
+            "symbol?",
+            "frame?",
+            "end_frame?",
+            "scale?",
+            "width?",
+            "height?",
+            "transparent?",
+            "jpeg_quality?",
+            "text_as_outlines?",
+            "pretty?",
+            "atlas_format?",
+            "atlas_extrude?",
+            "audio_format?",
+            "banner_max_gzip?",
+            "image_format?",
+            "html_preview?",
+            "include_aepx?",
+            "include_extendscript?",
+            "translate_scripts?",
+            "shape_morph_step?"
+        ]),
+    );
+    ops.insert("save".into(), json!(["path?"]));
+    Value::Object(ops)
+}
+
+fn batch_schema_json() -> Value {
+    json!({
+        "containers": ["{ \"ops\": [ ... ] }", "{ \"steps\": [ ... ] }", "[ ... ]"],
+        "strict": "Unknown wrapper, operation, nested transform, path-command, authoring-command, and export fields are rejected.",
+        "atomicity": "Operations mutate an in-memory candidate project; the implicit final --out / --in-place project replacement occurs atomically only after every step and Project::validate() pass. Explicit save/export operations and permitted JSFL FLfile writes occur immediately and are not rolled back if a later step fails.",
+        "operations": batch_operations_schema(),
+        "nested_schemas": {
+            "transform": ["x?", "y?", "scale_x?", "scale_y?", "rotation?", "skew?", "alpha?"],
+            "frame_range_object": ["start", "end"],
+            "path_command_ops": ["move_to{x,y}", "line_to{x,y}", "quadratic_to{cx,cy,x,y}", "cubic_to{cx1,cy1,cx2,cy2,x,y}", "close"]
+        },
+        "command_step_ops": [
+            "translate",
+            "scale",
+            "rotate",
+            "skew",
+            "set_alpha",
+            "set_fill_color",
+            "set_stroke_color",
+            "set_stroke_width",
+            "set_visible",
+            "set_blend_mode",
+            "rename_selection",
+            "duplicate_selection",
+            "delete_selection",
+            "swap_symbol"
+        ]
+    })
 }
 
 fn cmd_capabilities<W1: Write, W2: Write>(
@@ -925,6 +1384,78 @@ fn cmd_capabilities<W1: Write, W2: Write>(
     stderr: &mut W2,
 ) -> i32 {
     let id = BuildIdentity::current();
+    let batch_schema = batch_schema_json();
+    let subcommands = subcommands_schema();
+    let import_formats = json!([
+        "nflash",
+        "fla",
+        "xfl",
+        "swf",
+        "swc",
+        "fig",
+        "figma",
+        "figma.json",
+        "svg",
+        "psd",
+        "psb",
+        "pdf",
+        "ai",
+        "fxg",
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "webp",
+        "bmp",
+        "tif",
+        "tiff",
+        "image-sequence",
+        "mp3",
+        "wav",
+        "ogg",
+        "flac",
+        "aac",
+        "m4a",
+        "mp4",
+        "m4v",
+        "webm",
+        "mov",
+        "ogv",
+        "avi",
+        "act",
+        "clr",
+        "ase"
+    ]);
+    let export_targets = json!([
+        "html5",
+        "swf",
+        "image",
+        "png-sequence",
+        "sequence",
+        "aep",
+        "fla",
+        "xfl",
+        "svg",
+        "lottie",
+        "dotlottie",
+        "atlas",
+        "video",
+        "audio",
+        "banner",
+        "desktop"
+    ]);
+    let html5_profiles = json!([
+        "Default",
+        "Full",
+        "Balanced",
+        "Compact",
+        "Shared",
+        "Web App · DOM",
+        "Web Banner · Native",
+        "Desktop app",
+        "High Quality",
+        "Preview / Debug"
+    ]);
     let payload = json!({
         "ok": true,
         "command": "capabilities",
@@ -937,7 +1468,13 @@ fn cmd_capabilities<W1: Write, W2: Write>(
         },
         "triggers": ["--headless", "headless", "--help", "-h", "--version", "-V", "NEOFLASH_HEADLESS=1"],
         "output_formats": ["json", "text"],
-        "subcommands": subcommands_schema(),
+        "json_contract": "When --format json is active (default for --headless), stdout is always a single valid JSON object on both success and failure.",
+        "exit_codes": {
+            "0": "success",
+            "1": "domain_validation_compile_jsfl_or_io_error",
+            "2": "cli_usage_flag_or_schema_error"
+        },
+        "subcommands": subcommands,
         "script_languages": [
             { "id": "actionscript1", "aliases": ["as1"] },
             { "id": "actionscript2", "aliases": ["as2"] },
@@ -948,55 +1485,15 @@ fn cmd_capabilities<W1: Write, W2: Write>(
         "jsfl": {
             "sandbox": "JsflSandbox",
             "flfile_default": "deny_all",
-            "capability_flags": ["--allow-read <dir>", "--allow-write <dir>", "--allow-delete"]
+            "trace_fields": ["traces", "output_lines"],
+            "capability_flags": ["--flfile-root <dir>", "--allow-read <dir>", "--allow-write <dir>", "--allow-delete"]
         },
-        "batch_schema": {
-            "containers": ["{ \"ops\": [ ... ] }", "{ \"steps\": [ ... ] }", "[ ... ]"],
-            "strict": "Unknown wrapper, operation, nested transform, path-command, authoring-command, and export fields are rejected.",
-            "atomicity": "Operations mutate an in-memory candidate project; the implicit final --out / --in-place project replacement occurs atomically only after every step and Project::validate() pass. Explicit save/export operations and permitted JSFL FLfile writes occur immediately and are not rolled back if a later step fails.",
-            "operations": {
-                "new": ["name?", "width?", "height?", "fps?", "bg?", "language?", "script_language?", "also_compile_compatible_scripts?", "demo?"],
-                "open": ["path"],
-                "set_project": ["name?", "width?", "height?", "fps?", "bg?", "script_language?", "also_compile_compatible_scripts?"],
-                "add_symbol": ["id?", "name", "kind?", "frame_count?", "linkage_id?", "class_name?", "folder?", "as_scene?"],
-                "add_layer": ["symbol?", "id?", "name", "role?", "visible?", "locked?", "mask_layer?", "motion_guide?"],
-                "add_keyframe": ["symbol?", "layer", "frame", "label?", "tween?", "tween_kind?", "copy_previous?", "clear_elements?"],
-                "add_element": ["symbol?", "layer?", "frame?", "id?", "name?", "kind (rectangle|oval|ellipse|text|text_box|path|instance)", "transform?", "x?", "y?", "scale_x?", "scale_y?", "rotation?", "skew?", "alpha?", "visible?", "width?", "height?", "fill?", "stroke?", "stroke_width?", "text?", "font_family?", "font_size?", "color?", "word_wrap?", "multiline?", "commands?", "d?", "fill_rule?", "symbol_id?", "playback?"],
-                "set_script": ["symbol?", "layer?", "frame?", "element?", "event?", "path?", "id?", "language?", "source", "remove_empty?"],
-                "remove_element": ["symbol?", "layer?", "frame?", "element"],
-                "apply_command_steps": ["symbol?", "layer?", "frame?", "elements", "steps"],
-                "jsfl": ["exactly one of code? | source? | script_file?", "symbol?", "frame?", "allow_read?", "allow_write?", "allow_delete?"],
-                "validate": ["strict?"],
-                "compile": ["strict?"],
-                "eval": ["scene?", "symbol?", "frame?", "frames?", "scripts?"],
-                "inspect": ["symbol?", "frame?", "no_elements?", "no_scripts?", "no_resources?"],
-                "export": ["target", "out", "profile?", "size_level?", "runtime?", "runtime_url?", "font_policy?", "audio_policy?", "render_mode?", "clean?", "sprite_sheets?", "assets_folder?", "scale_mode?", "stage_align?", "allow_fullscreen?", "fla_profile?", "swf_profile?", "scriptless?", "outline_text?", "symbol?", "frame?", "end_frame?", "width?", "height?", "transparent?", "text_as_outlines?", "pretty?", "atlas_format?", "atlas_extrude?", "audio_format?", "banner_max_gzip?", "image_format?", "html_preview?"],
-                "save": ["path?"]
-            },
-            "nested_schemas": {
-                "transform": ["x?", "y?", "scale_x?", "scale_y?", "rotation?", "skew?", "alpha?"],
-                "frame_range_object": ["start", "end"],
-                "path_command_ops": ["move_to{x,y}", "line_to{x,y}", "quadratic_to{cx,cy,x,y}", "cubic_to{cx1,cy1,cx2,cy2,x,y}", "close"]
-            },
-            "command_step_ops": [
-                "translate",
-                "scale",
-                "rotate",
-                "skew",
-                "set_alpha",
-                "set_fill_color",
-                "set_stroke_color",
-                "set_stroke_width",
-                "set_visible",
-                "set_blend_mode",
-                "rename_selection",
-                "duplicate_selection",
-                "delete_selection",
-                "swap_symbol"
-            ]
-        },
-        "import_formats": ["fla", "xfl", "swf", "swc", "svg", "psd", "psb", "pdf", "ai", "fxg", "fig", "figma", "figma.json", "act", "clr", "ase", "image-sequence"],
-        "export_targets": ["html5", "fla", "xfl", "swf", "svg", "lottie", "dotlottie", "atlas", "sequence", "video", "audio", "banner", "desktop"],
+        "batch_schema": batch_schema,
+        "import_formats": import_formats,
+        "export_targets": export_targets,
+        "html5_profiles": html5_profiles,
+        "swf_targets": ["fp8", "fp9", "fp10", "fp10-scriptless"],
+        "image_formats": ["png", "jpeg", "jpg", "webp", "gif", "bmp", "psd", "pdf", "ai", "svg"],
         "size_levels": ["full", "balanced", "compact", "shared"],
         "html_render_modes": ["canvas", "dom"]
     });
@@ -1007,14 +1504,14 @@ fn cmd_capabilities<W1: Write, W2: Write>(
                 0
             }
             Err(err) => {
-                write_json_error(&err, format, pretty, stderr);
+                write_json_error(&err, format, pretty, stdout, stderr);
                 err.exit_code
             }
         },
         OutputFormat::Text => {
             let _ = writeln!(
                 stdout,
-                "NeoFlash {} ({}) headless CLI: capabilities, new, inspect, validate, compile, eval, jsfl, batch, import, export",
+                "NeoFlash {} ({}) headless CLI: capabilities, new, inspect, validate, compile, eval, jsfl, batch, import, export | import_formats=nflash,fla,xfl,swf,swc,fig,svg,psd,pdf,ai,fxg,png,jpg,gif,webp,bmp,mp3,wav,ogg,flac,aac,m4a,mp4,webm,mov,avi,act,clr,ase | export_targets=html5,swf,image,png-sequence,aep,fla,xfl,svg,lottie,dotlottie,atlas,video,audio,banner,desktop | exit_codes=0,1,2",
                 id.version,
                 id.commit_short()
             );
@@ -1033,7 +1530,7 @@ fn cmd_new<W1: Write, W2: Write>(
     match run_cmd_new(args, format, pretty, stdout) {
         Ok(()) => 0,
         Err(err) => {
-            write_json_error(&err, format, pretty, stderr);
+            write_json_error(&err, format, pretty, stdout, stderr);
             err.exit_code
         }
     }
@@ -1120,7 +1617,7 @@ fn run_cmd_new<W1: Write>(
     };
     project.script_language = Some(resolved_script);
     project.also_compile_compatible_scripts = true;
-    project.upgrade_format_for_features();
+    upgrade_project_format_versions(&mut project);
     project
         .validate()
         .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
@@ -1177,7 +1674,7 @@ fn cmd_inspect<W1: Write, W2: Write>(
     match run_cmd_inspect(args, format, pretty, stdout) {
         Ok(()) => 0,
         Err(err) => {
-            write_json_error(&err, format, pretty, stderr);
+            write_json_error(&err, format, pretty, stdout, stderr);
             err.exit_code
         }
     }
@@ -1548,7 +2045,7 @@ fn cmd_validate<W1: Write, W2: Write>(
     match run_cmd_validate(args, format, pretty, stdout) {
         Ok(()) => 0,
         Err(err) => {
-            write_json_error(&err, format, pretty, stderr);
+            write_json_error(&err, format, pretty, stdout, stderr);
             err.exit_code
         }
     }
@@ -1618,7 +2115,8 @@ pub(crate) fn validate_project_full(project: &Project, strict: bool) -> Result<V
         .into_iter()
         .map(|issue| json!({ "path": issue.path, "message": issue.message }))
         .collect();
-    let script_diags = collect_located_script_diagnostics(project);
+    let resolved = project.with_resolved_script_language();
+    let script_diags = collect_located_script_diagnostics(&resolved);
     let script_errors: Vec<Value> = script_diags
         .iter()
         .filter(|d| d.severity == DiagnosticSeverity::Error)
@@ -1637,6 +2135,9 @@ pub(crate) fn validate_project_full(project: &Project, strict: bool) -> Result<V
     let report = json!({
         "valid": !failed,
         "format_version": project.format_version,
+        "script_language": project.script_language.map(ScriptLanguage::short_slug),
+        "effective_script_language": resolved.effective_script_language().short_slug(),
+        "also_compile_compatible_scripts": resolved.also_compile_compatible_scripts,
         "validation_issue_count": model_issues.len(),
         "validation_issues": model_issues,
         "script_error_count": script_errors.len(),
@@ -1671,7 +2172,7 @@ fn cmd_compile<W1: Write, W2: Write>(
     match run_cmd_compile(args, format, pretty, stdout) {
         Ok(()) => 0,
         Err(err) => {
-            write_json_error(&err, format, pretty, stderr);
+            write_json_error(&err, format, pretty, stdout, stderr);
             err.exit_code
         }
     }
@@ -1743,7 +2244,10 @@ fn run_cmd_compile<W1: Write>(
 }
 
 pub(crate) fn collect_compile_summary(project: &Project) -> Value {
-    let diags = collect_located_script_diagnostics(project);
+    let resolved = project.with_resolved_script_language();
+    let eff_lang = resolved.effective_script_language();
+    let also_compat = resolved.also_compile_compatible_scripts;
+    let diags = collect_located_script_diagnostics(&resolved);
     let error_count = diags
         .iter()
         .filter(|d| d.severity == DiagnosticSeverity::Error)
@@ -1753,6 +2257,39 @@ pub(crate) fn collect_compile_summary(project: &Project) -> Value {
         .filter(|d| d.severity == DiagnosticSeverity::Warning)
         .count();
     let diag_json: Vec<Value> = diags.iter().map(located_diag_to_json).collect();
+
+    let mut compiled_scripts_count = 0usize;
+    let mut skipped_foreign_scripts_count = 0usize;
+    let mut tally = |lang: ScriptLanguage, empty: bool| {
+        if empty {
+            return;
+        }
+        if resolved
+            .script_disposition_for(eff_lang, also_compat, lang)
+            .is_compiled()
+        {
+            compiled_scripts_count += 1;
+        } else {
+            skipped_foreign_scripts_count += 1;
+        }
+    };
+    for unit in &resolved.sources {
+        tally(unit.language, false);
+    }
+    for sym in &resolved.symbols {
+        for fs in &sym.timeline.scripts {
+            tally(fs.script.language, fs.script.source.trim().is_empty());
+        }
+        for layer in &sym.timeline.layers {
+            for kf in &layer.keyframes {
+                for el in &kf.elements {
+                    for os in &el.scripts {
+                        tally(os.script.language, os.script.source.trim().is_empty());
+                    }
+                }
+            }
+        }
+    }
     let scripts_checked = project.sources.len()
         + project
             .symbols
@@ -1769,7 +2306,12 @@ pub(crate) fn collect_compile_summary(project: &Project) -> Value {
             })
             .sum::<usize>();
     json!({
+        "script_language": project.script_language.map(ScriptLanguage::short_slug),
+        "effective_script_language": eff_lang.short_slug(),
+        "also_compile_compatible_scripts": also_compat,
         "scripts_checked": scripts_checked,
+        "compiled_scripts_count": compiled_scripts_count,
+        "skipped_foreign_scripts_count": skipped_foreign_scripts_count,
         "error_count": error_count,
         "warning_count": warning_count,
         "diagnostics": diag_json,
@@ -1809,7 +2351,7 @@ fn cmd_eval<W1: Write, W2: Write>(
     match run_cmd_eval(args, format, pretty, stdout) {
         Ok(()) => 0,
         Err(err) => {
-            write_json_error(&err, format, pretty, stderr);
+            write_json_error(&err, format, pretty, stdout, stderr);
             err.exit_code
         }
     }

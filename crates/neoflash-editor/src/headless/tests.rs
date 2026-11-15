@@ -176,10 +176,16 @@ fn help_version_and_capabilities_schema() {
 
     let (code, stdout, stderr) = run_args(&["--headless", "unknown_cmd"], "");
     assert_eq!(code, 2);
-    assert!(stdout.is_empty());
-    let err: Value = serde_json::from_str(&stderr).expect("json stderr error");
+    assert!(stderr.is_empty());
+    let err: Value = serde_json::from_str(&stdout).expect("json stdout error");
     assert_eq!(err["ok"], false);
+    assert_eq!(err["exit_code"], 2);
     assert_eq!(err["error"]["code"], "unknown_subcommand");
+
+    let (code, stdout, stderr) = run_args(&["--headless", "--format", "text", "unknown_cmd"], "");
+    assert_eq!(code, 2);
+    assert!(stdout.is_empty());
+    assert!(stderr.contains("Error [unknown_subcommand]"));
 }
 
 #[test]
@@ -309,8 +315,8 @@ fn compile_and_validate_fail_closed_with_located_diagnostics() {
         root.timeline.scripts.push(FrameScript {
             frame: 0,
             script: Script {
-                language: ScriptLanguage::JavaScript,
-                source: "let = ;".into(),
+                language: ScriptLanguage::ActionScript3,
+                source: "function brokenFrame( {".into(),
             },
         });
         root.timeline.layers[0].keyframes[0]
@@ -340,9 +346,10 @@ fn compile_and_validate_fail_closed_with_located_diagnostics() {
         "",
     );
     assert_eq!(code, 1);
-    assert!(stdout.is_empty());
-    let err: Value = serde_json::from_str(&stderr).expect("compile error json");
+    assert!(stderr.is_empty());
+    let err: Value = serde_json::from_str(&stdout).expect("compile error json");
     assert_eq!(err["ok"], false);
+    assert_eq!(err["exit_code"], 1);
     assert_eq!(err["error"]["code"], "compile_failed");
     let diags = err["error"]["details"]["diagnostics"].as_array().unwrap();
     assert!(
@@ -360,7 +367,7 @@ fn compile_and_validate_fail_closed_with_located_diagnostics() {
             .any(|d| d["element_id"] == "hero_el" && d["layer"] == "Layer 1")
     );
 
-    let (code, _, stderr) = run_args(
+    let (code, stdout, stderr) = run_args(
         &[
             "--headless",
             "validate",
@@ -370,7 +377,8 @@ fn compile_and_validate_fail_closed_with_located_diagnostics() {
         "",
     );
     assert_eq!(code, 1);
-    let verr: Value = serde_json::from_str(&stderr).unwrap();
+    assert!(stderr.is_empty());
+    let verr: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(verr["error"]["code"], "validation_failed");
 
     // Warning-only script (`trce(...)` or unused/unassigned heuristic) verified under --strict if any warning occurs,
@@ -382,7 +390,7 @@ fn compile_and_validate_fail_closed_with_located_diagnostics() {
         serde_json::to_string(&invalid_model).unwrap(),
     )
     .unwrap();
-    let (code, _, stderr) = run_args(
+    let (code, stdout, stderr) = run_args(
         &[
             "--headless",
             "validate",
@@ -392,7 +400,8 @@ fn compile_and_validate_fail_closed_with_located_diagnostics() {
         "",
     );
     assert_eq!(code, 1);
-    let m_err: Value = serde_json::from_str(&stderr).unwrap();
+    assert!(stderr.is_empty());
+    let m_err: Value = serde_json::from_str(&stdout).unwrap();
     assert!(
         m_err["error"]["details"]["validation_issue_count"]
             .as_u64()
@@ -524,7 +533,7 @@ fn jsfl_sandbox_mutates_saves_and_enforces_flfile_capabilities() {
     fs::write(&proj_path, &orig_json).unwrap();
 
     // 1. Default deny-all rejects FLfile.read without modifying output
-    let (code, _, stderr) = run_args(
+    let (code, stdout, stderr) = run_args(
         &[
             "--headless",
             "jsfl",
@@ -538,7 +547,8 @@ fn jsfl_sandbox_mutates_saves_and_enforces_flfile_capabilities() {
         "",
     );
     assert_eq!(code, 1);
-    let err: Value = serde_json::from_str(&stderr).unwrap();
+    assert!(stderr.is_empty());
+    let err: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(err["error"]["code"], "jsfl_error");
     assert!(!out_path.exists());
 
@@ -592,6 +602,7 @@ fn jsfl_sandbox_mutates_saves_and_enforces_flfile_capabilities() {
     assert_eq!(res["ok"], true);
     assert_eq!(res["return_value"], "LayerFromFile");
     assert!(res["mutations"].as_u64().unwrap() >= 2);
+    assert_eq!(res["traces"], json!(["updated LayerFromFile"]));
     assert_eq!(res["output_lines"], json!(["updated LayerFromFile"]));
     assert_eq!(
         fs::read_to_string(allowed_dir.join("written.txt")).unwrap(),
@@ -763,8 +774,8 @@ fn batch_pipeline_builds_validates_exports_and_rolls_back_atomically() {
         &bad_ops.to_string(),
     );
     assert_eq!(code, 1);
-    assert!(stdout.is_empty());
-    let err: Value = serde_json::from_str(&stderr).unwrap();
+    assert!(stderr.is_empty());
+    let err: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(err["error"]["code"], "compile_failed");
     assert_eq!(err["error"]["details"]["step_index"], 2);
     assert_eq!(fs::read_to_string(&out_proj).unwrap(), snapshot_before);
@@ -800,8 +811,8 @@ fn batch_pipeline_builds_validates_exports_and_rolls_back_atomically() {
     let (code, stdout, stderr) =
         run_args(&["--headless", "batch", "--stdin"], &bad_shape.to_string());
     assert_eq!(code, 2);
-    assert!(stdout.is_empty());
-    let err: Value = serde_json::from_str(&stderr).unwrap();
+    assert!(stderr.is_empty());
+    let err: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(err["error"]["code"], "invalid_batch_json");
     assert!(err["error"]["message"].as_str().unwrap().contains("step 2"));
 
@@ -863,8 +874,8 @@ fn batch_rejects_unknown_or_ambiguous_json_fields() {
         let (code, stdout, stderr) =
             run_args(&["--headless", "batch", "--stdin"], &invalid.to_string());
         assert_eq!(code, 2, "batch={invalid}, stdout={stdout}, stderr={stderr}");
-        assert!(stdout.is_empty());
-        let error: Value = serde_json::from_str(&stderr).unwrap();
+        assert!(stderr.is_empty());
+        let error: Value = serde_json::from_str(&stdout).unwrap();
         assert_eq!(error["error"]["code"], "invalid_batch_json");
     }
 
@@ -878,8 +889,8 @@ fn batch_rejects_unknown_or_ambiguous_json_fields() {
         &ambiguous_jsfl.to_string(),
     );
     assert_eq!(code, 2, "stdout={stdout}, stderr={stderr}");
-    assert!(stdout.is_empty());
-    let error: Value = serde_json::from_str(&stderr).unwrap();
+    assert!(stderr.is_empty());
+    let error: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(error["error"]["code"], "invalid_arguments");
 }
 
@@ -1025,8 +1036,8 @@ fn batch_held_span_mutations_share_active_keyframe_and_empty_removal_is_noop() {
             &json!([mutation]).to_string(),
         );
         assert_eq!(code, 1, "stdout={stdout}, stderr={stderr}");
-        assert!(stdout.is_empty());
-        let error: Value = serde_json::from_str(&stderr).unwrap();
+        assert!(stderr.is_empty());
+        let error: Value = serde_json::from_str(&stdout).unwrap();
         assert_eq!(error["error"]["code"], "element_not_found");
         assert_eq!(
             Project::from_json(&fs::read_to_string(&project_path).unwrap()).unwrap(),
@@ -1378,7 +1389,7 @@ fn import_and_export_targets_roundtrip() {
         assert!(!canvas_override_html.contains("<neoflash-stage"));
 
         // Invalid render_mode values and unknown camelCase fields fail closed with exit code 2
-        let (code, _, stderr) = run_args(
+        let (code, stdout, stderr) = run_args(
             &[
                 "--headless",
                 "export",
@@ -1394,8 +1405,9 @@ fn import_and_export_targets_roundtrip() {
             "",
         );
         assert_eq!(code, 2, "stderr: {stderr}");
+        assert!(stderr.is_empty());
         assert_eq!(
-            serde_json::from_str::<Value>(&stderr).unwrap()["error"]["code"],
+            serde_json::from_str::<Value>(&stdout).unwrap()["error"]["code"],
             "invalid_argument"
         );
 
@@ -1405,7 +1417,7 @@ fn import_and_export_targets_roundtrip() {
             "out": tmp.path.join("ignored_camel").to_str().unwrap(),
             "renderMode": "dom"
         }]);
-        let (code, _, stderr) = run_args(
+        let (code, stdout, stderr) = run_args(
             &[
                 "--headless",
                 "batch",
@@ -1416,8 +1428,9 @@ fn import_and_export_targets_roundtrip() {
             &bad_camel.to_string(),
         );
         assert_eq!(code, 2, "stderr: {stderr}");
+        assert!(stderr.is_empty());
         assert_eq!(
-            serde_json::from_str::<Value>(&stderr).unwrap()["error"]["code"],
+            serde_json::from_str::<Value>(&stdout).unwrap()["error"]["code"],
             "invalid_batch_json"
         );
     }
@@ -1622,4 +1635,288 @@ fn t311_capabilities_schema_batch_script_language_and_legacy_none_export() {
     );
     assert_eq!(code, 0, "headless legacy FLA export failed: {stderr}");
     assert!(fla_out.is_file());
+
+    // Pre-R-102 (`script_language == None`) `compile` and `validate` must also resolve R-102
+    // disposition and skip foreign TypeScript with a warning rather than failing compilation.
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "compile",
+            "--project",
+            legacy_path.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "legacy AS2 compile failed: {stderr}");
+    let comp_val: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(comp_val["effective_script_language"], "as2");
+    assert_eq!(comp_val["compiled_scripts_count"], 1);
+    assert_eq!(comp_val["skipped_foreign_scripts_count"], 1);
+
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "validate",
+            "--project",
+            legacy_path.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "legacy AS2 validate failed: {stderr}");
+    let val_res: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(val_res["effective_script_language"], "as2");
+    assert_eq!(val_res["valid"], true);
+}
+
+#[test]
+fn t321_subcommand_help_strict_json_stdout_errors_and_flfile_copy() {
+    for sub in [
+        "capabilities",
+        "schema",
+        "new",
+        "inspect",
+        "validate",
+        "compile",
+        "eval",
+        "jsfl",
+        "batch",
+        "import",
+        "export",
+    ] {
+        for flag in ["--help", "-h"] {
+            let (code, stdout, stderr) = run_args(&["--headless", sub, flag], "");
+            assert_eq!(code, 0, "sub={sub} flag={flag} stderr={stderr}");
+            assert!(
+                stdout.contains("Usage: neoflash-editor --headless"),
+                "sub={sub} stdout={stdout}"
+            );
+            assert!(stderr.is_empty());
+        }
+        let (code, stdout, stderr) = run_args(&["--headless", "help", sub], "");
+        assert_eq!(code, 0, "help {sub} stderr={stderr}");
+        assert!(stdout.contains("Usage: neoflash-editor --headless"));
+        assert!(stderr.is_empty());
+    }
+
+    // Unknown subcommand with --help or `help bogus` exits 2 with valid JSON on stdout.
+    for args in [
+        &["--headless", "bogus_cmd", "--help"][..],
+        &["--headless", "help", "bogus_cmd"][..],
+        &["--headless", "--format=json", "--bogus-global"][..],
+        &["--headless", "new", "--version"][..],
+    ] {
+        let (code, stdout, stderr) = run_args(args, "");
+        assert_eq!(code, 2, "args={args:?} stdout={stdout} stderr={stderr}");
+        assert!(
+            stderr.is_empty(),
+            "expected empty stderr for {args:?}: {stderr}"
+        );
+        let err: Value = serde_json::from_str(&stdout)
+            .unwrap_or_else(|e| panic!("invalid JSON stdout for {args:?}: {e}: {stdout}"));
+        assert_eq!(err["ok"], false);
+        assert_eq!(err["exit_code"], 2);
+    }
+
+    // Explicit `--format text` writes error to stderr and leaves stdout empty.
+    let (code, stdout, stderr) = run_args(&["--headless", "--format=text", "--bogus-global"], "");
+    assert_eq!(code, 2);
+    assert!(stdout.is_empty());
+    assert!(stderr.contains("Error [unknown_flag]"));
+
+    // FLfile.copy + fresh --flfile-root creation + copy-on-folder false + text trace capture.
+    let tmp = TempDirGuard::new("t321-flfile-copy");
+    let proj_path = tmp.path.join("doc.nflash");
+    let root_dir = tmp.path.join("brand_new_flroot");
+    assert!(!root_dir.exists());
+    fs::write(&proj_path, Project::blank().to_json().unwrap()).unwrap();
+
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "jsfl",
+            "--project",
+            proj_path.to_str().unwrap(),
+            "--flfile-root",
+            root_dir.to_str().unwrap(),
+            "--eval",
+            r#"
+                FLfile.write("file:///src.txt", "copied_payload");
+                FLfile.createFolder("file:///sub");
+                var ok1 = FLfile.copy("file:///src.txt", "file:///dst.txt");
+                var ok2 = FLfile.copy("file:///src.txt", "file:///dst.txt");
+                var okDir = FLfile.copy("file:///sub", "file:///sub_copy");
+                fl.trace("copy1=" + ok1 + ",copy2=" + ok2 + ",dir=" + okDir + ",val=" + FLfile.read("file:///dst.txt"));
+                ok1 && !ok2 && !okDir;
+            "#,
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    assert!(root_dir.is_dir());
+    let jsfl_json: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(jsfl_json["return_value"], true);
+    assert_eq!(
+        jsfl_json["traces"],
+        json!(["copy1=true,copy2=false,dir=false,val=copied_payload"])
+    );
+    assert_eq!(
+        fs::read_to_string(root_dir.join("dst.txt")).unwrap(),
+        "copied_payload"
+    );
+    assert!(!root_dir.join("sub_copy").exists());
+
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "--format",
+            "text",
+            "jsfl",
+            "--project",
+            proj_path.to_str().unwrap(),
+            "--eval",
+            "fl.trace('hello_text_trace'); 42;",
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert!(stdout.contains("hello_text_trace\n"), "stdout={stdout}");
+
+    // Invalid `--folder` paths and invalid export bounds return exit code 2.
+    for bad_folder in ["../escape", "a\\b", "a//b", ".", "Icons/.."] {
+        let (code, stdout, _) = run_args(
+            &[
+                "--headless",
+                "import",
+                "--input",
+                proj_path.to_str().unwrap(),
+                "--folder",
+                bad_folder,
+                "--out",
+                tmp.path.join("never.nflash").to_str().unwrap(),
+            ],
+            "",
+        );
+        assert_eq!(
+            code, 2,
+            "expected exit 2 for --folder {bad_folder:?}: {stdout}"
+        );
+        let err: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(err["error"]["code"], "invalid_argument");
+    }
+
+    for bad_export in [
+        vec![
+            "--headless",
+            "export",
+            "--project",
+            proj_path.to_str().unwrap(),
+            "--target",
+            "svg",
+            "--width",
+            "0",
+            "--out",
+            tmp.path.join("bad_w.svg").to_str().unwrap(),
+        ],
+        vec![
+            "--headless",
+            "export",
+            "--project",
+            proj_path.to_str().unwrap(),
+            "--target",
+            "png-sequence",
+            "--frame",
+            "5",
+            "--end-frame",
+            "2",
+            "--out",
+            tmp.path.join("bad_seq").to_str().unwrap(),
+        ],
+    ] {
+        let (code, stdout, _) = run_args(&bad_export, "");
+        assert_eq!(code, 2, "expected exit 2 for {bad_export:?}: {stdout}");
+        let err: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(err["error"]["code"], "invalid_argument");
+    }
+
+    // Capabilities schema advertises boolean `--assets-folder` & `--sprite-sheets` (not `--assets-folder <dir>`).
+    let (code, stdout, _) = run_args(&["--headless", "capabilities"], "");
+    assert_eq!(code, 0);
+    let caps: Value = serde_json::from_str(&stdout).unwrap();
+    let export_flags = caps["subcommands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "export")
+        .unwrap()["flags"]
+        .as_array()
+        .unwrap();
+    assert!(export_flags.contains(&json!("--assets-folder")));
+    assert!(export_flags.contains(&json!("--sprite-sheets")));
+    assert!(!export_flags.contains(&json!("--assets-folder <dir>")));
+
+    // v1 blank `batch` (no `--project`): `add_symbol` with `folder` (v4) + `add_element` with `skew` (v5)
+    // + frame `set_script` + mid-batch `validate` upgrades `format_version` cleanly.
+    let v1_batch_out = tmp.path.join("v1_batch_upgraded.nflash");
+    let v1_ops = json!([
+        { "op": "add_symbol", "name": "CardSym", "kind": "movie_clip", "folder": "/UI/Cards/" },
+        { "op": "add_element", "kind": "rect", "x": 10.0, "y": 10.0, "width": 60.0, "height": 40.0, "skew": 12.5 },
+        { "op": "set_script", "frame": 0, "language": "as2", "source": "trace('v1_batch_ok');" },
+        { "op": "validate" }
+    ]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--out",
+            v1_batch_out.to_str().unwrap(),
+        ],
+        &serde_json::to_string(&v1_ops).unwrap(),
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let saved_batch = Project::from_json(&fs::read_to_string(&v1_batch_out).unwrap()).unwrap();
+    assert_eq!(saved_batch.format_version, 5);
+    assert!(saved_batch.library_folders.iter().any(|f| f == "UI/Cards"));
+    assert!(
+        saved_batch
+            .symbols
+            .iter()
+            .any(|s| s.name == "CardSym" && s.folder == "UI/Cards")
+    );
+
+    // `add_symbol` rejects `as_scene: true` with non-empty `folder` and invalid `folder` with exit code 2.
+    for bad_ops in [
+        json!([{ "op": "add_symbol", "name": "Scene 2", "as_scene": true, "folder": "Scenes" }]),
+        json!([{ "op": "add_symbol", "name": "BadSym", "folder": "../escape" }]),
+    ] {
+        let (code, stdout, _) = run_args(
+            &["--headless", "batch", "--stdin"],
+            &serde_json::to_string(&bad_ops).unwrap(),
+        );
+        assert_eq!(code, 2, "expected exit 2 for {bad_ops}: {stdout}");
+        let err: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(err["error"]["code"], "invalid_argument");
+    }
+
+    // `jsfl` adding a library folder on a v1 `Project::blank()` upgrades to v4 before validation.
+    let v1_jsfl_proj = tmp.path.join("v1_blank_for_jsfl.nflash");
+    let blank_v1 = Project::blank();
+    assert_eq!(blank_v1.format_version, 1);
+    fs::write(&v1_jsfl_proj, blank_v1.to_json().unwrap()).unwrap();
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "jsfl",
+            "--project",
+            v1_jsfl_proj.to_str().unwrap(),
+            "--in-place",
+            "--eval",
+            "fl.getDocumentDOM().library.newFolder('Icons');",
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let upgraded_jsfl = Project::from_json(&fs::read_to_string(&v1_jsfl_proj).unwrap()).unwrap();
+    assert_eq!(upgraded_jsfl.format_version, 4);
+    assert!(upgraded_jsfl.library_folders.iter().any(|f| f == "Icons"));
 }

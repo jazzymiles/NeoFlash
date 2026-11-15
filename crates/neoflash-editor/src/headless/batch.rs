@@ -1,15 +1,15 @@
 //! Strict JSON batch automation runner with atomic final project replacement
 //! (`neoflash-editor --headless batch`). Explicit export/save/JSFL filesystem side effects are
 //! immediate and intentionally outside that final replacement boundary.
-use super::import_export::{ExportSpec, export_project_with_spec};
+use super::import_export::{ExportSpec, export_project_with_spec, parse_library_folder_flag};
 use super::jsfl_fs::{JsflExecRequest, execute_jsfl_on_project, jsfl_value_to_json};
 use super::{
     CliError, EvalOptions, InspectOptions, OutputFormat, build_inspect_value, build_new_project,
     collect_compile_summary, evaluate_project, load_project_valid, parse_color, parse_easing,
     parse_frame_range_str, parse_language, parse_object_event, parse_symbol_kind, parse_tween_kind,
     resolve_layer_index, resolve_layer_index_mut, resolve_symbol, resolve_symbol_mut,
-    save_project_atomic, serialize_json_value, take_flag_value, validate_project_full,
-    write_json_error,
+    save_project_atomic, serialize_json_value, take_flag_value, upgrade_project_format_versions,
+    validate_project_full, write_json_error,
 };
 use neoflash_core::{
     AuthoringCommandStep, Color, Element, ElementKind, FillRule, FrameScript, InstancePlayback,
@@ -404,6 +404,7 @@ enum BatchOp {
         script_file: Option<PathBuf>,
         symbol: Option<String>,
         frame: Option<u32>,
+        flfile_root: Option<PathBuf>,
         allow_read: Option<PathBuf>,
         allow_write: Option<PathBuf>,
         #[serde(default)]
@@ -452,7 +453,7 @@ pub(crate) fn cmd_batch<R: Read, W1: Write, W2: Write>(
     match run_cmd_batch(args, format, pretty, stdin, stdout) {
         Ok(()) => 0,
         Err(err) => {
-            write_json_error(&err, format, pretty, stderr);
+            write_json_error(&err, format, pretty, stdout, stderr);
             err.exit_code
         }
     }
@@ -566,7 +567,7 @@ fn run_cmd_batch<R: Read, W1: Write>(
         }));
     }
 
-    project.upgrade_format_for_features();
+    upgrade_project_format_versions(&mut project);
     project.validate().map_err(|e| {
         CliError::runtime(
             "validation_failed",
@@ -670,7 +671,7 @@ fn execute_batch_op(
                 project.also_compile_compatible_scripts = compat;
             }
             if project.script_language.is_some() || also_compile_compatible_scripts.is_some() {
-                project.upgrade_format_for_features();
+                upgrade_project_format_versions(project);
                 project
                     .validate()
                     .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
@@ -733,7 +734,7 @@ fn execute_batch_op(
                 project.also_compile_compatible_scripts = compat;
             }
             if script_language.is_some() || also_compile_compatible_scripts.is_some() {
-                project.upgrade_format_for_features();
+                upgrade_project_format_versions(project);
             }
             Ok(json!({
                 "name": project.name,
@@ -754,6 +755,13 @@ fn execute_batch_op(
             folder,
             as_scene,
         } => {
+            let normalized_folder = parse_library_folder_flag(&folder)?;
+            if as_scene && !normalized_folder.is_empty() {
+                return Err(CliError::usage(
+                    "invalid_argument",
+                    "Scene symbols (as_scene: true) cannot be placed in a library folder",
+                ));
+            }
             let sym_id = id.unwrap_or_else(|| new_id("symbol"));
             if project.symbol(&sym_id).is_some() {
                 return Err(CliError::runtime(
@@ -770,10 +778,13 @@ fn execute_batch_op(
             if linkage_id.is_some() || class_name.is_some() {
                 project.enable_program();
             }
+            if !normalized_folder.is_empty() {
+                let _ = project.add_library_folder(&normalized_folder);
+            }
             project.symbols.push(Symbol {
                 id: sym_id.clone(),
                 name: name.clone(),
-                folder,
+                folder: normalized_folder,
                 kind: sym_kind,
                 timeline: Timeline {
                     frame_count: fc,
@@ -797,7 +808,7 @@ fn execute_batch_op(
                 }
                 project.scenes.push(sym_id.clone());
             }
-            project.upgrade_format_for_features();
+            upgrade_project_format_versions(project);
             Ok(json!({
                 "symbol_id": sym_id,
                 "name": name,
@@ -876,7 +887,7 @@ fn execute_batch_op(
                     ..LayerProperties::default()
                 },
             });
-            project.upgrade_format_for_features();
+            upgrade_project_format_versions(project);
             Ok(json!({ "symbol_id": sym_id, "layer_id": layer_id, "name": name }))
         }
         BatchOp::AddKeyframe {
@@ -939,7 +950,7 @@ fn execute_batch_op(
                 layer_ref.keyframes.push(kf);
                 layer_ref.keyframes.sort_by_key(|k| k.frame);
             }
-            project.upgrade_format_for_features();
+            upgrade_project_format_versions(project);
             Ok(json!({ "symbol_id": sym_id, "frame": frame }))
         }
         BatchOp::AddElement(spec) => {
@@ -1176,7 +1187,7 @@ fn execute_batch_op(
                 layer_mut.keyframes.sort_by_key(|k| k.frame);
             }
             let layer_id = layer_mut.id.clone();
-            project.upgrade_format_for_features();
+            upgrade_project_format_versions(project);
             Ok(json!({
                 "symbol_id": owner_sym_id,
                 "layer_id": layer_id,
@@ -1210,6 +1221,7 @@ fn execute_batch_op(
                     existing.language = resolved;
                     existing.source = source;
                     let uid = existing.id.clone();
+                    upgrade_project_format_versions(project);
                     return Ok(json!({ "target": "source", "source_id": uid, "path": src_path }));
                 }
                 let resolved = explicit_lang.unwrap_or(project_default_lang);
@@ -1220,6 +1232,7 @@ fn execute_batch_op(
                     language: resolved,
                     source,
                 });
+                upgrade_project_format_versions(project);
                 return Ok(json!({ "target": "source", "source_id": uid, "path": src_path }));
             }
 
@@ -1300,6 +1313,7 @@ fn execute_batch_op(
                         format!("Element '{el_sel}' not found at frame {frame}"),
                     )
                 })?;
+                upgrade_project_format_versions(project);
                 return Ok(json!({
                     "target": "object",
                     "symbol_id": sym_id,
@@ -1337,6 +1351,7 @@ fn execute_batch_op(
                     sym.timeline.scripts.sort_by_key(|s| s.frame);
                 }
             }
+            upgrade_project_format_versions(project);
             Ok(json!({
                 "target": "frame",
                 "symbol_id": sym_id,
@@ -1455,7 +1470,7 @@ fn execute_batch_op(
                     "No matching elements found for apply_command_steps",
                 ));
             }
-            project.upgrade_format_for_features();
+            upgrade_project_format_versions(project);
             Ok(json!({ "steps_applied": total_applied }))
         }
         BatchOp::Jsfl {
@@ -1464,6 +1479,7 @@ fn execute_batch_op(
             script_file,
             symbol,
             frame,
+            flfile_root,
             allow_read,
             allow_write,
             allow_delete,
@@ -1493,6 +1509,8 @@ fn execute_batch_op(
                     ));
                 }
             };
+            let eff_read = allow_read.or_else(|| flfile_root.clone());
+            let eff_write = allow_write.or(flfile_root);
             let res = execute_jsfl_on_project(
                 project,
                 JsflExecRequest {
@@ -1500,14 +1518,15 @@ fn execute_batch_op(
                     source: &script_src,
                     symbol_selector: symbol.as_deref(),
                     frame,
-                    allow_read: allow_read.as_deref(),
-                    allow_write: allow_write.as_deref(),
+                    allow_read: eff_read.as_deref(),
+                    allow_write: eff_write.as_deref(),
                     allow_delete,
                 },
             )?;
             *project = res.project;
-            project.upgrade_format_for_features();
+            upgrade_project_format_versions(project);
             Ok(json!({
+                "traces": res.output_lines,
                 "output_lines": res.output_lines,
                 "mutations": res.mutations,
                 "steps_executed": res.steps_executed,

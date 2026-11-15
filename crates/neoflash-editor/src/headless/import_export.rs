@@ -1,42 +1,56 @@
-//! Shared import and export handlers delegating directly to `neoflash_import` and
-//! `neoflash_export` for headless CLI commands and batch pipelines.
+//! Shared import and export handlers delegating directly to `neoflash_import`,
+//! `neoflash_export`, and editor media helpers for headless CLI commands and batch pipelines.
 use super::{
-    CliError, OutputFormat, load_project_valid, resolve_symbol, save_project_atomic,
-    serialize_json_value, take_flag_value, write_json_error,
+    CliError, OutputFormat, load_project_valid, resolve_layer_index, resolve_layer_index_mut,
+    resolve_symbol, resolve_symbol_mut, save_project_atomic, serialize_json_value, take_flag_value,
+    upgrade_project_format_versions, write_json_error,
 };
-use neoflash_core::{GlobalSwatch, Project};
+use crate::resources::{is_audio_import_path, read_audio_resource, read_resource};
+use neoflash_core::{
+    Element, ElementKind, FrameSound, GlobalSwatch, InstancePlayback, Keyframe, Layer,
+    LayerProperties, LayerRole, MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES,
+    Project, ResourceUnit, ScriptLanguage, SoundEffect, SoundSync, Symbol, SymbolKind, Timeline,
+    TimelineVideoSpan, Transform, VideoDeploymentMode, VideoSyncMode, flatten_scenes_with_ranges,
+    new_id, valid_library_folder,
+};
 use neoflash_export::{
-    AtlasFormat, AtlasOptions, AudioExportOptions, AudioExportPolicy, AudioFormat, BannerOptions,
-    FlaCompatibilityReport, FlaExportOptions, FlaTargetProfile, FontExportPolicy,
+    AepOptions, AtlasFormat, AtlasOptions, AudioExportOptions, AudioExportPolicy, AudioFormat,
+    BannerOptions, FlaCompatibilityReport, FlaExportOptions, FlaTargetProfile, FontExportPolicy,
     HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign, ImageExportFormat, ImageExportOptions,
     ImageExportRange, LottieFormat, LottieImageFormat, LottieImageMode, LottieOptions,
     LottieTextMode, PublishProfile, SizeLevel, SvgOptions, SwfPublishOptions, SwfPublishProfile,
-    VideoFormat, VideoOptions, export_project_with_profile, load_profiles_from_project,
+    VideoFormat, VideoOptions, export_project_aep, export_project_with_profile,
+    load_profiles_from_project,
 };
 use neoflash_import::{
-    Diagnostic as ImportDiagnostic, FigmaImportOptions, ImportError, ImportFormat, ImportReport,
-    PsdImportOptions, Severity as ImportSeverity, Statistics as ImportStatistics,
+    Diagnostic as ImportDiagnostic, FigmaImportOptions, ImageSequenceImportOptions,
+    ImageSequencePlacement, ImportError, ImportFormat, ImportReport, PsdImportOptions,
+    Severity as ImportSeverity, Statistics as ImportStatistics, SwcConflictPolicy, SwcLinkReport,
     VectorImportOptions, import_act_palette, import_ase_palette, import_clr_palette,
-    import_figma_path, import_fxg_str, import_numbered_image_sequence_paths,
-    import_pdf_ai_with_options, import_psd_path, import_svg_with_options,
+    import_figma_path, import_fxg_str, import_numbered_image_sequence_paths_with_options,
+    import_pdf_ai_with_options, import_psd_path, import_svg_with_options, import_swc,
+    link_swc_into_project,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
-use std::io::Write;
+use std::io::{Read as _, Write};
 use std::path::{Path, PathBuf};
 
 /// Supported export target identifiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExportTarget {
     Html5,
+    Swf,
+    Image,
+    Sequence,
+    Aep,
     Fla,
     Xfl,
-    Swf,
     Svg,
     Lottie,
     Atlas,
-    Sequence,
     Video,
     Audio,
     Banner,
@@ -47,13 +61,16 @@ impl ExportTarget {
     pub(crate) fn parse(raw: &str) -> Result<Self, CliError> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "html5" | "html" | "web" => Ok(Self::Html5),
+            "swf" => Ok(Self::Swf),
+            "image" | "still" => Ok(Self::Image),
+            "png-sequence" | "png_sequence" | "sequence" | "image-sequence" | "image_sequence"
+            | "images" => Ok(Self::Sequence),
+            "aep" | "aepx" | "after-effects" | "after_effects" => Ok(Self::Aep),
             "fla" => Ok(Self::Fla),
             "xfl" => Ok(Self::Xfl),
-            "swf" => Ok(Self::Swf),
             "svg" => Ok(Self::Svg),
             "lottie" | "dotlottie" => Ok(Self::Lottie),
             "atlas" | "spritesheet" | "sprite-sheet" => Ok(Self::Atlas),
-            "sequence" | "image" | "images" => Ok(Self::Sequence),
             "video" => Ok(Self::Video),
             "audio" => Ok(Self::Audio),
             "banner" => Ok(Self::Banner),
@@ -61,7 +78,7 @@ impl ExportTarget {
             other => Err(CliError::usage(
                 "unsupported_export_target",
                 format!(
-                    "Unsupported export target '{other}'. Expected one of: html5, fla, xfl, swf, svg, lottie, atlas, sequence, video, audio, banner, desktop"
+                    "Unsupported export target '{other}'. Expected one of: html5, swf, image, png-sequence, sequence, aep, fla, xfl, svg, lottie, dotlottie, atlas, video, audio, banner, desktop"
                 ),
             )),
         }
@@ -70,22 +87,20 @@ impl ExportTarget {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Html5 => "html5",
+            Self::Swf => "swf",
+            Self::Image => "image",
+            Self::Sequence => "png-sequence",
+            Self::Aep => "aep",
             Self::Fla => "fla",
             Self::Xfl => "xfl",
-            Self::Swf => "swf",
             Self::Svg => "svg",
             Self::Lottie => "lottie",
             Self::Atlas => "atlas",
-            Self::Sequence => "sequence",
             Self::Video => "video",
             Self::Audio => "audio",
             Self::Banner => "banner",
             Self::Desktop => "desktop",
         }
-    }
-
-    fn requires_web_runtime(self) -> bool {
-        matches!(self, Self::Html5 | Self::Desktop)
     }
 }
 
@@ -124,6 +139,8 @@ pub(crate) struct ExportSpec {
     #[serde(default)]
     pub(crate) fla_profile: Option<String>,
     #[serde(default)]
+    pub(crate) swf_target: Option<String>,
+    #[serde(default)]
     pub(crate) swf_profile: Option<String>,
     #[serde(default)]
     pub(crate) scriptless: bool,
@@ -136,11 +153,15 @@ pub(crate) struct ExportSpec {
     #[serde(default)]
     pub(crate) end_frame: Option<u32>,
     #[serde(default)]
+    pub(crate) scale: Option<f32>,
+    #[serde(default)]
     pub(crate) width: Option<u32>,
     #[serde(default)]
     pub(crate) height: Option<u32>,
     #[serde(default)]
     pub(crate) transparent: bool,
+    #[serde(default)]
+    pub(crate) jpeg_quality: Option<u8>,
     #[serde(default)]
     pub(crate) text_as_outlines: bool,
     #[serde(default)]
@@ -157,6 +178,16 @@ pub(crate) struct ExportSpec {
     pub(crate) image_format: Option<String>,
     #[serde(default)]
     pub(crate) html_preview: bool,
+    #[serde(default)]
+    pub(crate) include_aepx: Option<bool>,
+    #[serde(default)]
+    pub(crate) include_extendscript: Option<bool>,
+    #[serde(default)]
+    pub(crate) translate_scripts: Option<bool>,
+    #[serde(default)]
+    pub(crate) shape_morph_step: Option<u32>,
+    #[serde(skip)]
+    pub(crate) project_base_dir: Option<PathBuf>,
 }
 
 /// Locate the compiled `target/web-runtime` directory for HTML5 and Desktop exports.
@@ -215,6 +246,18 @@ pub(crate) fn resolve_web_runtime(explicit: Option<&Path>) -> Result<PathBuf, Cl
     ))
 }
 
+#[derive(Clone, Debug, Default)]
+struct ImportTargetOptions {
+    library_only: bool,
+    symbol: Option<String>,
+    layer: Option<String>,
+    frame: u32,
+    folder: String,
+    swc_conflict: Option<SwcConflictPolicy>,
+    sequence_placement: Option<ImageSequencePlacement>,
+    frame_step: Option<u32>,
+}
+
 pub(crate) fn cmd_import<W1: Write, W2: Write>(
     args: &[String],
     format: OutputFormat,
@@ -225,9 +268,48 @@ pub(crate) fn cmd_import<W1: Write, W2: Write>(
     match run_cmd_import(args, format, pretty, stdout) {
         Ok(()) => 0,
         Err(err) => {
-            write_json_error(&err, format, pretty, stderr);
+            write_json_error(&err, format, pretty, stdout, stderr);
             err.exit_code
         }
+    }
+}
+
+fn parse_swc_conflict_policy(raw: &str) -> Result<SwcConflictPolicy, CliError> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "prefer-newer" | "prefer_newer" | "newer" => Ok(SwcConflictPolicy::PreferNewer),
+        "prefer-existing" | "prefer_existing" | "existing" => Ok(SwcConflictPolicy::PreferExisting),
+        "error" | "error-on-conflict" | "error_on_conflict" => {
+            Ok(SwcConflictPolicy::ErrorOnConflict)
+        }
+        other => Err(CliError::usage(
+            "invalid_argument",
+            format!(
+                "Unsupported --swc-conflict '{other}' (expected prefer-newer|prefer-existing|error)"
+            ),
+        )),
+    }
+}
+
+fn parse_sequence_placement(raw: &str) -> Result<ImageSequencePlacement, CliError> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "single-layer" | "single_layer" | "keyframes" | "keyframes_on_single_layer" => {
+            Ok(ImageSequencePlacement::KeyframesOnSingleLayer)
+        }
+        "separate-layers" | "separate_layers" | "layers" => {
+            Ok(ImageSequencePlacement::SeparateLayers)
+        }
+        "graphic" | "convert-to-graphic-symbol" | "convert_to_graphic_symbol" => {
+            Ok(ImageSequencePlacement::ConvertToGraphicSymbol)
+        }
+        "movieclip" | "movie-clip" | "convert-to-movie-clip" | "convert_to_movie_clip" => {
+            Ok(ImageSequencePlacement::ConvertToMovieClip)
+        }
+        other => Err(CliError::usage(
+            "invalid_argument",
+            format!(
+                "Unsupported --sequence-placement '{other}' (expected single-layer|separate-layers|graphic|movieclip)"
+            ),
+        )),
     }
 }
 
@@ -238,7 +320,10 @@ fn run_cmd_import<W1: Write>(
     stdout: &mut W1,
 ) -> Result<(), CliError> {
     let mut inputs: Vec<PathBuf> = Vec::new();
+    let mut into_path: Option<PathBuf> = None;
     let mut out_path: Option<PathBuf> = None;
+    let mut in_place = false;
+    let mut opts = ImportTargetOptions::default();
 
     let mut i = 0usize;
     while i < args.len() {
@@ -251,8 +336,42 @@ fn run_cmd_import<W1: Write>(
                     inputs.push(PathBuf::from(&args[i]));
                 }
             }
+            "--into" | "--project" => {
+                into_path = Some(PathBuf::from(take_flag_value(args, &mut i, "--into")?));
+            }
             "--out" | "--output" | "-o" => {
                 out_path = Some(PathBuf::from(take_flag_value(args, &mut i, "--out")?));
+            }
+            "--in-place" => in_place = true,
+            "--library-only" | "--to-library" => opts.library_only = true,
+            "--symbol" => opts.symbol = Some(take_flag_value(args, &mut i, "--symbol")?),
+            "--layer" => opts.layer = Some(take_flag_value(args, &mut i, "--layer")?),
+            "--frame" => {
+                let raw = take_flag_value(args, &mut i, "--frame")?;
+                opts.frame = parse_u32_flag("--frame", &raw)?;
+            }
+            "--folder" => {
+                let raw = take_flag_value(args, &mut i, "--folder")?;
+                opts.folder = parse_library_folder_flag(&raw)?;
+            }
+            "--swc-conflict" => {
+                let raw = take_flag_value(args, &mut i, "--swc-conflict")?;
+                opts.swc_conflict = Some(parse_swc_conflict_policy(&raw)?);
+            }
+            "--sequence-placement" => {
+                let raw = take_flag_value(args, &mut i, "--sequence-placement")?;
+                opts.sequence_placement = Some(parse_sequence_placement(&raw)?);
+            }
+            "--frame-step" => {
+                let raw = take_flag_value(args, &mut i, "--frame-step")?;
+                let step = parse_u32_flag("--frame-step", &raw)?;
+                if step == 0 {
+                    return Err(CliError::usage(
+                        "invalid_argument",
+                        "--frame-step must be >= 1",
+                    ));
+                }
+                opts.frame_step = Some(step);
             }
             other if !other.starts_with('-') => inputs.push(PathBuf::from(other)),
             other => {
@@ -271,12 +390,42 @@ fn run_cmd_import<W1: Write>(
             "'import' requires at least one --input <path>",
         ));
     }
-    let out_path = out_path.ok_or_else(|| {
-        CliError::usage("missing_flag", "'import' requires --out <project.nflash>")
-    })?;
+    if out_path.is_some() && in_place {
+        return Err(CliError::usage(
+            "conflicting_flags",
+            "--out and --in-place are mutually exclusive",
+        ));
+    }
+    if in_place && into_path.is_none() {
+        return Err(CliError::usage(
+            "missing_flag",
+            "--in-place requires --into <project.nflash>",
+        ));
+    }
+    let save_target = if in_place {
+        into_path.clone().expect("checked")
+    } else {
+        out_path.ok_or_else(|| {
+            CliError::usage(
+                "missing_flag",
+                "'import' requires --out <project.nflash> (or --into <project.nflash> --in-place)",
+            )
+        })?
+    };
 
-    let (mut project, report) = import_paths_with_neoflash_import(&inputs)?;
-    save_project_atomic(&mut project, &out_path)?;
+    let (mut project, report, swc_link) = if let Some(ref base_path) = into_path {
+        let mut dest = load_project_valid(base_path)?;
+        let (rep, link_rep) = import_inputs_into_project(&mut dest, &inputs, &opts)?;
+        (dest, rep, link_rep)
+    } else {
+        import_inputs_standalone(&inputs, &opts)?
+    };
+
+    finalize_project_format_version(&mut project);
+    project
+        .validate()
+        .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
+    save_project_atomic(&mut project, &save_target)?;
 
     let symbol_count = project.symbols.len();
     let layer_count: usize = project
@@ -288,10 +437,13 @@ fn run_cmd_import<W1: Write>(
 
     match format {
         OutputFormat::Json => {
-            let val = json!({
+            let mut val = json!({
                 "ok": true,
                 "command": "import",
-                "out": out_path.display().to_string(),
+                "out": save_target.display().to_string(),
+                "into": into_path.as_ref().map(|p| p.display().to_string()),
+                "in_place": in_place,
+                "library_only": opts.library_only,
                 "inputs": inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
                 "report": report,
                 "project": {
@@ -303,8 +455,14 @@ fn run_cmd_import<W1: Write>(
                     "symbols": symbol_count,
                     "layers": layer_count,
                     "resources": resource_count,
+                    "sources": project.sources.len(),
                 },
             });
+            if let Some(link) = swc_link
+                && let Some(obj) = val.as_object_mut()
+            {
+                obj.insert("swc_link".to_owned(), json!(link));
+            }
             let text = serialize_json_value(&val, pretty)?;
             writeln!(stdout, "{text}").map_err(|e| {
                 CliError::runtime("io_error", format!("Failed writing stdout: {e}"))
@@ -313,9 +471,11 @@ fn run_cmd_import<W1: Write>(
         OutputFormat::Text => {
             writeln!(
                 stdout,
-                "Imported {} symbol(s) into {} (format={:?}, warnings/diags={})",
+                "Imported {} input(s) -> {} ({} symbol(s), {} resource(s), format={:?}, diags={})",
+                inputs.len(),
+                save_target.display(),
                 symbol_count,
-                out_path.display(),
+                resource_count,
                 report.format,
                 report.diagnostics.len()
             )
@@ -325,6 +485,30 @@ fn run_cmd_import<W1: Write>(
     Ok(())
 }
 
+pub(super) fn parse_library_folder_flag(raw: &str) -> Result<String, CliError> {
+    let trimmed = raw.trim();
+    if trimmed.contains("//") {
+        return Err(CliError::usage(
+            "invalid_argument",
+            format!("Invalid --folder path '{raw}': folder path cannot contain empty segments"),
+        ));
+    }
+    let normalized = trimmed.trim_matches('/');
+    if !valid_library_folder(normalized) {
+        return Err(CliError::usage(
+            "invalid_argument",
+            format!(
+                "Invalid --folder path '{raw}': folder names cannot contain '..', '.', backslashes, control characters, or leading/trailing segment spaces"
+            ),
+        ));
+    }
+    Ok(normalized.to_owned())
+}
+
+fn finalize_project_format_version(project: &mut Project) {
+    upgrade_project_format_versions(project);
+}
+
 fn ext_lower(path: &Path) -> Option<String> {
     path.extension()
         .and_then(|e| e.to_str())
@@ -332,6 +516,14 @@ fn ext_lower(path: &Path) -> Option<String> {
 }
 
 fn stem_string(path: &Path) -> String {
+    let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    if let Some(stripped) = file_name
+        .strip_suffix(".figma.json")
+        .or_else(|| file_name.strip_suffix(".FIGMA.JSON"))
+        && !stripped.trim().is_empty()
+    {
+        return stripped.to_owned();
+    }
     path.file_stem()
         .and_then(|s| s.to_str())
         .filter(|s| !s.trim().is_empty())
@@ -343,8 +535,184 @@ fn is_sequence_image_ext(ext: &str) -> bool {
     matches!(ext, "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp")
 }
 
+fn is_single_raster_ext(ext: &str) -> bool {
+    matches!(
+        ext,
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff"
+    )
+}
+
+fn is_supported_video_ext(ext: &str) -> bool {
+    matches!(ext, "mp4" | "m4v" | "webm" | "mov" | "ogv" | "avi")
+}
+
+fn is_unsupported_video_ext(ext: &str) -> bool {
+    matches!(ext, "flv" | "f4v" | "mkv" | "wmv")
+}
+
+fn is_internal_metadata_resource(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower == "swatches/global.json"
+        || lower == "swatches/custom.json"
+        || lower == "publish/profiles.json"
+        || lower == "publish/html-render-mode.txt"
+}
+
 fn import_err(err: ImportError) -> CliError {
     CliError::runtime("import_failed", err.to_string())
+}
+
+fn remaining_resource_budget(project: &Project) -> Result<usize, CliError> {
+    if project.resources.len() >= MAX_RESOURCES {
+        return Err(CliError::runtime(
+            "resource_limit_exceeded",
+            format!("Project already has the maximum {MAX_RESOURCES} resources."),
+        ));
+    }
+    let used: usize = project.resources.iter().map(ResourceUnit::byte_len).sum();
+    Ok(MAX_RESOURCE_TOTAL_BYTES.saturating_sub(used))
+}
+
+fn unique_resource_path(existing: &[ResourceUnit], preferred: &str) -> String {
+    let taken: HashSet<String> = existing.iter().map(|r| r.path.to_lowercase()).collect();
+    if !taken.contains(&preferred.to_lowercase()) {
+        return preferred.to_owned();
+    }
+    let p = Path::new(preferred);
+    let parent = p
+        .parent()
+        .and_then(|d| d.to_str())
+        .filter(|s| !s.is_empty());
+    let stem = p
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("resource");
+    let ext = p
+        .extension()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty());
+    for n in 2usize..100_000 {
+        let leaf = match ext {
+            Some(e) => format!("{stem}_{n}.{e}"),
+            None => format!("{stem}_{n}"),
+        };
+        let candidate = match parent {
+            Some(dir) => format!("{dir}/{leaf}"),
+            None => leaf,
+        };
+        if !taken.contains(&candidate.to_lowercase()) {
+            return candidate;
+        }
+    }
+    format!("{stem}_{}", new_id("res"))
+}
+
+fn resolve_target_symbol_id(
+    project: &Project,
+    opts: &ImportTargetOptions,
+) -> Result<String, CliError> {
+    let sym = match opts.symbol.as_deref() {
+        Some(sel) => resolve_symbol(project, sel)?,
+        None => project.symbol(&project.root).ok_or_else(|| {
+            CliError::runtime("symbol_not_found", "Root symbol not found in project")
+        })?,
+    };
+    if let Some(layer_sel) = opts.layer.as_deref() {
+        let idx = resolve_layer_index(&sym.timeline, layer_sel)?;
+        if sym.timeline.layers[idx].properties.role == LayerRole::Folder {
+            return Err(CliError::runtime(
+                "invalid_layer",
+                format!(
+                    "Cannot import onto folder layer '{}'",
+                    sym.timeline.layers[idx].name
+                ),
+            ));
+        }
+    }
+    Ok(sym.id.clone())
+}
+
+fn ensure_editable_keyframe_in_symbol<'a>(
+    project: &'a mut Project,
+    sym_id: &str,
+    opts: &ImportTargetOptions,
+) -> Result<(usize, &'a mut Keyframe), CliError> {
+    let sym = resolve_symbol_mut(project, sym_id)?;
+    if opts.frame >= sym.timeline.frame_count {
+        sym.timeline.frame_count = opts.frame + 1;
+    }
+    let layer_idx = match opts.layer.as_deref() {
+        Some(sel) => resolve_layer_index_mut(&mut sym.timeline, sel)?,
+        None => {
+            if let Some(pos) = sym
+                .timeline
+                .layers
+                .iter()
+                .position(|l| l.properties.role != LayerRole::Folder)
+            {
+                pos
+            } else {
+                sym.timeline.layers.push(Layer {
+                    id: new_id("layer"),
+                    name: "Layer 1".to_owned(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe::default()],
+                    properties: LayerProperties::default(),
+                });
+                sym.timeline.layers.len() - 1
+            }
+        }
+    };
+    let layer = &mut sym.timeline.layers[layer_idx];
+    if layer.properties.role == LayerRole::Folder {
+        return Err(CliError::runtime(
+            "invalid_layer",
+            format!("Cannot import onto folder layer '{}'", layer.name),
+        ));
+    }
+    if !layer.keyframes.iter().any(|k| k.frame == opts.frame) {
+        let prev_elements = layer
+            .key_at(opts.frame)
+            .map(|k| k.elements.clone())
+            .unwrap_or_default();
+        layer.keyframes.push(Keyframe {
+            frame: opts.frame,
+            elements: prev_elements,
+            ..Keyframe::default()
+        });
+        layer.keyframes.sort_by_key(|k| k.frame);
+    }
+    let kf = layer
+        .keyframes
+        .iter_mut()
+        .find(|k| k.frame == opts.frame)
+        .expect("inserted above");
+    kf.keyed_properties = None;
+    Ok((layer_idx, kf))
+}
+
+fn normalize_layer_after_edit(project: &mut Project, sym_id: &str, layer_idx: usize) {
+    if let Some(sym) = project.symbol_mut(sym_id)
+        && let Some(layer) = sym.timeline.layers.get_mut(layer_idx)
+    {
+        layer.normalize_motion_keys();
+    }
+}
+
+fn sequence_options_from_target(opts: &ImportTargetOptions) -> ImageSequenceImportOptions {
+    let mut seq_opts = ImageSequenceImportOptions {
+        center_on_stage: false,
+        ..ImageSequenceImportOptions::default()
+    };
+    if let Some(placement) = opts.sequence_placement {
+        seq_opts.placement = placement;
+    }
+    if let Some(step) = opts.frame_step {
+        seq_opts.frame_step = step.max(1);
+    }
+    seq_opts
 }
 
 fn import_palette_path(path: &Path, ext: &str) -> Result<(Project, ImportReport), CliError> {
@@ -406,38 +774,582 @@ fn import_palette_path(path: &Path, ext: &str) -> Result<(Project, ImportReport)
     Ok((project, report))
 }
 
-/// Import one or more inputs directly via `neoflash_import`.
-pub(crate) fn import_paths_with_neoflash_import(
-    inputs: &[PathBuf],
-) -> Result<(Project, ImportReport), CliError> {
-    if inputs.is_empty() {
-        return Err(CliError::usage("missing_input", "Missing input path"));
+fn import_single_raster_into_project(
+    project: &mut Project,
+    path: &Path,
+    opts: &ImportTargetOptions,
+    size_project_to_image: bool,
+) -> Result<ImportReport, CliError> {
+    let target_sym_id = if opts.library_only {
+        None
+    } else {
+        Some(resolve_target_symbol_id(project, opts)?)
+    };
+    let remaining = remaining_resource_budget(project)?;
+    let mut unit =
+        read_resource(path, remaining).map_err(|e| CliError::runtime("import_failed", e))?;
+    unit.path = unique_resource_path(&project.resources, &unit.path);
+    let decoded = unit
+        .decode_image()
+        .map_err(|e| CliError::runtime("import_failed", format!("{}: {e}", path.display())))?;
+    let w = decoded.width.max(1);
+    let h = decoded.height.max(1);
+    if size_project_to_image {
+        project.name = stem_string(path);
+        project.width = w;
+        project.height = h;
     }
-    if inputs.len() > 1 {
-        let imported = import_numbered_image_sequence_paths(inputs, true)
-            .map_err(import_err)?
-            .ok_or_else(|| {
-                CliError::runtime(
-                    "import_failed",
-                    "Inputs do not form a numbered image sequence (for example frame_0001.png)",
-                )
-            })?;
-        return Ok((imported.project, imported.report));
+    let res_id = unit.id.clone();
+    project.resources.push(unit);
+
+    let folder = opts.folder.trim().trim_matches('/').to_owned();
+    if !folder.is_empty() {
+        let _ = project.add_library_folder(&folder);
+    }
+    let sym_name = stem_string(path);
+    let graphic_sym_id = new_id("sym");
+    let bitmap_el = Element {
+        id: new_id("bitmap"),
+        name: sym_name.clone(),
+        transform: Transform::default(),
+        kind: ElementKind::Bitmap {
+            resource_id: res_id,
+            width: w,
+            height: h,
+            smoothing: true,
+        },
+        ..Element::default()
+    };
+    project.symbols.push(Symbol {
+        id: graphic_sym_id.clone(),
+        name: sym_name,
+        folder,
+        kind: SymbolKind::Graphic,
+        linkage_id: None,
+        class_name: None,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Layer 1".to_owned(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![bitmap_el],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties::default(),
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    });
+
+    if let Some(sym_id) = target_sym_id {
+        let tx = if size_project_to_image {
+            0.0
+        } else {
+            (f64::from(project.width) - f64::from(w)) * 0.5
+        };
+        let ty = if size_project_to_image {
+            0.0
+        } else {
+            (f64::from(project.height) - f64::from(h)) * 0.5
+        };
+        let (layer_idx, kf) = ensure_editable_keyframe_in_symbol(project, &sym_id, opts)?;
+        kf.elements.push(Element {
+            id: new_id("instance"),
+            name: String::new(),
+            transform: Transform {
+                x: tx,
+                y: ty,
+                ..Transform::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: graphic_sym_id,
+                playback: InstancePlayback::SingleFrame(0),
+            },
+            ..Element::default()
+        });
+        normalize_layer_after_edit(project, &sym_id, layer_idx);
+    }
+    finalize_project_format_version(project);
+
+    Ok(ImportReport {
+        source: path.display().to_string(),
+        format: ImportFormat::Unknown,
+        version: ext_lower(path).map(|e| e.to_ascii_uppercase()),
+        can_import: true,
+        statistics: ImportStatistics {
+            symbols: project.symbols.len(),
+            layers: project
+                .symbols
+                .iter()
+                .map(|s| s.timeline.layers.len())
+                .sum(),
+            keyframes: 1,
+            elements: if opts.library_only { 1 } else { 2 },
+            scripts: 0,
+        },
+        diagnostics: Vec::new(),
+        binary_fla: None,
+        swf: None,
+        swc: None,
+    })
+}
+
+fn import_audio_into_project(
+    project: &mut Project,
+    path: &Path,
+    opts: &ImportTargetOptions,
+    standalone_name: bool,
+) -> Result<ImportReport, CliError> {
+    let target_sym_id = if opts.library_only {
+        None
+    } else {
+        Some(resolve_target_symbol_id(project, opts)?)
+    };
+    let remaining = remaining_resource_budget(project)?;
+    let mut unit =
+        read_audio_resource(path, remaining).map_err(|e| CliError::runtime("import_failed", e))?;
+    unit.path = unique_resource_path(&project.resources, &unit.path);
+    if standalone_name {
+        project.name = stem_string(path);
+    }
+    let res_id = unit.id.clone();
+    let media_type = unit.media_type.clone();
+    project.resources.push(unit);
+
+    if let Some(sym_id) = target_sym_id {
+        let (layer_idx, kf) = ensure_editable_keyframe_in_symbol(project, &sym_id, opts)?;
+        kf.sound = Some(FrameSound {
+            resource: res_id,
+            sync: SoundSync::Event,
+            loops: 1,
+            loop_forever: false,
+            effect: SoundEffect::None,
+            envelope: None,
+            in_point: None,
+            out_point: None,
+        });
+        normalize_layer_after_edit(project, &sym_id, layer_idx);
+    }
+    finalize_project_format_version(project);
+
+    Ok(ImportReport {
+        source: path.display().to_string(),
+        format: ImportFormat::Unknown,
+        version: Some(media_type),
+        can_import: true,
+        statistics: ImportStatistics {
+            symbols: project.symbols.len(),
+            layers: project
+                .symbols
+                .iter()
+                .map(|s| s.timeline.layers.len())
+                .sum(),
+            keyframes: 1,
+            elements: 0,
+            scripts: 0,
+        },
+        diagnostics: Vec::new(),
+        binary_fla: None,
+        swf: None,
+        swc: None,
+    })
+}
+
+fn import_video_into_project(
+    project: &mut Project,
+    path: &Path,
+    opts: &ImportTargetOptions,
+    standalone_name: bool,
+) -> Result<ImportReport, CliError> {
+    let target_sym_id = if opts.library_only {
+        None
+    } else {
+        Some(resolve_target_symbol_id(project, opts)?)
+    };
+    let remaining = remaining_resource_budget(project)?;
+    let byte_limit = MAX_RESOURCE_BYTES.min(remaining);
+    let file = fs::File::open(path).map_err(|e| {
+        CliError::runtime(
+            "io_error",
+            format!("Could not read video '{}': {e}", path.display()),
+        )
+    })?;
+    let mut raw_bytes = Vec::new();
+    file.take(byte_limit as u64 + 1)
+        .read_to_end(&mut raw_bytes)
+        .map_err(|e| {
+            CliError::runtime(
+                "io_error",
+                format!("Could not read video '{}': {e}", path.display()),
+            )
+        })?;
+    if raw_bytes.len() > byte_limit {
+        return Err(CliError::runtime(
+            "resource_limit_exceeded",
+            format!(
+                "Video '{}' exceeds the remaining project resource budget.",
+                path.display()
+            ),
+        ));
     }
 
-    let path = &inputs[0];
-    if path.is_dir() && !path.join("DOMDocument.xml").exists() {
-        let imported = import_numbered_image_sequence_paths(inputs, true)
-            .map_err(import_err)?
-            .ok_or_else(|| {
-                CliError::runtime(
+    let ext = ext_lower(path).unwrap_or_else(|| "mp4".to_owned());
+    let media_type = if raw_bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+        "video/webm"
+    } else if raw_bytes.starts_with(b"OggS") {
+        "video/ogg"
+    } else if neoflash_core::is_avi_bytes(&raw_bytes) {
+        "video/x-msvideo"
+    } else if raw_bytes.len() >= 12 && &raw_bytes[4..8] == b"ftyp" {
+        "video/mp4"
+    } else if ext == "webm" {
+        "video/webm"
+    } else if ext == "ogv" || ext == "ogg" {
+        "video/ogg"
+    } else if ext == "avi" {
+        "video/x-msvideo"
+    } else {
+        "video/mp4"
+    };
+
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("video.mp4")
+        .to_owned();
+    let v_diags = neoflash_core::inspect_video_resource(&file_name, media_type, &raw_bytes, None);
+    let errors: Vec<&str> = v_diags
+        .iter()
+        .filter(|d| d.is_error)
+        .map(|d| d.message.as_str())
+        .collect();
+    if !errors.is_empty() {
+        return Err(CliError::runtime("import_failed", errors.join(" ")));
+    }
+
+    let probed =
+        neoflash_export::decode_video_stream_bytes(&file_name, media_type, &raw_bytes).ok();
+    let (vid_w, vid_h) = probed
+        .as_ref()
+        .filter(|s| s.width > 0 && s.height > 0)
+        .map(|s| (s.width, s.height))
+        .unwrap_or((320, 240));
+    let duration_sec = probed
+        .as_ref()
+        .filter(|s| s.duration_ms > 0)
+        .map(|s| (f64::from(s.duration_ms) / 1000.0).clamp(0.1, 600.0))
+        .unwrap_or(4.0);
+
+    if standalone_name {
+        project.name = stem_string(path);
+        project.width = vid_w.max(1);
+        project.height = vid_h.max(1);
+        if let Some(ref s) = probed
+            && s.fps.is_finite()
+            && s.fps >= 1.0
+        {
+            project.fps = (s.fps.round() as u32).clamp(1, 120);
+        }
+    }
+
+    let preferred_rel = format!("video/{file_name}");
+    let rel_path = unique_resource_path(&project.resources, &preferred_rel);
+    let res_id = new_id("res");
+    let resource = ResourceUnit::from_bytes(res_id.clone(), rel_path, media_type, &raw_bytes)
+        .map_err(|e| CliError::runtime("import_failed", e.to_string()))?;
+    project.resources.push(resource);
+
+    if let Some(sym_id) = target_sym_id {
+        let fps = project.fps.max(1);
+        let needed_frames = opts
+            .frame
+            .saturating_add(((duration_sec * f64::from(fps)).ceil() as u32).max(1));
+        let tx = if standalone_name {
+            0.0
+        } else {
+            (f64::from(project.width) - f64::from(vid_w)) * 0.5
+        };
+        let ty = if standalone_name {
+            0.0
+        } else {
+            (f64::from(project.height) - f64::from(vid_h)) * 0.5
+        };
+        let (layer_idx, kf) = ensure_editable_keyframe_in_symbol(project, &sym_id, opts)?;
+        kf.video = Some(TimelineVideoSpan {
+            resource: res_id,
+            sync: VideoSyncMode::Stream,
+            deployment: VideoDeploymentMode::Embedded,
+            external_path: None,
+            stream_url: None,
+            start_offset_ms: 0,
+            end_offset_ms: None,
+            loop_video: false,
+            muted: false,
+            cue_points: Vec::new(),
+        });
+        kf.elements.push(Element {
+            id: new_id("video"),
+            name: file_name,
+            transform: Transform {
+                x: tx,
+                y: ty,
+                ..Transform::default()
+            },
+            kind: ElementKind::Video {
+                width: f64::from(vid_w),
+                height: f64::from(vid_h),
+            },
+            ..Element::default()
+        });
+        if let Some(sym) = project.symbol_mut(&sym_id) {
+            if sym.timeline.frame_count < needed_frames {
+                sym.timeline.frame_count = needed_frames;
+            }
+            if let Some(layer) = sym.timeline.layers.get_mut(layer_idx)
+                && let Some(end) = &mut layer.properties.end_frame
+                && *end < needed_frames
+            {
+                *end = needed_frames;
+            }
+        }
+        normalize_layer_after_edit(project, &sym_id, layer_idx);
+    }
+    finalize_project_format_version(project);
+
+    let report_diags: Vec<ImportDiagnostic> = v_diags
+        .into_iter()
+        .map(|d| ImportDiagnostic {
+            severity: if d.is_error {
+                ImportSeverity::Error
+            } else {
+                ImportSeverity::Warning
+            },
+            code: d.code.to_owned(),
+            location: path.display().to_string(),
+            message: d.message,
+        })
+        .collect();
+
+    Ok(ImportReport {
+        source: path.display().to_string(),
+        format: ImportFormat::Unknown,
+        version: Some(media_type.to_owned()),
+        can_import: true,
+        statistics: ImportStatistics {
+            symbols: project.symbols.len(),
+            layers: project
+                .symbols
+                .iter()
+                .map(|s| s.timeline.layers.len())
+                .sum(),
+            keyframes: 1,
+            elements: usize::from(!opts.library_only),
+            scripts: 0,
+        },
+        diagnostics: report_diags,
+        binary_fla: None,
+        swf: None,
+        swc: None,
+    })
+}
+
+fn as3_source_def_name(path: &str) -> Option<String> {
+    let trimmed = path.trim_start_matches('/');
+    let rel = trimmed
+        .strip_prefix("scripts/")
+        .or_else(|| trimmed.strip_prefix("src/"))
+        .unwrap_or(trimmed);
+    let stem = rel.strip_suffix(".as")?;
+    (!stem.is_empty()).then(|| stem.replace('/', "."))
+}
+
+fn import_swc_into_project(
+    project: &mut Project,
+    path: &Path,
+    opts: &ImportTargetOptions,
+    standalone: bool,
+) -> Result<(ImportReport, SwcLinkReport), CliError> {
+    let mut lib = import_swc(path).map_err(import_err)?;
+    // When `library.swf` contains `DoABC` (`src/<pkg>/<Class>.as`), drop any redundant synthesized
+    // `scripts/<pkg>/<Class>.as` stub for the same qualified class so AS3 compilation stays conflict-free.
+    let decompiled_defs: BTreeSet<String> = lib
+        .project
+        .sources
+        .iter()
+        .filter(|u| u.path.starts_with("src/"))
+        .filter_map(|u| as3_source_def_name(&u.path))
+        .collect();
+    if !decompiled_defs.is_empty() {
+        lib.project.sources.retain(|u| {
+            !(u.path.starts_with("scripts/")
+                && as3_source_def_name(&u.path).is_some_and(|d| decompiled_defs.contains(&d)))
+        });
+    }
+
+    if standalone {
+        project.name = lib.name.clone();
+        if !lib.project.sources.is_empty() || !lib.inspection.definitions.is_empty() {
+            project.script_language = Some(ScriptLanguage::ActionScript3);
+        }
+    }
+    let policy = opts.swc_conflict.unwrap_or(SwcConflictPolicy::PreferNewer);
+    let mut existing_defs: BTreeSet<String> = project
+        .symbols
+        .iter()
+        .filter_map(|s| s.class_name.clone())
+        .collect();
+    for src in &project.sources {
+        if let Some(def) = as3_source_def_name(&src.path) {
+            existing_defs.insert(def);
+        }
+    }
+    let incoming_defs: BTreeSet<String> = lib
+        .inspection
+        .definitions
+        .iter()
+        .cloned()
+        .chain(
+            lib.project
+                .sources
+                .iter()
+                .filter_map(|u| as3_source_def_name(&u.path)),
+        )
+        .collect();
+
+    match policy {
+        SwcConflictPolicy::ErrorOnConflict => {
+            if let Some(conflict_def) = incoming_defs.iter().find(|d| existing_defs.contains(*d)) {
+                return Err(CliError::runtime(
                     "import_failed",
                     format!(
-                        "Directory '{}' does not contain XFL DOMDocument.xml or a numbered image sequence",
-                        path.display()
+                        "SWC definition conflict on {conflict_def:?} between existing project and {:?}",
+                        lib.name
                     ),
-                )
-            })?;
+                ));
+            }
+        }
+        SwcConflictPolicy::PreferExisting => {
+            lib.project.symbols.retain(|s| {
+                s.id == lib.project.root
+                    || s.class_name
+                        .as_deref()
+                        .is_none_or(|c| !existing_defs.contains(c))
+            });
+            lib.project.sources.retain(|u| {
+                as3_source_def_name(&u.path).is_none_or(|d| !existing_defs.contains(&d))
+            });
+        }
+        SwcConflictPolicy::PreferNewer => {
+            project.sources.retain(|u| {
+                as3_source_def_name(&u.path).is_none_or(|d| !incoming_defs.contains(&d))
+            });
+        }
+    }
+
+    let folder = opts.folder.trim().trim_matches('/');
+    if !folder.is_empty() {
+        let lib_root = lib.project.root.clone();
+        for sym in &mut lib.project.symbols {
+            if sym.id != lib_root {
+                sym.folder = if sym.folder.is_empty() {
+                    folder.to_owned()
+                } else {
+                    format!("{folder}/{}", sym.folder)
+                };
+            }
+        }
+    }
+    let link_report = link_swc_into_project(project, &lib, policy).map_err(import_err)?;
+    if !folder.is_empty() && link_report.linked_symbols > 0 {
+        let _ = project.add_library_folder(folder);
+    }
+    finalize_project_format_version(project);
+
+    let report = ImportReport {
+        source: path.display().to_string(),
+        format: ImportFormat::Swc,
+        version: lib.inspection.swc_version.clone(),
+        can_import: true,
+        statistics: ImportStatistics {
+            symbols: project.symbols.len(),
+            layers: project
+                .symbols
+                .iter()
+                .map(|s| s.timeline.layers.len())
+                .sum(),
+            keyframes: project
+                .symbols
+                .iter()
+                .flat_map(|s| &s.timeline.layers)
+                .map(|l| l.keyframes.len())
+                .sum(),
+            elements: project
+                .symbols
+                .iter()
+                .flat_map(|s| &s.timeline.layers)
+                .flat_map(|l| &l.keyframes)
+                .map(|k| k.elements.len())
+                .sum(),
+            scripts: project.sources.len(),
+        },
+        diagnostics: Vec::new(),
+        binary_fla: None,
+        swf: None,
+        swc: Some(lib.inspection),
+    };
+    Ok((report, link_report))
+}
+
+fn resolve_xfl_import_path(path: &Path) -> PathBuf {
+    if ext_lower(path).as_deref() == Some("xfl") && path.is_file() {
+        let mut magic = [0u8; 4];
+        let is_zip = fs::File::open(path)
+            .and_then(|mut f| {
+                f.read(&mut magic)
+                    .map(|n| n == 4 && magic == *b"PK\x03\x04")
+            })
+            .unwrap_or(false);
+        if !is_zip && let Some(parent) = path.parent() {
+            let dir = if parent.as_os_str().is_empty() {
+                Path::new(".")
+            } else {
+                parent
+            };
+            if dir.join("DOMDocument.xml").is_file() {
+                return dir.to_path_buf();
+            }
+        }
+    }
+    path.to_path_buf()
+}
+
+fn import_document_format_standalone(
+    path: &Path,
+    opts: &ImportTargetOptions,
+) -> Result<(Project, ImportReport), CliError> {
+    if path.is_dir() && !path.join("DOMDocument.xml").exists() {
+        let seq_opts = sequence_options_from_target(opts);
+        let imported = import_numbered_image_sequence_paths_with_options(
+            std::slice::from_ref(&path),
+            true,
+            &seq_opts,
+        )
+        .map_err(import_err)?
+        .ok_or_else(|| {
+            CliError::runtime(
+                "import_failed",
+                format!(
+                    "Directory '{}' does not contain XFL DOMDocument.xml or a numbered image sequence",
+                    path.display()
+                ),
+            )
+        })?;
         return Ok((imported.project, imported.report));
     }
 
@@ -451,6 +1363,42 @@ pub(crate) fn import_paths_with_neoflash_import(
 
     if let Some(ext) = ext_lower(path) {
         match ext.as_str() {
+            "nflash" => {
+                let project = load_project_valid(path)?;
+                let report = ImportReport {
+                    source: path.display().to_string(),
+                    format: ImportFormat::Unknown,
+                    version: Some(format!("nflash-v{}", project.format_version)),
+                    can_import: true,
+                    statistics: ImportStatistics {
+                        symbols: project.symbols.len(),
+                        layers: project
+                            .symbols
+                            .iter()
+                            .map(|s| s.timeline.layers.len())
+                            .sum(),
+                        keyframes: project
+                            .symbols
+                            .iter()
+                            .flat_map(|s| &s.timeline.layers)
+                            .map(|l| l.keyframes.len())
+                            .sum(),
+                        elements: project
+                            .symbols
+                            .iter()
+                            .flat_map(|s| &s.timeline.layers)
+                            .flat_map(|l| &l.keyframes)
+                            .map(|k| k.elements.len())
+                            .sum(),
+                        scripts: project.sources.len(),
+                    },
+                    diagnostics: Vec::new(),
+                    binary_fla: None,
+                    swf: None,
+                    swc: None,
+                };
+                return Ok((project, report));
+            }
             "fig" | "figma" => {
                 return import_figma_path(path, &FigmaImportOptions::default()).map_err(import_err);
             }
@@ -532,19 +1480,407 @@ pub(crate) fn import_paths_with_neoflash_import(
                 return Ok((project, report));
             }
             "act" | "clr" | "ase" => return import_palette_path(path, &ext),
-            ext_str if is_sequence_image_ext(ext_str) => {
-                if let Some(imported) =
-                    import_numbered_image_sequence_paths(inputs, true).map_err(import_err)?
-                {
-                    return Ok((imported.project, imported.report));
-                }
-            }
             _ => {}
         }
     }
 
-    let project = neoflash_import::import_project(path).map_err(import_err)?;
-    let report = neoflash_import::inspect(path).map_err(import_err)?;
+    let resolved = resolve_xfl_import_path(path);
+    let project = neoflash_import::import_project(&resolved).map_err(import_err)?;
+    let report = neoflash_import::inspect(&resolved).map_err(import_err)?;
+    Ok((project, report))
+}
+
+fn merge_imported_project_into(
+    dest: &mut Project,
+    mut imported: Project,
+    source_label: &str,
+    is_palette_only: bool,
+    report: &mut ImportReport,
+    opts: &ImportTargetOptions,
+) -> Result<(), CliError> {
+    let target_sym_id = if is_palette_only || opts.library_only {
+        None
+    } else {
+        Some(resolve_target_symbol_id(dest, opts)?)
+    };
+    let imported_global = imported.global_swatches();
+    if !imported_global.is_empty() {
+        let mut merged = dest.global_swatches();
+        for sw in imported_global {
+            if !merged.iter().any(|existing| existing.name == sw.name) {
+                merged.push(sw);
+            }
+        }
+        dest.set_global_swatches(&merged);
+    }
+    let imported_custom = imported.custom_swatches();
+    if !imported_custom.is_empty() {
+        let mut merged = dest.custom_swatches();
+        for c in imported_custom {
+            if !merged.contains(&c) && merged.len() < 256 {
+                merged.push(c);
+            }
+        }
+        dest.set_custom_swatches(&merged);
+    }
+    if is_palette_only {
+        finalize_project_format_version(dest);
+        return Ok(());
+    }
+
+    imported.freshen_all_ids(true, |kind| new_id(&format!("imp-{kind}")));
+
+    // Merge non-metadata resources with resource-budget & case-insensitive path uniqueness.
+    let media_resources: Vec<ResourceUnit> = imported
+        .resources
+        .into_iter()
+        .filter(|r| !is_internal_metadata_resource(&r.path))
+        .collect();
+    if dest.resources.len() + media_resources.len() > MAX_RESOURCES {
+        return Err(CliError::runtime(
+            "resource_limit_exceeded",
+            format!("Importing resources would exceed the {MAX_RESOURCES}-resource project limit."),
+        ));
+    }
+    let incoming_bytes: usize = media_resources.iter().map(ResourceUnit::byte_len).sum();
+    let remaining = remaining_resource_budget(dest)?;
+    if incoming_bytes > remaining {
+        return Err(CliError::runtime(
+            "resource_limit_exceeded",
+            "Imported resources exceed the project's 64 MiB resource budget.",
+        ));
+    }
+    for mut res in media_resources {
+        res.path = unique_resource_path(&dest.resources, &res.path);
+        dest.resources.push(res);
+    }
+
+    // Merge ActionScript/JS/TS source units cleanly.
+    if !imported.sources.is_empty() {
+        dest.enable_program();
+        for mut src in imported.sources {
+            if dest
+                .sources
+                .iter()
+                .any(|existing| existing.path == src.path && existing.source == src.source)
+            {
+                continue;
+            }
+            if dest
+                .sources
+                .iter()
+                .any(|existing| existing.path.eq_ignore_ascii_case(&src.path))
+            {
+                let p = Path::new(&src.path);
+                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("Source");
+                let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("as");
+                let parent = p
+                    .parent()
+                    .and_then(|d| d.to_str())
+                    .filter(|s| !s.is_empty());
+                let mut n = 2usize;
+                loop {
+                    let candidate = match parent {
+                        Some(dir) => format!("{dir}/{stem}_{n}.{ext}"),
+                        None => format!("{stem}_{n}.{ext}"),
+                    };
+                    if !dest
+                        .sources
+                        .iter()
+                        .any(|e| e.path.eq_ignore_ascii_case(&candidate))
+                    {
+                        src.path = candidate;
+                        break;
+                    }
+                    n += 1;
+                }
+            }
+            src.id = new_id("src");
+            dest.sources.push(src);
+        }
+    }
+
+    // Merge symbols (turning imported root into a library MovieClip symbol and deduplicating linkage/class_name).
+    let mut existing_linkages: HashSet<String> = dest
+        .symbols
+        .iter()
+        .filter_map(|s| s.linkage_id.clone())
+        .collect();
+    let mut existing_exported_classes: HashSet<String> = dest
+        .symbols
+        .iter()
+        .filter(|s| s.linkage_id.is_some())
+        .filter_map(|s| s.class_name.clone())
+        .collect();
+
+    let imported_root_id = imported.root.clone();
+    let folder = opts.folder.trim().trim_matches('/');
+    if !folder.is_empty() && !imported.symbols.is_empty() {
+        let _ = dest.add_library_folder(folder);
+    }
+    for mut sym in imported.symbols {
+        if sym.id == imported_root_id {
+            sym.kind = SymbolKind::MovieClip;
+            if sym.name.eq_ignore_ascii_case("Scene 1")
+                || sym.name.eq_ignore_ascii_case("Main Timeline")
+                || sym.name.trim().is_empty()
+            {
+                sym.name = source_label.to_owned();
+            }
+            sym.linkage_id = None;
+            sym.class_name = None;
+        } else {
+            if let Some(ref lid) = sym.linkage_id
+                && (!matches!(sym.kind, SymbolKind::MovieClip | SymbolKind::Button)
+                    || !existing_linkages.insert(lid.clone()))
+            {
+                report.diagnostics.push(ImportDiagnostic {
+                    severity: ImportSeverity::Warning,
+                    code: "duplicate_linkage_cleared".to_owned(),
+                    location: sym.name.clone(),
+                    message: format!(
+                        "Cleared duplicate or non-exportable linkage identifier '{lid}' during --into merge."
+                    ),
+                });
+                sym.linkage_id = None;
+            }
+            if sym.linkage_id.is_some()
+                && let Some(ref cls) = sym.class_name
+                && !existing_exported_classes.insert(cls.clone())
+            {
+                report.diagnostics.push(ImportDiagnostic {
+                    severity: ImportSeverity::Warning,
+                    code: "duplicate_class_cleared".to_owned(),
+                    location: sym.name.clone(),
+                    message: format!(
+                        "Cleared duplicate exported class '{cls}' during --into merge."
+                    ),
+                });
+                sym.class_name = None;
+            }
+        }
+        if !folder.is_empty() {
+            sym.folder = if sym.folder.is_empty() {
+                folder.to_owned()
+            } else {
+                format!("{folder}/{}", sym.folder)
+            };
+        }
+        dest.symbols.push(sym);
+    }
+
+    if let Some(sym_id) = target_sym_id
+        && dest.symbol(&imported_root_id).is_some()
+    {
+        let (layer_idx, kf) = ensure_editable_keyframe_in_symbol(dest, &sym_id, opts)?;
+        kf.elements.push(Element {
+            id: new_id("instance"),
+            name: String::new(),
+            transform: Transform::default(),
+            kind: ElementKind::Instance {
+                symbol_id: imported_root_id,
+                playback: InstancePlayback::Independent,
+            },
+            ..Element::default()
+        });
+        normalize_layer_after_edit(dest, &sym_id, layer_idx);
+    }
+
+    dest.format_version = dest.format_version.max(imported.format_version);
+    finalize_project_format_version(dest);
+    Ok(())
+}
+
+fn import_single_input_into_project(
+    dest: &mut Project,
+    path: &Path,
+    opts: &ImportTargetOptions,
+    standalone_blank: bool,
+) -> Result<(ImportReport, Option<SwcLinkReport>), CliError> {
+    if is_audio_import_path(path) {
+        let rep = import_audio_into_project(dest, path, opts, standalone_blank)?;
+        return Ok((rep, None));
+    }
+
+    if let Some(ext) = ext_lower(path) {
+        if is_unsupported_video_ext(&ext) {
+            return Err(CliError::runtime(
+                "unsupported_video_format",
+                format!(
+                    "Video container '.{ext}' is not supported. Convert to .mp4, .webm, .mov, .ogv, or .avi."
+                ),
+            ));
+        }
+        if is_supported_video_ext(&ext) {
+            let rep = import_video_into_project(dest, path, opts, standalone_blank)?;
+            return Ok((rep, None));
+        }
+        if ext == "swc" {
+            let (rep, link_rep) = import_swc_into_project(dest, path, opts, standalone_blank)?;
+            return Ok((rep, Some(link_rep)));
+        }
+        if is_single_raster_ext(&ext) {
+            // Check numbered sequence first when >= 2 numbered frames exist in the directory.
+            if is_sequence_image_ext(&ext) {
+                let seq_opts = sequence_options_from_target(opts);
+                if let Some(imported_seq) = import_numbered_image_sequence_paths_with_options(
+                    std::slice::from_ref(&path),
+                    true,
+                    &seq_opts,
+                )
+                .map_err(import_err)?
+                {
+                    let mut rep = imported_seq.report;
+                    if standalone_blank {
+                        *dest = imported_seq.project;
+                        apply_folder_to_library_symbols(dest, &opts.folder);
+                        finalize_project_format_version(dest);
+                    } else {
+                        let label = stem_string(path);
+                        merge_imported_project_into(
+                            dest,
+                            imported_seq.project,
+                            &label,
+                            false,
+                            &mut rep,
+                            opts,
+                        )?;
+                    }
+                    return Ok((rep, None));
+                }
+            }
+            let rep = import_single_raster_into_project(dest, path, opts, standalone_blank)?;
+            return Ok((rep, None));
+        }
+    }
+
+    let is_palette = ext_lower(path)
+        .as_deref()
+        .is_some_and(|e| matches!(e, "act" | "clr" | "ase"));
+    let (mut imported, mut report) = import_document_format_standalone(path, opts)?;
+    if standalone_blank {
+        apply_folder_to_library_symbols(&mut imported, &opts.folder);
+        *dest = imported;
+        finalize_project_format_version(dest);
+    } else {
+        let label = stem_string(path);
+        merge_imported_project_into(dest, imported, &label, is_palette, &mut report, opts)?;
+    }
+    Ok((report, None))
+}
+
+fn apply_folder_to_library_symbols(project: &mut Project, folder: &str) {
+    let trimmed = folder.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        return;
+    }
+    let root_id = project.root.clone();
+    let scene_ids: HashSet<String> = project.scenes.iter().cloned().collect();
+    let mut moved_any = false;
+    for sym in &mut project.symbols {
+        if sym.id != root_id && !scene_ids.contains(&sym.id) {
+            sym.folder = if sym.folder.is_empty() {
+                trimmed.to_owned()
+            } else {
+                format!("{trimmed}/{}", sym.folder)
+            };
+            moved_any = true;
+        }
+    }
+    if moved_any {
+        let _ = project.add_library_folder(trimmed);
+    }
+}
+
+fn import_inputs_standalone(
+    inputs: &[PathBuf],
+    opts: &ImportTargetOptions,
+) -> Result<(Project, ImportReport, Option<SwcLinkReport>), CliError> {
+    if inputs.len() > 1 {
+        let all_seq_candidates = inputs
+            .iter()
+            .all(|p| ext_lower(p).as_deref().is_some_and(is_sequence_image_ext));
+        if all_seq_candidates {
+            let seq_opts = sequence_options_from_target(opts);
+            if let Some(imported) =
+                import_numbered_image_sequence_paths_with_options(inputs, true, &seq_opts)
+                    .map_err(import_err)?
+            {
+                let mut proj = imported.project;
+                apply_folder_to_library_symbols(&mut proj, &opts.folder);
+                finalize_project_format_version(&mut proj);
+                return Ok((proj, imported.report, None));
+            }
+        }
+        let mut project = Project::blank();
+        project.name = stem_string(&inputs[0]);
+        let (rep, link_rep) = import_inputs_into_project(&mut project, inputs, opts)?;
+        return Ok((project, rep, link_rep));
+    }
+
+    let mut project = Project::blank();
+    let (rep, link_rep) = import_single_input_into_project(&mut project, &inputs[0], opts, true)?;
+    Ok((project, rep, link_rep))
+}
+
+fn import_inputs_into_project(
+    dest: &mut Project,
+    inputs: &[PathBuf],
+    opts: &ImportTargetOptions,
+) -> Result<(ImportReport, Option<SwcLinkReport>), CliError> {
+    if inputs.len() > 1 {
+        let all_seq_candidates = inputs
+            .iter()
+            .all(|p| ext_lower(p).as_deref().is_some_and(is_sequence_image_ext));
+        if all_seq_candidates {
+            let seq_opts = sequence_options_from_target(opts);
+            if let Some(imported) =
+                import_numbered_image_sequence_paths_with_options(inputs, true, &seq_opts)
+                    .map_err(import_err)?
+            {
+                let mut rep = imported.report;
+                let label = stem_string(&inputs[0]);
+                merge_imported_project_into(dest, imported.project, &label, false, &mut rep, opts)?;
+                return Ok((rep, None));
+            }
+        }
+    }
+
+    let mut combined_report: Option<ImportReport> = None;
+    let mut last_swc_link: Option<SwcLinkReport> = None;
+    for path in inputs {
+        let (rep, link_rep) = import_single_input_into_project(dest, path, opts, false)?;
+        if let Some(l) = link_rep {
+            last_swc_link = Some(l);
+        }
+        match combined_report {
+            None => combined_report = Some(rep),
+            Some(ref mut acc) => {
+                acc.diagnostics.extend(rep.diagnostics);
+                acc.statistics.symbols = dest.symbols.len();
+                acc.statistics.layers = dest.symbols.iter().map(|s| s.timeline.layers.len()).sum();
+                acc.statistics.scripts = dest.sources.len();
+                if acc.swc.is_none() {
+                    acc.swc = rep.swc;
+                }
+            }
+        }
+    }
+    let mut final_report = combined_report.expect("inputs non-empty");
+    final_report.statistics.symbols = dest.symbols.len();
+    final_report.statistics.layers = dest.symbols.iter().map(|s| s.timeline.layers.len()).sum();
+    Ok((final_report, last_swc_link))
+}
+
+/// Legacy helper kept `pub(crate)` for unit tests calling `import_paths_with_neoflash_import`.
+#[allow(dead_code)]
+pub(crate) fn import_paths_with_neoflash_import(
+    inputs: &[PathBuf],
+) -> Result<(Project, ImportReport), CliError> {
+    if inputs.is_empty() {
+        return Err(CliError::usage("missing_input", "Missing input path"));
+    }
+    let (project, report, _) = import_inputs_standalone(inputs, &ImportTargetOptions::default())?;
     Ok((project, report))
 }
 
@@ -558,7 +1894,7 @@ pub(crate) fn cmd_export<W1: Write, W2: Write>(
     match run_cmd_export(args, format, pretty, stdout) {
         Ok(()) => 0,
         Err(err) => {
-            write_json_error(&err, format, pretty, stderr);
+            write_json_error(&err, format, pretty, stdout, stderr);
             err.exit_code
         }
     }
@@ -607,6 +1943,7 @@ fn run_cmd_export<W1: Write>(
             }
             "--clean" => spec.clean = true,
             "--sprite-sheets" | "--pack-sprite-sheet" => spec.sprite_sheets = true,
+            "--no-sprite-sheets" => spec.sprite_sheets = false,
             "--assets-folder" => spec.assets_folder = true,
             "--scale-mode" => {
                 spec.scale_mode = Some(take_flag_value(args, &mut i, "--scale-mode")?);
@@ -614,6 +1951,7 @@ fn run_cmd_export<W1: Write>(
             "--stage-align" => {
                 spec.stage_align = Some(take_flag_value(args, &mut i, "--stage-align")?);
             }
+            "--fullscreen" => spec.allow_fullscreen = Some(true),
             "--allow-fullscreen" => {
                 let raw = take_flag_value(args, &mut i, "--allow-fullscreen")?;
                 spec.allow_fullscreen = Some(match raw.to_ascii_lowercase().as_str() {
@@ -633,6 +1971,9 @@ fn run_cmd_export<W1: Write>(
             "--fla-profile" => {
                 spec.fla_profile = Some(take_flag_value(args, &mut i, "--fla-profile")?);
             }
+            "--swf-target" => {
+                spec.swf_target = Some(take_flag_value(args, &mut i, "--swf-target")?);
+            }
             "--swf-profile" => {
                 spec.swf_profile = Some(take_flag_value(args, &mut i, "--swf-profile")?);
             }
@@ -647,6 +1988,19 @@ fn run_cmd_export<W1: Write>(
                 let raw = take_flag_value(args, &mut i, "--end-frame")?;
                 spec.end_frame = Some(parse_u32_flag("--end-frame", &raw)?);
             }
+            "--scale" => {
+                let raw = take_flag_value(args, &mut i, "--scale")?;
+                let parsed = raw.parse::<f32>().map_err(|_| {
+                    CliError::usage("invalid_argument", format!("Invalid --scale value '{raw}'"))
+                })?;
+                if !parsed.is_finite() || parsed <= 0.0 {
+                    return Err(CliError::usage(
+                        "invalid_argument",
+                        "--scale must be a finite number > 0",
+                    ));
+                }
+                spec.scale = Some(parsed);
+            }
             "--width" => {
                 let raw = take_flag_value(args, &mut i, "--width")?;
                 spec.width = Some(parse_u32_flag("--width", &raw)?);
@@ -656,6 +2010,22 @@ fn run_cmd_export<W1: Write>(
                 spec.height = Some(parse_u32_flag("--height", &raw)?);
             }
             "--transparent" => spec.transparent = true,
+            "--jpeg-quality" => {
+                let raw = take_flag_value(args, &mut i, "--jpeg-quality")?;
+                let q = raw.parse::<u8>().map_err(|_| {
+                    CliError::usage(
+                        "invalid_argument",
+                        format!("Invalid --jpeg-quality value '{raw}' (expected 1..=100)"),
+                    )
+                })?;
+                if !(1..=100).contains(&q) {
+                    return Err(CliError::usage(
+                        "invalid_argument",
+                        "--jpeg-quality must be in 1..=100",
+                    ));
+                }
+                spec.jpeg_quality = Some(q);
+            }
             "--text-as-outlines" => spec.text_as_outlines = true,
             "--pretty" => spec.pretty = true,
             "--atlas-format" => {
@@ -681,6 +2051,20 @@ fn run_cmd_export<W1: Write>(
                 spec.image_format = Some(take_flag_value(args, &mut i, "--image-format")?);
             }
             "--html-preview" => spec.html_preview = true,
+            "--no-aepx" => spec.include_aepx = Some(false),
+            "--no-jsx" => spec.include_extendscript = Some(false),
+            "--no-translate-scripts" => spec.translate_scripts = Some(false),
+            "--shape-morph-step" => {
+                let raw = take_flag_value(args, &mut i, "--shape-morph-step")?;
+                let step = parse_u32_flag("--shape-morph-step", &raw)?;
+                if step == 0 {
+                    return Err(CliError::usage(
+                        "invalid_argument",
+                        "--shape-morph-step must be >= 1",
+                    ));
+                }
+                spec.shape_morph_step = Some(step);
+            }
             other => {
                 return Err(CliError::usage(
                     "unknown_flag",
@@ -697,7 +2081,7 @@ fn run_cmd_export<W1: Write>(
     if !has_target {
         return Err(CliError::usage(
             "missing_flag",
-            "'export' requires --target <html5|fla|xfl|swf|svg|lottie|dotlottie|atlas|sequence|video|audio|banner|desktop>",
+            "'export' requires --target <html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop>",
         ));
     }
     if !has_out || spec.out.as_os_str().is_empty() {
@@ -706,6 +2090,11 @@ fn run_cmd_export<W1: Write>(
             "'export' requires --out <path>",
         ));
     }
+
+    spec.project_base_dir = project_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf);
 
     let project = load_project_valid(&project_path)?;
     let summary = export_project_with_spec(&project, &spec)?;
@@ -760,7 +2149,9 @@ fn parse_font_policy(raw: &str) -> Result<FontExportPolicy, CliError> {
 
 fn parse_audio_policy(raw: &str) -> Result<AudioExportPolicy, CliError> {
     match raw.trim().to_ascii_lowercase().as_str() {
-        "original" => Ok(AudioExportPolicy::Original),
+        "original" | "preserve" => Ok(AudioExportPolicy::Original),
+        "disabled" | "strip" | "none" => Ok(AudioExportPolicy::Disabled),
+        "wav16" | "wav-16" | "wav_16" | "wav" => Ok(AudioExportPolicy::Wav16),
         "mp3_64" | "mp3-64" | "64" => Ok(AudioExportPolicy::Mp3_64),
         "mp3_96" | "mp3-96" | "96" => Ok(AudioExportPolicy::Mp3_96),
         "mp3_128" | "mp3-128" | "128" => Ok(AudioExportPolicy::Mp3_128),
@@ -770,17 +2161,23 @@ fn parse_audio_policy(raw: &str) -> Result<AudioExportPolicy, CliError> {
         "mp3_320" | "mp3-320" | "320" => Ok(AudioExportPolicy::Mp3_320),
         other => Err(CliError::usage(
             "invalid_argument",
-            format!("Unsupported --audio-policy '{other}'"),
+            format!(
+                "Unsupported --audio-policy '{other}' (expected original|preserve|strip|disabled|wav16|mp3-64..mp3-320)"
+            ),
         )),
     }
 }
 
 fn parse_scale_mode(raw: &str) -> Result<HtmlScaleMode, CliError> {
     match raw.trim().to_ascii_lowercase().as_str() {
-        "fit" | "fit_keep_ratio" | "fit-keep-ratio" | "showall" => Ok(HtmlScaleMode::FitKeepRatio),
+        "fit" | "fit_keep_ratio" | "fit-keep-ratio" | "showall" | "show-all" | "show_all" => {
+            Ok(HtmlScaleMode::FitKeepRatio)
+        }
         "noscale" | "no_scale" | "no-scale" => Ok(HtmlScaleMode::NoScale),
         "exactfit" | "exact_fit" | "exact-fit" => Ok(HtmlScaleMode::ExactFit),
-        "fill" | "fill_crop" | "fill-crop" | "noborder" => Ok(HtmlScaleMode::FillCrop),
+        "fill" | "fill_crop" | "fill-crop" | "noborder" | "no-border" | "no_border" => {
+            Ok(HtmlScaleMode::FillCrop)
+        }
         other => Err(CliError::usage(
             "invalid_argument",
             format!("Unsupported --scale-mode '{other}'"),
@@ -822,14 +2219,39 @@ fn parse_fla_profile(raw: &str) -> Result<FlaTargetProfile, CliError> {
     }
 }
 
-fn parse_swf_profile(raw: &str) -> Result<SwfPublishProfile, CliError> {
+fn parse_swf_target(raw: &str) -> Result<(SwfPublishProfile, bool, &'static str), CliError> {
     match raw.trim().to_ascii_lowercase().as_str() {
-        "fp8" | "flash8" | "avm1" => Ok(SwfPublishProfile::FlashPlayer8Avm1),
-        "fp9" | "flash9" | "avm2_9" => Ok(SwfPublishProfile::FlashPlayer9Avm2),
-        "fp10" | "flash10" | "avm2" => Ok(SwfPublishProfile::FlashPlayer10Avm2),
+        "fp8" | "flash8" | "avm1" => Ok((SwfPublishProfile::FlashPlayer8Avm1, false, "fp8")),
+        "fp9" | "flash9" | "avm2_9" => Ok((SwfPublishProfile::FlashPlayer9Avm2, false, "fp9")),
+        "fp10" | "flash10" | "avm2" => Ok((SwfPublishProfile::FlashPlayer10Avm2, false, "fp10")),
+        "fp10-scriptless" | "fp10_scriptless" | "flash10-scriptless" | "scriptless" => Ok((
+            SwfPublishProfile::FlashPlayer10Avm2,
+            true,
+            "fp10-scriptless",
+        )),
         other => Err(CliError::usage(
             "invalid_argument",
-            format!("Unsupported --swf-profile '{other}' (expected fp8|fp9|fp10)"),
+            format!("Unsupported SWF target '{other}' (expected fp8|fp9|fp10|fp10-scriptless)"),
+        )),
+    }
+}
+
+fn parse_image_export_format(raw: &str) -> Result<ImageExportFormat, CliError> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "png" => Ok(ImageExportFormat::Png),
+        "jpg" | "jpeg" => Ok(ImageExportFormat::Jpeg),
+        "webp" => Ok(ImageExportFormat::Webp),
+        "gif" => Ok(ImageExportFormat::Gif),
+        "bmp" => Ok(ImageExportFormat::Bmp),
+        "psd" => Ok(ImageExportFormat::Psd),
+        "pdf" => Ok(ImageExportFormat::Pdf),
+        "ai" => Ok(ImageExportFormat::Ai),
+        "svg" => Ok(ImageExportFormat::Svg),
+        other => Err(CliError::usage(
+            "invalid_argument",
+            format!(
+                "Unsupported image format '{other}' (expected png|jpeg|webp|gif|bmp|psd|pdf|ai|svg)"
+            ),
         )),
     }
 }
@@ -848,24 +2270,108 @@ fn parse_atlas_format(raw: &str) -> Result<AtlasFormat, CliError> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BuiltinHtmlRoute {
+    Standard,
+    BannerNative,
+    DesktopApp,
+}
+
+fn normalize_profile_key(raw: &str) -> String {
+    raw.trim()
+        .to_lowercase()
+        .replace('·', " ")
+        .replace(['-', '_', '/'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn resolve_builtin_profile(
+    selector: &str,
+    runtime_url: Option<&str>,
+) -> Result<Option<(PublishProfile, BuiltinHtmlRoute)>, CliError> {
+    let key = normalize_profile_key(selector);
+    let mut profile = PublishProfile::default();
+    match key.as_str() {
+        "default" | "profile default" => {
+            profile.name = "Default".to_owned();
+            profile.options.size = SizeLevel::Full;
+            Ok(Some((profile, BuiltinHtmlRoute::Standard)))
+        }
+        "full" | "web full" | "high quality" | "preview debug" => {
+            profile.id = format!("builtin-{}", key.replace(' ', "-"));
+            profile.name = selector.trim().to_owned();
+            profile.options.size = SizeLevel::Full;
+            Ok(Some((profile, BuiltinHtmlRoute::Standard)))
+        }
+        "balanced" | "web balanced" => {
+            profile.id = "builtin-balanced".to_owned();
+            profile.name = "Balanced".to_owned();
+            profile.options.size = SizeLevel::Balanced;
+            Ok(Some((profile, BuiltinHtmlRoute::Standard)))
+        }
+        "compact" | "web compact" => {
+            profile.id = "builtin-compact".to_owned();
+            profile.name = "Compact".to_owned();
+            profile.options.size = SizeLevel::Compact;
+            Ok(Some((profile, BuiltinHtmlRoute::Standard)))
+        }
+        "shared" | "web shared" => {
+            profile.id = "builtin-shared".to_owned();
+            profile.name = "Shared".to_owned();
+            profile.options.size = SizeLevel::parse("shared", runtime_url)
+                .map_err(|e| CliError::usage("invalid_argument", e.to_string()))?;
+            Ok(Some((profile, BuiltinHtmlRoute::Standard)))
+        }
+        "web app dom" | "dom" => {
+            profile.id = "builtin-web-app-dom".to_owned();
+            profile.name = "Web App · DOM".to_owned();
+            profile.options.size = SizeLevel::Balanced;
+            profile.render_mode = neoflash_core::HtmlRenderMode::Dom;
+            Ok(Some((profile, BuiltinHtmlRoute::Standard)))
+        }
+        "web banner native" | "native banner" => {
+            profile.id = "builtin-web-banner-native".to_owned();
+            profile.name = "Web Banner · Native".to_owned();
+            profile.options.size = SizeLevel::Compact;
+            Ok(Some((profile, BuiltinHtmlRoute::BannerNative)))
+        }
+        "desktop app" | "desktop" => {
+            profile.id = "builtin-desktop-app".to_owned();
+            profile.name = "Desktop app".to_owned();
+            profile.options.size = SizeLevel::Full;
+            Ok(Some((profile, BuiltinHtmlRoute::DesktopApp)))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn resolve_publish_profile_and_options(
     project: &Project,
     spec: &ExportSpec,
-) -> Result<(PublishProfile, bool), CliError> {
+) -> Result<(PublishProfile, bool, BuiltinHtmlRoute), CliError> {
     let (stored_profiles, active_id) = load_profiles_from_project(project)
         .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
 
-    let (mut profile, has_stored) = if let Some(ref selector) = spec.profile {
-        let found = stored_profiles
+    let (mut profile, has_stored_or_preset, route) = if let Some(ref selector) = spec.profile {
+        if let Some(found) = stored_profiles
             .into_iter()
             .find(|p| p.id == *selector || p.name.eq_ignore_ascii_case(selector))
-            .ok_or_else(|| {
-                CliError::runtime(
-                    "profile_not_found",
-                    format!("Publish profile '{selector}' not found in project"),
-                )
-            })?;
-        (found, true)
+        {
+            (found, true, BuiltinHtmlRoute::Standard)
+        } else if let Some((builtin, builtin_route)) =
+            resolve_builtin_profile(selector, spec.runtime_url.as_deref())?
+        {
+            (builtin, true, builtin_route)
+        } else {
+            return Err(CliError::runtime(
+                "profile_not_found",
+                format!(
+                    "Publish profile '{selector}' not found in project or built-in presets (Default, Full, Balanced, Compact, Shared, Web App · DOM, Web Banner · Native, Desktop app)"
+                ),
+            ));
+        }
     } else if let Some(ref act_id) = active_id {
         if let Some(found) = stored_profiles
             .iter()
@@ -873,20 +2379,20 @@ fn resolve_publish_profile_and_options(
             .cloned()
             .or_else(|| stored_profiles.into_iter().next())
         {
-            (found, true)
+            (found, true, BuiltinHtmlRoute::Standard)
         } else {
-            (PublishProfile::default(), false)
+            (PublishProfile::default(), false, BuiltinHtmlRoute::Standard)
         }
     } else if let Some(first) = stored_profiles.into_iter().next() {
-        (first, true)
+        (first, true, BuiltinHtmlRoute::Standard)
     } else {
-        (PublishProfile::default(), false)
+        (PublishProfile::default(), false, BuiltinHtmlRoute::Standard)
     };
 
     if let Some(ref lvl) = spec.size_level {
         profile.options.size = SizeLevel::parse(lvl, spec.runtime_url.as_deref())
             .map_err(|e| CliError::usage("invalid_argument", e.to_string()))?;
-    } else if !has_stored {
+    } else if !has_stored_or_preset {
         profile.options.size = SizeLevel::parse("full", spec.runtime_url.as_deref())
             .map_err(|e| CliError::usage("invalid_argument", e.to_string()))?;
     }
@@ -900,7 +2406,7 @@ fn resolve_publish_profile_and_options(
         profile.render_mode = neoflash_core::HtmlRenderMode::parse(rm)
             .map_err(|e| CliError::usage("invalid_argument", e))?;
     }
-    Ok((profile, has_stored))
+    Ok((profile, has_stored_or_preset, route))
 }
 
 fn build_html_publish_config(
@@ -970,6 +2476,18 @@ fn fla_report_json(report: &FlaCompatibilityReport) -> Value {
     })
 }
 
+fn effective_timeline_frame_count(project: &Project, symbol_id: Option<&str>) -> u32 {
+    if let Some(id) = symbol_id {
+        project
+            .symbol(id)
+            .map_or(1, |s| s.timeline.frame_count.max(1))
+    } else {
+        let (flat, _) = flatten_scenes_with_ranges(project);
+        flat.symbol(&flat.root)
+            .map_or(1, |s| s.timeline.frame_count.max(1))
+    }
+}
+
 /// Shared export dispatcher used by both `neoflash-editor --headless export` and `batch` `export` steps.
 pub(crate) fn export_project_with_spec(
     project: &Project,
@@ -985,16 +2503,82 @@ pub(crate) fn export_project_with_spec(
         Some(sel) => Some(resolve_symbol(project, sel)?.id.clone()),
         None => None,
     };
-    let runtime = if target.requires_web_runtime() {
-        Some(resolve_web_runtime(spec.runtime.as_deref())?)
-    } else {
-        None
-    };
+
+    if spec.width == Some(0) || spec.height == Some(0) {
+        return Err(CliError::usage(
+            "invalid_argument",
+            "width and height must be >= 1",
+        ));
+    }
+    if let (Some(start), Some(end)) = (spec.frame, spec.end_frame)
+        && end < start
+    {
+        return Err(CliError::usage(
+            "invalid_argument",
+            format!("--end-frame ({end}) must be >= --frame ({start})"),
+        ));
+    }
+    if let Some(scale) = spec.scale
+        && (!scale.is_finite() || scale <= 0.0)
+    {
+        return Err(CliError::usage(
+            "invalid_argument",
+            "scale must be a finite number > 0",
+        ));
+    }
+    if let Some(q) = spec.jpeg_quality
+        && !(1..=100).contains(&q)
+    {
+        return Err(CliError::usage(
+            "invalid_argument",
+            "jpeg_quality must be in 1..=100",
+        ));
+    }
 
     match target {
         ExportTarget::Html5 => {
-            let runtime_dir = runtime.expect("html5 requires runtime");
-            let (profile, _has_stored) = resolve_publish_profile_and_options(project, spec)?;
+            let (profile, _has_stored, route) = resolve_publish_profile_and_options(project, spec)?;
+            match route {
+                BuiltinHtmlRoute::BannerNative => {
+                    let mut opts = BannerOptions::default();
+                    if let Some(max_gz) = spec.banner_max_gzip {
+                        opts.max_gzip_bytes = Some(max_gz);
+                    }
+                    let report =
+                        neoflash_export::export_native_banner_html(project, &spec.out, &opts)
+                            .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
+                    return Ok(json!({
+                        "target": target.as_str(),
+                        "profile": profile.name,
+                        "render_mode": "native-banner",
+                        "output_path": report.html_path.display().to_string(),
+                        "raw_bytes": report.raw_bytes,
+                        "gzip_bytes": report.gzip_bytes,
+                        "frame_count": report.frame_count,
+                    }));
+                }
+                BuiltinHtmlRoute::DesktopApp => {
+                    let runtime_dir = resolve_web_runtime(spec.runtime.as_deref())?;
+                    let (cfg, _) = build_html_publish_config(spec, true)?;
+                    let app_dir = neoflash_export::export_desktop_app(
+                        project,
+                        &spec.out,
+                        &runtime_dir,
+                        &profile.options,
+                        &cfg,
+                    )
+                    .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
+                    return Ok(json!({
+                        "target": target.as_str(),
+                        "profile": profile.name,
+                        "output_path": app_dir.display().to_string(),
+                        "runtime_dir": runtime_dir.display().to_string(),
+                    }));
+                }
+                BuiltinHtmlRoute::Standard => {}
+            }
+
+            let runtime_dir = resolve_web_runtime(spec.runtime.as_deref())?;
             let explicit_render_mode = spec
                 .render_mode
                 .as_deref()
@@ -1069,8 +2653,8 @@ pub(crate) fn export_project_with_spec(
             }))
         }
         ExportTarget::Desktop => {
-            let runtime_dir = runtime.expect("desktop requires runtime");
-            let (profile, _) = resolve_publish_profile_and_options(project, spec)?;
+            let runtime_dir = resolve_web_runtime(spec.runtime.as_deref())?;
+            let (profile, _, _) = resolve_publish_profile_and_options(project, spec)?;
             let (cfg, _) = build_html_publish_config(spec, true)?;
             let app_dir = neoflash_export::export_desktop_app(
                 project,
@@ -1135,24 +2719,234 @@ pub(crate) fn export_project_with_spec(
         }
         ExportTarget::Swf => {
             let mut opts = SwfPublishOptions::default();
-            if let Some(ref raw) = spec.swf_profile {
-                opts.profile = parse_swf_profile(raw)?;
+            let target_slug = if let Some(ref raw) = spec.swf_target {
+                let (prof, sl, slug) = parse_swf_target(raw)?;
+                opts.profile = prof;
+                opts.scriptless_mode = sl || spec.scriptless;
+                if opts.scriptless_mode && prof == SwfPublishProfile::FlashPlayer10Avm2 {
+                    "fp10-scriptless"
+                } else {
+                    slug
+                }
+            } else if let Some(ref raw) = spec.swf_profile {
+                let (prof, sl, slug) = parse_swf_target(raw)?;
+                opts.profile = prof;
+                opts.scriptless_mode = sl || spec.scriptless;
+                if opts.scriptless_mode && prof == SwfPublishProfile::FlashPlayer10Avm2 {
+                    "fp10-scriptless"
+                } else {
+                    slug
+                }
             } else if matches!(
                 project.effective_script_language(),
-                neoflash_core::ScriptLanguage::ActionScript1
-                    | neoflash_core::ScriptLanguage::ActionScript2
+                ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
             ) {
                 opts.profile = SwfPublishProfile::FlashPlayer8Avm1;
-            }
-            opts.scriptless_mode = spec.scriptless;
-            opts.outline_text = spec.outline_text;
+                opts.scriptless_mode = spec.scriptless;
+                "fp8"
+            } else {
+                opts.profile = SwfPublishProfile::FlashPlayer10Avm2;
+                opts.scriptless_mode = spec.scriptless;
+                if opts.scriptless_mode {
+                    "fp10-scriptless"
+                } else {
+                    "fp10"
+                }
+            };
+            opts.outline_text = spec.outline_text || spec.text_as_outlines;
             let report = neoflash_export::publish_swf(project, &spec.out, &opts)
                 .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
             Ok(json!({
                 "target": target.as_str(),
                 "output_path": spec.out.display().to_string(),
+                "swf_target": target_slug,
                 "swf_version": opts.profile.swf_version(),
+                "scriptless": opts.scriptless_mode,
                 "compatibility": fla_report_json(&report),
+            }))
+        }
+        ExportTarget::Image => {
+            let img_fmt = match spec.image_format.as_deref() {
+                Some(raw) => parse_image_export_format(raw)?,
+                None => match ext_lower(&spec.out).as_deref() {
+                    Some(ext) => parse_image_export_format(ext)?,
+                    None => ImageExportFormat::Png,
+                },
+            };
+            let total_frames = effective_timeline_frame_count(project, symbol_id.as_deref());
+            let frame_zero_based = match spec.frame {
+                Some(0) => {
+                    return Err(CliError::usage(
+                        "invalid_argument",
+                        "--frame for '--target image' is 1-based (>= 1)",
+                    ));
+                }
+                Some(one_based) => {
+                    if one_based > total_frames {
+                        return Err(CliError::runtime(
+                            "frame_out_of_range",
+                            format!(
+                                "1-based --frame {one_based} exceeds timeline length ({total_frames} frame(s))"
+                            ),
+                        ));
+                    }
+                    one_based - 1
+                }
+                None => 0,
+            };
+            let mut opts = ImageExportOptions::for_project(project, frame_zero_based);
+            opts.format = img_fmt;
+            opts.symbol_id = symbol_id;
+            opts.range = ImageExportRange::CurrentFrame(frame_zero_based);
+            if let Some(w) = spec.width {
+                opts.width = w;
+            }
+            if let Some(h) = spec.height {
+                opts.height = h;
+            }
+            if let Some(scale) = spec.scale {
+                opts.scale = scale;
+            }
+            opts.transparent_background = spec.transparent;
+            if let Some(q) = spec.jpeg_quality {
+                opts.jpeg_quality = q;
+            }
+            if spec.outline_text || spec.text_as_outlines {
+                opts.svg_text_as_outlines = true;
+                opts.ai_text_as_outlines = true;
+            }
+            let mut report = neoflash_export::export_project_image(project, &spec.out, &opts)
+                .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
+
+            // Preserve exact `.jpeg` extension when `--out foo.jpeg` is requested (`ImageExportFormat::Jpeg` uses `.jpg` by default).
+            if report.files.len() == 1
+                && report.files[0] != spec.out
+                && img_fmt == ImageExportFormat::Jpeg
+                && ext_lower(&spec.out).as_deref() == Some("jpeg")
+            {
+                fs::rename(&report.files[0], &spec.out).map_err(|e| {
+                    CliError::runtime(
+                        "io_error",
+                        format!(
+                            "Failed renaming JPEG output to '{}': {e}",
+                            spec.out.display()
+                        ),
+                    )
+                })?;
+                report.files[0] = spec.out.clone();
+            }
+            let primary_path = report
+                .files
+                .first()
+                .cloned()
+                .unwrap_or_else(|| spec.out.clone());
+            Ok(json!({
+                "target": target.as_str(),
+                "output_path": primary_path.display().to_string(),
+                "files": report.files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                "frame": frame_zero_based + 1,
+                "total_bytes": report.total_bytes,
+                "width": report.width,
+                "height": report.height,
+                "layer_count": report.layer_count,
+                "path_count": report.path_count,
+                "format": report.format.label(),
+            }))
+        }
+        ExportTarget::Sequence => {
+            let img_fmt = match spec.image_format.as_deref() {
+                Some(raw) => parse_image_export_format(raw)?,
+                None => match ext_lower(&spec.out).as_deref() {
+                    Some(ext) => parse_image_export_format(ext).unwrap_or(ImageExportFormat::Png),
+                    None => ImageExportFormat::Png,
+                },
+            };
+            let base_out = if spec.out.is_dir() || spec.out.extension().is_none() {
+                fs::create_dir_all(&spec.out).map_err(|e| {
+                    CliError::runtime(
+                        "io_error",
+                        format!("Failed creating sequence dir '{}': {e}", spec.out.display()),
+                    )
+                })?;
+                spec.out.join(format!("frame.{}", img_fmt.extension()))
+            } else {
+                spec.out.clone()
+            };
+            let mut opts = ImageExportOptions::for_project(project, spec.frame.unwrap_or(0));
+            opts.format = img_fmt;
+            opts.symbol_id = symbol_id.clone();
+            if let Some(w) = spec.width {
+                opts.width = w;
+            }
+            if let Some(h) = spec.height {
+                opts.height = h;
+            }
+            if let Some(scale) = spec.scale {
+                opts.scale = scale;
+            }
+            opts.transparent_background = spec.transparent;
+            if let Some(q) = spec.jpeg_quality {
+                opts.jpeg_quality = q;
+            }
+            opts.range = if let Some(start) = spec.frame {
+                let end = spec.end_frame.unwrap_or(start);
+                if end == start && spec.end_frame.is_none() {
+                    ImageExportRange::CurrentFrame(start)
+                } else {
+                    ImageExportRange::Frames { start, end }
+                }
+            } else if let Some(ref sym_id) = symbol_id {
+                let fc = project
+                    .symbol(sym_id)
+                    .map_or(1, |s| s.timeline.frame_count.max(1));
+                ImageExportRange::Frames {
+                    start: 0,
+                    end: fc.saturating_sub(1),
+                }
+            } else {
+                ImageExportRange::WholeMovie
+            };
+            let report = neoflash_export::export_project_image(project, &base_out, &opts)
+                .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
+            Ok(json!({
+                "target": target.as_str(),
+                "output_path": spec.out.display().to_string(),
+                "files": report.files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                "frame_count": report.frame_count,
+                "total_bytes": report.total_bytes,
+                "width": report.width,
+                "height": report.height,
+                "format": report.format.label(),
+            }))
+        }
+        ExportTarget::Aep => {
+            let opts = AepOptions {
+                symbol: symbol_id,
+                include_aepx: spec.include_aepx.unwrap_or(true),
+                include_extendscript: spec.include_extendscript.unwrap_or(true),
+                translate_scripts: spec.translate_scripts.unwrap_or(true),
+                jpeg_quality: spec.jpeg_quality.unwrap_or(80),
+                shape_morph_step: spec.shape_morph_step.unwrap_or(1).max(1),
+                base_dir: spec.project_base_dir.clone(),
+            };
+            let report = export_project_aep(project, &spec.out, &opts)
+                .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
+            Ok(json!({
+                "target": target.as_str(),
+                "output_path": report.aep_path.display().to_string(),
+                "aep_path": report.aep_path.display().to_string(),
+                "aepx_path": report.aepx_path.map(|p| p.display().to_string()),
+                "jsx_path": report.jsx_path.map(|p| p.display().to_string()),
+                "footage_dir": report.footage_dir.display().to_string(),
+                "footage_files": report.footage_files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                "composition_count": report.composition_count,
+                "vector_shape_layer_count": report.vector_shape_layer_count,
+                "text_layer_count": report.text_layer_count,
+                "precomp_layer_count": report.precomp_layer_count,
+                "footage_layer_count": report.footage_layer_count,
+                "expression_count": report.expression_count,
+                "marker_count": report.marker_count,
+                "diagnostics": report.diagnostics,
             }))
         }
         ExportTarget::Svg => {
@@ -1163,7 +2957,7 @@ pub(crate) fn export_project_with_spec(
                 width: spec.width,
                 height: spec.height,
                 transparent_background: spec.transparent,
-                text_as_outlines: spec.text_as_outlines,
+                text_as_outlines: spec.text_as_outlines || spec.outline_text,
                 ..SvgOptions::default()
             };
             let report = neoflash_export::export_project_svg(project, &spec.out, &opts)
@@ -1205,7 +2999,7 @@ pub(crate) fn export_project_with_spec(
                 None => LottieImageFormat::Original,
             };
             let frame_range = if let Some(start_0) = spec.frame {
-                let end_0 = spec.end_frame.unwrap_or(start_0).max(start_0);
+                let end_0 = spec.end_frame.unwrap_or(start_0);
                 Some((start_0.saturating_add(1), end_0.saturating_add(1)))
             } else {
                 spec.end_frame.map(|end_0| (1, end_0.saturating_add(1)))
@@ -1289,52 +3083,6 @@ pub(crate) fn export_project_with_spec(
                 "sheet_height": report.sheet_height,
                 "frame_count": report.frame_count,
                 "unique_sprites": report.unique_sprites,
-            }))
-        }
-        ExportTarget::Sequence => {
-            let ext = ext_lower(&spec.out).unwrap_or_else(|| "png".to_owned());
-            let img_fmt = match ext.as_str() {
-                "jpg" | "jpeg" => ImageExportFormat::Jpeg,
-                "webp" => ImageExportFormat::Webp,
-                "gif" => ImageExportFormat::Gif,
-                "bmp" => ImageExportFormat::Bmp,
-                "svg" => ImageExportFormat::Svg,
-                "ai" => ImageExportFormat::Ai,
-                "pdf" => ImageExportFormat::Pdf,
-                "psd" => ImageExportFormat::Psd,
-                _ => ImageExportFormat::Png,
-            };
-            let mut opts = ImageExportOptions::for_project(project, spec.frame.unwrap_or(0));
-            opts.format = img_fmt;
-            opts.symbol_id = symbol_id.clone();
-            opts.range = if let Some(start) = spec.frame {
-                let end = spec.end_frame.unwrap_or(start).max(start);
-                if end == start {
-                    ImageExportRange::CurrentFrame(start)
-                } else {
-                    ImageExportRange::Frames { start, end }
-                }
-            } else if let Some(ref sym_id) = symbol_id {
-                let fc = project
-                    .symbol(sym_id)
-                    .map_or(1, |s| s.timeline.frame_count.max(1));
-                ImageExportRange::Frames {
-                    start: 0,
-                    end: fc.saturating_sub(1),
-                }
-            } else {
-                ImageExportRange::WholeMovie
-            };
-            let report = neoflash_export::export_project_image(project, &spec.out, &opts)
-                .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
-            Ok(json!({
-                "target": target.as_str(),
-                "output_path": spec.out.display().to_string(),
-                "files": report.files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
-                "total_bytes": report.total_bytes,
-                "width": report.width,
-                "height": report.height,
-                "format": report.format.label(),
             }))
         }
         ExportTarget::Video => {
