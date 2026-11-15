@@ -224,6 +224,8 @@ pub enum Pending {
 
 impl Editor {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        crate::clipboard::enable_native_rich_clipboard(&cc.egui_ctx);
         let mut s = Self::from_project(&cc.egui_ctx, Project::demo());
         let is_screenshot = std::env::vars_os().any(|(k, _)| {
             k.to_str()
@@ -3323,11 +3325,12 @@ impl Editor {
             crate::commands::clear_queued_commands(ctx);
             return;
         }
+        let clipboard_generation = crate::clipboard::paste_generation(ctx);
         self.handle_stage_text_edit_keys(ctx);
         self.menu_shortcuts(ctx);
         self.timeline_shortcuts(ctx);
         self.view_shortcuts(ctx);
-        self.clipboard_events(ctx);
+        self.clipboard_events_with_generation(ctx, || clipboard_generation);
 
         // Global commands allowed even while a text field has focus (when bound to a non-typing chord).
         if self.take_command_shortcut(ctx, C::FileSaveAs) {

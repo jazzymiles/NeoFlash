@@ -5,6 +5,81 @@ use crate::{
 use eframe::egui::{self, Event, Key};
 use neoflash_core::{ClipboardPayload, Id, ObjectEvent, evaluate, new_id};
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "clipboard_native.rs"]
+mod native;
+
+// This belongs to the GUI context, not a document tab. Headless editors retain
+// their injected clipboard path and never access the user's native clipboard.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub(crate) fn enable_native_rich_clipboard(ctx: &egui::Context) {
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new("native-rich-clipboard"), true));
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn native_rich_clipboard_enabled(ctx: &egui::Context) -> bool {
+    ctx.data(|data| {
+        data.get_temp::<bool>(egui::Id::new("native-rich-clipboard"))
+            .unwrap_or(false)
+    })
+}
+
+fn clipboard_generation(_ctx: &egui::Context) -> Option<u64> {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    if native_rich_clipboard_enabled(_ctx) {
+        return native::generation();
+    }
+    Some(0)
+}
+
+pub(crate) fn paste_generation(ctx: &egui::Context) -> Option<u64> {
+    ctx.input(|input| {
+        input
+            .events
+            .iter()
+            .any(|event| matches!(event, Event::Paste(_)))
+    })
+    .then(|| clipboard_generation(ctx))
+    .flatten()
+}
+
+fn copy_rich_text(ctx: &egui::Context, text: &str) -> Option<u64> {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    if native_rich_clipboard_enabled(ctx) {
+        return copy_native_rich_text(ctx, text, || native::write_text(text));
+    }
+    ctx.copy_text(text.to_owned());
+    Some(0)
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn copy_native_rich_text(
+    ctx: &egui::Context,
+    text: &str,
+    write: impl FnOnce() -> native::WriteResult,
+) -> Option<u64> {
+    // Retire earlier deferred writes before the new synchronous Copy. They
+    // must not overwrite it (or a newer external owner) at frame end.
+    ctx.output_mut(|output| {
+        output.commands.retain(|command| {
+            !matches!(
+                command,
+                egui::OutputCommand::CopyText(_) | egui::OutputCommand::CopyImage(_)
+            )
+        });
+    });
+    match write() {
+        native::WriteResult::Written(generation) => Some(generation),
+        native::WriteResult::Unavailable => {
+            // Keep the existing plain-text fallback, without trusting an
+            // unconfirmed rich-cache generation.
+            ctx.copy_text(text.to_owned());
+            None
+        }
+        native::WriteResult::Superseded => None,
+    }
+}
+
 /// The pinned native adapter puts the initiating key immediately before its
 /// Paste payload. Never infer intent from final frame modifiers or a release.
 fn paste_shortcut_mode(editor: &Editor, event: &Event) -> Option<bool> {
@@ -119,6 +194,7 @@ struct Request {
 pub(crate) struct RichTextClipboard {
     pub(crate) plain_text: String,
     pub(crate) runs: Vec<neoflash_core::TextFormatRun>,
+    pub(crate) generation: Option<u64>,
 }
 
 #[cfg(not(test))]
@@ -254,6 +330,7 @@ impl Editor {
         let rich = RichTextClipboard {
             plain_text: plain_text.clone(),
             runs,
+            generation: copy_rich_text(ctx, &plain_text),
         };
         for sess in self.sessions.iter_mut().flatten() {
             sess.clipboard.rich_text = None;
@@ -261,7 +338,6 @@ impl Editor {
         self.clipboard.rich_text = Some(rich.clone());
         self.stage_text_edit.copied_rich_text = Some(rich.clone());
         store_process_rich_clipboard(Some(rich));
-        ctx.copy_text(plain_text);
 
         if cut {
             self.finish_stage_text_typing();
@@ -367,6 +443,15 @@ impl Editor {
         }
     }
     pub(crate) fn paste_objects(&mut self, ctx: &egui::Context, text: &str, in_place: bool) {
+        self.paste_objects_with_generation(ctx, text, in_place, clipboard_generation(ctx));
+    }
+    pub(crate) fn paste_objects_with_generation(
+        &mut self,
+        ctx: &egui::Context,
+        text: &str,
+        in_place: bool,
+        generation: Option<u64>,
+    ) {
         // Preferences ▸ Clipboard ▸ Default paste = In place: plain Paste keeps the position too.
         let in_place = in_place || self.workspace.paste_in_place;
         if !self.has_document() || self.confirm.is_some() {
@@ -379,7 +464,7 @@ impl Editor {
                     self.paste_svg(text, in_place);
                 } else if let Some((media_type, bytes)) = parse_image_data_url(text) {
                     self.paste_image_bytes(ctx, &bytes, &media_type, in_place);
-                } else if !self.paste_plain_text_into_selected_text(text) {
+                } else if !self.paste_plain_text_into_selected_text(text, generation) {
                     self.message("The clipboard does not contain NeoFlash objects.");
                 }
                 return;
@@ -448,7 +533,34 @@ impl Editor {
             Err(error) => self.message(format!("Paste failed: {error}")),
         }
     }
-    fn paste_plain_text_into_selected_text(&mut self, raw_text: &str) -> bool {
+    pub(crate) fn cached_rich_text(
+        &self,
+        text: &str,
+        generation: Option<u64>,
+        process: Option<RichTextClipboard>,
+    ) -> Option<RichTextClipboard> {
+        let matches = |rich: &&RichTextClipboard| {
+            generation.is_some() && rich.generation == generation && rich.plain_text == text
+        };
+        self.stage_text_edit
+            .copied_rich_text
+            .as_ref()
+            .filter(matches)
+            .or_else(|| self.clipboard.rich_text.as_ref().filter(matches))
+            .or_else(|| {
+                self.sessions
+                    .iter()
+                    .flatten()
+                    .find_map(|sess| sess.clipboard.rich_text.as_ref().filter(matches))
+            })
+            .or_else(|| process.as_ref().filter(matches))
+            .cloned()
+    }
+    fn paste_plain_text_into_selected_text(
+        &mut self,
+        raw_text: &str,
+        generation: Option<u64>,
+    ) -> bool {
         if self.selection.single().is_none() || !self.selected_editable() {
             return false;
         }
@@ -461,28 +573,7 @@ impl Editor {
         };
         let mut normalized = raw_text.replace("\r\n", "\n").replace('\r', "\n");
         let mut pasted_runs: Vec<neoflash_core::TextFormatRun> = self
-            .stage_text_edit
-            .copied_rich_text
-            .as_ref()
-            .filter(|rich| rich.plain_text == normalized)
-            .cloned()
-            .or_else(|| {
-                self.clipboard
-                    .rich_text
-                    .as_ref()
-                    .filter(|rich| rich.plain_text == normalized)
-                    .cloned()
-            })
-            .or_else(|| {
-                self.sessions.iter().flatten().find_map(|sess| {
-                    sess.clipboard
-                        .rich_text
-                        .as_ref()
-                        .filter(|rich| rich.plain_text == normalized)
-                        .cloned()
-                })
-            })
-            .or_else(|| load_process_rich_clipboard().filter(|rich| rich.plain_text == normalized))
+            .cached_rich_text(&normalized, generation, load_process_rich_clipboard())
             .map(|rich| rich.runs)
             .unwrap_or_default();
         if pasted_runs.is_empty()
@@ -902,7 +993,15 @@ impl Editor {
         });
         ctx.request_repaint();
     }
+    #[cfg(test)]
     pub(crate) fn clipboard_events(&mut self, ctx: &egui::Context) {
+        self.clipboard_events_with_generation(ctx, || clipboard_generation(ctx));
+    }
+    pub(crate) fn clipboard_events_with_generation(
+        &mut self,
+        ctx: &egui::Context,
+        read_generation: impl FnOnce() -> Option<u64>,
+    ) {
         let (mut events, now) =
             ctx.input_mut(|input| (std::mem::take(&mut input.events), input.time));
         let user_intervened = events.iter().any(|event| {
@@ -931,6 +1030,9 @@ impl Editor {
             }
         }
         let has_paste_payload = events.iter().any(|event| matches!(event, Event::Paste(_)));
+        // All payloads were captured before dispatch. A Copy/Cut earlier in this
+        // batch must not attach newly copied formatting to an older Paste.
+        let generation = has_paste_payload.then(read_generation).flatten();
         let mut retained = Vec::with_capacity(events.len());
         for (index, event) in events.iter().enumerate() {
             if has_paste_payload && paste_shortcut_mode(self, event).is_some() {
@@ -963,7 +1065,7 @@ impl Editor {
                         .checked_sub(1)
                         .and_then(|previous| paste_shortcut_mode(self, &events[previous]))
                         .unwrap_or(false);
-                    self.paste_objects(ctx, text, in_place);
+                    self.paste_objects_with_generation(ctx, text, in_place, generation);
                 }
                 _ => unreachable!(),
             }

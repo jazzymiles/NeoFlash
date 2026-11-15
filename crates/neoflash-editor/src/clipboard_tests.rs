@@ -2496,4 +2496,194 @@ fn t326_stage_rich_text_copy_cut_paste_preserves_mixed_runs_and_survives_tab_swi
     assert!(after_cut.format.italic);
     assert_eq!(after_cut.format.color, 0x1155dd);
     editor.project.validate().unwrap();
+
+    // Equal plain text can represent two different copies. The latest copy must
+    // retain its formatting across tabs, while a later external write must not.
+    assert!(editor.select_stage_text_utf16_range(0, 4));
+    assert!(editor.copy_stage_text_selection(&ctx, false));
+    let mut older = editor.clipboard.rich_text.clone().unwrap();
+    older.generation = Some(7);
+    assert!(
+        editor
+            .apply_stage_text_format_patch(&TextFormatPatch {
+                bold: Some(true),
+                italic: Some(false),
+                color: Some(0xdd1111),
+                ..TextFormatPatch::default()
+            })
+            .unwrap()
+    );
+    assert!(editor.select_stage_text_utf16_range(0, 4));
+    assert!(editor.copy_stage_text_selection(&ctx, false));
+    let latest = editor.clipboard.rich_text.clone().unwrap();
+    assert_eq!(older.plain_text, latest.plain_text);
+    assert_ne!(older.runs, latest.runs);
+    assert_eq!(latest.generation, Some(0), "headless copy stays injected");
+    assert!(editor.switch_session_tab(&ctx, 1));
+
+    // Each retained cache can outlive its native clipboard write. A stale cache
+    // nearer the caret must not hide the matching session/process candidate.
+    let candidates: Vec<_> = (0..4)
+        .map(|index| {
+            let mut rich = latest.clone();
+            rich.generation = Some(11 + index);
+            rich.runs[0].format.color = 0x112233 + index as u32;
+            rich
+        })
+        .collect();
+    editor.stage_text_edit.copied_rich_text = Some(candidates[0].clone());
+    editor.clipboard.rich_text = Some(candidates[1].clone());
+    editor.sessions[0].as_mut().unwrap().clipboard.rich_text = Some(candidates[2].clone());
+    for candidate in &candidates {
+        assert_eq!(
+            editor.cached_rich_text("Blue", candidate.generation, Some(candidates[3].clone())),
+            Some(candidate.clone())
+        );
+    }
+    for generation in [Some(15), None] {
+        assert!(
+            editor
+                .cached_rich_text("Blue", generation, Some(candidates[3].clone()))
+                .is_none()
+        );
+    }
+    let mut unknown = latest.clone();
+    unknown.generation = None;
+    assert!(
+        editor
+            .cached_rich_text("Blue", None, Some(unknown))
+            .is_none()
+    );
+    assert!(
+        editor
+            .cached_rich_text("different text", Some(14), Some(candidates[3].clone()))
+            .is_none()
+    );
+
+    editor.stage_text_edit.copied_rich_text = Some(older.clone());
+    editor.clipboard.rich_text = Some(older);
+    editor.sessions[0].as_mut().unwrap().clipboard.rich_text = Some(latest);
+    for (generation, expected_color, expected_bold) in [
+        (Some(0), 0xdd1111, true),
+        (Some(1), 0x008844, false),
+        (None, 0x008844, false),
+    ] {
+        assert!(editor.select_stage_text_utf16_range(0, 9));
+        let before = editor.project.clone();
+        let undo_before = editor.history.undo_len();
+        editor.paste_objects_with_generation(&ctx, "Blue", false, generation);
+        let pasted = TextFieldState::from_kind(&editor.selected_sampled().unwrap().kind).unwrap();
+        assert_eq!(pasted.text, "Blue");
+        for offset in 0..4 {
+            let format = pasted.format_at_utf16_offset(offset);
+            assert_eq!(format.color, expected_color, "generation={generation:?}");
+            assert_eq!(format.bold, expected_bold, "generation={generation:?}");
+            assert!(!format.italic, "stale blue italic runs must not return");
+            if generation != Some(0) {
+                assert_eq!(format.font, "Georgia", "plain paste uses destination style");
+            }
+        }
+        assert_eq!(editor.history.undo_len(), undo_before + 1);
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+    }
+}
+
+#[test]
+fn rich_clipboard_stage_copy_after_paste_snapshot_keeps_payload_style_and_skips_idle_reads() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let destination_format = TextFormat {
+        font: "Georgia".into(),
+        color: 0x008844,
+        ..TextFormat::default()
+    };
+    editor.add_element(
+        ElementKind::TextBox {
+            text: "Base Same".into(),
+            width: 300.,
+            height: 80.,
+            format: destination_format.clone(),
+            word_wrap: true,
+            multiline: true,
+        },
+        20.,
+        20.,
+    );
+    assert!(editor.select_stage_text_utf16_range(5, 9));
+    assert!(
+        editor
+            .apply_stage_text_format_patch(&TextFormatPatch {
+                bold: Some(true),
+                color: Some(0xdd1111),
+                ..TextFormatPatch::default()
+            })
+            .unwrap()
+    );
+    assert!(editor.select_stage_text_utf16_range(5, 9));
+    editor.stage_text_edit.typing_format = Some(destination_format);
+    editor.history.clear();
+    let before = editor.project.clone();
+    let reads = std::cell::Cell::new(0);
+
+    let output = ctx.run(
+        egui::RawInput {
+            events: vec![Event::Copy, Event::Paste("Same".into())],
+            ..Default::default()
+        },
+        |ctx| {
+            // Match shortcuts(): snapshot native Paste metadata before the
+            // Stage key handler consumes Copy, then dispatch the saved payload.
+            let read_generation = || {
+                reads.set(reads.get() + 1);
+                assert!(
+                    ctx.output(|output| output.commands.is_empty()),
+                    "snapshot the already-captured Paste before Copy writes a new clipboard"
+                );
+                Some(7)
+            };
+            let generation = read_generation();
+            editor.handle_stage_text_edit_keys(ctx);
+            assert_eq!(
+                editor.clipboard.rich_text.as_ref().unwrap().generation,
+                Some(0)
+            );
+            editor.clipboard_events_with_generation(ctx, || generation);
+        },
+    );
+    assert_eq!(reads.get(), 1);
+    assert_eq!(copied(&output), ["Same"]);
+    let freshly_copied = editor.clipboard.rich_text.as_ref().unwrap();
+    assert_eq!(freshly_copied.generation, Some(0));
+    assert!(freshly_copied.runs[0].format.bold);
+    assert_eq!(freshly_copied.runs[0].format.color, 0xdd1111);
+    let pasted = TextFieldState::from_kind(&editor.selected_sampled().unwrap().kind).unwrap();
+    assert_eq!(pasted.text, "Base Same");
+    for offset in 5..9 {
+        let format = pasted.format_at_utf16_offset(offset);
+        assert!(
+            !format.bold,
+            "earlier Paste must not inherit the new Copy's runs"
+        );
+        assert_eq!(format.color, 0x008844);
+    }
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    let _ = ctx.run(
+        egui::RawInput {
+            events: vec![Event::PointerMoved(Pos2::new(70., 80.))],
+            ..Default::default()
+        },
+        |ctx| {
+            editor.clipboard_events_with_generation(ctx, || {
+                panic!("a frame without Paste must not read clipboard metadata")
+            });
+        },
+    );
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
 }

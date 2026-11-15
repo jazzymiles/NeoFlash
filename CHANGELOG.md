@@ -2,6 +2,9 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Fixed stale Stage text formatting after another clipboard write containing the same words on macOS Apple
+  Silicon. Rich formatting now belongs to the specific clipboard write; a replacement or unavailable ownership
+  metadata uses the ordinary text fallback. Copy/Paste across tabs and one-step Undo remain supported.
 - Made desktop File Import selections spanning SWC libraries, audio, fonts, palettes and graphics one atomic
   operation. The complete selection and final Stage placement validate before document, history, diagnostics or
   audio source-path state changes; success creates exactly one Undo step, while failure leaves the project and

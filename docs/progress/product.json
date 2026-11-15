@@ -578,7 +578,7 @@
       "category": "editor",
       "title": "Object clipboard",
       "status": "implemented",
-      "scope": "Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; linked symbols include their project-source snapshot, program-reachable linkage-only exports and transitive dependencies, and reject conflicts before mutation. Native key/paste input is applied once per payload, including interleaved input and custom shortcuts, with one Undo for each paste. Inline Stage text editing preserves mixed `TextFormatRun` spans across rich Copy/Cut/Paste (including across document tab switches) with plain-text OS clipboard fallback, while script/code editors retain ordinary text paste. Complete resource snapshots transfer with remapped identities, exact content reuse and atomic path-conflict rejection. Native bitmap clipboard data and SVG clipboard text paste onto the Stage, with editable SVG paths or rendered-bitmap fallback selected by the Clipboard preference.",
+      "scope": "Copy/Cut/Paste and Paste in Place transfer objects, dependent symbols, timelines and scripts; linked symbols include their project-source snapshot, program-reachable linkage-only exports and transitive dependencies, and reject conflicts before mutation. Native key/paste input is applied once per payload, including interleaved input and custom shortcuts, with one Undo for each paste. Inline Stage text editing preserves mixed `TextFormatRun` spans across rich Copy/Cut/Paste (including across document tab switches) with plain-text OS clipboard fallback; on macOS Apple Silicon, cached formatting is tied to the system clipboard write, so equal-text replacements or unavailable ownership metadata use the destination text style. Script/code editors retain ordinary text paste. Complete resource snapshots transfer with remapped identities, exact content reuse and atomic path-conflict rejection. Native bitmap clipboard data and SVG clipboard text paste onto the Stage, with editable SVG paths or rendered-bitmap fallback selected by the Clipboard preference.",
       "limitations": "Native acceptance of the new linked-source/resource/frame transfer remains pending. The 8 MiB clipboard cap rejects oversized snapshots explicitly. Other rich native clipboard formats are not promised. Independent c39a29e acceptance (RESOURCES-HTML5-20261027T0323Z) covers the precise embedded/HTTP and pending-request observations in VERIFICATION.md; native resource authoring and full network semantics remain unverified.",
       "items": [
         {
@@ -608,7 +608,7 @@
         },
         {
           "id": "text-paste",
-          "title": "Ordinary text paste in text editors",
+          "title": "Paste plain text and preserve copied Stage text formatting",
           "status": "working"
         },
         {
@@ -628,7 +628,8 @@
         "docs/decisions/0013-portable-resources-and-loading.md",
         "docs/VERIFICATION.md",
         "docs/progress/actionscript-audit.json",
-        "crates/neoflash-editor/src/clipboard.rs"
+        "crates/neoflash-editor/src/clipboard.rs",
+        "crates/neoflash-editor/src/clipboard_native.rs"
       ]
     },
     {
