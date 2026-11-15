@@ -2996,12 +2996,18 @@ mod appearance_tests {
             std::path::Path::new("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
         if chrome_bin.exists() {
             let file_url = format!("file://{}", html_path.display());
+            let chrome_profile = tmp_dir.join("chrome-profile");
+            std::fs::create_dir_all(&chrome_profile).expect("create chrome profile dir");
+            let user_data_arg = format!("--user-data-dir={}", chrome_profile.display());
             let out = std::process::Command::new(chrome_bin)
                 .args([
-                    "--headless",
+                    "--headless=new",
                     "--disable-gpu",
+                    "--no-first-run",
+                    "--no-default-browser-check",
                     "--allow-file-access-from-files",
-                    "--virtual-time-budget=2000",
+                    &user_data_arg,
+                    "--virtual-time-budget=25000",
                     "--dump-dom",
                     &file_url,
                 ])
