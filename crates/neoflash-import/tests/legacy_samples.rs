@@ -1,9 +1,13 @@
-//! Opt-in checks against local, user-supplied FLA files. No artwork or source
-//! scripts are embedded in this test. Set NEOFLASH_LEGACY_SAMPLE_DIR to use a
-//! different directory containing other/Clock.fla and banners/300x600.fla.
+//! Opt-in checks against local, user-supplied FLA files. No artwork, private
+//! filenames or source scripts are embedded in this test. Set
+//! NEOFLASH_LEGACY_SAMPLE_DIR to point at a local binary FLA corpus directory.
 use neoflash_core::*;
 use neoflash_import::*;
-use std::{collections::BTreeMap, fs, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 fn sample_root() -> PathBuf {
     std::env::var_os("NEOFLASH_LEGACY_SAMPLE_DIR")
@@ -11,6 +15,63 @@ fn sample_root() -> PathBuf {
         .unwrap_or_else(|| {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/old flash files")
         })
+}
+
+fn collect_fla_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut paths: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+    paths.sort();
+    for path in paths {
+        if path.is_dir() {
+            collect_fla_files(&path, out);
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("fla"))
+        {
+            out.push(path);
+        }
+    }
+}
+
+fn find_sample_by_profile(
+    files: &[PathBuf],
+    dimensions: (u32, u32, u32),
+    timeline_streams: usize,
+) -> PathBuf {
+    for path in files {
+        let Ok(doc) = read_binary_contents(path) else {
+            continue;
+        };
+        if doc.contents.stop.is_some() {
+            continue;
+        }
+        let Some(settings) = &doc.contents.settings else {
+            continue;
+        };
+        let Some([width_twips, height_twips]) = settings.size_twips() else {
+            continue;
+        };
+        let dims = (
+            u32::try_from(width_twips / 20).unwrap_or(0),
+            u32::try_from(height_twips / 20).unwrap_or(0),
+            settings.frame_rate().round() as u32,
+        );
+        let stream_count = doc
+            .inspection
+            .streams
+            .iter()
+            .filter(|s| matches!(s.role, BinaryStreamRole::Scene | BinaryStreamRole::Symbol))
+            .count();
+        if dims == dimensions && stream_count == timeline_streams {
+            return path.clone();
+        }
+    }
+    panic!(
+        "Required local binary FLA fixture matching {:?} with {} timeline streams was not found under sample directory",
+        dimensions, timeline_streams
+    );
 }
 
 fn string(bytes: &[u8], value: &TimelineString) -> String {
@@ -91,18 +152,13 @@ fn source_scripts(document: &BinaryTimelineDocument) -> Vec<(String, bool, usize
 }
 
 fn check_sample(
-    relative: &str,
+    path: &Path,
     dimensions: (u32, u32, u32),
     expected: (usize, usize, usize),
 ) -> (BinaryTimelineDocument, Project) {
-    let path = sample_root().join(relative);
-    assert!(
-        path.is_file(),
-        "Local sample is required: {}",
-        path.display()
-    );
-    let original = fs::read(&path).unwrap();
-    let document = read_binary_timeline(&path).unwrap();
+    assert!(path.is_file(), "Local binary FLA sample file is required");
+    let original = fs::read(path).unwrap();
+    let document = read_binary_timeline(path).unwrap();
     assert_eq!(document.original_bytes, original);
     assert!(document.contents.stop.is_none());
     assert_eq!(
@@ -121,7 +177,7 @@ fn check_sample(
         assert!(inspected.structure_complete);
         assert_eq!(inspected.bytes_consumed as u64, inspected.byte_length);
     }
-    let report = inspect(&path).unwrap();
+    let report = inspect(path).unwrap();
     assert!(report.can_import, "{:#?}", report.diagnostics);
     assert!(
         !report
@@ -129,7 +185,7 @@ fn check_sample(
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
     );
-    let project = import_project(&path).unwrap();
+    let project = import_project(path).unwrap();
     assert_eq!((project.width, project.height, project.fps), dimensions);
     project.validate().unwrap();
 
@@ -266,7 +322,7 @@ fn expected_easing(t: f64, easing: Easing) -> f64 {
     }
 }
 
-fn check_banner_animation(project: &Project) {
+fn check_tween_and_mask_animation(project: &Project) {
     let mut tweens = 0;
     let mut bezier = 0;
     let mut moving = 0;
@@ -375,22 +431,30 @@ fn check_banner_animation(project: &Project) {
 }
 
 #[test]
-#[ignore = "requires local user-supplied Clock.fla and banners/300x600.fla"]
+#[ignore = "requires local user-supplied binary FLA corpus in NEOFLASH_LEGACY_SAMPLE_DIR"]
 fn local_legacy_samples_preserve_structure_animation_scripts_and_source() {
-    let (clock_source, clock) = check_sample("other/Clock.fla", (550, 550, 12), (14, 37, 37));
-    let scripts = source_scripts(&clock_source);
+    let mut corpus_files = Vec::new();
+    collect_fla_files(&sample_root(), &mut corpus_files);
+    assert!(
+        !corpus_files.is_empty(),
+        "No local .fla files found in NEOFLASH_LEGACY_SAMPLE_DIR"
+    );
+
+    let as1_path = find_sample_by_profile(&corpus_files, (550, 550, 12), 14);
+    let (as1_source, as1_sample) = check_sample(&as1_path, (550, 550, 12), (14, 37, 37));
+    let scripts = source_scripts(&as1_source);
     assert_eq!(scripts.len(), 1);
     assert_eq!(
         (scripts[0].0.len(), scripts[0].1, scripts[0].2),
         (531, false, 531)
     );
     assert!(
-        authored_scripts(&clock)
+        authored_scripts(&as1_sample)
             .iter()
             .all(|script| script.language == ScriptLanguage::ActionScript1)
     );
     assert_eq!(
-        clock
+        as1_sample
             .symbols
             .iter()
             .flat_map(|symbol| &symbol.timeline.layers)
@@ -401,8 +465,9 @@ fn local_legacy_samples_preserve_structure_animation_scripts_and_source() {
         20
     );
 
-    let (banner_source, banner) = check_sample("banners/300x600.fla", (300, 600, 35), (15, 32, 71));
-    let scripts = source_scripts(&banner_source);
+    let as2_path = find_sample_by_profile(&corpus_files, (300, 600, 35), 15);
+    let (as2_source, as2_sample) = check_sample(&as2_path, (300, 600, 35), (15, 32, 71));
+    let scripts = source_scripts(&as2_source);
     assert_eq!(scripts.len(), 2);
     let lengths: BTreeMap<_, _> = scripts
         .iter()
@@ -413,12 +478,12 @@ fn local_legacy_samples_preserve_structure_animation_scripts_and_source() {
         .collect();
     assert_eq!(lengths, BTreeMap::from([(37, 74), (75, 150)]));
     assert!(
-        authored_scripts(&banner)
+        authored_scripts(&as2_sample)
             .iter()
             .all(|script| script.language == ScriptLanguage::ActionScript2)
     );
-    assert_eq!(banner.library_folders.len(), 2);
-    let images: Vec<_> = banner
+    assert_eq!(as2_sample.library_folders.len(), 2);
+    let images: Vec<_> = as2_sample
         .resources
         .iter()
         .filter(|resource| resource.media_type == "image/png")
@@ -430,7 +495,7 @@ fn local_legacy_samples_preserve_structure_animation_scripts_and_source() {
         let image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png).unwrap();
         assert!(image.width() > 0 && image.height() > 0);
     }
-    let provenance = banner
+    let provenance = as2_sample
         .resources
         .iter()
         .find(|resource| resource.path == "legacy/provenance.json")
@@ -438,7 +503,7 @@ fn local_legacy_samples_preserve_structure_animation_scripts_and_source() {
     let provenance: serde_json::Value =
         serde_json::from_slice(&provenance.decoded_bytes().unwrap()).unwrap();
     assert_eq!(provenance["publish_hidden_layers"], true);
-    let targets: std::collections::BTreeSet<_> = banner
+    let targets: std::collections::BTreeSet<_> = as2_sample
         .symbols
         .iter()
         .flat_map(|symbol| &symbol.timeline.layers)
@@ -469,5 +534,5 @@ fn local_legacy_samples_preserve_structure_animation_scripts_and_source() {
             .count(),
         11
     );
-    check_banner_animation(&banner);
+    check_tween_and_mask_animation(&as2_sample);
 }

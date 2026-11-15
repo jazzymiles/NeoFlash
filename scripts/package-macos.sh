@@ -33,7 +33,7 @@ cleanup_incomplete_package() {
         || true
     fi
     rm -rf "$app_dir" "$studio_app_dir" "$source_bundle_dir"
-    rm -f "$zip_path" "$dmg_path" "$source_archive_path" "$sums_path" "$source_archive_stage"
+    rm -f "$zip_path" "$dmg_path" "$source_archive_path" "$sums_path" "$source_archive_stage" "$project_root/dist/.DS_Store"
     rm -rf "$dmg_stage" "$dmg_rw"
     if [ -n "$dmg_mount" ]; then
       rmdir "$dmg_mount" 2>/dev/null || true
@@ -42,8 +42,10 @@ cleanup_incomplete_package() {
 }
 trap cleanup_incomplete_package EXIT
 
-# Never leave a previous same-version package looking like the result of a failed release gate.
-rm -f "$zip_path" "$dmg_path" "$source_archive_path" "$sums_path"
+# Never leave a previous same-version macOS package looking like the result of a failed release gate.
+# Clean ONLY macOS-owned artifacts and dist/.DS_Store — never remove Windows/Linux preview archives or
+# *-portable-media-corresponding-source.tar.xz in dist/.
+rm -f "$zip_path" "$dmg_path" "$source_archive_path" "$sums_path" "$project_root/dist/.DS_Store"
 rm -rf "$studio_app_dir"
 rm -rf "$source_bundle_dir"
 rm -f "$source_archive_stage" "$source_report"
@@ -74,6 +76,7 @@ if xcrun --find actool >/dev/null 2>&1; then
 fi
 install_app_icon() {
   cp "$icon_src/NeoFlash.icns" "$1/NeoFlash.icns"
+  cp "$icon_src/NeoFlash.icns" "$1/AppIcon.icns"
   if [ -f "$icon_car_dir/Assets.car" ]; then
     cp "$icon_car_dir/Assets.car" "$1/Assets.car"
   fi
@@ -99,6 +102,11 @@ python3 "$project_root/scripts/stage-rust-dependency-licenses.py" \
   --dest "$app_dir/Contents/Resources/licenses/rust" \
   --license-cache "$project_root/target/rust-license-text-cache" \
   --download-license-texts
+
+# Normalize permissions and scrub Finder clutter / resource-fork xattrs before nested signing.
+find "$app_dir" -name '.DS_Store' -delete
+xattr -cr "$app_dir"
+chmod -R u+rwX,go+rX "$app_dir"
 
 # Finalize nested media signatures before recording their distributed whole-file hashes.
 for dylib in "$app_dir/Contents/Resources/media/lib"/*.dylib; do
@@ -165,11 +173,86 @@ $icon_plist_keys
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
+<key>UTExportedTypeDeclarations</key>
+<array>
+  <dict>
+    <key>UTTypeIdentifier</key><string>app.neoflash.project</string>
+    <key>UTTypeDescription</key><string>NeoFlash Document</string>
+    <key>UTTypeConformsTo</key>
+    <array>
+      <string>public.data</string>
+      <string>public.composite-content</string>
+    </array>
+    <key>UTTypeIconFile</key><string>AppIcon</string>
+    <key>UTTypeTagSpecification</key>
+    <dict>
+      <key>public.filename-extension</key>
+      <array>
+        <string>nflash</string>
+      </array>
+      <key>public.mime-type</key>
+      <array>
+        <string>application/vnd.neoflash.project+json</string>
+      </array>
+    </dict>
+  </dict>
+</array>
+<key>CFBundleDocumentTypes</key>
+<array>
+  <dict>
+    <key>CFBundleTypeName</key><string>NeoFlash Document</string>
+    <key>CFBundleTypeRole</key><string>Editor</string>
+    <key>LSHandlerRank</key><string>Owner</string>
+    <key>LSItemContentTypes</key>
+    <array>
+      <string>app.neoflash.project</string>
+    </array>
+    <key>CFBundleTypeExtensions</key>
+    <array>
+      <string>nflash</string>
+    </array>
+    <key>CFBundleTypeIconFile</key><string>AppIcon</string>
+  </dict>
+  <dict>
+    <key>CFBundleTypeName</key><string>Flash &amp; Design Interchange Documents</string>
+    <key>CFBundleTypeRole</key><string>Viewer</string>
+    <key>LSHandlerRank</key><string>Alternate</string>
+    <key>CFBundleTypeExtensions</key>
+    <array>
+      <string>fla</string>
+      <string>xfl</string>
+      <string>swf</string>
+      <string>swc</string>
+      <string>fig</string>
+      <string>figma</string>
+      <string>svg</string>
+      <string>psd</string>
+      <string>psb</string>
+      <string>pdf</string>
+      <string>ai</string>
+      <string>fxg</string>
+    </array>
+  </dict>
+</array>
 </dict></plist>
 PLIST
+plutil -lint "$app_dir/Contents/Info.plist" >/dev/null
+find "$app_dir" -name '.DS_Store' -delete
+xattr -cr "$app_dir"
+chmod -R u+rwX,go+rX "$app_dir"
 codesign --force --sign - "$app_dir/Contents/MacOS/neoflash-editor"
 codesign --force --sign - "$app_dir"
 codesign --verify --deep --strict --verbose=2 "$app_dir"
+bad_perms="$(find "$app_dir" \( -type d ! -perm -0555 -o -type f ! -perm -0444 \))"
+if [ -n "$bad_perms" ]; then
+  printf 'Bundle contains non-world-readable paths:\n%s\n' "$bad_perms" >&2
+  exit 1
+fi
+ds_store_hits="$(find "$app_dir" -name '.DS_Store')"
+if [ -n "$ds_store_hits" ]; then
+  printf 'Bundle contains .DS_Store clutter:\n%s\n' "$ds_store_hits" >&2
+  exit 1
+fi
 # Signing the outer bundle must not change nested media bytes certified above.
 python3 "$project_root/scripts/bundled-media-provenance.py" \
   --media-root "$app_dir/Contents/Resources/media" \
@@ -178,7 +261,7 @@ python3 "$project_root/scripts/bundled-media-provenance.py" \
   --download
 printf '%s\n' "$app_dir"
 
-ditto -c -k --sequesterRsrc --keepParent "$app_dir" "$zip_path"
+ditto -c -k --norsrc --keepParent "$app_dir" "$zip_path"
 command -v hdiutil >/dev/null 2>&1 || {
   printf '%s\n' 'hdiutil is required for the macOS release DMG.' >&2
   exit 1
@@ -187,21 +270,26 @@ command -v hdiutil >/dev/null 2>&1 || {
 # and the NeoFlash volume icon. Every step is required for a complete release set.
 rm -rf "$dmg_stage" "$dmg_rw"
 mkdir -p "$dmg_stage"
-ditto "$app_dir" "$dmg_stage/NeoFlash.app"
+ditto --norsrc "$app_dir" "$dmg_stage/NeoFlash.app"
 cp "$app_dir/Contents/Resources/LICENSES-AND-SOURCE.txt" "$dmg_stage/Licenses and source.txt"
 ln -s /Applications "$dmg_stage/Applications"
 cp "$icon_src/NeoFlash.icns" "$dmg_stage/.VolumeIcon.icns"
+find "$dmg_stage" -name '.DS_Store' -delete
 hdiutil create -volname "NeoFlash ${version}" -srcfolder "$dmg_stage" -ov -format UDRW "$dmg_rw" >/dev/null
 dmg_mount="$(mktemp -d "${TMPDIR:-/tmp}/neoflash-dmg.XXXXXX")"
 hdiutil attach "$dmg_rw" -nobrowse -noautoopen -mountpoint "$dmg_mount" >/dev/null
 SetFile -a C "$dmg_mount" 2>/dev/null \
   || xattr -wx com.apple.FinderInfo 0000000000000000040000000000000000000000000000000000000000000000 "$dmg_mount"
+find "$dmg_mount" -name '.DS_Store' -delete 2>/dev/null || true
 hdiutil detach "$dmg_mount" >/dev/null \
   || hdiutil detach -force "$dmg_mount" >/dev/null
 rmdir "$dmg_mount"
 dmg_mount=""
 hdiutil convert "$dmg_rw" -format UDZO -ov -o "$dmg_path" >/dev/null
 rm -rf "$dmg_stage" "$dmg_rw"
+codesign --force --sign - "$dmg_path"
+codesign --verify --verbose=2 "$dmg_path"
+rm -f "$project_root/dist/.DS_Store"
 (
   cd "$project_root/dist"
   shasum -a 256 \
@@ -236,6 +324,10 @@ $icon_plist_keys
 <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>
 PLIST
+  plutil -lint "$studio_app_dir/Contents/Info.plist" >/dev/null
+  find "$studio_app_dir" -name '.DS_Store' -delete
+  xattr -cr "$studio_app_dir"
+  chmod -R u+rwX,go+rX "$studio_app_dir"
   codesign --force --deep --sign - "$studio_app_dir"
   printf '%s\n' "$studio_app_dir"
 fi

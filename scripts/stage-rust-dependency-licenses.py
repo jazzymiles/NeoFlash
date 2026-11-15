@@ -700,9 +700,21 @@ def stage_bundle(
             staging / MANIFEST_MARKDOWN,
             render_markdown(manifest).encode("utf-8"),
         )
+        staging.chmod(0o755)
+        for root, dirnames, filenames in os.walk(staging):
+            root_path = Path(root)
+            root_path.chmod(0o755)
+            for dirname in dirnames:
+                (root_path / dirname).chmod(0o755)
+            for filename in filenames:
+                file_path = root_path / filename
+                file_path.chmod(0o644)
+                os.utime(file_path, (DETERMINISTIC_MTIME, DETERMINISTIC_MTIME))
+            os.utime(root_path, (DETERMINISTIC_MTIME, DETERMINISTIC_MTIME))
         if destination.exists():
             shutil.rmtree(destination)
         os.replace(staging, destination)
+        destination.chmod(0o755)
         os.utime(destination, (DETERMINISTIC_MTIME, DETERMINISTIC_MTIME))
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)

@@ -1704,55 +1704,8 @@ fn real_world_figma_corpus_imports_and_validates() {
         .and_then(|p| p.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| worktree_root.to_path_buf());
 
-    // 1. Byte-for-byte Zstd cross-check on `interface/figma/Interface test.fig` chunk 1 when present
-    let interface_fig = common_root.join("interface/figma/Interface test.fig");
-    if interface_fig.is_file() {
-        let mut za = ZipArchive::new(File::open(&interface_fig).unwrap()).unwrap();
-        let mut canvas_bytes = Vec::new();
-        za.by_name("canvas.fig")
-            .unwrap()
-            .read_to_end(&mut canvas_bytes)
-            .unwrap();
-        let c0_len = u32::from_le_bytes(canvas_bytes[12..16].try_into().unwrap()) as usize;
-        let c1_off = 16 + c0_len;
-        let c1_len =
-            u32::from_le_bytes(canvas_bytes[c1_off..c1_off + 4].try_into().unwrap()) as usize;
-        let c1_compressed = &canvas_bytes[c1_off + 4..c1_off + 4 + c1_len];
-        assert!(super::zstd::is_zstd_magic(c1_compressed));
-        let rust_decompressed = super::zstd::decompress_zstd(c1_compressed, MAX_FIGMA_DECODE_BYTES)
-            .expect("pure-Rust Zstd decode on Interface test.fig chunk 1");
-        assert!(rust_decompressed.len() > 1_000_000);
-
-        if let Ok(mut child) = std::process::Command::new("/opt/homebrew/bin/zstd")
-            .args(["-d", "-c"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-        {
-            let writer = child.stdin.take().map(|mut stdin| {
-                let owned = c1_compressed.to_vec();
-                std::thread::spawn(move || {
-                    let _ = stdin.write_all(&owned);
-                })
-            });
-            let cli_res = child.wait_with_output();
-            if let Some(handle) = writer {
-                let _ = handle.join();
-            }
-            if let Ok(cli_out) = cli_res
-                && cli_out.status.success()
-            {
-                assert_eq!(
-                    rust_decompressed, cli_out.stdout,
-                    "pure-Rust Zstd output must match system zstd byte-for-byte"
-                );
-            }
-        }
-    }
-
-    // 2. Import and validate EVERY `.fig` / `.figma.json` across `interface/figma` + `target/figma-corpus`
-    //    without printing any private filenames or document text!
+    // Discover all `.fig` / `.figma.json` entries across `interface/figma` + `target/figma-corpus`
+    // dynamically without embedding or printing any private filenames or document text.
     let mut files = Vec::new();
     for dir in [
         common_root.join("interface/figma"),
@@ -1777,6 +1730,79 @@ fn real_world_figma_corpus_imports_and_validates() {
             files.extend(dir_files);
         }
     }
+
+    // 1. Byte-for-byte Zstd cross-check on any discovered `.fig` ZIP archive whose `canvas.fig`
+    //    chunk 1 uses Zstandard compression.
+    for (idx, fig_path) in files.iter().enumerate() {
+        let is_fig_zip = fig_path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("fig"));
+        if !is_fig_zip {
+            continue;
+        }
+        let Ok(file) = File::open(fig_path) else {
+            continue;
+        };
+        let Ok(mut za) = ZipArchive::new(file) else {
+            continue;
+        };
+        let mut canvas_bytes = Vec::new();
+        let Ok(mut canvas_entry) = za.by_name("canvas.fig") else {
+            continue;
+        };
+        if canvas_entry.read_to_end(&mut canvas_bytes).is_err() || canvas_bytes.len() < 20 {
+            continue;
+        }
+        let c0_len = u32::from_le_bytes(canvas_bytes[12..16].try_into().unwrap()) as usize;
+        let c1_off = 16 + c0_len;
+        if canvas_bytes.len() < c1_off + 4 {
+            continue;
+        }
+        let c1_len =
+            u32::from_le_bytes(canvas_bytes[c1_off..c1_off + 4].try_into().unwrap()) as usize;
+        if canvas_bytes.len() < c1_off + 4 + c1_len {
+            continue;
+        }
+        let c1_compressed = &canvas_bytes[c1_off + 4..c1_off + 4 + c1_len];
+        if !super::zstd::is_zstd_magic(c1_compressed) {
+            continue;
+        }
+        let rust_decompressed = super::zstd::decompress_zstd(c1_compressed, MAX_FIGMA_DECODE_BYTES)
+            .unwrap_or_else(|e| {
+                panic!("pure-Rust Zstd decode failed on corpus archive #{idx}: {e}")
+            });
+        assert!(!rust_decompressed.is_empty());
+
+        if let Ok(mut child) = std::process::Command::new("/opt/homebrew/bin/zstd")
+            .args(["-d", "-c"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            let writer = child.stdin.take().map(|mut stdin| {
+                let owned = c1_compressed.to_vec();
+                std::thread::spawn(move || {
+                    let _ = stdin.write_all(&owned);
+                })
+            });
+            let cli_res = child.wait_with_output();
+            if let Some(handle) = writer {
+                let _ = handle.join();
+            }
+            if let Ok(cli_out) = cli_res
+                && cli_out.status.success()
+            {
+                assert_eq!(
+                    rust_decompressed, cli_out.stdout,
+                    "pure-Rust Zstd output must match system zstd byte-for-byte on corpus archive #{idx}"
+                );
+            }
+        }
+    }
+
+    // 2. Import and validate EVERY `.fig` / `.figma.json` across `interface/figma` + `target/figma-corpus`
+    //    without printing any private filenames or document text!
 
     let mut imported_count = 0usize;
     let mut total_symbols = 0usize;

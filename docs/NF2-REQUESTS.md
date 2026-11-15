@@ -30,9 +30,9 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 The section a request sits in is historical. Its `Status` line is authoritative; the index below lists what is
 still open.
 
-### Status index (14 November 2026)
+### Status index (15 November 2026)
 
-- **Open, owed by the design track:** none.
+- **Open, owed by the design track:** R-104.
 - **Resolved, waiting for the editor to adopt the new API or assets:** R-016 (`set_tooltip_shortcuts`), R-047
   (`CompactTypeHeader`), R-049 (mask icons), R-067b (tool masters), R-081 (`paint_gradient_overflow_preview`).
 - **Open, scheduled after Beta 1:** R-001–R-004, R-011, R-013–R-015, R-017–R-021, R-024–R-026, R-028.
@@ -1812,3 +1812,13 @@ wires them with the components named in each answer.
   6. *What is sent.* Exactly the fields and the images the dialog shows. Where the feedback goes (service, transport,
      storage) is decided by the implementation track (owner decision, 15 November 2026); the dialog stays the same. If the build is to attach anything else (version, system,
      the open document), that needs a visible line in the dialog first — ask the design track.
+
+### R-104 · Publish settings ▸ HTML5: explicit Render mode (Canvas / DOM) selector
+- **Status:** open
+- **Requested by / for:** implementation track (P2) · DL-03 / T-307 / T-311 (HTML5 DOM publishing mode)
+- **Where:** `crates/neoflash-editor/src/panels/publish_settings.rs` (`Publish settings` dialog, `HTML5` section)
+- **Need:** an explicit `Render mode` (`Canvas` / `DOM`) `Select` or `Segmented` control row in `Publish settings ▸ HTML5` (plus placement relative to `Profile`, `Runtime`, and `Acceleration`).
+- **Why:** `HtmlPublishConfig::render_mode` (`HtmlRenderMode::{Canvas, Dom}`) works in `neoflash-export --render-mode dom` and `--headless export --target html5 --render-mode dom`, but in the locked `DL-03` dialog layout DOM mode can currently only be enabled by choosing `Profile: Web App · DOM` (`Balanced`), preventing GUI users from pairing `HtmlRenderMode::Dom` with other presets or runtime size levels such as `Web · Compact`, `Full`, or `Shared` without hand-editing CLI flags.
+- **Checked:** `docs/DESIGN-SYSTEM.md` (`DL-03`), `interface/design-system/outlines/panels-dialog-publish-settings.txt`, `crates/neoflash-editor/src/panels/publish_settings.rs`.
+- **Proposal (optional):** add a paired `Select` row `Render: Canvas | DOM` beside `Acceleration` (disabling `Acceleration` when `DOM` is selected, since `Acceleration` hints apply to the primary `<canvas>` host).
+- **Answer:** *(pending design track)*

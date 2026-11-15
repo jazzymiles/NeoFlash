@@ -90,6 +90,75 @@ def otool_dependencies(binary_path: Path) -> list[str]:
     return deps
 
 
+def parse_otool_rpaths(output: str) -> list[str]:
+    rpaths: list[str] = []
+    in_rpath = False
+    for raw in output.splitlines():
+        line = raw.strip()
+        if line.startswith("Load command "):
+            in_rpath = False
+            continue
+        if line.startswith("cmd "):
+            in_rpath = line == "cmd LC_RPATH"
+            continue
+        if in_rpath and line.startswith("path "):
+            value = line[len("path ") :].strip()
+            if " (offset " in value and value.endswith(")"):
+                value = value.rsplit(" (offset ", 1)[0]
+            rpaths.append(value)
+            in_rpath = False
+    return rpaths
+
+
+def otool_rpaths(binary_path: Path) -> list[str]:
+    return parse_otool_rpaths(run_checked(["otool", "-l", str(binary_path)]))
+
+
+def is_allowed_rpath(rpath: str) -> bool:
+    if not (
+        rpath == "@loader_path"
+        or rpath.startswith("@loader_path/")
+        or rpath == "@executable_path"
+        or rpath.startswith("@executable_path/")
+    ):
+        return False
+    for forbidden in ("/opt/homebrew", "/usr/local", "/Users/"):
+        if forbidden in rpath:
+            return False
+    return True
+
+
+def strip_external_rpaths(binary_path: Path) -> list[str]:
+    removed: list[str] = []
+    for rpath in otool_rpaths(binary_path):
+        if not is_allowed_rpath(rpath):
+            run_checked(["install_name_tool", "-delete_rpath", rpath, str(binary_path)])
+            removed.append(rpath)
+    return removed
+
+
+def verify_binary_relocation(binary_path: Path) -> None:
+    lines = run_checked(["otool", "-L", str(binary_path)]).splitlines()[1:]
+    for raw in lines:
+        dep = raw.strip().split(" (compatibility version", 1)[0].strip()
+        if not dep:
+            continue
+        if (
+            dep.startswith("/opt/homebrew")
+            or dep.startswith("/usr/local")
+            or dep.startswith("/Users/")
+            or dep.startswith("@rpath")
+        ):
+            raise RuntimeError(
+                f"Unrelocated dependency '{dep}' remains in '{binary_path}'"
+            )
+    for rpath in otool_rpaths(binary_path):
+        if not is_allowed_rpath(rpath):
+            raise RuntimeError(
+                f"Disallowed LC_RPATH '{rpath}' remains in '{binary_path}'"
+            )
+
+
 def is_system_dep(dep: str) -> bool:
     return dep.startswith(SYSTEM_PREFIXES)
 
@@ -152,6 +221,8 @@ def stage_bundle(dest_dir: Path, src_ffmpeg: Path, src_ffprobe: Path) -> None:
     lib_dir.mkdir(parents=True, exist_ok=True)
     prov_dir.mkdir(parents=True, exist_ok=True)
     lic_dir.mkdir(parents=True, exist_ok=True)
+    for directory in (dest_dir, bin_dir, lib_dir, prov_dir, lic_dir):
+        directory.chmod(0o755)
 
     staged_ffmpeg = bin_dir / "ffmpeg"
     staged_ffprobe = bin_dir / "ffprobe"
@@ -212,24 +283,15 @@ def stage_bundle(dest_dir: Path, src_ffmpeg: Path, src_ffprobe: Path) -> None:
         if len(cmd) > 2:
             run_checked(cmd)
 
-    # Verify zero external/Homebrew/@rpath references remain.
+    # Strip non-relocatable LC_RPATH load commands before codesigning and verify
+    # zero external/Homebrew/@rpath references or rpaths remain.
     all_staged_binaries = [staged_ffmpeg, staged_ffprobe] + [
         lib_dir / name for name in sorted(dylib_by_name)
     ]
     for bin_path in all_staged_binaries:
-        lines = run_checked(["otool", "-L", str(bin_path)]).splitlines()[1:]
-        for raw in lines:
-            dep = raw.strip().split(" (compatibility version", 1)[0].strip()
-            if not dep:
-                continue
-            if (
-                dep.startswith("/opt/homebrew")
-                or dep.startswith("/usr/local")
-                or dep.startswith("@rpath")
-            ):
-                raise RuntimeError(
-                    f"Unrelocated dependency '{dep}' remains in '{bin_path}'"
-                )
+        strip_external_rpaths(bin_path)
+        bin_path.chmod(0o755)
+        verify_binary_relocation(bin_path)
 
     # Ad-hoc sign inside-out: all dylibs first, then executables.
     for dep_basename in sorted(dylib_by_name):
@@ -366,6 +428,10 @@ def stage_bundle(dest_dir: Path, src_ffmpeg: Path, src_ffprobe: Path) -> None:
     (prov_dir / "media-sbom.json").write_text(
         json.dumps(sbom, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+    for meta_dir in (prov_dir, lic_dir):
+        for entry in meta_dir.iterdir():
+            if entry.is_file():
+                entry.chmod(0o644)
 
 
 def main() -> int:

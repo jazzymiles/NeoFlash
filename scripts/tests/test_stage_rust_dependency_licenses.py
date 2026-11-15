@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
+import stat
 import tempfile
 import unittest
 from unittest import mock
@@ -446,6 +448,50 @@ class RustDependencyLicenseTests(unittest.TestCase):
                 replace=True,
             )
         self.assertTrue((destination / "Cargo.toml").is_file())
+
+    def test_stage_bundle_normalizes_directory_0755_and_file_0644_modes(self):
+        destination = self.root / "world-readable-bundle"
+        manifest = {
+            "schema_version": 1,
+            "root_package": "neoflash-editor",
+            "package_count": 1,
+            "packages": [],
+        }
+        bundled_files = {
+            "packages/neoflash-editor-0.1.0-beta.1/LICENSE-MIT": b"MIT text\n",
+            "canonical/Apache-2.0.txt": b"Apache text\n",
+        }
+        previous_umask = os.umask(0o077)
+        try:
+            stage_rust_licenses.stage_bundle(destination, manifest, bundled_files)
+            stage_rust_licenses.stage_bundle(
+                destination, manifest, bundled_files, replace=True
+            )
+        finally:
+            os.umask(previous_umask)
+
+        self.assertEqual(stat.S_IMODE(destination.stat().st_mode), 0o755)
+        for root, dirnames, filenames in os.walk(destination):
+            root_path = Path(root)
+            self.assertEqual(
+                stat.S_IMODE(root_path.stat().st_mode),
+                0o755,
+                f"Expected 0755 on {root_path}",
+            )
+            for dirname in dirnames:
+                dir_path = root_path / dirname
+                self.assertEqual(
+                    stat.S_IMODE(dir_path.stat().st_mode),
+                    0o755,
+                    f"Expected 0755 on {dir_path}",
+                )
+            for filename in filenames:
+                file_path = root_path / filename
+                self.assertEqual(
+                    stat.S_IMODE(file_path.stat().st_mode),
+                    0o644,
+                    f"Expected 0644 on {file_path}",
+                )
 
 
 if __name__ == "__main__":

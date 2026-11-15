@@ -1322,13 +1322,44 @@ fn compact_and_balanced_packages_embed_file_protocol_wasm_fallback_for_authored_
     for rel in [
         "examples/fla-corpus/authored/nested-playback-as2/nested-playback-as2.fla",
         "examples/fla-corpus/authored/frame-scripts-as3/frame-scripts-as3.fla",
-        "examples/Macromedia Flash MX ActionScript_program files/Superclass.fla",
     ] {
         let path = workspace_root.join(rel);
         if path.is_file()
             && let Ok(proj) = neoflash_import::import_project(&path)
         {
             scenes.push((rel.to_owned(), proj));
+        }
+    }
+    if let Ok(entries) = fs::read_dir(workspace_root.join("examples")) {
+        let mut subdirs: Vec<_> = entries
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.is_dir() && p.file_name().is_none_or(|name| name != "fla-corpus"))
+            .collect();
+        subdirs.sort();
+        'local_scan: for subdir in subdirs {
+            let Ok(files) = fs::read_dir(&subdir) else {
+                continue;
+            };
+            let mut candidates: Vec<_> = files
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.is_file()
+                        && p.extension()
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("fla"))
+                })
+                .collect();
+            candidates.sort();
+            for cand in candidates {
+                if neoflash_import::inspect(&cand).is_ok_and(|rep| {
+                    rep.format == neoflash_import::ImportFormat::LegacyBinaryFla && rep.can_import
+                }) && let Ok(proj) = neoflash_import::import_project(&cand)
+                {
+                    scenes.push(("local-binary-fla".to_owned(), proj));
+                    break 'local_scan;
+                }
+            }
         }
     }
     assert!(
