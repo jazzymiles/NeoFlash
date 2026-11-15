@@ -193,11 +193,12 @@ pub(crate) fn resolve_web_runtime(explicit: Option<&Path>) -> Result<PathBuf, Cl
         }
         candidates.push(exe_dir.join("web-runtime"));
         candidates.push(exe_dir.join("runtime"));
-        candidates.push(exe_dir.join("../../web-runtime"));
-        candidates.push(exe_dir.join("../../target/web-runtime"));
-        candidates.push(exe_dir.join("../../../target/web-runtime"));
+        for ancestor in exe_dir.ancestors() {
+            candidates.push(ancestor.join("target/web-runtime"));
+        }
     }
 
+    #[cfg(debug_assertions)]
     candidates.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime"));
     candidates.push(PathBuf::from("target/web-runtime"));
     candidates.push(PathBuf::from("../target/web-runtime"));
@@ -696,7 +697,7 @@ fn run_cmd_export<W1: Write>(
     if !has_target {
         return Err(CliError::usage(
             "missing_flag",
-            "'export' requires --target <html5|fla|xfl|swf|svg|lottie|atlas|sequence|video|audio|banner|desktop>",
+            "'export' requires --target <html5|fla|xfl|swf|svg|lottie|dotlottie|atlas|sequence|video|audio|banner|desktop>",
         ));
     }
     if !has_out || spec.out.as_os_str().is_empty() {
@@ -977,6 +978,8 @@ pub(crate) fn export_project_with_spec(
     project
         .validate()
         .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
+    let resolved_project = project.with_resolved_script_language();
+    let project = resolved_project.as_ref();
     let target = ExportTarget::parse(&spec.target)?;
     let symbol_id = match spec.symbol.as_deref() {
         Some(sel) => Some(resolve_symbol(project, sel)?.id.clone()),
@@ -1134,6 +1137,12 @@ pub(crate) fn export_project_with_spec(
             let mut opts = SwfPublishOptions::default();
             if let Some(ref raw) = spec.swf_profile {
                 opts.profile = parse_swf_profile(raw)?;
+            } else if matches!(
+                project.effective_script_language(),
+                neoflash_core::ScriptLanguage::ActionScript1
+                    | neoflash_core::ScriptLanguage::ActionScript2
+            ) {
+                opts.profile = SwfPublishProfile::FlashPlayer8Avm1;
             }
             opts.scriptless_mode = spec.scriptless;
             opts.outline_text = spec.outline_text;

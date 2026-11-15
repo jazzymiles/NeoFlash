@@ -26,7 +26,7 @@ use std::io::{BufRead, BufReader, Read};
 #[cfg(test)]
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
     mpsc,
 };
@@ -303,6 +303,7 @@ impl SecretStore for MemorySecretStore {
         if trimmed.is_empty() {
             return self.delete_secret(profile_id);
         }
+        register_redacted_secret(trimmed);
         let mut guard = self
             .secrets
             .lock()
@@ -357,7 +358,11 @@ impl SecretStore for EnvSecretStore {
     fn get_secret(&self, profile_id: &str) -> Result<Option<String>, AiConnectionError> {
         let key = self.env_key_for(profile_id);
         match std::env::var(&key) {
-            Ok(val) if !val.trim().is_empty() => Ok(Some(val.trim().to_owned())),
+            Ok(val) if !val.trim().is_empty() => {
+                let trimmed = val.trim().to_owned();
+                register_redacted_secret(&trimmed);
+                Ok(Some(trimmed))
+            }
             _ => Ok(None),
         }
     }
@@ -415,7 +420,12 @@ impl SecretStore for KeychainSecretStore {
             })?;
         if output.status.success() {
             let secret = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            Ok((!secret.is_empty()).then_some(secret))
+            if !secret.is_empty() {
+                register_redacted_secret(&secret);
+                Ok(Some(secret))
+            } else {
+                Ok(None)
+            }
         } else if output.status.code() == Some(44) {
             // Exit code 44 in `/usr/bin/security` indicates item not found.
             Ok(None)
@@ -683,6 +693,10 @@ impl AiConnectionManager {
     }
 
     pub fn set_secret(&mut self, profile_id: &str, secret: &str) -> Result<(), AiConnectionError> {
+        let trimmed = secret.trim();
+        if !trimmed.is_empty() {
+            register_redacted_secret(trimmed);
+        }
         self.secret_store.set_secret(profile_id, secret)?;
         self.test_states.remove(profile_id);
         Ok(())
@@ -780,6 +794,28 @@ impl AiConnectionManager {
     }
 }
 
+static CUSTOM_REDACTED_SECRETS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+
+/// Register a configured custom token string for scrubbing in [`redact_sensitive_tokens`].
+///
+/// Short tokens (< 4 characters) are ignored to avoid false-positive corruption of prose or code.
+pub fn register_redacted_secret(secret: &str) {
+    let trimmed = secret.trim();
+    if trimmed.chars().count() < 4 {
+        return;
+    }
+    let mutex = CUSTOM_REDACTED_SECRETS.get_or_init(|| Mutex::new(Vec::new()));
+    if let Ok(mut list) = mutex.lock()
+        && !list.iter().any(|existing| existing == trimmed)
+    {
+        list.push(trimmed.to_owned());
+        list.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+        if list.len() > 128 {
+            list.truncate(128);
+        }
+    }
+}
+
 /// Redact API keys, Bearer tokens, and key=value secret patterns from arbitrary text before it
 /// can enter logs, UI diagnostics, or context packs.
 pub fn redact_sensitive_tokens(input: &str) -> String {
@@ -806,6 +842,17 @@ pub fn redact_sensitive_tokens(input: &str) -> String {
 
     // 3. Redact recognizable token prefixes (`sk-...`, `AIza...`, `ant-api...`)
     out = redact_token_prefixes(&out, &["sk-", "AIza", "ant-api"]);
+
+    // 4. Redact any configured custom secret strings registered during this session
+    if let Some(mutex) = CUSTOM_REDACTED_SECRETS.get()
+        && let Ok(list) = mutex.lock()
+    {
+        for secret in list.iter() {
+            if out.contains(secret.as_str()) {
+                out = out.replace(secret.as_str(), "[REDACTED_SECRET]");
+            }
+        }
+    }
     out
 }
 

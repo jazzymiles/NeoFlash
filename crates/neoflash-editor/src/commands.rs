@@ -20,11 +20,12 @@ pub enum CommandCategory {
     Control,
     Document,
     Window,
+    Help,
     Tools,
 }
 
 impl CommandCategory {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::File,
         Self::Edit,
         Self::View,
@@ -33,6 +34,7 @@ impl CommandCategory {
         Self::Control,
         Self::Document,
         Self::Window,
+        Self::Help,
         Self::Tools,
     ];
 
@@ -46,6 +48,7 @@ impl CommandCategory {
             Self::Control => "Control",
             Self::Document => "Document",
             Self::Window => "Window",
+            Self::Help => "Help",
             Self::Tools => "Tools",
         }
     }
@@ -646,6 +649,10 @@ pub enum CommandId {
     FileExportAfterEffects,
     FileExportTextureAtlas,
     FileExportSwf,
+    FileExportSwfFp8,
+    FileExportSwfFp9,
+    FileExportSwfFp10,
+    FileExportSwfFp10Scriptless,
     FilePublishSettings,
     FilePublish,
     // Edit
@@ -783,6 +790,14 @@ pub enum CommandId {
     WindowHidePanels,
     WindowInspectorPriority,
     WindowLibraryPriority,
+    // Help
+    HelpSearchFunctions,
+    HelpManual,
+    HelpScriptingReference,
+    HelpOpenExample,
+    HelpCheckForUpdates,
+    HelpSendBetaFeedback,
+    HelpAbout,
     // Tools
     ToolSelect,
     ToolSubselect,
@@ -928,6 +943,7 @@ const S_ALT_F2: &[Shortcut] = &[Shortcut::alt(Key::F2)];
 const S_F2: &[Shortcut] = &[Shortcut::none(Key::F2)];
 const S_SHIFT_F11: &[Shortcut] = &[Shortcut::shift(Key::F11)];
 const S_F4: &[Shortcut] = &[Shortcut::none(Key::F4)];
+const S_F1: &[Shortcut] = &[Shortcut::none(Key::F1)];
 
 const S_TOOL_V: &[Shortcut] = &[Shortcut::none(Key::V)];
 const S_TOOL_A: &[Shortcut] = &[Shortcut::none(Key::A)];
@@ -974,6 +990,10 @@ impl CommandId {
         Self::FileExportAfterEffects,
         Self::FileExportTextureAtlas,
         Self::FileExportSwf,
+        Self::FileExportSwfFp8,
+        Self::FileExportSwfFp9,
+        Self::FileExportSwfFp10,
+        Self::FileExportSwfFp10Scriptless,
         Self::FilePublishSettings,
         Self::FilePublish,
         Self::EditUndo,
@@ -1105,6 +1125,13 @@ impl CommandId {
         Self::WindowHidePanels,
         Self::WindowInspectorPriority,
         Self::WindowLibraryPriority,
+        Self::HelpSearchFunctions,
+        Self::HelpManual,
+        Self::HelpScriptingReference,
+        Self::HelpOpenExample,
+        Self::HelpCheckForUpdates,
+        Self::HelpSendBetaFeedback,
+        Self::HelpAbout,
         Self::ToolSelect,
         Self::ToolSubselect,
         Self::ToolTransform,
@@ -1247,6 +1274,38 @@ impl CommandId {
                 category: C::File,
                 title: "File ▸ Export ▸ Export Flash Movie (.swf)…",
                 keywords: "swf flash player movie bytecode",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::FileExportSwfFp8 => CommandMeta {
+                id: "file.export.swf_fp8",
+                category: C::File,
+                title: "File ▸ Export ▸ Export SWF Target ▸ Flash Player 8 (AVM1)…",
+                keywords: "swf flash player 8 avm1 actionscript 1 2 bytecode",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::FileExportSwfFp9 => CommandMeta {
+                id: "file.export.swf_fp9",
+                category: C::File,
+                title: "File ▸ Export ▸ Export SWF Target ▸ Flash Player 9 (AVM2)…",
+                keywords: "swf flash player 9 avm2 actionscript 3 bytecode",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::FileExportSwfFp10 => CommandMeta {
+                id: "file.export.swf_fp10",
+                category: C::File,
+                title: "File ▸ Export ▸ Export SWF Target ▸ Flash Player 10 (AVM2)…",
+                keywords: "swf flash player 10 avm2 actionscript 3 bytecode",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::FileExportSwfFp10Scriptless => CommandMeta {
+                id: "file.export.swf_fp10_scriptless",
+                category: C::File,
+                title: "File ▸ Export ▸ Export SWF Target ▸ Flash Player 10 (Visuals Only)…",
+                keywords: "swf flash player 10 visuals scriptless animation",
                 defaults: &[],
                 allow_when_typing: false,
             },
@@ -2300,6 +2359,62 @@ impl CommandId {
                 defaults: S_ALT_CMD_L,
                 allow_when_typing: false,
             },
+            Self::HelpSearchFunctions => CommandMeta {
+                id: "help.search_functions",
+                category: C::Help,
+                title: "Help ▸ Search functions…",
+                keywords: "command palette quick open find menu action",
+                defaults: S_F1,
+                allow_when_typing: false,
+            },
+            Self::HelpManual => CommandMeta {
+                id: "help.manual",
+                category: C::Help,
+                title: "Help ▸ NeoFlash Help",
+                keywords: "documentation guide user manual chapters",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::HelpScriptingReference => CommandMeta {
+                id: "help.scripting_reference",
+                category: C::Help,
+                title: "Help ▸ Scripting Reference…",
+                keywords: "actionscript as1 as2 as3 javascript typescript api reference",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::HelpOpenExample => CommandMeta {
+                id: "help.open_example",
+                category: C::Help,
+                title: "Help ▸ Open example",
+                keywords: "demo sample project",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::HelpCheckForUpdates => CommandMeta {
+                id: "help.check_for_updates",
+                category: C::Help,
+                title: "Help ▸ Check for Updates…",
+                keywords: "updater release version download",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::HelpSendBetaFeedback => CommandMeta {
+                id: "help.send_beta_feedback",
+                category: C::Help,
+                title: "Help ▸ Send Beta Feedback…",
+                keywords: "bug report issue screenshot feedback",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::HelpAbout => CommandMeta {
+                id: "help.about",
+                category: C::Help,
+                title: "Help ▸ About NeoFlash",
+                keywords: "version commit license credits",
+                defaults: &[],
+                allow_when_typing: false,
+            },
             Self::ToolSelect => CommandMeta {
                 id: "tool.select",
                 category: C::Tools,
@@ -2811,6 +2926,11 @@ pub fn export_shortcuts_html(prefs: &ShortcutPrefs) -> String {
             if cmd.category() != category {
                 continue;
             }
+            if matches!(cmd, CommandId::HelpSendBetaFeedback)
+                && !crate::panels::beta_feedback::is_beta_build()
+            {
+                continue;
+            }
             let shortcuts = effective_shortcuts(prefs, cmd)
                 .iter()
                 .map(Shortcut::format)
@@ -3036,7 +3156,14 @@ impl Editor {
             | CommandId::WindowBrushes
             | CommandId::WindowHidePanels
             | CommandId::WindowInspectorPriority
-            | CommandId::WindowLibraryPriority => true,
+            | CommandId::WindowLibraryPriority
+            | CommandId::HelpSearchFunctions
+            | CommandId::HelpManual
+            | CommandId::HelpScriptingReference
+            | CommandId::HelpOpenExample
+            | CommandId::HelpCheckForUpdates
+            | CommandId::HelpAbout => true,
+            CommandId::HelpSendBetaFeedback => crate::panels::beta_feedback::is_beta_build(),
             _ if !has_doc => false,
             CommandId::FileClose
             | CommandId::FileSave
@@ -3048,6 +3175,10 @@ impl Editor {
             | CommandId::FileExportAfterEffects
             | CommandId::FileExportTextureAtlas
             | CommandId::FileExportSwf
+            | CommandId::FileExportSwfFp8
+            | CommandId::FileExportSwfFp9
+            | CommandId::FileExportSwfFp10
+            | CommandId::FileExportSwfFp10Scriptless
             | CommandId::FilePublishSettings
             | CommandId::FilePublish
             | CommandId::EditSelectAll
@@ -3303,6 +3434,34 @@ impl Editor {
             }
             CommandId::FileExportSwf => {
                 let _ = self.export_swf_dialog(None);
+            }
+            CommandId::FileExportSwfFp8 => {
+                let _ = self.export_swf_profile_dialog(
+                    neoflash_export::SwfPublishProfile::FlashPlayer8Avm1,
+                    false,
+                    None,
+                );
+            }
+            CommandId::FileExportSwfFp9 => {
+                let _ = self.export_swf_profile_dialog(
+                    neoflash_export::SwfPublishProfile::FlashPlayer9Avm2,
+                    false,
+                    None,
+                );
+            }
+            CommandId::FileExportSwfFp10 => {
+                let _ = self.export_swf_profile_dialog(
+                    neoflash_export::SwfPublishProfile::FlashPlayer10Avm2,
+                    false,
+                    None,
+                );
+            }
+            CommandId::FileExportSwfFp10Scriptless => {
+                let _ = self.export_swf_profile_dialog(
+                    neoflash_export::SwfPublishProfile::FlashPlayer10Avm2,
+                    true,
+                    None,
+                );
             }
             CommandId::FilePublishSettings => self.open_publish_settings(),
             CommandId::FilePublish => self.export(false),
@@ -3649,6 +3808,33 @@ impl Editor {
             }
             CommandId::ToolObjectDrawing => {
                 self.workspace.drawing.object_drawing = !self.workspace.drawing.object_drawing;
+            }
+            CommandId::HelpSearchFunctions => {
+                self.open_function_search(ctx);
+            }
+            CommandId::HelpManual => {
+                self.open_help_manual(ctx);
+            }
+            CommandId::HelpScriptingReference => {
+                self.open_scripting_reference(ctx);
+            }
+            CommandId::HelpOpenExample => {
+                self.request(Pending::Demo, ctx);
+            }
+            CommandId::HelpCheckForUpdates => {
+                let channel = self.workspace.updates.channel;
+                self.open_preferences(crate::panels::preferences::PAGE_UPDATES);
+                self.updater.start_check(channel, ctx);
+            }
+            CommandId::HelpSendBetaFeedback => {
+                if crate::panels::beta_feedback::is_beta_build() {
+                    self.open_beta_feedback();
+                } else {
+                    return false;
+                }
+            }
+            CommandId::HelpAbout => {
+                self.show_about = true;
             }
         }
         true

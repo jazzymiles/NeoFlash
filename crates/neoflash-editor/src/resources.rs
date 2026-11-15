@@ -575,7 +575,138 @@ fn media_icon(media_type: &str) -> neoflash_ui::Icon {
     }
 }
 
+pub(crate) const IMPORT_AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "ogg", "flac", "aac", "m4a"];
+
+pub(crate) fn is_audio_import_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|part| part.to_str())
+        .is_some_and(|ext| {
+            IMPORT_AUDIO_EXTENSIONS
+                .iter()
+                .any(|allowed| allowed.eq_ignore_ascii_case(ext))
+        })
+}
+
+pub(crate) fn read_audio_resource(path: &Path, remaining: usize) -> Result<ResourceUnit, String> {
+    read_audio_resource_with_ffmpeg(path, remaining, neoflash_export::detect_ffmpeg())
+}
+
+pub(crate) fn read_audio_resource_with_ffmpeg(
+    path: &Path,
+    remaining: usize,
+    ffmpeg_override: Option<std::path::PathBuf>,
+) -> Result<ResourceUnit, String> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("Audio filename must be valid UTF-8.")?;
+    let ext = path
+        .extension()
+        .and_then(|part| part.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "mp3" | "wav" => {
+            let file = std::fs::File::open(path).map_err(|error| format!("{name}: {error}"))?;
+            let mut bytes = Vec::new();
+            file.take(MAX_RESOURCE_BYTES.min(remaining) as u64 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|error| format!("{name}: {error}"))?;
+            if bytes.len() > remaining || bytes.len() > MAX_RESOURCE_BYTES {
+                return Err(format!(
+                    "{name}: resource import exceeds the project's 64 MiB limit."
+                ));
+            }
+            let mime = if ext == "mp3" {
+                "audio/mpeg"
+            } else {
+                "audio/wav"
+            };
+            ResourceUnit::from_bytes(new_id("resource"), name, mime, &bytes)
+                .map_err(|error| format!("{name}: {error}"))
+        }
+        "ogg" | "flac" | "aac" | "m4a" => {
+            if !path.is_file() {
+                return Err(format!("{name}: audio file does not exist."));
+            }
+            let ffmpeg = ffmpeg_override.ok_or_else(|| {
+                format!(
+                    "{name}: importing .{ext} audio requires FFmpeg to transcode to 16-bit PCM WAV. Install ffmpeg on PATH, set NEOFLASH_FFMPEG, or convert to .wav / .mp3."
+                )
+            })?;
+            static AUDIO_TRANSCODE_SEQ: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(0);
+            let seq = AUDIO_TRANSCODE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let tmp_wav = std::env::temp_dir().join(format!(
+                "neoflash-audio-import-{}-{seq}.wav",
+                std::process::id()
+            ));
+            let mut cmd = std::process::Command::new(&ffmpeg);
+            neoflash_export::configure_media_subprocess_command(&mut cmd, &ffmpeg);
+            cmd.args(["-y", "-hide_banner", "-loglevel", "error", "-i"])
+                .arg(path)
+                .args(["-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2"])
+                .arg(&tmp_wav);
+            let output = cmd.output().map_err(|error| {
+                let _ = std::fs::remove_file(&tmp_wav);
+                format!(
+                    "{name}: failed to run ffmpeg ({}): {error}",
+                    ffmpeg.display()
+                )
+            })?;
+            if !output.status.success() {
+                let _ = std::fs::remove_file(&tmp_wav);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let detail = stderr.trim();
+                return Err(if detail.is_empty() {
+                    format!(
+                        "{name}: ffmpeg failed to transcode .{ext} audio (exit {}).",
+                        output.status
+                    )
+                } else {
+                    format!("{name}: ffmpeg failed to transcode .{ext} audio: {detail}")
+                });
+            }
+            let wav_res = (|| -> Result<Vec<u8>, String> {
+                let file =
+                    std::fs::File::open(&tmp_wav).map_err(|error| format!("{name}: {error}"))?;
+                let mut bytes = Vec::new();
+                file.take(MAX_RESOURCE_BYTES.min(remaining) as u64 + 1)
+                    .read_to_end(&mut bytes)
+                    .map_err(|error| format!("{name}: {error}"))?;
+                if bytes.is_empty() {
+                    return Err(format!(
+                        "{name}: ffmpeg produced an empty WAV file while transcoding .{ext}."
+                    ));
+                }
+                if bytes.len() > remaining || bytes.len() > MAX_RESOURCE_BYTES {
+                    return Err(format!(
+                        "{name}: transcoded WAV exceeds the project's 64 MiB limit."
+                    ));
+                }
+                Ok(bytes)
+            })();
+            let _ = std::fs::remove_file(&tmp_wav);
+            let bytes = wav_res?;
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("sound");
+            let wav_name = format!("{stem}.wav");
+            ResourceUnit::from_bytes(new_id("resource"), &wav_name, "audio/wav", &bytes)
+                .map_err(|error| format!("{name}: {error}"))
+        }
+        _ => Err(format!(
+            "{name}: unsupported audio format '.{ext}'. Supported formats: MP3, WAV, OGG, FLAC, AAC, M4A."
+        )),
+    }
+}
+
 pub(crate) fn read_resource(path: &Path, remaining: usize) -> Result<ResourceUnit, String> {
+    if is_audio_import_path(path) {
+        return read_audio_resource(path, remaining);
+    }
     let name = path
         .file_name()
         .and_then(|name| name.to_str())

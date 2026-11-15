@@ -572,11 +572,14 @@ impl Editor {
         }
         if do_import
             && let Some(path) = rfd::FileDialog::new()
-                .add_filter("Sound", &["mp3", "wav"])
+                .add_filter("Sound", crate::resources::IMPORT_AUDIO_EXTENSIONS)
                 .pick_file()
             && let Err(err) = self.load_sound_file_into_draft(&mut draft, &path, true)
         {
-            self.message(format!("Sound import failed: {err}"));
+            self.notify_with_output(
+                neoflash_ui::components::ToastType::Error,
+                format!("Sound import failed: {err}"),
+            );
         }
         if do_toggle_test {
             if playing {

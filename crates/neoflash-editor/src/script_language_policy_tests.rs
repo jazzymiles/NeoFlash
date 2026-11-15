@@ -594,3 +594,93 @@ fn t315_compiler_errors_emits_located_foreign_warnings_and_jumps_to_actions_noti
         "jumping from Compiler errors must open the foreign script with its R-102 notice row: {texts:?}"
     );
 }
+
+#[test]
+fn t311_project_new_file_language_policy_and_legacy_none_fla_save() {
+    let ctx = egui::Context::default();
+
+    // 1. Project panel New file language gating + tooltip for TypeScript project.
+    let mut ts_project = Project::blank();
+    ts_project.script_language = Some(ScriptLanguage::TypeScript);
+    ts_project.also_compile_compatible_scripts = true;
+    ts_project.sources.push(SourceUnit {
+        id: "foreign-as3".into(),
+        path: "src/Legacy.as".into(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package {}".into(),
+    });
+    let mut ts_editor = Editor::from_project(&ctx, ts_project);
+    assert_eq!(
+        ts_editor.project.effective_script_language(),
+        ScriptLanguage::TypeScript
+    );
+    assert_eq!(
+        ts_editor.project_new_file_language_allowed(ScriptLanguage::TypeScript),
+        (true, None)
+    );
+    assert_eq!(
+        ts_editor.project_new_file_language_allowed(ScriptLanguage::JavaScript),
+        (true, None)
+    );
+    assert_eq!(
+        ts_editor.project_new_file_language_allowed(ScriptLanguage::ActionScript3),
+        (
+            false,
+            Some("The project script language is TypeScript".into())
+        )
+    );
+
+    ts_editor.project.also_compile_compatible_scripts = false;
+    assert_eq!(
+        ts_editor.project_new_file_language_allowed(ScriptLanguage::JavaScript),
+        (
+            false,
+            Some("The project script language is TypeScript".into())
+        )
+    );
+
+    // 2. ActionScript 1.0 New file emits prototype function constructor, not AS2 `class`.
+    let mut as1_project = Project::blank();
+    as1_project.script_language = Some(ScriptLanguage::ActionScript1);
+    let mut as1_editor = Editor::from_project(&ctx, as1_project);
+    as1_editor.project_new_source_file(as1_editor.project.effective_script_language());
+    let created = as1_editor.project.sources.last().expect("created AS1 file");
+    assert_eq!(created.language, ScriptLanguage::ActionScript1);
+    assert!(created.source.contains("function Class1()"));
+    assert!(!created.source.contains("class Class1"));
+
+    // 3. Pre-R-102 (`script_language == None`) mixed-script project saves cleanly to `.fla`.
+    let mut legacy_mixed = Project::blank();
+    legacy_mixed.script_language = None;
+    legacy_mixed.sources.push(SourceUnit {
+        id: "src-ts".into(),
+        path: "src/Main.ts".into(),
+        language: ScriptLanguage::TypeScript,
+        source: "export const ready: number = 1;".into(),
+    });
+    legacy_mixed.symbols[0].timeline.scripts.push(FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "stop();".into(),
+        },
+    });
+    assert_eq!(
+        legacy_mixed.effective_script_language(),
+        ScriptLanguage::ActionScript2
+    );
+    let mut legacy_editor = Editor::from_project(&ctx, legacy_mixed);
+    let temp = std::env::temp_dir().join(format!(
+        "neoflash-t311-legacy-fla-save-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+    let fla_out = temp.join("legacy-mixed.fla");
+    assert!(
+        legacy_editor.save_to_path(fla_out.clone()),
+        "saving pre-R-102 mixed-script project to .fla must resolve script_language"
+    );
+    assert!(fla_out.is_file());
+    let _ = std::fs::remove_dir_all(&temp);
+}

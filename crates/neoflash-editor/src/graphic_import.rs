@@ -61,7 +61,8 @@ impl From<PreparedGraphic> for PreparedImportGraphic {
 
 const IMPORT_GRAPHICS_EXTENSIONS: &[&str] = &[
     "svg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "psd", "psb", "fig", "figma",
-    "json", "swf", "pdf", "ai", "fxg", "act", "clr", "ase",
+    "json", "swf", "swc", "pdf", "ai", "fxg", "act", "clr", "ase", "mp3", "wav", "ogg", "flac",
+    "aac", "m4a",
 ];
 
 fn is_figma_graphic_path(path: &std::path::Path, ext: &str) -> bool {
@@ -112,21 +113,27 @@ pub(crate) fn mapped_drop_point(
 impl Editor {
     pub(crate) fn import_graphics_dialog(&mut self) {
         if let Some(paths) = rfd::FileDialog::new()
-            .add_filter("Graphics & Interchange", IMPORT_GRAPHICS_EXTENSIONS)
+            .add_filter("Graphics, Audio & Libraries", IMPORT_GRAPHICS_EXTENSIONS)
             .pick_files()
             && let Err(error) = self.import_graphics_paths(&paths, None)
         {
-            self.message(format!("Graphic import failed: {error}"));
+            self.notify_with_output(
+                neoflash_ui::components::ToastType::Error,
+                format!("Import failed: {error}"),
+            );
         }
     }
 
     pub(crate) fn import_to_library_dialog(&mut self) {
         if let Some(paths) = rfd::FileDialog::new()
-            .add_filter("Graphics & Interchange", IMPORT_GRAPHICS_EXTENSIONS)
+            .add_filter("Graphics, Audio & Libraries", IMPORT_GRAPHICS_EXTENSIONS)
             .pick_files()
             && let Err(error) = self.import_graphics_to_library_paths(&paths)
         {
-            self.message(format!("Library import failed: {error}"));
+            self.notify_with_output(
+                neoflash_ui::components::ToastType::Error,
+                format!("Library import failed: {error}"),
+            );
         }
     }
 
@@ -226,7 +233,10 @@ impl Editor {
             return;
         }
         if let Err(error) = self.import_graphics_paths(&paths, Some(point)) {
-            self.message(format!("Graphic import failed: {error}"));
+            self.notify_with_output(
+                neoflash_ui::components::ToastType::Error,
+                format!("Import failed: {error}"),
+            );
         }
     }
 
@@ -452,15 +462,168 @@ impl Editor {
             return Err("Import at most 64 graphics at once.".into());
         }
 
-        // Separate palette files from graphic/interchange files, validating all upfront.
+        // Partition SWC libraries, audio files, colour palettes, and graphic/interchange files.
+        let mut swc_paths = Vec::new();
+        let mut audio_paths = Vec::new();
         let mut palette_paths = Vec::new();
         let mut graphic_paths = Vec::new();
         for path in paths {
             let ext = path_ext_lower(path);
-            if is_palette_ext(&ext) {
+            if ext == "swc" {
+                swc_paths.push(path.clone());
+            } else if crate::resources::is_audio_import_path(path) {
+                audio_paths.push(path.clone());
+            } else if is_palette_ext(&ext) {
                 palette_paths.push(path.clone());
             } else {
                 graphic_paths.push(path.clone());
+            }
+        }
+
+        if !swc_paths.is_empty() {
+            let mut loaded_swcs = Vec::with_capacity(swc_paths.len());
+            for swc_path in &swc_paths {
+                let lib = neoflash_import::import_swc(swc_path)
+                    .map_err(|e| format!("{}: {e}", swc_path.display()))?;
+                loaded_swcs.push((swc_path.clone(), lib));
+            }
+            let mut candidate = self.project.clone();
+            let mut reports = Vec::with_capacity(loaded_swcs.len());
+            for (swc_path, lib) in &loaded_swcs {
+                let report = neoflash_import::link_swc_into_project(
+                    &mut candidate,
+                    lib,
+                    neoflash_import::SwcConflictPolicy::PreferNewer,
+                )
+                .map_err(|e| format!("{}: {e}", swc_path.display()))?;
+                reports.push((swc_path.clone(), lib.name.clone(), report));
+            }
+            candidate.upgrade_format_for_features();
+            candidate.validate().map_err(|e| e.to_string())?;
+            self.finish_edits();
+            self.transact_named("Link SWC", |editor| {
+                editor.project = candidate;
+            });
+            let mut total_symbols = 0usize;
+            let mut total_sources = 0usize;
+            let mut total_resources = 0usize;
+            for (swc_path, lib_name, report) in &reports {
+                total_symbols += report.linked_symbols;
+                total_sources += report.linked_sources;
+                total_resources += report.linked_resources;
+                let file_loc = crate::output_pipeline::OutputLocation::for_file(swc_path.clone());
+                self.push_output_coalesced(
+                    crate::output_pipeline::OutputEvent::new(
+                        crate::output_pipeline::OutputSeverity::Info,
+                        crate::output_pipeline::OutputSource::Import,
+                        format!(
+                            "Linked SWC '{lib_name}': {} symbol(s), {} source(s), {} resource(s), {} definition(s).",
+                            report.linked_symbols,
+                            report.linked_sources,
+                            report.linked_resources,
+                            report.linked_definitions.len()
+                        ),
+                    )
+                    .with_location(file_loc.clone()),
+                );
+                if !report.unresolved_dependencies.is_empty() {
+                    self.push_output_coalesced(
+                        crate::output_pipeline::OutputEvent::new(
+                            crate::output_pipeline::OutputSeverity::Warning,
+                            crate::output_pipeline::OutputSource::Import,
+                            format!(
+                                "SWC '{lib_name}' has {} unresolved external dependency(ies): {}",
+                                report.unresolved_dependencies.len(),
+                                report.unresolved_dependencies.join(", ")
+                            ),
+                        )
+                        .with_location(file_loc.clone()),
+                    );
+                }
+                for conflict in &report.conflicts {
+                    self.push_output_coalesced(
+                        crate::output_pipeline::OutputEvent::new(
+                            crate::output_pipeline::OutputSeverity::Warning,
+                            crate::output_pipeline::OutputSource::Import,
+                            format!(
+                                "SWC conflict on '{}': '{}' vs '{}' (selected '{}').",
+                                conflict.definition,
+                                conflict.existing_library,
+                                conflict.incoming_library,
+                                conflict.winner
+                            ),
+                        )
+                        .with_location(file_loc.clone()),
+                    );
+                }
+            }
+            self.show_panel(crate::workspace::PanelId::Library);
+            self.message(format!(
+                "Linked {} SWC library(ies) ({total_symbols} symbol(s), {total_sources} source(s), {total_resources} resource(s)).",
+                reports.len()
+            ));
+            if audio_paths.is_empty() && palette_paths.is_empty() && graphic_paths.is_empty() {
+                return Ok(());
+            }
+        }
+
+        if !audio_paths.is_empty() {
+            if audio_paths.len() + self.project.resources.len() > neoflash_core::MAX_RESOURCES {
+                return Err("The project supports at most 1024 resource files.".into());
+            }
+            let used: usize = self
+                .project
+                .resources
+                .iter()
+                .map(ResourceUnit::byte_len)
+                .sum();
+            let mut audio_remaining = MAX_RESOURCE_TOTAL_BYTES.saturating_sub(used);
+            let mut audio_units = Vec::with_capacity(audio_paths.len());
+            for audio_path in &audio_paths {
+                let unit = crate::resources::read_audio_resource(audio_path, audio_remaining)?;
+                audio_remaining = audio_remaining.saturating_sub(unit.byte_len());
+                audio_units.push((audio_path.clone(), unit));
+            }
+            let mut candidate = self.project.clone();
+            candidate.format_version = candidate.format_version.max(3);
+            for (_, unit) in &audio_units {
+                candidate.resources.push(unit.clone());
+            }
+            candidate.validate().map_err(|e| e.to_string())?;
+            let last_id = audio_units.last().map(|(_, u)| u.id.clone());
+            let can_attach = place_on_stage && self.layer_editable();
+            let units_only: Vec<ResourceUnit> =
+                audio_units.iter().map(|(_, u)| u.clone()).collect();
+            self.finish_edits();
+            self.transact_named("Import audio", |editor| {
+                editor.project.format_version = editor.project.format_version.max(3);
+                editor.project.resources.extend(units_only);
+                if can_attach && let Some(ref id) = last_id {
+                    editor.attach_frame_sound(Some(id.clone()));
+                }
+            });
+            for (src_path, unit) in &audio_units {
+                self.timeline_audio
+                    .source_paths
+                    .insert(unit.id.clone(), src_path.clone());
+            }
+            self.resource_panel.selected = last_id;
+            self.resource_panel.baseline = None;
+            if can_attach {
+                self.show_frame_sound();
+                self.message(format!(
+                    "Imported {} audio file(s) and attached sound to the active keyframe.",
+                    audio_units.len()
+                ));
+            } else {
+                self.show_panel(crate::workspace::PanelId::Library);
+                self.message(format!(
+                    "Imported {} audio file(s) into the Library.",
+                    audio_units.len()
+                ));
+            }
+            if palette_paths.is_empty() && graphic_paths.is_empty() {
+                return Ok(());
             }
         }
 
@@ -2364,6 +2527,285 @@ mod tests {
         editor.undo();
         editor.undo();
         assert_eq!(editor.project, initial);
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    fn build_stored_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        fn crc32(data: &[u8]) -> u32 {
+            let mut crc = 0xFFFF_FFFFu32;
+            for &b in data {
+                crc ^= u32::from(b);
+                for _ in 0..8 {
+                    let mask = (crc & 1).wrapping_neg();
+                    crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+                }
+            }
+            !crc
+        }
+
+        let mut out = Vec::new();
+        let mut central = Vec::new();
+        for &(name, data) in entries {
+            let offset = out.len() as u32;
+            let crc = crc32(data);
+            let len = data.len() as u32;
+            let name_bytes = name.as_bytes();
+            let name_len = name_bytes.len() as u16;
+
+            out.extend_from_slice(b"PK\x03\x04");
+            out.extend_from_slice(&20u16.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes()); // store
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&crc.to_le_bytes());
+            out.extend_from_slice(&len.to_le_bytes());
+            out.extend_from_slice(&len.to_le_bytes());
+            out.extend_from_slice(&name_len.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(name_bytes);
+            out.extend_from_slice(data);
+
+            central.extend_from_slice(b"PK\x01\x02");
+            central.extend_from_slice(&20u16.to_le_bytes());
+            central.extend_from_slice(&20u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&crc.to_le_bytes());
+            central.extend_from_slice(&len.to_le_bytes());
+            central.extend_from_slice(&len.to_le_bytes());
+            central.extend_from_slice(&name_len.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u32.to_le_bytes());
+            central.extend_from_slice(&offset.to_le_bytes());
+            central.extend_from_slice(name_bytes);
+        }
+        let cd_offset = out.len() as u32;
+        let cd_len = central.len() as u32;
+        let count = entries.len() as u16;
+        out.extend_from_slice(&central);
+        out.extend_from_slice(b"PK\x05\x06");
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&count.to_le_bytes());
+        out.extend_from_slice(&count.to_le_bytes());
+        out.extend_from_slice(&cd_len.to_le_bytes());
+        out.extend_from_slice(&cd_offset.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out
+    }
+
+    #[test]
+    fn t311_swc_linking_and_audio_import_reachability_undo_and_ffmpeg_diagnostics() {
+        assert!(crate::app::Editor::is_legacy_flash_path(
+            std::path::Path::new("ui_kit.swc")
+        ));
+        assert!(crate::app::Editor::is_legacy_flash_path(
+            std::path::Path::new("Hero.figma.json")
+        ));
+
+        let temp = std::env::temp_dir().join(format!(
+            "neoflash-editor-t311-swc-audio-{}-{}",
+            std::process::id(),
+            new_id("test")
+        ));
+        std::fs::create_dir_all(&temp).unwrap();
+
+        // 1. Build a genuine `.swc` library archive (`catalog.xml` + `library.swf` + `assets/badge.png`).
+        let mut swc_source_project = Project::blank();
+        let sym_id = "sym-badge-mc".to_owned();
+        let mut badge_sym = swc_source_project.symbols[0].clone();
+        badge_sym.id = sym_id;
+        badge_sym.name = "BadgeClip".into();
+        badge_sym.class_name = Some("com.example.BadgeClip".into());
+        badge_sym.timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "badge-rect".into(),
+                name: "Rect".into(),
+                transform: Transform::default(),
+                kind: ElementKind::Rectangle {
+                    width: 32.0,
+                    height: 32.0,
+                    fill: [40, 160, 240, 255],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            });
+        swc_source_project.symbols.push(badge_sym);
+        let lib_swf_path = temp.join("library.swf");
+        neoflash_export::publish_swf_to_path(
+            &swc_source_project,
+            &lib_swf_path,
+            &neoflash_export::SwfPublishOptions {
+                profile: neoflash_export::SwfPublishProfile::FlashPlayer10Avm2,
+                scriptless_mode: true,
+                ..neoflash_export::SwfPublishOptions::default()
+            },
+        )
+        .expect("build library.swf for SWC fixture");
+        let lib_swf_bytes = std::fs::read(&lib_swf_path).unwrap();
+        let badge_png = make_png_bytes(4, 4, [40, 160, 240, 255]);
+        let catalog_xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<swc xmlns="http://www.adobe.com/flash/swccatalog/9">
+  <versions><swc version="1.2"/></versions>
+  <features><feature-script-deps/><feature-files/></features>
+  <libraries>
+    <library path="library.swf">
+      <script name="com/example/BadgeClip" mod="1700000100">
+        <def id="com.example:BadgeClip"/>
+        <dep id="flash.display:MovieClip" type="i"/>
+      </script>
+    </library>
+  </libraries>
+  <files>
+    <file path="assets/badge.png" mod="1700000100"/>
+  </files>
+</swc>"#;
+        let swc_path = temp.join("badge_kit.swc");
+        let swc_bytes = build_stored_zip(&[
+            ("catalog.xml", catalog_xml.as_bytes()),
+            ("library.swf", &lib_swf_bytes),
+            ("assets/badge.png", &badge_png),
+        ]);
+        std::fs::write(&swc_path, &swc_bytes).unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.history.clear();
+        let initial = editor.project.clone();
+
+        editor
+            .import_graphics_to_library_paths(std::slice::from_ref(&swc_path))
+            .expect("link SWC into active project via Import to Library");
+        assert_eq!(editor.undo_menu_label(), "Undo Link SWC");
+        assert!(
+            editor
+                .project
+                .sources
+                .iter()
+                .any(|s| s.path.ends_with("com/example/BadgeClip.as"))
+        );
+        assert!(
+            editor
+                .project
+                .resources
+                .iter()
+                .any(|r| r.path.contains("badge.png") && r.media_type == "image/png")
+        );
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, initial);
+
+        // 2. Build a minimal 16-bit PCM mono WAV and test Stage + Library import + single Undo.
+        let wav_path = temp.join("click.wav");
+        let pcm_samples: [i16; 8] = [0, 4096, 8192, 4096, 0, -4096, -8192, -4096];
+        let data_len = (pcm_samples.len() * 2) as u32;
+        let mut wav_bytes = Vec::new();
+        wav_bytes.extend_from_slice(b"RIFF");
+        wav_bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        wav_bytes.extend_from_slice(b"WAVEfmt ");
+        wav_bytes.extend_from_slice(&16u32.to_le_bytes());
+        wav_bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav_bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
+        wav_bytes.extend_from_slice(&44100u32.to_le_bytes());
+        wav_bytes.extend_from_slice(&88200u32.to_le_bytes());
+        wav_bytes.extend_from_slice(&2u16.to_le_bytes());
+        wav_bytes.extend_from_slice(&16u16.to_le_bytes());
+        wav_bytes.extend_from_slice(b"data");
+        wav_bytes.extend_from_slice(&data_len.to_le_bytes());
+        for sample in pcm_samples {
+            wav_bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+        std::fs::write(&wav_path, &wav_bytes).unwrap();
+
+        editor
+            .import_graphics_paths(std::slice::from_ref(&wav_path), Some([120.0, 80.0]))
+            .expect("import WAV to Stage attaches frame sound");
+        assert_eq!(editor.undo_menu_label(), "Undo Import audio");
+        assert!(
+            editor
+                .project
+                .resources
+                .iter()
+                .any(|r| r.path == "click.wav" && r.media_type == "audio/wav")
+        );
+        assert!(
+            editor.symbol().timeline.layers[0].keyframes[0]
+                .sound
+                .is_some(),
+            "importing audio to Stage on an editable layer must attach FrameSound"
+        );
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, initial);
+
+        editor
+            .import_graphics_to_library_paths(std::slice::from_ref(&wav_path))
+            .expect("import WAV to Library");
+        assert!(
+            editor
+                .project
+                .resources
+                .iter()
+                .any(|r| r.path == "click.wav" && r.media_type == "audio/wav")
+        );
+        assert!(
+            editor.symbol().timeline.layers[0].keyframes[0]
+                .sound
+                .is_none(),
+            "importing audio to Library must not attach FrameSound to Stage"
+        );
+        editor.undo();
+        assert_eq!(editor.project, initial);
+
+        // 3. `.ogg` without FFmpeg returns an actionable diagnostic and NEVER `application/octet-stream`.
+        let ogg_path = temp.join("music.ogg");
+        std::fs::write(&ogg_path, b"OggS\x00\x02dummy").unwrap();
+        let no_ffmpeg_err = crate::resources::read_audio_resource_with_ffmpeg(
+            &ogg_path,
+            neoflash_core::MAX_RESOURCE_BYTES,
+            None,
+        )
+        .expect_err("missing FFmpeg must fail cleanly on .ogg");
+        assert!(
+            no_ffmpeg_err.contains("FFmpeg"),
+            "expected actionable FFmpeg message, got: {no_ffmpeg_err}"
+        );
+
+        // If FFmpeg is available locally, verify real `.flac` -> 16-bit PCM WAV transcode.
+        if let Some(ffmpeg) = neoflash_export::detect_ffmpeg() {
+            let flac_path = temp.join("tone.flac");
+            let mut cmd = std::process::Command::new(&ffmpeg);
+            neoflash_export::configure_media_subprocess_command(&mut cmd, &ffmpeg);
+            let status = cmd
+                .args(["-y", "-hide_banner", "-loglevel", "error", "-i"])
+                .arg(&wav_path)
+                .arg(&flac_path)
+                .status();
+            if status.is_ok_and(|s| s.success()) && flac_path.is_file() {
+                editor
+                    .import_graphics_to_library_paths(std::slice::from_ref(&flac_path))
+                    .expect("transcode .flac to 16-bit PCM WAV via FFmpeg");
+                let unit = editor
+                    .project
+                    .resources
+                    .iter()
+                    .find(|r| r.path == "tone.wav")
+                    .expect("transcoded tone.wav resource");
+                assert_eq!(unit.media_type, "audio/wav");
+                let decoded = unit.decoded_bytes().unwrap();
+                assert!(decoded.starts_with(b"RIFF") && &decoded[8..12] == b"WAVE");
+                editor.undo();
+            }
+        }
 
         let _ = std::fs::remove_dir_all(&temp);
     }

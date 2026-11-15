@@ -1169,11 +1169,10 @@ impl Editor {
                                     }
 
                                     let mut fmt_img_idx = match draft.options.image_format {
-                                        LottieImageFormat::Original | LottieImageFormat::Webp => {
-                                            0usize
-                                        }
+                                        LottieImageFormat::Original => 0usize,
                                         LottieImageFormat::Png => 1usize,
                                         LottieImageFormat::Jpeg => 2usize,
+                                        LottieImageFormat::Webp => 3usize,
                                     };
                                     if select_index(
                                         ui,
@@ -1183,12 +1182,14 @@ impl Editor {
                                             "Image format: Original",
                                             "Image format: PNG",
                                             "Image format: JPEG",
+                                            "Image format: WebP",
                                         ],
                                         196.0,
                                     ) {
                                         draft.options.image_format = match fmt_img_idx {
                                             1 => LottieImageFormat::Png,
                                             2 => LottieImageFormat::Jpeg,
+                                            3 => LottieImageFormat::Webp,
                                             _ => LottieImageFormat::Original,
                                         };
                                         draft.dirty = true;
@@ -1506,6 +1507,79 @@ mod tests {
             .clone();
         editor.jump_to_lottie_note(&script_note);
         assert_eq!(editor.frame, 4);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn t311_lottie_webp_image_format_export_succeeds() {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        let mut png_bytes = Vec::new();
+        {
+            use image::ImageEncoder as _;
+            image::codecs::png::PngEncoder::new(&mut png_bytes)
+                .write_image(
+                    &[
+                        255, 40, 80, 255, 40, 200, 120, 255, 40, 80, 255, 255, 255, 220, 40, 255,
+                    ],
+                    2,
+                    2,
+                    image::ExtendedColorType::Rgba8,
+                )
+                .unwrap();
+        }
+        project.resources.push(
+            ResourceUnit::from_bytes("bmp-1", "sprite.png", "image/png", &png_bytes).unwrap(),
+        );
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "bmp-el".into(),
+                name: "Sprite".into(),
+                transform: Transform::default(),
+                kind: ElementKind::Bitmap {
+                    resource_id: "bmp-1".into(),
+                    width: 2,
+                    height: 2,
+                    smoothing: true,
+                },
+                ..Element::default()
+            });
+        project.format_version = 3;
+        project.validate().unwrap();
+
+        let mut editor = Editor::from_project(&ctx, project);
+        let dir = std::env::temp_dir().join(format!(
+            "neoflash-editor-lottie-webp-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("sprite.json");
+
+        let _report = editor
+            .export_lottie_with_options_to_path(
+                &out,
+                &LottieOptions {
+                    format: LottieFormat::Json,
+                    image_mode: LottieImageMode::Folder,
+                    image_format: LottieImageFormat::Webp,
+                    ..LottieOptions::default()
+                },
+            )
+            .expect("export Lottie JSON + external WebP image folder");
+        assert!(out.is_file());
+        let images_dir = dir.join("images");
+        let webp_files: Vec<_> = std::fs::read_dir(&images_dir)
+            .expect("images folder created")
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("webp"))
+            .collect();
+        assert_eq!(webp_files.len(), 1, "expected exported .webp bitmap asset");
+        let webp_bytes = std::fs::read(&webp_files[0]).unwrap();
+        assert!(webp_bytes.starts_with(b"RIFF") && &webp_bytes[8..12] == b"WEBP");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

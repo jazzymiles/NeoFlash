@@ -843,4 +843,30 @@ fn subprocess_import_and_export_roundtrips_figma_interchange_dom_and_lottie() {
             reval.stderr
         );
     }
+
+    // Verify capabilities contract includes dotlottie, --html-preview, and batch script_language fields.
+    let caps_res = run_bin(&["--headless", "capabilities"], &[], None);
+    assert_eq!(caps_res.code, 0, "stderr: {}", caps_res.stderr);
+    let caps_json = caps_res.parse_stdout_json();
+    assert!(
+        caps_json["export_targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t == "dotlottie")
+    );
+    assert!(
+        caps_json["batch_schema"]["operations"]["new"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == "script_language?")
+    );
+    assert!(
+        caps_json["batch_schema"]["operations"]["set_project"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == "script_language?")
+    );
 }

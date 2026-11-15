@@ -103,6 +103,12 @@ pub(crate) fn function_search_results(query: &str) -> Vec<CommandId> {
     results.into_iter().map(|(_, _, command)| command).collect()
 }
 
+#[cfg(test)]
+pub(crate) fn is_open(ctx: &egui::Context) -> bool {
+    function_search_state(ctx).open
+}
+
+#[cfg(test)]
 pub(crate) fn results_for_context(
     query: &str,
     has_document: bool,
@@ -114,11 +120,57 @@ pub(crate) fn results_for_context(
             if matches!(command, CommandId::EditSendToAi) && !has_ready_ai {
                 return false;
             }
+            if matches!(command, CommandId::HelpSendBetaFeedback)
+                && !crate::panels::beta_feedback::is_beta_build()
+            {
+                return false;
+            }
+            if matches!(command, CommandId::HelpSearchFunctions) {
+                return false;
+            }
             has_document
                 || matches!(
                     command,
-                    CommandId::FileNew | CommandId::FileOpen | CommandId::EditPreferences
+                    CommandId::FileNew
+                        | CommandId::FileOpen
+                        | CommandId::FileImportLegacyFlash
+                        | CommandId::EditPreferences
+                        | CommandId::EditKeyboardShortcuts
                 )
+                || matches!(
+                    command.category(),
+                    crate::commands::CommandCategory::Window
+                        | crate::commands::CommandCategory::Help
+                )
+        })
+        .collect()
+}
+
+pub(crate) fn results_for_editor(
+    editor: &Editor,
+    ctx: Option<&egui::Context>,
+    query: &str,
+) -> Vec<CommandId> {
+    let has_doc = editor.has_document();
+    let has_ready_ai = editor.has_ready_ai_connection();
+    function_search_results(query)
+        .into_iter()
+        .filter(|&command| {
+            if matches!(command, CommandId::HelpSearchFunctions) {
+                return false;
+            }
+            if matches!(command, CommandId::EditSendToAi) && !has_ready_ai {
+                return false;
+            }
+            if has_doc {
+                if matches!(command, CommandId::HelpSendBetaFeedback) {
+                    crate::panels::beta_feedback::is_beta_build()
+                } else {
+                    true
+                }
+            } else {
+                editor.command_menu_state(ctx, command).enabled
+            }
         })
         .collect()
 }
@@ -175,8 +227,6 @@ impl Editor {
             content.top() + neoflash_ui::metrics::top_bar() + space::S1,
         );
         let width = (content.width() - space::S5 * 2.0).clamp(1.0, 560.0);
-        let has_document = self.has_document();
-        let has_ready_ai = self.has_ready_ai_connection();
         let mut activated = None;
         let mut open_manual = false;
 
@@ -205,7 +255,7 @@ impl Editor {
                     }
                     ui.add_space(space::S1);
 
-                    let results = results_for_context(&state.query, has_document, has_ready_ai);
+                    let results = results_for_editor(self, Some(ctx), &state.query);
                     let visible = results.len().min(MAX_VISIBLE_RESULTS);
                     if visible == 0 {
                         state.active = 0;
@@ -278,7 +328,7 @@ impl Editor {
                 });
             });
 
-        let results = results_for_context(&state.query, has_document, has_ready_ai);
+        let results = results_for_editor(self, Some(ctx), &state.query);
         let visible = results.len().min(MAX_VISIBLE_RESULTS);
         let mut close = false;
         if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) {

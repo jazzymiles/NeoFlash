@@ -846,3 +846,100 @@ fn successful_send_delivers_strict_multipart_payload_clears_draft_closes_and_sho
         "Hidden version metadata must never be transmitted"
     );
 }
+
+#[test]
+fn t311_closing_modal_during_in_flight_send_completes_cleanly_and_help_command_is_beta_gated() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let addr = listener.local_addr().unwrap();
+    let release_gate = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let server_gate = std::sync::Arc::clone(&release_gate);
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept feedback request");
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+        let mut buf = [0u8; 4096];
+        let _ = std::io::Read::read(&mut stream, &mut buf);
+        server_gate.wait();
+        let body = r#"{"success":"true"}"#;
+        let reply = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let _ = std::io::Write::write_all(&mut stream, reply.as_bytes());
+    });
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    {
+        let _guard = BetaFlagGuard::set(Some(true));
+        editor.sessions.clear();
+        assert!(
+            editor
+                .command_menu_state(Some(&ctx), crate::commands::CommandId::HelpSendBetaFeedback)
+                .enabled,
+            "HelpSendBetaFeedback must be enabled even with 0 open documents in beta builds"
+        );
+
+        editor.beta_feedback.endpoint_override =
+            Some(format!("http://{addr}/ajax/developer@redinger.cc"));
+        editor.execute_menu_command(&ctx, crate::commands::CommandId::HelpSendBetaFeedback);
+        assert!(editor.beta_feedback.open);
+        editor.beta_feedback.text = "Background send survives Cancel.".into();
+        editor.beta_feedback.attach_bytes("shot.png", &valid_png());
+
+        let mut t = 0.02;
+        run_editor_frame(&mut editor, &ctx, t, Vec::new(), Vec::new());
+        t += 0.02;
+        run_editor_frame(
+            &mut editor,
+            &ctx,
+            t,
+            vec![Event::Key {
+                key: Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::COMMAND,
+            }],
+            Vec::new(),
+        );
+        assert!(editor.beta_feedback.is_sending());
+
+        // Close modal while worker is still in flight; `in_flight` must NOT be orphaned.
+        editor.close_beta_feedback();
+        assert!(!editor.beta_feedback.open);
+        assert!(editor.beta_feedback.is_sending());
+
+        release_gate.wait();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            t += 0.02;
+            run_editor_frame(&mut editor, &ctx, t, Vec::new(), Vec::new());
+            if !editor.beta_feedback.is_sending() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        server.join().unwrap();
+
+        assert!(editor.beta_feedback.text.is_empty());
+        assert!(editor.beta_feedback.attachments.is_empty());
+        assert!(
+            editor
+                .notifications
+                .visible_toasts()
+                .iter()
+                .any(|(kind, msg)| *kind == c::ToastType::Success && msg == "Feedback sent"),
+            "closing Beta feedback while sending must still emit 'Feedback sent' and clear draft"
+        );
+    }
+
+    {
+        let _guard = BetaFlagGuard::set(Some(false));
+        assert!(
+            !editor
+                .command_menu_state(Some(&ctx), crate::commands::CommandId::HelpSendBetaFeedback)
+                .enabled,
+            "HelpSendBetaFeedback must be disabled in non-beta builds"
+        );
+    }
+}

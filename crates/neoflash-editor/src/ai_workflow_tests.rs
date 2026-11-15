@@ -1744,3 +1744,142 @@ fn t305_document_sessions_isolate_ai_dialogs_proposals_and_cancel_on_tab_close()
     assert_eq!(editor.session_count(), 2);
     assert!(!editor.ai_session.has_open_modal());
 }
+
+#[test]
+fn t311_ai_proposal_language_resolution_secret_error_surfacing_and_custom_redaction() {
+    #[derive(Default)]
+    struct TestStorage(std::collections::BTreeMap<String, String>);
+    impl eframe::Storage for TestStorage {
+        fn get_string(&self, key: &str) -> Option<String> {
+            self.0.get(key).cloned()
+        }
+        fn set_string(&mut self, key: &str, value: String) {
+            self.0.insert(key.to_owned(), value);
+        }
+        fn flush(&mut self) {}
+    }
+
+    let ctx = egui::Context::default();
+
+    // 1. Generic ````actionscript` (`ActionScript3`) proposal in an AS2 project creates compiled AS2 Frame & Object scripts.
+    let mut as2_project = Project::demo();
+    as2_project.script_language = Some(ScriptLanguage::ActionScript2);
+    as2_project.symbols[0].timeline.scripts.clear();
+    let mut editor = Editor::from_project(&ctx, as2_project);
+    editor.script_target = crate::app::ScriptTarget::Frame;
+    editor.frame = 0;
+    assert!(editor.apply_ai_code_proposal(&ctx, ScriptLanguage::ActionScript3, "stop();\n"));
+    assert_eq!(
+        editor.symbol().timeline.scripts[0].script.language,
+        ScriptLanguage::ActionScript2,
+        "new Frame script from generic AS fence must use effective_script_language()"
+    );
+
+    // Add an editable element on Frame 1 and target `ScriptTarget::Object`.
+    let elem_id = "elem-btn-t311".to_owned();
+    let layer_id = editor.symbol().timeline.layers[0].id.clone();
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: elem_id.clone(),
+            name: "playBtn".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Rectangle {
+                width: 80.0,
+                height: 32.0,
+                fill: [40, 120, 220, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+    editor.set_selection(vec![crate::selection::SelectionTarget {
+        layer: layer_id,
+        element: elem_id.clone(),
+    }]);
+    editor.script_target = crate::app::ScriptTarget::Object;
+    assert!(editor.apply_ai_code_proposal(
+        &ctx,
+        ScriptLanguage::ActionScript3,
+        "gotoAndPlay(2);\n"
+    ));
+    let elem = editor.symbol().timeline.layers[0].keyframes[0]
+        .elements
+        .iter()
+        .find(|e| e.id == elem_id)
+        .unwrap();
+    assert_eq!(elem.scripts.len(), 1);
+    assert_eq!(
+        elem.scripts[0].script.language,
+        ScriptLanguage::ActionScript2
+    );
+
+    // 2. Custom non-prefixed token redaction + `set_secret` failure surfacing + Workspace persistence.
+    let custom_secret = "custom_gateway_secret_t311_xyz987";
+    crate::ai_connections::register_redacted_secret(custom_secret);
+    let scrubbed = crate::ai_connections::redact_sensitive_tokens(&format!(
+        "upstream rejected token {custom_secret} on port 443"
+    ));
+    assert!(!scrubbed.contains(custom_secret));
+    assert!(scrubbed.contains("[REDACTED_SECRET]"));
+
+    // Read-only `EnvSecretStore` fails `set_secret` -> modal stays open with redacted error + toast.
+    editor.ai_manager = crate::ai_connections::AiConnectionManager::new(std::sync::Arc::new(
+        crate::ai_connections::EnvSecretStore::default(),
+    ));
+    let mut failing_modal =
+        AiConnectionModal::new_add(&editor.workspace.ai, AiConnectionModalTarget::Workspace);
+    failing_modal.display_name = "Env ReadOnly".into();
+    failing_modal.kind = AiProviderKind::OpenAi;
+    failing_modal.base_url = "https://api.openai.com".into();
+    failing_modal.default_model = "gpt-test".into();
+    failing_modal.api_key_input = custom_secret.into();
+    editor.save_ai_connection_modal(failing_modal);
+    assert!(
+        editor.ai_connection_modal.is_some(),
+        "modal must remain open when SecretStore::set_secret fails"
+    );
+    let err_msg = editor
+        .ai_connection_modal
+        .as_ref()
+        .unwrap()
+        .test_outcome
+        .as_ref()
+        .expect("error outcome recorded")
+        .as_ref()
+        .expect_err("expected error");
+    assert!(!err_msg.contains(custom_secret));
+    assert_eq!(editor.status, *err_msg);
+
+    // Dismissing the modal and running `notification_host` promotes the queued Error toast.
+    editor.ai_connection_modal = None;
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        editor.notification_host(ctx, None);
+    });
+    assert!(
+        editor
+            .notifications
+            .visible_toasts()
+            .iter()
+            .any(|(kind, _)| *kind == neoflash_ui::components::ToastType::Error)
+    );
+
+    // Succeeding `Workspace` modal save requests workspace persistence and flushes to storage.
+    editor.ai_manager = crate::ai_connections::AiConnectionManager::in_memory();
+    let mut ws_modal =
+        AiConnectionModal::new_add(&editor.workspace.ai, AiConnectionModalTarget::Workspace);
+    ws_modal.display_name = "Local Ollama".into();
+    ws_modal.kind = AiProviderKind::LocalOpenAiCompatible;
+    ws_modal.base_url = "http://127.0.0.1:11434".into();
+    ws_modal.default_model = "qwen2.5-coder".into();
+    editor.save_ai_connection_modal(ws_modal);
+    assert!(editor.persist_workspace_requested);
+    let mut storage = TestStorage::default();
+    editor.flush_workspace_to_storage(&mut storage);
+    assert!(!editor.persist_workspace_requested);
+    let saved_json = storage
+        .0
+        .get(crate::workspace::PREFS_KEY)
+        .expect("workspace prefs saved");
+    assert!(saved_json.contains("Local Ollama"));
+}

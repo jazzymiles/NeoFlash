@@ -229,6 +229,7 @@ pub struct Editor {
     pub(crate) ai_manager: crate::ai_connections::AiConnectionManager,
     pub(crate) ai_connection_modal: Option<crate::panels::ai_dialogs::AiConnectionModal>,
     pub(crate) ai_session: crate::panels::ai_dialogs::AiDocumentSession,
+    pub(crate) persist_workspace_requested: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -644,11 +645,12 @@ impl Editor {
             ai_connection_modal: None,
             ai_session: Default::default(),
             beta_feedback: Default::default(),
+            persist_workspace_requested: false,
         };
-        if s.project.html_render_mode() == neoflash_core::HtmlRenderMode::Dom {
-            s.workspace.publish.render_mode = neoflash_core::HtmlRenderMode::Dom;
-            s.workspace.publish.profile = crate::workspace::PublishProfilePreset::WebAppDom;
-        }
+        crate::panels::publish_settings::sync_publish_profile_with_render_mode(
+            &mut s.workspace.publish,
+            s.project.html_render_mode(),
+        );
         s.sync_output_document_id();
         s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);
@@ -1323,7 +1325,7 @@ impl Editor {
                         "Flash source or movie",
                         &["fla", "xfl", "xml", "swf", "swc"],
                     )
-                    .add_filter("Figma design", &["fig", "figma"])
+                    .add_filter("Figma design", &["fig", "figma", "json"])
                     .pick_file()
                 {
                     self.open_path(path, ctx)
@@ -1352,7 +1354,7 @@ impl Editor {
             .is_some_and(|ext| {
                 matches!(
                     ext.to_ascii_lowercase().as_str(),
-                    "fla" | "xfl" | "swf" | "xml" | "fig" | "figma"
+                    "fla" | "xfl" | "swf" | "swc" | "xml" | "fig" | "figma"
                 )
             })
         {
@@ -1789,8 +1791,12 @@ impl Editor {
         }
         let result: Result<Option<neoflash_export::FlaCompatibilityReport>, String> =
             if let Some(profile) = fla_profile {
+                let resolved_fla_project = derived_project
+                    .as_ref()
+                    .unwrap_or(&self.project)
+                    .with_resolved_script_language();
                 neoflash_export::export_fla_with_profile(
-                    derived_project.as_ref().unwrap_or(&self.project),
+                    resolved_fla_project.as_ref(),
                     profile,
                     &self.workspace.publish.fla_export_options,
                     &path,
@@ -1891,10 +1897,33 @@ impl Editor {
         }
     }
     pub fn runtime_dir() -> PathBuf {
+        let exe = std::env::current_exe().ok();
+        let development_dir = exe
+            .as_deref()
+            .and_then(|path| {
+                path.ancestors().find_map(|ancestor| {
+                    let candidate = ancestor.join("target/web-runtime");
+                    if candidate.is_dir() || ancestor.join("web").is_dir() {
+                        Some(candidate)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or_else(|| {
+                #[cfg(debug_assertions)]
+                {
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime")
+                }
+                #[cfg(not(debug_assertions))]
+                {
+                    PathBuf::from("target/web-runtime")
+                }
+            });
         Self::runtime_dir_for(
             std::env::var_os("NEOFLASH_RUNTIME_DIR").map(PathBuf::from),
-            std::env::current_exe().ok().as_deref(),
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime"),
+            exe.as_deref(),
+            development_dir,
         )
     }
     pub(crate) fn runtime_dir_for(
@@ -1982,7 +2011,8 @@ impl Editor {
         use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
 
         self.finish_edits();
-        let resolved_project = self.project.with_resolved_script_language().into_owned();
+        let mut resolved_project = self.project.with_resolved_script_language().into_owned();
+        resolved_project.set_html_render_mode(settings.render_mode);
         if settings.profile == crate::workspace::PublishProfilePreset::WebBannerNative {
             if let Err(err) = std::fs::create_dir_all(output) {
                 let _ = self.message_event(
@@ -2092,7 +2122,8 @@ impl Editor {
         use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
 
         self.finish_edits();
-        let resolved_project = self.project.with_resolved_script_language().into_owned();
+        let mut resolved_project = self.project.with_resolved_script_language().into_owned();
+        resolved_project.set_html_render_mode(settings.render_mode);
         let options = match settings.export_options(&resolved_project) {
             Ok(options) => options,
             Err(error) => {
@@ -2756,15 +2787,50 @@ impl Editor {
         if !self.has_document() {
             return false;
         }
+        let default_profile = match self
+            .project
+            .with_resolved_script_language()
+            .effective_script_language()
+        {
+            ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
+                neoflash_export::SwfPublishProfile::FlashPlayer8Avm1
+            }
+            ScriptLanguage::ActionScript3
+            | ScriptLanguage::JavaScript
+            | ScriptLanguage::TypeScript => neoflash_export::SwfPublishProfile::FlashPlayer10Avm2,
+        };
+        self.export_swf_profile_dialog(default_profile, false, dest)
+    }
+
+    /// Export the active project to an explicit Flash Player `.swf` target profile (`T-311`).
+    pub fn export_swf_profile_dialog(
+        &mut self,
+        profile: neoflash_export::SwfPublishProfile,
+        scriptless_mode: bool,
+        dest: Option<PathBuf>,
+    ) -> bool {
+        if !self.has_document() {
+            return false;
+        }
         self.finish_edits();
         let default_name = format!(
             "{}.swf",
             self.project.name.trim().replace(['/', '\\', ':'], "_")
         );
+        let profile_label = match profile {
+            neoflash_export::SwfPublishProfile::FlashPlayer8Avm1 => "Flash Player 8, AVM1",
+            neoflash_export::SwfPublishProfile::FlashPlayer9Avm2 => "Flash Player 9, AVM2",
+            neoflash_export::SwfPublishProfile::FlashPlayer10Avm2 => "Flash Player 10, AVM2",
+        };
+        let title = if scriptless_mode {
+            format!("Export SWF ({profile_label}, Visuals Only)")
+        } else {
+            format!("Export Flash Movie ({profile_label})")
+        };
         let swf_path = if let Some(path) = dest {
             path
         } else if let Some(file) = rfd::FileDialog::new()
-            .set_title("Export Flash Movie (.swf)")
+            .set_title(&title)
             .add_filter("SWF Movie", &["swf"])
             .set_file_name(&default_name)
             .save_file()
@@ -2778,6 +2844,8 @@ impl Editor {
         // rich/input text that cannot be outlined faithfully still blocks in
         // compatibility preflight instead of disappearing from the movie.
         let opts = neoflash_export::SwfPublishOptions {
+            profile,
+            scriptless_mode,
             outline_text: true,
             ..neoflash_export::SwfPublishOptions::default()
         };
@@ -3137,14 +3205,15 @@ impl Editor {
             return;
         }
         if !self.has_document() {
-            if self.take_command_shortcut(ctx, C::FileNew) {
-                self.request(Pending::New, ctx);
-            }
-            if self.take_command_shortcut(ctx, C::FileOpen) {
-                self.request(Pending::Open, ctx);
-            }
-            if self.take_command_shortcut(ctx, C::EditPreferences) {
-                self.open_preferences(crate::panels::preferences::PAGE_GENERAL);
+            for &cmd in C::ALL {
+                if self.command_menu_state(Some(ctx), cmd).enabled
+                    && self.take_command_shortcut(ctx, cmd)
+                {
+                    let _ = self.execute_menu_command(ctx, cmd);
+                    if self.has_document() {
+                        break;
+                    }
+                }
             }
             crate::commands::clear_queued_commands(ctx);
             return;
@@ -3758,19 +3827,29 @@ impl Editor {
             self.remove_all_shape_hints();
         }
 
+        for cmd in [
+            C::FileExportSwfFp8,
+            C::FileExportSwfFp9,
+            C::FileExportSwfFp10,
+            C::FileExportSwfFp10Scriptless,
+            C::HelpSearchFunctions,
+            C::HelpManual,
+            C::HelpScriptingReference,
+            C::HelpOpenExample,
+            C::HelpCheckForUpdates,
+            C::HelpSendBetaFeedback,
+            C::HelpAbout,
+        ] {
+            if self.command_menu_state(Some(ctx), cmd).enabled
+                && self.take_command_shortcut(ctx, cmd)
+            {
+                let _ = self.execute_menu_command(ctx, cmd);
+            }
+        }
+
         // Unavailable items: consume only after active registry commands have had a chance to run,
         // so a user can rebind an active command onto F4 / ⌥⌘K / etc. if desired.
-        let (cmd, shift, alt, none) = (
-            Modifiers::COMMAND,
-            Modifiers::SHIFT,
-            Modifiers::ALT,
-            Modifiers::NONE,
-        );
-        if ctx.input_mut(|input| input.consume_key(none, Key::F1)) {
-            // Help search is an immediate command palette; Preferences remains the separate place
-            // for reviewing and changing shortcuts.
-            self.open_function_search(ctx);
-        }
+        let (cmd, shift, alt) = (Modifiers::COMMAND, Modifiers::SHIFT, Modifiers::ALT);
         for (m, key) in [(cmd, Key::P), (cmd | shift, Key::W), (alt | cmd, Key::K)] {
             ctx.input_mut(|i| {
                 let held = i.modifiers;
@@ -4164,6 +4243,21 @@ impl Editor {
     }
 }
 
+impl Editor {
+    pub(crate) fn request_workspace_persist(&mut self) {
+        self.workspace.sanitize();
+        self.persist_workspace_requested = true;
+    }
+
+    pub(crate) fn flush_workspace_to_storage(&mut self, storage: &mut dyn eframe::Storage) {
+        self.sync_session_tabs_to_prefs();
+        self.workspace.active_bottom = self.bottom;
+        self.workspace.save(storage);
+        storage.flush();
+        self.persist_workspace_requested = false;
+    }
+}
+
 impl eframe::App for Editor {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.tablet_input.append_events(ctx, raw);
@@ -4173,6 +4267,7 @@ impl eframe::App for Editor {
         self.sync_session_tabs_to_prefs();
         self.workspace.active_bottom = self.bottom;
         self.workspace.save(storage);
+        self.persist_workspace_requested = false;
     }
 
     fn persist_egui_memory(&self) -> bool {
@@ -4195,7 +4290,7 @@ impl eframe::App for Editor {
         }
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.apply_density(ctx);
         self.poll_debugger(ctx);
         self.poll_updater(ctx, true);
@@ -4274,6 +4369,13 @@ impl eframe::App for Editor {
         crate::native_windows::configure_panels();
         let win_state = crate::macos_menu::sync(self, ctx);
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(win_state.title));
+        if self.persist_workspace_requested {
+            if let Some(storage) = frame.storage_mut() {
+                self.flush_workspace_to_storage(storage);
+            } else {
+                self.persist_workspace_requested = false;
+            }
+        }
         crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
         crate::shell::capture(ctx, ctx.cumulative_pass_nr());
     }

@@ -359,26 +359,56 @@ impl Editor {
                             self.window_menu(ui, ctx);
                         });
                         menu_popup(ui, "Help", "Scripting Reference…", "F1", |ui| {
-                            let search = menu_item(ui, "Search functions…", "F1");
+                            use crate::commands::CommandId as C;
+                            let search = menu_item(
+                                ui,
+                                "Search functions…",
+                                &self.sc(C::HelpSearchFunctions),
+                            );
                             if search.clicked() {
                                 self.open_function_search_at(ctx, Some(search.rect));
                                 ui.close();
                             }
-                            if menu_item(ui, "Help", "").clicked() {
+                            if menu_item(ui, "Help", &self.sc(C::HelpManual)).clicked() {
                                 self.open_help_manual(ctx);
                                 ui.close();
                             }
-                            if menu_item(ui, "Scripting Reference…", "").clicked() {
+                            if menu_item(
+                                ui,
+                                "Scripting Reference…",
+                                &self.sc(C::HelpScriptingReference),
+                            )
+                            .clicked()
+                            {
                                 self.open_scripting_reference(ctx);
                                 ui.close();
                             }
                             nf::menu_separator(ui);
-                            if menu_item(ui, "Open example", "").clicked() {
+                            if menu_item(ui, "Open example", &self.sc(C::HelpOpenExample)).clicked()
+                            {
                                 self.request(Pending::Demo, ctx);
                                 ui.close();
                             }
                             nf::menu_separator(ui);
-                            if menu_item(ui, "About NeoFlash", "").clicked() {
+                            if menu_item(ui, "Check for Updates…", &self.sc(C::HelpCheckForUpdates))
+                                .clicked()
+                            {
+                                let _ = self.execute_menu_command(ctx, C::HelpCheckForUpdates);
+                                ui.close();
+                            }
+                            if crate::panels::beta_feedback::is_beta_build()
+                                && menu_item(
+                                    ui,
+                                    "Send Beta Feedback…",
+                                    &self.sc(C::HelpSendBetaFeedback),
+                                )
+                                .clicked()
+                            {
+                                self.open_beta_feedback();
+                                ui.close();
+                            }
+                            nf::menu_separator(ui);
+                            if menu_item(ui, "About NeoFlash", &self.sc(C::HelpAbout)).clicked() {
                                 self.show_about = true;
                                 ui.close();
                             }
@@ -469,44 +499,66 @@ impl Editor {
                 self.request_revert();
                 ui.close();
             }
-            nf::menu_separator(ui);
-            menu_popup(ui, "Import", "Import graphics to Stage…", "", |ui| {
+        });
+        nf::menu_separator(ui);
+        menu_popup(
+            ui,
+            "Import",
+            "Open… (Legacy FLA / XFL / SWF)",
+            &self.sc(C::FileImportLegacyFlash),
+            |ui| {
+                ui.add_enabled_ui_semantic(self.has_document(), |ui| {
+                    if menu_item(
+                        ui,
+                        "Import graphics to Stage…",
+                        &self.sc(C::FileImportGraphics),
+                    )
+                    .clicked()
+                    {
+                        self.import_graphics_dialog();
+                        ui.close();
+                    }
+                    if menu_item(ui, "Import to Library…", "").clicked() {
+                        self.import_to_library_dialog();
+                        ui.close();
+                    }
+                    if menu_item(ui, "Import colour palette…", "").clicked() {
+                        self.import_palette_dialog();
+                        ui.close();
+                    }
+                    if menu_item(ui, "Import video…", "").clicked() {
+                        self.open_import_video(ui.ctx());
+                        ui.close();
+                    }
+                    if menu_item_enabled(ui, self.layer_editable(), "Empty video object", "")
+                        .clicked()
+                    {
+                        self.finish_edits();
+                        self.add_element(
+                            ElementKind::Video {
+                                width: 320.,
+                                height: 240.,
+                            },
+                            80.,
+                            80.,
+                        );
+                        ui.close();
+                    }
+                });
+                nf::menu_separator(ui);
                 if menu_item(
                     ui,
-                    "Import graphics to Stage…",
-                    &self.sc(C::FileImportGraphics),
+                    "Open… (Legacy FLA / XFL / SWF)",
+                    &self.sc(C::FileImportLegacyFlash),
                 )
                 .clicked()
                 {
-                    self.import_graphics_dialog();
+                    self.request(Pending::Import, ctx);
                     ui.close();
                 }
-                if menu_item(ui, "Import to Library…", "").clicked() {
-                    self.import_to_library_dialog();
-                    ui.close();
-                }
-                if menu_item(ui, "Import colour palette…", "").clicked() {
-                    self.import_palette_dialog();
-                    ui.close();
-                }
-                if menu_item(ui, "Import video…", "").clicked() {
-                    self.open_import_video(ui.ctx());
-                    ui.close();
-                }
-                if menu_item_enabled(ui, self.layer_editable(), "Empty video object", "").clicked()
-                {
-                    self.finish_edits();
-                    self.add_element(
-                        ElementKind::Video {
-                            width: 320.,
-                            height: 240.,
-                        },
-                        80.,
-                        80.,
-                    );
-                    ui.close();
-                }
-            });
+            },
+        );
+        ui.add_enabled_ui_semantic(self.has_document(), |ui| {
             menu_popup(
                 ui,
                 "Export",
@@ -556,6 +608,45 @@ impl Editor {
                         self.export_swf_dialog(None);
                         ui.close();
                     }
+                    menu_popup(
+                        ui,
+                        "Export SWF Target",
+                        "Flash Player 10 (Visuals Only)…",
+                        "",
+                        |ui| {
+                            for (label, cmd_id, profile, scriptless) in [
+                                (
+                                    "Flash Player 8 (AVM1)…",
+                                    C::FileExportSwfFp8,
+                                    neoflash_export::SwfPublishProfile::FlashPlayer8Avm1,
+                                    false,
+                                ),
+                                (
+                                    "Flash Player 9 (AVM2)…",
+                                    C::FileExportSwfFp9,
+                                    neoflash_export::SwfPublishProfile::FlashPlayer9Avm2,
+                                    false,
+                                ),
+                                (
+                                    "Flash Player 10 (AVM2)…",
+                                    C::FileExportSwfFp10,
+                                    neoflash_export::SwfPublishProfile::FlashPlayer10Avm2,
+                                    false,
+                                ),
+                                (
+                                    "Flash Player 10 (Visuals Only)…",
+                                    C::FileExportSwfFp10Scriptless,
+                                    neoflash_export::SwfPublishProfile::FlashPlayer10Avm2,
+                                    true,
+                                ),
+                            ] {
+                                if menu_item(ui, label, &self.sc(cmd_id)).clicked() {
+                                    self.export_swf_profile_dialog(profile, scriptless, None);
+                                    ui.close();
+                                }
+                            }
+                        },
+                    );
                     menu_popup(
                         ui,
                         "Export FLA / XFL Target",
@@ -761,6 +852,28 @@ impl Editor {
             self.frame_command_item(ui, label, &sc, cmd);
         }
         nf::menu_separator(ui);
+        if menu_item_enabled(
+            ui,
+            self.can_copy_motion(),
+            "Copy motion",
+            &self.sc(C::EditTimelineCopyMotion),
+        )
+        .clicked()
+        {
+            self.copy_motion();
+            ui.close();
+        }
+        if menu_item_enabled(
+            ui,
+            self.can_paste_motion(),
+            "Paste motion",
+            &self.sc(C::EditTimelinePasteMotion),
+        )
+        .clicked()
+        {
+            self.paste_motion();
+            ui.close();
+        }
         if menu_item_enabled(ui, self.can_paste_motion(), "Paste motion special…", "").clicked() {
             self.open_paste_motion_special();
             ui.close();
@@ -1024,6 +1137,16 @@ impl Editor {
             }
         }
         nf::menu_separator(ui);
+        if menu_item(
+            ui,
+            "Timeline Marker at Playhead",
+            &self.sc(C::AddTimelineMarker),
+        )
+        .clicked()
+        {
+            let _ = self.execute_menu_command(ui.ctx(), C::AddTimelineMarker);
+            ui.close();
+        }
         if menu_item(ui, "Scene", &self.sc(C::InsertScene)).clicked() {
             self.new_scene();
             ui.close();

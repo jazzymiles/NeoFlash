@@ -209,6 +209,9 @@ impl AiConnectionModal {
     pub(crate) fn run_test(&mut self, ai_manager: &AiConnectionManager) {
         let profile = self.build_profile();
         let draft_secret = self.api_key_input.trim().to_owned();
+        if !draft_secret.is_empty() {
+            crate::ai_connections::register_redacted_secret(&draft_secret);
+        }
         let store = DraftOverlaySecretStore {
             profile_id: profile.id.clone(),
             draft_secret: (!draft_secret.is_empty()).then_some(draft_secret),
@@ -922,6 +925,20 @@ impl Editor {
             ScriptTarget::Object if self.selected_editable() => {
                 let event = self.script_event;
                 self.transact_named("Insert AI code proposal", |ed| {
+                    let proj_lang = ed.project.effective_script_language();
+                    let resolved_lang = if ed
+                        .project
+                        .script_disposition_for(
+                            proj_lang,
+                            ed.project.also_compile_compatible_scripts,
+                            language,
+                        )
+                        .is_compiled()
+                    {
+                        language
+                    } else {
+                        proj_lang
+                    };
                     if let Some(element) = ed.selected_element_mut() {
                         if let Some(obj_script) =
                             element.scripts.iter_mut().find(|s| s.event == event)
@@ -933,7 +950,7 @@ impl Editor {
                             element.scripts.push(ObjectScript {
                                 event,
                                 script: Script {
-                                    language,
+                                    language: resolved_lang,
                                     source: src,
                                 },
                             });
@@ -944,6 +961,20 @@ impl Editor {
             _ => {
                 let frame = self.frame;
                 self.transact_named("Insert AI code proposal", |ed| {
+                    let proj_lang = ed.project.effective_script_language();
+                    let resolved_lang = if ed
+                        .project
+                        .script_disposition_for(
+                            proj_lang,
+                            ed.project.also_compile_compatible_scripts,
+                            language,
+                        )
+                        .is_compiled()
+                    {
+                        language
+                    } else {
+                        proj_lang
+                    };
                     if frame >= ed.symbol().timeline.frame_count {
                         ed.ensure_key(false);
                     }
@@ -956,7 +987,7 @@ impl Editor {
                         scripts.push(FrameScript {
                             frame,
                             script: Script {
-                                language,
+                                language: resolved_lang,
                                 source: src,
                             },
                         });
@@ -1043,12 +1074,26 @@ impl Editor {
         ))
     }
 
-    pub(crate) fn save_ai_connection_modal(&mut self, modal: AiConnectionModal) {
+    pub(crate) fn save_ai_connection_modal(&mut self, mut modal: AiConnectionModal) {
         let profile = modal.build_profile();
-        if profile.kind.requires_secret() && !modal.api_key_input.trim().is_empty() {
-            let _ = self
+        if profile.kind.requires_secret()
+            && !modal.api_key_input.trim().is_empty()
+            && let Err(err) = self
                 .ai_manager
-                .set_secret(&profile.id, modal.api_key_input.trim());
+                .set_secret(&profile.id, modal.api_key_input.trim())
+        {
+            let redacted = redact_sensitive_tokens(&err.to_string());
+            modal.test_outcome = Some(Err(redacted.clone()));
+            self.ai_manager.set_test_state(
+                profile.id,
+                AiProfileTestState::Failed {
+                    message: redacted.clone(),
+                },
+            );
+            self.notify(c::ToastType::Error, &redacted);
+            self.message(redacted);
+            self.ai_connection_modal = Some(modal);
+            return;
         }
         match modal.test_outcome {
             Some(Ok(_)) => {
@@ -1079,6 +1124,7 @@ impl Editor {
             }
             AiConnectionModalTarget::Workspace => {
                 self.workspace.ai.upsert_profile(profile.clone());
+                self.request_workspace_persist();
                 if let Some(answer) = &mut self.ai_session.answer_dialog
                     && answer.profile_id == profile.id
                 {

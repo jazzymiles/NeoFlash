@@ -63,14 +63,7 @@ impl PublishSettingsDraft {
         project: &neoflash_core::Project,
     ) -> Self {
         let mut draft = Self::new(settings);
-        if project.html_render_mode() == neoflash_core::HtmlRenderMode::Dom
-            && draft.settings.render_mode == neoflash_core::HtmlRenderMode::Canvas
-        {
-            draft.settings.render_mode = neoflash_core::HtmlRenderMode::Dom;
-            if draft.settings.profile == PublishProfilePreset::Default {
-                draft.settings.profile = PublishProfilePreset::WebAppDom;
-            }
-        }
+        sync_publish_profile_with_render_mode(&mut draft.settings, project.html_render_mode());
         let has_stored_profiles = project.resources.iter().any(|r| {
             r.path
                 .eq_ignore_ascii_case(neoflash_export::PUBLISH_PROFILES_RESOURCE_PATH)
@@ -329,20 +322,81 @@ fn video_footer_label(project: &neoflash_core::Project, draft: &PublishSettingsD
     }
 }
 
+pub(crate) fn sync_publish_profile_with_render_mode(
+    publish: &mut PublishPrefs,
+    doc_mode: neoflash_core::HtmlRenderMode,
+) {
+    publish.render_mode = doc_mode;
+    match doc_mode {
+        neoflash_core::HtmlRenderMode::Dom => {
+            if publish.profile != PublishProfilePreset::WebAppDom {
+                publish.profile = PublishProfilePreset::WebAppDom;
+            }
+        }
+        neoflash_core::HtmlRenderMode::Canvas => {
+            if publish.profile == PublishProfilePreset::WebAppDom {
+                publish.profile = PublishProfilePreset::Default;
+            }
+        }
+    }
+}
+
+fn stored_profiles_changed(
+    project: &neoflash_core::Project,
+    custom_profiles: &[PublishProfile],
+    active_custom_profile_id: Option<&str>,
+) -> bool {
+    let has_stored = project.resources.iter().any(|r| {
+        r.path
+            .eq_ignore_ascii_case(neoflash_export::PUBLISH_PROFILES_RESOURCE_PATH)
+    });
+    if !has_stored {
+        return !custom_profiles.is_empty() || active_custom_profile_id.is_some();
+    }
+    match load_profiles_from_project(project) {
+        Ok((existing_profiles, existing_active)) => {
+            existing_profiles != custom_profiles
+                || existing_active.as_deref() != active_custom_profile_id
+        }
+        Err(_) => true,
+    }
+}
+
 impl Editor {
-    pub(crate) fn apply_publish_settings_draft(&mut self, draft: &mut PublishSettingsDraft) {
-        draft.settings.sanitize();
-        if draft.profiles_dirty {
-            let _ = store_profiles_in_project(
-                &mut self.project,
+    pub(crate) fn commit_publish_settings_to_project(&mut self, draft: &mut PublishSettingsDraft) {
+        let profiles_changed = draft.profiles_dirty
+            && stored_profiles_changed(
+                &self.project,
                 &draft.custom_profiles,
                 draft.active_custom_profile_id.as_deref(),
             );
+        let render_mode = draft.settings.render_mode;
+        let render_changed = self.project.html_render_mode() != render_mode;
+        if !profiles_changed && !render_changed {
+            draft.profiles_dirty = false;
+            return;
         }
-        if self.project.html_render_mode() != draft.settings.render_mode {
-            self.project
-                .set_html_render_mode(draft.settings.render_mode);
-        }
+        let custom_profiles = draft.custom_profiles.clone();
+        let active_id = draft.active_custom_profile_id.clone();
+        self.finish_edits();
+        self.transact_named("Publish settings", |editor| {
+            if profiles_changed {
+                let _ = store_profiles_in_project(
+                    &mut editor.project,
+                    &custom_profiles,
+                    active_id.as_deref(),
+                );
+            }
+            if render_changed {
+                editor.project.set_html_render_mode(render_mode);
+            }
+        });
+        draft.profiles_dirty = false;
+    }
+
+    pub(crate) fn apply_publish_settings_draft(&mut self, draft: &mut PublishSettingsDraft) {
+        draft.settings.sanitize();
+        self.commit_publish_settings_to_project(draft);
         self.workspace.publish = draft.settings.clone();
     }
 
@@ -1044,17 +1098,6 @@ impl Editor {
             close = true;
         } else if !close && publish {
             draft.settings.sanitize();
-            if draft.profiles_dirty {
-                let _ = store_profiles_in_project(
-                    &mut self.project,
-                    &draft.custom_profiles,
-                    draft.active_custom_profile_id.as_deref(),
-                );
-            }
-            if self.project.html_render_mode() != draft.settings.render_mode {
-                self.project
-                    .set_html_render_mode(draft.settings.render_mode);
-            }
             if !draft.settings.has_any_enabled_target() {
                 draft.settings.enable_target(draft.selected_target);
                 draft.settings.default_target = draft.selected_target;
@@ -1076,6 +1119,7 @@ impl Editor {
                     ok &= self.publish_video_with_settings(None, &draft.settings);
                 }
                 if ok && publish_desktop {
+                    self.commit_publish_settings_to_project(&mut draft);
                     ok &= self.publish_desktop_app_with_settings(
                         None,
                         &Self::runtime_dir(),
@@ -1089,12 +1133,14 @@ impl Editor {
                     ok &= self.publish_svg_with_settings(None, &draft.settings);
                 }
                 if ok {
+                    self.commit_publish_settings_to_project(&mut draft);
                     self.workspace.publish = draft.settings.clone();
                     close = true;
                 } else {
                     draft.error = Some(self.status.clone());
                 }
             } else if let Some(output) = publish_output(&draft.settings) {
+                self.commit_publish_settings_to_project(&mut draft);
                 let mut ok = true;
                 if publish_html5 {
                     ok &= self.publish_html5_with_settings(

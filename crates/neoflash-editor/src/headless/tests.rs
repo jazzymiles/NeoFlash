@@ -1476,3 +1476,150 @@ fn t315_headless_new_and_inspect_support_project_script_language() {
         true
     );
 }
+
+#[test]
+fn t311_capabilities_schema_batch_script_language_and_legacy_none_export() {
+    let tmp = TempDirGuard::new("t311-headless");
+
+    // 1. Verify `--headless capabilities` exposes `dotlottie`, `--html-preview`, and batch script_language fields.
+    let (code, stdout, stderr) = run_args(&["--headless", "capabilities"], "");
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let caps: Value = serde_json::from_str(&stdout).unwrap();
+    let export_targets = caps["export_targets"].as_array().unwrap();
+    assert!(export_targets.iter().any(|v| v == "dotlottie"));
+    let export_cmd = caps["subcommands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "export")
+        .expect("export command in capabilities");
+    assert!(
+        export_cmd["flags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == "--html-preview")
+    );
+    let ops_schema = &caps["batch_schema"]["operations"];
+    for op_name in ["new", "set_project"] {
+        let fields = ops_schema[op_name].as_array().unwrap();
+        assert!(fields.iter().any(|f| f == "script_language?"));
+        assert!(
+            fields
+                .iter()
+                .any(|f| f == "also_compile_compatible_scripts?")
+        );
+    }
+
+    // 2. Verify `batch` `new` and `set_project` apply `script_language` and `also_compile_compatible_scripts`.
+    let batch_proj = tmp.path.join("batch_script.nflash");
+    let batch_req = serde_json::json!({
+        "ops": [
+            {
+                "op": "new",
+                "name": "Batch AS2",
+                "script_language": "as2",
+                "also_compile_compatible_scripts": false
+            },
+            {
+                "op": "save",
+                "path": batch_proj.to_str().unwrap()
+            }
+        ]
+    });
+    let (code, _, stderr) = run_args(&["--headless", "batch", "--stdin"], &batch_req.to_string());
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let saved_batch = Project::from_json(&fs::read_to_string(&batch_proj).unwrap()).unwrap();
+    assert_eq!(
+        saved_batch.script_language,
+        Some(ScriptLanguage::ActionScript2)
+    );
+    assert!(!saved_batch.also_compile_compatible_scripts);
+
+    let set_proj_req = serde_json::json!({
+        "ops": [
+            {
+                "op": "set_project",
+                "script_language": "ts",
+                "also_compile_compatible_scripts": true
+            }
+        ]
+    });
+    let (code, _, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--project",
+            batch_proj.to_str().unwrap(),
+            "--in-place",
+            "--stdin",
+        ],
+        &set_proj_req.to_string(),
+    );
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let updated_batch = Project::from_json(&fs::read_to_string(&batch_proj).unwrap()).unwrap();
+    assert_eq!(
+        updated_batch.script_language,
+        Some(ScriptLanguage::TypeScript)
+    );
+    assert!(updated_batch.also_compile_compatible_scripts);
+
+    // 3. Pre-R-102 (`script_language == None`) mixed-script AS2 project exports cleanly across SWF/FLA/XFL/HTML5.
+    let mut legacy_as2 = Project::blank();
+    legacy_as2.enable_program();
+    legacy_as2.script_language = None;
+    legacy_as2.symbols[0].timeline.scripts.push(FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "stop();".into(),
+        },
+    });
+    legacy_as2.sources.push(neoflash_core::SourceUnit {
+        id: "foreign-ts".into(),
+        path: "src/Ignored.ts".into(),
+        language: ScriptLanguage::TypeScript,
+        source: "export const ignored: number = 42;".into(),
+    });
+    assert_eq!(
+        legacy_as2.effective_script_language(),
+        ScriptLanguage::ActionScript2
+    );
+    let legacy_path = tmp.path.join("legacy_as2_mixed.nflash");
+    fs::write(&legacy_path, legacy_as2.to_json().unwrap()).unwrap();
+
+    let swf_out = tmp.path.join("legacy_as2.swf");
+    let (code, _, stderr) = run_args(
+        &[
+            "--headless",
+            "export",
+            "--project",
+            legacy_path.to_str().unwrap(),
+            "--target",
+            "swf",
+            "--out",
+            swf_out.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "headless AS2 SWF export failed: {stderr}");
+    let swf_bytes = fs::read(&swf_out).unwrap();
+    assert_eq!(swf_bytes[3], 8);
+
+    let fla_out = tmp.path.join("legacy_as2.fla");
+    let (code, _, stderr) = run_args(
+        &[
+            "--headless",
+            "export",
+            "--project",
+            legacy_path.to_str().unwrap(),
+            "--target",
+            "fla",
+            "--out",
+            fla_out.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "headless legacy FLA export failed: {stderr}");
+    assert!(fla_out.is_file());
+}

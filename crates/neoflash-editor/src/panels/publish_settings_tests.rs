@@ -1260,3 +1260,71 @@ fn web_app_dom_profile_persists_across_nflash_save_reopen_and_drives_publish_and
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn t311_publish_settings_single_undo_unchanged_clean_and_session_tab_profile_sync() {
+    let mut d = Driver::new(ThemeMode::Dark);
+    d.editor.history.clear();
+    d.editor.saved_project = Some(d.editor.project.clone());
+    assert!(!d.editor.dirty());
+    assert!(!d.editor.history.can_undo());
+
+    // 1. Confirming Publish settings with no document-stored changes pushes 0 Undo steps.
+    d.open();
+    d.click("OK");
+    assert!(!d.editor.dirty());
+    assert!(!d.editor.history.can_undo());
+
+    // 2. Switching profile to Web App · DOM commits ONE "Publish settings" Undo step.
+    d.open();
+    d.click("Profile: Default");
+    d.click("Profile: Web App · DOM");
+    d.click("OK");
+    assert!(d.editor.dirty());
+    assert_eq!(
+        d.editor.project.html_render_mode(),
+        neoflash_core::HtmlRenderMode::Dom
+    );
+    assert_eq!(d.editor.undo_menu_label(), "Undo Publish settings");
+    d.editor.project.validate().unwrap();
+
+    d.editor.undo();
+    assert_eq!(
+        d.editor.project.html_render_mode(),
+        neoflash_core::HtmlRenderMode::Canvas
+    );
+    assert!(!d.editor.dirty());
+    assert!(
+        !d.editor.history.can_undo(),
+        "Publish settings confirmation must record at most 1 Undo step"
+    );
+
+    // 3. Switching between Canvas and DOM document tabs keeps workspace.publish.profile synchronized.
+    d.editor.workspace.publish.profile = PublishProfilePreset::WebBalanced;
+    d.editor.workspace.publish.render_mode = neoflash_core::HtmlRenderMode::Canvas;
+
+    let mut dom_project = Project::blank();
+    dom_project.set_html_render_mode(neoflash_core::HtmlRenderMode::Dom);
+    let dom_tab = d.editor.open_new_session_tab(&d.ctx, dom_project, None);
+    assert_eq!(dom_tab, 1);
+    assert_eq!(
+        d.editor.workspace.publish.render_mode,
+        neoflash_core::HtmlRenderMode::Dom
+    );
+    assert_eq!(
+        d.editor.workspace.publish.profile,
+        PublishProfilePreset::WebAppDom,
+        "DOM tab must switch active publish profile preset to WebAppDom"
+    );
+
+    assert!(d.editor.switch_session_tab(&d.ctx, 0));
+    assert_eq!(
+        d.editor.workspace.publish.render_mode,
+        neoflash_core::HtmlRenderMode::Canvas
+    );
+    assert_eq!(
+        d.editor.workspace.publish.profile,
+        PublishProfilePreset::Default,
+        "Canvas tab must clear stale WebAppDom preset on tab switch"
+    );
+}

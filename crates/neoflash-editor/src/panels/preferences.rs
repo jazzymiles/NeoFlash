@@ -335,6 +335,7 @@ impl Editor {
         self.stage_view.prefs.pixels_snap = draft.pixels_snap;
         self.apply_editor_preferences(ctx);
         self.sync_session_tabs_to_prefs();
+        self.request_workspace_persist();
     }
 
     pub(crate) fn preferences_dialog(&mut self, ctx: &egui::Context) {
@@ -1431,6 +1432,11 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
         if matches!(cmd, crate::commands::CommandId::EditSendToAi) && !draft.has_ready_ai {
             continue;
         }
+        if matches!(cmd, crate::commands::CommandId::HelpSendBetaFeedback)
+            && !crate::panels::beta_feedback::is_beta_build()
+        {
+            continue;
+        }
         for sc in crate::commands::effective_shortcuts(&draft.shortcuts, cmd) {
             *chord_owners.entry(sc).or_insert(0) += 1;
         }
@@ -1505,6 +1511,11 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
             if matches!(cmd, crate::commands::CommandId::EditSendToAi) && !draft.has_ready_ai {
                 return false;
             }
+            if matches!(cmd, crate::commands::CommandId::HelpSendBetaFeedback)
+                && !crate::panels::beta_feedback::is_beta_build()
+            {
+                return false;
+            }
             cmd.title().to_lowercase().contains(&query)
                 || cmd.menu_path().to_lowercase().contains(&query)
                 || cmd.row_title().to_lowercase().contains(&query)
@@ -1565,6 +1576,8 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
                         cmd.category() == category
                             && (!matches!(cmd, crate::commands::CommandId::EditSendToAi)
                                 || draft.has_ready_ai)
+                            && (!matches!(cmd, crate::commands::CommandId::HelpSendBetaFeedback)
+                                || crate::panels::beta_feedback::is_beta_build())
                     })
                     .collect();
                 let total = all_in_cat.len();

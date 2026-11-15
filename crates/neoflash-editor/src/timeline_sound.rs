@@ -775,7 +775,7 @@ impl Editor {
     /// Attach `resource` to the current keyframe (default sync Event; an existing sound keeps its
     /// sync, repeat and effect), or remove the sound with `None`. Creates a blank keyframe when the
     /// layer has none at or before the playhead.
-    fn attach_frame_sound(&mut self, resource: Option<Id>) {
+    pub(crate) fn attach_frame_sound(&mut self, resource: Option<Id>) {
         let (layer, frame) = (self.layer, self.frame);
         let has_key = self.symbol().timeline.layers[layer].key_at(frame).is_some();
         if !has_key && resource.is_some() {
@@ -807,7 +807,7 @@ impl Editor {
     }
 
     /// Select the sound's keyframe so Properties shows its Sound section.
-    fn show_frame_sound(&mut self) {
+    pub(crate) fn show_frame_sound(&mut self) {
         if let Some((start, _)) = self.frame_sound() {
             let layer = self.symbol().timeline.layers[self.layer].id.clone();
             self.select_frame_range(FrameRange {
@@ -912,14 +912,17 @@ impl Editor {
 
     pub(crate) fn import_frame_sound_dialog(&mut self) {
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("Sound", &["mp3", "wav"])
+            .add_filter("Sound", crate::resources::IMPORT_AUDIO_EXTENSIONS)
             .pick_file()
         else {
             return;
         };
         match self.import_frame_sound(&path) {
             Ok(()) => self.message("Sound imported and attached to the keyframe."),
-            Err(error) => self.message(format!("Sound import failed: {error}")),
+            Err(error) => self.notify_with_output(
+                neoflash_ui::components::ToastType::Error,
+                format!("Sound import failed: {error}"),
+            ),
         }
     }
 

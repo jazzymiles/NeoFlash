@@ -806,7 +806,7 @@ fn help_text(topic: Option<&str>) -> String {
         Some("jsfl") => "Usage: neoflash-editor --headless jsfl --project <file.nflash> (--script FILE | --eval CODE | --stdin) [--out FILE | --in-place] [--symbol ID|NAME] [--frame N] [--allow-read DIR] [--allow-write DIR] [--allow-delete]".into(),
         Some("batch") => "Usage: neoflash-editor --headless batch (--file OPS.json | --stdin) [--project IN.nflash] [--out OUT.nflash | --in-place]".into(),
         Some("import") => "Usage: neoflash-editor --headless import --input <path...> --out <project.nflash>".into(),
-        Some("export") => "Usage: neoflash-editor --headless export --project <file.nflash> --target html5|fla|xfl|swf|svg|lottie|atlas|sequence|video|audio|banner|desktop --out <path> [--profile NAME|ID] [--size-level full|balanced|compact|shared] [--runtime DIR] [--runtime-url URL] ...".into(),
+        Some("export") => "Usage: neoflash-editor --headless export --project <file.nflash> --target html5|fla|xfl|swf|svg|lottie|dotlottie|atlas|sequence|video|audio|banner|desktop --out <path> [--profile NAME|ID] [--size-level full|balanced|compact|shared] [--runtime DIR] [--runtime-url URL] [--html-preview] ...".into(),
         _ => concat!(
             "NeoFlash Editor Headless CLI\n",
             "\n",
@@ -912,8 +912,8 @@ fn subcommands_schema() -> Value {
         },
         {
             "name": "export",
-            "summary": "Publish or export HTML5, FLA, XFL, SWF, SVG, Lottie, Atlas, Sequence, Video, Audio, Banner, or Desktop targets",
-            "flags": ["--project <file.nflash>", "--target <html5|fla|xfl|swf|svg|lottie|atlas|sequence|video|audio|banner|desktop>", "--out <path>", "--profile <name|id>", "--size-level <full|balanced|compact|shared>", "--runtime <dir>", "--runtime-url <url>", "--font-policy <device|embed|subset|outlines>", "--render-mode <canvas|dom>", "--clean", "--fla-profile <...>", "--swf-profile <fp8|fp9|fp10>", "--symbol <id|name>", "--frame <u32>", "--end-frame <u32>"]
+            "summary": "Publish or export HTML5, FLA, XFL, SWF, SVG, Lottie/dotLottie, Atlas, Sequence, Video, Audio, Banner, or Desktop targets",
+            "flags": ["--project <file.nflash>", "--target <html5|fla|xfl|swf|svg|lottie|dotlottie|atlas|sequence|video|audio|banner|desktop>", "--out <path>", "--profile <name|id>", "--size-level <full|balanced|compact|shared>", "--runtime <dir>", "--runtime-url <url>", "--font-policy <device|embed|subset|outlines>", "--render-mode <canvas|dom>", "--clean", "--fla-profile <...>", "--swf-profile <fp8|fp9|fp10>", "--symbol <id|name>", "--frame <u32>", "--end-frame <u32>", "--image-format <original|png|jpeg|webp>", "--html-preview"]
         }
     ])
 }
@@ -955,9 +955,9 @@ fn cmd_capabilities<W1: Write, W2: Write>(
             "strict": "Unknown wrapper, operation, nested transform, path-command, authoring-command, and export fields are rejected.",
             "atomicity": "Operations mutate an in-memory candidate project; the implicit final --out / --in-place project replacement occurs atomically only after every step and Project::validate() pass. Explicit save/export operations and permitted JSFL FLfile writes occur immediately and are not rolled back if a later step fails.",
             "operations": {
-                "new": ["name?", "width?", "height?", "fps?", "bg?", "language?", "demo?"],
+                "new": ["name?", "width?", "height?", "fps?", "bg?", "language?", "script_language?", "also_compile_compatible_scripts?", "demo?"],
                 "open": ["path"],
-                "set_project": ["name?", "width?", "height?", "fps?", "bg?"],
+                "set_project": ["name?", "width?", "height?", "fps?", "bg?", "script_language?", "also_compile_compatible_scripts?"],
                 "add_symbol": ["id?", "name", "kind?", "frame_count?", "linkage_id?", "class_name?", "folder?", "as_scene?"],
                 "add_layer": ["symbol?", "id?", "name", "role?", "visible?", "locked?", "mask_layer?", "motion_guide?"],
                 "add_keyframe": ["symbol?", "layer", "frame", "label?", "tween?", "tween_kind?", "copy_previous?", "clear_elements?"],
@@ -970,7 +970,7 @@ fn cmd_capabilities<W1: Write, W2: Write>(
                 "compile": ["strict?"],
                 "eval": ["scene?", "symbol?", "frame?", "frames?", "scripts?"],
                 "inspect": ["symbol?", "frame?", "no_elements?", "no_scripts?", "no_resources?"],
-                "export": ["target", "out", "profile?", "size_level?", "runtime?", "runtime_url?", "font_policy?", "audio_policy?", "render_mode?", "clean?", "sprite_sheets?", "assets_folder?", "scale_mode?", "stage_align?", "allow_fullscreen?", "fla_profile?", "swf_profile?", "scriptless?", "outline_text?", "symbol?", "frame?", "end_frame?", "width?", "height?", "transparent?", "text_as_outlines?", "pretty?", "atlas_format?", "atlas_extrude?", "audio_format?", "banner_max_gzip?"],
+                "export": ["target", "out", "profile?", "size_level?", "runtime?", "runtime_url?", "font_policy?", "audio_policy?", "render_mode?", "clean?", "sprite_sheets?", "assets_folder?", "scale_mode?", "stage_align?", "allow_fullscreen?", "fla_profile?", "swf_profile?", "scriptless?", "outline_text?", "symbol?", "frame?", "end_frame?", "width?", "height?", "transparent?", "text_as_outlines?", "pretty?", "atlas_format?", "atlas_extrude?", "audio_format?", "banner_max_gzip?", "image_format?", "html_preview?"],
                 "save": ["path?"]
             },
             "nested_schemas": {
@@ -996,7 +996,7 @@ fn cmd_capabilities<W1: Write, W2: Write>(
             ]
         },
         "import_formats": ["fla", "xfl", "swf", "swc", "svg", "psd", "psb", "pdf", "ai", "fxg", "fig", "figma", "figma.json", "act", "clr", "ase", "image-sequence"],
-        "export_targets": ["html5", "fla", "xfl", "swf", "svg", "lottie", "atlas", "sequence", "video", "audio", "banner", "desktop"],
+        "export_targets": ["html5", "fla", "xfl", "swf", "svg", "lottie", "dotlottie", "atlas", "sequence", "video", "audio", "banner", "desktop"],
         "size_levels": ["full", "balanced", "compact", "shared"],
         "html_render_modes": ["canvas", "dom"]
     });

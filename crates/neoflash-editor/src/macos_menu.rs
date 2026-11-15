@@ -190,11 +190,6 @@ pub enum NativeMenuAction {
     ActivateDocumentTab(usize),
     NextDocumentTab,
     PreviousDocumentTab,
-    SearchFunctions,
-    OpenHelpManual,
-    OpenScriptingReference,
-    OpenExample,
-    CheckForUpdates,
 }
 
 /// Synchronized root `NSWindow` document presentation state.
@@ -614,7 +609,7 @@ impl NativeMenuSpec {
                 Self::build_control_menu(editor, ctx),
                 Self::build_debug_menu(editor, ctx),
                 Self::build_window_menu(editor, ctx),
-                Self::build_help_menu(),
+                Self::build_help_menu(editor, ctx),
             ],
         }
     }
@@ -787,6 +782,17 @@ impl NativeMenuSpec {
             cmd_item(editor, ctx, CommandId::FileExportAfterEffects),
             cmd_item(editor, ctx, CommandId::FileExportTextureAtlas),
             cmd_item(editor, ctx, CommandId::FileExportSwf),
+            NativeMenuItemSpec::Submenu {
+                label: "Export SWF Target".to_owned(),
+                enabled: has_doc,
+                role: None,
+                items: vec![
+                    cmd_item(editor, ctx, CommandId::FileExportSwfFp8),
+                    cmd_item(editor, ctx, CommandId::FileExportSwfFp9),
+                    cmd_item(editor, ctx, CommandId::FileExportSwfFp10),
+                    cmd_item(editor, ctx, CommandId::FileExportSwfFp10Scriptless),
+                ],
+            },
             NativeMenuItemSpec::Submenu {
                 label: "Export FLA / XFL Target".to_owned(),
                 enabled: has_doc,
@@ -2111,49 +2117,28 @@ impl NativeMenuSpec {
         }
     }
 
-    fn build_help_menu() -> NativeTopMenuSpec {
+    fn build_help_menu(editor: &Editor, ctx: Option<&egui::Context>) -> NativeTopMenuSpec {
+        let mut items = vec![
+            cmd_item(editor, ctx, CommandId::HelpSearchFunctions),
+            cmd_item(editor, ctx, CommandId::HelpManual),
+            cmd_item_labeled(
+                editor,
+                ctx,
+                "ActionScript Reference",
+                CommandId::HelpScriptingReference,
+            ),
+            NativeMenuItemSpec::Separator,
+            cmd_item(editor, ctx, CommandId::HelpOpenExample),
+            NativeMenuItemSpec::Separator,
+            cmd_item(editor, ctx, CommandId::HelpCheckForUpdates),
+        ];
+        if crate::panels::beta_feedback::is_beta_build() {
+            items.push(cmd_item(editor, ctx, CommandId::HelpSendBetaFeedback));
+        }
         NativeTopMenuSpec {
             title: "Help".to_owned(),
             enabled: true,
-            items: vec![
-                custom_item(
-                    "Search functions…",
-                    Some(Shortcut::none(Key::F1)),
-                    true,
-                    false,
-                    NativeMenuAction::SearchFunctions,
-                ),
-                custom_item(
-                    "NeoFlash Help",
-                    None,
-                    true,
-                    false,
-                    NativeMenuAction::OpenHelpManual,
-                ),
-                custom_item(
-                    "ActionScript Reference",
-                    None,
-                    true,
-                    false,
-                    NativeMenuAction::OpenScriptingReference,
-                ),
-                NativeMenuItemSpec::Separator,
-                custom_item(
-                    "Open example",
-                    None,
-                    true,
-                    false,
-                    NativeMenuAction::OpenExample,
-                ),
-                NativeMenuItemSpec::Separator,
-                custom_item(
-                    "Check for Updates…",
-                    None,
-                    true,
-                    false,
-                    NativeMenuAction::CheckForUpdates,
-                ),
-            ],
+            items,
         }
     }
 }
@@ -2618,23 +2603,6 @@ impl Editor {
             }
             NativeMenuAction::PreviousDocumentTab => {
                 self.cycle_document(ctx, true);
-            }
-            NativeMenuAction::SearchFunctions => {
-                self.open_function_search_at(ctx, None);
-            }
-            NativeMenuAction::OpenHelpManual => {
-                self.open_help_manual(ctx);
-            }
-            NativeMenuAction::OpenScriptingReference => {
-                self.open_scripting_reference(ctx);
-            }
-            NativeMenuAction::OpenExample => {
-                self.request(Pending::Demo, ctx);
-            }
-            NativeMenuAction::CheckForUpdates => {
-                let channel = self.workspace.updates.channel;
-                self.open_preferences(crate::panels::preferences::PAGE_UPDATES);
-                self.updater.start_check(channel, ctx);
             }
         }
     }

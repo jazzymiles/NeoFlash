@@ -757,3 +757,144 @@ fn macos_menu_workspace_density_appearance_and_panel_actions_roundtrip() {
         } if label == ThemeMode::Light.label()
     )));
 }
+
+#[test]
+fn t311_zero_document_queued_commands_shortcuts_and_function_search_execute_cleanly() {
+    let (mut editor, ctx, _dir) = setup("zero-doc-wiring");
+    editor.sessions.clear();
+    assert!(!editor.has_document());
+    assert!(!editor.workspace.is_panel_active(PanelId::Output));
+
+    // Queued zero-doc-enabled commands execute in `shortcuts(&ctx)`, while disabled authoring
+    // commands are ignored rather than panicking or mutating state.
+    crate::commands::queue_command(&ctx, CommandId::WindowOutput);
+    crate::commands::queue_command(&ctx, CommandId::EditSelectAll);
+    if crate::panels::beta_feedback::is_beta_build() {
+        crate::commands::queue_command(&ctx, CommandId::HelpSendBetaFeedback);
+    }
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        editor.shortcuts(ctx);
+    });
+    assert!(
+        editor.workspace.is_panel_active(PanelId::Output),
+        "queued WindowOutput must execute even when 0 documents are open"
+    );
+    if crate::panels::beta_feedback::is_beta_build() {
+        assert!(
+            editor.beta_feedback.open,
+            "queued HelpSendBetaFeedback must open Beta feedback with 0 documents open"
+        );
+        editor.close_beta_feedback();
+    }
+
+    // Pressing F1 in zero-document state opens Function search via customizable HelpSearchFunctions.
+    assert!(!crate::panels::function_search::is_open(&ctx));
+    let raw_f1 = egui::RawInput {
+        events: vec![egui::Event::Key {
+            key: Key::F1,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        ..Default::default()
+    };
+    let _ = ctx.run(raw_f1, |ctx| {
+        editor.shortcuts(ctx);
+    });
+    assert!(
+        crate::panels::function_search::is_open(&ctx),
+        "F1 shortcut must open Function search even when 0 documents are open"
+    );
+
+    // `results_for_editor` in zero-doc mode must align with `command_menu_state`.
+    let results = crate::panels::function_search::results_for_editor(&editor, Some(&ctx), "");
+    assert!(results.contains(&CommandId::FileNew));
+    assert!(results.contains(&CommandId::FileOpen));
+    assert!(results.contains(&CommandId::FileImportLegacyFlash));
+    assert!(results.contains(&CommandId::EditPreferences));
+    assert!(results.contains(&CommandId::EditKeyboardShortcuts));
+    assert!(results.contains(&CommandId::HelpManual));
+    assert!(results.contains(&CommandId::HelpCheckForUpdates));
+    assert!(!results.contains(&CommandId::HelpSearchFunctions));
+    for cmd in &results {
+        assert!(
+            editor.command_menu_state(Some(&ctx), *cmd).enabled,
+            "Function search returned disabled command {cmd:?} in zero-document mode"
+        );
+    }
+}
+
+#[test]
+fn t311_swf_export_profiles_and_as1_as2_gui_export_succeed() {
+    let (editor, ctx, dir) = setup("swf-profiles");
+    let spec = NativeMenuSpec::build(&editor, Some(&ctx));
+    let file_items = &spec.menu("File").expect("File menu").items;
+    let export_items = find_submenu(file_items, "Export").expect("Export submenu");
+    let swf_target_items =
+        find_submenu(export_items, "Export SWF Target").expect("Export SWF Target submenu");
+    for (expected_cmd, expected_label) in [
+        (CommandId::FileExportSwfFp8, "Flash Player 8 (AVM1)…"),
+        (CommandId::FileExportSwfFp9, "Flash Player 9 (AVM2)…"),
+        (CommandId::FileExportSwfFp10, "Flash Player 10 (AVM2)…"),
+        (
+            CommandId::FileExportSwfFp10Scriptless,
+            "Flash Player 10 (Visuals Only)…",
+        ),
+    ] {
+        assert!(
+            swf_target_items.iter().any(|item| matches!(
+                item,
+                NativeMenuItemSpec::Action {
+                    label,
+                    command_id: Some(cmd),
+                    enabled: true,
+                    ..
+                } if *cmd == expected_cmd && label == expected_label
+            )),
+            "missing SWF target item {expected_label}"
+        );
+    }
+
+    for (lang, tag) in [
+        (neoflash_core::ScriptLanguage::ActionScript1, "as1"),
+        (neoflash_core::ScriptLanguage::ActionScript2, "as2"),
+    ] {
+        let mut proj = Project::blank();
+        proj.script_language = Some(lang);
+        proj.symbols[0]
+            .timeline
+            .scripts
+            .push(neoflash_core::FrameScript {
+                frame: 0,
+                script: neoflash_core::Script {
+                    language: lang,
+                    source: "stop();".into(),
+                },
+            });
+        let mut ed = Editor::from_project(&ctx, proj);
+        let swf_out = dir.join(format!("movie-{tag}.swf"));
+        assert!(
+            ed.export_swf_dialog(Some(swf_out.clone())),
+            "default Export Movie (.swf) must succeed for {lang:?}"
+        );
+        let bytes = std::fs::read(&swf_out).unwrap();
+        assert!(bytes.len() > 8);
+        assert_eq!(
+            bytes[3], 8,
+            "AS1/AS2 default SWF export must target SWF v8 (AVM1)"
+        );
+
+        let visuals_out = dir.join(format!("visuals-{tag}.swf"));
+        assert!(
+            ed.export_swf_profile_dialog(
+                neoflash_export::SwfPublishProfile::FlashPlayer10Avm2,
+                true,
+                Some(visuals_out.clone()),
+            ),
+            "Flash Player 10 (Visuals Only) export must succeed on {lang:?} projects"
+        );
+        let vbytes = std::fs::read(&visuals_out).unwrap();
+        assert_eq!(vbytes[3], 10);
+    }
+}

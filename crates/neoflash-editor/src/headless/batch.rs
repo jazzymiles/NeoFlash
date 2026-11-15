@@ -314,6 +314,8 @@ enum BatchOp {
         fps: Option<u32>,
         bg: Option<String>,
         language: Option<String>,
+        script_language: Option<String>,
+        also_compile_compatible_scripts: Option<bool>,
         #[serde(default)]
         demo: bool,
     },
@@ -326,6 +328,8 @@ enum BatchOp {
         height: Option<u32>,
         fps: Option<u32>,
         bg: Option<String>,
+        script_language: Option<String>,
+        also_compile_compatible_scripts: Option<bool>,
     },
     AddSymbol {
         id: Option<String>,
@@ -650,17 +654,35 @@ fn execute_batch_op(
             fps,
             bg,
             language,
+            script_language,
+            also_compile_compatible_scripts,
             demo,
         } => {
             let lang = language.as_deref().map(parse_language).transpose()?;
+            let explicit_script_lang =
+                script_language.as_deref().map(parse_language).transpose()?;
             let bg_color = bg.as_deref().map(parse_color).transpose()?;
             *project = build_new_project(name, width, height, fps, bg_color, lang, demo)?;
+            if let Some(sl) = explicit_script_lang.or(lang) {
+                project.script_language = Some(sl);
+            }
+            if let Some(compat) = also_compile_compatible_scripts {
+                project.also_compile_compatible_scripts = compat;
+            }
+            if project.script_language.is_some() || also_compile_compatible_scripts.is_some() {
+                project.upgrade_format_for_features();
+                project
+                    .validate()
+                    .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
+            }
             Ok(json!({
                 "name": project.name,
                 "width": project.width,
                 "height": project.height,
                 "fps": project.fps,
                 "root_symbol": project.root,
+                "script_language": project.script_language.map(|l| l.short_slug()),
+                "also_compile_compatible_scripts": project.also_compile_compatible_scripts,
             }))
         }
         BatchOp::Open { path } => {
@@ -677,6 +699,8 @@ fn execute_batch_op(
             height,
             fps,
             bg,
+            script_language,
+            also_compile_compatible_scripts,
         } => {
             if let Some(n) = name {
                 project.name = n;
@@ -702,11 +726,22 @@ fn execute_batch_op(
             if let Some(ref bg_str) = bg {
                 project.background = parse_color(bg_str)?;
             }
+            if let Some(ref sl_str) = script_language {
+                project.script_language = Some(parse_language(sl_str)?);
+            }
+            if let Some(compat) = also_compile_compatible_scripts {
+                project.also_compile_compatible_scripts = compat;
+            }
+            if script_language.is_some() || also_compile_compatible_scripts.is_some() {
+                project.upgrade_format_for_features();
+            }
             Ok(json!({
                 "name": project.name,
                 "width": project.width,
                 "height": project.height,
                 "fps": project.fps,
+                "script_language": project.script_language.map(|l| l.short_slug()),
+                "also_compile_compatible_scripts": project.also_compile_compatible_scripts,
             }))
         }
         BatchOp::AddSymbol {

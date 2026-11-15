@@ -274,12 +274,14 @@ impl Editor {
         self.beta_feedback.focus_text_on_open = true;
     }
 
-    /// Close `"Beta feedback"` without sending while preserving typed text and attached images
-    /// for the remainder of the application session (`R-103` item 5).
+    /// Close `"Beta feedback"` without discarding any in-flight send or typed draft (`R-103` item 5).
+    ///
+    /// If a submission is already in flight, `poll_beta_feedback` continues draining the worker so
+    /// completion still clears the draft and shows `"Feedback sent"`, while an error re-opens the
+    /// modal with the preserved draft and inline error message.
     pub(crate) fn close_beta_feedback(&mut self) {
         self.beta_feedback.open = false;
         self.beta_feedback.focus_text_on_open = false;
-        self.beta_feedback.in_flight = None;
     }
 
     /// Floating `Bug?` chip at the bottom-left of the Stage canvas (`R-103` item 1).
@@ -384,6 +386,7 @@ impl Editor {
             Ok(Err(err)) => {
                 self.beta_feedback.in_flight = None;
                 self.beta_feedback.error = Some(err);
+                self.beta_feedback.open = true;
                 ctx.request_repaint();
             }
             Err(TryRecvError::Empty) => {
@@ -394,6 +397,7 @@ impl Editor {
                 self.beta_feedback.error = Some(
                     "Could not send feedback: background worker stopped unexpectedly.".to_owned(),
                 );
+                self.beta_feedback.open = true;
                 ctx.request_repaint();
             }
         }

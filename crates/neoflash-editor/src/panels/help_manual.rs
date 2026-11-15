@@ -465,17 +465,18 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Properties > Video configures Stream/Event/Stop sync, interactive In/Out trim handles, Mute, cue points and one-step Extract audio onto a linked sound track for MP4, WebM and RIFF AVI clips.",
     ],
     &[
-        "Frame and object scripts may use ActionScript 2, ActionScript 3, JavaScript or TypeScript, with Actions, Code Snippets, Live ActionScript stage preview, compiler diagnostics and debugger panels.",
-        "Import accepts legacy FLA, XFL, SWF, layered Figma (.fig / .figma.json), PSD/PSB, AI, SVG, PDF, WAV/MP3/OGG/FLAC, MP4/WebM/AVI, WebP/GIF/BMP/TIFF and numbered image sequences with located diagnostics.",
-        "Publish and export targets include HTML5 plus WebAssembly (with 9-anchor Stage.align, Fullscreen and per-bitmap WebP/JPEG/PNG settings), zero-WASM Web Banner Native, 5-format Texture Atlases, AI/SVG/PNG/JPEG/WebP/GIF/BMP frame sequences, SWF, Lottie, audio/video and Adobe After Effects (.aep / .aepx / .jsx) with AE JavaScript Expressions.",
+        "Frame, object and project scripts support five languages—ActionScript 3.0, ActionScript 2.0, ActionScript 1.0, TypeScript and JavaScript—governed by one unified project Script language policy (Document settings, with optional compatible-script compilation for AS1 in AS2 or JS in TS, while foreign scripts stay preserved in the document).",
+        "Preferences ▸ AI configures optional OpenAI, Anthropic, Gemini or custom HTTPS/loopback connections (storing keys only in macOS Keychain or NEOFLASH_AI_TOKEN_* env vars) and Edit ▸ Send to AI… reviews a redacted context pack before applying code or timing proposals as a single Undo step.",
+        "Import accepts legacy FLA, XFL, SWF, compiled SWC component libraries (linked into Library symbols, scripts and assets), Kiwi/Zstd Figma (.fig / .figma.json), PSD/PSB, AI, SVG, PDF, WAV/MP3 plus FFmpeg-transcoded OGG/FLAC/AAC/M4A audio, MP4/WebM/AVI video, WebP/GIF/BMP/TIFF and numbered image sequences with located diagnostics.",
+        "Publish and export targets include HTML5 plus WebAssembly (Canvas or semantic Web App · DOM), zero-WASM Web Banner · Native, Desktop apps, 5-format Texture Atlases, AI/SVG/PNG/JPEG/WebP/GIF/BMP frame sequences, Flash Player 8/9/10 SWF, Lottie JSON & dotLottie (.lottie with Original/PNG/JPEG/WebP images), audio/video, Adobe After Effects (.aep / .aepx / .jsx), and the machine-readable --headless CLI.",
         #[cfg(target_os = "macos")]
         "Core shortcuts include C for Razor, F5/F6/F7 for Timeline frames, F8 for Convert to Symbol, Command+B for Break Apart, F9 for Actions, Option+Shift+Command+A for After Effects export and Shift+F12 for Publish.",
         #[cfg(not(target_os = "macos"))]
         "Core shortcuts include C for Razor, F5/F6/F7 for Timeline frames, F8 for Convert to Symbol, Ctrl+B for Break Apart, F9 for Actions, Ctrl+Alt+Shift+A for After Effects export and Shift+F12 for Publish.",
         #[cfg(target_os = "macos")]
-        "Packaged macOS builds bundle ffmpeg and ffprobe in Contents/Resources/media/bin/, with optional NEOFLASH_FFMPEG override; exact Rust/media licences are inside and the corresponding source is verified by the supplied SHA256SUMS.txt. Keep .nflash backups and attach a minimal repro, Output diagnostics and the About NeoFlash commit to bug reports.",
+        "Packaged macOS builds bundle ffmpeg and ffprobe in Contents/Resources/media/bin/, with optional NEOFLASH_FFMPEG override; exact Rust/media licences are inside and the corresponding source is verified by the supplied SHA256SUMS.txt. Keep .nflash backups and report issues via the Stage Bug? button or Help ▸ Send Beta Feedback… (delivered over HTTPS FormSubmit to developer@redinger.cc) with a minimal repro, Output diagnostics and the About NeoFlash commit.",
         #[cfg(not(target_os = "macos"))]
-        "Packaged builds bundle ffmpeg and ffprobe in media/bin/, with optional NEOFLASH_FFMPEG override; exact Rust/media licences are inside and the corresponding source is verified by the supplied SHA256SUMS.txt. Keep .nflash backups and attach a minimal repro, Output diagnostics and the About NeoFlash commit to bug reports.",
+        "Packaged builds bundle ffmpeg and ffprobe in media/bin/, with optional NEOFLASH_FFMPEG override; exact Rust/media licences are inside and the corresponding source is verified by the supplied SHA256SUMS.txt. Keep .nflash backups and report issues via the Stage Bug? button or Help ▸ Send Beta Feedback… (delivered over HTTPS FormSubmit to developer@redinger.cc) with a minimal repro, Output diagnostics and the About NeoFlash commit.",
         "Beta 1 known issues and limits: VoiceOver cannot read the editor interface yet; there is no build for Intel (x86_64) Macs; updates are checked and downloaded via Preferences ▸ Updates (SHA-256 verified) and installed manually without silent self-replacement; the Windows preview is unsigned, so SmartScreen may warn before the first launch, and it has no connected debugger; the Linux preview is a portable archive tested on Ubuntu 24.04 x64 with X11 and Wayland, not an AppImage or deb package; Windows and Linux have had less testing than macOS; import of legacy Flash files is partial; graphics-tablet support is experimental.",
     ],
     &[
@@ -514,7 +515,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "AS1/AS2 _x, _y, _rotation, _visible, _name, _currentframe, and _totalframes map to AS3/JS x, y, rotation, visible, name, currentFrame, and totalFrames without underscores.",
         "AS2 percentage properties _alpha (0..100) and _xscale/_yscale (0..100) map to normalized unit floats alpha (0.0..1.0) and scaleX/scaleY (0.0..1.0) in AS3 and JS/TS.",
         "AS2 callback properties (mc.onRelease, mc.onEnterFrame) become mc.addEventListener(MouseEvent.CLICK, fn) and mc.addEventListener(Event.ENTER_FRAME, fn) in AS3.",
-        "All four NeoFlash languages (AS1, AS2, AS3, JS/TS) compile to the same deterministic Rust + WebAssembly runtime, timeline evaluator, and Web Audio scheduler.",
+        "All five NeoFlash languages (AS3, AS2, AS1, TypeScript, JavaScript) compile to the same deterministic Rust + WebAssembly runtime, timeline evaluator, and Web Audio scheduler.",
     ],
     &[
         "Frame scripts run with this bound to the owning MovieClip; object scripts and event callbacks receive the target instance and structured event payload.",
@@ -3028,21 +3029,24 @@ fn chapter_scripting_import_and_publish(
 ) {
     paragraph(
         ui,
-        "NeoFlash supports four scripting languages in the same authoring environment—ActionScript 2.0, ActionScript 3.0, JavaScript, and TypeScript—and publishes self-contained HTML5 + WebAssembly bundles, zero-WASM native HTML5 banners, Adobe After Effects (.aep/.jsx) compositions, 5-format texture atlases, vector/raster frame sequences, SVG, Lottie, SWF, and video.",
+        "NeoFlash supports five scripting languages in the same authoring environment—ActionScript 3.0, ActionScript 2.0, ActionScript 1.0, TypeScript, and JavaScript—governed by a unified per-project script language policy, and publishes self-contained HTML5 Canvas + WebAssembly bundles, semantic Web App · DOM bundles, zero-WASM native HTML5 banners, Desktop apps, Adobe After Effects (.aep/.jsx) compositions, 5-format texture atlases, vector/raster frame sequences, SVG, Lottie/dotLottie, Flash Player 8/9/10 SWF, audio/video, and headless CLI automation.",
     );
 
-    section_overline(ui, "Scripting, Debugging & Code Snippets");
+    section_overline(
+        ui,
+        "Scripting, Unified Language Policy, AI Assist & Debugging",
+    );
     mode_card(
         ui,
         Some(i16::CODE),
-        "Actions (F9), Code Snippets, Compiler Errors, Output (F2) & Debugger",
-        "4 Languages",
+        "Actions (F9), Project Script Policy, Send to AI…, Code Snippets & Debugger",
+        "5 Languages",
         BadgeType::Accent,
-        "F9 / F2 / ⌥F2",
+        "F9 / ⌘J / F2 / ⌥F2",
         &[
-            "Frame & Object Scripts: Attach scripts to keyframes (indicated by the 'a' marker in the Timeline) or directly to MovieClip/Button instances (`on(release)`, `onClipEvent`, or AS3/JS/TS event listeners).",
-            "Code Snippets Panel: Browse ready-made templates for Timeline Navigation, Actions, Events, Animation, and Audio—automatically adapted to your document's active script language.",
-            "Interactive Debugger & Bandwidth Profiler: Set line breakpoints, inspect the Call Stack, Locals, and Watch expressions, step Into/Over/Out, and inspect per-frame byte budgets in Test Movie.",
+            "Unified Project Script Policy (Document Settings ⌘J & Properties): Each document selects ActionScript 3.0, ActionScript 2.0, ActionScript 1.0, TypeScript, or JavaScript as its project script language. Optional 'Also compile compatible scripts' compiles AS1 inside AS2 projects and JS inside TS projects, while foreign-language scripts remain safely preserved (marked Skipped) until converted or retagged.",
+            "Frame, Object & Project Scripts + Code Snippets: Attach scripts to keyframes ('a' marker in the Timeline), MovieClip/Button instances (`on(release)`, `onClipEvent`), or `Project` source files (`.as`, `.ts`, `.js`), with language-matched templates in `Code Snippets` and interactive breakpoints, Call Stack, Locals, Watch, and Bandwidth Profiler in `Debugger`.",
+            "Optional AI Assist (`Preferences ▸ AI` & `Edit ▸ Send to AI…`): Connect OpenAI, Anthropic, Gemini, or custom HTTPS/loopback endpoints with API credentials stored exclusively in macOS Keychain or `NEOFLASH_AI_TOKEN_<ID>` environment variables (never in `.nflash` or preferences JSON). `Send to AI…` previews the exact redacted context pack for consent before sending, and `Insert at cursor` / `Apply timing` commits as a single Undo step.",
         ],
     );
 
@@ -3071,25 +3075,25 @@ fn chapter_scripting_import_and_publish(
 
     section_overline(
         ui,
-        "Import Pipeline & Native HTML5 / Sprite Sheet Publishing",
+        "Import Pipeline, Multi-Target Publishing & Headless CLI",
     );
     mode_card(
         ui,
         Some(i16::PUBLISH),
-        "Figma / Legacy FLA / XFL / SWF / AVI Import & Multi-Target Publishing",
+        "Figma / FLA / XFL / SWF / SWC / Audio Import, Web App · DOM & --headless CLI",
         "Interchange",
         BadgeType::Accent,
         "⌘R / ⇧F12 / ⌥⇧⌘A",
         &[
-            "Comprehensive Import: Opens Figma `.fig` (Kiwi) & `.figma.json` layered compositions, binary `.fla` (Flash 3–CS4), `.xfl`/`.fla` (CS5–Animate), `.swf` (FWS/CWS/ZWS), layered `.psd`/`.psb`, `.ai`/`.svg`/`.pdf` vectors, rasters (`.png`/`.jpg`/`.webp`/`.gif`/`.bmp`/`.tiff`), audio (`.wav`/`.mp3`/`.ogg`/`.flac`), video (`.mp4`/`.webm`/`.avi`), and numbered sequences.",
-            "HTML5 + WASM, Zero-WASM Native Banner & Stage Parity: Publishes full HTML5 + WASM bundles (`Stage.scaleMode`, 9-anchor `Stage.align`, `Allow fullscreen`, `loadPublish` child bundles, SHA-256 deduplicated `Assets folder`, per-bitmap `WebP`/`JPEG`/`PNG` Library compression, and packed `sprite_sheet.png`) or zero-WASM `Web Banner · Native` bundles (`<50 KB` gzipped). Reference projects live in `examples/as2/` and `examples/as3/`.",
-            "After Effects (.aep/.jsx), 5-Format Atlases & Frame Sequences: Export Adobe After Effects `.aep`/`.aepx` + ExtendScript `.jsx` + `<stem>_Footage/` preserving Bézier `ShapeLayer`s, pre-comps, Track Mattes, native AE Effects, editable `TextLayer`s, and compiled AE JS Expressions; 5-format Texture Atlases (`Starling XML`, `JSON-Hash`, `JSON-Array`, `CreateJS`, `PixiJS`); `.ai`/`.svg`/`.png`/`.jpg`/`.webp`/`.gif`/`.bmp` frame sequences (`Authored`, `Live Scripted`, `Animation + Script Overlay`); Lottie JSON; SWF; and MP4/WebM/GIF video.",
+            "Comprehensive Import & Library Linking: Opens Figma `.fig` (Kiwi & Zstd-compressed) and `.figma.json` layered designs, binary `.fla` (Flash 3–CS4), `.xfl`/`.fla` (CS5–Animate), `.swf` (FWS/CWS/ZWS), `.swc` component libraries (standalone via `File ▸ Open…` or linked into an existing project via `File ▸ Import` with conflict/dependency diagnostics), layered `.psd`/`.psb`, `.ai`/`.svg`/`.pdf`/`fxg` vectors, rasters, audio (`.mp3`/`.wav`, plus `.ogg`/`.flac`/`.aac`/`.m4a` transcoded to 16-bit PCM WAV via `ffmpeg`), video (`.mp4`/`.webm`/`.avi`), and numbered sequences.",
+            "Canvas + WASM, Web App · DOM & Zero-WASM Native Banner: Publishes high-DPI HTML5 Canvas + WASM bundles (`Stage.scaleMode`, 9-anchor `Stage.align`, `Allow fullscreen`, `loadPublish`, SHA-256 `Assets folder`, per-bitmap `WebP`/`JPEG`/`PNG`, `sprite_sheet.png`), semantic accessible `Web App · DOM` (`HtmlRenderMode::Dom` for responsive HTML/DOM elements and CSS transforms), or zero-WASM `Web Banner · Native` (`<50 KB` gzipped), plus Flash Player 8 (AVM1) / 9 / 10 (AVM2) `.swf`, Lottie JSON & `.lottie` dotLottie (`Original`/`PNG`/`JPEG`/`WebP`), After Effects `.aep`/`.jsx`, 5-format Texture Atlases, sequences, and audio/video.",
+            "Headless Automation CLI (`neoflash-editor --headless`): Machine-readable JSON/text commands (`capabilities`, `new`, `inspect`, `validate`, `compile`, `eval`, `jsfl`, `batch`, `import`, `export`) build, test, and publish `.nflash` projects in CI without opening a GUI window (supporting `--target html5|fla|xfl|swf|svg|lottie|dotlottie|atlas|sequence|video|audio|banner|desktop` and `--html-preview`).",
         ],
     );
 
     section_overline(
         ui,
-        "NeoFlash 0.1.0-beta.1 — Install, Manual Update, Bundled Media, Backups & Known Issues",
+        "NeoFlash 0.1.0-beta.1 — Install, Manual Update, Bundled Media, Beta Feedback & Known Issues",
     );
     mode_card(
         ui,
@@ -3109,7 +3113,7 @@ fn chapter_scripting_import_and_publish(
             "Bundled Media & Licences: Packaged macOS builds include ffmpeg and ffprobe in Contents/Resources/media/bin/. Exact application, Rust and media licence evidence is already included; verify the application and corresponding-source archives with the supplied SHA256SUMS.txt. Set NEOFLASH_FFMPEG / NEOFLASH_FFPROBE only for a custom override.",
             #[cfg(not(target_os = "macos"))]
             "Bundled Media & Licences: Packaged builds include ffmpeg and ffprobe in media/bin/. Exact application, Rust and media licence evidence is already included; verify the portable archive and corresponding-source archive with the supplied SHA256SUMS.txt. Set NEOFLASH_FFMPEG / NEOFLASH_FFPROBE only for a custom override.",
-            "Project Backups & Bug Reporting: Keep versioned .nflash JSON projects in Git or regular file backups. When reporting a bug, attach a minimal .nflash reproduction project, diagnostics copied from the Output panel (F2), and the version/commit identifier from NeoFlash ▸ About NeoFlash.",
+            "Project Backups & Beta Feedback (`Bug?` / `Help ▸ Send Beta Feedback…`): Keep versioned .nflash JSON projects in Git or regular file backups. In beta builds, click the bottom-left Stage `Bug?` pill or choose `Help ▸ Send Beta Feedback…` (available even with zero open documents) to send a report and up to 5 screenshots over HTTPS FormSubmit to `developer@redinger.cc` with automatic OS/architecture/version metadata, or attach a minimal .nflash reproduction, Output panel (F2) diagnostics, and the About NeoFlash commit identifier.",
             "Beta 1 known issues and limits: VoiceOver cannot read the editor interface yet; there is no build for Intel (x86_64) Macs; updates are checked and downloaded via Preferences ▸ Updates (SHA-256 verified) and installed manually without silent self-replacement; the Windows preview is unsigned, so SmartScreen may warn before the first launch, and it has no connected debugger; the Linux preview is a portable archive tested on Ubuntu 24.04 x64 with X11 and Wayland, not an AppImage or deb package; Windows and Linux have had less testing than macOS; import of legacy Flash files is partial; graphics-tablet support is experimental.",
         ],
     );

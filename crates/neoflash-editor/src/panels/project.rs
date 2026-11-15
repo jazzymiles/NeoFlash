@@ -94,13 +94,16 @@ fn source_template(language: ScriptLanguage, folder: &str, stem: &str) -> String
                 )
             }
         }
-        ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript1 => {
+        ScriptLanguage::ActionScript2 => {
             let qualified = if pkg.is_empty() {
                 stem.to_owned()
             } else {
                 format!("{pkg}.{stem}")
             };
             format!("class {qualified} {{\n    public function {stem}() {{\n    }}\n}}\n")
+        }
+        ScriptLanguage::ActionScript1 => {
+            format!("function {stem}() {{\n}}\n")
         }
         ScriptLanguage::TypeScript => {
             format!("export class {stem} {{\n    constructor() {{\n    }}\n}}\n")
@@ -132,6 +135,28 @@ impl Editor {
                 .unwrap_or_default(),
             _ => String::new(),
         }
+    }
+
+    pub(crate) fn project_new_file_language_allowed(
+        &self,
+        lang: ScriptLanguage,
+    ) -> (bool, Option<String>) {
+        let proj_lang = self.project.effective_script_language();
+        let allowed = self
+            .project
+            .script_disposition_for(
+                proj_lang,
+                self.project.also_compile_compatible_scripts,
+                lang,
+            )
+            .is_compiled();
+        let disabled_reason = (!allowed).then(|| {
+            format!(
+                "The project script language is {}",
+                proj_lang.display_label()
+            )
+        });
+        (allowed, disabled_reason)
     }
 
     /// Create a new project source file inside the selected `src` folder, select it and open Actions.
@@ -637,23 +662,26 @@ impl Editor {
         ui.horizontal(|ui| {
             let new_btn = ui.add(c::IconButton::new(i16::NEW_FILE, "New file"));
             if new_btn.clicked() {
-                let default_lang = self
-                    .project
-                    .sources
-                    .first()
-                    .map_or(ScriptLanguage::ActionScript3, |s| s.language);
+                let default_lang = self.project.effective_script_language();
                 self.project_new_source_file(default_lang);
             }
             c::context_menu(&new_btn, |ui| {
                 for (label, lang) in [
                     ("ActionScript 3.0 (.as)", ScriptLanguage::ActionScript3),
                     ("ActionScript 2.0 (.as)", ScriptLanguage::ActionScript2),
+                    ("ActionScript 1.0 (.as)", ScriptLanguage::ActionScript1),
                     ("TypeScript (.ts)", ScriptLanguage::TypeScript),
                     ("JavaScript (.js)", ScriptLanguage::JavaScript),
                 ] {
-                    if ui.add(c::MenuItem::new(label)).clicked() {
-                        self.project_new_source_file(lang);
-                        ui.close();
+                    let (allowed, disabled_reason) = self.project_new_file_language_allowed(lang);
+                    if allowed {
+                        if ui.add(c::MenuItem::new(label)).clicked() {
+                            self.project_new_source_file(lang);
+                            ui.close();
+                        }
+                    } else {
+                        let resp = ui.add_enabled(false, c::MenuItem::new(label));
+                        crate::ui_icons::hover_tooltip(resp, "", None, disabled_reason.as_deref());
                     }
                 }
             });
