@@ -362,6 +362,7 @@ impl Player {
         for child in &old {
             events.push(DisplayEvent {
                 kind: "removed".into(),
+                stage_route: attached,
                 target_ref: child.clone(),
                 route: self.graph.route(child),
             });
@@ -370,6 +371,7 @@ impl Player {
             for id in &descendants {
                 events.push(DisplayEvent {
                     kind: "removed_from_stage".into(),
+                    stage_route: true,
                     target_ref: id.clone(),
                     route: self.graph.route(id),
                 });
@@ -446,12 +448,14 @@ impl Player {
                 self.graph.suffix.insert(target.clone(), vec![id.clone()]);
                 events.push(DisplayEvent {
                     kind: "added".into(),
+                    stage_route: attached,
                     target_ref: id.clone(),
                     route: self.graph.route(&id),
                 });
                 if attached {
                     events.push(DisplayEvent {
                         kind: "added_to_stage".into(),
+                        stage_route: true,
                         target_ref: id.clone(),
                         route: self.graph.route(&id),
                     });
@@ -483,12 +487,14 @@ impl Player {
                 self.graph.suffix.insert(target.clone(), vec![id.clone()]);
                 events.push(DisplayEvent {
                     kind: "added".into(),
+                    stage_route: attached,
                     target_ref: id.clone(),
                     route: self.graph.route(&id),
                 });
                 if attached {
                     events.push(DisplayEvent {
                         kind: "added_to_stage".into(),
+                        stage_route: true,
                         target_ref: id.clone(),
                         route: self.graph.route(&id),
                     });
@@ -550,12 +556,14 @@ impl Player {
                     self.graph.suffix.insert(target.clone(), vec![id.clone()]);
                     events.push(DisplayEvent {
                         kind: "added".into(),
+                        stage_route: attached,
                         target_ref: id.clone(),
                         route: self.graph.route(&id),
                     });
                     if attached {
                         events.push(DisplayEvent {
                             kind: "added_to_stage".into(),
+                            stage_route: true,
                             target_ref: id.clone(),
                             route: self.graph.route(&id),
                         });
@@ -1019,6 +1027,7 @@ mod tests {
         player.graph.events = vec![
             DisplayEvent {
                 kind: "added".into(),
+                stage_route: false,
                 target_ref: loader.clone(),
                 route: vec![loader.clone()],
             };

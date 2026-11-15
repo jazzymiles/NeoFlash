@@ -666,6 +666,7 @@
     const constructedNames = new WeakMap();
     const offstageLinkedTargets = new Set();
     const retiringTargets = new Set();
+    const pendingRetirementRefs = new Map();
     const constructSessions = [];
     const frameLabelDispatchedScopes = new Set();
     let knownResetGeneration = 0;
@@ -870,7 +871,7 @@
       }
       let invokeAsfunction=()=>{};
       if(textHost&&global.NeoFlashAS2Text)as2TextHost=global.NeoFlashAS2Text.create({broadcaster:global.NeoFlashBroadcaster,wasm,player,text:textHost,getNet:()=>netHost,onAsfunction:(ref,spec)=>{const tf=proxyForRef(JSON.parse(ref));invokeAsfunction(tf?._parent||proxyFor([]),spec);afterTimerEvent();},targetForRef:key=>proxyForRef(JSON.parse(key)),afterCallback:afterTimerEvent,project:typeof project==='undefined'?null:project,document:typeof document==='undefined'?null:document});
-      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,onSuperConstruct:handleSuperConstruct,isRetiring:target=>retiringTargets.has(target),onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,
+      display=global.NeoFlashDisplay.create({player,geometry:geometryHost,getGeom3D:()=>geometry3dHost,proxyFor,proxyForRef,onMutation:deliverDisplayEvents,onSuperConstruct:handleSuperConstruct,isRetiring:target=>retiringTargets.has(target),isRetiringReference:key=>pendingRetirementRefs.has(key)||retiringTargets.has(proxies.get(key)?.proxy),onTabChange:(target,type)=>{if(eventHub&&global.NeoFlashEvents)eventHub.dispatch(target,new global.NeoFlashEvents.Event(type,true,false));},onTextLink:(target,text)=>{if(eventHub&&global.NeoFlashEvents&&display.alive(target)){eventHub.dispatch(target,new global.NeoFlashEvents.TextEvent('link',true,false,text));afterTimerEvent();}},project:typeof project==='undefined'?undefined:project,prepareLinked,getBitmap:()=>bitmapHost,getText:()=>textHost,getAS2Text:()=>as2TextHost,getLoader:()=>loaderHost,getVideo:()=>videoHost,getFilters:()=>filterHost,getNet:()=>netHost,getAudio:()=>audioHost,getFte3D:()=>fte3dHost,as2,
         shapeContains:(kind,x,y,world)=>{const hasCanvas=typeof context!=='undefined'&&typeof context.isPointInPath==='function'&&typeof Path2D==='function';if(hasCanvas)inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.contains(hasCanvas?context:null,kind,x,y,hasCanvas?inputPaths.get(kind.commands):null,world);},
         clipsContain:(snapshot,ids,x,y)=>{if(typeof context==='undefined')throw new Error('Clipped input requires Canvas Path2D support.');inputPaths??=new global.NeoFlashPaths.PathCache();return global.NeoFlashPaths.clipsContain(context,ids,global.NeoFlashPaths.clipTable(snapshot.clips||[],snapshot.filter_groups||[]),x,y,inputPaths);},
         beforeRaster:target=>assertUnfilteredEditing(stageHost?.stage.focus,target),beforeFilters:(target,specs)=>{if(specs.length)assertUnfilteredEditing(stageHost?.stage.focus,target);},referenceOf:target=>references.get(target),getStage:()=>stageHost?.stage||null,getStageHost:()=>stageHost||null,
@@ -1685,7 +1686,7 @@
     }
     function clearFamilyState() {
       proxies.clear(); attachedClasses.clear(); constructedNodes.clear(); superConstructedNodes.clear();
-      offstageLinkedTargets.clear(); retiringTargets.clear(); constructSessions.length = 0;
+      offstageLinkedTargets.clear(); retiringTargets.clear(); pendingRetirementRefs.clear(); constructSessions.length = 0;
       frameLabelDispatchedScopes.clear(); boundTextVariables.clear(); registeredClasses.clear();
       executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0;
       if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
@@ -1749,7 +1750,7 @@
       const current = stepGeneration !== null ? stepGeneration : (typeof player.reset_generation === 'function' ? player.reset_generation() : knownResetGeneration);
       if (current === knownResetGeneration) return;
       knownResetGeneration = current;
-      proxies.clear(); attachedClasses.clear(); constructedNodes.clear(); superConstructedNodes.clear(); offstageLinkedTargets.clear(); retiringTargets.clear(); constructSessions.length = 0; frameLabelDispatchedScopes.clear(); boundTextVariables.clear(); clipFrameLabels.clear();
+      proxies.clear(); attachedClasses.clear(); constructedNodes.clear(); superConstructedNodes.clear(); offstageLinkedTargets.clear(); retiringTargets.clear(); pendingRetirementRefs.clear(); constructSessions.length = 0; frameLabelDispatchedScopes.clear(); boundTextVariables.clear(); clipFrameLabels.clear();
       display?.clear(); eventHub?.clear();
     }
     function nodeKeyOf(node) {
@@ -1811,9 +1812,9 @@
       for (const key of superConstructedNodes.keys()) if (!player.object_alive(key)) superConstructedNodes.delete(key);
       for (const key of offstageLinkedTargets.keys()) if (!player.object_alive(key)) offstageLinkedTargets.delete(key);
       for (const key of boundTextVariables.keys()) if (!player.object_alive(key)) boundTextVariables.delete(key);
-      for (const key of proxies.keys()) if (!player.object_alive(key)) proxies.delete(key);
+      for (const [key,entry] of proxies) if (!player.object_alive(key)&&!pendingRetirementRefs.has(key)&&!retiringTargets.has(entry.proxy)) proxies.delete(key);
       display?.prune();
-      eventHub?.prune();
+      if(!pendingRetirementRefs.size)eventHub?.prune();
     }
     function directChildrenOf(node, nodes, byKey) {
       if (graphMode && Array.isArray(node.children)) {
@@ -1868,11 +1869,12 @@
     }
     function constructSubtree(node, session, nodes, byKey, hasTextVars, needAddedProxy) {
       const key = nodeKeyOf(node), lifetime = nodeLifetimeOf(node);
+      const isCurrent=()=>graphMode?player.object_alive(key):player.lifetime_id(key)===lifetime;
+      if(!isCurrent())return;
       if (constructedNodes.get(key) === lifetime) {
         constructChildrenOf(node, session, nodes, byKey, hasTextVars, needAddedProxy);
         return;
       }
-      if (graphMode && !player.object_alive(key)) return;
       constructedNodes.set(key, lifetime);
       if (hasTextVars && node.owner === 'text' && node.text?.variable && !node.text?.html) {
         const tLife = node.object_ref.generation;
@@ -1881,6 +1883,7 @@
           as2ObjectHost.variableRef(proxyForRef(node.object_ref))?.set(node.text.variable);
         }
       }
+      if(!isCurrent())return;
       const { symLinkage, hasRegistered } = nodeRegistrationInfo(node);
       const hasClass = Boolean(node.class_name || hasRegistered);
       const hasChildren = Boolean(node.children?.length || (!graphMode && nodes.some(c => c.path.length === node.path.length + 1 && node.path.every((seg, i) => c.path[i] === seg))));
@@ -1892,6 +1895,7 @@
       try {
         if (hasClass) {
           attachNodeClass(node, receiver, key, lifetime, symLinkage, hasRegistered);
+          if(!isCurrent())return;
           if (superConstructedNodes.get(key) !== lifetime) {
             superConstructedNodes.set(key, lifetime);
             constructChildrenOf(node, session, nodes, byKey, hasTextVars, needAddedProxy);
@@ -1903,11 +1907,12 @@
       } finally {
         constructingNodeKeys.delete(key);
       }
+      if(!isCurrent())return;
       if (receiver) {
         const parentNode = graphMode
           ? (node.parent_ref ? byKey.get(JSON.stringify(node.parent_ref)) : null)
           : (node.path.length ? byKey.get(JSON.stringify(node.path.slice(0, -1))) : null);
-        if (parentNode) {
+        if (parentNode&&(graphMode?player.object_alive(nodeKeyOf(parentNode)):player.lifetime_id(nodeKeyOf(parentNode))===nodeLifetimeOf(parentNode))) {
           const parentProxy = graphMode ? proxyForRef(parentNode.object_ref) : proxyFor(parentNode.path);
           assignTimelineChild(parentProxy, node, receiver);
         }
@@ -2007,7 +2012,7 @@
     }
     function attachNewInstances(scope=null) {
       if(!display)return;
-      display.prune();eventHub?.prune();
+      display.prune();if(!pendingRetirementRefs.size)eventHub?.prune();
       if(!scope){
         for(const key of attachedClasses.keys())if(graphMode?!player.object_alive(key):!player.lifetime_id(key))attachedClasses.delete(key);
         if(graphMode)for(const key of boundTextVariables.keys())if(!player.object_alive(key))boundTextVariables.delete(key);
@@ -2075,13 +2080,22 @@
       drainDisplayEvents();
       // Canonical refs are never reused; retire cache entries without retaining every
       // prior authored placement forever. Externally held stale proxies still reject access.
-      if(graphMode)for(const key of proxies.keys())if(!player.object_alive(key))proxies.delete(key);
+      if(graphMode)for(const[key,entry]of proxies)if(!player.object_alive(key)&&!pendingRetirementRefs.has(key)&&!retiringTargets.has(entry.proxy))proxies.delete(key);
     }
     function deliverDisplayEvents(events, options = null) {
       if(!eventHub||!events?.length)return;
       const rootRef=JSON.parse(player.object_ref('[]')),rootKey=JSON.stringify(rootRef);
       const types={added:'added',removed:'removed',added_to_stage:'addedToStage',removed_from_stage:'removedFromStage'};
       const timelineRetired=Boolean(options?.timelineRetired);
+      // Nested navigation must not discard later siblings from this captured packet.
+      // Retention does not make them live for property access or frame broadcasts.
+      const retained=new Set();
+      for(const item of events)if(item.kind==='removed'||item.kind==='removed_from_stage'){
+        retained.add(JSON.stringify(item.target_ref));
+        for(const ref of item.route)retained.add(JSON.stringify(ref));
+      }
+      for(const key of retained)pendingRetirementRefs.set(key,(pendingRetirementRefs.get(key)||0)+1);
+      try{
       for(const item of events) {
         const key=JSON.stringify(item.target_ref);
         const type=types[item.kind];if(!type)throw new Error(`Unsupported display lifecycle event ${item.kind}.`);
@@ -2090,9 +2104,17 @@
         if(!aliveNow&&!isRetirement)continue;
         const target=aliveNow?proxyForRef(item.target_ref):proxies.get(key)?.proxy;
         if(!target)continue;
+        if(type==='addedToStage'&&item.route.length>1){
+          // ADDED may detach the original parent before its pending Stage event.
+          // Test that parent, rather than the child: self-removal from a parent
+          // still on Stage retains the reference dispatch behavior.
+          const parentRef=item.route[1],parentKey=JSON.stringify(parentRef);
+          if(!player.object_alive(parentKey)||display.descriptor(proxyForRef(parentRef)).on_stage===false)continue;
+        }
         const route=item.route.map(ref=>{const rk=JSON.stringify(ref);return player.object_alive(rk)?proxyForRef(ref):proxies.get(rk)?.proxy;}).filter(Boolean);
         if(!route.length||route[0]!==target)route.unshift(target);
-        if(item.route.some(ref=>JSON.stringify(ref)===rootKey)&&stageHost)route.push(stageHost.stage);
+        const stageRoute=typeof item.stage_route==='boolean'?item.stage_route:item.route.some(ref=>JSON.stringify(ref)===rootKey);
+        if(stageRoute&&stageHost)route.push(stageHost.stage);
         const temporarilyAlive=[];
         if(isRetirement){
           for(const entry of route){
@@ -2118,6 +2140,12 @@
               if(program?.hasFixedProperty?.(parentProxy,childName)&&parentProxy[childName]===target)parentProxy[childName]=null;
             }
           }
+        }
+      }
+      }finally{
+        for(const key of retained){
+          const count=pendingRetirementRefs.get(key)||0;
+          if(count>1)pendingRetirementRefs.set(key,count-1);else pendingRetirementRefs.delete(key);
         }
       }
     }
@@ -2246,6 +2274,14 @@
       const custom = Object.create(null);
       function assertAlive() {
         if (!live()) throw new ReferenceError(`Display object ${key} was removed or replaced.`);
+      }
+      function frameValue(total=false){
+        assertAlive();
+        if(objectRef&&retiringTargets.has(resolvedProxy)&&!player.object_alive(key)){
+          const node=display.descriptor(resolvedProxy);
+          return total?node.total_frames:node.frame+1;
+        }
+        return total?call('clip_frame_count'):call('clip_frame')+1;
       }
       function proxyOwner(){return display?(display.ownerOf?display.ownerOf(proxy):display.descriptor(proxy).owner):null;}
       function ownsTimelineMetadata(name){
@@ -2428,9 +2464,13 @@
           if (name === 'menu' && as2StageHost && display && ['movie_clip','button','text'].includes(proxyOwner())) return as2StageHost.menuRef(proxy,'menu').get();
           if (name === '_root' || name === 'root') {assertAlive();return name==='root'&&objectRef&&!display.descriptor(proxy).on_stage?null:name==='_root'?as2RootFor(proxy):proxyFor([]);}
           if (name === '_parent' || name === 'parent') {assertAlive();const parent=display?display.parentSpace(proxy):path.length?proxyFor(path.slice(0,-1)):stageHost?.stage||null;return name==='_parent'&&parent===stageHost?.stage?null:parent;}
-          if (name === 'currentFrame' && sceneCount() > 1) {assertAlive();return JSON.parse(call('clip_metadata')).scene_frame;} // AS3 frames are scene-relative.
-          if (name === '_currentframe' || name === 'currentFrame') return call('clip_frame') + 1;
-          if (name === '_totalframes' || name === 'totalFrames') return call('clip_frame_count');
+          if (name === '_currentframe' || name === 'currentFrame') {
+            assertAlive();
+            const retiring=objectRef&&retiringTargets.has(resolvedProxy)&&!player.object_alive(key);
+            if(name==='currentFrame'&&!retiring&&sceneCount()>1)return JSON.parse(call('clip_metadata')).scene_frame;
+            return frameValue();
+          }
+          if (name === '_totalframes' || name === 'totalFrames') return frameValue(true);
           if (Object.hasOwn(propertyMap, name)) {
             assertAlive();
             const value = call('property',propertyMap[name]);

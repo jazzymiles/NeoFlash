@@ -255,12 +255,14 @@ impl Player {
         for (_, reference, route, was_on_stage) in retired_info {
             self.graph.push_timeline_event(DisplayEvent {
                 kind: "removed".into(),
+                stage_route: was_on_stage,
                 target_ref: reference.clone(),
                 route: route.clone(),
             });
             if was_on_stage {
                 self.graph.push_timeline_event(DisplayEvent {
                     kind: "removed_from_stage".into(),
+                    stage_route: true,
                     target_ref: reference,
                     route,
                 });
@@ -330,12 +332,14 @@ impl Player {
             let on_stage = self.graph.on_stage(&reference);
             self.graph.push_timeline_event(DisplayEvent {
                 kind: "added".into(),
+                stage_route: on_stage,
                 target_ref: reference.clone(),
                 route: route.clone(),
             });
             if on_stage {
                 self.graph.push_timeline_event(DisplayEvent {
                     kind: "added_to_stage".into(),
+                    stage_route: true,
                     target_ref: reference,
                     route,
                 });

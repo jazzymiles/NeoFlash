@@ -103,6 +103,7 @@ test('AS3 construction, broadcast phase order, re-entrant goto, detached clips, 
             public dynamic class Main extends MovieClip {
               public var panel:PanelClip;
               public var retiringBox:MovieClip;
+              public var exitParent:MovieClip;
               public var badgeCount:int = 7;
               public function Main() {
                 this.addEventListener(Event.ADDED, this.onAdded);
@@ -343,6 +344,54 @@ test('AS3 construction, broadcast phase order, re-entrant goto, detached clips, 
     ],
   };
 
+  // Keep reentrant retirement in this same compiled/exported lifecycle family.
+  project.sources.push({
+    id: 'src-ancestor-exit', path: 'AncestorExitClip.as', language: 'action_script3',
+    source: `package {
+      import flash.display.MovieClip;
+      public class AncestorExitClip extends MovieClip {
+        public function AncestorExitClip() {
+          super();
+          MovieClip(this.root).gotoAndStop(5);
+          trace("AncestorExit.return");
+        }
+      }
+    }`,
+  });
+  const rootSymbol = project.symbols.find(symbol => symbol.id === 'root');
+  rootSymbol.timeline.frame_count = 6;
+  rootSymbol.timeline.layers.push({
+    id: 'l-ancestor-exit', name: 'Ancestor exit', visible: true, locked: false,
+    keyframes: [
+      { frame: 0, label: '', elements: [] },
+      { frame: 3, label: '', elements: [instElement('exit-parent', 'exit-parent-sym', 'exitParent')] },
+      { frame: 4, label: '', elements: [] },
+      { frame: 5, label: '', elements: [instElement('sibling-parent', 'sibling-parent-sym', 'siblingParent')] },
+    ],
+  });
+  project.symbols.find(symbol => symbol.id === 'retire-sym').timeline.frame_count = 4;
+  project.symbols.push(
+    {
+      id: 'exit-parent-sym', name: 'Exit parent', kind: 'movie_clip',
+      timeline: { frame_count: 1, scripts: [], layers: [{ id: 'l-exit-parent', name: 'L', visible: true, locked: false,
+        keyframes: [{ frame: 0, label: '', elements: [instElement('exit-child', 'exit-child-sym')] }] }] },
+    },
+    {
+      id: 'exit-child-sym', name: 'Exit child', kind: 'movie_clip', class_name: 'AncestorExitClip',
+      timeline: { frame_count: 1, scripts: [], layers: [{ id: 'l-exit-child', name: 'L', visible: true, locked: false,
+        keyframes: [{ frame: 0, label: '', elements: [] }] }] },
+    },
+    {
+      id: 'sibling-parent-sym', name: 'Sibling parent', kind: 'movie_clip',
+      timeline: { frame_count: 3, scripts: [], layers: [{ id: 'l-siblings', name: 'L', visible: true, locked: false,
+        keyframes: [
+          { frame: 0, label: '', elements: [instElement('sibling-a', 'retire-sym', 'a'), instElement('sibling-b', 'retire-sym', 'b')] },
+          { frame: 1, label: '', elements: [] },
+          { frame: 2, label: '', elements: [] },
+        ] }] },
+    },
+  );
+
   let handle;
   try {
     handle = await exportAndBoot(root, project, 'as3-frame-lifecycle');
@@ -428,6 +477,53 @@ test('AS3 construction, broadcast phase order, re-entrant goto, detached clips, 
       `ADDED:${detached.name}:phase=3`,
       `Detached.ADDED_TO_STAGE:${detached.name}`,
     ]);
+
+    main.gotoAndStop(1);
+    const retiring = main.retiringBox, retirement = [];
+    retiring.gotoAndStop(3);
+    retiring.addEventListener('removed', event => {
+      if (event.target !== retiring) return;
+      retirement.push([event.target.name, event.target.currentFrame, event.target.totalFrames]);
+      main.gotoAndStop(3);
+      retirement.push([event.target.name, event.target._currentframe, event.target._totalframes]);
+    });
+    main.gotoAndStop(2);
+    assert.deepEqual(retirement, [['retiringBox', 3, 4], ['retiringBox', 3, 4]],
+      'nested navigation must retain the removed object descriptor for the whole callback');
+    for (const property of ['currentFrame', '_currentframe', 'totalFrames', '_totalframes']) {
+      assert.throws(() => retiring[property], /removed|replaced/, 'retired frame reads must reject after dispatch');
+    }
+
+    traceCalls.length = 0;
+    assert.doesNotThrow(() => main.gotoAndStop(4), 'a child constructor may navigate away from its ancestor');
+    assert.equal(main.currentFrame, 5);
+    assert.equal(main.exitParent, null, 'the abandoned constructor must not restore the retired parent into a typed slot');
+    assert.equal(main.getChildByName('exitParent'), null);
+    assert.ok(flat().includes('AncestorExit.return'));
+
+    main.gotoAndStop(6);
+    const siblings = main.siblingParent, a = siblings.a, b = siblings.b, siblingEvents = [];
+    a.gotoAndStop(3); b.gotoAndStop(2);
+    const legacyUnloads = [];
+    let legacyFrames = 0;
+    host.display().as2Ref(b, 'onUnload').set(function () { legacyUnloads.push([this.name, this._currentframe, this._totalframes]); });
+    host.display().as2Ref(b, 'onEnterFrame').set(() => legacyFrames++);
+    a.addEventListener('removed', event => {
+      if (event.target !== a) return;
+      assert.throws(() => b.currentFrame, /removed|replaced/, 'pending retirement retains identity without making siblings live');
+      siblings.gotoAndStop(3);
+    });
+    for (const type of ['removed', 'removedFromStage']) b.addEventListener(type, event => {
+      if (event.target === b) siblingEvents.push([type, b.name, b.currentFrame, b.totalFrames]);
+    });
+    siblings.gotoAndStop(2);
+    assert.deepEqual(siblingEvents, [['removed', 'b', 2, 4], ['removedFromStage', 'b', 2, 4]],
+      'navigation from the first removed sibling must preserve the remaining retirement packet');
+    assert.deepEqual(legacyUnloads, [['b', 2, 4]], 'the pending AS2 onUnload callback survives nested pruning exactly once');
+    host.broadcastFrame(); player.tick(); host.dispatchScripts();
+    assert.equal(legacyUnloads.length, 1);
+    assert.equal(legacyFrames, 0, 'retired legacy records no longer receive frame callbacks');
+    assert.throws(() => b.name, /removed|replaced/);
   } finally {
     if (handle?.host) {
       handle.host.stopTimers();

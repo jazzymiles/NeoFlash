@@ -60,7 +60,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,getStageHost=()=>null,measureText,pathBounds,onMutation=()=>{},onSuperConstruct=null,isRetiring=()=>false,onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
+  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,getStageHost=()=>null,measureText,pathBounds,onMutation=()=>{},onSuperConstruct=null,isRetiring=()=>false,isRetiringReference=()=>false,onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
@@ -276,7 +276,7 @@
           if(lifetime){
             const ck=`${k}\0${lifetime}`;
             if(!ownerCache.has(ck))ownerCache.set(ck,{owner:node.owner,staticText:isStaticTextNode(node)});
-            if(!descriptorCache.has(ck))descriptorCache.set(ck,node);
+            descriptorCache.set(ck,node);
           }
         }
         Object.defineProperty(list,'__byKey',{value:byKey,enumerable:false});
@@ -1902,7 +1902,7 @@
       return typeof handler==='function'?handler:null;
     }
     function alive(target){const ref=referenceOf(target);return !!ref&&((graph?player.object_alive(ref.key):player.lifetime_id(ref.key)===ref.lifetime)||isRetiring(target));}
-    function prune(){for(const[id,record]of legacy)if(!alive(record.target))legacy.delete(id);if(graph){for(const ck of descriptorCache.keys()){const k=ck.slice(0,ck.indexOf('\0'));if(!player.object_alive(k))descriptorCache.delete(ck);}for(const ck of ownerCache.keys()){const k=ck.slice(0,ck.indexOf('\0'));if(!player.object_alive(k))ownerCache.delete(ck);}}if(dragging&&(!alive(dragging.target)||descriptor(dragging.target).on_stage===false))dragging=null;if(pressed&&(!alive(pressed)||descriptor(pressed).on_stage===false))pressed=null;if(hovered&&(!alive(hovered)||descriptor(hovered).on_stage===false))hovered=null;}
+    function prune(){for(const[id,record]of legacy)if(!alive(record.target)&&!isRetiringReference(record.ref.key))legacy.delete(id);if(graph){for(const ck of descriptorCache.keys()){const k=ck.slice(0,ck.indexOf('\0'));if(!player.object_alive(k)&&!isRetiringReference(k))descriptorCache.delete(ck);}for(const ck of ownerCache.keys()){const k=ck.slice(0,ck.indexOf('\0'));if(!player.object_alive(k)&&!isRetiringReference(k))ownerCache.delete(ck);}}if(dragging&&(!alive(dragging.target)||descriptor(dragging.target).on_stage===false))dragging=null;if(pressed&&(!alive(pressed)||descriptor(pressed).on_stage===false))pressed=null;if(hovered&&(!alive(hovered)||descriptor(hovered).on_stage===false))hovered=null;}
     function enterFrame(){
       prune();
       for(const record of [...legacy.values()]){

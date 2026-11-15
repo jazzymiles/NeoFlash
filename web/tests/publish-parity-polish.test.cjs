@@ -1007,6 +1007,64 @@ function buildVisualCameraMasksProject(renderMode) {
   };
 }
 
+function buildLifecycleRecoveryProject(renderMode) {
+  const symbol = (id, elements, source) => ({
+    id, name: id, kind: 'movie_clip',
+    timeline: { frame_count: 1, layers: [{
+      id: `${id}-layer`, name: 'Content', visible: true, locked: false,
+      keyframes: [{ frame: 0, label: '', elements }],
+    }], scripts: [{ frame: 0, script: { language: 'action_script3', source } }] },
+  });
+  const child = symbol('one-frame-child', [{
+    id: 'dot', name: 'dot', transform: makeTransform(),
+    kind: { type: 'rectangle', width: 20, height: 20, fill: [20, 160, 80, 255],
+      stroke: [0, 0, 0, 0], stroke_width: 0 },
+  }], `import flash.events.Event;
+    this.entries = this.entries ? this.entries + 1 : 1;
+    this.ticks = 0;
+    var child:* = this;
+    this.addEventListener(Event.ENTER_FRAME, function(e:Event):void { child.ticks++; });
+    trace("T341_CHILD_ENTRY");`);
+  const late = symbol('late-clip', [], 'this.entries = this.entries ? this.entries + 1 : 1; trace("T341_LATE_ENTRY");');
+  late.class_name = 'LateClip';
+  late.linkage_id = 'LateClip';
+  const root = symbol('lifecycle-root', [{
+    id: 'only', name: 'only', transform: makeTransform({ x: 30, y: 30 }),
+    kind: { type: 'instance', symbol_id: child.id, playback: 'independent' },
+  }], `import flash.events.Event;
+    import LateClip;
+    var self:* = this;
+    self.entries = self.entries ? self.entries + 1 : 1;
+    self.ticks = 0;
+    self.kept = self.getChildByName("only");
+    self.addEventListener(Event.EXIT_FRAME, function(e:Event):void {
+      if (self.ticks == 2 && !self.late) self.late = new LateClip();
+    });
+    self.addEventListener(Event.ENTER_FRAME, function(e:Event):void {
+      self.ticks++;
+      if (self.ticks == 2) self.removeChild(self.kept);
+      if (self.ticks == 4) self.addChild(self.kept);
+      if (self.ticks == 6) {
+        if (self.kept.entries != 1 || self.kept.ticks != 5 || self.kept.currentFrame != 1)
+          throw new Error("Single-frame entry or detached clock was repeated");
+        if (!self.late || self.late.entries != 1)
+          throw new Error("EXIT_FRAME-created clip lost or repeated its first frame");
+        if (self.getChildByName("only") !== self.kept || self.kept.parent !== self)
+          throw new Error("Reattachment changed display identity");
+        trace("T341_LIFECYCLE_READY:" + self.entries + ":" + self.kept.entries + ":" + self.late.entries);
+      }
+    });
+    trace("T341_ROOT_ENTRY");`);
+  return {
+    format_version: 10, name: `LifecycleRecovery_${renderMode}`,
+    width: 320, height: 240, fps: 24, background: [255, 255, 255, 255],
+    root: root.id, scenes: [], script_language: 'action_script3',
+    symbols: [root, child, late], resources: [],
+    sources: [{ id: 'late-source', path: 'LateClip.as', language: 'action_script3',
+      source: 'package { import flash.display.MovieClip; public dynamic class LateClip extends MovieClip { public function LateClip() { super(); } } }' }],
+  };
+}
+
 function buildFailureRecoveryProject(renderMode) {
   return {
     format_version: 10,
@@ -1086,9 +1144,11 @@ test('Canvas + DOM publish parity: scenes, symbols, Restart recovery with author
       const multiPath = path.join(tempRoot, `multi-${mode}.nflash`);
       const visPath = path.join(tempRoot, `vis-${mode}.nflash`);
       const failurePath = path.join(tempRoot, `failure-${mode}.nflash`);
+      const lifecyclePath = path.join(tempRoot, `lifecycle-${mode}.nflash`);
       fs.writeFileSync(multiPath, JSON.stringify(buildMultiSceneAndSymbolsProject(mode), null, 2));
       fs.writeFileSync(visPath, JSON.stringify(buildVisualCameraMasksProject(mode), null, 2));
       fs.writeFileSync(failurePath, JSON.stringify(buildFailureRecoveryProject(mode), null, 2));
+      fs.writeFileSync(lifecyclePath, JSON.stringify(buildLifecycleRecoveryProject(mode), null, 2));
 
       execFileSync(
         bin,
@@ -1105,10 +1165,21 @@ test('Canvas + DOM publish parity: scenes, symbols, Restart recovery with author
         ['--runtime', runtimeDir, failurePath, '--output', path.join(tempRoot, `failure-${mode}`), '--render-mode', mode],
         { cwd: repoRoot, encoding: 'utf8' }
       );
+      execFileSync(bin, ['--runtime', runtimeDir, lifecyclePath, '--output', path.join(tempRoot, `lifecycle-${mode}`), '--render-mode', mode],
+        { cwd: repoRoot, encoding: 'utf8' });
     }
 
     serverInfo = await startNoCacheServer(tempRoot);
     cdp = await launchCdpSession(chromeBin, userDataDir);
+
+    for (const mode of ['canvas', 'dom']) {
+      await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/lifecycle-${mode}/index.html`);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt) await cdp.evalJson('NeoFlashPlayer.restart(); true');
+        await cdp.waitTrace('T341_LIFECYCLE_READY:1:1:1');
+      }
+    }
+    assert.deepEqual(cdp.errors, [], `Lifecycle browser errors: ${cdp.errors.join('\n')}`);
 
     // =========================================================================
     // 1. Multi-Scene Auto-Advance, Hit-Only Button, Graphic/MC Modes & Restart

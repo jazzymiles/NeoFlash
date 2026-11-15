@@ -106,6 +106,9 @@ pub struct DisplayEvent {
     pub target_ref: ObjectRef,
     /// Captured target-first route, independent of later mutation/reparenting.
     pub route: Vec<ObjectRef>,
+    /// Whether the captured route ends at Stage, which has no graph ObjectRef.
+    #[serde(default)]
+    pub stage_route: bool,
 }
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct MutationResult {
@@ -448,12 +451,14 @@ impl RuntimeGraph {
         for (_, reference, route, was_on_stage) in retired_info {
             self.push_timeline_event(DisplayEvent {
                 kind: "removed".into(),
+                stage_route: was_on_stage,
                 target_ref: reference.clone(),
                 route: route.clone(),
             });
             if was_on_stage {
                 self.push_timeline_event(DisplayEvent {
                     kind: "removed_from_stage".into(),
+                    stage_route: true,
                     target_ref: reference,
                     route,
                 });
@@ -514,12 +519,14 @@ impl RuntimeGraph {
             let on_stage = self.on_stage(&reference);
             self.push_timeline_event(DisplayEvent {
                 kind: "added".into(),
+                stage_route: on_stage,
                 target_ref: reference.clone(),
                 route: route.clone(),
             });
             if on_stage {
                 self.push_timeline_event(DisplayEvent {
                     kind: "added_to_stage".into(),
+                    stage_route: true,
                     target_ref: reference,
                     route,
                 });
@@ -1819,6 +1826,7 @@ impl Player {
                 if old_parent.is_some() || was_stage_child {
                     result.events.push(DisplayEvent {
                         kind: "removed".into(),
+                        stage_route: was_stage,
                         target_ref: child.clone(),
                         route: self.graph.route(&child),
                     });
@@ -1827,6 +1835,7 @@ impl Player {
                     for id in &subtree {
                         result.events.push(DisplayEvent {
                             kind: "removed_from_stage".into(),
+                            stage_route: true,
                             target_ref: id.clone(),
                             route: self.graph.route(id),
                         });
@@ -1835,6 +1844,7 @@ impl Player {
                 self.graph.attach_child(&parent, &child, index);
                 result.events.push(DisplayEvent {
                     kind: "added".into(),
+                    stage_route: will_stage,
                     target_ref: child.clone(),
                     route: self.graph.route(&child),
                 });
@@ -1842,6 +1852,7 @@ impl Player {
                     for id in subtree {
                         result.events.push(DisplayEvent {
                             kind: "added_to_stage".into(),
+                            stage_route: true,
                             target_ref: id.clone(),
                             route: self.graph.route(&id),
                         });
@@ -1859,6 +1870,7 @@ impl Player {
                 }
                 result.events.push(DisplayEvent {
                     kind: "removed".into(),
+                    stage_route: attached,
                     target_ref: child.clone(),
                     route: self.graph.route(&child),
                 });
@@ -1866,6 +1878,7 @@ impl Player {
                     for id in subtree {
                         result.events.push(DisplayEvent {
                             kind: "removed_from_stage".into(),
+                            stage_route: true,
                             target_ref: id.clone(),
                             route: self.graph.route(&id),
                         });
@@ -1999,6 +2012,7 @@ impl Player {
                 if old_parent.is_some() {
                     result.events.push(DisplayEvent {
                         kind: "removed".into(),
+                        stage_route: was_stage,
                         target_ref: child.clone(),
                         route: self.graph.route(&child),
                     });
@@ -2009,6 +2023,7 @@ impl Player {
                 self.graph.stage_order = siblings;
                 result.events.push(DisplayEvent {
                     kind: "added".into(),
+                    stage_route: true,
                     target_ref: child.clone(),
                     route: vec![child.clone()],
                 });
@@ -2016,6 +2031,7 @@ impl Player {
                     for id in subtree {
                         result.events.push(DisplayEvent {
                             kind: "added_to_stage".into(),
+                            stage_route: true,
                             target_ref: id.clone(),
                             route: self.graph.route(&id),
                         });
@@ -2035,12 +2051,14 @@ impl Player {
                 }
                 result.events.push(DisplayEvent {
                     kind: "removed".into(),
+                    stage_route: true,
                     target_ref: child.clone(),
                     route: vec![child.clone()],
                 });
                 for id in subtree {
                     result.events.push(DisplayEvent {
                         kind: "removed_from_stage".into(),
+                        stage_route: true,
                         target_ref: id.clone(),
                         route: self.graph.route(&id),
                     });
@@ -2158,6 +2176,7 @@ impl Player {
             }
             result.events.push(DisplayEvent {
                 kind: "removed".into(),
+                stage_route: attached,
                 target_ref: child.clone(),
                 route: self.graph.route(child),
             });
@@ -2165,6 +2184,7 @@ impl Player {
                 for reference in subtree {
                     result.events.push(DisplayEvent {
                         kind: "removed_from_stage".into(),
+                        stage_route: true,
                         route: self.graph.route(&reference),
                         target_ref: reference,
                     });

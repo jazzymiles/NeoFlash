@@ -108,6 +108,42 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     right.removeChild(shape);assert.equal(shape.parent,null);assert.equal(shape.stage,null);
     assert.equal(JSON.parse(player.runtime_snapshot_json()).draws.some(item=>item.owner_ref.id===identity.id),false);
     right.addChild(shape);assert.equal(events.at(-1)[0],'added','listeners survive detachment');
+    {
+      const stage=host.stage().stage,stageParent=new Sprite(),stageChild=new Sprite(),stageEvents=[];
+      stageParent.addChild(stageChild);
+      const observe=event=>{if(event.target===stageParent||event.target===stageChild)stageEvents.push([event.type,event.target===stageParent?'parent':'child',event.currentTarget===stage,event.eventPhase]);};
+      stage.addEventListener('added',observe);stage.addEventListener('removed',observe);
+      stage.addChild(stageParent);
+      stageParent.removeChild(stageChild);stageParent.addChild(stageChild);
+      stage.removeChild(stageParent);
+      stageParent.removeChild(stageChild);
+      assert.deepEqual(stageEvents,[['added','parent',true,3],['removed','child',true,3],['added','child',true,3],['removed','parent',true,3]],
+        'captured Stage membership covers direct children, descendants and removal, but excludes detached routes');
+      stage.removeEventListener('added',observe);stage.removeEventListener('removed',observe);
+
+      // Reference facts only: Ruffle f0edb3d7d05958cc689cbb1102d719ceb2729cee,
+      // core/src/display_object/container.rs::dispatch_added_event checks the
+      // original parent after ADDED. It does not simply test the child's live stage.
+      const reentrantParent=new Sprite(),reentrantChild=new Sprite(),reentrant=[];
+      scene.addChild(reentrantParent);
+      const detachParent=()=>{reentrant.push('added');scene.removeChild(reentrantParent);};
+      reentrantChild.addEventListener('added',detachParent);
+      reentrantChild.addEventListener('addedToStage',()=>reentrant.push('addedToStage'));
+      reentrantChild.addEventListener('removedFromStage',()=>reentrant.push('removedFromStage'));
+      reentrantParent.addChild(reentrantChild);
+      assert.equal(reentrantChild.stage,null);
+      assert.deepEqual(reentrant,['added','removedFromStage'],'a parent detached during ADDED cancels the pending Stage addition');
+      reentrantChild.removeEventListener('added',detachParent);
+      scene.addChild(reentrantParent);
+      assert.deepEqual(reentrant,['added','removedFromStage','addedToStage'],'reattachment preserves the child identity and listeners');
+      scene.removeChild(reentrantParent);
+      const selfRemoving=new Sprite();let selfStageEvents=0;
+      selfRemoving.addEventListener('added',()=>scene.removeChild(selfRemoving));
+      selfRemoving.addEventListener('addedToStage',()=>selfStageEvents++);
+      scene.addChild(selfRemoving);
+      assert.equal(selfRemoving.stage,null);
+      assert.equal(selfStageEvents,1,'the captured parent rule preserves the reference self-removal behavior');
+    }
     scene.swapChildren(left,right);assert.equal(scene.getChildIndex(right),prefix);
     scene.setChildIndex(left,prefix);assert.equal(scene.getChildAt(prefix),left);
     assert.throws(()=>widget.removeMovieClip(),/AS2.*authored/,'AS2 negative-depth removal remains outside the authored mutation profile');

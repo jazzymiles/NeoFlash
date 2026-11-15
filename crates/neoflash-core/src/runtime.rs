@@ -578,7 +578,14 @@ impl Player {
             if clock.playing
                 && let Some(symbol) = project.symbol(&clock.symbol_id)
             {
-                clock.frame = (clock.frame + 1) % symbol.timeline.frame_count.max(1);
+                let next_frame = (clock.frame + 1) % symbol.timeline.frame_count.max(1);
+                // A one-frame timeline stays on its initial visit. Its children
+                // and EnterFrame handlers still tick, but its frame script does
+                // not run again until an explicit navigation re-enters it.
+                if next_frame == clock.frame {
+                    continue;
+                }
+                clock.frame = next_frame;
                 clock.visit_id = next_visit;
                 next_visit = next_visit.wrapping_add(1).max(1);
                 entered.insert(path.clone());

@@ -88,6 +88,7 @@ impl RuntimeGraph {
             let attached = self.on_stage(&child);
             let mut events = vec![DisplayEvent {
                 kind: "removed".into(),
+                stage_route: attached,
                 target_ref: child.clone(),
                 route,
             }];
@@ -95,6 +96,7 @@ impl RuntimeGraph {
                 for id in self.subtree(&child) {
                     events.push(DisplayEvent {
                         kind: "removed_from_stage".into(),
+                        stage_route: true,
                         route: self.route(&id),
                         target_ref: id,
                     });

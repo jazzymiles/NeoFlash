@@ -162,6 +162,16 @@ impl Player {
         }
     }
 
+    fn finish_lifecycle_scope(&mut self) {
+        let scope = self.lifecycle_stack.pop().expect("active lifecycle scope");
+        // EXIT_FRAME callbacks may enqueue linked initialization or deferred
+        // legacy navigation after this scope's frame-script phase has finished.
+        // Return that work to the host's pending queue instead of dropping it.
+        for item in scope.scripts.into_iter().rev() {
+            self.runtime_scripts.push_front(item);
+        }
+    }
+
     fn check_lifecycle_budget(&mut self) -> Result<(), String> {
         if self.overflowed
             || self.lifecycle_stack.len() >= MAX_LIFECYCLE_DEPTH
@@ -300,7 +310,7 @@ impl Player {
                     }));
                 }
                 if inner_goto {
-                    self.lifecycle_stack.pop();
+                    self.finish_lifecycle_scope();
                 } else {
                     top.next_phase = LifecyclePhase::Render;
                 }
@@ -316,7 +326,7 @@ impl Player {
             LifecyclePhase::ExitFrame => {
                 let display_events = std::mem::take(&mut top.display_events);
                 if inner_goto {
-                    self.lifecycle_stack.pop();
+                    self.finish_lifecycle_scope();
                 } else {
                     top.next_phase = LifecyclePhase::Render;
                 }
@@ -330,13 +340,14 @@ impl Player {
                 }))
             }
             LifecyclePhase::Render => {
-                self.lifecycle_stack.pop();
+                let display_events = std::mem::take(&mut top.display_events);
+                self.finish_lifecycle_scope();
                 Ok(Some(LifecycleStep {
                     generation,
                     depth,
                     inner_goto: false,
                     phase: LifecyclePhase::Render,
-                    display_events: Vec::new(),
+                    display_events,
                     scripts: Vec::new(),
                 }))
             }

@@ -88,6 +88,231 @@ fn drain_phases(player: &mut Player) -> Vec<LifecycleStep> {
 }
 
 #[test]
+fn one_frame_timelines_keep_their_visit_while_children_and_enter_frame_keep_ticking() {
+    for language in [
+        ScriptLanguage::ActionScript1,
+        ScriptLanguage::ActionScript2,
+        ScriptLanguage::ActionScript3,
+    ] {
+        let script = |source: &str| Script {
+            language,
+            source: source.into(),
+        };
+        let key = |elements| Keyframe {
+            elements,
+            ..Default::default()
+        };
+        let mut one_placement = instance("one", "one-frame");
+        one_placement.scripts.push(ObjectScript {
+            event: ObjectEvent::EnterFrame,
+            script: script("one-enter"),
+        });
+        let root = symbol(
+            "root",
+            1,
+            vec![key(vec![one_placement, instance("sibling", "ticker")])],
+            vec![FrameScript {
+                frame: 0,
+                script: script("root-frame"),
+            }],
+        );
+        let mut one = symbol(
+            "one-frame",
+            1,
+            vec![key(vec![instance("nested", "ticker")])],
+            vec![FrameScript {
+                frame: 0,
+                script: script("one-frame"),
+            }],
+        );
+        one.linkage_id = Some("OneFrame".into());
+        let ticker = symbol(
+            "ticker",
+            2,
+            vec![key(vec![])],
+            (0..2)
+                .map(|frame| FrameScript {
+                    frame,
+                    script: script(&format!("ticker-{frame}")),
+                })
+                .collect(),
+        );
+        let project = make_project(vec![root, one, ticker]);
+        project.validate().unwrap();
+        let mut player = Player::new(&project);
+        let root_ref = player.object_ref(&[]).unwrap();
+        let one_ref = player.object_ref(&["one".into()]).unwrap();
+        let linked_ref = player.create_linked(&project, "OneFrame").unwrap();
+        player.enable_lifecycle();
+        let initial: Vec<_> = drain_phases(&mut player)
+            .into_iter()
+            .flat_map(|step| step.scripts)
+            .collect();
+        assert_eq!(initial.len(), 6, "root, authored and linked initial frames");
+        let stationary: Vec<_> = initial
+            .iter()
+            .filter(|item| {
+                ["root-frame", "one-frame"].contains(&item.dispatch.script.source.as_str())
+            })
+            .collect();
+        assert_eq!(stationary.len(), 3);
+
+        for tick in 1..=4 {
+            // A linked namespace begins detached, then attaches, detaches and
+            // reattaches. None of these changes re-enters its single frame.
+            if tick == 2 || tick == 4 {
+                player
+                    .display_mutate(
+                        &project,
+                        DisplayMutation::Add {
+                            parent: root_ref.clone(),
+                            child: linked_ref.clone(),
+                            index: None,
+                        },
+                    )
+                    .unwrap();
+            } else if tick == 3 {
+                player
+                    .display_mutate(
+                        &project,
+                        DisplayMutation::Remove {
+                            parent: root_ref.clone(),
+                            child: linked_ref.clone(),
+                        },
+                    )
+                    .unwrap();
+            }
+            player.tick(&project);
+            let steps = drain_phases(&mut player);
+            assert_eq!(steps.last().unwrap().phase, LifecyclePhase::Render);
+            let scripts: Vec<_> = steps.into_iter().flat_map(|step| step.scripts).collect();
+            assert_eq!(scripts.len(), 4, "{language:?}, tick {tick}");
+            assert_eq!(
+                scripts
+                    .iter()
+                    .filter(|item| item.dispatch.script.source == format!("ticker-{}", tick % 2))
+                    .count(),
+                3,
+                "authored, sibling and linked children must advance independently"
+            );
+            assert_eq!(
+                scripts
+                    .iter()
+                    .filter(|item| item.target_ref == one_ref
+                        && item.dispatch.event == ScriptEvent::EnterFrame)
+                    .count(),
+                1
+            );
+            assert!(
+                stationary
+                    .iter()
+                    .all(|item| player.is_runtime_dispatch_current(&project, item))
+            );
+            for reference in [&root_ref, &one_ref, &linked_ref] {
+                assert_eq!(player.object_frame(reference), Some(0));
+                assert!(player.object_alive(reference));
+            }
+        }
+
+        // Preserve the explicit-navigation contract: only automatic one-frame
+        // looping is suppressed, not a requested fresh frame visit.
+        for reference in [&root_ref, &one_ref, &linked_ref] {
+            player
+                .object_begin_inner_goto(&project, reference, PlaybackCommand::GotoAndStop(0))
+                .unwrap();
+            let scripts: Vec<_> = drain_phases(&mut player)
+                .into_iter()
+                .flat_map(|step| step.scripts)
+                .collect();
+            assert_eq!(scripts.len(), 1);
+            assert_eq!(&scripts[0].target_ref, reference);
+            assert!(player.is_runtime_dispatch_current(&project, &scripts[0]));
+        }
+    }
+}
+
+#[test]
+fn late_frame_work_survives_outer_render_and_empty_inner_exit() {
+    for inner in [false, true] {
+        let root = symbol(
+            "root",
+            2,
+            vec![Keyframe::default()],
+            vec![FrameScript {
+                frame: 1,
+                script: as3("late-root-frame"),
+            }],
+        );
+        let mut linked = symbol(
+            "linked",
+            1,
+            vec![Keyframe {
+                elements: vec![shape("late-child")],
+                ..Default::default()
+            }],
+            vec![FrameScript {
+                frame: 0,
+                script: as3("late-linked-frame"),
+            }],
+        );
+        linked.linkage_id = Some("LateLinked".into());
+        let project = make_project(vec![root, linked]);
+        let mut player = Player::new(&project);
+        player.enable_lifecycle();
+        if inner {
+            player
+                .begin_inner_goto(&project, &[], PlaybackCommand::GotoAndStop(0))
+                .unwrap();
+        }
+        let late_phase = if inner {
+            LifecyclePhase::FrameScripts
+        } else {
+            LifecyclePhase::ExitFrame
+        };
+        loop {
+            let step = player.lifecycle_next_step().unwrap().unwrap();
+            if step.phase == late_phase {
+                assert!(step.scripts.is_empty());
+                break;
+            }
+        }
+        // Work queued by an EXIT_FRAME callback (or after an empty inner
+        // FrameScripts phase) must remain available to the host's final drain.
+        let linked_ref = player.create_linked(&project, "LateLinked").unwrap();
+        assert!(player.control(&project, &[], PlaybackCommand::GotoAndStop(1)));
+        let remaining = drain_phases(&mut player);
+        assert!(
+            remaining.iter().any(|step| step
+                .display_events
+                .iter()
+                .any(|event| event.kind == "added" && event.route.contains(&linked_ref))),
+            "late linked child construction must not disappear (inner={inner})"
+        );
+        let mut scripts: Vec<_> = remaining
+            .into_iter()
+            .flat_map(|step| step.scripts)
+            .collect();
+        scripts.extend(player.drain_runtime_scripts());
+        assert_eq!(
+            scripts.len(),
+            2,
+            "late script work must survive (inner={inner})"
+        );
+        assert!(
+            scripts
+                .iter()
+                .all(|item| player.is_runtime_dispatch_current(&project, item))
+        );
+        let mut sources: Vec<_> = scripts
+            .iter()
+            .map(|item| item.dispatch.script.source.as_str())
+            .collect();
+        sources.sort_unstable();
+        assert_eq!(sources, ["late-linked-frame", "late-root-frame"]);
+    }
+}
+
+#[test]
 fn startup_and_tick_emit_ordered_lifecycle_phases_and_display_events() {
     let mut child_inst = instance("child", "child-sym");
     child_inst.scripts = vec![ObjectScript {

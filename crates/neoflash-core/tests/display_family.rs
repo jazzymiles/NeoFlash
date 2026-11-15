@@ -123,4 +123,52 @@ fn active_graph_retains_hidden_geometry_names_identity_and_root_transforms() {
             .kind,
         authored_text
     );
+
+    // Stage is not an ObjectRef: retain its membership with the captured route,
+    // particularly after removing a direct Stage child from the live graph.
+    let parent = player.create_display(DynamicKind::Sprite).unwrap();
+    let child = player.create_display(DynamicKind::Sprite).unwrap();
+    let detached = player
+        .display_mutate(
+            &project,
+            DisplayMutation::Add {
+                parent: parent.clone(),
+                child: child.clone(),
+                index: None,
+            },
+        )
+        .unwrap();
+    assert!(detached.events.iter().all(|event| !event.stage_route));
+    let attached = player
+        .stage_mutate(
+            &project,
+            StageMutation::Add {
+                child: parent.clone(),
+                index: None,
+            },
+        )
+        .unwrap();
+    assert!(attached.events.iter().all(|event| event.stage_route));
+    assert_eq!(attached.events[0].route, vec![parent.clone()]);
+    let removed = player
+        .stage_mutate(
+            &project,
+            StageMutation::Remove {
+                child: parent.clone(),
+            },
+        )
+        .unwrap();
+    assert!(removed.events.iter().all(|event| event.stage_route));
+    assert!(player.object_alive(&parent));
+    let detached = player
+        .display_mutate(&project, DisplayMutation::Remove { parent, child })
+        .unwrap();
+    assert!(detached.events.iter().all(|event| !event.stage_route));
+    let mut old_packet = serde_json::to_value(&detached.events[0]).unwrap();
+    old_packet.as_object_mut().unwrap().remove("stage_route");
+    let old_packet: DisplayEvent = serde_json::from_value(old_packet).unwrap();
+    assert!(
+        !old_packet.stage_route,
+        "older packets retain a safe default"
+    );
 }
