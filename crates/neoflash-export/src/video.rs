@@ -4665,6 +4665,16 @@ where
         .as_deref()
         .or_else(|| output_path.parent().filter(|p| !p.as_os_str().is_empty()));
 
+    let mut png_seq_state = if options.format == VideoFormat::PngSequence {
+        let (parent, stem, planned_png_names) =
+            png_sequence_plan(output_path, prepared.frame_count)?;
+        let tx = crate::SequenceSetTransaction::begin(parent, &stem)?;
+        tx.preflight(&planned_png_names)?;
+        Some((tx, stem, planned_png_names, 0u64))
+    } else {
+        None
+    };
+
     // Preflight and decode all reachable timeline video streams before creating output files (`T-201`).
     let mut video_cache =
         preflight_and_decode_timeline_videos(&prepared.eval_project, &prepared.root_id, base_dir)?;
@@ -4777,6 +4787,12 @@ where
             &mut video_cache,
             &placements,
         );
+        if let Some((tx, _, planned_png_names, total_png_bytes)) = &mut png_seq_state {
+            let png_bytes = encode_rgba_png_frame(&rgba, width, height)?;
+            tx.stage_file(&planned_png_names[idx as usize], &png_bytes)?;
+            *total_png_bytes = total_png_bytes.saturating_add(png_bytes.len() as u64);
+        }
+
         let keep_going = on_progress(VideoProgress {
             frame_index: idx + 1,
             frame_count: prepared.frame_count,
@@ -4787,10 +4803,13 @@ where
         if !keep_going {
             return Err(ExportError::Options("Video export cancelled".into()));
         }
-        rendered_frames.push(rgba);
+        if png_seq_state.is_none() {
+            rendered_frames.push(rgba);
+        }
     }
 
-    if let Some(parent) = output_path.parent()
+    if png_seq_state.is_none()
+        && let Some(parent) = output_path.parent()
         && !parent.as_os_str().is_empty()
     {
         fs::create_dir_all(parent)?;
@@ -4833,14 +4852,29 @@ where
                 warnings,
             })
         }
-        VideoFormat::PngSequence => encode_png_sequence(
-            output_path,
-            &rendered_frames,
-            width,
-            height,
-            wav_audio.as_deref(),
-            warnings,
-        ),
+        VideoFormat::PngSequence => {
+            if let Some((tx, stem, _, total_png_bytes)) = png_seq_state.take() {
+                finalize_staged_png_sequence(
+                    tx,
+                    &stem,
+                    total_png_bytes,
+                    prepared.frame_count,
+                    width,
+                    height,
+                    wav_audio.as_deref(),
+                    warnings,
+                )
+            } else {
+                encode_png_sequence(
+                    output_path,
+                    &rendered_frames,
+                    width,
+                    height,
+                    wav_audio.as_deref(),
+                    warnings,
+                )
+            }
+        }
         VideoFormat::Mp4 | VideoFormat::WebM | VideoFormat::Mov => encode_with_ffmpeg(
             output_path,
             options,
@@ -4918,6 +4952,95 @@ fn encode_gif_file(
     Ok(())
 }
 
+fn png_sequence_plan(
+    output_path: &Path,
+    frame_count: u32,
+) -> Result<(&Path, String, Vec<String>), ExportError> {
+    let parent = output_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let raw_stem = output_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("frame");
+    let stem = raw_stem
+        .strip_suffix("_0001")
+        .filter(|s| !s.is_empty())
+        .unwrap_or(raw_stem);
+
+    let count = frame_count.max(1);
+    let mut names = Vec::with_capacity(count as usize);
+    for idx in 0..count {
+        if count == 1 && raw_stem == stem && output_path.extension().is_some() {
+            let name = output_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| {
+                    ExportError::Options(format!(
+                        "Invalid PNG sequence output path '{}'.",
+                        output_path.display()
+                    ))
+                })?;
+            names.push(name.to_owned());
+        } else {
+            names.push(format!("{stem}_{:04}.png", idx + 1));
+        }
+    }
+    Ok((parent, stem.to_owned(), names))
+}
+
+fn encode_rgba_png_frame(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ExportError> {
+    let img = RgbaImage::from_raw(width, height, rgba.to_vec())
+        .ok_or_else(|| ExportError::Options("PNG sequence buffer size mismatch".into()))?;
+    let mut png_bytes = Vec::new();
+    img.write_to(
+        &mut std::io::Cursor::new(&mut png_bytes),
+        image::ImageFormat::Png,
+    )
+    .map_err(|e| ExportError::Options(format!("Could not encode PNG frame: {e}")))?;
+    Ok(png_bytes)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finalize_staged_png_sequence(
+    mut tx: crate::SequenceSetTransaction,
+    stem: &str,
+    mut total_bytes: u64,
+    frame_count: u32,
+    width: u32,
+    height: u32,
+    wav_audio: Option<&[u8]>,
+    warnings: Vec<String>,
+) -> Result<VideoExportReport, ExportError> {
+    let mut audio_included = false;
+    if let Some(wav) = wav_audio {
+        let wav_name = format!("{stem}.wav");
+        tx.stage_file(&wav_name, wav)?;
+        total_bytes = total_bytes.saturating_add(wav.len() as u64);
+        audio_included = true;
+    }
+
+    let committed = tx.commit()?;
+    let mut iter = committed.into_iter();
+    let first_path = iter.next().ok_or_else(|| {
+        ExportError::Options("PNG sequence transaction committed zero files.".into())
+    })?;
+    let additional_files: Vec<PathBuf> = iter.collect();
+
+    Ok(VideoExportReport {
+        output_path: first_path,
+        additional_files,
+        bytes: total_bytes,
+        frame_count,
+        width,
+        height,
+        audio_included,
+        warnings,
+    })
+}
+
 fn encode_png_sequence(
     output_path: &Path,
     frames: &[Vec<u8>],
@@ -4926,64 +5049,32 @@ fn encode_png_sequence(
     wav_audio: Option<&[u8]>,
     warnings: Vec<String>,
 ) -> Result<VideoExportReport, ExportError> {
-    let parent = output_path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
-    let raw_stem = output_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("frame");
-    let stem = raw_stem.trim_end_matches("_0001");
+    let frame_count = frames.len() as u32;
+    let (parent, stem, planned_png_names) = png_sequence_plan(output_path, frame_count)?;
+    let mut tx = crate::SequenceSetTransaction::begin(parent, &stem)?;
+    let mut preflight_names = planned_png_names.clone();
+    if wav_audio.is_some() {
+        preflight_names.push(format!("{stem}.wav"));
+    }
+    tx.preflight(&preflight_names)?;
 
     let mut total_bytes = 0u64;
-    let mut additional_files = Vec::new();
-    let mut first_path = output_path.to_path_buf();
-
     for (idx, rgba) in frames.iter().enumerate() {
-        let frame_path =
-            if frames.len() == 1 && raw_stem == stem && output_path.extension().is_some() {
-                output_path.to_path_buf()
-            } else {
-                parent.join(format!("{stem}_{:04}.png", idx + 1))
-            };
-        let img = RgbaImage::from_raw(width, height, rgba.clone())
-            .ok_or_else(|| ExportError::Options("PNG sequence buffer size mismatch".into()))?;
-        let mut png_bytes = Vec::new();
-        img.write_to(
-            &mut std::io::Cursor::new(&mut png_bytes),
-            image::ImageFormat::Png,
-        )
-        .map_err(|e| ExportError::Options(format!("Could not encode PNG frame: {e}")))?;
-        crate::atomic_write(&frame_path, &png_bytes)?;
+        let png_bytes = encode_rgba_png_frame(rgba, width, height)?;
+        tx.stage_file(&planned_png_names[idx], &png_bytes)?;
         total_bytes = total_bytes.saturating_add(png_bytes.len() as u64);
-        if idx == 0 {
-            first_path = frame_path;
-        } else {
-            additional_files.push(frame_path);
-        }
     }
 
-    let mut audio_included = false;
-    if let Some(wav) = wav_audio {
-        let wav_path = parent.join(format!("{stem}.wav"));
-        crate::atomic_write(&wav_path, wav)?;
-        total_bytes = total_bytes.saturating_add(wav.len() as u64);
-        additional_files.push(wav_path);
-        audio_included = true;
-    }
-
-    Ok(VideoExportReport {
-        output_path: first_path,
-        additional_files,
-        bytes: total_bytes,
-        frame_count: frames.len() as u32,
+    finalize_staged_png_sequence(
+        tx,
+        &stem,
+        total_bytes,
+        frame_count,
         width,
         height,
-        audio_included,
+        wav_audio,
         warnings,
-    })
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -2934,17 +2934,12 @@ pub(crate) fn export_project_with_spec(
                     None => ImageExportFormat::Png,
                 },
             };
-            let base_out = if spec.out.is_dir() || spec.out.extension().is_none() {
-                fs::create_dir_all(&spec.out).map_err(|e| {
-                    CliError::runtime(
-                        "io_error",
-                        format!("Failed creating sequence dir '{}': {e}", spec.out.display()),
-                    )
-                })?;
-                spec.out.join(format!("frame.{}", img_fmt.extension()))
-            } else {
-                spec.out.clone()
-            };
+            let base_out =
+                if !spec.out.is_file() && (spec.out.is_dir() || spec.out.extension().is_none()) {
+                    spec.out.join(format!("frame.{}", img_fmt.extension()))
+                } else {
+                    spec.out.clone()
+                };
             let mut opts = ImageExportOptions::for_project(project, spec.frame.unwrap_or(0));
             opts.format = img_fmt;
             opts.symbol_id = symbol_id.clone();

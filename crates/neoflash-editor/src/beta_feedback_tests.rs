@@ -702,7 +702,7 @@ fn failed_send_including_formsubmit_activation_error_keeps_dialog_open_and_shows
     let _guard = BetaFlagGuard::set(Some(true));
     let (url, server) = spawn_loopback_feedback_server(
         "200 OK",
-        r#"{"success":"false","message":"This form needs Activation. Check developer@redinger.cc."}"#,
+        r#"{"success":"false","message":"This form needs Activation. We've sent you an email containing an 'Activate Form' link. Just click it and your form will be actived!"}"#,
     );
 
     let ctx = egui::Context::default();
@@ -752,8 +752,15 @@ fn failed_send_including_formsubmit_activation_error_keeps_dialog_open_and_shows
     );
     assert_eq!(editor.beta_feedback.attachments.len(), 1);
     assert!(
-        has_ax_substring(&out, "This form needs Activation"),
-        "Error InlineMessage must display FormSubmit activation message"
+        has_ax_substring(
+            &out,
+            "Feedback form is awaiting one-time activation: open the FormSubmit email sent to developer@redinger.cc (check Spam), click 'Activate Form', then click Send again."
+        ),
+        "Error InlineMessage must display clean FormSubmit activation instructions"
+    );
+    assert!(
+        !has_ax_substring(&out, "actived"),
+        "Upstream FormSubmit typo must not leak into UI"
     );
     assert!(
         editor.notifications.visible_toasts().is_empty(),
@@ -942,4 +949,123 @@ fn t311_closing_modal_during_in_flight_send_completes_cleanly_and_help_command_i
             "HelpSendBetaFeedback must be disabled in non-beta builds"
         );
     }
+}
+
+#[test]
+fn t332_combined_ten_megabyte_cap_env_normalization_and_html_error_hygiene_work_in_dialog() {
+    let _guard = BetaFlagGuard::set(Some(true));
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.open_beta_feedback();
+
+    // 1. Combined 10 MB cap across `attach_bytes` and `attach_paths`.
+    let make_sized_png = |len: usize| -> Vec<u8> {
+        let mut bytes = valid_png();
+        bytes.resize(len, 0);
+        bytes
+    };
+    let four_mb = 4 * 1024 * 1024;
+    assert!(
+        editor
+            .beta_feedback
+            .attach_bytes("first-4mb.png", &make_sized_png(four_mb))
+    );
+    assert!(
+        editor
+            .beta_feedback
+            .attach_bytes("second-4mb.png", &make_sized_png(four_mb))
+    );
+    assert_eq!(editor.beta_feedback.attachments.len(), 2);
+
+    // Third 4 MB image via `attach_bytes` pushes combined total to 12 MB (> 10 MB) -> rejected cleanly.
+    assert!(
+        !editor
+            .beta_feedback
+            .attach_bytes("third-overflow.png", &make_sized_png(four_mb))
+    );
+    assert_eq!(editor.beta_feedback.attachments.len(), 2);
+    let err_bytes = editor
+        .beta_feedback
+        .error
+        .clone()
+        .expect("combined cap error");
+    assert!(
+        err_bytes.contains("third-overflow.png") && err_bytes.contains("10 MB"),
+        "got: {err_bytes}"
+    );
+
+    // Third 4 MB image via `attach_paths` is also rejected by metadata size check before reading.
+    let tmp_dir =
+        std::env::temp_dir().join(format!("neoflash-t332-feedback-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let disk_img = tmp_dir.join("disk-overflow.png");
+    std::fs::write(&disk_img, make_sized_png(four_mb)).unwrap();
+    editor.beta_feedback.error = None;
+    editor.beta_feedback.attach_paths(&[disk_img]);
+    assert_eq!(editor.beta_feedback.attachments.len(), 2);
+    let err_path = editor
+        .beta_feedback
+        .error
+        .clone()
+        .expect("attach_paths combined cap error");
+    assert!(
+        err_path.contains("disk-overflow.png") && err_path.contains("10 MB"),
+        "got: {err_path}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+
+    // 2. `NEOFLASH_FEEDBACK_URL` bare token and non-ajax FormSubmit URL normalization.
+    let (tok_url, _) = neoflash_export::resolve_feedback_url_with_env(
+        None,
+        Some("  f0e1d2c3b4a5968778695a4b3c2d1e0f  "),
+    )
+    .unwrap();
+    assert_eq!(
+        tok_url.as_str(),
+        "https://formsubmit.co/ajax/f0e1d2c3b4a5968778695a4b3c2d1e0f"
+    );
+    let (non_ajax_url, _) = neoflash_export::resolve_feedback_url_with_env(
+        None,
+        Some("https://formsubmit.co/developer@redinger.cc"),
+    )
+    .unwrap();
+    assert_eq!(
+        non_ajax_url.as_str(),
+        "https://formsubmit.co/ajax/developer@redinger.cc"
+    );
+
+    // 3. Upstream HTML error response is stripped cleanly before rendering in `InlineMessage::error`.
+    let (html_url, server) = spawn_loopback_feedback_server(
+        "502 Bad Gateway",
+        "<!DOCTYPE html><html><head><script>evil()</script></head><body><h1>502 Bad Gateway</h1><p>Proxy timeout.</p></body></html>",
+    );
+    editor.beta_feedback.attachments.clear();
+    editor.beta_feedback.error = None;
+    editor.beta_feedback.endpoint_override = Some(html_url);
+    editor.beta_feedback.text = "Testing HTML error sanitization.".into();
+
+    let mut t = 0.02;
+    let out = warmup_dialog(&mut editor, &ctx, &mut t);
+    let send_center = ax_bounds(&out, "Send").expect("Send button").center();
+    click_at(&mut editor, &ctx, &mut t, send_center);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut final_out = None;
+    while Instant::now() < deadline {
+        t += 0.02;
+        let frame_out = run_editor_frame(&mut editor, &ctx, t, Vec::new(), Vec::new());
+        if !editor.beta_feedback.is_sending() {
+            final_out = Some(frame_out);
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let _ = server.join();
+    let final_out = final_out.expect("send finished");
+    assert!(editor.beta_feedback.open);
+    assert!(has_ax_substring(&final_out, "502 Bad Gateway"));
+    assert!(has_ax_substring(&final_out, "Proxy timeout."));
+    assert!(!has_ax_substring(&final_out, "<!DOCTYPE"));
+    assert!(!has_ax_substring(&final_out, "evil()"));
 }

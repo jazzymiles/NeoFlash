@@ -8,8 +8,9 @@ use crate::app::Editor;
 use eframe::egui::{self, Color32, Rect};
 use neoflash_export::{
     FeedbackAttachment, MAX_FEEDBACK_ATTACHMENT_BYTES, MAX_FEEDBACK_ATTACHMENTS,
-    decode_feedback_image_data_url, detect_feedback_image_mime, format_attachment_size,
-    send_beta_feedback_multipart, validate_feedback_attachment,
+    MAX_FEEDBACK_TOTAL_ATTACHMENT_BYTES, decode_feedback_image_data_url,
+    detect_feedback_image_mime, format_attachment_size, send_beta_feedback_multipart,
+    validate_feedback_attachment,
 };
 use neoflash_ui::{
     TextStyle, components as c,
@@ -88,6 +89,12 @@ impl BetaFeedbackState {
         self.in_flight.is_some()
     }
 
+    pub(crate) fn total_attachment_bytes(&self) -> usize {
+        self.attachments
+            .iter()
+            .fold(0usize, |acc, att| acc.saturating_add(att.bytes.len()))
+    }
+
     pub(crate) fn attach_bytes(&mut self, filename: &str, bytes: &[u8]) -> bool {
         let display = clean_label(filename);
         if self.attachments.len() >= MAX_FEEDBACK_ATTACHMENTS {
@@ -98,6 +105,16 @@ impl BetaFeedbackState {
         }
         match validate_feedback_attachment(&display, bytes) {
             Ok(att) => {
+                let combined = self
+                    .total_attachment_bytes()
+                    .saturating_add(att.bytes.len());
+                if combined > MAX_FEEDBACK_TOTAL_ATTACHMENT_BYTES {
+                    self.error = Some(format!(
+                        "“{display}” was not added: combined attachments exceed the 10 MB total limit ({}).",
+                        format_attachment_size(combined)
+                    ));
+                    return false;
+                }
                 self.attachments.push(att);
                 true
             }
@@ -132,6 +149,20 @@ impl BetaFeedbackState {
                     self.error = Some(format!(
                         "“{}” exceeds the 10 MB limit ({size_str}).",
                         clean_label(&name)
+                    ));
+                    any_error = true;
+                }
+                Ok(meta)
+                    if (self.total_attachment_bytes() as u64).saturating_add(meta.len())
+                        > MAX_FEEDBACK_TOTAL_ATTACHMENT_BYTES as u64 =>
+                {
+                    let combined = (self.total_attachment_bytes() as u64)
+                        .saturating_add(meta.len())
+                        .min(usize::MAX as u64) as usize;
+                    self.error = Some(format!(
+                        "“{}” was not added: combined attachments exceed the 10 MB total limit ({}).",
+                        clean_label(&name),
+                        format_attachment_size(combined)
                     ));
                     any_error = true;
                 }

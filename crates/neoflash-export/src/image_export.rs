@@ -3,7 +3,11 @@
 
 use crate::{
     ExportError, SvgOptions, atomic_write, render_authored_scene_rgba, render_project_frame_rgba,
-    render_scene_svg, video_scene_ranges,
+    render_scene_svg,
+    sequence_set::{
+        SequenceSetTransaction, ensure_directory_chain_tracked, remove_empty_dirs_reverse,
+    },
+    video_scene_ranges,
 };
 use image::{ImageFormat, RgbaImage};
 use neoflash_core::{
@@ -14,16 +18,9 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     fmt::Write as _,
-    fs::{self, OpenOptions},
-    io::{Cursor, Write as IoWrite},
+    io::Cursor,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
 };
-
-const MAX_AI_RANGE_STAGING_BYTES: usize = 1024 * 1024 * 1024;
-const MAX_AI_RANGE_STAGING_FILES: usize = 10_000;
-static AI_RANGE_TRANSACTION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// Output format selected in `Dialog / Export image` (`DL-04`) or `Publish settings` sequence export (`T-255`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -417,268 +414,37 @@ pub fn estimate_image_export_summary(project: &Project, options: &ImageExportOpt
     }
 }
 
-fn numbered_output_path(base: &Path, frame_offset: u32, total_frames: u32, ext: &str) -> PathBuf {
-    if total_frames <= 1 {
-        return base.with_extension(ext);
-    }
-    let parent = base.parent().unwrap_or_else(|| Path::new("."));
-    let stem = base
+fn sequence_output_stem(base: &Path) -> &str {
+    let raw_stem = base
         .file_stem()
         .and_then(|s| s.to_str())
         .filter(|s| !s.is_empty())
         .unwrap_or("export");
-    parent.join(format!("{stem}_{:04}.{ext}", frame_offset + 1))
+    raw_stem
+        .strip_suffix("_0001")
+        .filter(|s| !s.is_empty())
+        .unwrap_or(raw_stem)
 }
 
-struct StagedAiRangeFile {
-    final_path: PathBuf,
-    staged_path: PathBuf,
-    backup_path: PathBuf,
-}
-
-struct AiRangeTransaction {
-    directory: PathBuf,
-    files: Vec<StagedAiRangeFile>,
-    staged_bytes: usize,
-    max_bytes: usize,
-    max_files: usize,
-    cleanup_on_drop: bool,
-}
-
-enum AiDestinationState {
-    ExistingBackup(PathBuf),
-    NewPlaceholder,
-}
-
-impl AiRangeTransaction {
-    fn new(parent: &Path) -> std::io::Result<Self> {
-        Self::with_limits(
-            parent,
-            MAX_AI_RANGE_STAGING_BYTES,
-            MAX_AI_RANGE_STAGING_FILES,
-        )
+fn numbered_output_path(
+    base: &Path,
+    frame_offset: u32,
+    total_frames: u32,
+    ext: &str,
+    is_sequence_export: bool,
+) -> PathBuf {
+    if !is_sequence_export {
+        return base.with_extension(ext);
     }
-
-    fn with_limits(parent: &Path, max_bytes: usize, max_files: usize) -> std::io::Result<Self> {
-        let parent = if parent.as_os_str().is_empty() {
-            Path::new(".")
-        } else {
-            parent
-        };
-        let epoch_nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        for _ in 0..64 {
-            let sequence = AI_RANGE_TRANSACTION_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let directory = parent.join(format!(
-                ".neoflash-ai-range-{}-{epoch_nanos}-{sequence}",
-                std::process::id()
-            ));
-            match fs::create_dir(&directory) {
-                Ok(()) => {
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt as _;
-                        if let Err(error) =
-                            fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
-                        {
-                            let _ = fs::remove_dir(&directory);
-                            return Err(error);
-                        }
-                    }
-                    return Ok(Self {
-                        directory,
-                        files: Vec::new(),
-                        staged_bytes: 0,
-                        max_bytes,
-                        max_files,
-                        cleanup_on_drop: true,
-                    });
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error),
-            }
-        }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "could not allocate a unique AI range staging directory",
-        ))
-    }
-
-    fn stage(&mut self, final_path: PathBuf, bytes: &[u8]) -> Result<(), ExportError> {
-        if self.files.len() >= self.max_files {
-            return Err(ExportError::Options(format!(
-                "AI frame range exceeds the {}-file transactional staging limit.",
-                self.max_files
-            )));
-        }
-        let next_total = self.staged_bytes.checked_add(bytes.len()).ok_or_else(|| {
-            ExportError::Options("AI frame-range staging byte size overflow.".into())
-        })?;
-        if next_total > self.max_bytes {
-            return Err(ExportError::Options(format!(
-                "AI frame range requires {next_total} staged bytes, exceeding the {} MiB transactional staging limit.",
-                self.max_bytes / (1024 * 1024)
-            )));
-        }
-
-        let index = self.files.len();
-        let staged_path = self.directory.join(format!("stage-{index:08}.ai"));
-        let backup_path = self.directory.join(format!("backup-{index:08}.ai"));
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&staged_path)?;
-        file.write_all(bytes)?;
-        file.flush()?;
-        file.sync_all()?;
-        self.staged_bytes = next_total;
-        self.files.push(StagedAiRangeFile {
-            final_path,
-            staged_path,
-            backup_path,
-        });
-        Ok(())
-    }
-
-    fn reserve_destination(
-        &mut self,
-        final_path: &Path,
-        backup_path: &Path,
-    ) -> std::io::Result<AiDestinationState> {
-        loop {
-            match fs::rename(final_path, backup_path) {
-                Ok(()) => {
-                    let metadata = match fs::symlink_metadata(backup_path) {
-                        Ok(metadata) => metadata,
-                        Err(error) => {
-                            if fs::rename(backup_path, final_path).is_err() {
-                                self.cleanup_on_drop = false;
-                            }
-                            return Err(error);
-                        }
-                    };
-                    if metadata.file_type().is_dir() {
-                        if let Err(error) = fs::rename(backup_path, final_path) {
-                            self.cleanup_on_drop = false;
-                            return Err(error);
-                        }
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::IsADirectory,
-                            format!("AI output '{}' is a directory", final_path.display()),
-                        ));
-                    }
-                    return Ok(AiDestinationState::ExistingBackup(
-                        backup_path.to_path_buf(),
-                    ));
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    match OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .open(final_path)
-                    {
-                        Ok(file) => {
-                            file.sync_all()?;
-                            return Ok(AiDestinationState::NewPlaceholder);
-                        }
-                        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                            continue;
-                        }
-                        Err(error) => return Err(error),
-                    }
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    }
-
-    fn rollback(published: &[(PathBuf, Option<PathBuf>)]) -> std::io::Result<()> {
-        let mut first_error = None;
-        for (final_path, backup_path) in published.iter().rev() {
-            if let Err(error) = fs::remove_file(final_path)
-                && error.kind() != std::io::ErrorKind::NotFound
-            {
-                first_error.get_or_insert(error);
-                continue;
-            }
-            if let Some(backup_path) = backup_path
-                && let Err(error) = fs::rename(backup_path, final_path)
-            {
-                first_error.get_or_insert(error);
-            }
-        }
-        match first_error {
-            Some(error) => Err(error),
-            None => Ok(()),
-        }
-    }
-
-    fn rollback_error(
-        &mut self,
-        published: &[(PathBuf, Option<PathBuf>)],
-        operation_error: std::io::Error,
-    ) -> ExportError {
-        match Self::rollback(published) {
-            Ok(()) if self.cleanup_on_drop => ExportError::Io(operation_error),
-            Ok(()) => ExportError::Options(format!(
-                "AI range publish failed ({operation_error}); a destination backup could not be restored and was preserved at '{}'.",
-                self.directory.display()
-            )),
-            Err(rollback_error) => {
-                self.cleanup_on_drop = false;
-                ExportError::Options(format!(
-                    "AI range publish failed ({operation_error}) and rollback also failed ({rollback_error}); recoverable backups were preserved at '{}'.",
-                    self.directory.display()
-                ))
-            }
-        }
-    }
-
-    fn commit(mut self) -> Result<Vec<PathBuf>, ExportError> {
-        let mut published = Vec::<(PathBuf, Option<PathBuf>)>::new();
-        for index in 0..self.files.len() {
-            let final_path = self.files[index].final_path.clone();
-            let staged_path = self.files[index].staged_path.clone();
-            let backup_path = self.files[index].backup_path.clone();
-            let destination = match self.reserve_destination(&final_path, &backup_path) {
-                Ok(destination) => destination,
-                Err(error) => {
-                    return Err(self.rollback_error(&published, error));
-                }
-            };
-            let backup = match &destination {
-                AiDestinationState::ExistingBackup(path) => Some(path.clone()),
-                AiDestinationState::NewPlaceholder => None,
-            };
-            if let Err(error) = fs::rename(&staged_path, &final_path) {
-                published.push((final_path, backup));
-                return Err(self.rollback_error(&published, error));
-            }
-            published.push((final_path, backup));
-        }
-
-        for (_, backup_path) in &published {
-            if let Some(backup_path) = backup_path {
-                // The replacement is already complete. Cleanup failure must not turn a committed
-                // range into a reported failure with valid outputs; `Drop` retries the private
-                // staging-directory cleanup.
-                let _ = fs::remove_file(backup_path);
-            }
-        }
-        Ok(published
-            .into_iter()
-            .map(|(final_path, _)| final_path)
-            .collect())
-    }
-}
-
-impl Drop for AiRangeTransaction {
-    fn drop(&mut self) {
-        if self.cleanup_on_drop {
-            let _ = fs::remove_dir_all(&self.directory);
-        }
+    let parent = base
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let stem = sequence_output_stem(base);
+    if total_frames <= 1 {
+        parent.join(format!("{stem}.{ext}"))
+    } else {
+        parent.join(format!("{stem}_{:04}.{ext}", frame_offset + 1))
     }
 }
 
@@ -1729,12 +1495,26 @@ fn build_pdf_bytes_from_rgba(rgba: &[u8], width: u32, height: u32) -> Result<Vec
     Ok(pdf)
 }
 
-/// Export a project frame or frame range to PNG, SVG, PSD, AI, or PDF (`DL-04`).
+/// Export a project frame or frame range to PNG, JPEG, WebP, GIF, BMP, SVG, PSD, AI, or PDF (`DL-04`).
 pub fn export_project_image(
     project: &Project,
     path: &Path,
     options: &ImageExportOptions,
 ) -> Result<ImageExportReport, ExportError> {
+    export_project_image_with_progress(project, path, options, |_, _| Ok(()))
+}
+
+/// Export a project frame or frame range with a per-frame callback (`frame_1_based`, `total_frames`)
+/// invoked after each frame is staged, allowing cancellation or late-frame fault injection.
+pub fn export_project_image_with_progress<F>(
+    project: &Project,
+    path: &Path,
+    options: &ImageExportOptions,
+    mut on_frame: F,
+) -> Result<ImageExportReport, ExportError>
+where
+    F: FnMut(u32, u32) -> Result<(), ExportError>,
+{
     project
         .validate()
         .map_err(|e| ExportError::InvalidProject(e.to_string()))?;
@@ -1748,247 +1528,280 @@ pub fn export_project_image(
         .saturating_add(1)
         .max(1);
 
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-
     let ext = options.format.extension();
-    let mut files = Vec::with_capacity(total_frames as usize);
-    let mut total_bytes = 0usize;
-    let mut layer_count = 1usize;
-    let mut path_count = 0usize;
-    // A range of AI files is one user operation. Render every frame before publishing any path so
-    // a decoder/validation failure on a later frame cannot leave an earlier numbered file behind.
-    let defer_ai_range_publish = options.format == ImageExportFormat::Ai && total_frames > 1;
-    let mut ai_range_transaction = if defer_ai_range_publish {
-        Some(AiRangeTransaction::new(
-            path.parent().unwrap_or_else(|| Path::new(".")),
-        )?)
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let is_sequence_export =
+        total_frames > 1 || !matches!(options.range, ImageExportRange::CurrentFrame(_));
+
+    let mut single_created_dirs = Vec::new();
+    let mut sequence_tx = if is_sequence_export {
+        let stem = sequence_output_stem(path);
+        let planned_names: Vec<String> = (0..total_frames)
+            .map(|offset| {
+                numbered_output_path(path, offset, total_frames, ext, true)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(str::to_owned)
+                    .ok_or_else(|| {
+                        ExportError::Options(format!(
+                            "Invalid sequence output path '{}'.",
+                            path.display()
+                        ))
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let tx = SequenceSetTransaction::begin(parent, stem)?;
+        tx.preflight(&planned_names)?;
+        Some((tx, planned_names))
     } else {
+        single_created_dirs = ensure_directory_chain_tracked(parent)?;
         None
     };
 
-    let mut eval_proj = project.clone();
-    let include_guides = matches!(
-        options.format,
-        ImageExportFormat::Svg | ImageExportFormat::Ai
-    ) && options.svg_include_hidden_guides;
-    if include_guides {
-        for sym in &mut eval_proj.symbols {
-            for layer in &mut sym.timeline.layers {
-                if layer.properties.role == LayerRole::Guide {
-                    layer.visible = true;
+    let result = (|| -> Result<ImageExportReport, ExportError> {
+        let mut files = Vec::with_capacity(total_frames as usize);
+        let mut total_bytes = 0usize;
+        let mut layer_count = 1usize;
+        let mut path_count = 0usize;
+
+        let mut eval_proj = project.clone();
+        let include_guides = matches!(
+            options.format,
+            ImageExportFormat::Svg | ImageExportFormat::Ai
+        ) && options.svg_include_hidden_guides;
+        if include_guides {
+            for sym in &mut eval_proj.symbols {
+                for layer in &mut sym.timeline.layers {
+                    if layer.properties.role == LayerRole::Guide {
+                        layer.visible = true;
+                    }
                 }
             }
         }
-    }
-    if options.symbol_id.is_none() && !eval_proj.scenes.is_empty() {
-        eval_proj = flatten_scenes_with_ranges(&eval_proj).0;
-    }
-    let target_symbol = options
-        .symbol_id
-        .clone()
-        .unwrap_or_else(|| eval_proj.root.clone());
-    let has_timeline_video = eval_proj
-        .symbols
-        .iter()
-        .flat_map(|s| &s.timeline.layers)
-        .flat_map(|l| &l.keyframes)
-        .any(|k| {
-            k.video.is_some()
-                || k.elements
-                    .iter()
-                    .any(|e| matches!(e.kind, ElementKind::Video { .. }))
+        if options.symbol_id.is_none() && !eval_proj.scenes.is_empty() {
+            eval_proj = flatten_scenes_with_ranges(&eval_proj).0;
+        }
+        let target_symbol = options
+            .symbol_id
+            .clone()
+            .unwrap_or_else(|| eval_proj.root.clone());
+        let has_timeline_video = eval_proj
+            .symbols
+            .iter()
+            .flat_map(|s| &s.timeline.layers)
+            .flat_map(|l| &l.keyframes)
+            .any(|k| {
+                k.video.is_some()
+                    || k.elements
+                        .iter()
+                        .any(|e| matches!(e.kind, ElementKind::Video { .. }))
+            });
+        let mut playback = options.runtime_capture.then(|| {
+            let mut p = neoflash_core::AuthoredPlayback::with_live_scripts(
+                &eval_proj,
+                &target_symbol,
+                0,
+                true,
+            );
+            for _ in 0..start_frame {
+                p.tick(&eval_proj);
+            }
+            p
         });
-    let mut playback = options.runtime_capture.then(|| {
-        let mut p =
-            neoflash_core::AuthoredPlayback::with_live_scripts(&eval_proj, &target_symbol, 0, true);
-        for _ in 0..start_frame {
-            p.tick(&eval_proj);
-        }
-        p
-    });
-    let mut bitmap_cache = HashMap::new();
-    let needs_raster_video_session = has_timeline_video
-        && matches!(
-            options.format,
-            ImageExportFormat::Png
-                | ImageExportFormat::Jpeg
-                | ImageExportFormat::Webp
-                | ImageExportFormat::Gif
-                | ImageExportFormat::Bmp
-                | ImageExportFormat::Pdf
-                | ImageExportFormat::Psd
-        );
-    let mut video_session = if needs_raster_video_session {
-        Some(crate::video::SequentialVideoFrameSession::new(
-            project,
-            options.symbol_id.as_deref(),
-            start_frame,
-            width,
-            height,
-            options.transparent_background,
-            options.runtime_capture,
-            None,
-        )?)
-    } else {
-        None
-    };
-
-    for offset in 0..total_frames {
-        let frame = start_frame + offset;
-        if offset > 0
-            && let Some(p) = &mut playback
-        {
-            p.tick(&eval_proj);
-        }
-        let stepped_scene = if let Some(p) = &playback {
-            p.scene(&eval_proj, include_guides, true)
+        let mut bitmap_cache = HashMap::new();
+        let needs_raster_video_session = has_timeline_video
+            && matches!(
+                options.format,
+                ImageExportFormat::Png
+                    | ImageExportFormat::Jpeg
+                    | ImageExportFormat::Webp
+                    | ImageExportFormat::Gif
+                    | ImageExportFormat::Bmp
+                    | ImageExportFormat::Pdf
+                    | ImageExportFormat::Psd
+            );
+        let mut video_session = if needs_raster_video_session {
+            Some(crate::video::SequentialVideoFrameSession::new(
+                project,
+                options.symbol_id.as_deref(),
+                start_frame,
+                width,
+                height,
+                options.transparent_background,
+                options.runtime_capture,
+                None,
+            )?)
         } else {
-            evaluate_scene(&eval_proj, &target_symbol, frame, include_guides, true)
+            None
         };
-        let mut render_rgba =
-            |bitmap_cache: &mut HashMap<String, _>| -> Result<Vec<u8>, ExportError> {
-                if let Some(sess) = &mut video_session {
-                    sess.render_frame(frame)
-                } else {
-                    render_authored_scene_rgba(
+
+        for offset in 0..total_frames {
+            let frame = start_frame + offset;
+            if offset > 0
+                && let Some(p) = &mut playback
+            {
+                p.tick(&eval_proj);
+            }
+            let stepped_scene = if let Some(p) = &playback {
+                p.scene(&eval_proj, include_guides, true)
+            } else {
+                evaluate_scene(&eval_proj, &target_symbol, frame, include_guides, true)
+            };
+            let mut render_rgba =
+                |bitmap_cache: &mut HashMap<String, _>| -> Result<Vec<u8>, ExportError> {
+                    if let Some(sess) = &mut video_session {
+                        sess.render_frame(frame)
+                    } else {
+                        render_authored_scene_rgba(
+                            &eval_proj,
+                            &target_symbol,
+                            frame,
+                            &stepped_scene,
+                            width,
+                            height,
+                            options.transparent_background,
+                            bitmap_cache,
+                        )
+                    }
+                };
+
+            let out_path =
+                numbered_output_path(path, offset, total_frames, ext, is_sequence_export);
+            let bytes = match options.format {
+                ImageExportFormat::Png => {
+                    let rgba = render_rgba(&mut bitmap_cache)?;
+                    encode_png_bytes(&rgba, width, height)?
+                }
+                ImageExportFormat::Jpeg => {
+                    let rgba = render_rgba(&mut bitmap_cache)?;
+                    encode_jpeg_bytes(
+                        &rgba,
+                        width,
+                        height,
+                        options.jpeg_quality,
+                        eval_proj.background,
+                    )?
+                }
+                ImageExportFormat::Webp => {
+                    let rgba = render_rgba(&mut bitmap_cache)?;
+                    encode_webp_bytes(&rgba, width, height)?
+                }
+                ImageExportFormat::Gif => {
+                    let rgba = render_rgba(&mut bitmap_cache)?;
+                    encode_gif_bytes(&rgba, width, height)?
+                }
+                ImageExportFormat::Bmp => {
+                    let rgba = render_rgba(&mut bitmap_cache)?;
+                    encode_bmp_bytes(&rgba, width, height)?
+                }
+                ImageExportFormat::Svg => {
+                    let svg_opts = SvgOptions {
+                        symbol_id: options.symbol_id.clone(),
+                        frame,
+                        end_frame: None,
+                        width: Some(width),
+                        height: Some(height),
+                        transparent_background: options.transparent_background,
+                        include_guides: options.svg_include_hidden_guides,
+                        text_as_outlines: options.svg_text_as_outlines,
+                        precision: options.svg_precision.clamp(1, 6),
+                    };
+                    let (mut markup, elems, _) =
+                        render_scene_svg(&eval_proj, &stepped_scene, &svg_opts)?;
+                    path_count += elems;
+                    let prefix = safe_svg_id_prefix(&options.svg_id_prefix);
+                    if prefix != "nf-" {
+                        markup = markup.replace("id=\"nf-", &format!("id=\"{prefix}"));
+                        markup = markup.replace("url(#nf-", &format!("url(#{prefix}"));
+                    }
+                    if options.svg_minify {
+                        markup = markup
+                            .lines()
+                            .map(str::trim)
+                            .filter(|l| !l.is_empty())
+                            .collect::<Vec<_>>()
+                            .join("");
+                    }
+                    markup.into_bytes()
+                }
+                ImageExportFormat::Psd => {
+                    let (psd, layers) = build_psd_bytes(
+                        project,
+                        options.symbol_id.as_deref(),
+                        frame,
+                        width,
+                        height,
+                        options,
+                    )?;
+                    layer_count = layers;
+                    psd
+                }
+                ImageExportFormat::Ai => {
+                    let (ai, layers, paths) = build_ai_bytes_with_scene(
                         &eval_proj,
+                        &project.name,
                         &target_symbol,
                         frame,
                         &stepped_scene,
                         width,
                         height,
-                        options.transparent_background,
-                        bitmap_cache,
-                    )
+                        options,
+                    )?;
+                    layer_count = layers;
+                    path_count += paths;
+                    ai
+                }
+                ImageExportFormat::Pdf => {
+                    let rgba = render_rgba(&mut bitmap_cache)?;
+                    build_pdf_bytes_from_rgba(&rgba, width, height)?
                 }
             };
-
-        let out_path = numbered_output_path(path, offset, total_frames, ext);
-        let bytes = match options.format {
-            ImageExportFormat::Png => {
-                let rgba = render_rgba(&mut bitmap_cache)?;
-                encode_png_bytes(&rgba, width, height)?
+            total_bytes += bytes.len();
+            if let Some((tx, planned_names)) = &mut sequence_tx {
+                tx.stage_file(&planned_names[offset as usize], &bytes)?;
+                on_frame(offset + 1, total_frames)?;
+            } else {
+                on_frame(offset + 1, total_frames)?;
+                atomic_write(&out_path, &bytes)?;
+                files.push(out_path);
             }
-            ImageExportFormat::Jpeg => {
-                let rgba = render_rgba(&mut bitmap_cache)?;
-                encode_jpeg_bytes(
-                    &rgba,
-                    width,
-                    height,
-                    options.jpeg_quality,
-                    eval_proj.background,
-                )?
-            }
-            ImageExportFormat::Webp => {
-                let rgba = render_rgba(&mut bitmap_cache)?;
-                encode_webp_bytes(&rgba, width, height)?
-            }
-            ImageExportFormat::Gif => {
-                let rgba = render_rgba(&mut bitmap_cache)?;
-                encode_gif_bytes(&rgba, width, height)?
-            }
-            ImageExportFormat::Bmp => {
-                let rgba = render_rgba(&mut bitmap_cache)?;
-                encode_bmp_bytes(&rgba, width, height)?
-            }
-            ImageExportFormat::Svg => {
-                let svg_opts = SvgOptions {
-                    symbol_id: options.symbol_id.clone(),
-                    frame,
-                    end_frame: None,
-                    width: Some(width),
-                    height: Some(height),
-                    transparent_background: options.transparent_background,
-                    include_guides: options.svg_include_hidden_guides,
-                    text_as_outlines: options.svg_text_as_outlines,
-                    precision: options.svg_precision.clamp(1, 6),
-                };
-                let (mut markup, elems, _) =
-                    render_scene_svg(&eval_proj, &stepped_scene, &svg_opts)?;
-                path_count += elems;
-                let prefix = safe_svg_id_prefix(&options.svg_id_prefix);
-                if prefix != "nf-" {
-                    markup = markup.replace("id=\"nf-", &format!("id=\"{prefix}"));
-                    markup = markup.replace("url(#nf-", &format!("url(#{prefix}"));
-                }
-                if options.svg_minify {
-                    markup = markup
-                        .lines()
-                        .map(str::trim)
-                        .filter(|l| !l.is_empty())
-                        .collect::<Vec<_>>()
-                        .join("");
-                }
-                markup.into_bytes()
-            }
-            ImageExportFormat::Psd => {
-                let (psd, layers) = build_psd_bytes(
-                    project,
-                    options.symbol_id.as_deref(),
-                    frame,
-                    width,
-                    height,
-                    options,
-                )?;
-                layer_count = layers;
-                psd
-            }
-            ImageExportFormat::Ai => {
-                let (ai, layers, paths) = build_ai_bytes_with_scene(
-                    &eval_proj,
-                    &project.name,
-                    &target_symbol,
-                    frame,
-                    &stepped_scene,
-                    width,
-                    height,
-                    options,
-                )?;
-                layer_count = layers;
-                path_count += paths;
-                ai
-            }
-            ImageExportFormat::Pdf => {
-                let rgba = render_rgba(&mut bitmap_cache)?;
-                build_pdf_bytes_from_rgba(&rgba, width, height)?
-            }
-        };
-        total_bytes += bytes.len();
-        if let Some(transaction) = &mut ai_range_transaction {
-            transaction.stage(out_path, &bytes)?;
-        } else {
-            atomic_write(&out_path, &bytes)?;
-            files.push(out_path);
         }
-    }
 
-    if let Some(transaction) = ai_range_transaction {
-        files = transaction.commit()?;
-    }
+        if let Some((tx, _)) = sequence_tx.take() {
+            files = tx.commit()?;
+        }
 
-    Ok(ImageExportReport {
-        format: options.format,
-        files,
-        width,
-        height,
-        frame_count: total_frames,
-        total_bytes,
-        layer_count,
-        path_count,
-    })
+        Ok(ImageExportReport {
+            format: options.format,
+            files,
+            width,
+            height,
+            frame_count: total_frames,
+            total_bytes,
+            layer_count,
+            path_count,
+        })
+    })();
+
+    if result.is_err() {
+        drop(sequence_tx);
+        remove_empty_dirs_reverse(&single_created_dirs);
+    }
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SEQUENCE_STAGE_PREFIX;
     use neoflash_core::{
         Element, ElementKind, Keyframe, Layer, LayerProperties, ResourceUnit, Symbol,
         TimelineVideoSpan, Transform, new_id,
     };
+    use std::fs;
 
     #[test]
     fn current_scene_range_uses_zero_based_inclusive_scene_bounds() {
@@ -2350,7 +2163,7 @@ mod tests {
             entry
                 .ok()
                 .and_then(|entry| entry.file_name().into_string().ok())
-                .is_some_and(|name| name.starts_with(".neoflash-ai-range-"))
+                .is_some_and(|name| name.starts_with(SEQUENCE_STAGE_PREFIX))
         }));
         let _ = fs::remove_dir_all(dir);
     }
@@ -2381,38 +2194,62 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let first = dir.join("range_0001.ai");
         let second = dir.join("range_0002.ai");
-        let original = b"pre-existing first AI file";
-        fs::write(&first, original).unwrap();
-        fs::create_dir(&second).unwrap();
 
+        // 1. Unowned pre-existing file is refused cleanly before any mutation.
+        let unowned = b"pre-existing unowned AI file";
+        fs::write(&first, unowned).unwrap();
         let mut options = ImageExportOptions::for_project(&project, 0);
         options.format = ImageExportFormat::Ai;
         options.range = ImageExportRange::Frames { start: 0, end: 1 };
+        let unowned_err = export_project_image(&project, &dir.join("range.ai"), &options)
+            .expect_err("unowned range_0001.ai must be refused by preflight");
+        assert!(
+            matches!(unowned_err, ExportError::Destination(_)),
+            "got: {unowned_err}"
+        );
+        assert_eq!(fs::read(&first).unwrap(), unowned);
+        assert!(!second.exists());
+        fs::remove_file(&first).unwrap();
+
+        // 2. Owned prior sequence is preserved byte-for-byte when a blocking directory appears at a later frame.
+        export_project_image(&project, &dir.join("range.ai"), &options)
+            .expect("initial two-frame AI sequence succeeds");
+        let owned_first = fs::read(&first).unwrap();
+        let owned_second = fs::read(&second).unwrap();
+
+        project.symbol_mut(&root_id).unwrap().timeline.frame_count = 3;
+        let third = dir.join("range_0003.ai");
+        fs::create_dir(&third).unwrap();
+        options.range = ImageExportRange::Frames { start: 0, end: 2 };
         let error = export_project_image(&project, &dir.join("range.ai"), &options)
-            .expect_err("directory at the second target must fail the range transaction");
+            .expect_err("directory at the third target must fail the range transaction");
         assert!(
             error.to_string().contains("directory") || error.to_string().contains("Directory"),
             "got: {error}"
         );
-        assert_eq!(fs::read(&first).unwrap(), original);
-        assert!(second.is_dir());
+        assert_eq!(fs::read(&first).unwrap(), owned_first);
+        assert_eq!(fs::read(&second).unwrap(), owned_second);
+        assert!(third.is_dir());
         assert!(!fs::read_dir(&dir).unwrap().any(|entry| {
             entry
                 .ok()
                 .and_then(|entry| entry.file_name().into_string().ok())
-                .is_some_and(|name| name.starts_with(".neoflash-ai-range-"))
+                .is_some_and(|name| name.starts_with(SEQUENCE_STAGE_PREFIX))
         }));
-        fs::remove_dir(&second).unwrap();
+
+        fs::remove_dir(&third).unwrap();
         let report = export_project_image(&project, &dir.join("range.ai"), &options)
-            .expect("the same two-frame range publishes after the target is repaired");
-        assert_eq!(report.files, vec![first.clone(), second.clone()]);
-        assert!(first.is_file());
-        assert!(second.is_file());
+            .expect("three-frame range publishes after the blocking directory is removed");
+        assert_eq!(
+            report.files,
+            vec![first.clone(), second.clone(), third.clone()]
+        );
+        assert!(first.is_file() && second.is_file() && third.is_file());
         assert!(!fs::read_dir(&dir).unwrap().any(|entry| {
             entry
                 .ok()
                 .and_then(|entry| entry.file_name().into_string().ok())
-                .is_some_and(|name| name.starts_with(".neoflash-ai-range-"))
+                .is_some_and(|name| name.starts_with(SEQUENCE_STAGE_PREFIX))
         }));
         let _ = fs::remove_dir_all(dir);
     }
@@ -2425,28 +2262,30 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
 
         {
-            let mut transaction = AiRangeTransaction::with_limits(&dir, 4, 2).unwrap();
-            transaction.stage(dir.join("a.ai"), b"1234").unwrap();
+            let mut transaction =
+                SequenceSetTransaction::begin_with_limits(&dir, "a", 4, 2).unwrap();
+            transaction.stage_file("a_0001.ai", b"1234").unwrap();
             let error = transaction
-                .stage(dir.join("b.ai"), b"5")
+                .stage_file("a_0002.ai", b"5")
                 .expect_err("aggregate staging bytes must be bounded");
             assert!(error.to_string().contains("staging limit"));
         }
         {
-            let mut transaction = AiRangeTransaction::with_limits(&dir, 100, 1).unwrap();
-            transaction.stage(dir.join("a.ai"), b"1").unwrap();
+            let mut transaction =
+                SequenceSetTransaction::begin_with_limits(&dir, "a", 100, 1).unwrap();
+            transaction.stage_file("a_0001.ai", b"1").unwrap();
             let error = transaction
-                .stage(dir.join("b.ai"), b"2")
+                .stage_file("a_0002.ai", b"2")
                 .expect_err("staged file count must be bounded");
-            assert!(error.to_string().contains("1-file"));
+            assert!(error.to_string().contains("staging limit"));
         }
-        assert!(!dir.join("a.ai").exists());
-        assert!(!dir.join("b.ai").exists());
+        assert!(!dir.join("a_0001.ai").exists());
+        assert!(!dir.join("a_0002.ai").exists());
         assert!(!fs::read_dir(&dir).unwrap().any(|entry| {
             entry
                 .ok()
                 .and_then(|entry| entry.file_name().into_string().ok())
-                .is_some_and(|name| name.starts_with(".neoflash-ai-range-"))
+                .is_some_and(|name| name.starts_with(SEQUENCE_STAGE_PREFIX))
         }));
         let _ = fs::remove_dir_all(dir);
     }

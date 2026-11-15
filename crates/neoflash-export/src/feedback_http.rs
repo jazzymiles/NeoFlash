@@ -1,9 +1,11 @@
 //! HTTPS `multipart/form-data` sender and attachment validator for Beta feedback (`R-103`, `T-317`).
 //!
 //! Privacy rule (`R-103` item 6): only the fields and images visible in the `"Beta feedback"`
-//! dialog are transmitted — the `message` text and up to five validated image attachments
-//! (`PNG`, `JPEG`, `GIF`, `WebP`, ≤ 10 MB each). No build version, OS, machine identifier, or
-//! open `.nflash` document metadata is attached to headers or form fields.
+//! dialog are transmitted — the `message` text, up to five validated image attachments
+//! (`PNG`, `JPEG`, `GIF`, `WebP`, ≤ 10 MB each and ≤ 10 MB combined), and the constant FormSubmit
+//! protocol flag `_captcha=false` strictly when posting to `formsubmit.co` / `*.formsubmit.co`.
+//! No build version, OS, machine identifier, or open `.nflash` document metadata is attached to
+//! headers or form fields.
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json::Value;
@@ -34,8 +36,14 @@ pub const MAX_FEEDBACK_ATTACHMENTS: usize = 5;
 /// Maximum size of a single attached image in bytes (`10 MB`, `R-103` item 4).
 pub const MAX_FEEDBACK_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024;
 
+/// Maximum combined size of all attached images in bytes (`10 MB`, FormSubmit multipart limit).
+pub const MAX_FEEDBACK_TOTAL_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024;
+
 /// Maximum size of the feedback `message` text in UTF-8 bytes (`64 KiB`).
 pub const MAX_FEEDBACK_MESSAGE_BYTES: usize = 64 * 1024;
+
+/// Actionable, typo-free error message shown when FormSubmit awaits one-time form activation.
+pub const FORMSUBMIT_ACTIVATION_ERROR: &str = "Feedback form is awaiting one-time activation: open the FormSubmit email sent to developer@redinger.cc (check Spam), click 'Activate Form', then click Send again.";
 
 const RESPONSE_SNIPPET_BYTES: usize = 16 * 1024;
 
@@ -62,6 +70,9 @@ impl fmt::Display for BetaFeedbackHttpError {
             Self::InvalidUrl(msg) => write!(f, "Invalid feedback endpoint URL: {msg}"),
             Self::Validation(msg) => f.write_str(msg),
             Self::OfflineOrNetwork(msg) => write!(f, "Could not send feedback: {msg}"),
+            Self::ServerRejected { detail, .. } if detail == FORMSUBMIT_ACTIVATION_ERROR => {
+                f.write_str(detail)
+            }
             Self::ServerRejected {
                 status: Some(code),
                 detail,
@@ -216,10 +227,34 @@ pub fn validate_feedback_loopback_ips(
     Ok(())
 }
 
-/// Validate a feedback endpoint URL.
+/// Return `true` when `url` targets `formsubmit.co` or a `*.formsubmit.co` subdomain.
+pub fn is_formsubmit_endpoint(url: &url::Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let lower = host.to_ascii_lowercase();
+    lower == "formsubmit.co" || lower.ends_with(".formsubmit.co")
+}
+
+fn is_bare_formsubmit_token(raw: &str) -> bool {
+    // FormSubmit replacement tokens are bare alphanumeric/hex/UUID-like identifiers
+    // (for example, a 32-character alphanumeric token). Require 16..=128 characters
+    // from `[A-Za-z0-9_-]` so invalid URLs or schemes still fail validation cleanly.
+    (16..=128).contains(&raw.len())
+        && raw
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        && raw.bytes().any(|b| b.is_ascii_alphanumeric())
+}
+
+/// Validate and normalize a feedback endpoint URL or bare FormSubmit token.
 ///
-/// Remote hosts MUST use `https://`. Plain `http://` is permitted strictly on loopback
-/// (`127.0.0.1`, `localhost`, `[::1]`) when every resolved socket IP address is loopback.
+/// - Bare FormSubmit tokens (16..=128 alphanumeric/`-`/`_` chars) normalize to
+///   `https://formsubmit.co/ajax/<token>`.
+/// - Non-AJAX `https://formsubmit.co/<target>` URLs normalize to
+///   `https://formsubmit.co/ajax/<target>` while preserving already-`/ajax/` paths.
+/// - Remote hosts MUST use `https://`. Plain `http://` is permitted strictly on loopback
+///   (`127.0.0.1`, `localhost`, `[::1]`) when every resolved socket IP address is loopback.
 pub fn validate_feedback_url(raw: &str) -> Result<(url::Url, bool), BetaFeedbackHttpError> {
     let trimmed = raw.trim();
     if trimmed.is_empty()
@@ -231,25 +266,51 @@ pub fn validate_feedback_url(raw: &str) -> Result<(url::Url, bool), BetaFeedback
             "endpoint URL is empty or contains whitespace, control, or backslash characters".into(),
         ));
     }
-    let parsed =
-        url::Url::parse(trimmed).map_err(|e| BetaFeedbackHttpError::InvalidUrl(e.to_string()))?;
+    let candidate = if is_bare_formsubmit_token(trimmed) {
+        format!("https://formsubmit.co/ajax/{trimmed}")
+    } else {
+        trimmed.to_owned()
+    };
+    let mut parsed = url::Url::parse(&candidate)
+        .map_err(|e| BetaFeedbackHttpError::InvalidUrl(e.to_string()))?;
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return Err(BetaFeedbackHttpError::InvalidUrl(
             "URL must not contain credentials".into(),
         ));
     }
-    let Some(host) = parsed.host_str().filter(|h| !h.is_empty()) else {
+    let Some(host) = parsed
+        .host_str()
+        .filter(|h| !h.is_empty())
+        .map(str::to_owned)
+    else {
         return Err(BetaFeedbackHttpError::InvalidUrl(
             "URL is missing a host".into(),
         ));
     };
-    let loopback = is_loopback_host(host);
+    let loopback = is_loopback_host(&host);
     match parsed.scheme() {
-        "https" => Ok((parsed, loopback)),
+        "https" => {
+            if is_formsubmit_endpoint(&parsed) {
+                let path = parsed.path().to_owned();
+                let lower_path = path.to_ascii_lowercase();
+                if path.is_empty() || path == "/" || lower_path == "/ajax" || lower_path == "/ajax/"
+                {
+                    return Err(BetaFeedbackHttpError::InvalidUrl(
+                        "FormSubmit endpoint URL is missing a target recipient or token".into(),
+                    ));
+                }
+                if !lower_path.starts_with("/ajax/") {
+                    parsed.set_path(&format!("/ajax{path}"));
+                } else if &path[..6] != "/ajax/" {
+                    parsed.set_path(&format!("/ajax/{}", &path[6..]));
+                }
+            }
+            Ok((parsed, loopback))
+        }
         "http" if loopback => {
             let unbracketed_host = match parsed.host() {
                 Some(url::Host::Ipv6(addr)) => addr.to_string(),
-                _ => host.to_owned(),
+                _ => host.clone(),
             };
             let effective_port = parsed.port_or_known_default().unwrap_or(80);
             if let Ok(ip) = unbracketed_host.parse::<IpAddr>() {
@@ -277,21 +338,31 @@ pub fn validate_feedback_url(raw: &str) -> Result<(url::Url, bool), BetaFeedback
     }
 }
 
-/// Resolve the active feedback endpoint URL from an explicit override, [`BETA_FEEDBACK_URL_ENV`],
-/// or [`DEFAULT_BETA_FEEDBACK_URL`].
-pub fn resolve_feedback_url(
+/// Resolve the active feedback endpoint URL from an explicit override, an environment override
+/// (`NEOFLASH_FEEDBACK_URL`), or [`DEFAULT_BETA_FEEDBACK_URL`].
+pub fn resolve_feedback_url_with_env(
     explicit_override: Option<&str>,
+    env_override: Option<&str>,
 ) -> Result<(url::Url, bool), BetaFeedbackHttpError> {
     if let Some(raw) = explicit_override {
         return validate_feedback_url(raw);
     }
-    if let Ok(env_val) = std::env::var(BETA_FEEDBACK_URL_ENV) {
+    if let Some(env_val) = env_override {
         let trimmed = env_val.trim();
         if !trimmed.is_empty() {
             return validate_feedback_url(trimmed);
         }
     }
     validate_feedback_url(DEFAULT_BETA_FEEDBACK_URL)
+}
+
+/// Resolve the active feedback endpoint URL from an explicit override, [`BETA_FEEDBACK_URL_ENV`],
+/// or [`DEFAULT_BETA_FEEDBACK_URL`].
+pub fn resolve_feedback_url(
+    explicit_override: Option<&str>,
+) -> Result<(url::Url, bool), BetaFeedbackHttpError> {
+    let env_val = std::env::var(BETA_FEEDBACK_URL_ENV).ok();
+    resolve_feedback_url_with_env(explicit_override, env_val.as_deref())
 }
 
 fn choose_boundary(message: &str, attachments: &[FeedbackAttachment]) -> String {
@@ -321,11 +392,24 @@ fn choose_boundary(message: &str, attachments: &[FeedbackAttachment]) -> String 
 /// validated image attachments (`R-103` item 6).
 ///
 /// Field naming for FormSubmit compatibility:
-/// - `message` (`text/plain; charset=utf-8`)
+/// - `message` (RFC 7578 `FormData` text field without `Content-Type` header)
 /// - `attachment` when 1 image is attached; `attachment_1`..`attachment_N` when 2..=5 images are attached.
 pub fn build_feedback_multipart_body(
     message: &str,
     attachments: &[FeedbackAttachment],
+) -> Result<(String, Vec<u8>), BetaFeedbackHttpError> {
+    build_feedback_multipart_body_for_url(message, attachments, None)
+}
+
+/// Build an RFC 7578 `multipart/form-data` payload for `target_url`.
+///
+/// When `target_url` is a FormSubmit host (`formsubmit.co` or `*.formsubmit.co`), includes the
+/// constant headless protocol field `_captcha=false` (carrying zero device/OS/version/document
+/// telemetry) so FormSubmit's `/ajax/` handler returns JSON instead of an HTML reCAPTCHA wall.
+pub fn build_feedback_multipart_body_for_url(
+    message: &str,
+    attachments: &[FeedbackAttachment],
+    target_url: Option<&url::Url>,
 ) -> Result<(String, Vec<u8>), BetaFeedbackHttpError> {
     if message.trim().is_empty() {
         return Err(BetaFeedbackHttpError::Validation(
@@ -343,36 +427,43 @@ pub fn build_feedback_multipart_body(
             "At most 5 images can be attached.".into(),
         ));
     }
+    let mut running_total_bytes: usize = 0;
     for att in attachments {
+        let display_name = clean_display_filename(&att.filename);
         if att.bytes.is_empty() {
             return Err(BetaFeedbackHttpError::Validation(format!(
-                "“{}” could not be attached: file is empty.",
-                att.filename
+                "“{display_name}” could not be attached: file is empty.",
             )));
         }
         if att.bytes.len() > MAX_FEEDBACK_ATTACHMENT_BYTES {
             return Err(BetaFeedbackHttpError::Validation(format!(
-                "“{}” exceeds the 10 MB limit ({}).",
-                att.filename,
+                "“{display_name}” exceeds the 10 MB limit ({}).",
                 format_attachment_size(att.bytes.len())
             )));
         }
         let Some(detected_mime) = detect_feedback_image_mime(&att.bytes) else {
             return Err(BetaFeedbackHttpError::Validation(format!(
-                "“{}” is not a supported image (PNG, JPEG, GIF or WebP required).",
-                att.filename
+                "“{display_name}” is not a supported image (PNG, JPEG, GIF or WebP required).",
             )));
         };
         if att.content_type != detected_mime {
             return Err(BetaFeedbackHttpError::Validation(format!(
-                "“{}” MIME type mismatch (expected {detected_mime}, got {}).",
-                att.filename, att.content_type
+                "“{display_name}” MIME type mismatch (expected {detected_mime}, got {}).",
+                att.content_type
+            )));
+        }
+        running_total_bytes = running_total_bytes.saturating_add(att.bytes.len());
+        if running_total_bytes > MAX_FEEDBACK_TOTAL_ATTACHMENT_BYTES {
+            return Err(BetaFeedbackHttpError::Validation(format!(
+                "“{display_name}” could not be attached: combined attachments exceed the 10 MB total limit ({}).",
+                format_attachment_size(running_total_bytes)
             )));
         }
     }
 
+    let include_formsubmit_captcha = target_url.is_some_and(is_formsubmit_endpoint);
     let boundary = choose_boundary(message, attachments);
-    let total_bytes: usize = 256
+    let total_bytes: usize = 384
         + message.len()
         + attachments
             .iter()
@@ -380,16 +471,23 @@ pub fn build_feedback_multipart_body(
             .sum::<usize>();
     let mut body = Vec::with_capacity(total_bytes);
 
-    // 1. User feedback text (`message`).
+    // 1. User feedback text (`message`) — RFC 7578 `FormData` text part without `Content-Type`.
     body.extend_from_slice(b"--");
     body.extend_from_slice(boundary.as_bytes());
-    body.extend_from_slice(
-        b"\r\nContent-Disposition: form-data; name=\"message\"\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n",
-    );
+    body.extend_from_slice(b"\r\nContent-Disposition: form-data; name=\"message\"\r\n\r\n");
     body.extend_from_slice(message.as_bytes());
     body.extend_from_slice(b"\r\n");
 
-    // 2. Attached images (`attachment` for single file, `attachment_1..N` for multiple files).
+    // 2. Constant `_captcha=false` strictly for FormSubmit hosts (`formsubmit.co` / `*.formsubmit.co`).
+    if include_formsubmit_captcha {
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(
+            b"\r\nContent-Disposition: form-data; name=\"_captcha\"\r\n\r\nfalse\r\n",
+        );
+    }
+
+    // 3. Attached images (`attachment` for single file, `attachment_1..N` for multiple files).
     let single = attachments.len() == 1;
     for (idx, att) in attachments.iter().enumerate() {
         let field_name = if single {
@@ -401,7 +499,7 @@ pub fn build_feedback_multipart_body(
         let Some(mime) = detect_feedback_image_mime(&att.bytes) else {
             return Err(BetaFeedbackHttpError::Validation(format!(
                 "“{}” is not a supported image.",
-                att.filename
+                clean_display_filename(&att.filename)
             )));
         };
         body.extend_from_slice(b"--");
@@ -460,6 +558,147 @@ fn read_body_snippet(body: &mut ureq::Body) -> String {
     }
 }
 
+fn looks_like_html_document(raw: &str) -> bool {
+    let trimmed = raw.trim_start();
+    let prefix: String = trimmed
+        .chars()
+        .take(128)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    prefix.starts_with("<!doctype html")
+        || prefix.starts_with("<html")
+        || prefix.starts_with("<?xml") && prefix.contains("<html")
+}
+
+fn contains_html_markup(raw: &str) -> bool {
+    if looks_like_html_document(raw) {
+        return true;
+    }
+    let lower = raw.to_ascii_lowercase();
+    lower.contains("<html")
+        || lower.contains("<body")
+        || lower.contains("<head")
+        || lower.contains("<div")
+        || lower.contains("<p>")
+        || lower.contains("<p ")
+        || lower.contains("<h1")
+        || lower.contains("<h2")
+        || lower.contains("<title")
+        || lower.contains("<script")
+        || lower.contains("<style")
+        || lower.contains("</a>")
+        || lower.contains("<br")
+}
+
+fn remove_case_insensitive_tag_block(input: &str, tag: &str) -> String {
+    let open_pat = format!("<{tag}");
+    let close_pat = format!("</{tag}>");
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while !rest.is_empty() {
+        let lower = rest.to_ascii_lowercase();
+        let Some(start) = lower.find(&open_pat) else {
+            out.push_str(rest);
+            break;
+        };
+        let after_tag_idx = start + open_pat.len();
+        let valid_boundary = rest
+            .as_bytes()
+            .get(after_tag_idx)
+            .is_none_or(|b| b.is_ascii_whitespace() || *b == b'>' || *b == b'/');
+        if !valid_boundary {
+            out.push_str(&rest[..after_tag_idx]);
+            rest = &rest[after_tag_idx..];
+            continue;
+        }
+        out.push_str(&rest[..start]);
+        out.push(' ');
+        let tail_lower = &lower[after_tag_idx..];
+        if let Some(end_rel) = tail_lower.find(&close_pat) {
+            let resume = after_tag_idx + end_rel + close_pat.len();
+            rest = &rest[resume..];
+        } else {
+            break;
+        }
+    }
+    out
+}
+
+/// Strip HTML comments, `<script>`/`<style>` blocks, and `<...>` tags into clean single-line text.
+pub fn strip_html_markup(raw: &str) -> String {
+    let without_scripts = remove_case_insensitive_tag_block(raw, "script");
+    let without_styles = remove_case_insensitive_tag_block(&without_scripts, "style");
+
+    let mut un_commented = String::with_capacity(without_styles.len());
+    let mut rem = without_styles.as_str();
+    while let Some(start) = rem.find("<!--") {
+        un_commented.push_str(&rem[..start]);
+        un_commented.push(' ');
+        if let Some(end_rel) = rem[start + 4..].find("-->") {
+            rem = &rem[start + 4 + end_rel + 3..];
+        } else {
+            rem = "";
+            break;
+        }
+    }
+    un_commented.push_str(rem);
+
+    let mut plain = String::with_capacity(un_commented.len());
+    let mut in_tag = false;
+    for ch in un_commented.chars() {
+        if in_tag {
+            if ch == '>' {
+                in_tag = false;
+                plain.push(' ');
+            }
+        } else if ch == '<' {
+            in_tag = true;
+            plain.push(' ');
+        } else {
+            plain.push(ch);
+        }
+    }
+
+    let decoded = plain
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&");
+
+    decoded.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn is_formsubmit_activation_notice(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("needs activation")
+        || lower.contains("activate form")
+        || lower.contains("not actived")
+        || lower.contains("be actived")
+        || lower.contains("not activated")
+        || lower.contains("form is not active")
+}
+
+fn is_captcha_challenge_notice(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("recaptcha")
+        || lower.contains("hcaptcha")
+        || lower.contains("cf-turnstile")
+        || lower.contains("verify you are human")
+        || lower.contains("complete the captcha")
+}
+
+fn sanitize_error_detail(raw: &str, max_chars: usize) -> String {
+    let cleaned = if contains_html_markup(raw) {
+        strip_html_markup(raw)
+    } else {
+        raw.split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    cleaned.chars().take(max_chars).collect()
+}
+
 fn extract_json_message(value: &Value) -> Option<String> {
     let obj = value.as_object()?;
     for key in ["message", "error", "detail"] {
@@ -492,6 +731,112 @@ fn is_json_logical_failure(value: &Value) -> bool {
     false
 }
 
+pub(crate) fn interpret_feedback_http_response(
+    status: u16,
+    raw_body: &str,
+) -> Result<(), BetaFeedbackHttpError> {
+    if (300..400).contains(&status) {
+        return Err(BetaFeedbackHttpError::ServerRejected {
+            status: Some(status),
+            detail: "server returned an unexpected redirect".into(),
+        });
+    }
+
+    if status == 413 {
+        return Err(BetaFeedbackHttpError::ServerRejected {
+            status: Some(413),
+            detail: "combined attachments exceed the 10 MB total limit; remove or shrink an image and try again.".into(),
+        });
+    }
+
+    let trimmed = raw_body.trim();
+    let parsed_json = if trimmed.starts_with('{') {
+        serde_json::from_str::<Value>(trimmed).ok()
+    } else {
+        None
+    };
+
+    if (200..300).contains(&status) {
+        if let Some(json) = &parsed_json
+            && is_json_logical_failure(json)
+        {
+            let raw_detail = extract_json_message(json)
+                .unwrap_or_else(|| "server rejected the feedback submission".into());
+            if is_formsubmit_activation_notice(&raw_detail) {
+                return Err(BetaFeedbackHttpError::ServerRejected {
+                    status: None,
+                    detail: FORMSUBMIT_ACTIVATION_ERROR.into(),
+                });
+            }
+            let detail = sanitize_error_detail(&raw_detail, 240);
+            return Err(BetaFeedbackHttpError::ServerRejected {
+                status: None,
+                detail: if detail.is_empty() {
+                    "server rejected the feedback submission".into()
+                } else {
+                    detail
+                },
+            });
+        }
+        if parsed_json.is_none() && looks_like_html_document(trimmed) {
+            let stripped = strip_html_markup(trimmed);
+            if is_formsubmit_activation_notice(&stripped) {
+                return Err(BetaFeedbackHttpError::ServerRejected {
+                    status: None,
+                    detail: FORMSUBMIT_ACTIVATION_ERROR.into(),
+                });
+            }
+            if is_captcha_challenge_notice(&stripped) {
+                return Err(BetaFeedbackHttpError::ServerRejected {
+                    status: None,
+                    detail: "feedback endpoint returned an HTML CAPTCHA challenge instead of JSON."
+                        .into(),
+                });
+            }
+            let summary: String = stripped.chars().take(200).collect();
+            let detail = if summary.is_empty() {
+                "feedback endpoint returned an unexpected HTML page instead of JSON.".into()
+            } else {
+                format!("feedback endpoint returned HTML instead of JSON: {summary}")
+            };
+            return Err(BetaFeedbackHttpError::ServerRejected {
+                status: None,
+                detail,
+            });
+        }
+        return Ok(());
+    }
+
+    let raw_detail = parsed_json
+        .as_ref()
+        .and_then(extract_json_message)
+        .unwrap_or_else(|| trimmed.to_owned());
+    let cleaned_detail = sanitize_error_detail(&raw_detail, 240);
+    if is_formsubmit_activation_notice(&raw_detail)
+        || is_formsubmit_activation_notice(&cleaned_detail)
+    {
+        return Err(BetaFeedbackHttpError::ServerRejected {
+            status: None,
+            detail: FORMSUBMIT_ACTIVATION_ERROR.into(),
+        });
+    }
+    if is_captcha_challenge_notice(&cleaned_detail) && contains_html_markup(trimmed) {
+        return Err(BetaFeedbackHttpError::ServerRejected {
+            status: Some(status),
+            detail: "upstream challenge page blocked automated feedback submission.".into(),
+        });
+    }
+    let detail = if cleaned_detail.is_empty() && contains_html_markup(trimmed) {
+        "server returned an HTML error page.".into()
+    } else {
+        cleaned_detail
+    };
+    Err(BetaFeedbackHttpError::ServerRejected {
+        status: Some(status),
+        detail,
+    })
+}
+
 /// Send beta feedback as an RFC 7578 `multipart/form-data` POST request.
 ///
 /// Validates both HTTP status (`2xx`, redirects disabled) and JSON logical status
@@ -502,7 +847,7 @@ pub fn send_beta_feedback_multipart(
     url_override: Option<&str>,
 ) -> Result<(), BetaFeedbackHttpError> {
     let (url, loopback) = resolve_feedback_url(url_override)?;
-    let (boundary, body) = build_feedback_multipart_body(message, attachments)?;
+    let (boundary, body) = build_feedback_multipart_body_for_url(message, attachments, Some(&url))?;
     let content_type = format!("multipart/form-data; boundary={boundary}");
     let agent = build_agent(loopback);
 
@@ -518,41 +863,7 @@ pub fn send_beta_feedback_multipart(
 
     let status = response.status().as_u16();
     let raw_body = read_body_snippet(response.body_mut());
-    let parsed_json = if raw_body.starts_with('{') {
-        serde_json::from_str::<Value>(&raw_body).ok()
-    } else {
-        None
-    };
-
-    if (300..400).contains(&status) {
-        return Err(BetaFeedbackHttpError::ServerRejected {
-            status: Some(status),
-            detail: "server returned an unexpected redirect".into(),
-        });
-    }
-
-    if (200..300).contains(&status) {
-        if let Some(json) = &parsed_json
-            && is_json_logical_failure(json)
-        {
-            let detail = extract_json_message(json)
-                .unwrap_or_else(|| "server rejected the feedback submission".into());
-            return Err(BetaFeedbackHttpError::ServerRejected {
-                status: None,
-                detail,
-            });
-        }
-        return Ok(());
-    }
-
-    let detail = parsed_json
-        .as_ref()
-        .and_then(extract_json_message)
-        .unwrap_or_else(|| raw_body.chars().take(240).collect());
-    Err(BetaFeedbackHttpError::ServerRejected {
-        status: Some(status),
-        detail,
-    })
+    interpret_feedback_http_response(status, &raw_body)
 }
 
 #[cfg(test)]
@@ -735,8 +1046,20 @@ mod tests {
         assert!(!lower_headers.contains("macos"));
 
         let body_lossy = String::from_utf8_lossy(&body);
-        assert!(body_lossy.contains("name=\"message\""));
-        assert!(body_lossy.contains("Playhead jumps when pressing Enter inside a motion tween."));
+        assert!(
+            body_lossy.contains(
+                "Content-Disposition: form-data; name=\"message\"\r\n\r\nPlayhead jumps when pressing Enter inside a motion tween.\r\n"
+            ),
+            "RFC 7578 FormData text part must omit Content-Type header: {body_lossy}"
+        );
+        assert!(
+            !body_lossy.contains("Content-Type: text/plain"),
+            "text fields must not carry Content-Type: text/plain"
+        );
+        assert!(
+            !body_lossy.contains("name=\"_captcha\""),
+            "generic loopback endpoint must not receive FormSubmit-only _captcha field"
+        );
         assert!(body_lossy.contains("name=\"attachment_1\"; filename=\"Screenshot 1.png\""));
         assert!(body_lossy.contains("Content-Type: image/png"));
         assert!(body_lossy.contains("name=\"attachment_2\"; filename=\"second.webp\""));
@@ -753,6 +1076,7 @@ mod tests {
         let text = String::from_utf8_lossy(&body);
         assert!(text.contains("name=\"attachment\"; filename=\"only.jpg\""));
         assert!(!text.contains("attachment_1"));
+        assert!(!text.contains("Content-Type: text/plain"));
     }
 
     #[test]
@@ -760,16 +1084,205 @@ mod tests {
         let (url, handle) = spawn_one_shot_server(
             "200 OK",
             "Content-Type: application/json\r\n",
-            r#"{"success":"false","message":"This form needs Activation. We've sent you an email containing an 'Activate Form' link."}"#,
+            r#"{"success":"false","message":"This form needs Activation. We've sent you an email containing an 'Activate Form' link. Just click it and your form will be actived!"}"#,
         );
         let err = send_beta_feedback_multipart("First test report", &[], Some(&url))
             .expect_err("200 OK with success:false must return Err");
         let _ = handle.join();
         let rendered = err.to_string();
+        assert_eq!(rendered, FORMSUBMIT_ACTIVATION_ERROR);
         assert!(
-            rendered.contains("This form needs Activation"),
-            "unexpected error: {rendered}"
+            !rendered.contains("actived"),
+            "upstream FormSubmit typo must never surface: {rendered}"
         );
+    }
+
+    #[test]
+    fn formsubmit_only_captcha_flag_and_rfc7578_text_parts_are_enforced() {
+        let (fs_root, _) =
+            validate_feedback_url("https://formsubmit.co/ajax/developer@redinger.cc").unwrap();
+        let (fs_sub, _) =
+            validate_feedback_url("https://api.formsubmit.co/ajax/developer@redinger.cc").unwrap();
+        let (other_https, _) =
+            validate_feedback_url("https://feedback.example.com/submit").unwrap();
+        let (loopback, _) = validate_feedback_url("http://127.0.0.1:9000/feedback").unwrap();
+
+        assert!(is_formsubmit_endpoint(&fs_root));
+        assert!(is_formsubmit_endpoint(&fs_sub));
+        assert!(!is_formsubmit_endpoint(&other_https));
+        assert!(!is_formsubmit_endpoint(&loopback));
+
+        for url in [&fs_root, &fs_sub] {
+            let (_, body) =
+                build_feedback_multipart_body_for_url("Hello FormSubmit", &[], Some(url)).unwrap();
+            let s = String::from_utf8_lossy(&body);
+            assert!(
+                s.contains(
+                    "Content-Disposition: form-data; name=\"message\"\r\n\r\nHello FormSubmit\r\n"
+                ),
+                "message part must omit Content-Type: {s}"
+            );
+            assert!(
+                s.contains("Content-Disposition: form-data; name=\"_captcha\"\r\n\r\nfalse\r\n"),
+                "FormSubmit target must include _captcha=false without Content-Type: {s}"
+            );
+            assert!(!s.contains("Content-Type: text/plain"));
+        }
+
+        for url in [&other_https, &loopback] {
+            let (_, body) =
+                build_feedback_multipart_body_for_url("Hello Custom", &[], Some(url)).unwrap();
+            let s = String::from_utf8_lossy(&body);
+            assert!(!s.contains("_captcha"));
+            assert!(!s.contains("Content-Type: text/plain"));
+        }
+    }
+
+    #[test]
+    fn combined_ten_megabyte_attachment_limit_is_enforced_across_multiple_files() {
+        let make_sized_png = |name: &str, len: usize| -> FeedbackAttachment {
+            let mut bytes = sample_png();
+            bytes.resize(len, 0);
+            validate_feedback_attachment(name, &bytes).expect("single attachment <= 10 MB")
+        };
+
+        // Two 5 MB images equal exactly 10 MB combined -> accepted.
+        let five_mb = 5 * 1024 * 1024;
+        let exact_a = make_sized_png("part-a.png", five_mb);
+        let exact_b = make_sized_png("part-b.png", five_mb);
+        assert!(build_feedback_multipart_body("Two 5 MB captures", &[exact_a, exact_b]).is_ok());
+
+        // Three 4 MB images (each <= 10 MB individually, 12 MB combined) -> rejected naming 3rd file and 10 MB limit.
+        let four_mb = 4 * 1024 * 1024;
+        let c1 = make_sized_png("one.png", four_mb);
+        let c2 = make_sized_png("two.png", four_mb);
+        let c3 = make_sized_png("three-over.png", four_mb);
+        let err = build_feedback_multipart_body("Three 4 MB captures", &[c1, c2, c3])
+            .expect_err("12 MB combined attachments must fail 10 MB total cap");
+        assert!(matches!(err, BetaFeedbackHttpError::Validation(_)));
+        let msg = err.to_string();
+        assert!(msg.contains("three-over.png"), "got: {msg}");
+        assert!(msg.contains("10 MB"), "got: {msg}");
+    }
+
+    #[test]
+    fn bare_formsubmit_token_and_non_ajax_urls_normalize_cleanly() {
+        // 32-char bare FormSubmit token -> https://formsubmit.co/ajax/<token>
+        let (tok_url, tok_loop) =
+            validate_feedback_url("a8f5f167f44f4964e6c998dee827110c").unwrap();
+        assert!(!tok_loop);
+        assert_eq!(
+            tok_url.as_str(),
+            "https://formsubmit.co/ajax/a8f5f167f44f4964e6c998dee827110c"
+        );
+
+        // Non-ajax https://formsubmit.co/<target> -> https://formsubmit.co/ajax/<target>
+        let (non_ajax, _) =
+            validate_feedback_url("https://formsubmit.co/developer@redinger.cc").unwrap();
+        assert_eq!(
+            non_ajax.as_str(),
+            "https://formsubmit.co/ajax/developer@redinger.cc"
+        );
+
+        let (sub_non_ajax, _) =
+            validate_feedback_url("https://www.formsubmit.co/a8f5f167f44f4964e6c998dee827110c")
+                .unwrap();
+        assert_eq!(
+            sub_non_ajax.as_str(),
+            "https://www.formsubmit.co/ajax/a8f5f167f44f4964e6c998dee827110c"
+        );
+
+        // Already-/ajax/ URLs and non-FormSubmit https:// URLs stay untouched.
+        let (already_ajax, _) =
+            validate_feedback_url("https://formsubmit.co/ajax/developer@redinger.cc").unwrap();
+        assert_eq!(
+            already_ajax.as_str(),
+            "https://formsubmit.co/ajax/developer@redinger.cc"
+        );
+        let (custom, _) = validate_feedback_url("https://collector.example.org/v1/report").unwrap();
+        assert_eq!(custom.as_str(), "https://collector.example.org/v1/report");
+
+        // Plain HTTP FormSubmit URLs and short garbage strings still fail closed.
+        assert!(matches!(
+            validate_feedback_url("http://formsubmit.co/developer@redinger.cc"),
+            Err(BetaFeedbackHttpError::InvalidUrl(_))
+        ));
+        assert!(matches!(
+            validate_feedback_url("https://formsubmit.co/"),
+            Err(BetaFeedbackHttpError::InvalidUrl(_))
+        ));
+        assert!(matches!(
+            validate_feedback_url("not-a-url"),
+            Err(BetaFeedbackHttpError::InvalidUrl(_))
+        ));
+    }
+
+    #[test]
+    fn http_413_and_upstream_html_responses_are_sanitized_without_raw_tags() {
+        let (url_413, h_413) = spawn_one_shot_server(
+            "413 Payload Too Large",
+            "Content-Type: text/html\r\n",
+            "<!DOCTYPE html><html><head><title>413 Request Entity Too Large</title></head><body><h1>413 Request Entity Too Large</h1></body></html>",
+        );
+        let err_413 = send_beta_feedback_multipart("Large bundle", &[], Some(&url_413))
+            .expect_err("HTTP 413 must fail");
+        let _ = h_413.join();
+        let s_413 = err_413.to_string();
+        assert!(s_413.contains("413"), "got: {s_413}");
+        assert!(s_413.contains("10 MB"), "got: {s_413}");
+        assert!(
+            !s_413.contains('<') && !s_413.contains("DOCTYPE"),
+            "got: {s_413}"
+        );
+
+        // Upstream HTML proxy/WAF error on 502 strips script/style/tags cleanly.
+        let (url_html, h_html) = spawn_one_shot_server(
+            "502 Bad Gateway",
+            "Content-Type: text/html; charset=utf-8\r\n",
+            "<!DOCTYPE html><html><head><style>body{color:red}</style><script>alert(1)</script></head><body><h1>502 Bad Gateway</h1><p>Upstream gateway &amp; origin unreachable.</p></body></html>",
+        );
+        let err_html = send_beta_feedback_multipart("Report", &[], Some(&url_html))
+            .expect_err("HTTP 502 HTML must fail");
+        let _ = h_html.join();
+        let s_html = err_html.to_string();
+        assert!(s_html.contains("502 Bad Gateway"), "got: {s_html}");
+        assert!(
+            s_html.contains("Upstream gateway & origin unreachable."),
+            "got: {s_html}"
+        );
+        assert!(
+            !s_html.contains("<!DOCTYPE")
+                && !s_html.contains("<html")
+                && !s_html.contains("alert(1)")
+                && !s_html.contains("color:red"),
+            "HTML tags/scripts/styles must be stripped: {s_html}"
+        );
+
+        // HTTP 200 returning an HTML activation or CAPTCHA wall instead of JSON fails closed cleanly.
+        let html_activation = interpret_feedback_http_response(
+            200,
+            "<!DOCTYPE html><html><body><h1>Activate Form</h1><p>This form needs Activation before submissions work.</p></body></html>",
+        )
+        .expect_err("HTML activation wall on 200 OK must not be treated as success");
+        assert_eq!(html_activation.to_string(), FORMSUBMIT_ACTIVATION_ERROR);
+
+        let html_captcha = interpret_feedback_http_response(
+            200,
+            "<!DOCTYPE html><html><body><div class=\"g-recaptcha\">Please complete the captcha</div></body></html>",
+        )
+        .expect_err("HTML reCAPTCHA wall on 200 OK must not be treated as success");
+        assert!(html_captcha.to_string().contains("CAPTCHA"));
+        assert!(!html_captcha.to_string().contains("<div"));
+
+        // Double-encoded entities (`&amp;lt;script&amp;gt;`) decode `&amp;` last and never become `<script>`.
+        let stripped_double = strip_html_markup(
+            "<p>Blocked payload: &amp;lt;script&amp;gt; &amp;quot;x&amp;quot;</p>",
+        );
+        assert_eq!(
+            stripped_double,
+            "Blocked payload: &lt;script&gt; &quot;x&quot;"
+        );
+        assert!(!stripped_double.contains("<script>"));
     }
 
     #[test]

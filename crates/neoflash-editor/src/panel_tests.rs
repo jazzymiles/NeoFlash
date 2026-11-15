@@ -6215,6 +6215,74 @@ fn standalone_image_sequence_exports_inside_the_named_project_folder() {
             .all(|file| file.parent() == Some(expected.as_path()) && file.is_file())
     );
     assert!(!root.join("frame_0001.png").exists());
+
+    // T-331: Extending to 4 frames then re-exporting a shorter 2-frame sequence removes
+    // `frame_0003.png` and `frame_0004.png` while preserving unrelated files in the project
+    // folder; unowned target collisions inside that folder are refused cleanly.
+    let unrelated = expected.join("artist-ref.png");
+    std::fs::write(&unrelated, b"keep-me").unwrap();
+    let root_id = editor.project.root.clone();
+    editor
+        .project
+        .symbol_mut(&root_id)
+        .unwrap()
+        .timeline
+        .frame_count = 4;
+    editor.open_export_image(&ctx);
+    crate::panels::export_image::update_export_image_draft(&ctx, |draft| {
+        draft.options.format = ImageExportFormat::Png;
+        draft.options.range = ImageExportRange::WholeMovie;
+        draft.options.symbol_id = None;
+    });
+    let long_report = editor
+        .confirm_export_image_to_path(&ctx, &expected.join("frame.png"))
+        .expect("4-frame sequence re-export succeeds");
+    assert_eq!(long_report.files.len(), 4);
+    assert!(expected.join("frame_0003.png").is_file());
+    assert!(expected.join("frame_0004.png").is_file());
+
+    editor
+        .project
+        .symbol_mut(&root_id)
+        .unwrap()
+        .timeline
+        .frame_count = 2;
+    editor.open_export_image(&ctx);
+    crate::panels::export_image::update_export_image_draft(&ctx, |draft| {
+        draft.options.format = ImageExportFormat::Png;
+        draft.options.range = ImageExportRange::WholeMovie;
+        draft.options.symbol_id = None;
+    });
+    let short_report = editor
+        .confirm_export_image_to_path(&ctx, &expected.join("frame.png"))
+        .expect("shorter sequence re-export succeeds");
+    assert_eq!(short_report.files.len(), 2);
+    assert!(expected.join("frame_0001.png").is_file());
+    assert!(expected.join("frame_0002.png").is_file());
+    assert!(!expected.join("frame_0003.png").exists());
+    assert!(!expected.join("frame_0004.png").exists());
+    assert_eq!(std::fs::read(&unrelated).unwrap(), b"keep-me");
+
+    std::fs::write(expected.join("other_0002.png"), b"unowned").unwrap();
+    editor.open_export_image(&ctx);
+    crate::panels::export_image::update_export_image_draft(&ctx, |draft| {
+        draft.options.format = ImageExportFormat::Png;
+        draft.options.range = ImageExportRange::WholeMovie;
+        draft.options.symbol_id = None;
+    });
+    let collision_err = editor
+        .confirm_export_image_to_path(&ctx, &expected.join("other.png"))
+        .expect_err("unowned other_0002.png must block sequence export");
+    assert!(
+        collision_err.contains("other_0002.png"),
+        "expected unowned file collision error naming other_0002.png, got: {collision_err}"
+    );
+    assert_eq!(
+        std::fs::read(expected.join("other_0002.png")).unwrap(),
+        b"unowned"
+    );
+    assert!(!expected.join("other_0001.png").exists());
+
     std::fs::remove_dir_all(root).unwrap();
 }
 

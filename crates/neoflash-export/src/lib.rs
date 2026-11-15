@@ -21,6 +21,7 @@ pub mod video;
 pub use aep::*;
 pub mod bitmap_encode;
 mod sequence_policy;
+pub mod sequence_set;
 pub mod size_report;
 mod source_map;
 pub use atlas::*;
@@ -40,6 +41,7 @@ pub use publish::{
     HtmlTemplate, PlayerChromeConfig, PublishOptions, SequencePublishPolicy, SizeEstimate,
     SizeLevel, SizePart, gzip_len, validate_runtime_url,
 };
+pub use sequence_set::*;
 pub use svg::*;
 pub use swf::*;
 pub use video::*;

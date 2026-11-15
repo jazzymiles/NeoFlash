@@ -1655,3 +1655,90 @@ fn t320_failed_publish_in_publish_settings_keeps_modal_open_and_preserves_worksp
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn t331_publish_image_sequence_prunes_stale_tail_frames_preserves_sprite_sheets_and_refuses_unowned_files()
+ {
+    let temp_dir =
+        std::env::temp_dir().join(format!("neoflash-t331-publish-seq-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let mut d = Driver::new(ThemeMode::Dark);
+    let root_id = d.editor.project.root.clone();
+    d.editor
+        .project
+        .symbol_mut(&root_id)
+        .unwrap()
+        .timeline
+        .frame_count = 6;
+
+    // 1. Publish sprite sheet (`spritesheet.json` + `spritesheet.png`) into `pub_dir`.
+    let pub_dir = temp_dir.join("published");
+    let mut sheet_prefs = d.editor.workspace.publish.clone();
+    sheet_prefs.image_sequence_enabled = true;
+    sheet_prefs.image_sequence_sprite_sheet = true;
+    sheet_prefs.image_sequence_folder = Some(pub_dir.to_string_lossy().into_owned());
+    assert!(
+        d.editor
+            .publish_image_sequence_with_settings(None, &sheet_prefs)
+    );
+    let sheet_json = std::fs::read(pub_dir.join("spritesheet.json")).unwrap();
+    let sheet_png = std::fs::read(pub_dir.join("spritesheet.png")).unwrap();
+
+    // 2. Publish 6-frame sequence (`frame_0001..0006.png`) into the same `pub_dir`.
+    let mut seq_prefs = sheet_prefs.clone();
+    seq_prefs.image_sequence_sprite_sheet = false;
+    seq_prefs.image_sequence_format = neoflash_export::ImageExportFormat::Png;
+    assert!(
+        d.editor
+            .publish_image_sequence_with_settings(None, &seq_prefs)
+    );
+    for idx in 1..=6 {
+        assert!(pub_dir.join(format!("frame_{idx:04}.png")).is_file());
+    }
+
+    // 3. Shorten timeline to 3 frames and re-publish: `frame_0004..0006.png` removed, sprite sheet untouched.
+    d.editor
+        .project
+        .symbol_mut(&root_id)
+        .unwrap()
+        .timeline
+        .frame_count = 3;
+    assert!(
+        d.editor
+            .publish_image_sequence_with_settings(None, &seq_prefs)
+    );
+    for idx in 1..=3 {
+        assert!(pub_dir.join(format!("frame_{idx:04}.png")).is_file());
+    }
+    for stale in 4..=6 {
+        assert!(!pub_dir.join(format!("frame_{stale:04}.png")).exists());
+    }
+    assert_eq!(
+        std::fs::read(pub_dir.join("spritesheet.json")).unwrap(),
+        sheet_json
+    );
+    assert_eq!(
+        std::fs::read(pub_dir.join("spritesheet.png")).unwrap(),
+        sheet_png
+    );
+
+    // 4. Unowned colliding file in a fresh folder refuses Publish cleanly without clobbering.
+    let unowned_dir = temp_dir.join("unowned");
+    std::fs::create_dir_all(&unowned_dir).unwrap();
+    std::fs::write(unowned_dir.join("frame_0002.png"), b"unowned artist frame").unwrap();
+    seq_prefs.image_sequence_folder = Some(unowned_dir.to_string_lossy().into_owned());
+    assert!(
+        !d.editor
+            .publish_image_sequence_with_settings(None, &seq_prefs),
+        "unowned frame_0002.png must block Publish image sequence"
+    );
+    assert_eq!(
+        std::fs::read(unowned_dir.join("frame_0002.png")).unwrap(),
+        b"unowned artist frame"
+    );
+    assert!(!unowned_dir.join("frame_0001.png").exists());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
