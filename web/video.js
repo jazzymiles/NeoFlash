@@ -28,10 +28,10 @@
     const connections=new WeakMap(),streams=new WeakMap(),disposedStreams=new WeakSet(),connectionRecords=new Set(),streamRecords=new Set(),bindings=new Map(),timelineControllers=new Map(),frames=new Set(),derived=new Map();
     const statusTypes=new WeakSet(),schedule=options.schedule||(fn=>queueMicrotask(fn));
     const gesture=options.isUserGesture||(()=>global.navigator?.userActivation?.isActive===true);
-    let generation=1,disposed=false,serial=0,used=false,unlocked=false,muted=false,errorText='',framePixels=0,ownAudioContext=null,mixerUnsub=null;
+    let generation=1,disposed=false,resetting=false,serial=0,used=false,unlocked=false,muted=false,errorText='',framePixels=0,ownAudioContext=null,mixerUnsub=null;
     const diagnosticsList=[];
     const hub=events.create({weakTargets:true,alive:value=>{const record=connections.get(value)||streams.get(value);return !disposed&&!record?.disposed&&record?.generation===generation;}});
-    function open(){if(disposed)throw new Error('This video service has been disposed.');}
+    function open(){if(disposed)throw new Error('This video service has been disposed.');if(resetting)throw new Error('This video service is resetting.');}
     function state(value,map){open();const record=map.get(value);if(!record)throw new TypeError('Expected a video object from this publication.');if(record.generation!==generation)throw new Error('This video object belongs to a previous publication session.');if(record.disposed)throw new Error('This NetStream has been disposed.');return record;}
     function native(name,...args){try{return player[name](...args);}catch(error){if(error instanceof Error)throw error;throw new Error(typeof error==='string'?error:'Video runtime failed.',{cause:error});}}
     function status(){let pending=0,active=0,loading=0,audible=false;for(const r of streamRecords){if(r.wanted&&!r.playing)pending++;if(r.playing)active++;if(r.media&&!r.metadata)loading++;if(r.wanted&&r.timelineMuted!==true&&r.volume>0&&r.receiveState?.audio!==false)audible=true;}return {state:!used?'idle':errorText?'error':audible&&!unlocked?'awaiting_gesture':muted?'muted':active?'running':loading?'loading':'ready',pending,active,loading,muted,unlocked,requiresGesture:audible,audible,error:errorText,diagnostics:diagnosticsList.slice()};}
@@ -355,23 +355,35 @@
       if(r.media){r.media.muted=shouldMute;r.media.volume=shouldMute?0:Math.max(0,Math.min(1,plan.volume));}
       if(r.aviAudio){r.aviAudio.muted=shouldMute;r.aviAudio.volume=shouldMute?0:Math.max(0,Math.min(1,plan.volume));}
     }
-    function clearClipTimer(r){if(r.clipTimer){clearTimeout(r.clipTimer);r.clipTimer=null;}}
+    function completeCleanup(operations,errors=[]){
+      for(const operation of operations)try{operation();}catch(error){errors.push(error);}
+      if(errors.length===1)throw errors[0];
+      if(errors.length)throw new AggregateError(errors,'Multiple video cleanup operations failed.',{cause:errors[0]});
+    }
+    function clearClipTimer(r){const timer=r.clipTimer;r.clipTimer=null;if(timer)clearTimeout(timer);}
     function stopMedia(r,retain,keepQueue=false){
-      const frozen=retain?freeze(r):null;
+      const errors=[];let frozen=null;
+      if(retain)try{frozen=freeze(r);}catch(error){errors.push(error);}
+      const {media,listeners,frameCallback,objectURL,clipTimer,probeAbort,aviLoad,aviTimer,aviHandle,aviAudio,aviAudioUrl}=r;
       r.sequence++;r.wanted=false;r.playing=false;r.pendingSeek=null;r.bufferFull=false;r.clipCompleted=false;r.clipEndSec=null;
       if(!keepQueue){r.queue=[];r.playlistTimeBase=0;r.playlistClockStarted=false;}
-      clearClipTimer(r);
-      if(r.probeAbort){try{r.probeAbort.abort();}catch(_){}r.probeAbort=null;}
-      disconnectStreamAudio(r);
-      if(r.aviLoad){try{r.aviLoad.close();}catch(_){}r.aviLoad=null;}
-      if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;}
-      if(r.aviHandle&&typeof player.avi_close_stream==='function'){try{player.avi_close_stream(r.aviHandle);}catch(_){}}
-      r.aviHandle=0;r.aviBytes=null;
-      if(r.aviAudio){try{r.aviAudio.pause();r.aviAudio.muted=true;r.aviAudio.removeAttribute('src');r.aviAudio.load?.();}catch(_){}r.aviAudio=null;}
-      if(r.aviAudioUrl){try{(options.revokeObjectURL||global.URL.revokeObjectURL.bind(global.URL))(r.aviAudioUrl);}catch(_){}r.aviAudioUrl=null;}
-      if(r.media){for(const[type,fn]of r.listeners)r.media.removeEventListener(type,fn);if(r.frameCallback!==null)r.media.cancelVideoFrameCallback?.(r.frameCallback);r.media.pause();r.media.muted=true;r.media.removeAttribute('src');r.media.load();}
-      if(r.objectURL)(options.revokeObjectURL||global.URL.revokeObjectURL.bind(global.URL))(r.objectURL);
-      r.media=null;r.objectURL=null;r.listeners=[];r.frameCallback=null;r.metadata=false;r.frozen=frozen;r.appendFrame=null;r.suppressedFrame=null;r.frameTimes=[];r.cuePoints=[];r.firedCues=null;r.containerFps=null;if(r.receivePolicy)streamPolicy(r,{op:"reset"});r.time=0;r.lastTime=null;collectFrames();changed();
+      // Retire ownership before browser cleanup can synchronously dispatch or throw.
+      r.media=null;r.objectURL=null;r.listeners=[];r.frameCallback=null;r.clipTimer=null;r.probeAbort=null;
+      r.aviLoad=null;r.aviTimer=null;r.aviHandle=0;r.aviBytes=null;r.aviAudio=null;r.aviAudioUrl=null;
+      r.metadata=false;r.frozen=frozen;r.appendFrame=null;r.suppressedFrame=null;r.frameTimes=[];r.cuePoints=[];r.firedCues=null;r.containerFps=null;r.time=0;r.lastTime=null;
+      const revoke=url=>(options.revokeObjectURL||global.URL.revokeObjectURL.bind(global.URL))(url);
+      const stopElement=element=>[
+        ()=>element.pause(),()=>{element.muted=true;},()=>element.removeAttribute('src'),()=>element.load?.(),
+      ];
+      completeCleanup([
+        ()=>{if(clipTimer)clearTimeout(clipTimer);},()=>probeAbort?.abort(),()=>disconnectStreamAudio(r),
+        ()=>aviLoad?.close(),()=>{if(aviTimer)clearInterval(aviTimer);},()=>{if(aviHandle)player.avi_close_stream?.(aviHandle);},
+        ...(aviAudio?stopElement(aviAudio):[]),()=>{if(aviAudioUrl)revoke(aviAudioUrl);},
+        ...(media?(listeners||[]).map(([type,fn])=>()=>media.removeEventListener(type,fn)):[]),
+        ()=>{if(media&&frameCallback!==null)media.cancelVideoFrameCallback?.(frameCallback);},
+        ...(media?stopElement(media):[]),()=>{if(objectURL)revoke(objectURL);},
+        ()=>{if(r.receivePolicy)streamPolicy(r,{op:'reset'});},collectFrames,changed,
+      ],errors);
     }
     function disposeStream(instance){
       if(disposedStreams.has(instance))return;
@@ -1237,8 +1249,28 @@
         r.serial=++serial;
       }
     }
-    function reset(){open();if(mixerUnsub){try{mixerUnsub();}catch(_){}mixerUnsub=null;}for(const r of streamRecords){stopMedia(r,false);r.receivePolicy?.free();r.receivePolicy=null;}streamRecords.clear();connectionRecords.clear();timelineControllers.clear();diagnosticsList.length=0;for(const b of bindings.values())b.capture?.release();bindings.clear();derived.clear();for(const f of frames)f.canvas.width=f.canvas.height=0;frames.clear();framePixels=0;if(ownAudioContext){try{ownAudioContext.close?.();}catch(_){}ownAudioContext=null;}generation++;hub.clear();unlocked=false;muted=false;used=false;errorText='';changed();}
-    function dispose(){if(disposed)return;reset();disposed=true;}
+    function resetState(){
+      if(resetting)return;
+      resetting=true;generation++;
+      const owned=[...streamRecords],captures=[...bindings.values()].map(b=>b.capture),surfaces=[...frames],context=ownAudioContext,unsubscribe=mixerUnsub;
+      ownAudioContext=null;mixerUnsub=null;
+      try{
+        completeCleanup([
+          ()=>unsubscribe?.(),
+          ...owned.flatMap(r=>[()=>stopMedia(r,false),()=>{const policy=r.receivePolicy;r.receivePolicy=null;policy?.free();}]),
+          ...captures.map(capture=>()=>capture?.release()),
+          ...surfaces.flatMap(f=>[()=>{f.canvas.width=0;},()=>{f.canvas.height=0;}]),
+          ()=>{const closing=context?.close?.();closing?.catch?.(()=>{});},()=>hub.clear(),
+        ]);
+      }finally{
+        streamRecords.clear();connectionRecords.clear();timelineControllers.clear();diagnosticsList.length=0;
+        bindings.clear();derived.clear();frames.clear();framePixels=0;
+        unlocked=false;muted=false;used=false;errorText='';resetting=false;
+      }
+      changed();
+    }
+    function reset(){open();resetState();}
+    function dispose(){if(disposed)return;disposed=true;resetState();}
     return Object.freeze({Video,VideoStatus,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,timeline,timelineSources,diagnostics,syncTimeline,resumeFromGesture,setMuted,status,legacyController,legacyAttachVideo,reset,dispose,_as3Hook});
   }
   const api=Object.freeze({create,VideoStatus});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashVideo=api;

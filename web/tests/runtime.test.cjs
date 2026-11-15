@@ -340,10 +340,12 @@ test('NeoFlashAudio timeline honors in_point and out_point trim windows and loop
 
 test('NeoFlashAudio timeline releases failed PCM reservations and retires replaced or restarted decodes', async () => {
   const pending=[],errors=[],sources=[];
+  let failState=false,closed=0;
+  const cleanupError=new Error('first audio state cleanup failure');
   const node=()=>({gain:{value:1},connect(){},disconnect(){}});
   const context={
     state:'suspended',sampleRate:8000,currentTime:0,destination:node(),
-    resume(){this.state='running';return Promise.resolve();},close(){return Promise.resolve();},
+    resume(){this.state='running';return Promise.resolve();},close(){closed++;return Promise.resolve();},
     createGain:node,createStereoPanner:node,
     decodeAudioData(){return new Promise((resolve,reject)=>pending.push({resolve,reject}));},
     createBufferSource(){const source={...node(),start(){},stop(){}};sources.push(source);return source;},
@@ -351,10 +353,11 @@ test('NeoFlashAudio timeline releases failed PCM reservations and retires replac
   const resource={id:'clip',path:'clip.wav'};
   const audio=require('../audio.js').create({
     events:require('../events.js'),
-    net:{URLLoader:class{},mediaSource:()=>({bytes:new Uint8Array([1])})},
+    net:{URLLoader:class{},mediaSource:path=>path.startsWith('http:')?{kind:'http',url:path}:{bytes:new Uint8Array([1])}},
     binary:{toBytes:value=>value},formats:{inspect:()=>({decodedBytes:64})},
     resources:[resource],maxDecodedBytes:128,createContext:()=>context,
     isUserGesture:()=>true,now:()=>0,onError:error=>errors.push(error),
+    onState:()=>{if(failState){failState=false;throw cleanupError;}},
   });
   const flush=()=>new Promise(resolve=>setImmediate(resolve));
   const buffer=()=>({duration:1,length:8,numberOfChannels:1});
@@ -394,6 +397,42 @@ test('NeoFlashAudio timeline releases failed PCM reservations and retires replac
     assert.equal(typeof activeSource.onended,'function');
     assert.equal(errors.length,1,'retired resource failure cannot reach the replacement publication');
     assert.equal(audio.status().decodedBytes,32);
+
+    audio.timeline([{op:'stream_start',resource:'clip',channel:'second',offset:0,loops:1}]);
+    audio.registerResources([{id:'pending',path:'pending.wav'}]);audio.preloadTimeline(['pending']);
+    const cleanupDecode=pending.shift(),sourcesBeforeReset=sources.slice(-2),closedBeforeReset=closed;
+    failState=true;
+    assert.throws(()=>audio.reset(),error=>error===cleanupError);
+    assert.equal(audio.status().active,0,'later voices retire despite a first cleanup callback failure');
+    assert.ok(sourcesBeforeReset.every(source=>source.onended===null));
+    assert.equal(closed,closedBeforeReset+1,'context closes even after earlier cleanup fails');
+    assert.equal(audio.status().decodedBytes,64,'failed cleanup retains only outstanding native decode reservations');
+    cleanupDecode.resolve(buffer());await flush();
+    assert.equal(audio.status().decodedBytes,0);
+    audio.preloadTimeline(['clip']);pending.shift().resolve(buffer());await flush();
+    await audio.resumeFromGesture();
+    audio.timeline([{op:'stream_start',resource:'clip',channel:'retry',offset:0,loops:1}]);
+    assert.equal(audio.status().active,1,'fresh playback works after the failed cleanup attempt');
+
+    const originalFetch=global.fetch,requests=[];
+    global.fetch=(url,options)=>new Promise(resolve=>requests.push({url,signal:options.signal,resolve}));
+    try{
+      audio.registerResources([{id:'remote',path:'http://example.test/audio.wav'}]);audio.preloadTimeline(['remote']);
+      audio.reset();
+      assert.equal(requests[0].signal.aborted,true,'Restart aborts pending timeline HTTP transfers');
+      requests[0].resolve({ok:true,arrayBuffer:async()=>new Uint8Array([1]).buffer});await flush();
+      assert.equal(pending.length,0,'an aborted old response cannot schedule a native decode');
+      audio.preloadTimeline(['remote']);audio.unregisterResources(['remote']);
+      assert.equal(requests[1].signal.aborted,true,'resource retirement aborts its pending transfer');
+      requests[1].resolve({ok:true,arrayBuffer:async()=>new Uint8Array([1]).buffer});await flush();
+      assert.equal(pending.length,0);
+    }finally{global.fetch=originalFetch;}
+    audio.preloadTimeline(['clip']);pending.shift().resolve(buffer());await flush();
+    await audio.resumeFromGesture();audio.timeline([{op:'stream_start',resource:'clip',channel:'dispose',offset:0,loops:1}]);
+    failState=true;
+    assert.throws(()=>audio.dispose(),error=>error===cleanupError);
+    assert.equal(audio.status().active,0);
+    assert.throws(()=>audio.preloadTimeline(['clip']),/disposed/,'failed disposal still retires the service permanently');
   }finally{audio.dispose();}
   assert.equal(audio.status().decodedBytes,0);
 });

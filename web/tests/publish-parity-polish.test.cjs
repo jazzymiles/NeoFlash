@@ -2,7 +2,6 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const fs = require('node:fs');
 const http = require('node:http');
-const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
 
@@ -1075,8 +1074,10 @@ test('Canvas + DOM publish parity: scenes, symbols, Restart recovery with author
     'target/web-runtime must be built before running publish-parity-polish.test.cjs'
   );
   const bin = ensureExportBinary();
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-parity-320-'));
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-chrome-320-'));
+  const artifacts = path.join(repoRoot, 'target/artifacts');
+  fs.mkdirSync(artifacts, { recursive: true });
+  const tempRoot = fs.mkdtempSync(path.join(artifacts, 'publish-parity-'));
+  const userDataDir = fs.mkdtempSync(path.join(artifacts, 'publish-parity-chrome-'));
   let serverInfo = null;
   let cdp = null;
 

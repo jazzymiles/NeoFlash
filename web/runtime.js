@@ -3020,10 +3020,12 @@
       ]);
     }
     onPageHide = event => {
+      if (runtimeDisposed) return;
       try { completeCleanup([() => storageHost?.flushAll(), () => { if(!event?.persisted)teardownRuntime(); }]); }
       catch(error) { console.error(error); }
     };
     onUnload = () => {
+      if (runtimeDisposed) return;
       try { completeCleanup([() => storageHost?.flushAll(), teardownRuntime]); }
       catch(error) { console.error(error); }
     };

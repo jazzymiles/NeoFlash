@@ -233,6 +233,7 @@ test('T-247: runtime Loader decodes BMP, TIFF, WebP, GIF, SVG and SWF; NetStream
     descriptor: target => JSON.parse(player.object_describe(refs.get(target).key)),
   };
 
+  const loaderDiagnostics = [];
   const loaderHost = loaderMod.create({
     player,
     events: eventsMod,
@@ -243,6 +244,7 @@ test('T-247: runtime Loader decodes BMP, TIFF, WebP, GIF, SVG and SWF; NetStream
     proxyForRef,
     referenceOf: t => refs.get(t),
     schedule: fn => tasks.push(fn),
+    onDiagnostic: error => loaderDiagnostics.push(error),
   });
 
   for (const [assetPath, expectedW, expectedH, expectedMime] of [
@@ -266,6 +268,9 @@ test('T-247: runtime Loader decodes BMP, TIFF, WebP, GIF, SVG and SWF; NetStream
     assert.equal(info.contentType, expectedMime, `mime mismatch for ${assetPath}`);
     methods.unload();
   }
+  assert.equal(loaderDiagnostics.length, 1, 'raw SWF placeholder loading must be explicit');
+  assert.match(loaderDiagnostics[0].message, /clips\/anim\.swf.*SWF header placeholder/);
+  assert.match(loaderDiagnostics[0].message, /NeoFlash HTML5 bundle/);
 
   // Test AVI runtime decoding through NeoFlashVideo + Rust WASM avi_inspect_json & avi_frame_rgba
   const painted = [];

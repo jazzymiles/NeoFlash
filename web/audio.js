@@ -27,7 +27,7 @@
     if(!Number.isSafeInteger(maxDecodedBytes)||maxDecodedBytes<1||maxDecodedBytes>128*1024*1024||!Number.isInteger(maxChannels)||maxChannels<1||maxChannels>32||!Number.isInteger(maxSounds)||maxSounds<1||maxSounds>256)throw new RangeError('Audio budgets exceed the supported 128 MiB PCM, 32 channels and 256 Sound objects.');
     const sounds=new WeakMap(),channels=new WeakMap(),transforms=new WeakMap(),legacy=new WeakMap(),targetStates=new WeakMap(),id3Infos=new WeakSet(),loaderContexts=new WeakMap();
     const soundRecords=new Set(),playing=new Set(),decodes=new Set(),mixerSubscribers=new Set();
-    let generation=1,disposed=false,context=null,master=null,unlocked=false,muted=false,resuming=null,decodedBytes=0,used=false,lastError='',mixerBufferTime=0,mixerTransform={volume:1,pan:0,leftToLeft:1,leftToRight:0,rightToLeft:0,rightToRight:1};
+    let generation=1,disposed=false,resetting=false,context=null,master=null,unlocked=false,muted=false,resuming=null,decodedBytes=0,used=false,lastError='',mixerBufferTime=0,mixerTransform={volume:1,pan:0,leftToLeft:1,leftToRight:0,rightToLeft:0,rightToRight:1};
     class ID3Info {
       constructor(){
         this.album=null;this.artist=null;this.comment=null;this.genre=null;this.songName=null;this.track=null;this.year=null;
@@ -52,7 +52,7 @@
       set checkPolicyFile(value){const r=loaderContexts.get(this);if(!r)throw new TypeError('Expected SoundLoaderContext.');r.checkPolicyFile=Boolean(value);}
     }
     const isUserGesture=options.isUserGesture||(()=>global.navigator?.userActivation?.isActive===true);
-    function open(){if(disposed)throw new Error('This audio service has been disposed.');}
+    function open(){if(disposed)throw new Error('This audio service has been disposed.');if(resetting)throw new Error('This audio service is resetting. Retry after Restart.');}
     function state(value,table){open();const record=table.get(value);if(!record)throw new TypeError('Expected an audio object from this publication.');if(record.generation!==generation)throw new Error('This audio object belongs to a previous publication session.');return record;}
     const hub=events.create({weakTargets:true,alive:target=>!disposed&&(sounds.get(target)||channels.get(target))?.generation===generation});
     function status(){
@@ -64,6 +64,12 @@
       return {state:!used?'idle':lastError?'error':pending&&(!unlocked||context?.state!=='running')?'awaiting_gesture':muted?'muted':active?'running':loading?'loading':'ready',pending,active,loading,loaded,muted,unlocked,decodedBytes,error:lastError};
     }
     function changed(){options.onState?.(status());}
+    function cleanupAll(operations){
+      const errors=[];
+      for(const operation of operations)try{operation();}catch(error){errors.push(error);}
+      if(errors.length===1)throw errors[0];
+      if(errors.length)throw new AggregateError(errors,'Audio cleanup failed.',{cause:errors[0]});
+    }
     function report(error){lastError=message(error);changed();if(options.onError)options.onError(error);else throw error;}
     function emit(receiver,event){
       const epoch=generation;hub.dispatch(receiver,event);
@@ -174,9 +180,12 @@
       record.source=record.gain=record.panner=null;record.matrixNodes=null;record.matrixGains=null;
     }
     function stop(record){
-      if(record.stopped)return;record.position=position(record);record.stopped=true;playing.delete(record);
-      const source=record.source;if(source){source.onended=null;try{source.stop();}catch(_){}}
-      record.started=false;disconnect(record);changed();
+      if(record.stopped)return;record.stopped=true;playing.delete(record);
+      cleanupAll([
+        ()=>{record.position=position(record);},
+        ()=>{const source=record.source;record.started=false;if(source){source.onended=null;try{source.stop();}catch(_){}}},
+        ()=>disconnect(record),changed,
+      ]);
     }
     function completed(record,source){
       if(disposed||record.generation!==generation||record.stopped||(source&&record.source!==source))return;
@@ -414,7 +423,13 @@
     }
     function releaseReservation(token){if(token.reserved){decodedBytes-=token.reserved;token.reserved=0;}}
     const current=token=>!disposed&&token.generation===generation&&token.sound.load===token;
-    function cancelLoad(record){const token=record.load;if(!token)return;record.load=null;token.opaqueProbe?.cleanup?.();token.opaqueProbe=null;token.loader.close();if(!token.decoding)releaseReservation(token);for(const channel of [...playing])if(channel.sound===record&&!record.buffer&&!record.opaqueAudioUrl)stop(channel);changed();}
+    function cancelLoad(record){
+      const token=record.load;if(!token)return;record.load=null;
+      const probe=token.opaqueProbe;token.opaqueProbe=null;
+      const pendingChannels=[...playing].filter(channel=>channel.sound===record&&!record.buffer&&!record.opaqueAudioUrl);
+      cleanupAll([()=>probe?.cleanup?.(),()=>token.loader.close(),()=>{if(!token.decoding)releaseReservation(token);},
+        ...pendingChannels.map(channel=>()=>stop(channel)),changed]);
+    }
     function ioFailure(record,message){
       for(const channel of [...playing])if(channel.sound===record&&!record.buffer&&!record.opaqueAudioUrl)stop(channel);
       lastError=message;changed();
@@ -831,16 +846,19 @@
     }
     function unregisterResources(ids){
       if(disposed)return;
+      const cleanup=[];
       for(const id of ids||[]){
-        dropVoices(id);resourcePaths.delete(id);
+        resourcePaths.delete(id);
         const entry=buffers.get(id);buffers.delete(id);
         if(entry){decodedBytes-=entry.bytes;entry.bytes=0;entry.buffer=null;}
+        cleanup.push(()=>dropVoices(id),()=>entry?.abort?.abort());
       }
+      cleanupAll(cleanup);
     }
     let blockedEvents=0;
     function timelineBuffer(id){
       let entry=buffers.get(id);if(entry)return entry;
-      entry={generation,buffer:null,error:null,reserved:0,bytes:0};buffers.set(id,entry);
+      entry={generation,buffer:null,error:null,reserved:0,bytes:0,abort:null};buffers.set(id,entry);
       const path=resourcePaths.get(id),currentEntry=()=>!disposed&&entry.generation===generation&&buffers.get(id)===entry;
       const failEntry=error=>{if(!currentEntry())return;entry.error=error;try{dropVoices(id);}finally{report(error);}};
       const decodeBytes=async(bytes)=>{
@@ -864,7 +882,8 @@
         const src=net.mediaSource(path);
         if(src.kind==='http'&&src.url){
           if(typeof global.fetch!=='function')throw new Error('Externalized timeline audio requires browser fetch.');
-          global.fetch(src.url).then(resp=>{if(!resp.ok)throw new Error(`Timeline audio HTTP ${resp.status}`);return resp.arrayBuffer();}).then(buf=>{
+          entry.abort=typeof global.AbortController==='function'?new global.AbortController():null;
+          global.fetch(src.url,entry.abort?{signal:entry.abort.signal}:undefined).then(resp=>{if(!resp.ok)throw new Error(`Timeline audio HTTP ${resp.status}`);return resp.arrayBuffer();}).then(buf=>{
             if(!currentEntry())return;
             return decodeBytes(new Uint8Array(buf));
           }).catch(failEntry);
@@ -946,17 +965,31 @@
       changed();
     }
     function reset(){
-      open();if(master)master.gain.value=0;
-      for(const voice of [...voices])stopVoice(voice);buffers.clear();blockedEvents=0;
-      for(const record of [...playing])stop(record);
-      for(const record of soundRecords){cancelLoad(record);record.buffer=null;record.pcmBytes=null;record.bytes=0;record.opaqueAudioUrl=null;record.opaqueDuration=0;record.inaccessible=false;}
-      const old=context;context=null;if(master){try{master.disconnect();}catch(_){}}master=null;
-      // decodeAudioData has no abort API. Keep reservations for unsettled native
-      // decodes across Restart so a new session cannot overlap unbudgeted PCM.
-      generation++;hub.clear();soundRecords.clear();playing.clear();mixerSubscribers.clear();decodedBytes=[...decodes].reduce((sum,token)=>sum+token.reserved,0);unlocked=false;muted=false;used=false;lastError='';resuming=null;mixerBufferTime=0;mixerTransform={volume:1,pan:0,leftToLeft:1,leftToRight:0,rightToLeft:0,rightToRight:1};
-      try{old?.close()?.catch(()=>{});}catch(_){}changed();
+      open();
+      const old=context,oldMaster=master,oldVoices=[...voices],oldPlaying=[...playing],oldSounds=[...soundRecords],oldBuffers=[...buffers.values()];
+      // Retire first: a host cleanup hook may throw or re-enter the publication.
+      resetting=true;generation++;buffers.clear();blockedEvents=0;unlocked=false;muted=false;used=false;lastError='';resuming=null;
+      try{
+        cleanupAll([
+          ()=>{if(oldMaster)oldMaster.gain.value=0;},
+          ...oldBuffers.map(entry=>()=>entry.abort?.abort()),
+          ...oldVoices.map(voice=>()=>stopVoice(voice)),
+          ...oldPlaying.map(record=>()=>stop(record)),
+          ...oldSounds.map(record=>()=>{
+            try{cancelLoad(record);}finally{record.buffer=null;record.pcmBytes=null;record.bytes=0;record.opaqueAudioUrl=null;record.opaqueDuration=0;record.inaccessible=false;}
+          }),
+          ()=>oldMaster?.disconnect(),
+          ()=>{old?.close()?.catch(error=>{try{global.console?.error?.('NeoFlash Audio cleanup:',error);}catch(_){}});},
+        ]);
+      }finally{
+        context=null;master=null;resetting=false;hub.clear();soundRecords.clear();playing.clear();voices.clear();mixerSubscribers.clear();
+        // decodeAudioData has no abort API. Keep reservations for unsettled native
+        // decodes across Restart so a new session cannot overlap unbudgeted PCM.
+        decodedBytes=[...decodes].reduce((sum,token)=>sum+token.reserved,0);mixerBufferTime=0;mixerTransform={volume:1,pan:0,leftToLeft:1,leftToRight:0,rightToLeft:0,rightToRight:1};
+      }
+      changed();
     }
-    function dispose(){if(disposed)return;reset();disposed=true;}
+    function dispose(){if(disposed)return;try{reset();}finally{disposed=true;}}
     return Object.freeze({Sound,SoundChannel,SoundTransform,ID3Info,SoundLoaderContext,SoundMixer,LegacySound,stopAllLegacySounds,stopAllChannels,timeline,preloadTimeline,registerResources,unregisterResources,captureBus,resumeFromGesture,setMuted,status,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAudio=api;

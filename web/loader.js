@@ -2,8 +2,9 @@
  * Primary contracts: https://airsdk.dev/reference/actionscript/3.0/flash/display/Loader.html
  * https://airsdk.dev/reference/actionscript/3.0/flash/display/LoaderInfo.html
  * https://open-flash.github.io/mirrors/as2-language-reference/MovieClipLoader.html
- * Complete PNG/JPEG files decode in Rust; shared net transport owns resource/
- * HTTP limits. No SWF/GIF, LoaderContext, security-domain or streaming emulation.
+ * Image files decode in Rust; shared net transport owns resource/HTTP limits.
+ * Raw SWF loads expose header-derived placeholders, not movie execution.
+ * LoaderContext, security-domain and streaming emulation remain bounded.
  * A pending load leaves committed content visible until successful replacement.
  * AS3 unload detaches content: retained Bitmap/BitmapData remain alive. Pixel
  * arenas are bounded rather than garbage-collected; dispose pixels or Restart.
@@ -20,13 +21,13 @@
     if(!player?.pixel_decode||!net?.loadBytes||!binary?.toBytes||!events?.create||!display)throw new TypeError('Loader requires the shared Rust image arena, display, transport and ByteArray services.');
     const schedule=options.schedule||(fn=>global.queueMicrotask(fn));
     const loaders=new WeakMap(),infos=new WeakMap(),legacy=new WeakMap(),records=new Set(),targets=new Map(),contentInfos=new WeakMap();
-    let generation=1,disposed=false,queuedBytes=0,rootRecord=null,fallbackDomain=null;
+    let generation=1,disposed=false,resetting=false,queuedBytes=0,rootRecord=null,fallbackDomain=null;
     const byteLoads=new Set();
     const token=Symbol('LoaderInfo');
     const hub=events.create({weakTargets:true,alive:target=>{const record=infos.get(target);return valid(record);}});
     const callbackFailures=new WeakSet();
     class CallbackFailure {constructor(cause){this.cause=cause;callbackFailures.add(this);}}
-    function open(){if(disposed)throw new Error('The image loading service is disposed.');}
+    function open(){if(disposed)throw new Error('The image loading service is disposed.');if(resetting)throw new Error('The image loading service is resetting.');}
     function valid(record){return Boolean(record&&!disposed&&record.generation===generation&&(record.isRoot||display.alive(record.target)));}
     function state(target){open();const record=loaders.get(target);if(!valid(record))throw new Error('This Loader belongs to a previous session or a removed display object.');return record;}
     function infoState(info){open();const record=infos.get(info);if(!valid(record))throw new Error('This LoaderInfo belongs to a previous session or a removed display object.');return record;}
@@ -46,14 +47,16 @@
     }
     function current(op){return valid(op.record)&&op.generation===generation&&op.record.operation===op;}
     function releaseBytes(op){if(op.bytes){queuedBytes-=op.bytes.length;op.bytes=null;byteLoads.delete(op);}}
+    function completeCleanup(operations){
+      const errors=[];for(const operation of operations)try{operation();}catch(error){errors.push(error);}
+      if(errors.length===1)throw errors[0];
+      if(errors.length)throw new AggregateError(errors,'Multiple Loader cleanup operations failed.',{cause:errors[0]});
+    }
     function cancel(record,reason){
       const op=record.operation;if(!op)return;record.operation=null;const hasReason=arguments.length>1;
-      try{op.transport?.close();}
-      finally{
-        if(Array.isArray(op.extraTransports)){for(const t of op.extraTransports){try{t?.close();}catch(_){}}op.extraTransports=null;}
-        releaseBytes(op);const onCancel=op.onCancel;op.onCancel=null;
-        if(typeof onCancel==='function'){try{onCancel(reason,hasReason);}catch(_){}}
-      }
+      const transport=op.transport,extra=op.extraTransports||[],onCancel=op.onCancel;
+      op.transport=null;op.extraTransports=null;op.onCancel=null;releaseBytes(op);
+      completeCleanup([()=>transport?.close(),...extra.map(t=>()=>t?.close()),()=>onCancel?.(reason,hasReason)]);
     }
     function retireCallbackFailure(op,error){
       const cause=callbackFailures.has(error)?error.cause:error;
@@ -442,6 +445,11 @@
           return;
         }
         if(mime==='application/x-shockwave-flash'){
+          if(!record.as2||!findProjectSymbol(record.url)?.linkage_id){
+            const diagnostic=new Error(`Loader '${record.url||'loadBytes'}' loaded only a SWF header placeholder. SWF display, timeline and bytecode execution are unavailable here; publish the child as a NeoFlash HTML5 bundle to run it.`);
+            try{if(options.onDiagnostic)options.onDiagnostic(diagnostic);else global.console?.warn?.('NeoFlash Loader:',diagnostic);}catch(_){/* Diagnostics cannot replace a load result. */}
+            if(!current(op))return;
+          }
           if(record.as2){
             record.bytesLoaded=record.bytesTotal=bytes.length;record.rawBytes=new Uint8Array(bytes);record.contentType=mime;
             if(!legacyNotify(op,'onLoadComplete',[record.target,op.status]))return;
@@ -608,7 +616,7 @@
         const rec=state(target);
         return new Promise((resolve,reject)=>{
           let settled=false;
-          const cleanup=()=>{rec.info.removeEventListener('complete',onComplete);rec.info.removeEventListener('ioError',onError);};
+          const cleanup=()=>{if(!valid(rec))return;rec.info.removeEventListener('complete',onComplete);rec.info.removeEventListener('ioError',onError);};
           const onComplete=()=>{if(settled)return;settled=true;cleanup();resolve(rec.content);};
           const onError=ev=>{if(settled)return;settled=true;cleanup();reject(new Error(ev?.text||'loadPublish failed'));};
           rec.info.addEventListener('complete',onComplete);
@@ -639,8 +647,22 @@
         }catch(err){settled=true;reject(err);}
       });
     }
-    function reset(){open();for(const record of records){cancel(record);if(record.publishedMounted&&typeof options.unloadPublishedBundle==='function'){try{options.unloadPublishedBundle(record,true);}catch(_){}record.publishedMounted=false;}}records.clear();targets.clear();simpleReceiver=null;rootRecord=null;generation++;hub.clear();}
-    function dispose(){if(disposed)return;reset();disposed=true;}
+    function resetState(){
+      if(resetting)return;
+      resetting=true;generation++;
+      const owned=[...records];
+      try{
+        completeCleanup([...owned.flatMap(record=>[
+          ()=>cancel(record),
+          ()=>{const mounted=record.publishedMounted;record.publishedMounted=false;if(mounted)options.unloadPublishedBundle?.(record,true);},
+        ]),()=>hub.clear()]);
+      }finally{
+        records.clear();targets.clear();byteLoads.clear();queuedBytes=0;simpleReceiver=null;rootRecord=null;fallbackDomain=null;
+        resetting=false;
+      }
+    }
+    function reset(){open();resetState();}
+    function dispose(){if(disposed)return;disposed=true;resetState();}
     return Object.freeze({Loader,LoaderInfo,MovieClipLoader,as2MovieMethods,loadPublish,urlForDisplay,methods,get,infoForDisplay:target=>{const info=contentInfos.get(target);if(info&&valid(infos.get(info)))return info;return target&&display.alive(target)?ensureRootInfo():null;},reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashLoader=api;

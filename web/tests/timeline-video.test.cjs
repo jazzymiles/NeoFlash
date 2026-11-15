@@ -192,6 +192,7 @@ test('script NetStream uses the canonical HTTP URL and can switch back to bundle
   };
   const media = [];
   const failures = [];
+  const revoked = [];
   function createVideo() {
     const listeners = new Map();
     const element = {
@@ -214,6 +215,7 @@ test('script NetStream uses the canonical HTTP URL and can switch back to bundle
         if (index >= 0) list.splice(index, 1);
       },
       emit(type) { for (const fn of [...(listeners.get(type) || [])]) fn(); },
+      callbacks(type) { return [...(listeners.get(type) || [])]; },
       setAttribute(name, value) { this[name] = value; },
       removeAttribute(name) { this[name] = ''; },
       load() {},
@@ -236,13 +238,13 @@ test('script NetStream uses the canonical HTTP URL and can switch back to bundle
     events: NeoFlashEvents,
     createVideo,
     createObjectURL: () => 'blob:embedded-video',
-    revokeObjectURL() {},
+    revokeObjectURL(url) { revoked.push(url); },
     isUserGesture: () => true,
     onError(error) { failures.push(error); throw error; },
   });
-  const connection = new video.NetConnection();
+  let connection = new video.NetConnection();
   connection.connect(null);
-  const stream = new video.NetStream(connection);
+  let stream = new video.NetStream(connection);
 
   stream.play('/video-fixture.mp4');
   assert.equal(media[0].src, 'https://media.example.test/video-fixture.mp4');
@@ -268,5 +270,41 @@ test('script NetStream uses the canonical HTTP URL and can switch back to bundle
     assert.equal(metadata.width, 320, 'the stream can load again after callback and cleanup failures');
   }
 
-  video.dispose();
+  for (const cleanup of ['reset', 'dispose']) {
+    const other = new video.NetStream(connection);
+    let staleMetadata = 0;
+    stream.client = other.client = { onMetaData() { staleMetadata++; } };
+    stream.play('media/embedded.mp4');
+    other.play('media/embedded.mp4');
+    const oldMedia = media.slice(-2), callbacks = oldMedia.map(element => element.callbacks('loadedmetadata')[0]);
+    for (const element of oldMedia) element.emit('playing');
+    const beforeRevoke = revoked.length;
+    const primary = new Error(`first media ${cleanup} failed`), secondary = new Error(`second media ${cleanup} failed`);
+    oldMedia[0].pauseFailure = primary;
+    if (cleanup === 'dispose') oldMedia[1].pauseFailure = secondary;
+    assert.throws(() => video[cleanup](), error => {
+      if (cleanup === 'reset') return error === primary;
+      assert.equal(error.cause, primary);
+      assert.deepEqual(error.errors, [primary, secondary]);
+      return true;
+    });
+    assert.deepEqual(oldMedia.map(element => element.paused), [true, true]);
+    assert.deepEqual(oldMedia.map(element => element.src), ['', ''], 'both browser elements relinquish their sources');
+    assert.equal(revoked.length - beforeRevoke, 2, 'every owned Blob URL is released despite pause failure');
+    assert.deepEqual(oldMedia.map(element => element.callbacks('loadedmetadata').length), [0, 0]);
+    for (const callback of callbacks) callback();
+    assert.equal(staleMetadata, 0, 'queued browser callbacks cannot enter the retired generation');
+    assert.throws(() => stream.play('/video-fixture.mp4'), /previous|disposed/);
+    if (cleanup === 'reset') {
+      connection = new video.NetConnection();
+      connection.connect(null);
+      stream = new video.NetStream(connection);
+      stream.client = { onMetaData() { staleMetadata++; } };
+      stream.play('/video-fixture.mp4');
+      media.at(-1).emit('loadedmetadata');
+      assert.equal(staleMetadata, 1, 'new playback works after a failed reset');
+    }
+  }
+  assert.doesNotThrow(() => video.dispose(), 'failed disposal still retires the service exactly once');
+  assert.throws(() => new video.NetConnection(), /disposed/);
 });

@@ -108,11 +108,10 @@ test('loadPublish waits for an asynchronous child mount before init and completi
   host.dispose();
 });
 
-test('a cancelled asynchronous child mount cannot complete stale init', async () => {
-  const target = {};
-  const references = new WeakMap([[target, { objectRef: ['holder'] }]]);
-  const mount = deferred();
-  let isCurrent = () => false;
+test('cancelled asynchronous child mounts retire every load despite cleanup failure', async () => {
+  const target = {}, other = {};
+  const references = new WeakMap([[target, { objectRef: ['holder'] }], [other, { objectRef: ['other'] }]]);
+  const mounts = [], transports = [];
   let afterMount = 0;
   const bundleBytes = new TextEncoder().encode(
     `globalThis.NeoFlashBundle = ${JSON.stringify({ project: { symbols: [] }, scripts: [] })};`,
@@ -123,19 +122,22 @@ test('a cancelled asynchronous child mount cannot complete stale init', async ()
     net: {
       URLRequest,
       loadBytes(_request, callbacks) {
+        const transport = { callbacks, closed: false, failure: null, close() { this.closed = true; if (this.failure) throw this.failure; } };
+        transports.push(transport);
         queueMicrotask(() => callbacks.onComplete(bundleBytes));
-        return { close() {} };
+        return transport;
       },
     },
     binary: { toBytes: value => value },
     display: {
-      alive: value => value === target,
+      alive: value => references.has(value),
       descriptor: () => ({ owner: 'movie_clip', authored_path: ['holder'] }),
     },
     proxyForRef: () => null,
     referenceOf: value => references.get(value),
     mountPublishedBundle(_record, _bundle, _url, guard) {
-      isCurrent = guard;
+      const mount = deferred();
+      mounts.push({ ...mount, guard });
       return mount.promise;
     },
     onAfterMountPublished() {
@@ -143,14 +145,31 @@ test('a cancelled asynchronous child mount cannot complete stale init', async ()
     },
   });
 
-  const published = host.loadPublish('child/bundle.js', target);
-  await nextTurn();
-  host.dispose();
-  await assert.rejects(published, /cancelled/i);
-  assert.equal(isCurrent(), false, 'the mount generation guard is invalidated by cancellation');
-  mount.resolve({ contentRef: null, events: [], width: 320, height: 180, frameRate: 24 });
-  await nextTurn();
-  assert.equal(afterMount, 0, 'a stale async mount cannot dispatch child init or Frame 0 work');
+  const mounted = { contentRef: null, events: [], width: 320, height: 180, frameRate: 24 };
+  for (const cleanup of ['reset', 'dispose']) {
+    const pending = [host.loadPublish('child/bundle.js', target), host.loadPublish('child/bundle.js', other)];
+    const cancelled = Promise.all(pending.map(promise => assert.rejects(promise, /cancelled/i)));
+    await nextTurn();
+    const oldMounts = mounts.slice(-2), oldTransports = transports.slice(-2), before = afterMount;
+    const failure = new Error(`first transport ${cleanup} failed`);
+    oldTransports[0].failure = failure;
+    assert.throws(() => host[cleanup](), error => error === failure);
+    await cancelled;
+    assert.deepEqual(oldTransports.map(transport => transport.closed), [true, true]);
+    assert.deepEqual(oldMounts.map(mount => mount.guard()), [false, false]);
+    for (const mount of oldMounts) mount.resolve(mounted);
+    for (const transport of oldTransports) transport.callbacks.onComplete(bundleBytes);
+    await nextTurn();
+    assert.equal(afterMount, before, 'stale completions cannot dispatch child init after either cleanup path fails');
+    if (cleanup === 'reset') {
+      const retry = host.loadPublish('child/bundle.js', target);
+      await nextTurn();
+      mounts.at(-1).resolve(mounted);
+      assert.equal(await retry, target, 'a failed reset still leaves a usable new session');
+    }
+  }
+  assert.doesNotThrow(() => host.dispose(), 'failed disposal still retires the service exactly once');
+  assert.throws(() => host.loadPublish('child/bundle.js', target), /disposed/);
 });
 
 test('a failing byte-load callback cannot cancel the replacement it just started', () => {
