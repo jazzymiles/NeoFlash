@@ -400,6 +400,8 @@ test('Node/WASM: UAX #29 graphemes, FTE atoms, AS2/AS3 mixed runs, TextInteracti
       host.text().graphemeBoundaries(sample),
       [0, 2, 4, 6, 10, 21, 27, 34]
     );
+    assert.deepEqual(host.text().graphemeBoundaries('\u{1E922}\u{1E944}'), [0, 4], 'modern Adlam Extend must stay with its base');
+    assert.deepEqual(host.text().graphemeBoundaries('\u0915\u094D\u0937'), [0, 3], 'UAX #29 GB9c Indic conjunct must remain one cluster');
 
     tf.text = sample;
     assert.equal(tf.length, 34);
@@ -482,19 +484,20 @@ test('Node/WASM: UAX #29 graphemes, FTE atoms, AS2/AS3 mixed runs, TextInteracti
     assert.equal(restrictedRich.getTextFormat(2, 3).italic, true);
     assert.equal(restrictedRich.getTextFormat(2, 3).color, 0x0055ff);
 
-    // TextInteractionMode: throws RangeError #2008 on invalid mode, dispatches textInteractionModeChange, blocks input in SELECTION mode.
-    let modeEvents = 0;
-    capped.addEventListener('textInteractionModeChange', () => {
-      modeEvents++;
+    // textInteractionMode is read-only. Only a host/user transition dispatches
+    // textInteractionModeChange, and the Event is non-bubbling.
+    const modeEvents = [];
+    capped.addEventListener('textInteractionModeChange', (event) => {
+      modeEvents.push({ mode: capped.textInteractionMode, bubbles: event.bubbles });
     });
     assert.throws(() => {
-      capped.interactionMode = 'bogus';
-    }, /2008/);
-    capped.interactionMode = TextInteractionMode.SELECTION;
-    assert.equal(capped.interactionMode, 'selection');
+      capped.textInteractionMode = TextInteractionMode.SELECTION;
+    }, /read-only/);
+    assert.equal(capped.textInteractionMode, 'normal');
+    assert.equal(host.text().userInteractionModeChanged(cappedRef, TextInteractionMode.SELECTION), true);
     assert.equal(capped.textInteractionMode, 'selection');
-    assert.equal(modeEvents, 1);
-    const blockedState = JSON.parse(
+    assert.deepEqual(modeEvents, [{ mode: 'selection', bubbles: false }]);
+    const editedState = JSON.parse(
       player.object_text_input(
         cappedRef,
         JSON.stringify({
@@ -505,7 +508,8 @@ test('Node/WASM: UAX #29 graphemes, FTE atoms, AS2/AS3 mixed runs, TextInteracti
         })
       )
     );
-    assert.equal(blockedState.text, 'и\u0306🇺🇸');
+    assert.equal(editedState.text, 'Zи\u0306🇺🇸', 'host interaction state must not become a script-set read-only lock');
+    assert.equal(host.text().userInteractionModeChanged(cappedRef, TextInteractionMode.NORMAL), true);
 
     // 3. AS3 FTE (flash.text.engine.*) atom & word boundaries preserve combining marks & ZWJ clusters
     const FontDescription = prog.type('flash.text.engine.FontDescription');
@@ -613,7 +617,6 @@ function buildBrowserTextSuiteProject(renderMode, sfnt4, sfnt12) {
     'var pasteTarget:* = self.getChildByName("pasteTarget");',
     'self.changeLog = [];',
     'self.textInputLog = [];',
-    'self.modeLog = [];',
     'self.blockNextTextInput = false;',
     '',
     '// Configure mixed runs on richInput ("Red Blue"): 0..3 bold red, 4..8 italic blue.',
@@ -630,9 +633,8 @@ function buildBrowserTextSuiteProject(renderMode, sfnt4, sfnt12) {
     'var fmtUnder:TextFormat = new TextFormat("Georgia", 16, 0x008844, false, false, true);',
     'pasteTarget.setTextFormat(fmtUnder, 0, 5);',
     '',
-    '// Configure selOnlyField in SELECTION interactionMode.',
+    '// Keep the legacy-authored selection state to prove it cannot become an editing lock.',
     'selOnlyField.text = "CopyOnly";',
-    'selOnlyField.interactionMode = TextInteractionMode.SELECTION;',
     '',
     '// Attach event listeners AFTER programmatic setup; then do one programmatic update on dynSelect',
     '// and verify programmatic .text / .htmlText never fires Event.CHANGE on richInput!',
@@ -644,9 +646,6 @@ function buildBrowserTextSuiteProject(renderMode, sfnt4, sfnt12) {
     '});',
     'richInput.addEventListener(Event.CHANGE, function(e:Event):void {',
     '  self.changeLog.push(richInput.text);',
-    '});',
-    'richInput.addEventListener("textInteractionModeChange", function(e:Event):void {',
-    '  self.modeLog.push(richInput.interactionMode);',
     '});',
     'dynSelect.htmlText = "<b>Selectable</b> Dynamic";',
     '',
@@ -675,7 +674,7 @@ function buildBrowserTextSuiteProject(renderMode, sfnt4, sfnt12) {
     '    caretIndex: richInput.caretIndex,',
     '    selBegin: richInput.selectionBeginIndex,',
     '    selEnd: richInput.selectionEndIndex,',
-    '    interactionMode: richInput.interactionMode,',
+    '    interactionMode: richInput.textInteractionMode,',
     '    headBold: r0 ? Boolean(r0.bold) : null,',
     '    headColor: r0 ? Number(r0.color) : null,',
     '    tailItalic: rTail ? Boolean(rTail.italic) : null,',
@@ -683,7 +682,6 @@ function buildBrowserTextSuiteProject(renderMode, sfnt4, sfnt12) {
     '    changeCount: self.changeLog.length,',
     '    lastChange: self.changeLog.length ? self.changeLog[self.changeLog.length - 1] : null,',
     '    textInputLog: self.textInputLog.slice(),',
-    '    modeLog: self.modeLog.slice(),',
     '    selOnlyText: selOnlyField.text,',
     '    fontProbe: self.fontProbe',
     '  };',
@@ -710,8 +708,11 @@ function buildBrowserTextSuiteProject(renderMode, sfnt4, sfnt12) {
     'self.setBlockInput = function(flag:Boolean):void {',
     '  self.blockNextTextInput = flag;',
     '};',
-    'self.setRichMode = function(mode:String):void {',
-    '  richInput.interactionMode = mode;',
+    'self.probeTextInteractionModeWrite = function():Object {',
+    '  var threw:Boolean = false;',
+    '  try { richInput.textInteractionMode = TextInteractionMode.SELECTION; }',
+    '  catch (error:*) { threw = true; }',
+    '  return { threw: threw, mode: richInput.textInteractionMode };',
     '};',
     'self.resetPasteTarget = function(useRich:Boolean, restrictVal:String, maxCharsVal:int):void {',
     '  pasteTarget.restrict = null;',
@@ -1235,7 +1236,7 @@ test('Browser HTML5 (Canvas + DOM): graphemes, mixed-run IME commit/cancel, rich
         })()`);
         assert.equal(domSelectStyles.selUserSelect, 'text');
         assert.equal(domSelectStyles.lockedUserSelect, 'none');
-        assert.equal(domSelectStyles.selOnlyReadOnly, true);
+        assert.equal(domSelectStyles.selOnlyReadOnly, false, 'legacy selection state must not lock desktop input');
       } else {
         const canvasOverlayCheck = await cdp.evalJson(`(() => {
           const sc = window.__t326Scene();
@@ -1246,7 +1247,7 @@ test('Browser HTML5 (Canvas + DOM): graphemes, mixed-run IME commit/cancel, rich
           return { dynInputs, selOnlyReadOnly: selInput ? selInput.readOnly : null };
         })()`);
         assert.equal(canvasOverlayCheck.dynInputs, 0, 'Canvas dynamic TextField must not mount editable textarea overlay');
-        assert.equal(canvasOverlayCheck.selOnlyReadOnly, true, 'Canvas SELECTION-mode input must mount readOnly control');
+        assert.equal(canvasOverlayCheck.selOnlyReadOnly, false, 'Canvas legacy selection state must not lock desktop input');
       }
 
       // 3. TextEvent.TEXT_INPUT fires BEFORE mutation and preventDefault() cancels the edit cleanly!
@@ -1442,35 +1443,10 @@ test('Browser HTML5 (Canvas + DOM): graphemes, mixed-run IME commit/cancel, rich
         `${mode}: rich Paste must filter restrict before maxChars while remapping runs`
       );
 
-      // 8. Switching richInput to TextInteractionMode.SELECTION fires textInteractionModeChange,
-      //    allows selection + Copy, and blocks typing / Backspace / Cut / Paste!
-      await cdp.evalJson(`(() => {
-        window.__t326Scene().setRichMode('selection');
-        window.__t326FocusField('richInput', 0, 3);
-        return true;
-      })()`);
-      await cdp.send('Input.insertText', { text: 'Z' });
-      await cdp.pressKey('Backspace', 'Backspace', 8);
-      const selModeCheck = await cdp.evalJson(`(() => {
-        const el = document.activeElement;
-        const dt = new DataTransfer();
-        if (el) {
-          el.dispatchEvent(new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData: dt }));
-          el.dispatchEvent(new ClipboardEvent('cut', { bubbles: true, cancelable: true, clipboardData: dt }));
-          dt.setData('text/plain', 'BlockedPaste');
-          el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
-        }
-        return {
-          copiedInSelectionMode: dt.getData('text/plain') === 'BlockedPaste' ? 'overwritten' : dt.getData('text/plain'),
-          state: window.__t326Scene().inspectRich(),
-        };
-      })()`);
-      assert.deepEqual(selModeCheck.state.modeLog, ['selection'], `${mode}: must fire textInteractionModeChange`);
-      assert.equal(
-        selModeCheck.state.text,
-        'Redи\u0306 Blue',
-        `${mode}: SELECTION mode must block typing, Backspace, Cut, and Paste`
-      );
+      // 8. Adobe exposes textInteractionMode as read-only on desktop. A script
+      //    write fails and cannot manufacture a user-mode-change event or lock.
+      const modeContract = await cdp.evalJson(`window.__t326Scene().probeTextInteractionModeWrite()`);
+      assert.deepEqual(modeContract, { threw: true, mode: 'normal' }, `${mode}: textInteractionMode must be read-only`);
 
       // 9. Restart resets stage cleanly in both Canvas and DOM modes!
       const afterRestart = await cdp.evalJson(`(() => {

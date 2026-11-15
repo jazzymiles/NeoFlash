@@ -733,10 +733,6 @@ impl Editor {
         let Some(mut state) = TextFieldState::from_kind(&sampled.kind) else {
             return false;
         };
-        if state.interaction_mode == "selection" {
-            self.message("Editing blocked: text field is in selection-only mode.");
-            return true;
-        }
         let state_before = state.clone();
         let Ok(new_caret) =
             state.replace_utf16_range(sel_start, sel_end, inserted, typing_style.as_ref())
@@ -1190,9 +1186,6 @@ impl Editor {
         let sampled_state = self
             .selected_sampled()
             .and_then(|el| TextFieldState::from_kind(&el.kind));
-        let selection_only = sampled_state
-            .as_ref()
-            .is_some_and(|s| s.interaction_mode == "selection");
         let text_content = sampled_state
             .as_ref()
             .map(|s| s.text.clone())
@@ -1434,14 +1427,12 @@ impl Editor {
                     update_ime_output = true;
                 }
                 Action::ImeEnabled => {
-                    if !selection_only {
-                        self.stage_text_edit.ime_preedit = Some(String::new());
-                        self.stage_text_edit.ime_cursor_utf16 = Some((0, 0));
-                        update_ime_output = true;
-                    }
+                    self.stage_text_edit.ime_preedit = Some(String::new());
+                    self.stage_text_edit.ime_cursor_utf16 = Some((0, 0));
+                    update_ime_output = true;
                 }
                 Action::ImePreedit(text) => {
-                    if selection_only || text.is_empty() {
+                    if text.is_empty() {
                         self.stage_text_edit.ime_preedit = None;
                         self.stage_text_edit.ime_cursor_utf16 = None;
                     } else {
@@ -1449,19 +1440,15 @@ impl Editor {
                         self.stage_text_edit.ime_preedit = Some(text);
                         self.stage_text_edit.ime_cursor_utf16 = Some((u16_len, u16_len));
                     }
-                    if !selection_only {
-                        update_ime_output = true;
-                    }
+                    update_ime_output = true;
                 }
                 Action::ImeCommit(text) => {
                     self.stage_text_edit.ime_preedit = None;
                     self.stage_text_edit.ime_cursor_utf16 = None;
-                    if !selection_only && !text.is_empty() {
+                    if !text.is_empty() {
                         self.stage_text_insert_or_replace(&text);
                     }
-                    if !selection_only {
-                        update_ime_output = true;
-                    }
+                    update_ime_output = true;
                 }
                 Action::ImeDisabled => {
                     self.stage_text_edit.ime_preedit = None;
@@ -1470,16 +1457,12 @@ impl Editor {
                 Action::Backspace(word) => {
                     self.stage_text_edit.ime_preedit = None;
                     self.stage_text_edit.ime_cursor_utf16 = None;
-                    if !selection_only {
-                        self.stage_text_backspace(word);
-                    }
+                    self.stage_text_backspace(word);
                 }
                 Action::Delete(word) => {
                     self.stage_text_edit.ime_preedit = None;
                     self.stage_text_edit.ime_cursor_utf16 = None;
-                    if !selection_only {
-                        self.stage_text_delete_forward(word);
-                    }
+                    self.stage_text_delete_forward(word);
                 }
                 Action::SelectAll => {
                     self.finish_stage_text_typing();
@@ -1489,8 +1472,7 @@ impl Editor {
                     self.stage_text_edit.preferred_x = None;
                 }
                 Action::ToggleBold => {
-                    if !selection_only
-                        && let Some(sampled) = self.selected_sampled()
+                    if let Some(sampled) = self.selected_sampled()
                         && let Some(state) = TextFieldState::from_kind(&sampled.kind)
                     {
                         let cur = self.resolved_inspector_text_format(&sampled.id, &state);
@@ -1501,8 +1483,7 @@ impl Editor {
                     }
                 }
                 Action::ToggleItalic => {
-                    if !selection_only
-                        && let Some(sampled) = self.selected_sampled()
+                    if let Some(sampled) = self.selected_sampled()
                         && let Some(state) = TextFieldState::from_kind(&sampled.kind)
                     {
                         let cur = self.resolved_inspector_text_format(&sampled.id, &state);
@@ -1513,8 +1494,7 @@ impl Editor {
                     }
                 }
                 Action::ToggleUnderline => {
-                    if !selection_only
-                        && let Some(sampled) = self.selected_sampled()
+                    if let Some(sampled) = self.selected_sampled()
                         && let Some(state) = TextFieldState::from_kind(&sampled.kind)
                     {
                         let cur = self.resolved_inspector_text_format(&sampled.id, &state);
@@ -2981,7 +2961,7 @@ mod tests {
     }
 
     #[test]
-    fn t326_stage_grapheme_navigation_ime_preedit_cancel_commit_and_selection_mode() {
+    fn t326_stage_grapheme_navigation_ime_and_legacy_interaction_state() {
         let ctx = egui::Context::default();
         let mut editor = Editor::from_project(&ctx, Project::blank());
         let mut base_fmt = TextFormat {
@@ -3176,7 +3156,8 @@ mod tests {
         editor.undo();
         assert_eq!(editor.project, mixed_baseline);
 
-        // 4. Switch field to interaction_mode = "selection": selection works, mutations are blocked cleanly.
+        // 5. A legacy-authored interaction_mode value is host/user state, not
+        // a persisted desktop editing lock. Inline editing must remain available.
         editor.transact_named("Set selection mode", |s| {
             if let Some(el) = s.selected_element_mut()
                 && let ElementKind::TextBox { format, .. } = &mut el.kind
@@ -3186,22 +3167,12 @@ mod tests {
                 format.set_field_options(Some(opts));
             }
         });
-        let sel_mode_baseline = editor.project.clone();
         let sel_mode_undo = editor.history.undo_len();
         assert!(editor.select_stage_text_utf16_range(0, 3));
-        stage_frame(
-            &mut editor,
-            &ctx,
-            2.0,
-            vec![
-                egui::Event::Text("X".into()),
-                key_ev(Key::Backspace),
-                key_ev(Key::Delete),
-                egui::Event::Paste("Pasted".into()),
-            ],
-        );
-        assert_eq!(editor.project, sel_mode_baseline);
-        assert_eq!(editor.history.undo_len(), sel_mode_undo);
+        assert!(editor.stage_text_insert_or_replace("X"));
+        let edited = TextFieldState::from_kind(&editor.selected_sampled().unwrap().kind).unwrap();
+        assert_eq!(edited.text, "X Blue");
+        assert_eq!(editor.history.undo_len(), sel_mode_undo + 1);
         editor.project.validate().unwrap();
     }
 }

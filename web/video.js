@@ -25,14 +25,14 @@
   function create(options={}){
     const {player,net,events=global.NeoFlashEvents,referenceOf,proxyForRef}=options;
     if(!player?.object_video_info||!net?.mediaSource||!events?.create)throw new TypeError('Video requires the shared display, resource and Event services.');
-    const connections=new WeakMap(),streams=new WeakMap(),connectionRecords=new Set(),streamRecords=new Set(),bindings=new Map(),timelineControllers=new Map(),frames=new Set(),derived=new Map();
+    const connections=new WeakMap(),streams=new WeakMap(),disposedStreams=new WeakSet(),connectionRecords=new Set(),streamRecords=new Set(),bindings=new Map(),timelineControllers=new Map(),frames=new Set(),derived=new Map();
     const statusTypes=new WeakSet(),schedule=options.schedule||(fn=>queueMicrotask(fn));
     const gesture=options.isUserGesture||(()=>global.navigator?.userActivation?.isActive===true);
     let generation=1,disposed=false,serial=0,used=false,unlocked=false,muted=false,errorText='',framePixels=0,ownAudioContext=null,mixerUnsub=null;
     const diagnosticsList=[];
-    const hub=events.create({weakTargets:true,alive:value=>!disposed&&(connections.get(value)||streams.get(value))?.generation===generation});
+    const hub=events.create({weakTargets:true,alive:value=>{const record=connections.get(value)||streams.get(value);return !disposed&&!record?.disposed&&record?.generation===generation;}});
     function open(){if(disposed)throw new Error('This video service has been disposed.');}
-    function state(value,map){open();const record=map.get(value);if(!record)throw new TypeError('Expected a video object from this publication.');if(record.generation!==generation)throw new Error('This video object belongs to a previous publication session.');return record;}
+    function state(value,map){open();const record=map.get(value);if(!record)throw new TypeError('Expected a video object from this publication.');if(record.generation!==generation)throw new Error('This video object belongs to a previous publication session.');if(record.disposed)throw new Error('This NetStream has been disposed.');return record;}
     function native(name,...args){try{return player[name](...args);}catch(error){if(error instanceof Error)throw error;throw new Error(typeof error==='string'?error:'Video runtime failed.',{cause:error});}}
     function status(){let pending=0,active=0,loading=0,audible=false;for(const r of streamRecords){if(r.wanted&&!r.playing)pending++;if(r.playing)active++;if(r.media&&!r.metadata)loading++;if(r.wanted&&r.timelineMuted!==true&&r.volume>0&&r.receiveState?.audio!==false)audible=true;}return {state:!used?'idle':errorText?'error':audible&&!unlocked?'awaiting_gesture':muted?'muted':active?'running':loading?'loading':'ready',pending,active,loading,muted,unlocked,requiresGesture:audible,audible,error:errorText,diagnostics:diagnosticsList.slice()};}
     function diagnostics(){open();return diagnosticsList.slice();}
@@ -159,7 +159,12 @@
     function current(r,media,sequence){return !disposed&&r.generation===generation&&r.media===media&&r.sequence===sequence;}
     // AS2 component observers receive browser facts only. No observer is installed
     // for existing AS3 or ordinary NetStream users, preserving their event path.
-    function controllerSample(r){return {now:global.performance?.now?.()||0,time:r.media?Number(r.media.currentTime)||0:r.time,width:r.width,height:r.height,duration:r.duration,bytesLoaded:r.url?currentBytesLoaded(r):0,bytesTotal:r.url?currentBytesTotal(r):0};}
+    function localStreamTime(r){
+      const current=r.media?Number(r.media.currentTime)||0:Number(r.time)||0;
+      return !r.metadata&&Number.isFinite(r.pendingSeek)&&r.pendingSeek>current?r.pendingSeek:current;
+    }
+    function exposedStreamTime(r){return Math.max(0,(Number(r.playlistTimeBase)||0)+localStreamTime(r));}
+    function controllerSample(r){return {now:global.performance?.now?.()||0,time:exposedStreamTime(r),width:r.width,height:r.height,duration:r.duration,bytesLoaded:r.url?currentBytesLoaded(r):0,bytesTotal:r.url?currentBytesTotal(r):0};}
     function observeController(r,type,message){if(typeof r.controllerObserver!=='function')return;const sample=controllerSample(r);if(message)sample.message=message;r.controllerObserver(type,sample);}
     function after(epoch){if(!disposed&&generation===epoch)options.afterEvent?.();}
     function repaint(){(options.onFrame||options.afterEvent)?.();}
@@ -354,7 +359,7 @@
     function stopMedia(r,retain,keepQueue=false){
       const frozen=retain?freeze(r):null;
       r.sequence++;r.wanted=false;r.playing=false;r.pendingSeek=null;r.bufferFull=false;r.clipCompleted=false;r.clipEndSec=null;
-      if(!keepQueue)r.queue=[];
+      if(!keepQueue){r.queue=[];r.playlistTimeBase=0;r.playlistClockStarted=false;}
       clearClipTimer(r);
       if(r.probeAbort){try{r.probeAbort.abort();}catch(_){}r.probeAbort=null;}
       disconnectStreamAudio(r);
@@ -367,6 +372,17 @@
       if(r.media){for(const[type,fn]of r.listeners)r.media.removeEventListener(type,fn);if(r.frameCallback!==null)r.media.cancelVideoFrameCallback?.(r.frameCallback);r.media.pause();r.media.muted=true;r.media.removeAttribute('src');r.media.load();}
       if(r.objectURL)(options.revokeObjectURL||global.URL.revokeObjectURL.bind(global.URL))(r.objectURL);
       r.media=null;r.objectURL=null;r.listeners=[];r.frameCallback=null;r.metadata=false;r.frozen=frozen;r.appendFrame=null;r.suppressedFrame=null;r.frameTimes=[];r.cuePoints=[];r.firedCues=null;r.containerFps=null;if(r.receivePolicy)streamPolicy(r,{op:"reset"});r.time=0;r.lastTime=null;collectFrames();changed();
+    }
+    function disposeStream(instance){
+      if(disposedStreams.has(instance))return;
+      const r=state(instance,streams);
+      stopMedia(r,false,false);
+      for(const binding of bindings.values()){
+        if(binding.stream===r){binding.stream=null;binding.frozen=null;binding.revision=++serial;}
+      }
+      r.receivePolicy?.free();r.receivePolicy=null;r.disposed=true;
+      streamRecords.delete(r);disposedStreams.add(instance);
+      collectFrames();changed();
     }
     function isAviContainer(bytes){
       return Boolean(bytes&&bytes.length>=12&&bytes[0]===0x52&&bytes[1]===0x49&&bytes[2]===0x46&&bytes[3]===0x46&&bytes[8]===0x41&&bytes[9]===0x56&&bytes[10]===0x49&&bytes[11]===0x20);
@@ -416,8 +432,8 @@
       const durLim=rawLen<0?null:(singleFrame?0:rawLen);
       let resetMode='resetAll';
       if(reset===false||reset===0)resetMode='append';
-      else if(reset===2)resetMode='immediateIfIdle';
-      else if(reset===3)resetMode='resetQueueAppend';
+      else if(reset===2)resetMode='appendAndAggregateMessages';
+      else if(reset===3)resetMode='resetAllAndAggregateMessages';
       return {action:'playClip',url,start_seconds:startSec,raw_start:rawStart,duration_limit:durLim,single_frame:singleFrame,reset_mode:resetMode};
     }
     function decideSeek(offset,hasMeta,duration){
@@ -438,9 +454,9 @@
       if(Array.isArray(r.queue)&&r.queue.length>0&&!r.timelineOwned){
         const next=r.queue.shift();
         r.playing=false;
-        if(!emit(r,'NetStream.Play.Transition','status',{details:next.url}))return;
-        invokeStreamCallback(r,'onPlayStatus',{code:'NetStream.Play.TransitionComplete',level:'status',duration:r.duration,bytes:currentBytesLoaded(r)});
-        if(disposed||r.generation!==generation)return;
+        const sequence=r.sequence;
+        invokeStreamCallback(r,'onPlayStatus',{code:'NetStream.Play.Switch',level:'status',details:next.url,duration:r.duration,bytes:currentBytesLoaded(r)});
+        if(disposed||r.generation!==generation||r.sequence!==sequence)return;
         load(r,next.url,null,next,true);
         return;
       }
@@ -683,7 +699,11 @@
         r.deploymentMode=source.kind==='resource'?'embedded':'progressive';
         r.sourceSpec={mode:r.deploymentMode,url_or_path:url,resolvedUrl:source.kind==='resource'?url:source.url,mime_type:source.mediaType||mediaType};
       }
+      const continuePlaylist=Boolean(keepQueue&&r.playlistClockStarted);
+      const carriedTime=continuePlaylist?exposedStreamTime(r):0;
       stopMedia(r,false,keepQueue);used=true;errorText='';r.wanted=true;
+      r.playlistTimeBase=continuePlaylist?carriedTime-Math.max(0,Number(clipPlan?.start_seconds)||0):0;
+      r.playlistClockStarted=true;
       r.clipPlan=clipPlan||null;r.clipCompleted=false;r.clipEndSec=null;
       r.suppressInitialSeekNotify=false;r.pendingInitialSeek=false;r.suppressSeekNotifyOnce=false;
       if(clipPlan&&clipPlan.start_seconds>0){
@@ -916,7 +936,7 @@
     }
     let onStreamCreated=null;
     class NetStream extends events.EventDispatcher{
-      constructor(connection,peerID='connectToFMS'){super();const nc=state(connection,connections);if(peerID!==undefined&&peerID!==null&&typeof peerID!=='string')throw new TypeError('NetStream peerID requires a String.');if(streamRecords.size>=64)throw new RangeError('Video is limited to 64 NetStream instances per publication session.');const r={receiver:this,generation,connection:nc,peerID:peerID||'connectToFMS',sequence:0,legacy:false,client:this,media:null,objectURL:null,listeners:[],frameCallback:null,frozen:null,serial:++serial,metadata:false,wanted:false,playing:false,started:false,pauseRequested:false,pendingSeek:null,width:0,height:0,duration:0,time:0,lastTime:null,volume:1,soundTransform:defaultTransformWire(1),bufferTimeVal:0.1,checkPolicyFileVal:false,bufferFull:false,clipPlan:null,clipCompleted:false,clipEndSec:null,clipTimer:null,queue:[],frameTimes:[],cuePoints:[],firedCues:null,containerFps:null,encodedBytes:0,totalBytes:0,isEmbeddedBytes:false,probeAbort:null};streams.set(this,r);streamRecords.add(r);Object.assign(this,hub.methods(this));onStreamCreated?.(this,r);if(new.target===NetStream)Object.seal(this);}
+      constructor(connection,peerID='connectToFMS'){super();const nc=state(connection,connections);if(peerID!==undefined&&peerID!==null&&typeof peerID!=='string')throw new TypeError('NetStream peerID requires a String.');if(streamRecords.size>=64)throw new RangeError('Video is limited to 64 NetStream instances per publication session.');const r={receiver:this,generation,connection:nc,peerID:peerID||'connectToFMS',sequence:0,legacy:false,client:this,media:null,objectURL:null,listeners:[],frameCallback:null,frozen:null,serial:++serial,metadata:false,wanted:false,playing:false,started:false,pauseRequested:false,pendingSeek:null,width:0,height:0,duration:0,time:0,playlistTimeBase:0,playlistClockStarted:false,lastTime:null,volume:1,soundTransform:defaultTransformWire(1),bufferTimeVal:0.1,checkPolicyFileVal:false,bufferFull:false,clipPlan:null,clipCompleted:false,clipEndSec:null,clipTimer:null,queue:[],frameTimes:[],cuePoints:[],firedCues:null,containerFps:null,encodedBytes:0,totalBytes:0,isEmbeddedBytes:false,probeAbort:null,disposed:false};streams.set(this,r);streamRecords.add(r);Object.assign(this,hub.methods(this));onStreamCreated?.(this,r);if(new.target===NetStream)Object.seal(this);}
       play(url,...extra){
         const r=state(this,streams);
         const plan=planPlay(url,extra);
@@ -939,26 +959,13 @@
         }
         if(!r.connection.local)throw new Error('Call NetConnection.connect(null) before playing local video.');
         const isBusy=Boolean((r.wanted||r.playing||(r.media&&!r.media.ended&&!r.clipCompleted))&&!r.clipCompleted);
-        if(plan.reset_mode==='immediateIfIdle'){
-          if(isBusy||(Array.isArray(r.queue)&&r.queue.length>0))return;
-          load(r,plan.url,null,plan,false);
-          return;
-        }
-        if(plan.reset_mode==='append'){
+        if(plan.reset_mode==='append'||plan.reset_mode==='appendAndAggregateMessages'){
           if(isBusy){
             if(!Array.isArray(r.queue))r.queue=[];
             r.queue.push(plan);
             return;
           }
           load(r,plan.url,null,plan,true);
-          return;
-        }
-        if(plan.reset_mode==='resetQueueAppend'){
-          if(isBusy){
-            r.queue=[plan];
-            return;
-          }
-          load(r,plan.url,null,plan,false);
           return;
         }
         load(r,plan.url,null,plan,false);
@@ -982,7 +989,8 @@
         return clamped;
       }
       close(){stopMedia(state(this,streams),true,false);}
-      get time(){const r=state(this,streams);return r.media?Number(r.media.currentTime)||0:r.time;}
+      dispose(){disposeStream(this);}
+      get time(){return exposedStreamTime(state(this,streams));}
       get client(){return state(this,streams).client;}set client(value){if(value===null||(typeof value!=='object'&&typeof value!=='function'))throw new TypeError('NetStream.client requires an object.');state(this,streams).client=value;}
       get soundTransform(){
         const r=state(this,streams),Type=options.getSoundTransform?.();
@@ -1074,7 +1082,7 @@
       pause(flag){const r=state(this,streams);if(flag===undefined)return super.togglePause();if(typeof flag!=='boolean')throw new TypeError('AS2 NetStream.pause expects a Boolean or no argument.');if(flag)pause(r);else resume(r);}
     }
     for(const[Type,predicate]of [[NetConnection,v=>connections.has(v)],[LegacyNetConnection,v=>connections.has(v)&&connections.get(v).legacy],[NetStream,v=>streams.has(v)],[LegacyNetStream,v=>streams.has(v)&&streams.get(v).legacy],[NetStatusEvent,v=>statusTypes.has(v)]])noBase(Type,predicate);
-    for(const name of ['publish','send','appendBytes','appendBytesAction','attachAudio','attachCamera','attachVideo','setBufferTime','receiveAudio','receiveVideo','dispose'])Object.defineProperty(NetStream.prototype,name,{configurable:true,writable:true,value(){unsupported('NetStream.'+name);}});
+    for(const name of ['publish','send','appendBytes','appendBytesAction','attachAudio','attachCamera','attachVideo','setBufferTime','receiveAudio','receiveVideo'])Object.defineProperty(NetStream.prototype,name,{configurable:true,writable:true,value(){unsupported('NetStream.'+name);}});
     for(const name of ['objectEncoding','videoStreamSettings','inBufferSeek','backBufferTime','info','farID','peerStreams'])Object.defineProperty(NetStream.prototype,name,{configurable:true,get(){unsupported('NetStream.'+name);},set(){unsupported('NetStream.'+name);}});
     for(const name of ['call','addHeader','addEventListenerRemote'])Object.defineProperty(NetConnection.prototype,name,{configurable:true,writable:true,value(){unsupported('NetConnection.'+name);}});
     function videoRef(target){const value=referenceOf(target);if(!value||!player.object_alive(value.key))throw new Error('Video display object is stale or foreign.');const info=JSON.parse(native('object_video_info',value.key));return {key:value.key,ref:value.objectRef,info};}

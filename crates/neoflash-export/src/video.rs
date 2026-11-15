@@ -4668,7 +4668,7 @@ where
     let mut png_seq_state = if options.format == VideoFormat::PngSequence {
         let (parent, stem, planned_png_names) =
             png_sequence_plan(output_path, prepared.frame_count)?;
-        let tx = crate::SequenceSetTransaction::begin(parent, &stem)?;
+        let tx = crate::SequenceSetTransaction::begin_for_family(parent, &stem, "png")?;
         tx.preflight(&planned_png_names)?;
         Some((tx, stem, planned_png_names, 0u64))
     } else {
@@ -5051,7 +5051,7 @@ fn encode_png_sequence(
 ) -> Result<VideoExportReport, ExportError> {
     let frame_count = frames.len() as u32;
     let (parent, stem, planned_png_names) = png_sequence_plan(output_path, frame_count)?;
-    let mut tx = crate::SequenceSetTransaction::begin(parent, &stem)?;
+    let mut tx = crate::SequenceSetTransaction::begin_for_family(parent, &stem, "png")?;
     let mut preflight_names = planned_png_names.clone();
     if wav_audio.is_some() {
         preflight_names.push(format!("{stem}.wav"));

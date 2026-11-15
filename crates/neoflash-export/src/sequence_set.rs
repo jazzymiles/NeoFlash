@@ -7,21 +7,26 @@
 //!
 //! Contract:
 //! 1. NeoFlash records exact owned filenames, byte lengths, and SHA-256 digests per sequence stem
-//!    in a hidden sidecar manifest (`.neoflash-sequences.json`) inside the output directory.
+//!    and output family in a hidden sidecar manifest (`.neoflash-sequences.json`) inside the
+//!    output directory.
 //! 2. Before mutating any final path, [`SequenceSetTransaction::preflight`] inspects every planned
 //!    output path (honoring the target directory's real filesystem case-sensitivity policy) and
 //!    refuses if any path already exists on disk and is not an unmodified file owned by the prior
-//!    manifest entry for the same sequence stem.
+//!    manifest entry for the same sequence stem and output family.
 //! 3. All generated frames (and optional companion `.wav` audio) are written and synced inside a
 //!    private sibling staging directory (`.neoflash-seq-stage-<pid>-<nanos>-<seq>`) on the same
 //!    filesystem. Any error or cancellation before commit removes the staging directory and any
 //!    newly created empty output directories without touching pre-existing files.
-//! 4. Commit moves prior manifest-owned files (including stale tail frames from a longer earlier
+//! 4. Commit uses a persistent zero-byte `.neoflash-sequences.lock` file to serialize manifest
+//!    read/modify/write swaps across processes. Once commit starts, this reserved infrastructure
+//!    file remains even after a failed first swap so every process continues to lock the same inode.
+//! 5. Commit moves prior manifest-owned files (including stale tail frames from a longer earlier
 //!    export) and the prior manifest into a rollback directory, renames the new staged set and
 //!    updated manifest into place, and removes the rollback directory only after every rename
 //!    succeeds. Any mid-swap failure restores the prior set and manifest byte-for-byte.
 
 use crate::{ExportError, sha256_hex};
+use fs2::FileExt as _;
 use neoflash_core::sha256::Sha256;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -35,6 +40,9 @@ use std::{
 
 /// Hidden manifest filename recording NeoFlash-owned sequence files in an output directory.
 pub const SEQUENCE_MANIFEST_FILENAME: &str = ".neoflash-sequences.json";
+
+/// Stable advisory-lock file serializing manifest read/modify/write commits across processes.
+pub const SEQUENCE_COMMIT_LOCK_FILENAME: &str = ".neoflash-sequences.lock";
 
 /// Prefix for temporary sibling staging directories inside the target folder.
 pub const SEQUENCE_STAGE_PREFIX: &str = ".neoflash-seq-stage-";
@@ -61,6 +69,9 @@ pub struct SequenceOwnedFileRecord {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SequenceManifestEntry {
     pub stem: String,
+    /// Output family (`png`, `jpg`, `svg`, …). Absent in manifests written before T-333.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
     pub files: Vec<SequenceOwnedFileRecord>,
 }
 
@@ -98,10 +109,43 @@ struct VerifiedPriorState {
     present_owned_names: Vec<String>,
 }
 
+struct DirectoryCommitLock {
+    file: fs::File,
+}
+
+impl DirectoryCommitLock {
+    fn acquire(directory: &Path) -> Result<Self, ExportError> {
+        let path = directory.join(SEQUENCE_COMMIT_LOCK_FILENAME);
+        if let Ok(metadata) = fs::symlink_metadata(&path)
+            && (metadata.file_type().is_symlink() || !metadata.file_type().is_file())
+        {
+            return Err(ExportError::Destination(format!(
+                "'{}' is not a regular sequence lock file",
+                path.display()
+            )));
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)?;
+        file.lock_exclusive()?;
+        Ok(Self { file })
+    }
+}
+
+impl Drop for DirectoryCommitLock {
+    fn drop(&mut self) {
+        let _ = fs2::FileExt::unlock(&self.file);
+    }
+}
+
 /// Recoverable multi-file sequence transaction staged in the destination directory.
 pub struct SequenceSetTransaction {
     directory: PathBuf,
     stem: String,
+    family: Option<String>,
     stage_dir: PathBuf,
     files_dir: PathBuf,
     rollback_dir: PathBuf,
@@ -119,9 +163,26 @@ pub struct SequenceSetTransaction {
 impl SequenceSetTransaction {
     /// Start a new sequence transaction in `target_dir` for `stem` with default staging limits.
     pub fn begin(target_dir: &Path, stem: &str) -> Result<Self, ExportError> {
-        Self::begin_with_limits(
+        Self::begin_with_family_and_limits(
             target_dir,
             stem,
+            None,
+            MAX_SEQUENCE_STAGED_BYTES,
+            MAX_SEQUENCE_STAGED_FILES,
+        )
+    }
+
+    /// Start a transaction whose ownership is scoped to one output family (`png`, `jpg`, …).
+    /// This allows same-stem sequences in different formats to coexist in one directory.
+    pub fn begin_for_family(
+        target_dir: &Path,
+        stem: &str,
+        family: &str,
+    ) -> Result<Self, ExportError> {
+        Self::begin_with_family_and_limits(
+            target_dir,
+            stem,
+            Some(family),
             MAX_SEQUENCE_STAGED_BYTES,
             MAX_SEQUENCE_STAGED_FILES,
         )
@@ -134,14 +195,39 @@ impl SequenceSetTransaction {
         max_bytes: usize,
         max_files: usize,
     ) -> Result<Self, ExportError> {
+        Self::begin_with_family_and_limits(target_dir, stem, None, max_bytes, max_files)
+    }
+
+    fn begin_with_family_and_limits(
+        target_dir: &Path,
+        stem: &str,
+        family: Option<&str>,
+        max_bytes: usize,
+        max_files: usize,
+    ) -> Result<Self, ExportError> {
         let trimmed_stem = stem.trim();
         if trimmed_stem.is_empty()
             || trimmed_stem == "."
             || trimmed_stem == ".."
-            || trimmed_stem.contains(['/', '\\', '\0'])
+            || trimmed_stem.contains(['/', '\\'])
+            || trimmed_stem.chars().any(char::is_control)
         {
             return Err(ExportError::Options(format!(
                 "Invalid sequence base name '{stem}'."
+            )));
+        }
+        let family = family
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_ascii_lowercase);
+        if family.as_deref().is_some_and(|value| {
+            !value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        }) {
+            return Err(ExportError::Options(format!(
+                "Invalid sequence output family '{}'.",
+                family.as_deref().unwrap_or_default()
             )));
         }
 
@@ -173,6 +259,7 @@ impl SequenceSetTransaction {
         Ok(Self {
             directory,
             stem: trimmed_stem.to_owned(),
+            family,
             stage_dir,
             files_dir,
             rollback_dir,
@@ -250,10 +337,7 @@ impl SequenceSetTransaction {
         let prior_match = manifest
             .sequences
             .iter()
-            .find(|(k, entry)| {
-                names_match(k, &self.stem, self.case_insensitive)
-                    || names_match(&entry.stem, &self.stem, self.case_insensitive)
-            })
+            .find(|(k, entry)| self.entry_matches_owned_family(k, entry, planned_filenames))
             .map(|(k, entry)| (k.clone(), entry.clone()));
 
         let (prior_key, prior_entry) = match prior_match {
@@ -354,6 +438,42 @@ impl SequenceSetTransaction {
         })
     }
 
+    fn entry_matches_owned_family(
+        &self,
+        key: &str,
+        entry: &SequenceManifestEntry,
+        planned_filenames: &[String],
+    ) -> bool {
+        let stem_matches = names_match(&entry.stem, &self.stem, self.case_insensitive)
+            || (entry.family.is_none() && names_match(key, &self.stem, self.case_insensitive));
+        if !stem_matches {
+            return false;
+        }
+
+        match (&self.family, &entry.family) {
+            (None, None) => true,
+            (Some(current), Some(recorded)) => {
+                names_match(current, recorded, self.case_insensitive)
+            }
+            (None, Some(_)) => false,
+            (Some(current), None) => legacy_entry_matches_family(
+                entry,
+                planned_filenames,
+                current,
+                self.case_insensitive,
+            ),
+        }
+    }
+
+    fn manifest_key(&self) -> String {
+        match &self.family {
+            // Unit separator cannot occur in an accepted output-family name, so a legacy raw stem
+            // can never alias this family-scoped key.
+            Some(family) => format!("{}\u{1f}{family}", self.stem),
+            None => self.stem.clone(),
+        }
+    }
+
     /// Stage one generated sequence member inside the private sibling staging directory.
     pub fn stage_file(&mut self, file_name: &str, bytes: &[u8]) -> Result<PathBuf, ExportError> {
         validate_sequence_member_name(file_name)?;
@@ -406,7 +526,8 @@ impl SequenceSetTransaction {
     }
 
     /// Atomically swap the staged sequence set and updated `.neoflash-sequences.json` into place,
-    /// removing stale tail frames from any longer prior export of the same sequence stem.
+    /// removing stale tail frames from any longer prior export of the same sequence stem and
+    /// output family.
     pub fn commit(self) -> Result<Vec<PathBuf>, ExportError> {
         self.commit_with_fault_hook(|_| Ok(()))
     }
@@ -426,6 +547,9 @@ impl SequenceSetTransaction {
             ));
         }
 
+        // Keep the lock file stable (never unlink it) so concurrent processes always contend on
+        // the same inode. OS advisory locks are released automatically if a process exits.
+        let _commit_lock = DirectoryCommitLock::acquire(&self.directory)?;
         let planned_names: Vec<String> = self.files.iter().map(|f| f.file_name.clone()).collect();
         let mut prior = self.verify_planned_set(&planned_names)?;
 
@@ -442,9 +566,10 @@ impl SequenceSetTransaction {
             })
             .collect();
         prior.manifest.sequences.insert(
-            self.stem.clone(),
+            self.manifest_key(),
             SequenceManifestEntry {
                 stem: self.stem.clone(),
+                family: self.family.clone(),
                 files: new_records,
             },
         );
@@ -624,6 +749,7 @@ fn validate_sequence_member_name(name: &str) -> Result<(), ExportError> {
         || name == ".."
         || name.contains(['/', '\\', '\0'])
         || name.eq_ignore_ascii_case(SEQUENCE_MANIFEST_FILENAME)
+        || name.eq_ignore_ascii_case(SEQUENCE_COMMIT_LOCK_FILENAME)
         || name.to_ascii_lowercase().starts_with(SEQUENCE_STAGE_PREFIX)
     {
         return Err(ExportError::Options(format!(
@@ -647,6 +773,41 @@ fn names_match(a: &str, b: &str, case_insensitive: bool) -> bool {
     } else {
         a == b
     }
+}
+
+fn legacy_entry_matches_family(
+    entry: &SequenceManifestEntry,
+    planned_filenames: &[String],
+    family: &str,
+    case_insensitive: bool,
+) -> bool {
+    // Exact overlap is the strongest migration signal, including a historical single-frame
+    // output whose caller preserved a non-canonical extension.
+    if entry.files.iter().any(|owned| {
+        planned_filenames
+            .iter()
+            .any(|planned| names_match(&owned.name, planned, case_insensitive))
+    }) {
+        return true;
+    }
+
+    // Otherwise infer the old stem-only entry from its generated extensions. PNG video
+    // sequences may additionally own one companion WAV file.
+    let mut saw_family_member = false;
+    for owned in &entry.files {
+        let extension = Path::new(&owned.name)
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if extension.eq_ignore_ascii_case(family) {
+            saw_family_member = true;
+        } else if family.eq_ignore_ascii_case("png") && extension.eq_ignore_ascii_case("wav") {
+            continue;
+        } else {
+            return false;
+        }
+    }
+    saw_family_member
 }
 
 fn sha256_file_hex(path: &Path) -> Result<String, ExportError> {

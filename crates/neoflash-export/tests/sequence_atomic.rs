@@ -4,16 +4,21 @@ use neoflash_core::{
 };
 use neoflash_export::{
     AtlasFormat, AtlasImageFormat, AtlasOptions, ExportError, ImageExportFormat,
-    ImageExportOptions, ImageExportRange, SEQUENCE_MANIFEST_FILENAME, SEQUENCE_STAGE_PREFIX,
-    SequenceSetTransaction, VideoFormat, VideoOptions, export_project_atlas, export_project_image,
-    export_project_image_with_progress, export_project_video, export_project_video_with_progress,
-    read_sequence_manifest, sha256_hex,
+    ImageExportOptions, ImageExportRange, SEQUENCE_COMMIT_LOCK_FILENAME,
+    SEQUENCE_MANIFEST_FILENAME, SEQUENCE_STAGE_PREFIX, SequenceSetTransaction, VideoFormat,
+    VideoOptions, export_project_atlas, export_project_image, export_project_image_with_progress,
+    export_project_video, export_project_video_with_progress, read_sequence_manifest, sha256_hex,
 };
 use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
+    thread,
+    time::Duration,
 };
 
 static TEST_DIR_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -189,7 +194,11 @@ fn all_image_sequence_formats_replace_atomically_and_prune_stale_tail_frames() {
 
         let (manifest, existed) = read_sequence_manifest(&sub).unwrap();
         assert!(existed);
-        let entry = manifest.sequences.get("shot").expect("shot manifest entry");
+        let entry = manifest
+            .sequences
+            .values()
+            .find(|entry| entry.stem == "shot" && entry.family.as_deref() == Some(ext))
+            .expect("shot manifest entry for output family");
         assert_eq!(entry.files.len(), 3);
         for rec in &entry.files {
             let disk_bytes = fs::read(sub.join(&rec.name)).unwrap();
@@ -197,6 +206,210 @@ fn all_image_sequence_formats_replace_atomically_and_prune_stale_tail_frames() {
             assert_eq!(rec.sha256, sha256_hex(&disk_bytes));
         }
     }
+}
+
+#[test]
+fn same_stem_different_formats_coexist_and_legacy_stem_only_entries_migrate() {
+    let guard = TempDirGuard::new("families-and-migration");
+    let coexist_dir = guard.path().join("coexist");
+    let project = build_animated_project(3, 21);
+
+    let mut options = ImageExportOptions::for_project(&project, 0);
+    options.range = ImageExportRange::WholeMovie;
+    options.symbol_id = None;
+    options.format = ImageExportFormat::Png;
+    export_project_image(&project, &coexist_dir.join("shot.png"), &options)
+        .expect("export PNG family");
+    let png_before: Vec<Vec<u8>> = (1..=3)
+        .map(|idx| fs::read(coexist_dir.join(format!("shot_{idx:04}.png"))).unwrap())
+        .collect();
+
+    options.format = ImageExportFormat::Jpeg;
+    export_project_image(&project, &coexist_dir.join("shot.jpg"), &options)
+        .expect("same-stem JPEG family must coexist with PNG family");
+    for (idx, expected) in (1..=3).zip(&png_before) {
+        assert_eq!(
+            fs::read(coexist_dir.join(format!("shot_{idx:04}.png"))).unwrap(),
+            *expected,
+            "JPEG export must not remove or replace PNG frame {idx}"
+        );
+        assert!(coexist_dir.join(format!("shot_{idx:04}.jpg")).is_file());
+    }
+    let (manifest, _) = read_sequence_manifest(&coexist_dir).unwrap();
+    assert!(
+        manifest
+            .sequences
+            .values()
+            .any(|entry| { entry.stem == "shot" && entry.family.as_deref() == Some("png") })
+    );
+    assert!(
+        manifest
+            .sequences
+            .values()
+            .any(|entry| { entry.stem == "shot" && entry.family.as_deref() == Some("jpg") })
+    );
+
+    // Simulate a pre-family v1 manifest, then prove the first matching re-export claims and
+    // migrates that entry instead of treating its frames as unowned.
+    let migration_dir = guard.path().join("migration");
+    let long_project = build_animated_project(4, 31);
+    let short_project = build_animated_project(2, 41);
+    options.format = ImageExportFormat::Png;
+    export_project_image(&long_project, &migration_dir.join("legacy.png"), &options)
+        .expect("seed PNG family");
+    let (mut old_manifest, _) = read_sequence_manifest(&migration_dir).unwrap();
+    let (_, mut old_entry) = old_manifest
+        .sequences
+        .pop_first()
+        .expect("one manifest entry");
+    old_entry.family = None;
+    old_manifest.sequences.insert("legacy".into(), old_entry);
+    fs::write(
+        migration_dir.join(SEQUENCE_MANIFEST_FILENAME),
+        serde_json::to_vec_pretty(&old_manifest).unwrap(),
+    )
+    .unwrap();
+
+    export_project_image(&short_project, &migration_dir.join("legacy.png"), &options)
+        .expect("matching legacy stem-only entry must migrate");
+    assert!(migration_dir.join("legacy_0001.png").is_file());
+    assert!(migration_dir.join("legacy_0002.png").is_file());
+    assert!(!migration_dir.join("legacy_0003.png").exists());
+    assert!(!migration_dir.join("legacy_0004.png").exists());
+    let (migrated, _) = read_sequence_manifest(&migration_dir).unwrap();
+    assert_eq!(migrated.sequences.len(), 1);
+    assert!(
+        migrated
+            .sequences
+            .values()
+            .any(|entry| { entry.stem == "legacy" && entry.family.as_deref() == Some("png") })
+    );
+}
+
+#[test]
+fn reserved_manifest_key_delimiter_is_rejected_without_creating_output() {
+    let guard = TempDirGuard::new("reserved-family-key");
+    let out_dir = guard.path().join("output");
+    let error = match SequenceSetTransaction::begin_for_family(&out_dir, "shot\u{1f}png", "png") {
+        Ok(_) => panic!("control characters must not alias family-scoped manifest keys"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("Invalid sequence base name"));
+    assert!(!out_dir.exists());
+}
+
+#[test]
+fn failed_first_commit_keeps_only_the_stable_lock_and_allows_retry() {
+    let guard = TempDirGuard::new("failed-first-commit-lock");
+    let out_dir = guard.path().join("output");
+    let mut first = SequenceSetTransaction::begin_for_family(&out_dir, "shot", "png").unwrap();
+    first.preflight(&["shot_0001.png".into()]).unwrap();
+    first.stage_file("shot_0001.png", b"first attempt").unwrap();
+    let error = first
+        .commit_with_fault_hook(|step| {
+            if step == 0 {
+                Err(std::io::Error::other("injected first-swap failure"))
+            } else {
+                Ok(())
+            }
+        })
+        .expect_err("injected first commit must fail");
+    assert!(error.to_string().contains("injected first-swap failure"));
+    let mut remaining = fs::read_dir(&out_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    remaining.sort();
+    assert_eq!(remaining, vec![SEQUENCE_COMMIT_LOCK_FILENAME]);
+
+    let mut retry = SequenceSetTransaction::begin_for_family(&out_dir, "shot", "png").unwrap();
+    retry.preflight(&["shot_0001.png".into()]).unwrap();
+    retry.stage_file("shot_0001.png", b"retry frame").unwrap();
+    retry.commit().unwrap();
+    assert_eq!(
+        fs::read(out_dir.join("shot_0001.png")).unwrap(),
+        b"retry frame"
+    );
+    assert!(out_dir.join(SEQUENCE_MANIFEST_FILENAME).is_file());
+    assert!(out_dir.join(SEQUENCE_COMMIT_LOCK_FILENAME).is_file());
+}
+
+#[test]
+fn concurrent_different_stem_commits_serialize_manifest_updates() {
+    let guard = TempDirGuard::new("concurrent-manifest");
+    let out_dir = guard.path().join("shared");
+    let mut first = SequenceSetTransaction::begin_for_family(&out_dir, "first", "png").unwrap();
+    first.preflight(&["first_0001.png".into()]).unwrap();
+    first.stage_file("first_0001.png", b"first frame").unwrap();
+    let mut second = SequenceSetTransaction::begin_for_family(&out_dir, "second", "jpg").unwrap();
+    second.preflight(&["second_0001.jpg".into()]).unwrap();
+    second
+        .stage_file("second_0001.jpg", b"second frame")
+        .unwrap();
+
+    let (first_entered_tx, first_entered_rx) = mpsc::channel();
+    let (release_first_tx, release_first_rx) = mpsc::channel();
+    let first_worker = thread::spawn(move || {
+        first.commit_with_fault_hook(|step| {
+            if step == 0 {
+                first_entered_tx.send(()).unwrap();
+                release_first_rx.recv().unwrap();
+            }
+            Ok(())
+        })
+    });
+    first_entered_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("first commit reached locked swap");
+
+    let (second_started_tx, second_started_rx) = mpsc::channel();
+    let (second_entered_tx, second_entered_rx) = mpsc::channel();
+    let second_worker = thread::spawn(move || {
+        second_started_tx.send(()).unwrap();
+        second.commit_with_fault_hook(|step| {
+            if step == 0 {
+                second_entered_tx.send(()).unwrap();
+            }
+            Ok(())
+        })
+    });
+    second_started_rx.recv().unwrap();
+    assert!(
+        matches!(
+            second_entered_rx.recv_timeout(Duration::from_millis(250)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ),
+        "second commit must wait for the directory manifest lock"
+    );
+
+    release_first_tx.send(()).unwrap();
+    first_worker.join().unwrap().unwrap();
+    second_entered_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("second commit resumed after lock release");
+    second_worker.join().unwrap().unwrap();
+
+    assert_eq!(
+        fs::read(out_dir.join("first_0001.png")).unwrap(),
+        b"first frame"
+    );
+    assert_eq!(
+        fs::read(out_dir.join("second_0001.jpg")).unwrap(),
+        b"second frame"
+    );
+    let (manifest, _) = read_sequence_manifest(&out_dir).unwrap();
+    assert!(
+        manifest
+            .sequences
+            .values()
+            .any(|entry| { entry.stem == "first" && entry.family.as_deref() == Some("png") })
+    );
+    assert!(
+        manifest
+            .sequences
+            .values()
+            .any(|entry| { entry.stem == "second" && entry.family.as_deref() == Some("jpg") })
+    );
 }
 
 #[test]
@@ -500,7 +713,9 @@ fn unowned_collisions_external_edits_case_insensitivity_and_mid_swap_faults_are_
             1,
             "case-only stem change must replace prior manifest entry"
         );
-        assert!(manifest.sequences.contains_key("clip"));
+        assert!(manifest.sequences.values().any(|entry| {
+            entry.stem.eq_ignore_ascii_case("clip") && entry.family.as_deref() == Some("png")
+        }));
     }
 
     // 5. Deterministic mid-commit fault injection: after 6-frame export, inject an I/O failure mid-swap
@@ -512,7 +727,7 @@ fn unowned_collisions_external_edits_case_insensitivity_and_mid_swap_faults_are_
     let baseline_swap = snapshot_directory_bytes(&swap_dir);
 
     for fail_step in [2usize, 4usize] {
-        let mut tx = SequenceSetTransaction::begin(&swap_dir, "swap").unwrap();
+        let mut tx = SequenceSetTransaction::begin_for_family(&swap_dir, "swap", "png").unwrap();
         let names: Vec<String> = (1..=4).map(|i| format!("swap_{i:04}.png")).collect();
         tx.preflight(&names).unwrap();
         for name in &names {

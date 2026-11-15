@@ -22,30 +22,15 @@
     function target(value){if(referenceOf(value))return value;const ref=typeof value==='string'?JSON.parse(value):value;return proxyForRef(ref);}
     function entry(value){const receiver=target(value),ref=referenceOf(receiver);if(!ref||!display.alive(receiver)||display.descriptor(receiver).owner!=='text')throw new TypeError('Text editing requires a live TextField.');return {receiver,key:ref.key,field:text.info(ref.key)};}
     function alive(record){return record&&!disposed&&display.alive(record.target);}
-    function editable(field){return field.field_type==='input'&&field.interaction_mode!=='selection';}
-    function mountsDom(field){return field.field_type==='input'&&(field.interaction_mode!=='selection'||field.selectable!==false);}
+    function editable(field){return field.field_type==='input';}
+    function mountsDom(field){return field.field_type==='input';}
     // Canvas owns AS2 custom paragraph layout. A plain native textarea cannot
     // preserve its bullets or explicit tab columns, so keep that text on Canvas.
     function selectable(field){return (mountsDom(field)||field.selectable!==false)&&!field.format.bullet&&!field.format.tabStops?.length;}
-    text.bindInteractionModeChange?.(ref=>{
-      if(disposed)return;
-      if(typeof player.object_alive==='function'&&!player.object_alive(ref))return;
-      const receiver=target(ref);
-      if(receiver&&display.alive(receiver)&&events.Event){
-        hub.dispatch(receiver,new events.Event(events.Event.TEXT_INTERACTION_MODE_CHANGE||'textInteractionModeChange',true,false));
-      }
-      if(active?.key===ref){
-        const nextField=text.info(ref);
-        active.field=nextField;
-        if(!selectable(nextField)){stage.changeFocus(null);return;}
-        if(active.control)active.control.readOnly=!editable(nextField);
-      }
-    });
     function legacy(receiver,name,args){if(!receiver||!display.alive(receiver))return;options.beforeLegacyTextEvent?.(receiver,name,args);const fn=receiver[name];if(typeof fn==='function')Reflect.apply(fn,receiver,args);options.onLegacyTextEvent?.(receiver,name,args);}
     function commit(value,proposal){
       open();const {receiver,key,field}=entry(value),expected=proposal.expected_revision??field.revision;
       if(typeof proposal.text!=='string')throw new TypeError('User text insertion requires a String.');
-      if(field.interaction_mode==='selection'){sync(key,true);return field;}
       let insert=proposal.text;
       if(insert.length){
         const event=new events.TextEvent(events.TextEvent.TEXT_INPUT,true,true,insert);

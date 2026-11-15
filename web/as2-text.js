@@ -123,12 +123,11 @@
     }
     StyleSheet.__nfIs=value=>sheets.has(value);StyleSheet.__nfInitialize=()=>{throw new TypeError('AS2 StyleSheet subclassing is not supported.');};Object.defineProperty(StyleSheet,Symbol.hasInstance,{value:StyleSheet.__nfIs});
     const renderProps=new Set(['embedFonts','antiAliasType','gridFitType','sharpness','thickness']);
-    const names=new Set(['html','htmlText','styleSheet','condenseWhite','getTextFormat','setTextFormat','getNewTextFormat','setNewTextFormat','text','background','backgroundColor','border','borderColor','scroll','hscroll','maxscroll','maxhscroll','bottomScroll','onScroller','addListener','removeListener','autoSize','mouseWheelEnabled','interactionMode','textInteractionMode',...renderProps]);
+    const names=new Set(['html','htmlText','styleSheet','condenseWhite','getTextFormat','setTextFormat','getNewTextFormat','setNewTextFormat','text','background','backgroundColor','border','borderColor','scroll','hscroll','maxscroll','maxhscroll','bottomScroll','onScroller','addListener','removeListener','autoSize','mouseWheelEnabled',...renderProps]);
     function as2Ref(ref,name){
       if(!names.has(name))return null;
       return {has:()=>true,delete:()=>false,get:()=>{
         const state=stateFor(ref),field=text.info(ref);
-        if(name==='interactionMode'||name==='textInteractionMode')return text.get(ref,name);
         if(renderProps.has(name))return state.render[name];
         if(['background','backgroundColor','border','borderColor'].includes(name))return field.as2_viewport[name];
         if(['scroll','hscroll','maxscroll','maxhscroll','bottomScroll'].includes(name)){const viewport=text.layout(field).viewport;return viewport[name==='bottomScroll'?'bottom_scroll':name];}
@@ -147,7 +146,6 @@
         return state.source!==null&&state.revision===field.revision?state.source:execute({op:'serialize_html',text:field.text,format:field.format,format_runs:field.format_runs||[]}).result;
       },set:value=>{
         const state=stateFor(ref);
-        if(name==='interactionMode'||name==='textInteractionMode'){text.set(ref,name,value);return value;}
         if(renderProps.has(name)){state.render=execute({op:'field_render_set',state:state.render,name,value}).state;return value;}
         if(name==='autoSize'||name==='mouseWheelEnabled'){const field=text.info(ref);if(name==='autoSize'){if(value===true)value='left';if(value===false)value='none';if(!['none','left','center','right'].includes(value))throw new TypeError('autoSize requires none/left/center/right or Boolean.');}else if(typeof value!=='boolean')throw new TypeError('mouseWheelEnabled requires Boolean.');text.update(ref,{as2_viewport:{...field.as2_viewport,active:true,[name==='autoSize'?'auto_size':'mouse_wheel_enabled']:value}});return value;}
         if(name==='onScroller'){if(value!==null&&value!==undefined&&typeof value!=='function')throw new TypeError('onScroller requires a function or null.');state.onScroller=value;return value;}

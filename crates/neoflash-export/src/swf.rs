@@ -5742,6 +5742,63 @@ fn encode_button2_cond_actions(
 }
 
 /// Encode `CLIPACTIONS` for a `PlaceObject2` (tag 26) or `PlaceObject3` (tag 70) in SWF 6+.
+fn split_clip_event_header_items(inner: &str) -> Option<Vec<&str>> {
+    let mut items = Vec::new();
+    let mut start = 0usize;
+    let mut in_quotes = false;
+    let mut chars = inner.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
+        match ch {
+            '"' if in_quotes && chars.peek().is_some_and(|(_, next)| *next == '"') => {
+                // The importer writes the printable quote key as `keyPress """`: opening quote,
+                // literal quote, closing quote. Leave the first of the adjacent pair quoted.
+            }
+            '"' => in_quotes = !in_quotes,
+            ',' if !in_quotes => {
+                let item = inner[start..index].trim();
+                if item.is_empty() {
+                    return None;
+                }
+                items.push(item);
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    if in_quotes {
+        return None;
+    }
+    let tail = inner[start..].trim();
+    if tail.is_empty() {
+        return None;
+    }
+    items.push(tail);
+    Some(items)
+}
+
+fn parse_clip_event_key_code(raw: &str) -> Option<u8> {
+    match raw {
+        "<Left>" => Some(1),
+        "<Right>" => Some(2),
+        "<Home>" => Some(3),
+        "<End>" => Some(4),
+        "<Insert>" => Some(5),
+        "<Delete>" => Some(6),
+        "<Backspace>" => Some(8),
+        "<Enter>" => Some(13),
+        "<Up>" => Some(14),
+        "<Down>" => Some(15),
+        "<PageUp>" => Some(16),
+        "<PageDown>" => Some(17),
+        "<Tab>" => Some(18),
+        "<Escape>" => Some(19),
+        "<Space>" => Some(32),
+        value if value.starts_with("key#") => value[4..].parse::<u8>().ok(),
+        value if value.chars().count() == 1 => u8::try_from(u32::from(value.chars().next()?)).ok(),
+        _ => None,
+    }
+}
+
 fn parse_clip_event_header_override(source: &str) -> Option<(u32, Option<u8>)> {
     let first_line = source.lines().next()?.trim();
     let inner = first_line
@@ -5753,32 +5810,13 @@ fn parse_clip_event_header_override(source: &str) -> Option<(u32, Option<u8>)> {
     }
     let mut flags = 0u32;
     let mut key_code = None;
-    for part in inner.split(',') {
-        let tok = part.trim();
+    for tok in split_clip_event_header_items(inner)? {
         if let Some(rest) = tok.strip_prefix("keyPress") {
-            let quoted = rest.trim().trim_matches('"');
-            let kc = match quoted {
-                "<Left>" => 1,
-                "<Right>" => 2,
-                "<Home>" => 3,
-                "<End>" => 4,
-                "<Insert>" => 5,
-                "<Delete>" => 6,
-                "<Backspace>" => 8,
-                "<Enter>" => 13,
-                "<Up>" => 14,
-                "<Down>" => 15,
-                "<PageUp>" => 16,
-                "<PageDown>" => 17,
-                "<Tab>" => 18,
-                "<Escape>" => 19,
-                "<Space>" => 32,
-                s if s.chars().count() == 1 => {
-                    let ch = s.chars().next().unwrap();
-                    u8::try_from(u32::from(ch)).unwrap_or(0)
-                }
-                _ => 0,
-            };
+            if key_code.is_some() {
+                return None;
+            }
+            let quoted = rest.trim().strip_prefix('"')?.strip_suffix('"')?;
+            let kc = parse_clip_event_key_code(quoted)?;
             flags |= 0x0002_0000;
             key_code = Some(kc);
             continue;
@@ -9656,6 +9694,57 @@ mod dictionary_capacity_tests {
             u32::from_le_bytes(encoded[offset..offset + 4].try_into().unwrap()),
             0
         );
+    }
+
+    #[test]
+    fn clip_event_header_override_preserves_comma_quote_and_numeric_key_codes() {
+        assert_eq!(
+            parse_clip_event_header_override("// onClipEvent(keyPress \",\")\ntrace('comma');"),
+            Some((0x0002_0000, Some(b',')))
+        );
+        assert_eq!(
+            parse_clip_event_header_override("// onClipEvent(press, keyPress \"key#200\")"),
+            Some((0x0002_0400, Some(200)))
+        );
+        assert_eq!(
+            parse_clip_event_header_override("// onClipEvent(keyPress \"\"\")"),
+            Some((0x0002_0000, Some(b'"')))
+        );
+        assert_eq!(
+            parse_clip_event_header_override("// onClipEvent(keyPress \"key#999\")"),
+            None
+        );
+
+        let project = Project::blank();
+        for (source, expected_key) in [
+            ("// onClipEvent(keyPress \",\")\ntrace('comma');", b','),
+            (
+                "// onClipEvent(keyPress \"key#200\")\ntrace('numeric');",
+                200,
+            ),
+        ] {
+            let encoded = encode_clip_actions(
+                &project,
+                &[ObjectScript {
+                    event: ObjectEvent::Load,
+                    script: neoflash_core::Script {
+                        language: ScriptLanguage::ActionScript2,
+                        source: source.to_owned(),
+                    },
+                }],
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                u32::from_le_bytes(encoded[2..6].try_into().unwrap()),
+                0x0002_0000
+            );
+            assert_eq!(
+                u32::from_le_bytes(encoded[6..10].try_into().unwrap()),
+                0x0002_0000
+            );
+            assert_eq!(encoded[14], expected_key);
+        }
     }
 
     #[test]

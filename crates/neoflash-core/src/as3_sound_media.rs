@@ -1327,10 +1327,10 @@ pub enum NetStreamResetMode {
     ResetAll,
     /// `false` or `0`: append to playlist and wait for current item(s) to finish.
     Append,
-    /// `2`: play immediately only if nothing is currently playing; otherwise ignore.
-    ImmediateIfIdle,
-    /// `3`: clear queued items (keep current playing item) and append this item next.
-    ResetQueueAppend,
+    /// `2`: append to the existing playlist and aggregate stream messages.
+    AppendAndAggregateMessages,
+    /// `3`: clear the playlist, start this item, and aggregate stream messages.
+    ResetAllAndAggregateMessages,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1426,14 +1426,12 @@ pub fn plan_netstream_play(
         None => NetStreamResetMode::ResetAll,
         Some(serde_json::Value::Bool(true)) => NetStreamResetMode::ResetAll,
         Some(serde_json::Value::Bool(false)) => NetStreamResetMode::Append,
-        Some(serde_json::Value::Number(n)) => {
-            match n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)) {
-                Some(0) => NetStreamResetMode::Append,
-                Some(2) => NetStreamResetMode::ImmediateIfIdle,
-                Some(3) => NetStreamResetMode::ResetQueueAppend,
-                _ => NetStreamResetMode::ResetAll,
-            }
-        }
+        Some(serde_json::Value::Number(n)) => match n.as_f64() {
+            Some(0.0) => NetStreamResetMode::Append,
+            Some(2.0) => NetStreamResetMode::AppendAndAggregateMessages,
+            Some(3.0) => NetStreamResetMode::ResetAllAndAggregateMessages,
+            _ => NetStreamResetMode::ResetAll,
+        },
         _ => NetStreamResetMode::ResetAll,
     };
 
@@ -2073,6 +2071,56 @@ mod tests {
                 reset_mode: NetStreamResetMode::Append,
             }
         );
+        for reset in [
+            serde_json::json!(0),
+            serde_json::json!(0.0),
+            serde_json::json!(-0.0),
+        ] {
+            let plan =
+                plan_netstream_play(Some("clip2.mp4"), false, false, None, None, Some(&reset));
+            assert!(matches!(
+                plan,
+                NetStreamPlayPlan::PlayClip {
+                    reset_mode: NetStreamResetMode::Append,
+                    ..
+                }
+            ));
+        }
+
+        for (reset, expected) in [
+            (2, NetStreamResetMode::AppendAndAggregateMessages),
+            (3, NetStreamResetMode::ResetAllAndAggregateMessages),
+        ] {
+            let plan = plan_netstream_play(
+                Some("clip3.mp4"),
+                false,
+                false,
+                None,
+                None,
+                Some(&serde_json::json!(reset)),
+            );
+            assert!(matches!(
+                plan,
+                NetStreamPlayPlan::PlayClip { reset_mode, .. } if reset_mode == expected
+            ));
+        }
+        for reset in [2.9, 3.9] {
+            let plan = plan_netstream_play(
+                Some("clip3.mp4"),
+                false,
+                false,
+                None,
+                None,
+                Some(&serde_json::json!(reset)),
+            );
+            assert!(matches!(
+                plan,
+                NetStreamPlayPlan::PlayClip {
+                    reset_mode: NetStreamResetMode::ResetAll,
+                    ..
+                }
+            ));
+        }
 
         // Seek decisions
         assert_eq!(

@@ -261,7 +261,7 @@
   }
   const RICH_CLIPBOARD_MIME='application/x-neoflash-runs+json';
   const UNHANDLED=Symbol('unhandled text member');
-  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,portableMetrics=false,fontMetrics=null,onUpdate=()=>{},onScroll=null,onInteractionModeChange=null}={}){
+  function create({player,wasm=null,events=null,project=null,document=global.document,getProgram=null,geometry,measureText,portableMetrics=false,fontMetrics=null,onUpdate=()=>{},onScroll=null}={}){
     if(!player)throw new TypeError('TextField requires the shared Player.');
     const getRuntimeWasm=()=>wasm||(typeof NeoFlashWasm==='undefined'?global.NeoFlashWasm:NeoFlashWasm);
     let sharedRichClipboard=null;
@@ -294,7 +294,7 @@
     else if(portableMetrics){
       measureText=defaultPortableMeasure;
     }
-    let as2Execute=null,as2Layout=null,as2Wheel=null,targetForRef=null,as2TextEvent=null,interactionModeCallback=null;
+    let as2Execute=null,as2Layout=null,as2Wheel=null,targetForRef=null,as2TextEvent=null;
     function resolveReceiver(ref){
       if(targetForRef){try{const r=targetForRef(ref);if(r)return r;}catch(_){}}
       const rootProxy=document?.defaultView?.NeoFlashPlayer?.root||global.NeoFlashPlayer?.root;
@@ -347,7 +347,7 @@
         if(el.getAttribute?.('data-nf-id')!==wantedId)continue;
         let field;
         try{field=info(ref);}catch(_){continue;}
-        const readOnly=field.field_type!=='input'||field.interaction_mode==='selection'||Boolean(el.disabled);
+        const readOnly=field.field_type!=='input'||Boolean(el.disabled);
         el.readOnly=readOnly;
         if(patch?.selection&&typeof el.setSelectionRange==='function'){
           const b=field.selection_begin||0,e=field.selection_end||0,dir=field.caret===b&&e!==b?'backward':'forward';
@@ -389,10 +389,10 @@
       state.source=source;state.revision=info(ref).revision;state.images=parsed.images||[];state.imageRefs=null;
     }
     function get(ref,name){
-      const known=['text','htmlText','styleSheet','useRichTextClipboard','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','autoSize','background','backgroundColor','border','borderColor','scrollV','scrollH','maxScrollV','maxScrollH','bottomScrollV','mouseWheelEnabled','antiAliasType','gridFitType','sharpness','thickness','embedFonts','condenseWhite','alwaysShowSelection','textInteractionMode','interactionMode'];
+      const known=['text','htmlText','styleSheet','useRichTextClipboard','textColor','length','numLines','textWidth','textHeight','multiline','wordWrap','defaultTextFormat','type','selectable','displayAsPassword','password','maxChars','restrict','selectionBeginIndex','selectionEndIndex','caretIndex','autoSize','background','backgroundColor','border','borderColor','scrollV','scrollH','maxScrollV','maxScrollH','bottomScrollV','mouseWheelEnabled','antiAliasType','gridFitType','sharpness','thickness','embedFonts','condenseWhite','alwaysShowSelection','textInteractionMode'];
       if(!known.includes(name))return UNHANDLED;
       const field=info(ref);
-      if(name==='textInteractionMode'||name==='interactionMode')return field.interaction_mode||TextInteractionMode.NORMAL;
+      if(name==='textInteractionMode')return field.interaction_mode||TextInteractionMode.NORMAL;
       if(name==='useRichTextClipboard')return Boolean(fieldStates.get(ref)?.useRichTextClipboard);
       if(name==='styleSheet')return fieldStates.get(ref)?.style??null;
       if(name==='htmlText'){
@@ -421,6 +421,7 @@
       return name==='numLines'?result.lines.length:name==='textWidth'?result.text_width:result.text_height;
     }
     function set(ref,name,value){
+      if(name==='textInteractionMode')throw new TypeError('TextField.textInteractionMode is read-only.');
       if(name==='useRichTextClipboard'){if(typeof value!=='boolean')throw new TypeError('TextField.useRichTextClipboard requires a Boolean.');info(ref);stateFor(ref).useRichTextClipboard=value;return true;}
       if(name==='styleSheet'){
         info(ref);if(value!==null)requireStyleSheet(value);
@@ -470,33 +471,22 @@
         if(!field.box){const result=layout(field);patch[axis==='width'?'height':'width']=axis==='width'?result.text_height:result.text_width;}
         update(ref,patch);return true;
       }
-      if(name==='textInteractionMode'||name==='interactionMode'){
-        if(value!=='normal'&&value!=='selection'){
-          const err=new RangeError('Error #2008: Parameter interactionMode must be one of the accepted values.');
-          err.name='ArgumentError';err.errorID=2008;throw err;
-        }
-        const prev=info(ref).interaction_mode||TextInteractionMode.NORMAL;
-        update(ref,{interaction_mode:value});
-        if(typeof document?.querySelectorAll==='function'){
-          const targetAttr='input:'+ref;
-          for(const domEl of document.querySelectorAll('.nf-dom-input')){
-            if(domEl.getAttribute?.('data-nf-id')===targetAttr){
-              domEl.readOnly=value==='selection'||Boolean(domEl.disabled);
-            }
-          }
-        }
-        if(prev!==value){
-          onInteractionModeChange?.(ref,value);
-          if(interactionModeCallback)interactionModeCallback(ref,value);
-          else if(events?.Event){
-            const receiver=resolveReceiver(ref);
-            receiver?.dispatchEvent?.(new events.Event(events.Event.TEXT_INTERACTION_MODE_CHANGE||'textInteractionModeChange',true,false));
-          }
-        }
-        return true;
-      }
       if(['length','numLines','textWidth','textHeight','maxScrollV','maxScrollH','bottomScrollV'].includes(name))throw new TypeError(`TextField.${name} is read-only.`);
       return false;
+    }
+    function userInteractionModeChanged(ref,value){
+      if(value!==TextInteractionMode.NORMAL&&value!==TextInteractionMode.SELECTION){
+        const err=new RangeError('Error #2008: Parameter textInteractionMode must be one of the accepted values.');
+        err.name='ArgumentError';err.errorID=2008;throw err;
+      }
+      const previous=info(ref).interaction_mode||TextInteractionMode.NORMAL;
+      if(previous===value)return false;
+      update(ref,{interaction_mode:value});
+      if(events?.Event){
+        const receiver=resolveReceiver(ref);
+        receiver?.dispatchEvent?.(new events.Event(events.Event.TEXT_INTERACTION_MODE_CHANGE||'textInteractionModeChange',false,false));
+      }
+      return true;
     }
     function methods(ref){return {
       setSelection:(begin,end)=>{if(!Number.isSafeInteger(begin)||!Number.isSafeInteger(end))throw new TypeError('setSelection requires integer UTF-16 indices.');update(ref,{selection:{begin,end}});},
@@ -1120,7 +1110,7 @@
 
     const domIme=new WeakMap(),domCleanups=[];
     const domDisplayed=field=>field.multiline?String(field.text??''):String(field.text??'').replace(/\n/g,' ');
-    const domCanEdit=field=>Boolean(field&&field.field_type==='input'&&field.interaction_mode!=='selection');
+    const domCanEdit=field=>Boolean(field&&field.field_type==='input');
     function resolveDomInputTarget(ev){
       const el=ev?.target;
       if(!el||!el.classList?.contains?.('nf-dom-input'))return null;
@@ -1443,10 +1433,9 @@
       bindAs2Wheel:callback=>{as2Wheel=callback;},
       bindTargetForRef:fn=>{targetForRef=fn;},
       bindAs2TextEvent:fn=>{as2TextEvent=fn;},
-      bindInteractionModeChange:fn=>{interactionModeCallback=fn;},
       wheel:(ref,event)=>as2Wheel?.(ref,event)||false,
       notifyLayout:ref=>onUpdate(ref),
-      invalidateCache,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED
+      invalidateCache,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,userInteractionModeChanged,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED
     });
   }
   const api={create,TextFormat,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextLineMetrics,formatPatch,formatCopy,cssFontFamily,cssFont,applyFont,graphemeBoundaries,snapGraphemeFloor,snapGraphemeCeil,prevGrapheme,nextGrapheme,graphemeSafeDiff,sliceFieldRuns};

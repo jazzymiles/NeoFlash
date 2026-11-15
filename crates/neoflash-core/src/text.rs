@@ -4,6 +4,7 @@
 use crate::ElementKind;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use unicode_segmentation::UnicodeSegmentation;
 pub const MAX_TEXT_BYTES: usize = 1_048_576;
 const MAX_PARTS: usize = 16_384;
 const MAX_GLYPHS: usize = 65_536;
@@ -1943,9 +1944,6 @@ impl TextFieldState {
                 "stale text input revision; refresh the editor before committing",
             ));
         }
-        if self.interaction_mode == "selection" {
-            return Ok(());
-        }
         if edit.text.len() > MAX_TEXT_BYTES {
             return Err(error("input insertion exceeds 1048576 UTF-8 bytes"));
         }
@@ -2704,402 +2702,17 @@ fn clamp_utf16(text: &str, index: i64) -> u32 {
     snap_utf16_to_grapheme_floor(text, index)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum GraphemeBreakProp {
-    Cr,
-    Lf,
-    Control,
-    Extend,
-    Zwj,
-    RegionalIndicator,
-    Prepend,
-    SpacingMark,
-    HangulL,
-    HangulV,
-    HangulT,
-    HangulLv,
-    HangulLvt,
-    ExtendedPictographic,
-    Other,
-}
-
-fn grapheme_break_prop(ch: char) -> GraphemeBreakProp {
-    let cp = ch as u32;
-    match cp {
-        0x000D => GraphemeBreakProp::Cr,
-        0x000A => GraphemeBreakProp::Lf,
-        0x200D => GraphemeBreakProp::Zwj,
-        0x1F1E6..=0x1F1FF => GraphemeBreakProp::RegionalIndicator,
-        // C0/C1 controls, bidi/format controls, line/paragraph separators (excluding ZWJ/ZWNJ)
-        0x0000..=0x0009
-        | 0x000B..=0x000C
-        | 0x000E..=0x001F
-        | 0x007F..=0x009F
-        | 0x00AD
-        | 0x061C
-        | 0x180E
-        | 0x200B
-        | 0x200E..=0x200F
-        | 0x2028..=0x202E
-        | 0x2060..=0x206F
-        | 0xFEFF
-        | 0xFFF9..=0xFFFB
-        | 0xE0000..=0xE001F
-        | 0xE0080..=0xE00FF => GraphemeBreakProp::Control,
-        // Prepend
-        0x0600..=0x0605 | 0x06DD | 0x070F | 0x0890..=0x0891 | 0x08E2 | 0x110BD | 0x110CD => {
-            GraphemeBreakProp::Prepend
-        }
-        // Hangul Jamo & precomposed Hangul syllables
-        0x1100..=0x115F | 0xA960..=0xA97C => GraphemeBreakProp::HangulL,
-        0x1160..=0x11A7 | 0xD7B0..=0xD7C6 => GraphemeBreakProp::HangulV,
-        0x11A8..=0x11FF | 0xD7CB..=0xD7FB => GraphemeBreakProp::HangulT,
-        0xAC00..=0xD7A3 => {
-            if (cp - 0xAC00).is_multiple_of(28) {
-                GraphemeBreakProp::HangulLv
-            } else {
-                GraphemeBreakProp::HangulLvt
-            }
-        }
-        // Extend: combining marks, Cyrillic/Coptic/Semitic/Indic non-spacing marks,
-        // Japanese combining dakuten/handakuten (U+3099..U+309A), variation selectors,
-        // Fitzpatrick skin-tone modifiers (U+1F3FB..U+1F3FF), tag characters, ZWNJ.
-        0x0300..=0x036F
-        | 0x0483..=0x0489
-        | 0x0591..=0x05BD
-        | 0x05BF
-        | 0x05C1..=0x05C2
-        | 0x05C4..=0x05C5
-        | 0x05C7
-        | 0x0610..=0x061A
-        | 0x064B..=0x065F
-        | 0x0670
-        | 0x06D6..=0x06DC
-        | 0x06DF..=0x06E4
-        | 0x06E7..=0x06E8
-        | 0x06EA..=0x06ED
-        | 0x0711
-        | 0x0730..=0x074A
-        | 0x07A6..=0x07B0
-        | 0x07EB..=0x07F3
-        | 0x0816..=0x0819
-        | 0x081B..=0x0823
-        | 0x0825..=0x0827
-        | 0x0829..=0x082D
-        | 0x0859..=0x085B
-        | 0x08D3..=0x0902
-        | 0x093A
-        | 0x093C
-        | 0x0941..=0x0948
-        | 0x094D
-        | 0x0951..=0x0957
-        | 0x0962..=0x0963
-        | 0x0981
-        | 0x09BC
-        | 0x09BE
-        | 0x09C1..=0x09C4
-        | 0x09CD
-        | 0x09D7
-        | 0x09E2..=0x09E3
-        | 0x0A01..=0x0A02
-        | 0x0A3C
-        | 0x0A41..=0x0A42
-        | 0x0A47..=0x0A48
-        | 0x0A4B..=0x0A4D
-        | 0x0A51
-        | 0x0A70..=0x0A71
-        | 0x0A75
-        | 0x0A81..=0x0A82
-        | 0x0ABC
-        | 0x0AC1..=0x0AC5
-        | 0x0AC7..=0x0AC8
-        | 0x0ACD
-        | 0x0AE2..=0x0AE3
-        | 0x0B01
-        | 0x0B3C
-        | 0x0B3E..=0x0B3F
-        | 0x0B41..=0x0B44
-        | 0x0B4D
-        | 0x0B55..=0x0B57
-        | 0x0B62..=0x0B63
-        | 0x0B82
-        | 0x0BBE
-        | 0x0BC0
-        | 0x0BCD
-        | 0x0BD7
-        | 0x0C00
-        | 0x0C04
-        | 0x0C3C
-        | 0x0C3E..=0x0C40
-        | 0x0C46..=0x0C48
-        | 0x0C4A..=0x0C4D
-        | 0x0C55..=0x0C56
-        | 0x0C62..=0x0C63
-        | 0x0C81
-        | 0x0CBC
-        | 0x0CBF
-        | 0x0CC2
-        | 0x0CC6
-        | 0x0CCC..=0x0CCD
-        | 0x0CD5..=0x0CD6
-        | 0x0CE2..=0x0CE3
-        | 0x0D00..=0x0D01
-        | 0x0D3B..=0x0D3C
-        | 0x0D3E
-        | 0x0D41..=0x0D44
-        | 0x0D4D
-        | 0x0D57
-        | 0x0D62..=0x0D63
-        | 0x0D81
-        | 0x0DCA
-        | 0x0DCF
-        | 0x0DD2..=0x0DD4
-        | 0x0DD6
-        | 0x0DDF
-        | 0x0E31
-        | 0x0E34..=0x0E3A
-        | 0x0E47..=0x0E4E
-        | 0x0EB1
-        | 0x0EB4..=0x0EBC
-        | 0x0EC8..=0x0ECE
-        | 0x0F18..=0x0F19
-        | 0x0F35
-        | 0x0F37
-        | 0x0F39
-        | 0x0F71..=0x0F7E
-        | 0x0F80..=0x0F84
-        | 0x0F86..=0x0F87
-        | 0x0F8D..=0x0F97
-        | 0x0F99..=0x0FBC
-        | 0x0FC6
-        | 0x102D..=0x1030
-        | 0x1032..=0x1037
-        | 0x1039..=0x103A
-        | 0x103D..=0x103E
-        | 0x1058..=0x1059
-        | 0x105E..=0x1060
-        | 0x1071..=0x1074
-        | 0x1082
-        | 0x1085..=0x1086
-        | 0x108D
-        | 0x109D
-        | 0x135D..=0x135F
-        | 0x1712..=0x1714
-        | 0x1732..=0x1734
-        | 0x1752..=0x1753
-        | 0x1772..=0x1773
-        | 0x17B4..=0x17B5
-        | 0x17B7..=0x17BD
-        | 0x17C6
-        | 0x17C9..=0x17D3
-        | 0x17DD
-        | 0x180B..=0x180D
-        | 0x180F
-        | 0x1885..=0x1886
-        | 0x18A9
-        | 0x1AB0..=0x1AFF
-        | 0x1DC0..=0x1DFF
-        | 0x200C
-        | 0x20D0..=0x20FF
-        | 0x2DE0..=0x2DFF
-        | 0x302A..=0x302F
-        | 0x3099..=0x309A
-        | 0xA66F..=0xA67D
-        | 0xA69E..=0xA69F
-        | 0xFE00..=0xFE0F
-        | 0xFE20..=0xFE2F
-        | 0x1F3FB..=0x1F3FF
-        | 0xE0020..=0xE007F
-        | 0xE0100..=0xE01EF => GraphemeBreakProp::Extend,
-        // SpacingMark
-        0x0903
-        | 0x093B
-        | 0x093E..=0x0940
-        | 0x0949..=0x094C
-        | 0x094E..=0x094F
-        | 0x0982..=0x0983
-        | 0x09BF..=0x09C0
-        | 0x09C7..=0x09C8
-        | 0x09CB..=0x09CC
-        | 0x0A03
-        | 0x0A3E..=0x0A40
-        | 0x0A83
-        | 0x0ABE..=0x0AC0
-        | 0x0AC9
-        | 0x0ACB..=0x0ACC
-        | 0x0B02..=0x0B03
-        | 0x0B40
-        | 0x0B47..=0x0B48
-        | 0x0B4B..=0x0B4C
-        | 0x0BBF
-        | 0x0BC1..=0x0BC2
-        | 0x0BC6..=0x0BC8
-        | 0x0BCA..=0x0BCC
-        | 0x0C01..=0x0C03
-        | 0x0C41..=0x0C44
-        | 0x0C82..=0x0C83
-        | 0x0CBE
-        | 0x0CC0..=0x0CC1
-        | 0x0CC3..=0x0CC4
-        | 0x0CC7..=0x0CC8
-        | 0x0CCA..=0x0CCB
-        | 0x0D02..=0x0D03
-        | 0x0D3F..=0x0D40
-        | 0x0D46..=0x0D48
-        | 0x0D4A..=0x0D4C
-        | 0x0D82..=0x0D83
-        | 0x0DD0..=0x0DD1
-        | 0x0DD8..=0x0DDE
-        | 0x0DF2..=0x0DF3
-        | 0x0E33
-        | 0x0EB3
-        | 0x0F3E..=0x0F3F
-        | 0x0F7F
-        | 0x1031
-        | 0x103B..=0x103C
-        | 0x1056..=0x1057
-        | 0x1084
-        | 0x17B6
-        | 0x17BE..=0x17C5
-        | 0x17C7..=0x17C8
-        | 0x1D165..=0x1D16D => GraphemeBreakProp::SpacingMark,
-        // Extended_Pictographic (emoji & pictographs for UAX #29 GB11 ZWJ sequences)
-        0x00A9
-        | 0x00AE
-        | 0x203C
-        | 0x2049
-        | 0x2122
-        | 0x2139
-        | 0x2194..=0x2199
-        | 0x21A9..=0x21AA
-        | 0x231A..=0x231B
-        | 0x2328
-        | 0x23CF
-        | 0x23E9..=0x23FA
-        | 0x24C2
-        | 0x25AA..=0x25AB
-        | 0x25B6
-        | 0x25C0
-        | 0x25FB..=0x25FE
-        | 0x2600..=0x27BF
-        | 0x2934..=0x2935
-        | 0x2B05..=0x2B07
-        | 0x2B1B..=0x2B1C
-        | 0x2B50
-        | 0x2B55
-        | 0x3030
-        | 0x303D
-        | 0x3297
-        | 0x3299
-        | 0x1F000..=0x1F1E5
-        | 0x1F200..=0x1F3FA
-        | 0x1F400..=0x1FAFF => GraphemeBreakProp::ExtendedPictographic,
-        _ => GraphemeBreakProp::Other,
-    }
-}
-
 /// Returns all UAX #29 extended grapheme cluster boundaries in UTF-16 code-unit offsets,
 /// always starting with `0` and ending with `text.encode_utf16().count() as u32`.
 pub fn grapheme_utf16_boundaries(text: &str) -> Vec<u32> {
-    let mut bounds = Vec::new();
-    bounds.push(0);
-    if text.is_empty() {
-        return bounds;
+    let mut boundaries = Vec::new();
+    boundaries.push(0);
+    let mut utf16_offset = 0u32;
+    for cluster in text.graphemes(true) {
+        utf16_offset += cluster.encode_utf16().count() as u32;
+        boundaries.push(utf16_offset);
     }
-    let mut prev_prop: Option<GraphemeBreakProp> = None;
-    let mut ext_pic_chain = false;
-    let mut zwj_after_ext_pic = false;
-    let mut ri_odd = false;
-    let mut utf16_pos = 0u32;
-
-    for ch in text.chars() {
-        let prop = grapheme_break_prop(ch);
-        if let Some(prev) = prev_prop {
-            let no_break = match (prev, prop) {
-                // GB3: CR x LF
-                (GraphemeBreakProp::Cr, GraphemeBreakProp::Lf) => true,
-                // GB4: (Control | CR | LF) ÷
-                (GraphemeBreakProp::Control | GraphemeBreakProp::Cr | GraphemeBreakProp::Lf, _) => {
-                    false
-                }
-                // GB5: ÷ (Control | CR | LF)
-                (_, GraphemeBreakProp::Control | GraphemeBreakProp::Cr | GraphemeBreakProp::Lf) => {
-                    false
-                }
-                // GB6: L x (L | V | LV | LVT)
-                (
-                    GraphemeBreakProp::HangulL,
-                    GraphemeBreakProp::HangulL
-                    | GraphemeBreakProp::HangulV
-                    | GraphemeBreakProp::HangulLv
-                    | GraphemeBreakProp::HangulLvt,
-                ) => true,
-                // GB7: (LV | V) x (V | T)
-                (
-                    GraphemeBreakProp::HangulLv | GraphemeBreakProp::HangulV,
-                    GraphemeBreakProp::HangulV | GraphemeBreakProp::HangulT,
-                ) => true,
-                // GB8: (LVT | T) x T
-                (
-                    GraphemeBreakProp::HangulLvt | GraphemeBreakProp::HangulT,
-                    GraphemeBreakProp::HangulT,
-                ) => true,
-                // GB9: x (Extend | ZWJ)
-                (_, GraphemeBreakProp::Extend | GraphemeBreakProp::Zwj) => true,
-                // GB9a: x SpacingMark
-                (_, GraphemeBreakProp::SpacingMark) => true,
-                // GB9b: Prepend x
-                (GraphemeBreakProp::Prepend, _) => true,
-                // GB11: \p{Extended_Pictographic} Extend* ZWJ x \p{Extended_Pictographic}
-                (_, GraphemeBreakProp::ExtendedPictographic) if zwj_after_ext_pic => true,
-                // GB12/GB13: sot (RI RI)* RI x RI / [^RI] (RI RI)* RI x RI
-                (GraphemeBreakProp::RegionalIndicator, GraphemeBreakProp::RegionalIndicator)
-                    if ri_odd =>
-                {
-                    true
-                }
-                // GB999: Any ÷ Any
-                _ => false,
-            };
-            if !no_break {
-                bounds.push(utf16_pos);
-            }
-        }
-        // Update GB11 / GB12-13 state after deciding boundary before `ch`.
-        match prop {
-            GraphemeBreakProp::ExtendedPictographic => {
-                ext_pic_chain = true;
-                zwj_after_ext_pic = false;
-                ri_odd = false;
-            }
-            GraphemeBreakProp::Extend => {
-                // ext_pic_chain stays as-is across Extend*; zwj_after_ext_pic clears.
-                zwj_after_ext_pic = false;
-                ri_odd = false;
-            }
-            GraphemeBreakProp::Zwj => {
-                zwj_after_ext_pic = ext_pic_chain;
-                ext_pic_chain = false;
-                ri_odd = false;
-            }
-            GraphemeBreakProp::RegionalIndicator => {
-                ext_pic_chain = false;
-                zwj_after_ext_pic = false;
-                ri_odd = !ri_odd;
-            }
-            _ => {
-                ext_pic_chain = false;
-                zwj_after_ext_pic = false;
-                ri_odd = false;
-            }
-        }
-        prev_prop = Some(prop);
-        utf16_pos += ch.len_utf16() as u32;
-    }
-    if bounds.last().copied() != Some(utf16_pos) {
-        bounds.push(utf16_pos);
-    }
-    bounds
+    boundaries
 }
 
 /// Iterates over UAX #29 extended grapheme clusters in `text`, yielding
@@ -7489,6 +7102,13 @@ mod query_tests {
         let sample = "e\u{0301}и\u{0306}か\u{3099}🇺🇸👨‍👩‍👧‍👦🏳️‍🌈👩🏽‍💻";
         let bounds = grapheme_utf16_boundaries(sample);
         assert_eq!(bounds, vec![0, 2, 4, 6, 10, 21, 27, 34]);
+        // Unicode 15.1 Extend and GB9c Indic-conjunct regressions. The former was
+        // missing from NeoFlash's old hand-maintained property table.
+        assert_eq!(grapheme_utf16_boundaries("\u{1E922}\u{1E944}"), vec![0, 4]);
+        assert_eq!(
+            grapheme_utf16_boundaries("\u{0915}\u{094D}\u{0937}"),
+            vec![0, 3]
+        );
 
         // Stepping forward and backward visits exact cluster boundaries only.
         let mut forward = Vec::new();
@@ -7567,7 +7187,8 @@ mod query_tests {
         assert_eq!(field.text, "A🇺🇸");
         assert_eq!(field.caret, 1);
 
-        // TextInteractionMode::SELECTION blocks apply_input and replace_utf16_range_with_runs while allowing selection.
+        // textInteractionMode is a read-only host/user state in AS3, not a persisted
+        // script-set editing lock. A legacy document value must not disable input.
         field
             .apply(&TextPatch {
                 interaction_mode: Some("selection".into()),
@@ -7583,10 +7204,10 @@ mod query_tests {
                 expected_revision: rev_sel,
                 begin: 1,
                 end: 5,
-                text: "blocked".into(),
+                text: "edited".into(),
             })
             .unwrap();
-        assert_eq!(field.text, "A🇺🇸");
+        assert_eq!(field.text, "Aedited");
         field.validate().unwrap();
     }
 }

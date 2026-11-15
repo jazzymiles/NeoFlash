@@ -880,6 +880,18 @@ export async function verifyMediaNetStream(root, cargo) {
     public function setParentVolumePan(vol:Number, pan:Number):void {
       parentHolder.soundTransform = new SoundTransform(vol, pan);
     }
+
+    public function setReceiveAudio(enabled:Boolean):void {
+      ns.receiveAudio(enabled);
+    }
+
+    public function setReceiveVideo(enabled:Boolean):void {
+      ns.receiveVideo(enabled);
+    }
+
+    public function setReceiveVideoFPS(value:Number):void {
+      ns.receiveVideoFPS(value);
+    }
   }
 }`,
         },
@@ -1119,6 +1131,22 @@ var as2MatrixRead:Array = [tfRead.ll, tfRead.lr, tfRead.rl, tfRead.rr];
       assert.ok(Math.abs(clip1El.currentTime - 0.1) < 1e-3, 'clip 1 starts at 0.1s');
       assert.ok(scene.ns.currentFPS > 0, 'currentFPS > 0 while video clip is playing');
       assert.ok(scene.ns.bufferLength > 0, 'bufferLength > 0 from buffered range');
+      scene.setReceiveAudio(false);
+      assert.equal(clip1El.muted, true, 'receiveAudio(false) mutes decoded NetStream audio');
+      scene.setReceiveAudio(true);
+      assert.equal(clip1El.muted, false, 'receiveAudio(true) restores decoded NetStream audio');
+      scene.setReceiveVideo(false);
+      assert.equal(scene.ns.currentFPS, 0, 'receiveVideo(false) gates video FPS');
+      assert.ok(paintStage().some((v) => v.kind.alpha_bounds !== null), 'receiveVideo(false) retains the last decoded video frame');
+      scene.setReceiveVideo(true);
+      assert.ok(scene.ns.currentFPS > 0, 'receiveVideo(true) resumes video FPS');
+      assert.throws(() => scene.setReceiveVideoFPS(-1), />= 0/, 'receiveVideoFPS rejects negative rates');
+      scene.setReceiveVideoFPS(0);
+      assert.equal(scene.ns.currentFPS, 0, 'receiveVideoFPS(0) gates video delivery');
+      assert.ok(paintStage().some((v) => v.kind.alpha_bounds !== null), 'receiveVideoFPS(0) retains the last decoded video frame');
+      scene.setReceiveVideoFPS(12);
+      assert.ok(scene.ns.currentFPS > 0, 'positive receiveVideoFPS resumes video delivery');
+      assert.ok(paintStage().some((v) => v.kind.alpha_bounds !== null), 'positive receiveVideoFPS resumes the live video frame');
 
       // Advance 0.25s -> crosses 0.25s MP4 chapter cue ('chapter_intro'), currentTime = 0.35s (< 0.6s clip end)
       clip1El.advance(0.25, 1040);
@@ -1128,11 +1156,12 @@ var as2MatrixRead:Array = [tfRead.ll, tfRead.lr, tfRead.rl, tfRead.rr];
       // Advance 0.30s -> reaches 0.60s (start 0.1 + len 0.5), triggering playlist transition to audio/cued.wav!
       clip1El.advance(0.30, 1080);
       await until(
-        () => Array.from(scene.statusLog).includes('NetStream.Play.Transition')
-          && Array.from(scene.playStatusLog).includes('NetStream.Play.TransitionComplete')
+        () => Array.from(scene.playStatusLog).includes('NetStream.Play.Switch')
           && Array.from(scene.metaLog).length === 2,
         'clip 1 finishes at start+len and transitions to queued audio clip 2 without dropping callbacks'
       );
+      assert.ok(!Array.from(scene.statusLog).includes('NetStream.Play.Transition'), 'ordinary playlist switch is not a play2 bitrate transition');
+      assert.ok(!Array.from(scene.playStatusLog).includes('NetStream.Play.TransitionComplete'), 'ordinary playlist switch does not report TransitionComplete');
       const secondMeta = scene.metaLog[1];
       assert.equal(secondMeta.width, 0, 'audio-only NetStream clip reports width=0');
       assert.equal(secondMeta.height, 0, 'audio-only NetStream clip reports height=0');
@@ -1142,6 +1171,7 @@ var as2MatrixRead:Array = [tfRead.ll, tfRead.lr, tfRead.rl, tfRead.rr];
       const clip2El = harness.videoElements.at(-1);
       assert.equal(scene.ns.currentFPS, 0, 'audio-only NetStream reports currentFPS === 0');
       clip2El.advance(0.20, 1120);
+      assert.ok(Math.abs(scene.ns.time - 0.8) < 1e-3, 'NetStream.time continues across playlist elements');
       assert.ok(Array.from(scene.cueLog).includes('beat_1@0.15'), 'WAV cue chunk fires onCuePoint during queued audio playback');
       clip2El.advance(0.40, 1160);
       await until(

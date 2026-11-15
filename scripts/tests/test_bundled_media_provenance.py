@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import sys
 import tarfile
@@ -252,6 +253,68 @@ class BundledMediaProvenanceTests(unittest.TestCase):
             self.assertEqual(
                 provenance.resolve_bottle_provenance("fixture", "1.0", receipt, []),
                 (None, None, "unresolved"),
+            )
+
+    def test_full_gate_uses_absolute_brew_with_system_only_path_for_formula_fallback(self):
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            media, cellar = self.make_fixture(base)
+            sbom_path = cellar / "ffmpeg" / "1.0" / "sbom.spdx.json"
+            sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
+            sbom["packages"] = [
+                package
+                for package in sbom["packages"]
+                if not package["SPDXID"].startswith("SPDXRef-Bottle-")
+            ]
+            sbom_path.write_text(json.dumps(sbom), encoding="utf-8")
+
+            brew_payload = {
+                "formulae": [
+                    {
+                        "name": "ffmpeg",
+                        "versions": {"stable": "1.0"},
+                        "revision": 0,
+                        "tap_git_head": "a" * 40,
+                        "bottle": {
+                            "stable": {
+                                "files": {
+                                    "arm64_sequoia": {
+                                        "url": "https://example.invalid/ffmpeg.bottle.tar.gz",
+                                        "sha256": "b" * 64,
+                                    }
+                                }
+                            }
+                        },
+                    }
+                ]
+            }
+            brew_json = base / "formula-info.json"
+            brew_json.write_text(json.dumps(brew_payload), encoding="utf-8")
+            trusted_brew = base / "trusted-brew"
+            trusted_brew.write_text(
+                f'#!/bin/sh\nexec /bin/cat "{brew_json}"\n',
+                encoding="utf-8",
+            )
+            trusted_brew.chmod(0o755)
+
+            with mock.patch.dict(
+                os.environ,
+                {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+            ):
+                report = provenance.build_provenance(
+                    media_root=media,
+                    cellar=cellar,
+                    cache_dir=base / "cache",
+                    output_dir=base / "corresponding-source",
+                    archive_path=base / "corresponding-source.tar.xz",
+                    allow_download=True,
+                    brew_bin=trusted_brew,
+                )
+
+            self.assertTrue(report["release_ready"], report["missing"])
+            self.assertEqual(
+                report["components"][0]["homebrew"]["bottle_evidence"],
+                "formula-api:" + "a" * 40 + ":arm64_sequoia",
             )
 
     def test_recipe_scanner_keeps_build_resources_and_excludes_test_fixtures(self):

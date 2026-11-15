@@ -1093,6 +1093,26 @@ class NotarizeMacosBetaTransactionTests(unittest.TestCase):
                 env[key] = value
         return env
 
+    def install_default_fixture_scripts(self) -> None:
+        """Install the default script paths so a test can unset script overrides cleanly."""
+        fixture_scripts = self.repo_dir / "scripts"
+        shutil.copy2(
+            self.stubs_dir / "rust-licenses.py",
+            fixture_scripts / "stage-rust-dependency-licenses.py",
+        )
+        shutil.copy2(PROVENANCE_SCRIPT, fixture_scripts / "bundled-media-provenance.py")
+        for name in (
+            "build-bundled-ffmpeg-lgpl.sh",
+            "build-bundled-ffmpeg.sh",
+            "stage-bundled-media.py",
+        ):
+            shutil.copy2(ROOT / "scripts" / name, fixture_scripts / name)
+        subprocess.run(["git", "-C", str(self.repo_dir), "add", "scripts"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.repo_dir), "commit", "--quiet", "-m", "fixture default tools"],
+            check=True,
+        )
+
     def run_pipeline(self, args: list[str] | None = None, **env_overrides: str | None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["/bin/bash", str(NOTARIZE_SCRIPT), *(args or [])],
@@ -1253,6 +1273,176 @@ class NotarizeMacosBetaTransactionTests(unittest.TestCase):
             "spctl:dmg",
         ):
             self.assertIn(required_stage, stages)
+
+    def test_python_override_alone_discloses_simulated_pipeline(self) -> None:
+        # Python is the only explicit tool override. Production Apple tools remain pinned, so the
+        # fixture cannot complete signing, but simulation mode must be disclosed before that gate.
+        fake_home = self.case_root / "python-only-home"
+        (fake_home / ".cargo" / "bin").mkdir(parents=True)
+        self.install_default_fixture_scripts()
+        before = snapshot_tree(self.dist_dir)
+
+        result = self.run_pipeline(
+            HOME=str(fake_home),
+            NEOFLASH_CODESIGN_BIN=None,
+            NEOFLASH_XCRUN_BIN=None,
+            NEOFLASH_HDIUTIL_BIN=None,
+            NEOFLASH_SPCTL_BIN=None,
+            NEOFLASH_DITTO_BIN=None,
+            NEOFLASH_MV_BIN=None,
+            NEOFLASH_SETFILE_BIN=None,
+            NEOFLASH_XATTR_BIN=None,
+            NEOFLASH_STAGE_RUST_LICENSES_SCRIPT=None,
+            NEOFLASH_BUNDLED_MEDIA_PROVENANCE_SCRIPT=None,
+            NEOFLASH_PYTHON3_BIN=sys.executable,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "Simulation mode active: one or more notarization tool overrides are set",
+            result.stderr,
+        )
+        self.assertNotIn("Notarized and verified complete release set:", result.stdout)
+        self.assertEqual(snapshot_tree(self.dist_dir), before)
+        self.assert_dist_exact_five_entries()
+        self.assert_clean_mounts_and_temps()
+
+    def test_python_preflight_rejects_an_explicit_interpreter_older_than_311(self) -> None:
+        old_python = self.case_root / "python3-old"
+        old_python.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        old_python.chmod(0o755)
+        before = snapshot_tree(self.dist_dir)
+
+        result = self.run_pipeline(NEOFLASH_PYTHON3_BIN=str(old_python))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires Python 3.11 or newer", result.stderr)
+        self.assertEqual(snapshot_tree(self.dist_dir), before)
+        self.assert_dist_exact_five_entries()
+        self.assert_clean_mounts_and_temps()
+
+    def test_path_shadowed_release_tools_cannot_report_production_success_without_overrides(self) -> None:
+        fake_home = self.case_root / "apple-tool-shadow-home"
+        home_bin = fake_home / ".cargo" / "bin"
+        home_bin.mkdir(parents=True)
+        shadowed_tools = {"codesign", "xcrun", "hdiutil", "spctl", "ditto", "SetFile", "xattr"}
+        for tool in shadowed_tools:
+            os.symlink(self.stubs_dir / tool, home_bin / tool)
+        packaging_markers = []
+        for tool in ("cp", "find"):
+            marker = self.case_root / f"path-shadow-{tool}.called"
+            packaging_markers.append(marker)
+            shadow = home_bin / tool
+            shadow.write_text(f'#!/bin/sh\n: > "{marker}"\nexit 0\n', encoding="utf-8")
+            shadow.chmod(0o755)
+        dirname_marker = self.case_root / "path-shadow-dirname.called"
+        packaging_markers.append(dirname_marker)
+        shadow_dirname = home_bin / "dirname"
+        shadow_dirname.write_text(
+            f'#!/bin/sh\n: > "{dirname_marker}"\nexec /usr/bin/dirname "$@"\n',
+            encoding="utf-8",
+        )
+        shadow_dirname.chmod(0o755)
+        self.install_default_fixture_scripts()
+        before = snapshot_tree(self.dist_dir)
+
+        result = self.run_pipeline(
+            HOME=str(fake_home),
+            NEOFLASH_CODESIGN_BIN=None,
+            NEOFLASH_XCRUN_BIN=None,
+            NEOFLASH_HDIUTIL_BIN=None,
+            NEOFLASH_SPCTL_BIN=None,
+            NEOFLASH_DITTO_BIN=None,
+            NEOFLASH_SHASUM_BIN=None,
+            NEOFLASH_MV_BIN=None,
+            NEOFLASH_SETFILE_BIN=None,
+            NEOFLASH_XATTR_BIN=None,
+            NEOFLASH_PYTHON3_BIN=None,
+            NEOFLASH_STAGE_RUST_LICENSES_SCRIPT=None,
+            NEOFLASH_BUNDLED_MEDIA_PROVENANCE_SCRIPT=None,
+        )
+        self.assertNotEqual(
+            result.returncode,
+            0,
+            "PATH-only fake Apple tools must never complete a production-labelled run",
+        )
+        self.assertNotIn("Simulation mode active:", result.stderr)
+        self.assertNotIn("requires Python 3.11 or newer", result.stderr)
+        self.assertNotIn("Notarized and verified complete release set:", result.stdout)
+        called_shadow_tools = {
+            str(event["tool"]) for event in self.read_events() if str(event["tool"]) in shadowed_tools
+        }
+        self.assertEqual(called_shadow_tools, set())
+        self.assertFalse(
+            any(marker.exists() for marker in packaging_markers),
+            "PATH-shadowed dirname/cp/find must never run in a production-labelled pipeline",
+        )
+        self.assertEqual(snapshot_tree(self.dist_dir), before)
+        self.assert_dist_exact_five_entries()
+        self.assert_clean_mounts_and_temps()
+
+    def test_path_shadow_mv_cannot_block_rollback(self) -> None:
+        fake_home = self.case_root / "shadow-home"
+        shadow_bin = fake_home / ".cargo" / "bin"
+        shadow_bin.mkdir(parents=True)
+        shadow_mv = shadow_bin / "mv"
+        shadow_mv.write_text("#!/bin/sh\nexit 97\n", encoding="utf-8")
+        shadow_mv.chmod(0o755)
+
+        before = snapshot_tree(self.dist_dir)
+        result = self.run_pipeline(
+            HOME=str(fake_home),
+            NEOFLASH_TEST_FAIL_STAGE="mv:install-step",
+            NEOFLASH_TEST_FAIL_OCCURRENCE="3",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(
+            snapshot_tree(self.dist_dir),
+            before,
+            "rollback must use /bin/mv even when an earlier PATH entry shadows mv",
+        )
+        self.assertNotIn("CRITICAL: rollback could not restore", result.stderr)
+        self.assert_dist_exact_five_entries()
+        self.assert_clean_mounts_and_temps()
+
+    def test_noop_or_failing_path_shadow_rm_cannot_corrupt_rollback(self) -> None:
+        before = snapshot_tree(self.dist_dir)
+        for label, shadow_exit in (("noop", 0), ("failure", 97)):
+            with self.subTest(shadow=label):
+                if self.state_dir.exists():
+                    shutil.rmtree(self.state_dir)
+                if self.event_log.exists():
+                    self.event_log.unlink()
+                fake_home = self.case_root / f"rm-shadow-{label}"
+                shadow_bin = fake_home / ".cargo" / "bin"
+                shadow_bin.mkdir(parents=True)
+                marker = self.case_root / f"rm-shadow-{label}.called"
+                shadow_rm = shadow_bin / "rm"
+                shadow_rm.write_text(
+                    "#!/bin/sh\n"
+                    "if [ -f \"${NEOFLASH_TEST_EVENT_LOG:-/dev/null}\" ] "
+                    "&& /usr/bin/grep -q '\"stage\": \"mv:install-step\"' \"$NEOFLASH_TEST_EVENT_LOG\"; then\n"
+                    f"  : > \"{marker}\"\n"
+                    f"  exit {shadow_exit}\n"
+                    "fi\n"
+                    "exec /bin/rm \"$@\"\n",
+                    encoding="utf-8",
+                )
+                shadow_rm.chmod(0o755)
+
+                result = self.run_pipeline(
+                    HOME=str(fake_home),
+                    NEOFLASH_TEST_FAIL_STAGE="mv:install-step",
+                    NEOFLASH_TEST_FAIL_OCCURRENCE="3",
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(marker.exists(), "rollback must bypass a PATH-shadowed rm")
+                self.assertEqual(
+                    snapshot_tree(self.dist_dir),
+                    before,
+                    f"{label} rm shadow must not leave a nested or partial restored app",
+                )
+                self.assertNotIn("CRITICAL: rollback could not restore", result.stderr)
+                self.assert_dist_exact_five_entries()
+                self.assert_clean_mounts_and_temps()
 
     def test_parameterized_tool_stage_failures_leave_dist_byte_identical_and_clean_temps(self) -> None:
         failure_matrix: list[tuple[str, dict[str, str]]] = [

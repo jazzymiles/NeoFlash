@@ -242,8 +242,8 @@ impl Editor {
         let Some(mut state) = neoflash_core::TextFieldState::from_kind(&sampled.kind) else {
             return false;
         };
-        if cut && (state.interaction_mode == "selection" || !self.selected_editable()) {
-            self.message("Cut blocked: text field is in selection-only mode.");
+        if cut && !self.selected_editable() {
+            self.message("Cut blocked: selected text is not editable.");
             return true;
         }
         let (lo, hi) = self.stage_text_edit.selection_range_utf16();
@@ -459,10 +459,6 @@ impl Editor {
         let Some(mut state) = neoflash_core::TextFieldState::from_kind(&sampled.kind) else {
             return false;
         };
-        if state.interaction_mode == "selection" {
-            self.message("Paste blocked: text field is in selection-only mode.");
-            return true;
-        }
         let mut normalized = raw_text.replace("\r\n", "\n").replace('\r', "\n");
         let mut pasted_runs: Vec<neoflash_core::TextFormatRun> = self
             .stage_text_edit

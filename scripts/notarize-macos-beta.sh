@@ -18,17 +18,20 @@
 #     NEOFLASH_BUNDLED_MEDIA_PROVENANCE_SCRIPT, NEOFLASH_MEDIA_SOURCE_CACHE,
 #     NEOFLASH_HOMEBREW_CELLAR.
 set -euo pipefail
+# Resolve every bootstrap and production utility from system-owned directories. Rust licence
+# staging locates ~/.cargo/bin/cargo explicitly when the system PATH has no cargo; hermetic tool
+# substitutions below require explicit overrides and are disclosed as simulation runs.
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 
 if [ "$#" -gt 0 ]; then
   printf '%s\n' 'Error: scripts/notarize-macos-beta.sh accepts no positional arguments; configure via environment variables.' >&2
   exit 2
 fi
 
-scripts_dir="$(cd "$(dirname "$0")" && pwd)"
-default_project_root="$(cd "$scripts_dir/.." && pwd)"
+scripts_dir="$(builtin cd "$(/usr/bin/dirname "$0")" && builtin pwd -P)"
+default_project_root="$(builtin cd "$scripts_dir/.." && builtin pwd -P)"
 project_root="${NEOFLASH_NOTARIZE_PROJECT_ROOT:-$default_project_root}"
-cd "$project_root"
-export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+builtin cd "$project_root"
 
 if [ -z "${NEOFLASH_APPLE_DEVELOPER_ID:-}" ] || [ -z "${NEOFLASH_NOTARY_PROFILE:-}" ] \
   || [ -z "${NEOFLASH_APPLE_DEVELOPER_ID//[[:space:]]/}" ] || [ -z "${NEOFLASH_NOTARY_PROFILE//[[:space:]]/}" ]; then
@@ -39,7 +42,7 @@ if [ "$NEOFLASH_APPLE_DEVELOPER_ID" = "-" ]; then
   printf '%s\n' 'Error: NEOFLASH_APPLE_DEVELOPER_ID must be a Developer ID Application identity, not ad-hoc (-).' >&2
   exit 1
 fi
-if [ -n "$(git status --porcelain=v1 --untracked-files=all)" ]; then
+if [ -n "$(/usr/bin/git status --porcelain=v1 --untracked-files=all)" ]; then
   printf '%s\n' 'Refusing to notarize source files that do not exactly match HEAD.' >&2
   exit 1
 fi
@@ -55,6 +58,7 @@ for override_var in \
   "${NEOFLASH_MV_BIN:-}" \
   "${NEOFLASH_SETFILE_BIN:-}" \
   "${NEOFLASH_XATTR_BIN:-}" \
+  "${NEOFLASH_PYTHON3_BIN:-}" \
   "${NEOFLASH_STAGE_RUST_LICENSES_SCRIPT:-}" \
   "${NEOFLASH_BUNDLED_MEDIA_PROVENANCE_SCRIPT:-}"; do
   if [ -n "$override_var" ]; then
@@ -63,16 +67,37 @@ for override_var in \
   fi
 done
 
-codesign_bin="${NEOFLASH_CODESIGN_BIN:-codesign}"
-xcrun_bin="${NEOFLASH_XCRUN_BIN:-xcrun}"
-hdiutil_bin="${NEOFLASH_HDIUTIL_BIN:-hdiutil}"
-spctl_bin="${NEOFLASH_SPCTL_BIN:-spctl}"
-ditto_bin="${NEOFLASH_DITTO_BIN:-ditto}"
-shasum_bin="${NEOFLASH_SHASUM_BIN:-shasum}"
-mv_bin="${NEOFLASH_MV_BIN:-mv}"
-setfile_bin="${NEOFLASH_SETFILE_BIN:-SetFile}"
-xattr_bin="${NEOFLASH_XATTR_BIN:-xattr}"
-python3_bin="${NEOFLASH_PYTHON3_BIN:-python3}"
+if [ "$tool_overrides_active" -eq 1 ]; then
+  printf '%s\n' 'Simulation mode active: one or more notarization tool overrides are set; this run cannot establish real Apple Notary acceptance.' >&2
+fi
+
+codesign_bin="${NEOFLASH_CODESIGN_BIN:-/usr/bin/codesign}"
+xcrun_bin="${NEOFLASH_XCRUN_BIN:-/usr/bin/xcrun}"
+hdiutil_bin="${NEOFLASH_HDIUTIL_BIN:-/usr/bin/hdiutil}"
+spctl_bin="${NEOFLASH_SPCTL_BIN:-/usr/sbin/spctl}"
+ditto_bin="${NEOFLASH_DITTO_BIN:-/usr/bin/ditto}"
+shasum_bin="${NEOFLASH_SHASUM_BIN:-/usr/bin/shasum}"
+mv_bin="${NEOFLASH_MV_BIN:-/bin/mv}"
+setfile_bin="${NEOFLASH_SETFILE_BIN:-/usr/bin/SetFile}"
+xattr_bin="${NEOFLASH_XATTR_BIN:-/usr/bin/xattr}"
+python3_bin="${NEOFLASH_PYTHON3_BIN:-}"
+brew_bin="/opt/homebrew/bin/brew"
+if [ -z "$python3_bin" ]; then
+  for trusted_python in /opt/homebrew/bin/python3 /usr/bin/python3; do
+    if [ -x "$trusted_python" ] \
+      && "$trusted_python" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' \
+        >/dev/null 2>&1; then
+      python3_bin="$trusted_python"
+      break
+    fi
+  done
+fi
+if [ -z "$python3_bin" ] \
+  || ! "$python3_bin" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' \
+    >/dev/null 2>&1; then
+  printf '%s\n' 'Error: notarization requires Python 3.11 or newer from /opt/homebrew/bin/python3, or an explicit NEOFLASH_PYTHON3_BIN simulation override.' >&2
+  exit 1
+fi
 
 command -v "$hdiutil_bin" >/dev/null 2>&1 || {
   printf '%s\n' 'Error: hdiutil is required for the notarized macOS release.' >&2
@@ -87,7 +112,7 @@ for required_tool in \
   "$mv_bin" \
   "$xattr_bin" \
   "$python3_bin" \
-  git; do
+  /usr/bin/git; do
   command -v "$required_tool" >/dev/null 2>&1 || {
     printf 'Error: required tool %s is not available.\n' "$required_tool" >&2
     exit 1
@@ -100,7 +125,7 @@ hdiutil() { command "$hdiutil_bin" "$@"; }
 spctl() { command "$spctl_bin" "$@"; }
 ditto() { command "$ditto_bin" "$@"; }
 shasum() { command "$shasum_bin" "$@"; }
-mv() { command "$mv_bin" "$@"; }
+forward_swap_mv() { command "$mv_bin" "$@"; }
 xattr() { command "$xattr_bin" "$@"; }
 
 version="${NEOFLASH_VERSION:-0.1.0-beta.1}"
@@ -178,6 +203,68 @@ if len(names) != len(expected_names) or set(names) != set(expected_names):
 PY
 }
 
+release_snapshot() {
+  local mode="$1"
+  local snapshot_file="$2"
+  shift 2
+  "$python3_bin" - "$mode" "$snapshot_file" "$@" <<'PY'
+import hashlib
+import json
+import os
+import stat
+import sys
+from pathlib import Path
+
+mode = sys.argv[1]
+snapshot_file = Path(sys.argv[2])
+roots = [Path(raw) for raw in sys.argv[3:]]
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+def capture(root):
+    records = {}
+
+    def walk(path, relative):
+        info = path.lstat()
+        record = {"mode": stat.S_IMODE(info.st_mode)}
+        if stat.S_ISLNK(info.st_mode):
+            record.update(kind="symlink", target=os.readlink(path))
+        elif stat.S_ISDIR(info.st_mode):
+            record["kind"] = "dir"
+        elif stat.S_ISREG(info.st_mode):
+            record.update(kind="file", size=info.st_size, sha256=sha256(path))
+        else:
+            record.update(kind="special", size=info.st_size)
+        records[relative] = record
+        if record["kind"] == "dir":
+            for child in sorted(path.iterdir(), key=lambda item: item.name):
+                walk(child, f"{relative}/{child.name}")
+
+    walk(root, root.name)
+    return records
+
+current = {root.name: capture(root) for root in roots}
+if mode == "write":
+    snapshot_file.write_text(
+        json.dumps(current, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+elif mode == "verify":
+    expected = json.loads(snapshot_file.read_text(encoding="utf-8"))
+    if current != expected:
+        sys.stderr.write("Error: restored release paths do not match the pre-swap snapshot.\n")
+        sys.exit(1)
+else:
+    sys.stderr.write(f"Error: unsupported release snapshot mode {mode!r}.\n")
+    sys.exit(2)
+PY
+}
+
 # Fail closed before staging if the existing 5-artifact release set in dist/ is inconsistent.
 verify_manifest_exact "$dist_dir" "$sums_path"
 
@@ -204,6 +291,7 @@ source_bundle_dir="$work_root/media-corresponding-source"
 tx_dir=""
 incoming_dir=""
 backup_dir="$work_root/original-release"
+rollback_manifest=""
 dmg_stage="$work_root/dmg-stage"
 dmg_rw="$work_root/dmg-stage.rw.dmg"
 dmg_mount=""
@@ -212,14 +300,38 @@ commit_started=0
 commit_complete=0
 cleanup_ran=0
 
+restore_backup_path() {
+  local backup_path="$1"
+  local live_path="$2"
+  local kind="$3"
+  if [ ! -e "$backup_path" ] && [ ! -L "$backup_path" ]; then
+    return 0
+  fi
+  if [ "$kind" = "tree" ]; then
+    /bin/rm -rf "$live_path" || return 1
+  else
+    /bin/rm -f "$live_path" || return 1
+  fi
+  if [ -e "$live_path" ] || [ -L "$live_path" ]; then
+    return 1
+  fi
+  /bin/mv "$backup_path" "$live_path" || return 1
+  if [ ! -e "$live_path" ] && [ ! -L "$live_path" ]; then
+    return 1
+  fi
+  if [ -e "$backup_path" ] || [ -L "$backup_path" ]; then
+    return 1
+  fi
+}
+
 cleanup() {
   if [ "${cleanup_ran:-0}" -eq 1 ]; then
     return 0
   fi
   cleanup_ran=1
   set +e
-  # Always use OS /bin/mv during rollback so injected forward-swap faults never block recovery.
-  unset -f mv 2>/dev/null || true
+  # Always use OS /bin/mv during rollback so injected forward-swap faults and PATH shadows never
+  # block recovery.
 
   if [ -n "$dmg_mount" ]; then
     if [ "$dmg_attached" -eq 1 ] || mount | grep -Fq " on $dmg_mount "; then
@@ -234,35 +346,32 @@ cleanup() {
 
   local rollback_failed=0
   if [ "$commit_started" -eq 1 ] && [ "$commit_complete" -eq 0 ]; then
-    if [ -e "$backup_dir/NeoFlash.app" ] || [ -L "$backup_dir/NeoFlash.app" ]; then
-      rm -rf "$app_dir"
-      mv "$backup_dir/NeoFlash.app" "$app_dir" || rollback_failed=1
-    fi
-    if [ -e "$backup_dir/$(basename "$zip_path")" ] || [ -L "$backup_dir/$(basename "$zip_path")" ]; then
-      rm -f "$zip_path"
-      mv "$backup_dir/$(basename "$zip_path")" "$zip_path" || rollback_failed=1
-    fi
-    if [ -e "$backup_dir/$(basename "$dmg_path")" ] || [ -L "$backup_dir/$(basename "$dmg_path")" ]; then
-      rm -f "$dmg_path"
-      mv "$backup_dir/$(basename "$dmg_path")" "$dmg_path" || rollback_failed=1
-    fi
-    if [ -e "$backup_dir/$source_archive_name" ] || [ -L "$backup_dir/$source_archive_name" ]; then
-      rm -f "$source_archive_path"
-      mv "$backup_dir/$source_archive_name" "$source_archive_path" || rollback_failed=1
-    fi
-    if [ -e "$backup_dir/$(basename "$sums_path")" ] || [ -L "$backup_dir/$(basename "$sums_path")" ]; then
-      rm -f "$sums_path"
-      mv "$backup_dir/$(basename "$sums_path")" "$sums_path" || rollback_failed=1
+    restore_backup_path "$backup_dir/NeoFlash.app" "$app_dir" tree || rollback_failed=1
+    restore_backup_path "$backup_dir/$(basename "$zip_path")" "$zip_path" file || rollback_failed=1
+    restore_backup_path "$backup_dir/$(basename "$dmg_path")" "$dmg_path" file || rollback_failed=1
+    restore_backup_path "$backup_dir/$source_archive_name" "$source_archive_path" file || rollback_failed=1
+    restore_backup_path "$backup_dir/$(basename "$sums_path")" "$sums_path" file || rollback_failed=1
+    if [ "$rollback_failed" -eq 0 ]; then
+      if [ -z "$rollback_manifest" ] || [ ! -f "$rollback_manifest" ]; then
+        rollback_failed=1
+      elif ! release_snapshot verify "$rollback_manifest" \
+        "$app_dir" "$zip_path" "$dmg_path" "$source_archive_path" "$sums_path"; then
+        rollback_failed=1
+      fi
     fi
   fi
 
   if [ "$rollback_failed" -eq 0 ] && [ -n "$tx_dir" ] && [ -d "$tx_dir" ]; then
-    rm -rf "$tx_dir"
-  elif [ "$rollback_failed" -ne 0 ]; then
-    printf 'CRITICAL: rollback could not restore all release files; backup preserved at %s\n' "$backup_dir" >&2
+    /bin/rm -rf "$tx_dir" || rollback_failed=1
+    if [ -e "$tx_dir" ] || [ -L "$tx_dir" ]; then
+      rollback_failed=1
+    fi
+  fi
+  if [ "$rollback_failed" -ne 0 ]; then
+    printf 'CRITICAL: rollback could not restore all release files; remaining backup and transaction evidence preserved at %s\n' "$tx_dir" >&2
   fi
   if [ -n "$work_root" ] && [ -d "$work_root" ]; then
-    rm -rf "$work_root"
+    /bin/rm -rf "$work_root"
   fi
   if [ "$work_parent_created" -eq 1 ]; then
     rmdir "$work_parent" 2>/dev/null || true
@@ -339,7 +448,7 @@ fi
 ditto "$app_dir" "$staged_app"
 
 # Rebuild the exact Rust license bundle before any final signing.
-rm -rf "$staged_app/Contents/Resources/licenses/rust"
+/bin/rm -rf "$staged_app/Contents/Resources/licenses/rust"
 "$python3_bin" "$stage_rust_licenses_script" \
   --project-root "$project_root" \
   --package neoflash-editor \
@@ -350,6 +459,7 @@ rm -rf "$staged_app/Contents/Resources/licenses/rust"
 # Prove the ad-hoc packaged media before Developer ID signing changes its signature bytes.
 "$python3_bin" "$bundled_media_provenance_script" \
   --media-root "$staged_app/Contents/Resources/media" \
+  --brew-bin "$brew_bin" \
   --cache-dir "$media_source_cache" \
   --report "$work_root/media-provenance-before-signing.json" \
   --download \
@@ -371,6 +481,7 @@ done
 # corresponding-source archive against those final media bytes.
 "$python3_bin" "$bundled_media_provenance_script" \
   --media-root "$staged_app/Contents/Resources/media" \
+  --brew-bin "$brew_bin" \
   --cache-dir "$media_source_cache" \
   --output-dir "$source_bundle_dir" \
   --archive "$staged_source" \
@@ -406,6 +517,7 @@ fi
 
 "$python3_bin" "$bundled_media_provenance_script" \
   --media-root "$staged_app/Contents/Resources/media" \
+  --brew-bin "$brew_bin" \
   --cache-dir "$media_source_cache" \
   --report "$work_root/media-provenance-final.json" \
   --download \
@@ -416,7 +528,7 @@ ditto -c -k --norsrc --keepParent "$staged_app" "$staged_zip"
 submit_and_verify_notarization "$staged_zip" "app-zip"
 xcrun stapler staple "$staged_app"
 xcrun stapler validate "$staged_app"
-rm -f "$staged_zip"
+/bin/rm -f "$staged_zip"
 ditto -c -k --norsrc --keepParent "$staged_app" "$staged_zip"
 
 # Recreate the same drag-to-install wrapper as package-macos.sh.
@@ -440,7 +552,7 @@ dmg_attached=0
 rmdir "$dmg_mount"
 dmg_mount=""
 hdiutil convert "$dmg_rw" -format UDZO -ov -o "$staged_dmg" >/dev/null
-rm -rf "$dmg_stage" "$dmg_rw"
+/bin/rm -rf "$dmg_stage" "$dmg_rw"
 codesign --force --timestamp --sign "$NEOFLASH_APPLE_DEVELOPER_ID" "$staged_dmg"
 codesign --verify --verbose=2 "$staged_dmg"
 submit_and_verify_notarization "$staged_dmg" "dmg"
@@ -466,32 +578,35 @@ tx_dir="$(mktemp -d "$dist_dir/.notarize-tx.XXXXXX")"
 incoming_dir="$tx_dir/incoming"
 backup_dir="$tx_dir/backup"
 mkdir -p "$incoming_dir" "$backup_dir"
-mv "$staged_app" "$incoming_dir/NeoFlash.app"
-mv "$staged_zip" "$incoming_dir/$(basename "$zip_path")"
-mv "$staged_dmg" "$incoming_dir/$(basename "$dmg_path")"
-mv "$staged_source" "$incoming_dir/$source_archive_name"
-mv "$staged_sums" "$incoming_dir/$(basename "$sums_path")"
+forward_swap_mv "$staged_app" "$incoming_dir/NeoFlash.app"
+forward_swap_mv "$staged_zip" "$incoming_dir/$(basename "$zip_path")"
+forward_swap_mv "$staged_dmg" "$incoming_dir/$(basename "$dmg_path")"
+forward_swap_mv "$staged_source" "$incoming_dir/$source_archive_name"
+forward_swap_mv "$staged_sums" "$incoming_dir/$(basename "$sums_path")"
 verify_manifest_exact "$incoming_dir" "$incoming_dir/$(basename "$sums_path")"
 
 # Replace the five-file release set only after every gate, signature and notarization succeeds.
+rollback_manifest="$tx_dir/original-release-snapshot.json"
+release_snapshot write "$rollback_manifest" \
+  "$app_dir" "$zip_path" "$dmg_path" "$source_archive_path" "$sums_path"
 commit_started=1
-[ ! -e "$app_dir" ] || mv "$app_dir" "$backup_dir/NeoFlash.app"
-[ ! -e "$zip_path" ] || mv "$zip_path" "$backup_dir/$(basename "$zip_path")"
-[ ! -e "$dmg_path" ] || mv "$dmg_path" "$backup_dir/$(basename "$dmg_path")"
-[ ! -e "$source_archive_path" ] || mv "$source_archive_path" "$backup_dir/$source_archive_name"
-[ ! -e "$sums_path" ] || mv "$sums_path" "$backup_dir/$(basename "$sums_path")"
-mv "$incoming_dir/NeoFlash.app" "$app_dir"
-mv "$incoming_dir/$(basename "$zip_path")" "$zip_path"
-mv "$incoming_dir/$(basename "$dmg_path")" "$dmg_path"
-mv "$incoming_dir/$source_archive_name" "$source_archive_path"
-mv "$incoming_dir/$(basename "$sums_path")" "$sums_path"
+[ ! -e "$app_dir" ] || forward_swap_mv "$app_dir" "$backup_dir/NeoFlash.app"
+[ ! -e "$zip_path" ] || forward_swap_mv "$zip_path" "$backup_dir/$(basename "$zip_path")"
+[ ! -e "$dmg_path" ] || forward_swap_mv "$dmg_path" "$backup_dir/$(basename "$dmg_path")"
+[ ! -e "$source_archive_path" ] || forward_swap_mv "$source_archive_path" "$backup_dir/$source_archive_name"
+[ ! -e "$sums_path" ] || forward_swap_mv "$sums_path" "$backup_dir/$(basename "$sums_path")"
+forward_swap_mv "$incoming_dir/NeoFlash.app" "$app_dir"
+forward_swap_mv "$incoming_dir/$(basename "$zip_path")" "$zip_path"
+forward_swap_mv "$incoming_dir/$(basename "$dmg_path")" "$dmg_path"
+forward_swap_mv "$incoming_dir/$source_archive_name" "$source_archive_path"
+forward_swap_mv "$incoming_dir/$(basename "$sums_path")" "$sums_path"
 verify_manifest_exact "$dist_dir" "$sums_path"
 commit_complete=1
 
-rm -rf "$tx_dir"
+/bin/rm -rf "$tx_dir"
 tx_dir=""
 trap - EXIT HUP INT TERM
-rm -rf "$work_root"
+/bin/rm -rf "$work_root"
 if [ "$work_parent_created" -eq 1 ]; then
   rmdir "$work_parent" 2>/dev/null || true
 fi

@@ -9,7 +9,7 @@ use neoflash_ui::components::{self as nf, TreeItemType};
 use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::{TextStyle, space};
 use neoflash_ui::typography::rich;
-use std::{io::Read, path::Path};
+use std::{collections::HashSet, io::Read, path::Path};
 
 #[derive(Default)]
 pub(crate) struct ResourcePanel {
@@ -36,10 +36,18 @@ impl Editor {
         let mut remaining = MAX_RESOURCE_TOTAL_BYTES.saturating_sub(used);
         let mut units = Vec::with_capacity(paths.len());
         let mut audio_sources = Vec::new();
+        let mut reserved_paths: HashSet<String> = self
+            .project
+            .resources
+            .iter()
+            .map(|resource| resource.path.to_lowercase())
+            .collect();
         for path in paths {
             let unit = if is_font_import_path(path) {
                 let mut f_unit = read_font_resource(path, remaining)?;
-                f_unit.path = unique_font_resource_path(&self.project.resources, &f_unit.path);
+                f_unit.path =
+                    unique_font_resource_path_from_reserved(&reserved_paths, &f_unit.path);
+                reserved_paths.insert(f_unit.path.to_lowercase());
                 f_unit
             } else {
                 read_resource(path, remaining)?
@@ -610,10 +618,15 @@ fn is_valid_font_magic(bytes: &[u8]) -> bool {
 }
 
 pub(crate) fn unique_font_resource_path(existing: &[ResourceUnit], requested: &str) -> String {
-    if !existing
+    let reserved: HashSet<String> = existing
         .iter()
-        .any(|r| r.path.eq_ignore_ascii_case(requested))
-    {
+        .map(|resource| resource.path.to_lowercase())
+        .collect();
+    unique_font_resource_path_from_reserved(&reserved, requested)
+}
+
+fn unique_font_resource_path_from_reserved(reserved: &HashSet<String>, requested: &str) -> String {
+    if !reserved.contains(&requested.to_lowercase()) {
         return requested.to_owned();
     }
     let req_path = Path::new(requested);
@@ -634,10 +647,7 @@ pub(crate) fn unique_font_resource_path(existing: &[ResourceUnit], requested: &s
         } else {
             format!("{parent}/{stem}-{idx}.{ext}")
         };
-        if !existing
-            .iter()
-            .any(|r| r.path.eq_ignore_ascii_case(&candidate))
-        {
+        if !reserved.contains(&candidate.to_lowercase()) {
             return candidate;
         }
     }
@@ -765,10 +775,17 @@ pub(crate) fn upsert_imported_font_embedding_metadata(
     let metadata_id = existing_meta_idx
         .map(|i| resources[i].id.clone())
         .unwrap_or_else(|| new_id("res"));
-    let mut entries: Vec<EmbeddedFontEntry> = existing_meta_idx
-        .and_then(|i| resources[i].decoded_bytes().ok())
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default();
+    let mut entries: Vec<EmbeddedFontEntry> = match existing_meta_idx {
+        Some(index) => {
+            let bytes = resources[index].decoded_bytes().map_err(|error| {
+                format!("Cannot update {META_PATH}: failed to decode existing metadata: {error}")
+            })?;
+            serde_json::from_slice(&bytes).map_err(|error| {
+                format!("Cannot update {META_PATH}: existing metadata is invalid: {error}")
+            })?
+        }
+        None => Vec::new(),
+    };
 
     let display_name = if style.eq_ignore_ascii_case("Regular") {
         family.clone()

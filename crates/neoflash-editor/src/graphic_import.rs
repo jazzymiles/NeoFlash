@@ -483,6 +483,77 @@ impl Editor {
             }
         }
 
+        // Prepare palettes/graphics before the independent font branch commits. This specifically
+        // keeps a valid font + malformed palette/graphic chooser batch atomic; SWC/audio batches
+        // retain their existing transaction boundaries.
+        let mut parsed_swatches = Vec::new();
+        for pal_path in &palette_paths {
+            let display = pal_path.display().to_string();
+            let bytes = std::fs::read(pal_path).map_err(|e| format!("{display}: {e}"))?;
+            let mut swatches = Self::parse_palette_file_bytes(&bytes, &display)?;
+            parsed_swatches.append(&mut swatches);
+        }
+
+        let mut remaining = MAX_RESOURCE_TOTAL_BYTES;
+        let mut items = Vec::with_capacity(graphic_paths.len());
+        let seq_opts = self.workspace.sequence_import_options.clone();
+        let mut keyframe_sequence = None;
+        if !graphic_paths.is_empty() {
+            let sequence_request =
+                graphic_paths.len() >= 2 || (graphic_paths.len() == 1 && graphic_paths[0].is_dir());
+            let imported_sequence = if sequence_request {
+                neoflash_import::import_numbered_image_sequence_paths_with_options(
+                    &graphic_paths,
+                    false,
+                    &seq_opts,
+                )
+                .map_err(|error| format!("Image sequence import failed: {error}"))?
+            } else {
+                None
+            };
+
+            if let Some(imported_sequence) = imported_sequence {
+                if place_on_stage
+                    && seq_opts.placement
+                        == neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer
+                {
+                    keyframe_sequence = Some(imported_sequence);
+                } else {
+                    let seq_item = prepare_sequence_graphic(
+                        imported_sequence,
+                        seq_opts.placement,
+                        &mut remaining,
+                    )?;
+                    items.push(seq_item);
+                }
+            } else {
+                for path in &graphic_paths {
+                    let ext = path_ext_lower(path);
+                    let item = if is_figma_graphic_path(path, &ext) {
+                        prepare_figma_graphic(path, &mut remaining)?
+                    } else {
+                        match ext.as_str() {
+                            "psd" | "psb" => prepare_psd_graphic(path, &mut remaining)?,
+                            "swf" => prepare_swf_graphic(path, &mut remaining)?,
+                            "pdf" | "ai" => prepare_pdf_ai_graphic(path)?,
+                            "fxg" => prepare_fxg_graphic(path)?,
+                            _ => {
+                                let unit = crate::resources::read_resource(path, remaining)?;
+                                remaining = remaining.saturating_sub(unit.byte_len());
+                                let name = path
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("Graphic")
+                                    .to_owned();
+                                PreparedImportGraphic::from(prepare_graphic(unit, name)?)
+                            }
+                        }
+                    };
+                    items.push(item);
+                }
+            }
+        }
+
         if !swc_paths.is_empty() {
             let mut loaded_swcs = Vec::with_capacity(swc_paths.len());
             for swc_path in &swc_paths {
@@ -679,14 +750,6 @@ impl Editor {
             }
         }
 
-        let mut parsed_swatches = Vec::new();
-        for pal_path in &palette_paths {
-            let display = pal_path.display().to_string();
-            let bytes = std::fs::read(pal_path).map_err(|e| format!("{display}: {e}"))?;
-            let mut swatches = Self::parse_palette_file_bytes(&bytes, &display)?;
-            parsed_swatches.append(&mut swatches);
-        }
-
         if graphic_paths.is_empty() {
             let count = parsed_swatches.len();
             self.finish_edits();
@@ -700,62 +763,13 @@ impl Editor {
             return Ok(());
         }
 
-        let mut remaining = MAX_RESOURCE_TOTAL_BYTES;
-        let mut items = Vec::with_capacity(graphic_paths.len());
-        let sequence_request =
-            graphic_paths.len() >= 2 || (graphic_paths.len() == 1 && graphic_paths[0].is_dir());
-        let seq_opts = self.workspace.sequence_import_options.clone();
-        let imported_sequence = if sequence_request {
-            neoflash_import::import_numbered_image_sequence_paths_with_options(
-                &graphic_paths,
-                false,
-                &seq_opts,
-            )
-            .map_err(|error| format!("Image sequence import failed: {error}"))?
-        } else {
-            None
-        };
-
-        if let Some(imported_sequence) = imported_sequence {
-            if place_on_stage
-                && seq_opts.placement
-                    == neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer
-            {
-                return self.place_sequence_keyframes_on_active_layer(
-                    imported_sequence,
-                    parsed_swatches,
-                    point,
-                    &mut remaining,
-                );
-            }
-            let seq_item =
-                prepare_sequence_graphic(imported_sequence, seq_opts.placement, &mut remaining)?;
-            items.push(seq_item);
-        } else {
-            for path in &graphic_paths {
-                let ext = path_ext_lower(path);
-                let item = if is_figma_graphic_path(path, &ext) {
-                    prepare_figma_graphic(path, &mut remaining)?
-                } else {
-                    match ext.as_str() {
-                        "psd" | "psb" => prepare_psd_graphic(path, &mut remaining)?,
-                        "swf" => prepare_swf_graphic(path, &mut remaining)?,
-                        "pdf" | "ai" => prepare_pdf_ai_graphic(path)?,
-                        "fxg" => prepare_fxg_graphic(path)?,
-                        _ => {
-                            let unit = crate::resources::read_resource(path, remaining)?;
-                            remaining = remaining.saturating_sub(unit.byte_len());
-                            let name = path
-                                .file_stem()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or("Graphic")
-                                .to_owned();
-                            PreparedImportGraphic::from(prepare_graphic(unit, name)?)
-                        }
-                    }
-                };
-                items.push(item);
-            }
+        if let Some(imported_sequence) = keyframe_sequence {
+            return self.place_sequence_keyframes_on_active_layer(
+                imported_sequence,
+                parsed_swatches,
+                point,
+                &mut remaining,
+            );
         }
 
         self.place_prepared_import_graphics(items, parsed_swatches, point, place_on_stage)
@@ -2413,6 +2427,51 @@ mod tests {
         assert_eq!(editor.selection, selection_before);
         assert_eq!(editor.dirty(), dirty_before);
         assert!(!editor.history.can_undo());
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn mixed_font_and_invalid_asset_import_is_byte_atomic_without_undo() {
+        let temp = std::env::temp_dir().join(format!(
+            "neoflash-editor-mixed-font-atomic-{}-{}",
+            std::process::id(),
+            new_id("test")
+        ));
+        std::fs::create_dir_all(&temp).unwrap();
+        let font = temp.join("Inter-Regular.ttf");
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../neoflash-ui/assets/fonts/Inter-Regular.ttf"),
+            &font,
+        )
+        .unwrap();
+        let invalid_graphic = temp.join("broken.png");
+        std::fs::write(&invalid_graphic, b"not a PNG").unwrap();
+        let invalid_palette = temp.join("broken.ase");
+        std::fs::write(&invalid_palette, b"ASEF\0").unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.history.clear();
+        let before = editor.project.to_json().unwrap();
+
+        for invalid in [&invalid_graphic, &invalid_palette] {
+            let error = editor
+                .import_graphics_to_library_paths(&[font.clone(), invalid.clone()])
+                .expect_err("a malformed palette/graphic must reject its mixed font batch");
+            assert!(!error.trim().is_empty());
+            assert_eq!(
+                editor.project.to_json().unwrap(),
+                before,
+                "failed mixed import must leave the serialized project byte-identical"
+            );
+            assert_eq!(
+                editor.history.undo_len(),
+                0,
+                "failed mixed import must not add a partial font Undo entry"
+            );
+        }
 
         let _ = std::fs::remove_dir_all(&temp);
     }

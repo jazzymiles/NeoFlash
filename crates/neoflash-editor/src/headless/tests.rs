@@ -1,6 +1,8 @@
 //! Unit and end-to-end tests for the NeoFlash Editor headless CLI (`T-302`).
 use super::*;
-use neoflash_core::{Keyframe, Layer, LayerProperties, ObjectEvent, ObjectScript, Script, new_id};
+use neoflash_core::{
+    Keyframe, Layer, LayerProperties, ObjectEvent, ObjectScript, ResourceUnit, Script, new_id,
+};
 use neoflash_import::export_act_palette;
 use serde_json::{Value, json};
 use std::ffi::OsStr;
@@ -1966,6 +1968,7 @@ fn headless_export_html5_symbol_isolates_requested_scene_or_symbol() {
     let tmp = TempDirGuard::new("html5_symbol_isolate");
     let mut proj = Project::blank();
     proj.format_version = 6;
+    proj.document_class = Some("app.Main".into());
     let scene1_id = proj.root.clone();
     proj.symbols[0].name = "Scene 1".into();
     proj.symbols[0].timeline.frame_count = 12;
@@ -2004,7 +2007,7 @@ fn headless_export_html5_symbol_isolates_requested_scene_or_symbol() {
         kind: neoflash_core::SymbolKind::Graphic,
         folder: "UI".into(),
         linkage_id: None,
-        class_name: None,
+        class_name: Some("ui.Badge".into()),
         timeline: neoflash_core::Timeline {
             frame_count: 4,
             layers: vec![Layer {
@@ -2022,7 +2025,65 @@ fn headless_export_html5_symbol_isolates_requested_scene_or_symbol() {
             guides: Vec::new(),
         },
     });
+    let button_id = new_id("sym");
+    proj.symbols.push(neoflash_core::Symbol {
+        id: button_id.clone(),
+        name: "Action Button".into(),
+        kind: neoflash_core::SymbolKind::Button,
+        folder: "UI".into(),
+        linkage_id: None,
+        class_name: Some("ui.ActionButton".into()),
+        timeline: neoflash_core::Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    ..Keyframe::default()
+                }],
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    });
     proj.library_folders.push("UI".into());
+    proj.script_language = Some(ScriptLanguage::ActionScript3);
+    proj.sources = vec![
+        neoflash_core::SourceUnit {
+            id: new_id("source"),
+            path: "app/Main.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package app {
+                import flash.display.MovieClip;
+                public dynamic class Main extends MovieClip {}
+            }"#
+            .into(),
+        },
+        neoflash_core::SourceUnit {
+            id: new_id("source"),
+            path: "ui/Badge.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package ui {
+                import flash.display.MovieClip;
+                public dynamic class Badge extends MovieClip {}
+            }"#
+            .into(),
+        },
+        neoflash_core::SourceUnit {
+            id: new_id("source"),
+            path: "ui/ActionButton.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package ui {
+                import flash.display.SimpleButton;
+                public dynamic class ActionButton extends SimpleButton {}
+            }"#
+            .into(),
+        },
+    ];
     proj.validate().unwrap();
 
     let proj_path = tmp.path.join("multi_scene.nflash");
@@ -2058,6 +2119,7 @@ fn headless_export_html5_symbol_isolates_requested_scene_or_symbol() {
     let full_bundle = parse_bundle(&full_out);
     assert_eq!(full_bundle["load_summary"]["frames_count"], 18);
     assert_eq!(full_bundle["scenes"].as_array().unwrap().len(), 2);
+    assert_eq!(full_bundle["project"]["document_class"], "app.Main");
 
     // Scoped export (--symbol "Scene 2") exports ONLY Scene 2 (6 frames) while keeping library symbols.
     let scene2_out = tmp.path.join("out_scene2");
@@ -2080,6 +2142,10 @@ fn headless_export_html5_symbol_isolates_requested_scene_or_symbol() {
     let scene2_bundle = parse_bundle(&scene2_out);
     assert_eq!(scene2_bundle["load_summary"]["frames_count"], 6);
     assert_eq!(scene2_bundle["project"]["root"], scene2_id);
+    assert!(
+        scene2_bundle["project"]["document_class"].is_null(),
+        "isolating an unbound secondary scene must not run the original document class"
+    );
     assert!(
         scene2_bundle["project"]["symbols"]
             .as_array()
@@ -2117,6 +2183,112 @@ fn headless_export_html5_symbol_isolates_requested_scene_or_symbol() {
     assert_eq!(code, 0, "stderr={stderr}");
     let badge_bundle = parse_bundle(&badge_out);
     assert_eq!(badge_bundle["load_summary"]["frames_count"], 4);
+    assert_eq!(badge_bundle["project"]["document_class"], "ui.Badge");
+    assert_ne!(badge_bundle["project"]["document_class"], "app.Main");
+
+    // The explicit desktop and native-banner targets share the same isolated web root contract.
+    let desktop_out = tmp.path.join("out_badge_desktop");
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "export",
+            "--project",
+            proj_path.to_str().unwrap(),
+            "--target",
+            "desktop",
+            "--symbol",
+            "Badge",
+            "--out",
+            desktop_out.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let desktop_report: Value = serde_json::from_str(&stdout).unwrap();
+    let desktop_app = std::path::PathBuf::from(
+        desktop_report["output_path"]
+            .as_str()
+            .expect("desktop output_path"),
+    );
+    let desktop_bundle = parse_bundle(&desktop_app.join("Contents/Resources/web"));
+    assert_eq!(desktop_bundle["load_summary"]["frames_count"], 4);
+    assert_eq!(
+        desktop_bundle["project"]["root"],
+        badge_bundle["project"]["root"]
+    );
+    assert_eq!(desktop_bundle["project"]["document_class"], "ui.Badge");
+
+    // A Button class extends SimpleButton and cannot become the MovieClip document root. Keep the
+    // bound Button intact and place one instance in a deterministic one-frame MovieClip wrapper.
+    let button_out = tmp.path.join("out_button");
+    let (code, _, stderr) = run_args(
+        &[
+            "--headless",
+            "export",
+            "--project",
+            proj_path.to_str().unwrap(),
+            "--target",
+            "html5",
+            "--symbol",
+            "Action Button",
+            "--out",
+            button_out.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let button_bundle = parse_bundle(&button_out);
+    assert_eq!(button_bundle["load_summary"]["frames_count"], 1);
+    assert!(button_bundle["project"]["document_class"].is_null());
+    let button_symbols = button_bundle["project"]["symbols"].as_array().unwrap();
+    let preserved_button = button_symbols
+        .iter()
+        .find(|symbol| symbol["id"] == button_id)
+        .expect("isolated Button symbol");
+    assert_eq!(preserved_button["kind"], "button");
+    assert_eq!(preserved_button["class_name"], "ui.ActionButton");
+    let wrapper_id = button_bundle["project"]["root"].as_str().unwrap();
+    let wrapper = button_symbols
+        .iter()
+        .find(|symbol| symbol["id"] == wrapper_id)
+        .expect("Button export wrapper");
+    assert_eq!(wrapper["kind"], "movie_clip");
+    assert_eq!(
+        wrapper["timeline"]["layers"][0]["keyframes"][0]["elements"][0]["kind"]["symbol_id"],
+        button_id
+    );
+
+    // Native banner export deliberately rejects executable sources, so exercise its symbol route
+    // with the same timelines after removing class bindings and their source units.
+    let mut banner_project = proj.clone();
+    banner_project.document_class = None;
+    banner_project.sources.clear();
+    for symbol in &mut banner_project.symbols {
+        symbol.class_name = None;
+    }
+    banner_project.validate().unwrap();
+    let banner_project_path = tmp.path.join("multi_scene_banner.nflash");
+    fs::write(&banner_project_path, banner_project.to_json().unwrap()).unwrap();
+    let banner_out = tmp.path.join("badge-banner.html");
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "export",
+            "--project",
+            banner_project_path.to_str().unwrap(),
+            "--target",
+            "banner",
+            "--symbol",
+            "Badge",
+            "--out",
+            banner_out.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let banner_report: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(banner_report["frame_count"], 4);
+    assert!(banner_out.is_file());
 
     // Unknown --symbol fails closed instead of silently exporting the whole document.
     let bad_out = tmp.path.join("out_missing");
@@ -2272,5 +2444,59 @@ fn headless_and_editor_import_font_files_into_library_and_embedding_metadata() {
             .iter()
             .any(|r| r.path == "fonts/Inter-Regular.ttf"),
         "Undo must cleanly remove imported font resource and embedding metadata"
+    );
+
+    // 5. Adding same-named font files from different folders reserves paths across the batch.
+    let first_dir = tmp.path.join("first");
+    let second_dir = tmp.path.join("second");
+    fs::create_dir_all(&first_dir).unwrap();
+    fs::create_dir_all(&second_dir).unwrap();
+    let first_font = first_dir.join("Inter-Regular.ttf");
+    let second_font = second_dir.join("Inter-Regular.ttf");
+    fs::copy(&src_ttf, &first_font).unwrap();
+    fs::copy(&src_ttf, &second_font).unwrap();
+    let mut editor = crate::app::Editor::from_project(&ctx, Project::blank());
+    editor
+        .import_resource_paths(&[first_font, second_font])
+        .unwrap();
+    editor.project.validate().unwrap();
+    let imported_paths: std::collections::BTreeSet<_> = editor
+        .project
+        .resources
+        .iter()
+        .filter(|resource| resource.media_type == "font/ttf")
+        .map(|resource| resource.path.as_str())
+        .collect();
+    assert_eq!(
+        imported_paths,
+        ["fonts/Inter-Regular-2.ttf", "fonts/Inter-Regular.ttf"]
+            .into_iter()
+            .collect(),
+        "one Add resource files operation must keep both same-named fonts"
+    );
+    assert_eq!(read_embedding(&editor.project).len(), 2);
+
+    // 6. A corrupt existing embedding registry blocks an import without overwriting user data.
+    let invalid_metadata = ResourceUnit::from_bytes(
+        "font_metadata",
+        "fonts/embedding.json",
+        "application/json",
+        b"not valid json",
+    )
+    .unwrap();
+    let mut invalid_project = Project::blank();
+    invalid_project.format_version = invalid_project.format_version.max(3);
+    invalid_project.resources.push(invalid_metadata);
+    invalid_project.validate().unwrap();
+    let before = invalid_project.to_json().unwrap();
+    let mut editor = crate::app::Editor::from_project(&ctx, invalid_project);
+    let error = editor
+        .import_resource_paths(std::slice::from_ref(&ttf_input))
+        .expect_err("invalid font embedding metadata must fail closed");
+    assert!(error.contains("existing metadata is invalid"), "{error}");
+    assert_eq!(
+        editor.project.to_json().unwrap(),
+        before,
+        "failed font import must not replace malformed existing metadata"
     );
 }

@@ -52,6 +52,7 @@ SPDX_LICENCE_PREFIXES = (
 )
 MAX_LICENCE_FILE_BYTES = 2 * 1024 * 1024
 MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024
+DEFAULT_BREW_BIN = Path("/opt/homebrew/bin/brew")
 
 
 @dataclass(frozen=True)
@@ -303,10 +304,13 @@ def primary_git_revision(recipe_text: str) -> tuple[str | None, str | None]:
     return None, None
 
 
-def brew_formula_info(formula: str) -> dict[str, Any] | None:
+def brew_formula_info(
+    formula: str,
+    brew_bin: Path = DEFAULT_BREW_BIN,
+) -> dict[str, Any] | None:
     try:
         result = subprocess.run(
-            ["brew", "info", "--json=v2", formula],
+            [str(brew_bin), "info", "--json=v2", formula],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -341,6 +345,7 @@ def resolve_bottle_provenance(
     version: str,
     receipt: dict[str, Any],
     bottle_packages: list[dict[str, Any]],
+    brew_bin: Path = DEFAULT_BREW_BIN,
 ) -> tuple[str | None, str | None, str]:
     """Return exact bottle URL/hash, using formula API metadata only when version-exact.
 
@@ -356,7 +361,7 @@ def resolve_bottle_provenance(
         if url not in ("", "NOASSERTION", "NONE") and digest:
             return url, digest, "keg-spdx"
 
-    info = brew_formula_info(formula)
+    info = brew_formula_info(formula, brew_bin)
     if not info or formula_pkg_version(info) != version:
         return None, None, "unresolved"
     tag = receipt_bottle_tag(receipt)
@@ -378,10 +383,11 @@ def resolve_local_patches(
     version: str,
     local_files: list[str],
     missing: list[dict[str, str]],
+    brew_bin: Path = DEFAULT_BREW_BIN,
 ) -> tuple[list[ArtifactSpec], dict[str, Any]]:
     if not local_files:
         return [], {}
-    info = brew_formula_info(formula)
+    info = brew_formula_info(formula, brew_bin)
     if not info or formula_pkg_version(info) != version:
         for file_name in local_files:
             missing.append(
@@ -762,6 +768,7 @@ def build_provenance(
     output_dir: Path | None,
     archive_path: Path | None,
     allow_download: bool,
+    brew_bin: Path = DEFAULT_BREW_BIN,
     build_scripts: list[Path] | None = None,
 ) -> dict[str, Any]:
     missing: list[dict[str, str]] = []
@@ -833,7 +840,7 @@ def build_provenance(
                 continue
             source_package = source_packages[0]
             bottle_url, bottle_hash, bottle_evidence = resolve_bottle_provenance(
-                formula, version, receipt, bottle_packages
+                formula, version, receipt, bottle_packages, brew_bin
             )
             if bottle_hash is None or bottle_url is None:
                 missing.append({"code": "bottle-provenance-incomplete", "component": component_name})
@@ -877,7 +884,13 @@ def build_provenance(
                     }
                 )
             patches, local_patch_files = extract_recipe_patches(formula, recipe_text)
-            local_patches, tap_metadata = resolve_local_patches(formula, version, local_patch_files, missing)
+            local_patches, tap_metadata = resolve_local_patches(
+                formula,
+                version,
+                local_patch_files,
+                missing,
+                brew_bin,
+            )
             patches.extend(local_patches)
 
             record: dict[str, Any] = {
@@ -1078,6 +1091,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Homebrew Cellar containing the exact staged kegs",
     )
     parser.add_argument(
+        "--brew-bin",
+        type=Path,
+        default=DEFAULT_BREW_BIN,
+        help="absolute trusted Homebrew executable used for version-exact formula metadata",
+    )
+    parser.add_argument(
         "--cache-dir",
         type=Path,
         default=project_root / "target" / "bundled-media-source-cache",
@@ -1099,6 +1118,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.archive and not args.output_dir:
         parser.error("--archive requires --output-dir")
+    if not args.brew_bin.is_absolute():
+        parser.error("--brew-bin must be an absolute path")
 
     try:
         if args.refresh_staged_hashes:
@@ -1110,6 +1131,7 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=args.output_dir.resolve() if args.output_dir else None,
             archive_path=args.archive.resolve() if args.archive else None,
             allow_download=args.download,
+            brew_bin=args.brew_bin.resolve(),
             build_scripts=[
                 project_root / "scripts" / "build-bundled-ffmpeg.sh",
                 project_root / "scripts" / "build-bundled-ffmpeg-lgpl.sh",

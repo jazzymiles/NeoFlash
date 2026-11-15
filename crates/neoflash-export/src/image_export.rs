@@ -1553,7 +1553,7 @@ where
                     })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let tx = SequenceSetTransaction::begin(parent, stem)?;
+        let tx = SequenceSetTransaction::begin_for_family(parent, stem, ext)?;
         tx.preflight(&planned_names)?;
         Some((tx, planned_names))
     } else {

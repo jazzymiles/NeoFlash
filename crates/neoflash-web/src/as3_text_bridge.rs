@@ -146,10 +146,6 @@ impl WebPlayer {
                 "stale input event did not match TextField revision",
             ));
         }
-        if state.interaction_mode == "selection" {
-            return serde_json::to_string(&state).map_err(display_error);
-        }
-
         // Strip single-line newlines (while remapping `req.runs`) before delegating to
         // `state.replace_utf16_range_with_runs`, which filters `state.restrict` BEFORE `state.max_chars`.
         let floor_begin =

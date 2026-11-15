@@ -2630,19 +2630,85 @@ fn export_single_jpeg_to_exact_path(
 fn isolate_symbol_for_html5_export(project: &Project, sym_id: &str) -> Project {
     let mut cloned = project.clone();
     cloned.script_language = Some(project.effective_script_language());
+    let selected_kind = project.symbol(sym_id).map(|symbol| symbol.kind);
+    // Runtime roots receive `Project::document_class`; `Symbol::class_name` is used only when a
+    // symbol is instantiated below the root. Promoting a library symbol/secondary scene therefore
+    // also promotes its class binding, while isolating an unbound symbol must not run the original
+    // document class against unrelated artwork.
+    if sym_id != project.root && selected_kind != Some(SymbolKind::Button) {
+        cloned.document_class = project
+            .symbol(sym_id)
+            .and_then(|symbol| symbol.class_name.clone());
+    }
     cloned
         .symbols
         .retain(|s| s.id == sym_id || !project.is_scene(&s.id));
-    cloned.root = sym_id.to_owned();
     cloned.scenes.clear();
-    let doc_class = cloned.document_class.clone();
-    if let Some(root_sym) = cloned.symbol_mut(sym_id) {
-        root_sym.kind = SymbolKind::MovieClip;
-        root_sym.folder.clear();
-        root_sym.linkage_id = None;
-        if doc_class.is_some() && root_sym.class_name.is_some() && root_sym.class_name != doc_class
-        {
-            root_sym.class_name = None;
+
+    if selected_kind == Some(SymbolKind::Button) {
+        // A document root must be a MovieClip, while a bound Button class must extend
+        // SimpleButton. Preserve the selected Button and instantiate it under a deterministic
+        // one-frame wrapper instead of mutating its kind and applying an incompatible document
+        // class to the wrapper.
+        cloned.document_class = None;
+        let mut occupied = crate::clipboard::collect_occupied_project_ids(&cloned);
+        let mut reserve_id = |base: &str| {
+            let mut suffix = 1usize;
+            let mut candidate = base.to_owned();
+            while occupied.contains(&candidate) {
+                suffix += 1;
+                candidate = format!("{base}-{suffix}");
+            }
+            occupied.insert(candidate.clone());
+            candidate
+        };
+        let wrapper_id = reserve_id(&format!("{sym_id}-export-root"));
+        let layer_id = reserve_id(&format!("{wrapper_id}-layer"));
+        let instance_id = reserve_id(&format!("{wrapper_id}-instance"));
+        cloned.symbols.push(Symbol {
+            id: wrapper_id.clone(),
+            name: project
+                .symbol(sym_id)
+                .map(|symbol| format!("{} — export root", symbol.name))
+                .unwrap_or_else(|| "Export root".into()),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            linkage_id: None,
+            class_name: None,
+            timeline: Timeline {
+                frame_count: 1,
+                layers: vec![Layer {
+                    id: layer_id,
+                    name: "Export root".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: instance_id,
+                            name: String::new(),
+                            transform: Transform::default(),
+                            kind: ElementKind::Instance {
+                                symbol_id: sym_id.to_owned(),
+                                playback: InstancePlayback::Independent,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    }],
+                    properties: LayerProperties::default(),
+                }],
+                scripts: Vec::new(),
+                guides: Vec::new(),
+            },
+        });
+        cloned.root = wrapper_id;
+    } else {
+        cloned.root = sym_id.to_owned();
+        if let Some(root_sym) = cloned.symbol_mut(sym_id) {
+            root_sym.kind = SymbolKind::MovieClip;
+            root_sym.folder.clear();
+            root_sym.linkage_id = None;
         }
     }
     finalize_project_format_version(&mut cloned);
@@ -2818,6 +2884,10 @@ pub(crate) fn export_project_with_spec(
             }))
         }
         ExportTarget::Desktop => {
+            let isolated_symbol_project = symbol_id
+                .as_deref()
+                .map(|sym_id| isolate_symbol_for_html5_export(project, sym_id));
+            let project = isolated_symbol_project.as_ref().unwrap_or(project);
             let runtime_dir = resolve_web_runtime(spec.runtime.as_deref())?;
             let (profile, _, _) = resolve_publish_profile_and_options(project, spec)?;
             let (cfg, _) = build_html_publish_config(spec, true)?;
@@ -2836,6 +2906,10 @@ pub(crate) fn export_project_with_spec(
             }))
         }
         ExportTarget::Banner => {
+            let isolated_symbol_project = symbol_id
+                .as_deref()
+                .map(|sym_id| isolate_symbol_for_html5_export(project, sym_id));
+            let project = isolated_symbol_project.as_ref().unwrap_or(project);
             let mut opts = BannerOptions::default();
             if let Some(max_gz) = spec.banner_max_gzip {
                 opts.max_gzip_bytes = Some(max_gz);

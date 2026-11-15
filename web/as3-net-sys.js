@@ -2552,15 +2552,32 @@
       const origPause = NetStream.prototype.pause;
       const origResume = NetStream.prototype.resume;
       const origClose = NetStream.prototype.close;
+      const origDispose = NetStream.prototype.dispose;
       const origSeek = NetStream.prototype.seek;
       const origTogglePause = NetStream.prototype.togglePause;
       const origBufferLengthDesc = Object.getOwnPropertyDescriptor(NetStream.prototype, 'bufferLength');
       const origCurrentFPSDesc = Object.getOwnPropertyDescriptor(NetStream.prototype, 'currentFPS');
       const origBytesLoadedDesc = Object.getOwnPropertyDescriptor(NetStream.prototype, 'bytesLoaded');
       const origBytesTotalDesc = Object.getOwnPropertyDescriptor(NetStream.prototype, 'bytesTotal');
+      const disposedNetStreams = new WeakSet();
 
       function isFileStream(r) {
         return Boolean(r.legacy || (!r.appendMode && (r.media || r.wanted || r.aviHandle || r.aviBytes || r.url)));
+      }
+
+      function setReceiveVideoEnabled(r, enabled) {
+        const next = Boolean(enabled);
+        if (!r.receiveState) r.receiveState = { audio: true, video: true };
+        if (next !== r.receiveState.video) {
+          r.suppressedFrame = next ? null : vh.freeze(r);
+          r.receiveVideoFlag = next;
+          r.receiveState.video = next;
+          r.serial = vh.bumpSerial();
+          vh.collectFrames();
+          vh.repaint();
+        } else {
+          r.receiveVideoFlag = next;
+        }
       }
 
       function invokeClientCallback(r, handlerName, payload) {
@@ -3086,18 +3103,7 @@
           writable: true,
           value: function receiveVideo(flag) {
             const r = nsRec(this);
-            const next = Boolean(flag);
-            if (!r.receiveState) r.receiveState = { audio: true, video: true };
-            if (next !== r.receiveState.video) {
-              r.suppressedFrame = next ? null : vh.freeze(r);
-              r.receiveVideoFlag = next;
-              r.receiveState.video = next;
-              r.serial = vh.bumpSerial();
-              vh.collectFrames();
-              vh.repaint();
-            } else {
-              r.receiveVideoFlag = next;
-            }
+            setReceiveVideoEnabled(r, flag);
           },
         },
         receiveVideoFPS: {
@@ -3108,9 +3114,7 @@
             const n = Number(FPS);
             if (!Number.isFinite(n) || n < 0) throw new RangeError('NetStream.receiveVideoFPS must be >= 0.');
             r.receiveVideoFpsVal = n;
-            r.receiveVideoFlag = n > 0;
-            if (!r.receiveState) r.receiveState = { audio: true, video: true };
-            r.receiveState.video = n > 0;
+            setReceiveVideoEnabled(r, n > 0);
           },
         },
         step: {
@@ -3184,9 +3188,16 @@
           configurable: true,
           writable: true,
           value: function dispose() {
+            if (disposedNetStreams.has(this)) return;
             const r = nsRec(this);
-            r.disposed = true;
-            Reflect.apply(origClose, this, []);
+            const connection = r.connection?.receiver;
+            if (connection) {
+              const ncr = ncRec(connection);
+              ncr.unconnectedPeerStreams = ncr.unconnectedPeerStreams.filter((stream) => stream !== this);
+            }
+            const result = Reflect.apply(origDispose, this, []);
+            disposedNetStreams.add(this);
+            return result;
           },
         },
       });

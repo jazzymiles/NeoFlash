@@ -8,9 +8,11 @@
 //! headers or form fields.
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use neoflash_core::sha256::Sha256;
 use serde_json::Value;
 use std::{
     fmt,
+    io::Read as _,
     net::{IpAddr, ToSocketAddrs},
     time::Duration,
 };
@@ -46,6 +48,9 @@ pub const MAX_FEEDBACK_MESSAGE_BYTES: usize = 64 * 1024;
 pub const FORMSUBMIT_ACTIVATION_ERROR: &str = "Feedback form is awaiting one-time activation: open the FormSubmit email sent to developer@redinger.cc (check Spam), click 'Activate Form', then click Send again.";
 
 const RESPONSE_SNIPPET_BYTES: usize = 16 * 1024;
+const MULTIPART_BOUNDARY_PREFIX: &str = "----NeoFlashFeedbackBoundary";
+const MULTIPART_BOUNDARY_DIGEST_HEX_LEN: usize = 40;
+const MAX_MULTIPART_BOUNDARY_ATTEMPTS: u32 = 8;
 
 /// A validated image attachment held in session memory for `"Beta feedback"`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -365,27 +370,83 @@ pub fn resolve_feedback_url(
     resolve_feedback_url_with_env(explicit_override, env_val.as_deref())
 }
 
-fn choose_boundary(message: &str, attachments: &[FeedbackAttachment]) -> String {
-    let mut counter: u64 = 1;
-    loop {
-        let candidate = format!("----NeoFlashFeedbackBoundary{counter:016x}");
-        let needle = candidate.as_bytes();
-        let collides_msg = message
-            .as_bytes()
-            .windows(needle.len())
-            .any(|w| w == needle);
-        let collides_att = attachments.iter().any(|att| {
-            att.filename
+fn hash_multipart_value(hasher: &mut Sha256, value: &[u8]) {
+    hasher.update(&(value.len() as u64).to_be_bytes());
+    hasher.update(value);
+}
+
+fn feedback_payload_digest(message: &str, attachments: &[FeedbackAttachment]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"NeoFlash feedback multipart payload v1\0");
+    hash_multipart_value(&mut hasher, message.as_bytes());
+    hasher.update(&(attachments.len() as u64).to_be_bytes());
+    for attachment in attachments {
+        hash_multipart_value(&mut hasher, attachment.filename.as_bytes());
+        hash_multipart_value(&mut hasher, attachment.content_type.as_bytes());
+        hash_multipart_value(&mut hasher, &attachment.bytes);
+    }
+    hasher.finalize()
+}
+
+fn boundary_candidate(payload_digest: &[u8; 32], attempt: u32) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"NeoFlash feedback multipart boundary v1\0");
+    hasher.update(payload_digest);
+    hasher.update(&attempt.to_be_bytes());
+    let digest_hex = hasher.finalize_hex();
+
+    // A multipart boundary is limited to 70 characters by RFC 2046. The 28-character
+    // product prefix plus 40 digest hex characters stays within that limit while retaining
+    // 160 bits of collision resistance.
+    format!(
+        "{MULTIPART_BOUNDARY_PREFIX}{}",
+        &digest_hex[..MULTIPART_BOUNDARY_DIGEST_HEX_LEN]
+    )
+}
+
+fn boundary_collides(candidate: &str, message: &str, attachments: &[FeedbackAttachment]) -> bool {
+    let needle = candidate.as_bytes();
+    message
+        .as_bytes()
+        .windows(needle.len())
+        .any(|window| window == needle)
+        || attachments.iter().any(|attachment| {
+            attachment
+                .filename
                 .as_bytes()
                 .windows(needle.len())
-                .any(|w| w == needle)
-                || att.bytes.windows(needle.len()).any(|w| w == needle)
-        });
-        if !collides_msg && !collides_att {
-            return candidate;
+                .any(|window| window == needle)
+                || attachment
+                    .bytes
+                    .windows(needle.len())
+                    .any(|window| window == needle)
+        })
+}
+
+fn choose_boundary_from_digest(
+    message: &str,
+    attachments: &[FeedbackAttachment],
+    payload_digest: &[u8; 32],
+) -> Result<String, BetaFeedbackHttpError> {
+    for attempt in 0..MAX_MULTIPART_BOUNDARY_ATTEMPTS {
+        let candidate = boundary_candidate(payload_digest, attempt);
+        if !boundary_collides(&candidate, message, attachments) {
+            return Ok(candidate);
         }
-        counter = counter.wrapping_add(1);
     }
+
+    Err(BetaFeedbackHttpError::Validation(
+        "Could not construct a safe feedback request. Please edit the message or attachment names and try again."
+            .into(),
+    ))
+}
+
+fn choose_boundary(
+    message: &str,
+    attachments: &[FeedbackAttachment],
+) -> Result<String, BetaFeedbackHttpError> {
+    let payload_digest = feedback_payload_digest(message, attachments);
+    choose_boundary_from_digest(message, attachments, &payload_digest)
 }
 
 /// Build an RFC 7578 `multipart/form-data` payload containing **only** the `message` text and
@@ -462,7 +523,7 @@ pub fn build_feedback_multipart_body_for_url(
     }
 
     let include_formsubmit_captcha = target_url.is_some_and(is_formsubmit_endpoint);
-    let boundary = choose_boundary(message, attachments);
+    let boundary = choose_boundary(message, attachments)?;
     let total_bytes: usize = 384
         + message.len()
         + attachments
@@ -547,15 +608,33 @@ fn map_ureq_error(err: ureq::Error) -> BetaFeedbackHttpError {
     }
 }
 
-fn read_body_snippet(body: &mut ureq::Body) -> String {
-    match body
+struct FeedbackResponseSnippet {
+    text: String,
+    truncated: bool,
+}
+
+fn read_body_snippet(
+    body: &mut ureq::Body,
+) -> Result<FeedbackResponseSnippet, BetaFeedbackHttpError> {
+    // Read one byte beyond the retained prefix so an oversized JSON response cannot be
+    // mistaken for a complete, successful response. Using `BodyWithConfig::limit` would lose
+    // the useful prefix entirely when the body exceeds the limit.
+    let mut bytes = Vec::with_capacity(RESPONSE_SNIPPET_BYTES + 1);
+    let mut reader = body
         .with_config()
-        .limit(RESPONSE_SNIPPET_BYTES as u64)
-        .read_to_string()
-    {
-        Ok(s) => s.trim().to_owned(),
-        Err(_) => String::new(),
-    }
+        .reader()
+        .take((RESPONSE_SNIPPET_BYTES + 1) as u64);
+    reader.read_to_end(&mut bytes).map_err(|error| {
+        BetaFeedbackHttpError::OfflineOrNetwork(format!(
+            "could not read feedback response body: {error}"
+        ))
+    })?;
+    let truncated = bytes.len() > RESPONSE_SNIPPET_BYTES;
+    bytes.truncate(RESPONSE_SNIPPET_BYTES);
+    Ok(FeedbackResponseSnippet {
+        text: String::from_utf8_lossy(&bytes).trim().to_owned(),
+        truncated,
+    })
 }
 
 fn looks_like_html_document(raw: &str) -> bool {
@@ -750,13 +829,21 @@ pub(crate) fn interpret_feedback_http_response(
     }
 
     let trimmed = raw_body.trim();
-    let parsed_json = if trimmed.starts_with('{') {
+    let looks_like_json = trimmed.starts_with('{') || trimmed.starts_with('[');
+    let parsed_json = if looks_like_json {
         serde_json::from_str::<Value>(trimmed).ok()
     } else {
         None
     };
 
     if (200..300).contains(&status) {
+        if looks_like_json && parsed_json.is_none() {
+            return Err(BetaFeedbackHttpError::ServerRejected {
+                status: Some(status),
+                detail: "feedback endpoint returned malformed JSON; the submission result could not be verified."
+                    .into(),
+            });
+        }
         if let Some(json) = &parsed_json
             && is_json_logical_failure(json)
         {
@@ -837,6 +924,30 @@ pub(crate) fn interpret_feedback_http_response(
     })
 }
 
+fn interpret_feedback_http_response_snippet(
+    status: u16,
+    snippet: &FeedbackResponseSnippet,
+) -> Result<(), BetaFeedbackHttpError> {
+    if snippet.truncated {
+        let stripped = strip_html_markup(&snippet.text);
+        if contains_html_markup(&snippet.text)
+            && (is_formsubmit_activation_notice(&stripped)
+                || is_captcha_challenge_notice(&stripped))
+        {
+            return interpret_feedback_http_response(status, &snippet.text);
+        }
+        return Err(BetaFeedbackHttpError::ServerRejected {
+            status: Some(status),
+            detail: format!(
+                "feedback endpoint returned more than {} KB; the submission result could not be verified.",
+                RESPONSE_SNIPPET_BYTES / 1024
+            ),
+        });
+    }
+
+    interpret_feedback_http_response(status, &snippet.text)
+}
+
 /// Send beta feedback as an RFC 7578 `multipart/form-data` POST request.
 ///
 /// Validates both HTTP status (`2xx`, redirects disabled) and JSON logical status
@@ -862,8 +973,8 @@ pub fn send_beta_feedback_multipart(
         .map_err(map_ureq_error)?;
 
     let status = response.status().as_u16();
-    let raw_body = read_body_snippet(response.body_mut());
-    interpret_feedback_http_response(status, &raw_body)
+    let snippet = read_body_snippet(response.body_mut())?;
+    interpret_feedback_http_response_snippet(status, &snippet)
 }
 
 #[cfg(test)]
@@ -890,6 +1001,28 @@ mod tests {
 
     fn sample_webp() -> Vec<u8> {
         b"RIFF\x14\x00\x00\x00WEBPVP8 \x08\x00\x00\x00".to_vec()
+    }
+
+    #[test]
+    fn crafted_multipart_boundary_collisions_retry_then_fail_closed() {
+        let payload_digest = [0xA5; 32];
+        let first_candidate = boundary_candidate(&payload_digest, 0);
+        let message = format!("A crafted report containing {first_candidate}");
+
+        let selected = choose_boundary_from_digest(&message, &[], &payload_digest)
+            .expect("one colliding candidate must advance to the next digest-derived boundary");
+        assert_eq!(selected, boundary_candidate(&payload_digest, 1));
+        assert!(!message.contains(&selected));
+        assert!(selected.len() <= 70, "RFC 2046 boundary limit exceeded");
+
+        let all_candidates = (0..MAX_MULTIPART_BOUNDARY_ATTEMPTS)
+            .map(|attempt| boundary_candidate(&payload_digest, attempt))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let err = choose_boundary_from_digest(&all_candidates, &[], &payload_digest)
+            .expect_err("exhausting the bounded candidate set must fail closed");
+        assert!(matches!(err, BetaFeedbackHttpError::Validation(_)));
+        assert!(err.to_string().contains("safe feedback request"));
     }
 
     fn spawn_one_shot_server(
@@ -1094,6 +1227,78 @@ mod tests {
         assert!(
             !rendered.contains("actived"),
             "upstream FormSubmit typo must never surface: {rendered}"
+        );
+    }
+
+    #[test]
+    fn oversized_http_200_html_keeps_its_prefix_and_fails_closed() {
+        let response_body: &'static str = Box::leak(
+            format!(
+                "<!DOCTYPE html><html><body><h1>Activate Form</h1><p>This form needs Activation.</p>{}</body></html>",
+                "padding".repeat(RESPONSE_SNIPPET_BYTES)
+            )
+            .into_boxed_str(),
+        );
+        assert!(response_body.len() > RESPONSE_SNIPPET_BYTES);
+        let (url, handle) = spawn_one_shot_server(
+            "200 OK",
+            "Content-Type: text/html; charset=utf-8\r\n",
+            response_body,
+        );
+
+        let err = send_beta_feedback_multipart("First test report", &[], Some(&url))
+            .expect_err("large HTML activation response must not be treated as success");
+        let _ = handle.join();
+        assert_eq!(err.to_string(), FORMSUBMIT_ACTIVATION_ERROR);
+    }
+
+    #[test]
+    fn oversized_http_200_json_cannot_report_false_success() {
+        let response_body: &'static str = Box::leak(
+            format!(
+                r#"{{"success":"true","message":"{}"}}"#,
+                "padding".repeat(RESPONSE_SNIPPET_BYTES)
+            )
+            .into_boxed_str(),
+        );
+        assert!(response_body.len() > RESPONSE_SNIPPET_BYTES);
+        let (url, handle) = spawn_one_shot_server(
+            "200 OK",
+            "Content-Type: application/json\r\n",
+            response_body,
+        );
+
+        let err = send_beta_feedback_multipart("First test report", &[], Some(&url))
+            .expect_err("truncated JSON must not be treated as a successful submission");
+        let _ = handle.join();
+        assert!(matches!(
+            &err,
+            BetaFeedbackHttpError::ServerRejected {
+                status: Some(200),
+                ..
+            }
+        ));
+        assert!(err.to_string().contains("could not be verified"));
+    }
+
+    #[test]
+    fn malformed_json_http_200_cannot_report_false_success() {
+        for malformed in [r#"{"success":false}garbage"#, r#"[{"success":true}"#] {
+            let err = interpret_feedback_http_response(200, malformed)
+                .expect_err("JSON-looking malformed responses must fail closed");
+            assert!(matches!(
+                &err,
+                BetaFeedbackHttpError::ServerRejected {
+                    status: Some(200),
+                    ..
+                }
+            ));
+            assert!(err.to_string().contains("malformed JSON"));
+        }
+
+        assert!(
+            interpret_feedback_http_response(200, r#"["accepted"]"#).is_ok(),
+            "a complete valid JSON response must not be rejected as malformed"
         );
     }
 

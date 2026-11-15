@@ -577,7 +577,8 @@ test('T-327 Node WASM & host unit suite: NetStream reset modes (0/1/2/3), Seek.I
   opCh.stop();
   assert.equal(audioHost.SoundMixer.areSoundsInaccessible(), false);
 
-  // Verify NetStream reset modes 2 (immediateIfIdle) and 3 (resetQueueAppend) + play(false)
+  // Verify Adobe reset modes 2 (append + aggregate messages) and 3
+  // (reset playlist + aggregate messages), ordinary playlist Switch/time, and play(false).
   const videoElements = [];
   const blobs = new Map();
   const displayRefs = new Map();
@@ -660,20 +661,36 @@ test('T-327 Node WASM & host unit suite: NetStream reset modes (0/1/2/3), Seek.I
   ns.addEventListener('netStatus', (e) => statuses.push(e.info.code));
 
   ns.play('media/motion.mp4', 0, -1, 1);
-  // Mode 2 (immediateIfIdle) while busy -> ignored!
-  ns.play('audio/cued.wav', 0, -1, 2);
+  // Mode 2 appends while busy; local files have no stream-message batch to aggregate.
+  ns.play('audio/cued.wav', 2, -1, 2);
   await new Promise((r) => setTimeout(r, 25));
-  assert.equal(metas.length, 1, 'reset=2 (immediateIfIdle) is ignored while a clip is already playing');
-
-  // Mode 0 appends two items, then Mode 3 (resetQueueAppend) replaces the pending queue with one item!
-  ns.play('media/motion.mp4', 0, -1, 0);
-  ns.play('media/motion.mp4', 0, -1, 0);
-  ns.play('audio/cued.wav', 0, -1, 3);
+  assert.equal(metas.length, 1, 'reset=2 queues instead of replacing the active clip');
+  videoElements.at(-1).currentTime = 1.25;
   videoElements.at(-1).ended = true;
   videoElements.at(-1).emit('ended');
   await new Promise((r) => setTimeout(r, 25));
-  assert.ok(statuses.includes('NetStream.Play.Transition'), 'reset=3 transitions to the single replacement queued item');
-  assert.equal(metas.at(-1).width, 0, 'queued item from reset=3 was audio/cued.wav (width=0)');
+  assert.ok(statuses.includes('playStatus:NetStream.Play.Switch'), 'ordinary playlist transition reports onPlayStatus NetStream.Play.Switch');
+  assert.ok(!statuses.includes('NetStream.Play.Transition'), 'ordinary playlist transition must not report bitrate-switch NetStream.Play.Transition');
+  assert.ok(!statuses.includes('playStatus:NetStream.Play.TransitionComplete'), 'ordinary playlist transition must not report bitrate-switch TransitionComplete');
+  assert.equal(metas.at(-1).width, 0, 'reset=2 appended audio/cued.wav');
+  assert.ok(Math.abs(ns.time - 1.25) < 1e-6, 'playlist time carries across the element boundary');
+  videoElements.at(-1).currentTime = 2.2;
+  assert.ok(Math.abs(ns.time - 1.45) < 1e-6, 'playlist time continues increasing in the next element');
+
+  // Mode 3 clears the pending playlist and starts the new element immediately.
+  ns.play('audio/cued.wav', 0, -1, 0);
+  const beforeReset3Elements = videoElements.length;
+  ns.play('media/motion.mp4', 0, -1, 3);
+  await new Promise((r) => setTimeout(r, 25));
+  assert.equal(videoElements.length, beforeReset3Elements + 1, 'reset=3 replaces the active clip immediately');
+  assert.equal(metas.at(-1).width, 320, 'reset=3 starts the replacement video');
+  assert.equal(ns.time, 0, 'reset=3 resets playlist time');
+  const switchesBeforeReset3End = statuses.filter((code) => code === 'playStatus:NetStream.Play.Switch').length;
+  videoElements.at(-1).currentTime = 0.5;
+  videoElements.at(-1).ended = true;
+  videoElements.at(-1).emit('ended');
+  await new Promise((r) => setTimeout(r, 15));
+  assert.equal(statuses.filter((code) => code === 'playStatus:NetStream.Play.Switch').length, switchesBeforeReset3End, 'reset=3 cleared the old pending playlist');
 
   // play(false) stops active playback and emits NetStream.Play.Stop
   statuses.length = 0;
@@ -698,6 +715,16 @@ test('T-327 Node WASM & host unit suite: NetStream reset modes (0/1/2/3), Seek.I
   ));
   assert.equal(plan3.isMatrix, true);
   assert.ok(Math.abs(plan3.gains[0] - 0.9) < 1e-6, `3-stage gain[0] must be 1.8 * 0.5 = 0.9, got ${plan3.gains[0]}`);
+
+  // Disposed streams release the publication's 64-stream quota and remain
+  // idempotently disposed instead of silently continuing to operate.
+  ns.dispose();
+  assert.doesNotThrow(() => ns.dispose());
+  assert.throws(() => ns.play('media/motion.mp4'), /disposed/);
+  for (let i = 0; i < 65; i++) {
+    const transient = new videoHost.NetStream(nc);
+    transient.dispose();
+  }
 
   videoHost.dispose();
   audioHost.dispose();
@@ -994,7 +1021,8 @@ test('T-327 Real Headless Chrome Canvas + DOM end-to-end suite: AS2/AS3 Video pi
     }
 
     private function checkStep1():void {
-      var ok1:Boolean = (rtmpStatus == "NetConnection.Connect.Rejected")
+      var ok1:Boolean = disposeQuotaProbe()
+        && (rtmpStatus == "NetConnection.Connect.Rejected")
         && (statusCodes.indexOf("NetStream.Play.Start") >= 0)
         && (statusCodes.indexOf("NetStream.Buffer.Full") >= 0)
         && (statusCodes.indexOf("NetStream.Play.Stop") >= 0)
@@ -1003,6 +1031,18 @@ test('T-327 Real Headless Chrome Canvas + DOM end-to-end suite: AS2/AS3 Video pi
         && (ns.bytesTotal == ${cuedMp4.length});
       trace("STEP1_SINGLE_FRAME=" + ok1 + " codes=" + statusCodes.join(","));
       step2PlaylistAndCues();
+    }
+
+    private function disposeQuotaProbe():Boolean {
+      try {
+        for (var i:int = 0; i < 65; i++) {
+          var transient:NetStream = new NetStream(nc);
+          transient.dispose();
+        }
+        return true;
+      } catch (error:*) {
+        return false;
+      }
     }
 
     private function step2PlaylistAndCues():void {
@@ -1030,8 +1070,7 @@ test('T-327 Real Headless Chrome Canvas + DOM end-to-end suite: AS2/AS3 Video pi
 
     private function pollStep2():void {
       pollTicks++;
-      var ready2:Boolean = (statusCodes.indexOf("NetStream.Play.Transition") >= 0)
-        && (playStatuses.indexOf("NetStream.Play.TransitionComplete") >= 0)
+      var ready2:Boolean = (playStatuses.indexOf("NetStream.Play.Switch") >= 0)
         && (playStatuses.indexOf("NetStream.Play.Complete") >= 0)
         && (cues.indexOf("mp4_cue_1") >= 0)
         && (cues.indexOf("chrome_cue") >= 0)
@@ -1044,8 +1083,9 @@ test('T-327 Real Headless Chrome Canvas + DOM end-to-end suite: AS2/AS3 Video pi
     }
 
     private function checkStep2():void {
-      var ok2:Boolean = (statusCodes.indexOf("NetStream.Play.Transition") >= 0)
-        && (playStatuses.indexOf("NetStream.Play.TransitionComplete") >= 0)
+      var ok2:Boolean = (statusCodes.indexOf("NetStream.Play.Transition") < 0)
+        && (playStatuses.indexOf("NetStream.Play.Switch") >= 0)
+        && (playStatuses.indexOf("NetStream.Play.TransitionComplete") < 0)
         && (playStatuses.indexOf("NetStream.Play.Complete") >= 0)
         && (cues.indexOf("mp4_cue_1") >= 0)
         && (cues.indexOf("chrome_cue") >= 0)
