@@ -2,8 +2,9 @@
  * No JSON substitution for AMF: JSON is only the lossless tagged WASM ABI.
  * Primitive numbers, arrays (dense + named own entries), records, Date and
  * ByteArray preserve cycles/references. Source-class public fields/getters can
- * flatten to records through program.jsonKeys; class aliases/native objects,
- * functions, symbol keys, dictionary/vector/XML and externalizable objects are
+ * flatten to records through program.jsonKeys; registered class aliases retain
+ * their type. XML/XMLDocument use the publication XML service. Functions, symbol keys,
+ * dictionary/vector/XMLList and externalizable objects are
  * explicit boundaries. Ordinary record accessors are not executed.
  */
 (function(global){
@@ -68,7 +69,7 @@
       classNameToAlias.clear();
     }
     function graph(value,graphOptions={}){
-      const seen=new Map(),nodes=[],prog=options.getProgram?.();let visits=0,bytes=0;
+      const seen=new Map(),nodes=[],prog=options.getProgram?.(),xml=options.getXML?.();let visits=0,bytes=0;
       const dynWriter=dynamicWriterGetter?.()||null;
       function text(value){
         if(typeof value!=='string'||value.length>MAX_BYTES)throw new RangeError('AMF strings exceed the 16 MiB graph budget.');
@@ -86,12 +87,16 @@
         if(options.isUnsupported?.(value))throw new TypeError('AMF display/native objects require an explicit data record; class aliases are not implemented.');
         const index=nodes.length;if(index>=MAX_VALUES)throw new RangeError('AMF graph exceeds 100000 nodes.');seen.set(value,index);nodes.push(null);
         if(binary.ByteArray.__nfIs(value)){const data=binary.toBytes(value);bytes+=data.length;if(bytes>MAX_BYTES)throw new RangeError('AMF strings/bytes exceed 16 MiB.');nodes[index]={type:'bytes',base64:base64(data)};return {type:'ref',value:index};}
+        if(xml?.XML?.__nfIs(value)){nodes[index]={type:'xml',text:text(xml.method(value,'toXMLString',true)())};return {type:'ref',value:index};}
+        if(xml?.XMLDocument?.__nfIs(value)||xml?.LegacyXML?.__nfIs(value)){nodes[index]={type:'xml_document',text:text(Reflect.apply(xml.XMLNode.prototype.toString,value,[]))};return {type:'ref',value:index};}
+        if(xml?.XMLList?.__nfIs(value))throw new TypeError('AMF XMLList serialization is not supported; use an XML value.');
         let milliseconds;try{milliseconds=Reflect.apply(dateTime,value,[]);}catch(_){milliseconds=undefined;}
         if(milliseconds!==undefined){nodes[index]={type:'date',milliseconds:number(milliseconds)};return {type:'ref',value:index};}
         if(Object.getOwnPropertySymbols(value).length)throw new TypeError('AMF symbol-key/native container serialization is not implemented.');
         const array=Array.isArray(value),publicKeys=!array?prog?.jsonKeys?.(value):null;
         const instanceName=!array?prog?.instanceClassName?.(value):null;
-        const alias=!array?((instanceName&&classNameToAlias.get(instanceName))||(value.constructor&&classToAlias.get(value.constructor))||null):null;
+        const ctor=!array?Object.getOwnPropertyDescriptor(Object.getPrototypeOf(value)||{},'constructor')?.value:null;
+        const alias=!array?((instanceName&&classNameToAlias.get(instanceName))||classToAlias.get(ctor)||null):null;
         if(!array&&publicKeys==null&&alias==null&&!plain(value))throw new TypeError('AMF serialization of this native/class object is unsupported; use a plain data record.');
         function read(key){
           if(publicKeys!=null)return value[key];
@@ -114,7 +119,7 @@
           return undefined;
         }
         const entries=[],dense=[];
-        if(array){if(value.length>MAX_VALUES)throw new RangeError('AMF array exceeds 100000 entries.');for(let i=0;i<value.length;i++)dense.push(visit(read(String(i)),depth+1));}
+        if(array){if(value.length>MAX_VALUES)throw new RangeError('AMF array exceeds 100000 entries.');for(let i=0;i<value.length&&Object.hasOwn(value,String(i));i++)dense.push(visit(read(String(i)),depth+1));}
         const useDynWriter=dynWriter&&typeof dynWriter.writeDynamicProperties==='function'&&publicKeys==null&&!(depth===0&&graphOptions.ignoreRootDynamicWriter);
         if(useDynWriter){
           const output=new DynamicPropertyOutput();
@@ -122,7 +127,7 @@
           const customMap=dynamicOutputs.get(output);
           if(customMap.size>MAX_VALUES)throw new RangeError('AMF object has too many properties.');
           for(const[key,propVal]of customMap.entries()){
-            if(array&&/^(?:0|[1-9][0-9]*)$/.test(key)&&Number(key)<value.length)continue;
+            if(array&&/^(?:0|[1-9][0-9]*)$/.test(key)&&Number(key)<dense.length)continue;
             entries.push([text(key),visit(propVal,depth+1)]);
           }
         }else{
@@ -140,13 +145,13 @@
             }
           }
           if(keys.length>MAX_VALUES)throw new RangeError('AMF object has too many properties.');
-          for(const key of keys){if(array&&/^(?:0|[1-9][0-9]*)$/.test(key)&&Number(key)<value.length)continue;entries.push([text(key),visit(read(key),depth+1)]);}
+          for(const key of keys){if(array&&/^(?:0|[1-9][0-9]*)$/.test(key)&&Number(key)<dense.length)continue;entries.push([text(key),visit(read(key),depth+1)]);}
         }
-        nodes[index]=array?{type:'array',dense,entries}:(alias?{type:'object',class_name:text(alias),entries}:{type:'object',entries});return {type:'ref',value:index};
+        nodes[index]=array?{type:'array',dense,entries,amf0_length:value.length}:(alias?{type:'object',class_name:text(alias),entries}:{type:'object',entries});return {type:'ref',value:index};
       }
       return {root:visit(value,0),nodes};
     }
-    function materialize(graph){
+    function materialize(graph,requirements={}){
       if(!graph||!Array.isArray(graph.nodes)||graph.nodes.length>MAX_VALUES)throw new TypeError('Malformed AMF codec graph.');
       const nodes=graph.nodes,values=new Array(nodes.length),byteIndices=[],byteInputs=[],aliased=new Set(),prog=options.getProgram?.();let visits=0;
       function checked(value){if(++visits>MAX_VALUES)throw new RangeError('Decoded AMF graph exceeds 100000 values.');if(!value||typeof value.type!=='string')throw new TypeError('Malformed AMF value.');switch(value.type){case'null':case'undefined':break;case'bool':if(typeof value.value!=='boolean')throw new TypeError('Malformed AMF Boolean.');break;case'number':fromNumber(value.value);break;case'string':if(typeof value.value!=='string')throw new TypeError('Malformed AMF string.');break;case'ref':if(!Number.isInteger(value.value)||value.value<0||value.value>=nodes.length)throw new TypeError('Invalid AMF reference.');break;default:throw new TypeError('Unsupported AMF graph value.');}}
@@ -154,36 +159,58 @@
       // Validate before allocating any ByteArray. A multi-buffer transaction in
       // the binary service rolls back all buffers if the session budget fails.
       for(let i=0;i<nodes.length;i++){
-        const node=nodes[i];if(!node||!['object','array','date','bytes'].includes(node.type))throw new TypeError('Unsupported AMF node.');
+        const node=nodes[i];if(!node||!['object','array','date','bytes','xml','xml_document'].includes(node.type))throw new TypeError('Unsupported AMF node.');
         if(node.type==='date'){values[i]=new Date(fromNumber(node.milliseconds));continue;}
         if(node.type==='bytes'){byteIndices.push(i);byteInputs.push(unbase64(node.base64));continue;}
+        if(node.type==='xml'||node.type==='xml_document'){if(typeof node.text!=='string')throw new TypeError('Malformed AMF XML text.');continue;}
         if(!Array.isArray(node.entries)||node.entries.length>MAX_VALUES)throw new TypeError('Malformed AMF object entries.');
         const keys=new Set();
-        if(node.type==='array'){if(!Array.isArray(node.dense)||node.dense.length>MAX_VALUES)throw new TypeError('Malformed AMF dense array.');for(const value of node.dense)checked(value);values[i]=new Array(node.dense.length);}
+        if(node.type==='array'){if(!Array.isArray(node.dense)||node.dense.length>MAX_VALUES)throw new TypeError('Malformed AMF dense array.');if(node.amf0_length!==undefined&&(!Number.isInteger(node.amf0_length)||node.amf0_length<0||node.amf0_length>MAX_VALUES))throw new RangeError('Malformed AMF0 array length hint.');for(const value of node.dense)checked(value);values[i]=new Array(node.dense.length);}
         else{
           if(node.class_name!==undefined&&node.class_name!==null&&typeof node.class_name!=='string')throw new TypeError('Malformed AMF class alias.');
-          const Ctor=node.class_name?aliasToClass.get(node.class_name):null;
-          if(Ctor){values[i]=prog?.isClass?.(Ctor)?prog.constructClass(Ctor,[]):new Ctor();aliased.add(i);}
-          else values[i]={};
         }
         for(const entry of node.entries){if(!Array.isArray(entry)||entry.length!==2||typeof entry[0]!=='string'||keys.has(entry[0]))throw new TypeError('Duplicate/malformed AMF object key.');keys.add(entry[0]);if(node.type==='array'&&(entry[0]==='length'||(/^(?:0|[1-9][0-9]*)$/.test(entry[0])&&Number(entry[0])<node.dense.length)))throw new TypeError('AMF associative key conflicts with its dense array.');if(node.type==='array'&&/^(?:0|[1-9][0-9]*)$/.test(entry[0])&&Number(entry[0])>=MAX_VALUES&&Number(entry[0])<4294967295)throw new RangeError('AMF associative array index exceeds 100000 entries.');checked(entry[1]);}
       }
-      const byteValues=binary.fromByteArrays(byteInputs);for(let i=0;i<byteIndices.length;i++)values[byteIndices[i]]=byteValues[i];
-      function resolve(value){switch(value.type){case'null':return null;case'undefined':return undefined;case'bool':case'string':return value.value;case'number':return fromNumber(value.value);case'ref':return values[value.value];}}
-      for(let i=0;i<nodes.length;i++){
-        const node=nodes[i];if(node.type==='array')for(let at=0;at<node.dense.length;at++)values[i][at]=resolve(node.dense[at]);
-        if(node.type==='array'||node.type==='object'){
-          if(aliased.has(i)){
-            for(const[name,value]of node.entries){
-              const resolved=resolve(value),slot=prog?.ref?.(values[i],name,null);
-              if(slot)slot.set(resolved);else values[i][name]=resolved;
-            }
-          }else{
-            for(const[name,value]of node.entries)Object.defineProperty(values[i],name,{value:resolve(value),enumerable:true,writable:true,configurable:true});
+      // No authored constructor runs until every native graph entry validates.
+      const xmlValues=[];let byteValues=[];
+      try{
+        for(let i=0;i<nodes.length;i++){
+          const node=nodes[i];
+          if(node.type==='object'){
+            const Ctor=node.class_name?aliasToClass.get(node.class_name):null;
+            if(Ctor){values[i]=prog?.isClass?.(Ctor)?prog.constructClass(Ctor,[]):new Ctor();aliased.add(i);}else values[i]={};
+          }else if(node.type==='xml'||node.type==='xml_document'){
+            const xml=options.getXML?.(),Ctor=node.type==='xml'?xml?.XML:(requirements.legacyXML?xml?.LegacyXML:xml?.XMLDocument);
+            if(typeof Ctor!=='function')throw new Error('AMF XML decoding requires the publication XML service. Re-export this project.');
+            if(node.type==='xml')values[i]=new Ctor(node.text);
+            else values[i]=new Ctor();
+            xmlValues.push([xml,values[i]]);
+            if(node.type==='xml_document')Reflect.apply(Ctor.prototype.parseXML,values[i],[node.text]);
           }
         }
+        byteValues=binary.fromByteArrays(byteInputs);for(let i=0;i<byteIndices.length;i++)values[byteIndices[i]]=byteValues[i];
+        function resolve(value){switch(value.type){case'null':return null;case'undefined':return undefined;case'bool':case'string':return value.value;case'number':return fromNumber(value.value);case'ref':return values[value.value];}}
+        for(let i=0;i<nodes.length;i++){
+          const node=nodes[i];if(node.type==='array')for(let at=0;at<node.dense.length;at++)values[i][at]=resolve(node.dense[at]);
+          if(node.type==='array'||node.type==='object'){
+            if(aliased.has(i)){
+              for(const[name,value]of node.entries){
+                const resolved=resolve(value),slot=prog?.ref?.(values[i],name,null);
+                if(slot)slot.set(resolved);else values[i][name]=resolved;
+              }
+            }else{
+              for(const[name,value]of node.entries)Object.defineProperty(values[i],name,{value:resolve(value),enumerable:true,writable:true,configurable:true});
+            }
+          }
+        }
+        const value=resolve(graph.root);requirements.acceptValue?.(value);return value;
+      }catch(error){
+        // Cleanup is secondary to the native/authored failure. All tracked values
+        // are newly decoded; services ignore records retired by a nested Restart.
+        try{binary.discardByteArrays?.(byteValues);}catch(_){}
+        for(let i=xmlValues.length-1;i>=0;i--)try{xmlValues[i][0].disposeXML(xmlValues[i][1]);}catch(_){}
+        throw error;
       }
-      return resolve(graph.root);
     }
     // wasm-bindgen exposes Rust codec diagnostics as strings. Only this native
     // call boundary converts them to Error; graph accessors/authored exceptions
@@ -200,81 +227,39 @@
       const mode=format(encoding),result=JSON.parse(codecCall(()=>options.decode(mode,bytes)));if(!Number.isInteger(result.consumed)||result.consumed<1||result.consumed>bytes.byteLength)throw new TypeError('AMF codec returned an invalid consumed length.');
       if(requirements.complete&&result.consumed!==bytes.byteLength)throw new TypeError('Saved AMF payload contains trailing data.');
       if(requirements.record&&(result.graph?.root?.type!=='ref'||result.graph.nodes?.[result.graph.root.value]?.type!=='object'))throw new TypeError('Saved SharedObject root must be an ordinary data record.');
-      return {value:materialize(result.graph),consumed:result.consumed};
+      return {value:materialize(result.graph,requirements),consumed:result.consumed};
+    }
+    function solName(name){
+      if(typeof name!=='string'||!name)throw new TypeError('SOL name requires a non-empty String.');
+      for(let i=0;i<name.length;i++){
+        const c=name.charCodeAt(i);
+        if(c>=0xd800&&c<=0xdbff){const low=name.charCodeAt(++i);if(!(low>=0xdc00&&low<=0xdfff))throw new TypeError('SOL names require complete Unicode characters.');}
+        else if(c>=0xdc00&&c<=0xdfff)throw new TypeError('SOL names require complete Unicode characters.');
+      }
+      if(utf8.encode(name).length>65535)throw new RangeError('SOL name exceeds 65535 UTF-8 bytes.');
+      return name;
     }
     function encodeSol(name,value,encoding=3,graphOptions={}){
-      if(typeof name!=='string'||!name)throw new TypeError('SOL name requires a non-empty String.');
+      solName(name);
+      const nativeEncodeSol=options.encodeSol||global.NeoFlashWasm?.sol_encode;
+      if(typeof nativeEncodeSol!=='function')throw new Error('Native SOL encoding is unavailable. Rebuild the shared WASM runtime and re-export this project.');
       const mode=format(encoding),source=JSON.stringify(graph(value,graphOptions));
       if(source.length>64*1024*1024)throw new RangeError('AMF graph envelope exceeds 64 MiB.');
-      const nativeEncodeSol=options.encodeSol||global.NeoFlashWasm?.sol_encode;
-      if(typeof nativeEncodeSol==='function')return codecCall(()=>nativeEncodeSol(mode,name,source));
-      const nameBytes=utf8.encode(name);
-      if(nameBytes.length>65535)throw new RangeError('SOL name exceeds 65535 UTF-8 bytes.');
-      const chunks=[];let bodyBytes=0;
-      const record=(value&&typeof value==='object')?value:{};
-      for(const key of Object.keys(record)){
-        const keyBytes=utf8.encode(key);
-        let keyPart;
-        if(mode===0){
-          keyPart=new Uint8Array(2+keyBytes.length);
-          keyPart[0]=(keyBytes.length>>>8)&0xff;keyPart[1]=keyBytes.length&0xff;
-          keyPart.set(keyBytes,2);
-        }else{
-          const rawKey=encode(key,3);
-          keyPart=rawKey.subarray(1);
-        }
-        const valBytes=encode(record[key],mode);
-        const entry=new Uint8Array(keyPart.length+valBytes.length+1);
-        entry.set(keyPart,0);entry.set(valBytes,keyPart.length);entry[entry.length-1]=0;
-        chunks.push(entry);bodyBytes+=entry.length;
-      }
-      const payloadLen=4+6+2+nameBytes.length+4+bodyBytes;
-      const out=new Uint8Array(6+payloadLen);
-      out[0]=0x00;out[1]=0xbf;
-      out[2]=(payloadLen>>>24)&0xff;out[3]=(payloadLen>>>16)&0xff;out[4]=(payloadLen>>>8)&0xff;out[5]=payloadLen&0xff;
-      out.set([0x54,0x43,0x53,0x4f,0x00,0x04,0x00,0x00,0x00,0x00],6);
-      out[16]=(nameBytes.length>>>8)&0xff;out[17]=nameBytes.length&0xff;
-      out.set(nameBytes,18);
-      let cursor=18+nameBytes.length;
-      out[cursor]=0;out[cursor+1]=0;out[cursor+2]=0;out[cursor+3]=mode;cursor+=4;
-      for(const chunk of chunks){out.set(chunk,cursor);cursor+=chunk.length;}
-      return out;
+      const result=codecCall(()=>nativeEncodeSol(mode,name,source));
+      if(!ArrayBuffer.isView(result)||result.BYTES_PER_ELEMENT!==1||result.byteLength>MAX_BYTES)throw new RangeError('SOL encoding exceeds the 16 MiB file limit.');
+      return result;
     }
-    function decodeSol(bytes){
+    function decodeSol(bytes,requirements={}){
       if(!ArrayBuffer.isView(bytes)||bytes.BYTES_PER_ELEMENT!==1||bytes.byteLength>MAX_BYTES)throw new RangeError('SOL decode requires a byte view no larger than 16 MiB.');
       const u8=new Uint8Array(bytes.buffer,bytes.byteOffset,bytes.byteLength);
       const nativeDecodeSol=options.decodeSol||global.NeoFlashWasm?.sol_decode;
-      if(typeof nativeDecodeSol==='function'){
-        const parsed=JSON.parse(codecCall(()=>nativeDecodeSol(u8)));
-        const mat=materialize(parsed.decoded.graph);
-        return {name:parsed.name,encoding:parsed.format,objectEncoding:parsed.format,value:mat,data:mat,consumed:parsed.decoded.consumed};
-      }
-      if(u8.length<18||u8[0]!==0x00||u8[1]!==0xbf||u8[6]!==0x54||u8[7]!==0x43||u8[8]!==0x53||u8[9]!==0x4f)throw new Error('Invalid SOL magic header (expected 0x00BF ... TCSO).');
-      const declaredLen=((u8[2]<<24)|(u8[3]<<16)|(u8[4]<<8)|u8[5])>>>0;
-      const end=6+declaredLen;if(end>u8.length)throw new Error('Truncated SOL body.');
-      const nameLen=(u8[16]<<8)|u8[17];let pos=18+nameLen;if(pos+4>end)throw new Error('Truncated SOL header.');
-      const decoder=new TextDecoder();
-      const name=decoder.decode(u8.subarray(18,pos));
-      const mode=((u8[pos]<<24)|(u8[pos+1]<<16)|(u8[pos+2]<<8)|u8[pos+3])>>>0;pos+=4;
-      format(mode);
-      const data={};
-      while(pos<end){
-        let propName;
-        if(mode===0){
-          if(pos+2>end)throw new Error('Truncated SOL AMF0 property name.');
-          const klen=(u8[pos]<<8)|u8[pos+1];pos+=2;
-          propName=decoder.decode(u8.subarray(pos,pos+klen));pos+=klen;
-        }else{
-          const strBuf=new Uint8Array(1+(end-pos));strBuf[0]=6;strBuf.set(u8.subarray(pos,end),1);
-          const kdec=decode(strBuf,3);propName=String(kdec.value);pos+=kdec.consumed-1;
-        }
-        const vdec=decode(u8.subarray(pos,end),mode);
-        pos+=vdec.consumed;
-        if(pos>=end||u8[pos]!==0)throw new Error('SOL property entry must end with 0x00 trailer.');
-        pos+=1;
-        Object.defineProperty(data,propName,{value:vdec.value,writable:true,enumerable:true,configurable:true});
-      }
-      return {name,encoding:mode,objectEncoding:mode,value:data,data,consumed:end};
+      if(typeof nativeDecodeSol!=='function')throw new Error('Native SOL decoding is unavailable. Rebuild the shared WASM runtime and re-export this project.');
+      const parsed=JSON.parse(codecCall(()=>nativeDecodeSol(u8))),name=solName(parsed.name),mode=format(parsed.format),decoded=parsed.decoded;
+      if(!Number.isInteger(decoded?.consumed)||decoded.consumed!==u8.length)throw new TypeError('SOL file contains trailing or incomplete data.');
+      if(decoded.graph?.root?.type!=='ref'||decoded.graph.nodes?.[decoded.graph.root.value]?.type!=='object')throw new TypeError('SOL root must be an ordinary data record.');
+      requirements.validateName?.(name);
+      const mat=materialize(decoded.graph,{...requirements,acceptValue:requirements.accept?value=>requirements.accept({name,encoding:mode,value}):undefined});
+      return {name,encoding:mode,objectEncoding:mode,value:mat,data:mat,consumed:decoded.consumed};
     }
     return Object.freeze({encode,decode,encodeSol,decodeSol,registerClassAlias,getClassByAlias,setDynamicPropertyWriterGetter,DynamicPropertyOutput,reset,base64,unbase64});
   }

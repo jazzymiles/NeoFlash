@@ -1176,7 +1176,7 @@
       if(global.NeoFlashBroadcaster){broadcasterHost=global.NeoFlashBroadcaster.create(wasm);legacyGlobals=Object.freeze({...legacyGlobals,AsBroadcaster:broadcasterHost.AsBroadcaster});}
       if(global.NeoFlashByteArray)binaryHost=global.NeoFlashByteArray.create({wasm});
       if(global.NeoFlashAMF&&binaryHost&&typeof player.amf_encode==='function'){
-        amfHost=global.NeoFlashAMF.create({binary:binaryHost,encode:(format,graph)=>player.amf_encode(format,graph),decode:(format,bytes)=>player.amf_decode(format,bytes),encodeSol:typeof wasm?.sol_encode==='function'?(format,name,graph)=>wasm.sol_encode(format,name,graph):undefined,decodeSol:typeof wasm?.sol_decode==='function'?bytes=>wasm.sol_decode(bytes):undefined,getProgram:()=>program,isUnsupported:value=>references.has(value)});
+        amfHost=global.NeoFlashAMF.create({binary:binaryHost,encode:(format,graph)=>player.amf_encode(format,graph),decode:(format,bytes)=>player.amf_decode(format,bytes),encodeSol:typeof wasm?.sol_encode==='function'?(format,name,graph)=>wasm.sol_encode(format,name,graph):undefined,decodeSol:typeof wasm?.sol_decode==='function'?bytes=>wasm.sol_decode(bytes):undefined,getXML:()=>xmlHost,getProgram:()=>program,isUnsupported:value=>references.has(value)});
         binaryHost.setObjectCodec(amfHost);
         if(global.NeoFlashStorage&&global.NeoFlashEvents){
           storageHost=global.NeoFlashStorage.create({amf:amfHost,events:global.NeoFlashEvents,onError:error=>console.warn(error),onSystemStatus:notifySystemStatus});

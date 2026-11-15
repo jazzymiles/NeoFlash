@@ -1,6 +1,8 @@
 //! Bounded AMF value codec, independently implemented from Adobe's AMF0 (June 2006)
 //! and AMF3 (January 2013) specifications. No packet envelope or class loading.
 //! Graph references are separate from AMF0/AMF3 wire reference tables.
+//! Native AMF0 SOL slot numbering also follows the independently inspected,
+//! pinned Ruffle fixture/flash-lso writer evidence in tests/fixtures/sol/provenance.json.
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -35,12 +37,21 @@ pub enum AmfNode {
     Array {
         dense: Vec<AmfValue>,
         entries: Vec<(String, AmfValue)>,
+        /// AMF0 ECMA-array header hint, not an allocation size or an AMF3 length.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        amf0_length: Option<u32>,
     },
     Date {
         milliseconds: String,
     },
     Bytes {
         base64: String,
+    },
+    Xml {
+        text: String,
+    },
+    XmlDocument {
+        text: String,
     },
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -151,8 +162,14 @@ impl AmfGraph {
                     }
                     entries
                 }
-                AmfNode::Array { dense, entries } => {
-                    if dense.len() > MAX_ITEMS {
+                AmfNode::Array {
+                    dense,
+                    entries,
+                    amf0_length,
+                } => {
+                    if dense.len() > MAX_ITEMS
+                        || amf0_length.is_some_and(|length| length as usize > MAX_ITEMS)
+                    {
                         return Err(fail("array length exceeds budget"));
                     }
                     for v in dense {
@@ -171,6 +188,10 @@ impl AmfGraph {
                 }
                 AmfNode::Date { milliseconds } => {
                     number(milliseconds)?;
+                    continue;
+                }
+                AmfNode::Xml { text } | AmfNode::XmlDocument { text } => {
+                    b.bytes(text.len())?;
                     continue;
                 }
                 AmfNode::Bytes { base64 } => {
@@ -209,6 +230,7 @@ pub fn amf_encode(format: u8, graph: &AmfGraph) -> Result<Vec<u8>, AmfError> {
         out: vec![],
         graph,
         refs0: HashMap::new(),
+        sol_amf0_slots: None,
         refs3: HashMap::new(),
         strings: HashMap::new(),
         traits: HashMap::new(),
@@ -220,6 +242,9 @@ struct Writer<'a> {
     out: Vec<u8>,
     graph: &'a AmfGraph,
     refs0: HashMap<usize, usize>,
+    // Native AMF0 SOL streams number every inline value, including primitives.
+    // Ordinary AMF0 values retain the specification's object-only table.
+    sol_amf0_slots: Option<usize>,
     refs3: HashMap<usize, usize>,
     strings: HashMap<String, usize>,
     traits: HashMap<String, usize>,
@@ -277,6 +302,12 @@ impl Writer<'_> {
         if depth > MAX_DEPTH {
             return Err(fail("value nesting exceeds 128"));
         }
+        if format == 0 {
+            let reference = matches!(v, AmfValue::Ref(id) if self.refs0.contains_key(id));
+            if !reference && let Some(slots) = &mut self.sol_amf0_slots {
+                *slots += 1;
+            }
+        }
         match v {
             AmfValue::Undefined => self.byte(if format == 0 { 6 } else { 0 }),
             AmfValue::Null => self.byte(if format == 0 { 5 } else { 1 }),
@@ -320,9 +351,16 @@ impl Writer<'_> {
     fn node(&mut self, id: usize, format: u8, depth: usize) -> Result<(), AmfError> {
         let node = &self.graph.nodes[id];
         if format == 0 {
-            if matches!(node, AmfNode::Bytes { .. }) {
+            // Types introduced with AVM+ retain their type through the standard
+            // AMF0 switch marker rather than masquerading as legacy XMLDocument.
+            if matches!(node, AmfNode::Bytes { .. } | AmfNode::Xml { .. }) {
                 self.byte(17)?;
                 return self.node(id, 3, depth);
+            }
+            if let AmfNode::XmlDocument { text } = node {
+                self.byte(15)?;
+                self.put(&(text.len() as u32).to_be_bytes())?;
+                return self.put(text.as_bytes());
             }
             if let AmfNode::Date { milliseconds } = node {
                 self.byte(11)?;
@@ -330,15 +368,18 @@ impl Writer<'_> {
                 return self.put(&[0, 0]);
             }
             if let Some(i) = self.refs0.get(&id) {
-                let i = u16::try_from(*i)
-                    .map_err(|_| fail("AMF0 reference table exceeds 65536 objects"))?;
+                let i =
+                    u16::try_from(*i).map_err(|_| fail("AMF0 reference index exceeds 65535"))?;
                 self.byte(7)?;
                 return self.put(&i.to_be_bytes());
             }
-            if self.refs0.len() > u16::MAX as usize {
-                return Err(fail("AMF0 reference table exceeds 65536 objects"));
+            let reference = self
+                .sol_amf0_slots
+                .map_or(self.refs0.len(), |slots| slots - 1);
+            if reference > u16::MAX as usize {
+                return Err(fail("AMF0 reference index exceeds 65535"));
             }
-            self.refs0.insert(id, self.refs0.len());
+            self.refs0.insert(id, reference);
             match node {
                 AmfNode::Object {
                     class_name,
@@ -353,16 +394,27 @@ impl Writer<'_> {
                     self.entries0(entries, depth)?;
                     self.put(&[0, 0, 9])
                 }
-                AmfNode::Array { dense, entries } => {
-                    self.byte(if entries.is_empty() { 10 } else { 8 })?;
-                    self.put(&((dense.len() + entries.len()) as u32).to_be_bytes())?;
+                AmfNode::Array {
+                    dense,
+                    entries,
+                    amf0_length,
+                } => {
+                    let associative = !entries.is_empty() || amf0_length.is_some();
+                    let length = amf0_length.unwrap_or_else(|| {
+                        entries
+                            .iter()
+                            .filter_map(|(name, _)| index(name).map(|i| i + 1))
+                            .fold(dense.len(), usize::max) as u32
+                    });
+                    self.byte(if associative { 8 } else { 10 })?;
+                    self.put(&length.to_be_bytes())?;
                     for (i, v) in dense.iter().enumerate() {
-                        if !entries.is_empty() {
+                        if associative {
                             self.name0(&i.to_string())?;
                         }
                         self.value(v, 0, depth + 1)?;
                     }
-                    if !entries.is_empty() {
+                    if associative {
                         self.entries0(entries, depth)?;
                         self.put(&[0, 0, 9])?;
                     }
@@ -376,6 +428,8 @@ impl Writer<'_> {
                 AmfNode::Array { .. } => 9,
                 AmfNode::Date { .. } => 8,
                 AmfNode::Bytes { .. } => 12,
+                AmfNode::XmlDocument { .. } => 7,
+                AmfNode::Xml { .. } => 11,
             };
             self.byte(marker)?;
             if let Some(i) = self.refs3.get(&id) {
@@ -399,7 +453,7 @@ impl Writer<'_> {
                     self.entries3(entries, depth)?;
                     self.string3("")
                 }
-                AmfNode::Array { dense, entries } => {
+                AmfNode::Array { dense, entries, .. } => {
                     self.u29(((dense.len() as u32) << 1) | 1)?;
                     self.entries3(entries, depth)?;
                     self.string3("")?;
@@ -418,6 +472,10 @@ impl Writer<'_> {
                         .map_err(|_| fail("invalid base64"))?;
                     self.u29(((bytes.len() as u32) << 1) | 1)?;
                     self.put(&bytes)
+                }
+                AmfNode::Xml { text } | AmfNode::XmlDocument { text } => {
+                    self.u29(((text.len() as u32) << 1) | 1)?;
+                    self.put(text.as_bytes())
                 }
             }
         }
@@ -453,7 +511,8 @@ struct Reader<'a> {
     data: &'a [u8],
     pos: usize,
     nodes: Vec<AmfNode>,
-    refs0: Vec<usize>,
+    refs0: Vec<Option<usize>>,
+    sol_amf0_slots: bool,
     refs3: Vec<usize>,
     strings: Vec<String>,
     traits: Vec<Trait>,
@@ -468,6 +527,7 @@ pub fn amf_decode(format: u8, bytes: &[u8]) -> Result<AmfDecoded, AmfError> {
         pos: 0,
         nodes: vec![],
         refs0: vec![],
+        sol_amf0_slots: false,
         refs3: vec![],
         strings: vec![],
         traits: vec![],
@@ -549,7 +609,7 @@ impl Reader<'_> {
             Ok(s)
         }
     }
-    fn node(&mut self, format: u8) -> Result<usize, AmfError> {
+    fn node(&mut self, format: u8, reserved0: Option<usize>) -> Result<usize, AmfError> {
         self.budget.items(1)?;
         let id = self.nodes.len();
         self.nodes.push(AmfNode::Object {
@@ -557,7 +617,11 @@ impl Reader<'_> {
             entries: vec![],
         });
         if format == 0 {
-            self.refs0.push(id);
+            if let Some(slot) = reserved0 {
+                self.refs0[slot] = Some(id);
+            } else {
+                self.refs0.push(Some(id));
+            }
         } else {
             self.refs3.push(id);
         }
@@ -577,6 +641,15 @@ impl Reader<'_> {
         self.budget.items(1)?;
         let marker = self.byte()?;
         if format == 0 {
+            // SOL's scalar slots affect numbering but are never legal object
+            // reference targets. A reference reuses a slot rather than adding one.
+            let reserved0 = if self.sol_amf0_slots && marker != 7 {
+                let slot = self.refs0.len();
+                self.refs0.push(None);
+                Some(slot)
+            } else {
+                None
+            };
             match marker {
                 0 => Ok(AmfValue::Number(self.double()?)),
                 1 => Ok(AmfValue::Bool(self.byte()? != 0)),
@@ -589,14 +662,15 @@ impl Reader<'_> {
                 7 => {
                     let i = self.u16()? as usize;
                     Ok(AmfValue::Ref(
-                        *self
-                            .refs0
+                        self.refs0
                             .get(i)
+                            .copied()
+                            .flatten()
                             .ok_or_else(|| fail("invalid AMF0 object reference"))?,
                     ))
                 }
                 3 | 8 | 10 | 16 => {
-                    let id = self.node(0)?;
+                    let id = self.node(0, reserved0)?;
                     let node = if marker == 10 {
                         let count = self.u32()? as usize;
                         self.count(count)?;
@@ -607,6 +681,7 @@ impl Reader<'_> {
                         AmfNode::Array {
                             dense,
                             entries: vec![],
+                            amf0_length: None,
                         }
                     } else if marker == 16 {
                         let n = self.u16()? as usize;
@@ -617,12 +692,18 @@ impl Reader<'_> {
                             entries,
                         }
                     } else {
-                        if marker == 8 {
-                            self.u32()?;
-                        }
+                        let amf0_length = if marker == 8 {
+                            let length = self.u32()?;
+                            if length as usize > MAX_ITEMS {
+                                return Err(fail("AMF0 array length hint exceeds budget"));
+                            }
+                            Some(length)
+                        } else {
+                            None
+                        };
                         let entries = self.entries0(depth)?;
                         if marker == 8 {
-                            self.array(vec![], entries)?
+                            self.array(vec![], entries, amf0_length)?
                         } else {
                             AmfNode::Object {
                                 class_name: None,
@@ -645,9 +726,19 @@ impl Reader<'_> {
                     let n = self.u32()? as usize;
                     Ok(AmfValue::String(self.text(n)?))
                 }
+                15 => {
+                    let n = self.u32()? as usize;
+                    let text = self.text(n)?;
+                    self.budget.items(1)?;
+                    let id = self.nodes.len();
+                    // AMF0 XMLDocument, like Date, is inline and does not enter
+                    // the standard AMF0 complex-object reference table.
+                    self.nodes.push(AmfNode::XmlDocument { text });
+                    Ok(AmfValue::Ref(id))
+                }
                 17 => self.value(3, depth + 1),
                 _ => Err(fail(
-                    "unsupported AMF0 marker (typed objects/XML/legacy extensions are pending)",
+                    "unsupported AMF0 marker (MovieClip/RecordSet/legacy extensions are unsupported)",
                 )),
             }
         } else {
@@ -667,9 +758,9 @@ impl Reader<'_> {
                 }
                 5 => Ok(AmfValue::Number(self.double()?)),
                 6 => Ok(AmfValue::String(self.string3()?)),
-                8 | 9 | 10 | 12 => self.complex3(marker, depth),
+                7 | 8 | 9 | 10 | 11 | 12 => self.complex3(marker, depth),
                 _ => Err(fail(
-                    "unsupported AMF3 marker (XML/Vector/Dictionary are pending)",
+                    "unsupported AMF3 marker (Vector/Dictionary are pending)",
                 )),
             }
         }
@@ -714,35 +805,29 @@ impl Reader<'_> {
         Ok(result)
     }
     fn array(
-        &mut self,
-        mut dense: Vec<AmfValue>,
+        &self,
+        dense: Vec<AmfValue>,
         entries: Vec<(String, AmfValue)>,
+        amf0_length: Option<u32>,
     ) -> Result<AmfNode, AmfError> {
-        let original = dense.len();
-        let mut named = vec![];
-        for (name, v) in entries {
+        for (name, _) in &entries {
             if name == "length" {
                 return Err(fail("associative length member is not supported"));
             }
-            if let Some(i) = index(&name) {
-                if i < original || i >= MAX_ITEMS {
-                    return Err(fail(
-                        "associative index conflicts with dense data or exceeds budget",
-                    ));
-                }
-                if i >= dense.len() {
-                    let added = i + 1 - dense.len();
-                    self.budget.items(added)?;
-                    dense.resize(i + 1, AmfValue::Undefined);
-                }
-                dense[i] = v;
-            } else {
-                named.push((name, v));
+            if let Some(i) = index(name)
+                && (i < dense.len() || i >= MAX_ITEMS)
+            {
+                return Err(fail(
+                    "associative index conflicts with dense data or exceeds budget",
+                ));
             }
         }
+        // Numeric associative keys are actual properties; absent indices stay
+        // absent. Expanding to Undefined would change enumeration and ownership.
         Ok(AmfNode::Array {
             dense,
-            entries: named,
+            entries,
+            amf0_length,
         })
     }
     fn complex3(&mut self, marker: u8, depth: usize) -> Result<AmfValue, AmfError> {
@@ -758,14 +843,24 @@ impl Reader<'_> {
                     | (AmfNode::Array { .. }, 9)
                     | (AmfNode::Object { .. }, 10)
                     | (AmfNode::Bytes { .. }, 12)
+                    | (AmfNode::XmlDocument { .. }, 7)
+                    | (AmfNode::Xml { .. }, 11)
             );
             if !valid {
                 return Err(fail("AMF3 reference marker/type mismatch"));
             }
             return Ok(AmfValue::Ref(id));
         }
-        let id = self.node(3)?;
+        let id = self.node(3, None)?;
         let node = match marker {
+            7 | 11 => {
+                let text = self.text((h >> 1) as usize)?;
+                if marker == 7 {
+                    AmfNode::XmlDocument { text }
+                } else {
+                    AmfNode::Xml { text }
+                }
+            }
             8 => AmfNode::Date {
                 milliseconds: self.double()?,
             },
@@ -782,6 +877,7 @@ impl Reader<'_> {
                 self.nodes[id] = AmfNode::Array {
                     dense: vec![],
                     entries: vec![],
+                    amf0_length: None,
                 };
                 let entries = self.entries3(depth, &mut HashSet::new())?;
                 self.count(n)?;
@@ -789,7 +885,7 @@ impl Reader<'_> {
                 for _ in 0..n {
                     dense.push(self.value(3, depth + 1)?);
                 }
-                self.array(dense, entries)?
+                self.array(dense, entries, None)?
             }
             10 => {
                 let traits = if h & 2 == 0 {
@@ -845,15 +941,44 @@ impl Reader<'_> {
     }
 }
 
+fn validate_sol_name(name: &str) -> Result<(), AmfError> {
+    // Match the host SharedObject name policy. Names are logical identifiers,
+    // not filesystem paths; valid hierarchical names retain their slashes.
+    let invalid_character = |c: char| {
+        c <= '\u{1f}'
+            || c == '\u{7f}'
+            || " ~%&\\;:\"',<>?#".contains(c)
+            || matches!(
+                c,
+                '\u{a0}' | '\u{1680}' | '\u{2000}'
+                    ..='\u{200a}'
+                        | '\u{2028}'
+                        | '\u{2029}'
+                        | '\u{202f}'
+                        | '\u{205f}'
+                        | '\u{3000}'
+                        | '\u{feff}'
+            )
+    };
+    if name.is_empty()
+        || name.encode_utf16().count() > 1024
+        || name.chars().any(invalid_character)
+        || name.split('/').any(|part| matches!(part, "" | "." | ".."))
+    {
+        return Err(fail(
+            "SOL name requires 1–1024 UTF-16 units without whitespace, control characters, empty/dot path components or ~%&\\;:\"',<>?#",
+        ));
+    }
+    Ok(())
+}
+
 impl AmfGraph {
     /// Encode this object graph as a Flash Local Shared Object (`.sol` / `TCSO`) binary container.
     pub fn encode_sol(&self, name: &str, format: u8) -> Result<Vec<u8>, AmfError> {
         if !matches!(format, 0 | 3) {
             return Err(fail("objectEncoding must be 0 or 3"));
         }
-        if name.is_empty() {
-            return Err(fail("SOL name cannot be empty"));
-        }
+        validate_sol_name(name)?;
         let name_len =
             u16::try_from(name.len()).map_err(|_| fail("SOL name exceeds 65535 UTF-8 bytes"))?;
         self.validate()?;
@@ -871,6 +996,7 @@ impl AmfGraph {
             out: vec![],
             graph: self,
             refs0: HashMap::new(),
+            sol_amf0_slots: (format == 0).then_some(0),
             refs3: HashMap::new(),
             strings: HashMap::new(),
             traits: HashMap::new(),
@@ -896,6 +1022,9 @@ impl AmfGraph {
             .saturating_add(name.len())
             .saturating_add(4)
             .saturating_add(w.out.len());
+        if body_len.saturating_add(6) > MAX_AMF_BYTES {
+            return Err(fail("SOL container exceeds 16 MiB including its header"));
+        }
         let body_len_u32 =
             u32::try_from(body_len).map_err(|_| fail("SOL container exceeds 4 GiB"))?;
 
@@ -915,6 +1044,9 @@ impl AmfGraph {
 impl AmfDecoded {
     /// Decode a Flash Local Shared Object (`.sol` / `TCSO`) binary container into `(name, format, decoded)`.
     pub fn decode_sol(bytes: &[u8]) -> Result<(String, u8, AmfDecoded), AmfError> {
+        if bytes.len() > MAX_AMF_BYTES {
+            return Err(fail("SOL container exceeds 16 MiB including its header"));
+        }
         if bytes.len() < 18 {
             return Err(fail("truncated SOL header"));
         }
@@ -931,12 +1063,18 @@ impl AmfDecoded {
         if end > bytes.len() {
             return Err(fail("truncated SOL body"));
         }
+        if end < bytes.len() {
+            return Err(fail(
+                "SOL container contains trailing bytes after its declared length",
+            ));
+        }
         let slice = &bytes[..end];
         let mut r = Reader {
             data: slice,
             pos: 16,
             nodes: vec![],
             refs0: vec![],
+            sol_amf0_slots: true,
             refs3: vec![],
             strings: vec![],
             traits: vec![],
@@ -945,9 +1083,7 @@ impl AmfDecoded {
         let result = (|| -> Result<(String, u8, usize), AmfError> {
             let name_len = r.u16()? as usize;
             let name = r.text(name_len)?;
-            if name.is_empty() {
-                return Err(fail("SOL name cannot be empty"));
-            }
+            validate_sol_name(&name)?;
             let format_u32 = r.u32()?;
             let format = match format_u32 {
                 0 => 0u8,
@@ -963,6 +1099,7 @@ impl AmfDecoded {
             let mut entries = Vec::new();
             let mut seen = HashSet::new();
             while r.pos < r.data.len() {
+                r.budget.items(1)?;
                 let prop_name = if format == 0 {
                     let klen = r.u16()? as usize;
                     r.text(klen)?

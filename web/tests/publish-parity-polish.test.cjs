@@ -1065,6 +1065,110 @@ function buildLifecycleRecoveryProject(renderMode) {
   };
 }
 
+function buildSolExchangeProject() {
+  return {
+    format_version: 10, name: 'Native SOL exchange', width: 320, height: 240,
+    fps: 24, background: [255, 255, 255, 255], root: 'sol-root', scenes: [],
+    script_language: 'action_script3', resources: [], sources: [],
+    symbols: [{ id: 'sol-root', name: 'SOL exchange', kind: 'movie_clip', timeline: {
+      frame_count: 1, layers: [{ id: 'sol-layer', name: 'Content', visible: true, locked: false,
+        keyframes: [{ frame: 0, label: '', elements: [] }] }],
+      scripts: [{ frame: 0, script: { language: 'action_script3', source: `
+        import flash.net.SharedObject;
+        this.save = SharedObject.getLocal("native-sol", "/");
+        trace("SOL_EXCHANGE_READY");` } }],
+    } }],
+  };
+}
+
+async function verifySolFileExchange(cdp, tempRoot, port) {
+  // Observe the real publication service; all bytes still cross Rust/WASM.
+  const preload = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `
+    Object.defineProperty(globalThis, 'NeoFlashStorage', { configurable: true, set(api) {
+      Object.defineProperty(globalThis, 'NeoFlashStorage', { configurable: true, value: {
+        ...api, create(options) { return globalThis.__solHost = api.create(options); },
+      } });
+    } });
+  ` });
+  const url = `http://127.0.0.1:${port}/sol/index.html`;
+  const downloads = path.join(tempRoot, 'downloads');
+  fs.mkdirSync(downloads);
+  await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
+  const importFile = async file => {
+    await cdp.evalJson(`(() => {
+      document.getElementById('sol-file')?.remove();
+      const input = document.createElement('input'); input.type = 'file'; input.id = 'sol-file';
+      document.body.appendChild(input); return true;
+    })()`);
+    const doc = await cdp.send('DOM.getDocument');
+    const input = await cdp.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#sol-file' });
+    await cdp.send('DOM.setFileInputFiles', { nodeId: input.nodeId, files: [file] });
+    await cdp.evalJson(`(async () => {
+      const file = document.getElementById('sol-file').files[0];
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      globalThis.__solSave = __solHost.SharedObject.getLocal('native-sol', '/');
+      __solSave.importSolBytes(bytes); return true;
+    })()`);
+  };
+  const inspect = format => cdp.evalJson(`(() => {
+    const save = __solHost.SharedObject.getLocal('native-sol', '/'), data = save.data;
+    const array = ${format} === 0 ? data.array : data.props[6];
+    const date = ${format} === 0 ? data.date : data.props[9];
+    return { encoding: save.objectEncoding, length: array.length,
+      first: array[0], last: array[4], holes: [1, 2, 3].every(i => !Object.hasOwn(array, i)),
+      negative: array[-1], date: date.getTime(),
+      xml: ${format} === 0 ? data.testxml.toString() : null,
+      shared: !!data.left && data.left === data.right && data.left.self === data.left };
+  })()`);
+  try {
+    for (const format of [0, 3]) {
+      await cdp.navigateAndWait(url);
+      await cdp.waitTrace('SOL_EXCHANGE_READY');
+      await importFile(path.join(repoRoot, `crates/neoflash-core/tests/fixtures/sol/amf${format}_shared_object.sol`));
+      const expected = { encoding: format, length: 5, first: 'elem0', last: 'elem4', holes: true,
+        negative: 'elem negative one', date: 2147483647, xml: format === 0 ? '<test>Test</test>' : null, shared: false };
+      assert.deepEqual(await inspect(format), expected, `native AMF${format} file input`);
+      const filename = `roundtrip${format}.sol`;
+      await cdp.evalJson(`(() => {
+        const item = { score: 7 }; item.self = item;
+        __solSave.data.left = item; __solSave.data.right = item;
+        const payload = __solSave.exportSolBytes();
+        const blob = URL.createObjectURL(new Blob([payload], { type: 'application/octet-stream' }));
+        const link = document.createElement('a'); link.href = blob; link.download = ${JSON.stringify(filename)};
+        document.body.appendChild(link); link.click(); link.remove();
+        setTimeout(() => URL.revokeObjectURL(blob), 1000); return true;
+      })()`);
+      const downloaded = path.join(downloads, filename), deadline = Date.now() + 10000;
+      while (!fs.existsSync(downloaded) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+      assert.ok(fs.existsSync(downloaded), 'browser must complete the actual SOL download');
+      const bytes = fs.readFileSync(downloaded);
+      assert.equal(bytes.subarray(6, 10).toString(), 'TCSO');
+      assert.equal(bytes.readUInt32BE(2), bytes.length - 6);
+      await importFile(downloaded);
+      expected.shared = true;
+      assert.deepEqual(await inspect(format), expected, 'downloaded file preserves graph identity');
+      assert.deepEqual(await cdp.evalJson(`(() => {
+        const before = __solSave.data, encoding = __solSave.objectEncoding;
+        const persisted = JSON.stringify(localStorage), bytes = __solSave.exportSolBytes();
+        let rejected = false; try { __solSave.importSolBytes(bytes.subarray(0, bytes.length - 1)); }
+        catch (error) { rejected = /SOL|AMF|truncated|length/i.test(String(error)); }
+        return { rejected, unchanged: __solSave.data === before && __solSave.objectEncoding === encoding,
+          stored: JSON.stringify(localStorage) === persisted, flush: __solSave.flush() };
+      })()`), { rejected: true, unchanged: true, stored: true, flush: 'flushed' });
+      await cdp.navigateAndWait(url);
+      await cdp.waitTrace('SOL_EXCHANGE_READY');
+      assert.deepEqual(await inspect(format), expected, 'real page reload preserves saved graph');
+      await cdp.evalJson(`globalThis.__oldSolSave = __solHost.SharedObject.getLocal('native-sol', '/'); NeoFlashPlayer.restart(); true`);
+      await cdp.waitTrace('SOL_EXCHANGE_READY');
+      assert.equal(await cdp.evalJson(`(() => { try { __oldSolSave.data; return false; } catch (_) { return true; } })()`), true);
+      assert.deepEqual(await inspect(format), expected, 'Restart reopens persisted graph');
+    }
+    assert.deepEqual(cdp.errors, [], `SOL file exchange browser errors: ${cdp.errors.join('\n')}`);
+  } finally {
+    await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: preload.identifier });
+  }
+}
+
 function buildFailureRecoveryProject(renderMode) {
   return {
     format_version: 10,
@@ -1169,8 +1273,14 @@ test('Canvas + DOM publish parity: scenes, symbols, Restart recovery with author
         { cwd: repoRoot, encoding: 'utf8' });
     }
 
+    const solPath = path.join(tempRoot, 'sol.nflash');
+    fs.writeFileSync(solPath, JSON.stringify(buildSolExchangeProject(), null, 2));
+    execFileSync(bin, ['--runtime', runtimeDir, solPath, '--output', path.join(tempRoot, 'sol')],
+      { cwd: repoRoot, encoding: 'utf8' });
+
     serverInfo = await startNoCacheServer(tempRoot);
     cdp = await launchCdpSession(chromeBin, userDataDir);
+    await verifySolFileExchange(cdp, tempRoot, serverInfo.port);
 
     for (const mode of ['canvas', 'dom']) {
       await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/lifecycle-${mode}/index.html`);

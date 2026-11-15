@@ -1,6 +1,7 @@
 /* Original local SharedObject adapter over origin-scoped browser storage.
  * Contracts: AIR flash.net.SharedObject/ObjectEncoding/SharedObjectFlushStatus;
- * AS2 SharedObject mirror. No Flash .sol files or remote synchronization.
+ * AS2 SharedObject mirror. Explicit .sol exchange uses the shared native codec;
+ * browser persistence remains a separate, versioned storage envelope.
  * AMF payloads are real shared-codec AMF0/3 inside a versioned localStorage
  * envelope. Keys include origin, publication pathname (or an ancestor path),
  * name and secure flag. Browser HTTP and HTTPS are separate origins even when
@@ -47,8 +48,12 @@
       catch(error){throw new Error('SharedObject browser storage is unavailable or denied. Allow storage for this origin or handle the failure.',{cause:error});}
     }
     function access(operation){try{return operation(storage());}catch(error){if(error?.message?.startsWith('SharedObject'))throw error;throw new Error('SharedObject storage operation failed: browser access or quota denied. Clear unused saved data or allow storage for this origin.',{cause:error});}}
+    function completeUnicode(value){
+      for(let i=0;i<value.length;i++){const c=value.charCodeAt(i);if(c>=0xd800&&c<=0xdbff){const low=value.charCodeAt(++i);if(!(low>=0xdc00&&low<=0xdfff))return false;}else if(c>=0xdc00&&c<=0xdfff)return false;}return true;
+    }
     function location(name,localPath,secure){
       if(typeof name!=='string'||!name||name.length>1024||/[\s\x00-\x1f\x7f~%&\\;:"',<>?#]/.test(name)||name.split('/').some(piece=>piece==='.'||piece==='..'||piece===''))throw new TypeError('SharedObject name must contain 1–1024 characters without whitespace, control characters, empty/dot path components or ~%&\\;:"\',<>?#.');
+      if(!completeUnicode(name))throw new TypeError('SharedObject names require complete Unicode characters.');
       if(typeof secure!=='boolean')throw new TypeError('SharedObject secure requires a Boolean.');
       let url;try{url=new URL(options.url||global.location?.href);}catch(_){throw new Error('SharedObject requires a publication HTTP(S) URL for its origin/path scope.');}
       if(!['http:','https:'].includes(url.protocol))throw new Error('SharedObject persistence requires an HTTP(S) origin; file and opaque origins are not supported.');
@@ -56,6 +61,7 @@
       const publication=url.pathname;let path=publication;
       if(localPath!==null&&localPath!==undefined){
         if(typeof localPath!=='string'||localPath.length>4096||!localPath.startsWith('/')||localPath.startsWith('//')||/[\\?#\x00-\x1f\x7f]/.test(localPath))throw new TypeError('SharedObject localPath requires an absolute publication path without query/fragment.');
+        if(!completeUnicode(localPath)||/%(?![0-9a-f]{2})/i.test(localPath)||localPath.split('/').some(part=>/^\.{1,2}$/.test(part.replace(/%2e/ig,'.'))))throw new TypeError('SharedObject localPath requires complete Unicode and must not contain malformed escapes or dot path components.');
         const candidate=new URL(localPath,url.origin);path=candidate.pathname;
         if(path.length>1)path=path.replace(/\/+$/,'');
         if(path!=='/'&&publication!==path&&!publication.startsWith(path+'/'))throw new RangeError('SharedObject localPath must be the publication path or one of its ancestor directories.');
@@ -63,11 +69,11 @@
       return PREFIX+JSON.stringify([url.origin,path,name,secure]);
     }
     function bytes(record){return amf.encode(record.data,record.encoding,{ignoreRootDynamicWriter:true});}
-    function unpack(text){
+    function unpack(text,as2=false){
       if(typeof text!=='string'||text.length>Math.ceil(MAX_BYTES/3)*4+256)throw new RangeError('Saved SharedObject exceeds the 16 MiB AMF envelope limit.');
       let envelope;try{envelope=JSON.parse(text);}catch(error){throw new Error('Saved SharedObject envelope is malformed; clear this named record to recover.',{cause:error});}
       if(!envelope||envelope.version!==1||!Object.keys(envelope).every(key=>['version','encoding','bytes'].includes(key)))throw new Error('Saved SharedObject has an unsupported envelope version or fields.');
-      encoding(envelope.encoding);const payload=amf.unbase64(envelope.bytes),result=amf.decode(payload,envelope.encoding,{complete:true,record:true});
+      encoding(envelope.encoding);const payload=amf.unbase64(envelope.bytes),result=amf.decode(payload,envelope.encoding,{complete:true,record:true,legacyXML:as2});
       if(result.consumed!==payload.length)throw new Error('Saved SharedObject has trailing AMF data.');
       if(result.value===null||typeof result.value!=='object'||Array.isArray(result.value)||Object.getPrototypeOf(result.value)!==Object.prototype)throw new Error('Saved SharedObject root must be an ordinary data record.');
       return {data:result.value,encoding:envelope.encoding};
@@ -77,7 +83,7 @@
       let record=records.get(key);
       if(!record){
         if(records.size>=MAX_OBJECTS)throw new RangeError('At most 256 local SharedObjects may be opened in a publication session.');
-        const text=access(store=>store.getItem(key)),loaded=text===null?{data:{},encoding:as2?0:defaultEncoding}:unpack(text);
+        const text=access(store=>store.getItem(key)),loaded=text===null?{data:{},encoding:as2?0:defaultEncoding}:unpack(text,as2);
         record={key,name,...loaded,generation,epoch:0,busy:false,modern:null,legacy:null,peers:new Set(),clients:new WeakMap()};records.set(key,record);
       }
       if(as2){if(!record.legacy)record.legacy=new LegacySharedObject(token,record);return record.legacy;}
@@ -157,18 +163,48 @@
       if(typeof amf.encodeSol!=='function')throw new Error('AMF service does not support .sol encoding.');
       return amf.encodeSol(record.name||'SharedObject',record.data,record.encoding,{ignoreRootDynamicWriter:true});
     }
+    function commitSol(record,decoded,as2){
+      const mode=encoding(decoded.encoding),value=decoded.value;
+      if(!value||typeof value!=='object'||Array.isArray(value)||Object.getPrototypeOf(value)!==Object.prototype)throw new TypeError('SOL root must be an ordinary data record.');
+      if(as2){
+        const incoming=Object.getOwnPropertyDescriptors(value),previous=Object.getOwnPropertyDescriptors(record.data),keys=Reflect.ownKeys(incoming);
+        // This data object is publication-owned. Preflight every operation before
+        // changing it, and define fields without invoking setters or __proto__.
+        for(const key of Reflect.ownKeys(previous))if(!previous[key].configurable)throw new TypeError('Cannot import into AS2 SharedObject.data with nonconfigurable fields.');
+        if(!Object.isExtensible(record.data)&&keys.some(key=>!Object.hasOwn(previous,key)))throw new TypeError('Cannot add imported fields to nonextensible AS2 SharedObject.data.');
+        for(const key of keys)if(!Object.hasOwn(incoming[key],'value'))throw new TypeError('SOL root requires data properties.');
+        for(const key of keys)Object.defineProperty(record.data,key,{value:incoming[key].value,writable:true,enumerable:true,configurable:true});
+        for(const key of Reflect.ownKeys(previous))if(!Object.hasOwn(incoming,key))delete record.data[key];
+      }else record.data=value;
+      record.encoding=mode;record.epoch++;
+    }
     function importRecordSol(record,solBytes,as2=false){
       if(typeof amf.decodeSol!=='function')throw new Error('AMF service does not support .sol decoding.');
-      const decoded=amf.decodeSol(solBytes);
-      record.encoding=encoding(decoded.encoding);
-      record.epoch++;
-      if(as2){
-        for(const key of Reflect.ownKeys(record.data))delete record.data[key];
-        Object.assign(record.data,decoded.value);
-      }else{
-        record.data=decoded.value;
-      }
-      return decoded;
+      if(record.busy)throw new Error('Recursive SharedObject serialization is not supported.');
+      record.busy=true;const epoch=record.epoch,session=generation;
+      try{
+        return amf.decodeSol(solBytes,{legacyXML:as2,accept(decoded){
+          if(disposed||generation!==session||record.generation!==generation||record.epoch!==epoch)throw new Error('SharedObject changed or was reset during SOL import.');
+          commitSol(record,decoded,as2);
+        }});
+      }finally{record.busy=false;}
+    }
+    function fromSolBytes(solBytes,localPath,secure,as2){
+      open();if(location('SharedObject',localPath,secure)===null)return null;
+      const session=generation;let key,existing,epoch,locked=false,so;
+      try{
+        amf.decodeSol(solBytes,{legacyXML:as2,validateName(name){
+          key=location(name,localPath,secure);existing=records.get(key);epoch=existing?.epoch;
+          if(existing?.busy)throw new Error('Recursive SharedObject serialization is not supported.');
+          if(existing){existing.busy=true;locked=true;}
+        },accept(decoded){
+          if(disposed||generation!==session||records.get(key)!==existing||existing?.epoch!==epoch)throw new Error('SharedObject changed or was reset during SOL import.');
+          so=getLocal(decoded.name,localPath,secure,as2);
+          if(disposed||generation!==session)throw new Error('SharedObject was reset during SOL import.');
+          commitSol(state(so,as2),decoded,as2);
+        }});
+        return so;
+      }finally{if(locked)existing.busy=false;}
     }
     function flushRecord(record,minDiskSpace=0){
       if(!Number.isInteger(minDiskSpace)||minDiskSpace<0||minDiskSpace>MAX_BYTES)throw new RangeError('SharedObject.flush minDiskSpace requires an integer from 0 through 16777216; browser quota cannot be reserved.');
@@ -198,15 +234,7 @@
       constructor(secret,record){super();if(secret!==token)unsupported('SharedObject construction; use getLocal');states.set(this,record);Object.assign(this,hub.methods(this));Object.seal(this);}
       static getLocal(name,localPath=null,secure=false){return getLocal(name,localPath,secure,false);}
       static fromSolBytes(solBytes,localPath=null,secure=false){
-        open();
-        const decoded=amf.decodeSol(solBytes);
-        const so=getLocal(decoded.name,localPath,secure,false);
-        if(!so)return null;
-        const record=state(so);
-        record.encoding=encoding(decoded.encoding);
-        record.data=decoded.value;
-        record.epoch++;
-        return so;
+        return fromSolBytes(solBytes,localPath,secure,false);
       }
       static get defaultObjectEncoding(){open();return defaultEncoding;}
       static set defaultObjectEncoding(value){open();defaultEncoding=encoding(value);}
@@ -237,18 +265,7 @@
       constructor(secret,record){if(secret!==token)unsupported('AS2 SharedObject construction; use getLocal');legacyStates.set(this,record);this.onStatus=null;this.onSync=null;}
       static getLocal(name,localPath=null,secure=false){try{return getLocal(name,localPath,secure,true);}catch(error){warn(error);return null;}}
       static fromSolBytes(solBytes,localPath=null,secure=false){
-        try{
-          open();
-          const decoded=amf.decodeSol(solBytes);
-          const so=getLocal(decoded.name,localPath,secure,true);
-          if(!so)return null;
-          const record=state(so,true);
-          record.encoding=encoding(decoded.encoding);
-          for(const key of Reflect.ownKeys(record.data))delete record.data[key];
-          Object.assign(record.data,decoded.value);
-          record.epoch++;
-          return so;
-        }catch(error){warn(error);return null;}
+        try{return fromSolBytes(solBytes,localPath,secure,true);}catch(error){warn(error);return null;}
       }
       static getRemote(name,remotePath=null,persistence=false,secure=false){
         try{

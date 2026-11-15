@@ -2033,7 +2033,7 @@
       "title": "Shared Rust/WASM core",
       "status": "partial",
       "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM. Runtime-created object identity, hierarchy, solid drawing, transformed bounds/hits and captured lifecycle routes use the shared Rust/WASM scene while authored documents remain immutable. Explicit linked MovieClip namespaces reuse the shared timeline evaluator with independent frame scripts, nested clocks and ref-based semantic targets, including detached playback. Bounded AMF0/AMF3 values are encoded/decoded in Rust and used by ByteArray object records and local AS2/AS3 SharedObject persistence. AS3 Array prototype borrowing (`Array.prototype.*`), unbound `toString`/`toLocaleString`, and sparse hole semantics share the runtime collection kernel (`T-011`). The second bounded runtime batch adds Rust date/number formatting, four rendered filter families and manual AS3 event payload classes.",
-      "limitations": "A shared implementation does not prove compatibility with Flash behavior. The combined dynamic-display browser workflow and Restart passed; authored/dynamic reordering and full Flash construction order remain bounded. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. Typed class aliases (`registerClassAlias`/`getClassByAlias`) work in `web/amf.js`, while `IExternalizable`/XML/Vector/Dictionary values, native host `.sol` file I/O and remote RTMP synchronization remain unimplemented. Browser quota/access and HTTP(S) origin rules apply; Restart discards unflushed edits. AMF payload size excludes the storage envelope and historical filesystem overhead.",
+      "limitations": "A shared implementation does not prove compatibility with Flash behavior. The combined dynamic-display browser workflow and Restart passed; authored/dynamic reordering and full Flash construction order remain bounded. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. Typed aliases, XML/XMLDocument, sparse indices and native AMF0/AMF3 `.sol` byte exchange work through Rust/WASM, with actual browser file-input/download and reload coverage. Vector, Dictionary, XMLList, IExternalizable, complete historical alias semantics, automatic Flash-storage discovery and RTMP server synchronization remain unsupported. SOL envelopes have no object identity and trailing array holes may disappear. Browser quota/access and HTTP(S) origin rules apply; Restart discards unflushed edits. AMF payload size excludes the storage envelope and historical filesystem overhead.",
       "items": [
         {
           "id": "shared-timeline",
@@ -2082,7 +2082,7 @@
         },
         {
           "id": "sol-remote-sync",
-          "title": "Browser local/cross-tab SharedObject sync and SOL codec (native .sol file I/O and RTMP remote sync remain unimplemented)",
+          "title": "SharedObject file exchange and remote synchronization",
           "status": "partial"
         }
       ],
@@ -2111,7 +2111,11 @@
         "docs/RUNTIME-DATE-PROVENANCE.md",
         "docs/RUNTIME-NUMBER-FORMAT-PROVENANCE.md",
         "crates/neoflash-script/src/actionscript/collections.js",
-        "crates/neoflash-script/tests/collections-fixtures.mjs"
+        "crates/neoflash-script/tests/collections-fixtures.mjs",
+        "crates/neoflash-core/tests/sol.rs",
+        "crates/neoflash-core/tests/fixtures/sol/provenance.json",
+        "web/tests/amf-sol.test.cjs",
+        "web/tests/publish-parity-polish.test.cjs"
       ]
     },
     {

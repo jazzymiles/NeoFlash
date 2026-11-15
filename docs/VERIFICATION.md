@@ -210,6 +210,8 @@ The malformed-AMF regression reached generic typed `catch(Error)` with its curso
 <a id="sharedobject-persistence-and-amf-value-batch"></a>
 ## Saved data and AMF
 
+Current bounded SOL coverage uses five unchanged public Flash/Ruffle files with pinned hashes and license in `crates/neoflash-core/tests/fixtures/sol/`. Rust AMF/SOL and the host AMF/SOL family cover native reference tables, aliases, sparse indices, dates/XML/ByteArrays, malformed/size limits and transactional recovery. The existing publication-parity browser scenario exercises actual Chrome file input, completed Blob download/re-import and browser persistence after reload/Restart. The saved-game family covers the compiled AS2/AS3 extension calls. Vector/Dictionary/IExternalizable, automatic Flash-storage discovery and RTMP server synchronization remain excluded.
+
 Audit `STORAGE-AMF-HTML5-20261027T0728Z`, revision `eddcc30`: Save/reload/Restart, two pathname scopes and clear preserved bounded AS2/AS3 graph values. Aliases/cycles, selected special values and nested bytes survived; AS2 and AS3 clear retain different data-object identity behavior. An independent byte reader decoded the fixture's AMF0/AMF3 streams and trailing UTF data.
 
 The original malformed-read fixture failed because a raw string escaped `catch(Error)`; its separate `catch(*)` positive control did not fix or erase that failure. The later forms record provides the scoped correction. Broad AMF interoperability, typed/externalizable/XML/Vector/Dictionary reconstruction, native `.sol`, remote synchronization, real quota denial, concurrent tabs and all secure/localPath variants were not accepted. See [ADR 0025](decisions/0025-shared-objects-and-amf.md).

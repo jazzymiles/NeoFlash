@@ -348,7 +348,12 @@
       open();if(!Array.isArray(chunks)||chunks.length>maxArrays-records.size)throw new RangeError('AMF ByteArrays exceed the publication instance budget.');
       const result=[];
       try{for(const chunk of chunks)result.push(fromBytes(chunk));return result;}
-      catch(error){for(const value of result){const record=states.get(value);free(record);records.delete(record);record.generation=-1;}throw error;}
+      catch(error){discardByteArrays(result);throw error;}
+    }
+    // A failed AMF materialization owns these new buffers. Do not retire a
+    // buffer again after Restart, or touch allocations from the new session.
+    function discardByteArrays(values){
+      for(const value of values){const record=states.get(value);if(!record||record.generation!==generation||!records.has(record))continue;free(record);records.delete(record);record.generation=-1;}
     }
     function setObjectCodec(codec){if(!codec||typeof codec.encode!=='function'||typeof codec.decode!=='function')throw new TypeError('Expected the shared AMF value codec.');objectCodec=codec;}
     function toBytes(receiver){const record=state(receiver);return record.bytes.slice(0,record.length);}
@@ -371,7 +376,7 @@
     }
     function reset(){open();for(const record of records)free(record);records.clear();generation++;defaultEncoding=3;}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({ByteArray,Endian,CompressionAlgorithm,IDataInput,IDataOutput,fromBytes,fromByteArrays,toBytes,isSharedBacking,readAvailable,writeFromHost,setObjectCodec,reset,dispose});
+    return Object.freeze({ByteArray,Endian,CompressionAlgorithm,IDataInput,IDataOutput,fromBytes,fromByteArrays,discardByteArrays,toBytes,isSharedBacking,readAvailable,writeFromHost,setObjectCodec,reset,dispose});
   }
   const api=Object.freeze({create});
   if(typeof module!=='undefined'&&module.exports)module.exports=api;

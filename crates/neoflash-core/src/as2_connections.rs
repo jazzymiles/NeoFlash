@@ -688,6 +688,7 @@ mod tests {
                     AmfValue::Number("42".into()),
                 ],
                 entries: vec![],
+                amf0_length: None,
             }],
         };
         let bytes = amf_encode(0, &arguments).unwrap();

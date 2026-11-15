@@ -2,6 +2,11 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Improved native `.sol` save exchange for AMF0/AMF3: real Flash files preserve typed values, object cycles,
+  sparse indices, dates, XML and ByteArrays. Browser import/download and reload/Restart are covered.
+  Malformed files and failed object restoration preserve live saves and release temporary resources.
+  Ordinary browser persistence remains separate; Vector, Dictionary and IExternalizable are still unsupported.
+
 - Improved accessibility without changing editor visuals: function search exposes its selected result and
   notifications expose complete announcements with their severity and repeat count. HTML5 Canvas and DOM controls
   share authored/live semantics, native and scripted focus, explicit Tab eligibility and retired-target cleanup;
