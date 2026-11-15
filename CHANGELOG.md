@@ -2,6 +2,34 @@
 
 ## 0.1.0-beta.1 — Public macOS Beta 1 release candidate, bundled media toolchain, browser matrix & Windows/Linux Technical Previews
 
+- Completed deep Beta 1 polishing across desktop authoring journeys, NF2 interactive behavior, publishing parity and
+  `--headless` automation (`T-318`–`T-321`):
+  - **User journeys & document safety (`T-318`):** routed `File ▸ Open…` and session reloading across all converted
+    interchange formats (`.fig`, `.figma`, `.figma.json`, `.swf`, `.swc`, `.fla`, `.xfl`, `.svg`, `.psd`, `.psb`,
+    `.pdf`, `.ai`, `.fxg`) with `path = None` and canonical `import_source` tracking so `⌘S` (`File ▸ Save`), crash
+    recovery and `File ▸ Revert` never overwrite non-`.nflash` source files; implemented transitive cross-tab `Copy` /
+    `Cut` / `Paste` / `Paste in Place` and `Copy/Paste Frames` carrying nested `Symbol` closures, `Resource`s, embedded
+    fonts, swatches, vector styles and format-8..12 keyframe side-tables in one Undo step; hardened nested `Edit in
+    Place` against symbol/scene deletion, swapping and Undo; and stopped timeline/audition audio and transient Stage
+    gestures cleanly on tab switch or close.
+  - **NF2 interface & keyboard isolation (`T-319`):** enforced `c::TextField::edit_id` inner focus tracking, inline
+    rename `Enter`/`Escape`/blur discipline, tracked RGBA popovers and two-step `DialogKeyboardState` `Escape` handling
+    across all modal dialogs and popovers; unified cross-scene, nested-symbol and soloed-layer click-to-jump navigation
+    across `Actions`, `Compiler errors`, `Output`, `Movie Explorer` and `Find and Replace`; and verified all `6 × 3 × 4
+    × 2` workspace/density/theme/resolution combinations (`1920×1080` and `1024×720`).
+  - **Publishing atomicity & runtime parity (`T-320`):** staged HTML5, Native Banner, SVG, image, audio, GIF, Lottie and
+    After Effects exports atomically so failed builds never corrupt existing outputs; served `Test Movie` (`⌘Return`) and
+    `Test Scene` (`⌘⌥Return`) over a reusable loopback `127.0.0.1` HTTP server with `Cache-Control: no-store`; aligned
+    Camera layer poses, multi-scene rollovers, dialect-aware 2-argument `gotoAndPlay`/`gotoAndStop`, Hit-only and
+    empty-Hit `Button` bounds, `scrollRect`, `Alpha`/`Luminance` masks, `BlendMode.LAYER`/`ERASE`, HiDPI resize and full
+    `Restart` cleanup across native preview and HTML5 `Canvas`/`DOM` modes; and synchronized output extensions when
+    switching export formats.
+  - **Headless CLI parity (`T-321`):** exited immediately before GUI/AppKit startup on all `--headless` paths, enforced
+    strict single-JSON `stdout` and `0`/`1`/`2` exit codes across all 10 subcommands (including usage errors and
+    per-subcommand `--help`), expanded `--headless import` with `--into` asset assembly (`.swc`, audio, video, palettes,
+    Figma, SVG, PSD, PDF/AI, XFL) and `--headless export` to 14 targets (adding single-frame `image` across
+    `PNG`/`JPEG`/`WebP`/`GIF`/`BMP`/`PSD`/`PDF`/`AI`/`SVG`, After Effects `aep`, `--profile` / `--render-mode`, and
+    `--swf-target`), and added `FLfile.copy` plus `--flfile-root` directory sandboxing.
 - Completed Beta 1 release-readiness packaging, editor-wiring and runtime safety polish (`T-311`): declared macOS
   `UTExportedTypeDeclarations` (`app.neoflash.project`) and `CFBundleDocumentTypes` (`Editor`/`Owner` for `.nflash`,
   `Viewer`/`Alternate` for `.fla`, `.xfl`, `.swf`, `.swc`, `.fig`, `.figma`, `.svg`, `.psd`, `.psb`, `.pdf`, `.ai`,

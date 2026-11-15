@@ -2223,106 +2223,7 @@ impl Editor {
         runtime_dir: &std::path::Path,
         settings: &crate::workspace::PublishPrefs,
     ) -> bool {
-        use crate::output_pipeline::{OutputLocation, OutputSeverity, OutputSource};
-
-        self.finish_edits();
-        let mut resolved_project = self.project.with_resolved_script_language().into_owned();
-        resolved_project.set_html_render_mode(settings.render_mode);
-        if settings.profile == crate::workspace::PublishProfilePreset::WebBannerNative {
-            let out_html = output.join("index.html");
-            let banner_opts = neoflash_export::BannerOptions {
-                max_gzip_bytes: Some(settings.banner_max_gzip_kb as usize * 1024),
-                max_raw_bytes: Some(settings.banner_max_gzip_kb as usize * 4096),
-                loop_timeline: settings.loop_timeline,
-                autoplay: settings.autoplay,
-                jpeg_quality: settings.jpeg_quality,
-                ..neoflash_export::BannerOptions::default()
-            };
-            return match neoflash_export::export_native_banner_html(
-                &resolved_project,
-                &out_html,
-                &banner_opts,
-            ) {
-                Ok(report) => {
-                    let html_loc = OutputLocation::for_file(report.html_path.clone());
-                    let _ = self.message_event(
-                        OutputSeverity::Info,
-                        OutputSource::Publish,
-                        format!(
-                            "Native HTML5 Banner exported: {} ({} B, {} B gzip)",
-                            report.html_path.display(),
-                            report.raw_bytes,
-                            report.gzip_bytes
-                        ),
-                        Some(html_loc),
-                    );
-                    self.emit_export_warnings(report.diagnostics.into_iter().map(|diag| {
-                        format!("[{}] {}: {}", diag.code, diag.location, diag.message)
-                    }));
-                    true
-                }
-                Err(e) => {
-                    let _ = self.message_event(
-                        OutputSeverity::Error,
-                        OutputSource::Publish,
-                        format!("Banner publish failed: {e}"),
-                        Some(OutputLocation::for_file(out_html)),
-                    );
-                    self.show_panel(PanelId::Output);
-                    false
-                }
-            };
-        }
-        let warnings = neoflash_export::export_warnings(&resolved_project);
-        let options = match settings.export_options(&resolved_project) {
-            Ok(options) => options,
-            Err(error) => {
-                let _ = self.message_event(
-                    OutputSeverity::Error,
-                    OutputSource::Publish,
-                    format!("Publish failed: {error}"),
-                    Some(OutputLocation::for_file(output.to_path_buf())),
-                );
-                self.show_panel(PanelId::Output);
-                return false;
-            }
-        };
-        match neoflash_export::export_project_with_config(
-            &resolved_project,
-            output,
-            runtime_dir,
-            &options,
-            &settings.publish_html_config(),
-        ) {
-            Ok(index) => {
-                let _ = self.message_event(
-                    OutputSeverity::Info,
-                    OutputSource::Publish,
-                    format!("HTML5 exported: {}", index.display()),
-                    Some(OutputLocation::for_file(index)),
-                );
-                self.log_export_report(&resolved_project);
-                self.emit_export_warnings(warnings);
-                true
-            }
-            Err(e) => {
-                let _ = self.message_event(
-                    OutputSeverity::Error,
-                    OutputSource::Publish,
-                    format!("Export failed: {e}"),
-                    Some(OutputLocation::for_file(output.to_path_buf())),
-                );
-                if matches!(e, neoflash_export::ExportError::Scripts(_)) {
-                    self.emit_script_export_diagnostics();
-                    self.show_panel(PanelId::Output);
-                    self.show_panel(PanelId::CompilerErrors);
-                } else {
-                    self.refresh_compiler_diagnostics();
-                    self.show_panel(PanelId::Output);
-                }
-                false
-            }
-        }
+        self.publish_html5_atomic(output, runtime_dir, settings)
     }
 
     pub(crate) fn publish_desktop_app_with_settings(
@@ -2728,7 +2629,11 @@ impl Editor {
                     let warnings = neoflash_export::export_warnings(&resolved_project);
                     self.emit_export_warnings(warnings);
                     self.show_panel(PanelId::Output);
-                    if let Err(e) = crate::platform_open::open_file(&index) {
+                    if !cfg!(test)
+                        && let Err(e) = crate::preview::open_preview_in_browser(&index)
+                            .map(|_| ())
+                            .or_else(|_| crate::platform_open::open_file(&index))
+                    {
                         let _ = self.message_event(
                             OutputSeverity::Warning,
                             OutputSource::Publish,
@@ -3351,7 +3256,9 @@ impl Editor {
                 self.emit_export_warnings(warnings);
                 self.show_panel(PanelId::Output);
                 if !cfg!(test)
-                    && let Err(e) = crate::platform_open::open_file(&index)
+                    && let Err(e) = crate::preview::open_preview_in_browser(&index)
+                        .map(|_| ())
+                        .or_else(|_| crate::platform_open::open_file(&index))
                 {
                     let _ = self.message_event(
                         crate::output_pipeline::OutputSeverity::Warning,
@@ -4507,6 +4414,7 @@ impl eframe::App for Editor {
         self.set_playing(false);
         self.timeline_audio.stop_all();
         self.timeline_video.follow_preview(None);
+        crate::preview::shutdown_shared_preview_server();
         if self.allow_close {
             self.clear_all_session_recovery();
         } else {

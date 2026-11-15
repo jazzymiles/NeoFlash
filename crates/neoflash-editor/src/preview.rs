@@ -1416,13 +1416,11 @@ impl Drop for PreviewHttpServer {
     }
 }
 
-#[allow(dead_code)]
 static SHARED_PREVIEW_SERVER: std::sync::Mutex<Option<PreviewHttpServer>> =
     std::sync::Mutex::new(None);
 
 /// Ensure the process-wide `PreviewHttpServer` is running, mount `index_file`, and return its
 /// `http://127.0.0.1:<port>/...` URL (reusing the same server and mount across repeated `⌘Return` runs).
-#[allow(dead_code)]
 pub(crate) fn serve_preview_index(index_file: &std::path::Path) -> Result<String, String> {
     let mut guard = SHARED_PREVIEW_SERVER
         .lock()
@@ -1444,14 +1442,12 @@ pub(crate) fn serve_preview_index(index_file: &std::path::Path) -> Result<String
 
 /// Serve `index_file` on the reusable loopback HTTP server (with `Cache-Control: no-store`) and
 /// launch it in the user's default browser.
-#[allow(dead_code)]
 pub(crate) fn open_preview_in_browser(index_file: &std::path::Path) -> Result<String, String> {
     let url = serve_preview_index(index_file)?;
     crate::platform_open::open_url(&url)?;
     Ok(url)
 }
 
-#[allow(dead_code)]
 pub(crate) fn shutdown_shared_preview_server() {
     if let Ok(mut guard) = SHARED_PREVIEW_SERVER.lock()
         && let Some(mut srv) = guard.take()
@@ -1460,7 +1456,6 @@ pub(crate) fn shutdown_shared_preview_server() {
     }
 }
 
-#[allow(dead_code)]
 fn run_preview_accept_loop(
     listener: std::net::TcpListener,
     table: std::sync::Arc<std::sync::RwLock<PreviewMountTable>>,

@@ -391,10 +391,10 @@ impl Editor {
             format!("{prefix}: {error}"),
             Some(OutputLocation::for_file(output.to_path_buf())),
         );
+        self.show_panel(PanelId::Output);
         if open_compiler_errors {
             self.show_panel(PanelId::CompilerErrors);
         }
-        self.show_panel(PanelId::Output);
     }
 
     /// Atomic HTML5 / Native Banner publish entry point that validates/compiles completely before
@@ -471,10 +471,10 @@ impl Editor {
                     format!("Publish failed: {error}"),
                     Some(OutputLocation::for_file(output.to_path_buf())),
                 );
+                self.show_panel(PanelId::Output);
                 if settings.warnings_as_errors {
                     self.show_panel(PanelId::CompilerErrors);
                 }
-                self.show_panel(PanelId::Output);
                 return false;
             }
         };
