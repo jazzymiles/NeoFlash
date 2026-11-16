@@ -1649,3 +1649,218 @@ impl Editor {
         false
     }
 }
+
+/// Resolve an exported script origin string (`"Scene 1 / frame 1"`,
+/// `"Symbol / Layer / frame 1 / btn / Click"`, or `"src/Main.as"`) back to an authored
+/// [`ScriptLocation`] in `project`.
+pub(crate) fn resolve_script_location_in_project(
+    project: &neoflash_core::Project,
+    source: &str,
+) -> Option<ScriptLocation> {
+    let trimmed = source.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(unit) = project.sources.iter().find(|unit| {
+        unit.path == trimmed
+            || Path::new(&unit.path) == Path::new(trimmed)
+            || Path::new(trimmed)
+                .file_name()
+                .and_then(|f| f.to_str())
+                .is_some_and(|name| unit.path == name)
+    }) {
+        return Some(ScriptLocation::Source(unit.id.clone()));
+    }
+    for symbol in &project.symbols {
+        for frame in &symbol.timeline.scripts {
+            let frame_no = frame.frame + 1;
+            if format!("{} / frame {}", symbol.name, frame_no) == trimmed
+                || format!("{} · Frame {}", symbol.name, frame_no) == trimmed
+                || format!("{} · frame {}", symbol.name, frame_no) == trimmed
+            {
+                return Some(ScriptLocation::Frame {
+                    symbol: symbol.id.clone(),
+                    layer: frame.layer.clone(),
+                    frame: frame.frame,
+                });
+            }
+        }
+        for layer in &symbol.timeline.layers {
+            for keyframe in &layer.keyframes {
+                for element in &keyframe.elements {
+                    for handler in &element.scripts {
+                        let by_name = format!(
+                            "{} / {} / frame {} / {} / {:?}",
+                            symbol.name,
+                            layer.name,
+                            keyframe.frame + 1,
+                            element.name,
+                            handler.event
+                        );
+                        let by_id = format!(
+                            "{} / {} / frame {} / {} / {:?}",
+                            symbol.name,
+                            layer.name,
+                            keyframe.frame + 1,
+                            element.id,
+                            handler.event
+                        );
+                        if by_name == trimmed || by_id == trimmed {
+                            return Some(ScriptLocation::Object {
+                                symbol: symbol.id.clone(),
+                                frame: keyframe.frame,
+                                element: element.id.clone(),
+                                event: handler.event,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Convert a [`ScriptLocation`] in `project` into a navigable [`OutputLocation`] stamped with
+/// `document_id` and optional 1-based `(line, column)`.
+pub(crate) fn output_location_for_project_script(
+    project: &neoflash_core::Project,
+    document_id: &str,
+    script: &ScriptLocation,
+    line: Option<usize>,
+    column: Option<usize>,
+) -> OutputLocation {
+    let mut loc = match script {
+        ScriptLocation::Source(id) => {
+            let path = project
+                .sources
+                .iter()
+                .find(|u| &u.id == id)
+                .map_or_else(|| PathBuf::from(id), |u| PathBuf::from(&u.path));
+            OutputLocation::for_source(id.clone(), path)
+        }
+        ScriptLocation::Frame {
+            symbol,
+            layer,
+            frame,
+        } => {
+            let sym_name = project.symbol(symbol).map(|s| s.name.clone());
+            let layer_idx = project.symbol(symbol).and_then(|sym| {
+                layer
+                    .as_deref()
+                    .and_then(|id| sym.timeline.layers.iter().position(|item| item.id == id))
+                    .or_else(|| sym.timeline.action_layer_for_frame(*frame))
+            });
+            OutputLocation::for_frame(symbol.clone(), sym_name, layer_idx, *frame)
+        }
+        ScriptLocation::Object {
+            symbol,
+            frame,
+            element,
+            event,
+        } => {
+            let sym_name = project.symbol(symbol).map(|s| s.name.clone());
+            let layer_idx = project.symbol(symbol).and_then(|sym| {
+                sym.timeline.layers.iter().position(|layer| {
+                    layer
+                        .key_at(*frame)
+                        .is_some_and(|k| k.elements.iter().any(|el| &el.id == element))
+                })
+            });
+            OutputLocation::for_object(
+                symbol.clone(),
+                sym_name,
+                layer_idx,
+                *frame,
+                element.clone(),
+                *event,
+            )
+        }
+    };
+    if !document_id.is_empty() {
+        loc.document_id = Some(document_id.to_owned());
+    }
+    if let Some(l) = line {
+        loc = loc.with_line_col(l.max(1), column.unwrap_or(1).max(1));
+    }
+    loc
+}
+
+/// Resolve a runtime `trace()` or exception payload (`source_path`, `line`, `column`, `message`)
+/// from `Test Movie` / `Test Scene` back to a navigable [`OutputLocation`] in `project`.
+pub(crate) fn resolve_runtime_output_location(
+    project: &neoflash_core::Project,
+    document_id: &str,
+    source_path: Option<&str>,
+    line: Option<usize>,
+    column: Option<usize>,
+    message: &str,
+) -> Option<OutputLocation> {
+    let inferred_prefix = source_path
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            message
+                .split_once(": ")
+                .map(|(head, _)| head.trim())
+                .filter(|head| resolve_script_location_in_project(project, head).is_some())
+        });
+    let raw = inferred_prefix?;
+    if let Some(script_loc) = resolve_script_location_in_project(project, raw) {
+        return Some(output_location_for_project_script(
+            project,
+            document_id,
+            &script_loc,
+            line,
+            column,
+        ));
+    }
+    for sep in [" / frame ", " · Frame ", " · frame "] {
+        if let Some((sym_name, frame_str)) = raw.rsplit_once(sep)
+            && let Ok(frame_1based) = frame_str.trim().parse::<u32>()
+            && frame_1based >= 1
+            && let Some(sym) = project.symbols.iter().find(|s| s.name == sym_name.trim())
+        {
+            let max_frame = sym.timeline.frame_count.saturating_sub(1);
+            let frame_idx = (frame_1based - 1).min(max_frame);
+            let layer_idx = sym.timeline.action_layer_for_frame(frame_idx);
+            let mut loc = OutputLocation::for_frame(
+                sym.id.clone(),
+                Some(sym.name.clone()),
+                layer_idx,
+                frame_idx,
+            );
+            if !document_id.is_empty() {
+                loc.document_id = Some(document_id.to_owned());
+            }
+            if let Some(l) = line {
+                loc = loc.with_line_col(l.max(1), column.unwrap_or(1).max(1));
+            }
+            return Some(loc);
+        }
+    }
+    if raw.starts_with("Shared script ") {
+        for sym in &project.symbols {
+            if let Some(fs) = sym
+                .timeline
+                .scripts
+                .iter()
+                .find(|s| !s.script.source.trim().is_empty())
+            {
+                let script_loc = ScriptLocation::Frame {
+                    symbol: sym.id.clone(),
+                    layer: fs.layer.clone(),
+                    frame: fs.frame,
+                };
+                return Some(output_location_for_project_script(
+                    project,
+                    document_id,
+                    &script_loc,
+                    line,
+                    column,
+                ));
+            }
+        }
+    }
+    None
+}

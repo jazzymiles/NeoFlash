@@ -1384,6 +1384,7 @@ fn html_publish_config_drives_clean_publish_preview_chrome_templates_scale_jpeg_
             show_controls: false,
             show_load_summary: false,
             show_trace: true,
+            ..PlayerChromeConfig::preview_default()
         },
         template: HtmlTemplate::Centered,
         scale_mode: HtmlScaleMode::NoScale,

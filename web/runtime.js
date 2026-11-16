@@ -357,6 +357,7 @@
   const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, scriptFunction, mapScriptStack, sourceLocationText, mappedErrorFrames, emitScriptMessage, completeCleanup, ensureBundleFontsLoaded, mountAfterBundleFonts };
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (typeof document === 'undefined') return;
+  global.NeoFlashPreview?.installOutputRelay?.(global);
 
   const errorElement = document.getElementById('error');
   let failed = false;
@@ -2968,6 +2969,7 @@
       failed = false;
       errorElement.style.display = 'none';
       accumulated = 0; lastTime = null; resetMeasuredFps();
+      emitScriptMessage('restart', 'Player restarted', []);
       try { resetProject(); render(); } catch (error) { fail(error); }
     });
     document.getElementById('audio-toggle')?.addEventListener('click',guardHostCallback(()=>{

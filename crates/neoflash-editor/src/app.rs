@@ -2605,6 +2605,10 @@ impl Editor {
                 &preview_config,
             ) {
                 Ok(index) => {
+                    self.begin_preview_output_session(format!(
+                        "Test Movie: {}",
+                        resolved_project.name
+                    ));
                     let _ = self.message_event(
                         OutputSeverity::Info,
                         OutputSource::Publish,
@@ -3223,6 +3227,17 @@ impl Editor {
             &preview_config,
         ) {
             Ok(index) => {
+                let scene_name = self
+                    .project
+                    .symbol(self.current_scene())
+                    .map(|s| s.name.clone())
+                    .unwrap_or_default();
+                let banner = if scene_name.is_empty() {
+                    format!("Test Scene: {}", project.name)
+                } else {
+                    format!("Test Scene: {} ({scene_name})", project.name)
+                };
+                self.begin_preview_output_session(banner);
                 let _ = self.message_event(
                     crate::output_pipeline::OutputSeverity::Info,
                     crate::output_pipeline::OutputSource::Publish,
@@ -4413,6 +4428,7 @@ impl eframe::App for Editor {
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.apply_density(ctx);
+        self.poll_preview_output(ctx);
         self.poll_debugger(ctx);
         self.poll_updater(ctx, true);
         self.poll_beta_feedback(ctx);
@@ -4436,7 +4452,18 @@ impl eframe::App for Editor {
             while self.playing && self.accumulator >= step {
                 let before = self.frame;
                 self.tick_authored_preview();
-                self.after_playback_tick(before);
+                let keep_1frame_live = self.symbol().timeline.frame_count <= 1
+                    && !(self.editing_scene()
+                        && self.timeline_edit.play_all_scenes
+                        && self.project.scene_ids().len() > 1)
+                    && self.live_script_preview
+                    && crate::preview::symbol_has_continuous_preview_activity(
+                        &self.project,
+                        self.symbol_id(),
+                    );
+                if !keep_1frame_live {
+                    self.after_playback_tick(before);
+                }
                 self.accumulator -= step;
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(8));

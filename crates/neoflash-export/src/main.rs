@@ -31,6 +31,7 @@ where
     let mut source = None;
     let mut demo = false;
     let mut clean = false;
+    let mut preview = false;
     let mut size_report = false;
     let mut size_estimate = false;
     let mut has_output = false;
@@ -69,6 +70,7 @@ where
         match arg.as_str() {
             "--demo" => demo = true,
             "--clean" => clean = true,
+            "--preview" => preview = true,
             "--size-report" => size_report = true,
             "--size-estimate" => size_estimate = true,
             "--pretty" => lottie_pretty = true,
@@ -601,6 +603,7 @@ where
 
     let options = active_profile.options.clone();
     let has_custom_html_cfg = clean
+        || preview
         || scale_mode.is_some()
         || stage_align.is_some()
         || allow_fullscreen.is_some()
@@ -610,6 +613,8 @@ where
     let index = if has_custom_html_cfg {
         let mut cfg = if clean {
             HtmlPublishConfig::clean_publish_default()
+        } else if preview {
+            HtmlPublishConfig::preview_host_default()
         } else {
             HtmlPublishConfig::default()
         };

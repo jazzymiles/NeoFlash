@@ -428,6 +428,85 @@ pub(crate) struct AuthoringPreview {
     pub(crate) swf_player: Option<neoflash_import::SwfBytecodePlayer>,
     /// Distinguishes playback sessions; a new session silences the previous one's sounds.
     epoch: u64,
+    /// True when root `stop()` halted editor transport; pressing `Play` (`Enter`) again restarts
+    /// cleanly from Frame 1 instead of snapping immediately back to paused (`T-356`).
+    halted_transport: bool,
+}
+
+fn source_mentions_enter_frame(source: &str) -> bool {
+    source.contains("onEnterFrame")
+        || source.contains("ENTER_FRAME")
+        || source.contains("enterFrame")
+}
+
+/// True when `symbol_id` (or an active independent MovieClip / class source it uses) registers
+/// continuous per-frame execution (`onEnterFrame`, `Event.ENTER_FRAME`, `ObjectEvent::EnterFrame`,
+/// or a multi-frame/scripted independent child MovieClip) that keeps running while the root
+/// playhead is stopped on a single frame (`T-356`).
+pub(crate) fn symbol_has_continuous_preview_activity(project: &Project, symbol_id: &str) -> bool {
+    fn walk<'a>(
+        project: &'a Project,
+        symbol_id: &'a str,
+        is_root: bool,
+        visited: &mut HashSet<&'a str>,
+    ) -> bool {
+        if !visited.insert(symbol_id) {
+            return false;
+        }
+        let Some(sym) = project.symbol(symbol_id) else {
+            return false;
+        };
+        if !is_root
+            && (sym.timeline.frame_count > 1
+                || sym
+                    .timeline
+                    .scripts
+                    .iter()
+                    .any(|fs| !fs.script.source.trim().is_empty()))
+        {
+            return true;
+        }
+        if sym
+            .timeline
+            .scripts
+            .iter()
+            .any(|fs| source_mentions_enter_frame(&fs.script.source))
+        {
+            return true;
+        }
+        for layer in &sym.timeline.layers {
+            for kf in &layer.keyframes {
+                for el in &kf.elements {
+                    if el.scripts.iter().any(|h| {
+                        h.event == neoflash_core::ObjectEvent::EnterFrame
+                            || source_mentions_enter_frame(&h.script.source)
+                    }) {
+                        return true;
+                    }
+                    if let ElementKind::Instance {
+                        symbol_id: child_id,
+                        playback: neoflash_core::InstancePlayback::Independent,
+                    } = &el.kind
+                        && walk(project, child_id, false, visited)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    if (project.document_class.is_some() || project.symbols.iter().any(|s| s.class_name.is_some()))
+        && project
+            .sources
+            .iter()
+            .any(|u| source_mentions_enter_frame(&u.source))
+    {
+        return true;
+    }
+    let mut visited = HashSet::new();
+    walk(project, symbol_id, true, &mut visited)
 }
 
 /// Attach non-serialized geometry hints only for editor Stage consumers. Core/runtime/export
@@ -512,6 +591,14 @@ impl Editor {
         if self.authored_preview.is_some() && self.valid_authored_preview().is_none() {
             self.reset_authored_preview();
         }
+        if self.playing
+            && self
+                .authored_preview
+                .as_ref()
+                .is_some_and(|preview| preview.halted_transport)
+        {
+            self.reset_authored_preview();
+        }
         if self.playing {
             self.clear_simple_button_state();
         }
@@ -563,12 +650,17 @@ impl Editor {
                 self.frame = next_frame;
                 self.playing = was_playing;
             }
+            let keep_live_heartbeat = swf_player.is_none()
+                && self.live_script_preview
+                && symbol_has_continuous_preview_activity(&self.project, &playback_symbol);
+            let stop_transport = halted && !keep_live_heartbeat;
             self.authored_preview = Some(AuthoringPreview {
                 playback,
                 swf_player,
                 project: self.project.clone(),
                 symbol: playback_symbol,
                 epoch: next_preview_epoch(),
+                halted_transport: stop_transport,
             });
             let preview_loc = self.current_preview_output_location();
             for line in traces {
@@ -597,7 +689,7 @@ impl Editor {
                     .with_location(preview_loc.clone()),
                 );
             }
-            if halted {
+            if stop_transport {
                 self.playing = false;
             }
         }
@@ -724,7 +816,16 @@ impl Editor {
                 .with_location(preview_loc.clone()),
             );
         }
-        if halted {
+        let keep_live_heartbeat = self.authored_preview.as_ref().is_some_and(|p| {
+            p.swf_player.is_none()
+                && self.live_script_preview
+                && symbol_has_continuous_preview_activity(&self.project, &p.symbol)
+        });
+        let stop_transport = halted && !keep_live_heartbeat;
+        if let Some(preview) = &mut self.authored_preview {
+            preview.halted_transport = stop_transport;
+        }
+        if stop_transport {
             self.playing = false;
             self.timeline_video.pause_active();
         }
@@ -777,6 +878,7 @@ impl Editor {
             project: self.project.clone(),
             symbol,
             epoch: next_preview_epoch(),
+            halted_transport: false,
         });
         Some(state)
     }
@@ -844,6 +946,7 @@ impl Editor {
             project: self.project.clone(),
             symbol,
             epoch: next_preview_epoch(),
+            halted_transport: !self.playing,
         });
         Ok(result)
     }
@@ -916,10 +1019,22 @@ impl Editor {
                 .with_location(click_loc.clone()),
             );
         }
-        if halted {
+        let keep_live_heartbeat = self.authored_preview.as_ref().is_some_and(|p| {
+            p.swf_player.is_none()
+                && self.live_script_preview
+                && symbol_has_continuous_preview_activity(&self.project, &p.symbol)
+        });
+        let stop_transport = halted && !keep_live_heartbeat;
+        if let Some(preview) = &mut self.authored_preview {
+            preview.halted_transport = stop_transport;
+        }
+        if stop_transport {
             self.playing = false;
             self.timeline_video.pause_active();
         } else if clicked && was_halted {
+            if let Some(preview) = &mut self.authored_preview {
+                preview.halted_transport = false;
+            }
             self.playing = true;
             self.accumulator = 0.;
             self.last_tick = Instant::now();
@@ -1276,6 +1391,137 @@ impl Editor {
 // Local Loopback Test Movie HTTP Server (`127.0.0.1:0`, zero stale cache)
 // ---------------------------------------------------------------------------
 
+/// Maximum HTTP `POST /__neoflash/output` JSON body size accepted by `PreviewHttpServer` (`T-356`).
+pub(crate) const MAX_PREVIEW_OUTPUT_BODY_BYTES: usize = 256 * 1024;
+/// Maximum events accepted in a single `/__neoflash/output` JSON batch.
+const MAX_PREVIEW_OUTPUT_BATCH_EVENTS: usize = 1_024;
+/// Bounded thread-safe queue capacity for browser preview output items awaiting UI drain.
+const MAX_QUEUED_PREVIEW_OUTPUT_ITEMS: usize = 8_192;
+/// Maximum tracked browser preview session IDs for sequence deduplication.
+const MAX_TRACKED_PREVIEW_SESSIONS: usize = 64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PreviewOutputKind {
+    Trace,
+    Warning,
+    Error,
+    Restart,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub(crate) struct PreviewOutputItem {
+    #[serde(default)]
+    pub(crate) session: Option<String>,
+    #[serde(default)]
+    pub(crate) seq: u64,
+    pub(crate) kind: PreviewOutputKind,
+    #[serde(default)]
+    pub(crate) message: String,
+    #[serde(default, alias = "sourcePath")]
+    pub(crate) source_path: Option<String>,
+    #[serde(default)]
+    pub(crate) line: Option<usize>,
+    #[serde(default)]
+    pub(crate) column: Option<usize>,
+}
+
+#[derive(serde::Deserialize)]
+struct PreviewOutputBatchPayload {
+    #[serde(default)]
+    session: Option<String>,
+    events: Vec<PreviewOutputItem>,
+}
+
+#[derive(Default)]
+struct PreviewOutputSink {
+    queue: std::sync::Mutex<std::collections::VecDeque<PreviewOutputItem>>,
+    last_seq_by_session: std::sync::Mutex<HashMap<String, u64>>,
+    repaint_ctx: std::sync::Mutex<Option<eframe::egui::Context>>,
+}
+
+impl PreviewOutputSink {
+    fn set_repaint_context(&self, ctx: eframe::egui::Context) {
+        if let Ok(mut guard) = self.repaint_ctx.lock() {
+            *guard = Some(ctx);
+        }
+    }
+
+    fn clear(&self) {
+        if let Ok(mut q) = self.queue.lock() {
+            q.clear();
+        }
+        if let Ok(mut seqs) = self.last_seq_by_session.lock() {
+            seqs.clear();
+        }
+    }
+
+    fn drain(&self) -> Vec<PreviewOutputItem> {
+        if let Ok(mut q) = self.queue.lock() {
+            q.drain(..).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn push_batch(&self, mut payload: PreviewOutputBatchPayload) {
+        if payload.events.is_empty() {
+            return;
+        }
+        if payload.events.iter().all(|ev| ev.seq > 0) {
+            payload.events.sort_by_key(|ev| ev.seq);
+        }
+        let batch_session = payload
+            .session
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+
+        let mut accepted = Vec::with_capacity(payload.events.len());
+        if let Ok(mut seqs) = self.last_seq_by_session.lock() {
+            for mut item in payload.events {
+                if item.session.is_none() {
+                    item.session = batch_session.clone();
+                }
+                if let Some(sess) = item.session.as_deref()
+                    && item.seq > 0
+                {
+                    if let Some(&prev_seq) = seqs.get(sess)
+                        && item.seq <= prev_seq
+                    {
+                        continue;
+                    }
+                    if !seqs.contains_key(sess) && seqs.len() >= MAX_TRACKED_PREVIEW_SESSIONS {
+                        seqs.clear();
+                    }
+                    seqs.insert(sess.to_owned(), item.seq);
+                }
+                accepted.push(item);
+            }
+        } else {
+            accepted = payload.events;
+        }
+        if accepted.is_empty() {
+            return;
+        }
+
+        if let Ok(mut q) = self.queue.lock() {
+            for item in accepted {
+                if q.len() >= MAX_QUEUED_PREVIEW_OUTPUT_ITEMS {
+                    q.pop_front();
+                }
+                q.push_back(item);
+            }
+        }
+        if let Ok(guard) = self.repaint_ctx.lock()
+            && let Some(ctx) = guard.as_ref()
+        {
+            ctx.request_repaint();
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Default)]
 struct PreviewMountTable {
@@ -1288,11 +1534,13 @@ struct PreviewMountTable {
 /// Reusable loopback HTTP/1.1 static asset server for `Test Movie` (`⌘Return`) and `Test Scene`
 /// (`⌘⌥Return`). Serves fresh disk bytes on every request with strict `Cache-Control: no-store,
 /// no-cache, must-revalidate` headers, RFC 3986 UTF-8 percent-decoding, full WASM/ES-module/media
-/// MIME types, HTTP `Range` support for `<audio>`/`<video>` seeking, and directory-jail checks.
+/// MIME types, HTTP `Range` support for `<audio>`/`<video>` seeking, directory-jail checks, and
+/// live `POST /__neoflash/output` telemetry ingestion into NeoFlash's `Output` panel (`T-356`).
 #[allow(dead_code)]
 pub(crate) struct PreviewHttpServer {
     addr: std::net::SocketAddr,
     table: std::sync::Arc<std::sync::RwLock<PreviewMountTable>>,
+    output_sink: std::sync::Arc<PreviewOutputSink>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     accept_thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -1304,18 +1552,35 @@ impl PreviewHttpServer {
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
         let table = std::sync::Arc::new(std::sync::RwLock::new(PreviewMountTable::default()));
+        let output_sink = std::sync::Arc::new(PreviewOutputSink::default());
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let thread_table = std::sync::Arc::clone(&table);
+        let thread_sink = std::sync::Arc::clone(&output_sink);
         let thread_stop = std::sync::Arc::clone(&stop);
         let accept_thread = std::thread::Builder::new()
             .name("neoflash-preview-http".into())
-            .spawn(move || run_preview_accept_loop(listener, thread_table, thread_stop))?;
+            .spawn(move || {
+                run_preview_accept_loop(listener, thread_table, thread_sink, thread_stop)
+            })?;
         Ok(Self {
             addr,
             table,
+            output_sink,
             stop,
             accept_thread: Some(accept_thread),
         })
+    }
+
+    pub(crate) fn set_repaint_context(&self, ctx: eframe::egui::Context) {
+        self.output_sink.set_repaint_context(ctx);
+    }
+
+    pub(crate) fn clear_output_queue(&self) {
+        self.output_sink.clear();
+    }
+
+    pub(crate) fn drain_output_items(&self) -> Vec<PreviewOutputItem> {
+        self.output_sink.drain()
     }
 
     /// Start a loopback HTTP server whose root `/` immediately serves `root_dir`.
@@ -1418,10 +1683,63 @@ impl Drop for PreviewHttpServer {
 
 static SHARED_PREVIEW_SERVER: std::sync::Mutex<Option<PreviewHttpServer>> =
     std::sync::Mutex::new(None);
+static SHARED_PREVIEW_REPAINT_CTX: std::sync::Mutex<Option<eframe::egui::Context>> =
+    std::sync::Mutex::new(None);
+static SHARED_PREVIEW_DOC_SESSION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Register the editor's `egui::Context` so background `POST /__neoflash/output` requests wake
+/// `Editor::update` immediately while the browser window owns OS focus (`T-356`).
+pub(crate) fn register_shared_preview_repaint_context(ctx: &eframe::egui::Context) {
+    if let Ok(mut saved) = SHARED_PREVIEW_REPAINT_CTX.lock() {
+        *saved = Some(ctx.clone());
+    }
+    if let Ok(guard) = SHARED_PREVIEW_SERVER.lock()
+        && let Some(srv) = guard.as_ref()
+    {
+        srv.set_repaint_context(ctx.clone());
+    }
+}
+
+/// Clear stale queued preview output items and record the active document session ID when
+/// `Test Movie` (`⌘Return`) or `Test Scene` (`⌘⌥Return`) starts (`T-356`).
+pub(crate) fn begin_shared_preview_output_session(document_session: Option<&str>) {
+    if let Ok(mut doc_guard) = SHARED_PREVIEW_DOC_SESSION.lock() {
+        *doc_guard = document_session.map(str::to_owned);
+    }
+    if let Ok(guard) = SHARED_PREVIEW_SERVER.lock()
+        && let Some(srv) = guard.as_ref()
+    {
+        srv.clear_output_queue();
+    }
+}
+
+/// Drain any pending browser `trace()` / runtime error items from the shared preview HTTP server,
+/// returning `(active_document_session_id, items)`.
+pub(crate) fn drain_shared_preview_output() -> (Option<String>, Vec<PreviewOutputItem>) {
+    let items = if let Ok(guard) = SHARED_PREVIEW_SERVER.lock()
+        && let Some(srv) = guard.as_ref()
+    {
+        srv.drain_output_items()
+    } else {
+        Vec::new()
+    };
+    if items.is_empty() {
+        return (None, items);
+    }
+    let doc_session = SHARED_PREVIEW_DOC_SESSION
+        .lock()
+        .ok()
+        .and_then(|g| g.clone());
+    (doc_session, items)
+}
 
 /// Ensure the process-wide `PreviewHttpServer` is running, mount `index_file`, and return its
 /// `http://127.0.0.1:<port>/...` URL (reusing the same server and mount across repeated `⌘Return` runs).
 pub(crate) fn serve_preview_index(index_file: &std::path::Path) -> Result<String, String> {
+    let saved_ctx = SHARED_PREVIEW_REPAINT_CTX
+        .lock()
+        .ok()
+        .and_then(|g| g.clone());
     let mut guard = SHARED_PREVIEW_SERVER
         .lock()
         .map_err(|_| "Preview HTTP server lock poisoned.".to_owned())?;
@@ -1432,7 +1750,12 @@ pub(crate) fn serve_preview_index(index_file: &std::path::Path) -> Result<String
         }
         let srv = PreviewHttpServer::start()
             .map_err(|e| format!("Cannot start local preview HTTP server: {e}"))?;
+        if let Some(ctx) = saved_ctx {
+            srv.set_repaint_context(ctx);
+        }
         *guard = Some(srv);
+    } else if let (Some(srv), Some(ctx)) = (guard.as_ref(), saved_ctx) {
+        srv.set_repaint_context(ctx);
     }
     guard
         .as_ref()
@@ -1459,6 +1782,7 @@ pub(crate) fn shutdown_shared_preview_server() {
 fn run_preview_accept_loop(
     listener: std::net::TcpListener,
     table: std::sync::Arc<std::sync::RwLock<PreviewMountTable>>,
+    output_sink: std::sync::Arc<PreviewOutputSink>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
     while !stop.load(Ordering::Acquire) {
@@ -1472,18 +1796,93 @@ fn run_preview_accept_loop(
             break;
         }
         let req_table = std::sync::Arc::clone(&table);
+        let req_sink = std::sync::Arc::clone(&output_sink);
         let _ = std::thread::Builder::new()
             .name("neoflash-preview-req".into())
             .spawn(move || {
-                let _ = handle_preview_http_connection(stream, &req_table);
+                let _ = handle_preview_http_connection(stream, &req_table, &req_sink);
             });
     }
+}
+
+fn is_preview_output_endpoint(decoded_segments: &[String]) -> bool {
+    decoded_segments == ["__neoflash", "output"]
+        || (decoded_segments.len() == 3
+            && decoded_segments[1] == "__neoflash"
+            && decoded_segments[2] == "output")
+}
+
+fn handle_preview_output_post(
+    stream: &mut std::net::TcpStream,
+    already_read: &[u8],
+    content_length: Option<Result<usize, ()>>,
+    expect_continue: bool,
+    output_sink: &PreviewOutputSink,
+) -> std::io::Result<()> {
+    use std::io::{Read as _, Write as _};
+
+    let content_len = match content_length {
+        None => return write_preview_error(stream, 411, "Length Required", true, &[]),
+        Some(Err(())) | Some(Ok(0)) => {
+            return write_preview_error(stream, 400, "Bad Request", true, &[]);
+        }
+        Some(Ok(len)) if len > MAX_PREVIEW_OUTPUT_BODY_BYTES => {
+            return write_preview_error(stream, 413, "Payload Too Large", true, &[]);
+        }
+        Some(Ok(len)) => len,
+    };
+
+    if expect_continue && already_read.len() < content_len {
+        stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
+        stream.flush()?;
+    }
+
+    let mut body = Vec::with_capacity(content_len);
+    let initial = already_read.len().min(content_len);
+    body.extend_from_slice(&already_read[..initial]);
+    let mut scratch = [0_u8; 4096];
+    while body.len() < content_len {
+        let remaining = content_len - body.len();
+        let to_read = remaining.min(scratch.len());
+        match stream.read(&mut scratch[..to_read]) {
+            Ok(0) => return write_preview_error(stream, 400, "Bad Request", true, &[]),
+            Ok(n) => body.extend_from_slice(&scratch[..n]),
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                return write_preview_error(stream, 408, "Request Timeout", true, &[]);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    let Ok(payload) = serde_json::from_slice::<PreviewOutputBatchPayload>(&body) else {
+        return write_preview_error(stream, 400, "Bad Request", true, &[]);
+    };
+    if payload.events.len() > MAX_PREVIEW_OUTPUT_BATCH_EVENTS {
+        return write_preview_error(stream, 413, "Payload Too Large", true, &[]);
+    }
+
+    output_sink.push_batch(payload);
+    write_preview_response(
+        stream,
+        204,
+        "No Content",
+        "text/plain; charset=utf-8",
+        b"",
+        false,
+        &[],
+    )
 }
 
 #[allow(dead_code)]
 fn handle_preview_http_connection(
     mut stream: std::net::TcpStream,
     table: &std::sync::RwLock<PreviewMountTable>,
+    output_sink: &PreviewOutputSink,
 ) -> std::io::Result<()> {
     use std::io::Read as _;
 
@@ -1529,6 +1928,84 @@ fn handle_preview_http_connection(
         return write_preview_error(&mut stream, 400, "Bad Request", true, &[]);
     };
 
+    let mut range_header: Option<&str> = None;
+    let mut content_length: Option<Result<usize, ()>> = None;
+    let mut expect_continue = false;
+    for line in lines {
+        if line.is_empty() {
+            break;
+        }
+        if let Some((name, val)) = line.split_once(':') {
+            let name = name.trim();
+            let val = val.trim();
+            if name.eq_ignore_ascii_case("range") {
+                range_header = Some(val);
+            } else if name.eq_ignore_ascii_case("content-length") {
+                content_length = Some(val.parse::<usize>().map_err(|_| ()));
+            } else if name.eq_ignore_ascii_case("expect")
+                && val.eq_ignore_ascii_case("100-continue")
+            {
+                expect_continue = true;
+            }
+        }
+    }
+
+    let err_send_body = method != "HEAD";
+    // Strip #fragment and ?query (e.g. cache-busting `?t=...`), then decode RFC 3986 path segments.
+    let without_fragment = raw_target.split('#').next().unwrap_or(raw_target);
+    let raw_path = without_fragment
+        .split('?')
+        .next()
+        .unwrap_or(without_fragment);
+    if !raw_path.starts_with('/') {
+        return write_preview_error(&mut stream, 400, "Bad Request", err_send_body, &[]);
+    }
+
+    let mut decoded_segments: Vec<String> = Vec::new();
+    for raw_seg in raw_path.split('/').skip(1) {
+        if raw_seg.is_empty() {
+            continue;
+        }
+        let Ok(seg) = percent_decode_url_segment(raw_seg) else {
+            return write_preview_error(&mut stream, 400, "Bad Request", err_send_body, &[]);
+        };
+        if seg == "." {
+            continue;
+        }
+        if seg == ".." || seg.contains(['/', '\\', '\0']) {
+            return write_preview_error(&mut stream, 403, "Forbidden", err_send_body, &[]);
+        }
+        decoded_segments.push(seg);
+    }
+
+    if is_preview_output_endpoint(&decoded_segments) {
+        return match method {
+            "OPTIONS" => write_preview_response(
+                &mut stream,
+                204,
+                "No Content",
+                "text/plain; charset=utf-8",
+                b"",
+                false,
+                &[("Allow", "POST, OPTIONS")],
+            ),
+            "POST" => handle_preview_output_post(
+                &mut stream,
+                &buf[header_end..],
+                content_length,
+                expect_continue,
+                output_sink,
+            ),
+            _ => write_preview_error(
+                &mut stream,
+                405,
+                "Method Not Allowed",
+                err_send_body,
+                &[("Allow", "POST, OPTIONS")],
+            ),
+        };
+    }
+
     let send_body = match method {
         "GET" => true,
         "HEAD" => false,
@@ -1542,45 +2019,6 @@ fn handle_preview_http_connection(
             );
         }
     };
-
-    let mut range_header: Option<&str> = None;
-    for line in lines {
-        if line.is_empty() {
-            break;
-        }
-        if let Some((name, val)) = line.split_once(':')
-            && name.trim().eq_ignore_ascii_case("range")
-        {
-            range_header = Some(val.trim());
-        }
-    }
-
-    // Strip #fragment and ?query (e.g. cache-busting `?t=...`), then decode RFC 3986 path segments.
-    let without_fragment = raw_target.split('#').next().unwrap_or(raw_target);
-    let raw_path = without_fragment
-        .split('?')
-        .next()
-        .unwrap_or(without_fragment);
-    if !raw_path.starts_with('/') {
-        return write_preview_error(&mut stream, 400, "Bad Request", send_body, &[]);
-    }
-
-    let mut decoded_segments: Vec<String> = Vec::new();
-    for raw_seg in raw_path.split('/').skip(1) {
-        if raw_seg.is_empty() {
-            continue;
-        }
-        let Ok(seg) = percent_decode_url_segment(raw_seg) else {
-            return write_preview_error(&mut stream, 400, "Bad Request", send_body, &[]);
-        };
-        if seg == "." {
-            continue;
-        }
-        if seg == ".." || seg.contains(['/', '\\', '\0']) {
-            return write_preview_error(&mut stream, 403, "Forbidden", send_body, &[]);
-        }
-        decoded_segments.push(seg);
-    }
 
     let (root_dir, rel_segments): (std::path::PathBuf, &[String]) = {
         let Ok(guard) = table.read() else {
@@ -1895,6 +2333,159 @@ fn percent_decode_url_segment(raw: &str) -> Result<String, ()> {
         }
     }
     String::from_utf8(out).map_err(|_| ())
+}
+
+fn format_preview_output_event(
+    project: &Project,
+    document_id: &str,
+    item: PreviewOutputItem,
+) -> (crate::output_pipeline::OutputEvent, Option<String>) {
+    use crate::output_pipeline::{OutputEvent, OutputSource, resolve_runtime_output_location};
+
+    match item.kind {
+        PreviewOutputKind::Trace => {
+            let loc = resolve_runtime_output_location(
+                project,
+                document_id,
+                item.source_path.as_deref(),
+                item.line,
+                item.column,
+                &item.message,
+            );
+            let text = if item.message.starts_with("[trace]") {
+                item.message
+            } else if item.message.is_empty() {
+                "[trace]".to_owned()
+            } else {
+                format!("[trace] {}", item.message)
+            };
+            (OutputEvent::trace(text).with_optional_location(loc), None)
+        }
+        PreviewOutputKind::Warning => {
+            let loc = resolve_runtime_output_location(
+                project,
+                document_id,
+                item.source_path.as_deref(),
+                item.line,
+                item.column,
+                &item.message,
+            );
+            let clean_msg = item
+                .source_path
+                .as_deref()
+                .and_then(|src| item.message.strip_prefix(&format!("{src}: ")))
+                .unwrap_or(&item.message);
+            let text = match (item.source_path.as_deref(), item.line) {
+                (Some(src), Some(line)) if !src.is_empty() => {
+                    format!("Warning ({src} · line {line}): {clean_msg}")
+                }
+                (Some(src), None) if !src.is_empty() => format!("Warning ({src}): {clean_msg}"),
+                _ if clean_msg.starts_with("Warning") => clean_msg.to_owned(),
+                _ => format!("Warning: {clean_msg}"),
+            };
+            (
+                OutputEvent::warning(OutputSource::Runtime, text).with_optional_location(loc),
+                None,
+            )
+        }
+        PreviewOutputKind::Error => {
+            let loc = resolve_runtime_output_location(
+                project,
+                document_id,
+                item.source_path.as_deref(),
+                item.line,
+                item.column,
+                &item.message,
+            );
+            let clean_msg = item
+                .source_path
+                .as_deref()
+                .and_then(|src| item.message.strip_prefix(&format!("{src}: ")))
+                .unwrap_or(&item.message);
+            let text = match (item.source_path.as_deref(), item.line) {
+                (Some(src), Some(line)) if !src.is_empty() => {
+                    format!("Runtime error ({src} · line {line}): {clean_msg}")
+                }
+                (Some(src), None) if !src.is_empty() => {
+                    format!("Runtime error ({src}): {clean_msg}")
+                }
+                _ if clean_msg.starts_with("Runtime error") => clean_msg.to_owned(),
+                _ => format!("Runtime error: {clean_msg}"),
+            };
+            let status = text.clone();
+            (
+                OutputEvent::error(OutputSource::Runtime, text).with_optional_location(loc),
+                Some(status),
+            )
+        }
+        PreviewOutputKind::Restart => (
+            OutputEvent::info(OutputSource::Runtime, "─── Test Movie restarted ───"),
+            None,
+        ),
+    }
+}
+
+impl Editor {
+    /// Prepare a fresh `Output` telemetry session before `Test Movie` (`⌘Return`) or
+    /// `Test Scene` (`⌘⌥Return`) launches (`T-356`).
+    pub(crate) fn begin_preview_output_session(&mut self, banner: impl Into<String>) {
+        let doc_id =
+            (!self.clipboard.session.is_empty()).then_some(self.clipboard.session.as_str());
+        begin_shared_preview_output_session(doc_id);
+        self.push_output_event(crate::output_pipeline::OutputEvent::info(
+            crate::output_pipeline::OutputSource::Runtime,
+            format!("─── {} ───", banner.into()),
+        ));
+    }
+
+    /// Ingest `PreviewOutputItem`s received from `POST /__neoflash/output` into the owning
+    /// document's `OutputPipeline` (`T-356`).
+    pub(crate) fn ingest_preview_output_items(
+        &mut self,
+        target_document_session: Option<&str>,
+        items: Vec<PreviewOutputItem>,
+    ) {
+        if items.is_empty() || !self.has_document() {
+            return;
+        }
+        if let Some(target_doc) = target_document_session
+            && !target_doc.is_empty()
+            && self.clipboard.session != target_doc
+            && let Some(slot) = self
+                .sessions
+                .iter_mut()
+                .flatten()
+                .find(|s| s.clipboard.session == target_doc)
+        {
+            let doc_id = slot.clipboard.session.clone();
+            slot.output.set_document_id(doc_id.clone());
+            for item in items {
+                let (ev, _) = format_preview_output_event(&slot.project, &doc_id, item);
+                slot.output.push_event(ev);
+            }
+            return;
+        }
+
+        self.sync_output_document_id();
+        let doc_id = self.clipboard.session.clone();
+        for item in items {
+            let (ev, next_status) = format_preview_output_event(&self.project, &doc_id, item);
+            if let Some(status) = next_status {
+                self.status = status;
+            }
+            self.output.push_event(ev);
+        }
+    }
+
+    /// Register `ctx` with the loopback preview server and drain any queued browser `trace()` or
+    /// runtime error events into `Output` (`T-356`).
+    pub(crate) fn poll_preview_output(&mut self, ctx: &eframe::egui::Context) {
+        register_shared_preview_repaint_context(ctx);
+        let (doc_session, items) = drain_shared_preview_output();
+        if !items.is_empty() {
+            self.ingest_preview_output_items(doc_session.as_deref(), items);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2440,6 +3031,412 @@ mod timeline_video_preview_tests {
                 .events()
                 .iter()
                 .any(|ev| ev.message.contains("ENTERED_S2"))
+        );
+    }
+
+    #[test]
+    fn t356_preview_http_output_ingestion_trace_error_navigation_and_payload_limits() {
+        use crate::output_pipeline::{OutputSeverity, OutputSource};
+        use crate::panels::actions_sidebar::ScriptLocation;
+        use std::io::{Read as _, Write as _};
+        use std::sync::{Arc, atomic::AtomicUsize};
+
+        fn raw_http_request(addr: std::net::SocketAddr, request: &[u8]) -> (String, Vec<u8>) {
+            let mut stream = std::net::TcpStream::connect(addr).expect("connect preview http");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream.write_all(request).unwrap();
+            stream.flush().unwrap();
+            let mut raw = Vec::new();
+            stream.read_to_end(&mut raw).unwrap();
+            let split = raw
+                .windows(4)
+                .position(|w| w == b"\r\n\r\n")
+                .expect("HTTP CRLF header boundary");
+            let headers = String::from_utf8_lossy(&raw[..split]).into_owned();
+            let body = raw[split + 4..].to_vec();
+            (headers, body)
+        }
+
+        let mut project = Project::blank();
+        project.script_language = Some(neoflash_core::ScriptLanguage::ActionScript2);
+        let root_id = project.root.clone();
+        let frame_script_source = "stop();\ntrace(\"init\");\nvar ticks = 0;\nthis.onEnterFrame = function() {\n    boom();\n};\n";
+        project.symbol_mut(&root_id).unwrap().timeline.scripts = vec![neoflash_core::FrameScript {
+            layer: None,
+            frame: 0,
+            script: neoflash_core::Script {
+                language: neoflash_core::ScriptLanguage::ActionScript2,
+                source: frame_script_source.into(),
+            },
+        }];
+        project.sources.push(neoflash_core::SourceUnit {
+            id: "unit-game".into(),
+            path: "src/Game.as".into(),
+            language: neoflash_core::ScriptLanguage::ActionScript2,
+            source: "class Game {\n    function step():Void {\n        throw new Error(\"game-boom\");\n    }\n}\n".into(),
+        });
+
+        let ctx = eframe::egui::Context::default();
+        let repaint_calls = Arc::new(AtomicUsize::new(0));
+        let repaint_counter = Arc::clone(&repaint_calls);
+        ctx.set_request_repaint_callback(move |_info| {
+            repaint_counter.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let mut editor = Editor::from_project(&ctx, project);
+        let mut server = PreviewHttpServer::start().expect("start preview server");
+        server.set_repaint_context(ctx.clone());
+        let addr = server.local_addr();
+        let host = format!("127.0.0.1:{}", addr.port());
+
+        // 1. OPTIONS preflight succeeds, GET on /__neoflash/output returns 405, missing Content-Length returns 411,
+        //    malformed JSON returns 400, and oversized payload (>256 KiB) returns 413.
+        let (opt_hdr, opt_body) = raw_http_request(
+            addr,
+            format!("OPTIONS /__neoflash/output HTTP/1.1\r\nHost: {host}\r\n\r\n").as_bytes(),
+        );
+        assert!(opt_hdr.starts_with("HTTP/1.1 204 No Content"), "{opt_hdr}");
+        assert!(opt_hdr.contains("Allow: POST, OPTIONS"), "{opt_hdr}");
+        assert!(opt_body.is_empty());
+
+        let (get_hdr, _) = raw_http_request(
+            addr,
+            format!("GET /__neoflash/output HTTP/1.1\r\nHost: {host}\r\n\r\n").as_bytes(),
+        );
+        assert!(
+            get_hdr.starts_with("HTTP/1.1 405 Method Not Allowed"),
+            "{get_hdr}"
+        );
+
+        let (no_len_hdr, _) = raw_http_request(
+            addr,
+            format!("POST /__neoflash/output HTTP/1.1\r\nHost: {host}\r\n\r\n{{}}").as_bytes(),
+        );
+        assert!(
+            no_len_hdr.starts_with("HTTP/1.1 411 Length Required"),
+            "{no_len_hdr}"
+        );
+
+        let bad_json = br#"{"session":"s1","events":"not-an-array"}"#;
+        let mut bad_req = format!(
+            "POST /__neoflash/output HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+            bad_json.len()
+        )
+        .into_bytes();
+        bad_req.extend_from_slice(bad_json);
+        let (bad_hdr, _) = raw_http_request(addr, &bad_req);
+        assert!(bad_hdr.starts_with("HTTP/1.1 400 Bad Request"), "{bad_hdr}");
+
+        let over_len = MAX_PREVIEW_OUTPUT_BODY_BYTES + 1;
+        let (over_hdr, _) = raw_http_request(
+            addr,
+            format!(
+                "POST /__neoflash/output HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {over_len}\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        assert!(
+            over_hdr.starts_with("HTTP/1.1 413 Payload Too Large"),
+            "{over_hdr}"
+        );
+        assert!(server.drain_output_items().is_empty());
+
+        // 2. Stale queued items are cleared before starting a fresh session.
+        let stale_body =
+            br#"{"session":"old","events":[{"seq":1,"kind":"trace","message":"stale"}]}"#;
+        let mut stale_req = format!(
+            "POST /__neoflash/output HTTP/1.1\r\nHost: {host}\r\nContent-Length: {}\r\n\r\n",
+            stale_body.len()
+        )
+        .into_bytes();
+        stale_req.extend_from_slice(stale_body);
+        let (stale_hdr, _) = raw_http_request(addr, &stale_req);
+        assert!(stale_hdr.starts_with("HTTP/1.1 204 No Content"));
+        server.clear_output_queue();
+        assert!(server.drain_output_items().is_empty());
+
+        // 3. Valid live batch: Frame-1 trace, onEnterFrame traces, rate-cap suppression notice,
+        //    Restart separator, and mapped Frame + SourceUnit runtime errors.
+        //    Run egui's two-pass settle cycle (`outstanding = 1 -> 0`) so `repaint_delay` is
+        //    `Duration::MAX` (matching NeoFlash parked idle in the background while browser runs).
+        for _ in 0..2 {
+            let _ = ctx.run(Default::default(), |_| {});
+        }
+        let before_repaints = repaint_calls.load(Ordering::SeqCst);
+        let root_sym_name = editor.project.symbol(&root_id).unwrap().name.clone();
+        let frame_origin = format!("{root_sym_name} / frame 1");
+        let batch_json = serde_json::json!({
+            "session": "live-1",
+            "events": [
+                {
+                    "seq": 1,
+                    "kind": "trace",
+                    "message": "init",
+                    "sourcePath": frame_origin,
+                    "line": 2,
+                    "column": 1
+                },
+                {
+                    "seq": 2,
+                    "kind": "trace",
+                    "message": "tick 1",
+                    "sourcePath": frame_origin,
+                    "line": 4,
+                    "column": 5
+                },
+                {
+                    "seq": 2,
+                    "kind": "trace",
+                    "message": "duplicate-seq-ignored"
+                },
+                {
+                    "seq": 3,
+                    "kind": "trace",
+                    "message": "[trace] ... suppressed 42 lines ..."
+                },
+                {
+                    "seq": 4,
+                    "kind": "restart",
+                    "message": "Player restarted"
+                },
+                {
+                    "seq": 5,
+                    "kind": "error",
+                    "message": format!("{frame_origin}: ReferenceError: boom is not defined"),
+                    "sourcePath": frame_origin,
+                    "line": 5,
+                    "column": 5
+                },
+                {
+                    "seq": 6,
+                    "kind": "error",
+                    "message": "Error: game-boom",
+                    "sourcePath": "src/Game.as",
+                    "line": 3,
+                    "column": 9
+                }
+            ]
+        })
+        .to_string();
+        let mut live_req = format!(
+            "POST /m1/__neoflash/output HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+            batch_json.len()
+        )
+        .into_bytes();
+        live_req.extend_from_slice(batch_json.as_bytes());
+        let (live_hdr, _) = raw_http_request(addr, &live_req);
+        assert!(
+            live_hdr.starts_with("HTTP/1.1 204 No Content"),
+            "{live_hdr}"
+        );
+        assert!(
+            repaint_calls.load(Ordering::SeqCst) > before_repaints,
+            "POST /__neoflash/output must wake egui::Context::request_repaint() immediately"
+        );
+
+        editor.output.clear();
+        let drained = server.drain_output_items();
+        assert_eq!(drained.len(), 6, "duplicate seq=2 must be deduplicated");
+        editor.ingest_preview_output_items(Some(&editor.clipboard.session.clone()), drained);
+
+        let events = editor.output.events();
+        assert_eq!(events.len(), 6);
+        assert_eq!(events[0].severity, OutputSeverity::Trace);
+        assert_eq!(events[0].source, OutputSource::Trace);
+        assert_eq!(events[0].message, "[trace] init");
+        assert!(!events[0].message.starts_with("[trace] [trace]"));
+
+        assert_eq!(events[1].message, "[trace] tick 1");
+        assert_eq!(
+            events[2].message, "[trace] ... suppressed 42 lines ...",
+            "pre-prefixed suppression notice must NEVER double-prefix [trace] [trace]"
+        );
+        assert_eq!(events[3].severity, OutputSeverity::Info);
+        assert!(events[3].message.contains("restarted"));
+
+        assert_eq!(events[4].severity, OutputSeverity::Error);
+        assert_eq!(events[4].source, OutputSource::Runtime);
+        assert_eq!(
+            events[4].message,
+            format!("Runtime error ({frame_origin} · line 5): ReferenceError: boom is not defined")
+        );
+        let frame_err_loc = events[4]
+            .location
+            .clone()
+            .expect("mapped frame error location");
+        assert!(frame_err_loc.is_navigable());
+        assert_eq!(frame_err_loc.line, Some(5));
+        assert_eq!(frame_err_loc.column, Some(5));
+
+        assert_eq!(events[5].severity, OutputSeverity::Error);
+        assert_eq!(
+            events[5].message,
+            "Runtime error (src/Game.as · line 3): Error: game-boom"
+        );
+        let source_err_loc = events[5]
+            .location
+            .clone()
+            .expect("mapped SourceUnit location");
+        assert!(source_err_loc.is_navigable());
+        assert_eq!(source_err_loc.line, Some(3));
+        assert_eq!(source_err_loc.column, Some(9));
+
+        // 4. Clicking the frame-script error in Output navigates Actions directly to line 5, col 5.
+        assert!(editor.navigate_to_output_location(&ctx, &frame_err_loc));
+        assert!(matches!(
+            editor.current_script_location(),
+            Some(ScriptLocation::Frame { frame: 0, .. })
+        ));
+        let frame_editor_id = editor.actions_editor_id();
+        let frame_cursor = eframe::egui::text_edit::TextEditState::load(&ctx, frame_editor_id)
+            .and_then(|s| s.cursor.char_range())
+            .expect("caret placed in frame Actions editor");
+        let expected_frame_idx =
+            neoflash_ui::components::code::char_index(frame_script_source, 5, 5);
+        assert_eq!(frame_cursor.primary.index, expected_frame_idx);
+
+        // 5. Clicking the SourceUnit error in Output navigates Actions directly to src/Game.as line 3, col 9.
+        assert!(editor.navigate_to_output_location(&ctx, &source_err_loc));
+        assert_eq!(
+            editor.current_script_location(),
+            Some(ScriptLocation::Source("unit-game".into()))
+        );
+        let src_editor_id = editor.actions_editor_id();
+        let src_cursor = eframe::egui::text_edit::TextEditState::load(&ctx, src_editor_id)
+            .and_then(|s| s.cursor.char_range())
+            .expect("caret placed in SourceUnit Actions editor");
+        let expected_src_idx =
+            neoflash_ui::components::code::char_index(&editor.project.sources[0].source, 3, 9);
+        assert_eq!(src_cursor.primary.index, expected_src_idx);
+
+        server.shutdown();
+    }
+
+    #[test]
+    fn t356_one_frame_game_in_editor_play_executes_frame1_and_enter_frame_traces() {
+        // 1. 1-frame AS2 game with `stop(); trace("init"); this.onEnterFrame = function() { ... };`
+        let mut as2_game = Project::blank();
+        as2_game.script_language = Some(neoflash_core::ScriptLanguage::ActionScript2);
+        let root_id = as2_game.root.clone();
+        as2_game.symbol_mut(&root_id).unwrap().timeline.frame_count = 1;
+        as2_game.symbol_mut(&root_id).unwrap().timeline.scripts = vec![neoflash_core::FrameScript {
+            layer: None,
+            frame: 0,
+            script: neoflash_core::Script {
+                language: neoflash_core::ScriptLanguage::ActionScript2,
+                source: "stop();\nvar n = 0;\ntrace(\"init\");\nthis.onEnterFrame = function() {\n    n = n + 1;\n    trace(\"tick \" + n);\n};\n".into(),
+            },
+        }];
+
+        let ctx = eframe::egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, as2_game);
+        editor.workspace.timeline.loop_playback = false;
+        editor.output.clear();
+
+        editor.set_playing(true);
+        assert!(
+            editor.playing,
+            "1-frame game with stop() + onEnterFrame must keep transport active for enter_frame ticks"
+        );
+        assert_eq!(
+            editor
+                .output
+                .events()
+                .iter()
+                .map(|e| e.message.as_str())
+                .collect::<Vec<_>>(),
+            vec!["[trace] init"]
+        );
+
+        for _ in 0..3 {
+            editor.tick_authored_preview();
+        }
+        assert!(editor.playing);
+        assert_eq!(editor.frame, 0);
+        assert_eq!(
+            editor
+                .output
+                .events()
+                .iter()
+                .map(|e| e.message.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "[trace] init",
+                "[trace] tick 1",
+                "[trace] tick 2",
+                "[trace] tick 3",
+            ]
+        );
+
+        // 2. 1-frame AS3 game with `stop(); trace("as3-init"); addEventListener(Event.ENTER_FRAME, ...);`
+        let mut as3_game = Project::blank();
+        as3_game.script_language = Some(neoflash_core::ScriptLanguage::ActionScript3);
+        let as3_root = as3_game.root.clone();
+        as3_game.symbol_mut(&as3_root).unwrap().timeline.frame_count = 1;
+        as3_game.symbol_mut(&as3_root).unwrap().timeline.scripts = vec![neoflash_core::FrameScript {
+            layer: None,
+            frame: 0,
+            script: neoflash_core::Script {
+                language: neoflash_core::ScriptLanguage::ActionScript3,
+                source: "stop();\ntrace(\"as3-init\");\naddEventListener(Event.ENTER_FRAME, function(e:Event):void {\n    trace(\"as3-tick\");\n});\n".into(),
+            },
+        }];
+        let mut as3_editor = Editor::from_project(&ctx, as3_game);
+        as3_editor.output.clear();
+        as3_editor.set_playing(true);
+        as3_editor.tick_authored_preview();
+        as3_editor.tick_authored_preview();
+        assert_eq!(
+            as3_editor
+                .output
+                .events()
+                .iter()
+                .map(|e| e.message.as_str())
+                .collect::<Vec<_>>(),
+            vec!["[trace] as3-init", "[trace] as3-tick", "[trace] as3-tick"]
+        );
+
+        // 3. Pure 1-frame `stop(); trace("ready");` (without onEnterFrame): emits on Play #1, halts,
+        //    and re-runs cleanly when the user presses Play (`Enter`) a second time.
+        let mut one_shot = Project::blank();
+        one_shot.script_language = Some(neoflash_core::ScriptLanguage::ActionScript2);
+        let one_root = one_shot.root.clone();
+        one_shot.symbol_mut(&one_root).unwrap().timeline.frame_count = 1;
+        one_shot.symbol_mut(&one_root).unwrap().timeline.scripts =
+            vec![neoflash_core::FrameScript {
+                layer: None,
+                frame: 0,
+                script: neoflash_core::Script {
+                    language: neoflash_core::ScriptLanguage::ActionScript2,
+                    source: "stop();\ntrace(\"ready\");\n".into(),
+                },
+            }];
+        let mut one_editor = Editor::from_project(&ctx, one_shot);
+        one_editor.output.clear();
+        one_editor.set_playing(true);
+        assert!(!one_editor.playing);
+        assert_eq!(
+            one_editor
+                .output
+                .events()
+                .iter()
+                .map(|e| e.message.as_str())
+                .collect::<Vec<_>>(),
+            vec!["[trace] ready"]
+        );
+        one_editor.set_playing(true);
+        assert!(!one_editor.playing);
+        assert_eq!(
+            one_editor
+                .output
+                .events()
+                .iter()
+                .map(|e| e.message.as_str())
+                .collect::<Vec<_>>(),
+            vec!["[trace] ready", "[trace] ready"],
+            "pressing Play again after stop() on a 1-frame movie must re-execute Frame 1"
         );
     }
 }

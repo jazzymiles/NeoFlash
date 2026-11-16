@@ -2744,11 +2744,12 @@ impl PublishPrefs {
     /// HTML5 configuration used for `Publish` (`File ▸ Publish` and `Publish settings ▸ Publish`).
     /// Produces a clean stage without the technical preview bar unless `publish_clean` is false.
     pub fn publish_html_config(&self) -> neoflash_export::HtmlPublishConfig {
-        let chrome = if self.publish_clean {
+        let mut chrome = if self.publish_clean {
             neoflash_export::PlayerChromeConfig::clean_publish()
         } else {
             self.preview_chrome
         };
+        chrome.relay_output_to_host = false;
         neoflash_export::HtmlPublishConfig {
             include_html: self.html_wrapper,
             assets_folder: self.assets_folder,
@@ -2774,8 +2775,11 @@ impl PublishPrefs {
     }
 
     /// HTML5 configuration used for `Test Movie` and `Test Scene` (`Preview`).
-    /// Uses `preview_chrome` configured in `Preferences ▸ Publish`.
+    /// Uses `preview_chrome` configured in `Preferences ▸ Publish` and enables live loopback
+    /// `Output` telemetry relay (`T-356`).
     pub fn preview_html_config(&self) -> neoflash_export::HtmlPublishConfig {
+        let mut chrome = self.preview_chrome;
+        chrome.relay_output_to_host = true;
         neoflash_export::HtmlPublishConfig {
             include_html: true,
             assets_folder: false,
@@ -2794,7 +2798,7 @@ impl PublishPrefs {
             include_trace: true,
             minify: true,
             acceleration: self.acceleration,
-            chrome: self.preview_chrome,
+            chrome,
             render_mode: self.render_mode,
             breakpoints: Vec::new(),
         }

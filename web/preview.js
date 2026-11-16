@@ -50,5 +50,163 @@
       return next;
     }
   }
-  const api={layout,Preview};if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashPreview=api;
+  function isLoopbackHttpOrigin(loc){
+    if(!loc)return false;
+    const protocol=String(loc.protocol||'').toLowerCase();
+    if(protocol!=='http:'&&protocol!=='https:')return false;
+    const host=String(loc.hostname||'').toLowerCase();
+    return host==='127.0.0.1'||host==='localhost'||host==='::1'||host==='[::1]';
+  }
+  function installOutputRelay(hostGlobal=global){
+    if(!hostGlobal||typeof hostGlobal!=='object')return null;
+    if(hostGlobal.__neoflashOutputRelay)return hostGlobal.__neoflashOutputRelay;
+    const doc=hostGlobal.document;
+    const stageEl=typeof doc?.getElementById==='function'?doc.getElementById('stage'):null;
+    const endpoint=String(
+      stageEl?.getAttribute?.('data-neoflash-output-endpoint')||
+      stageEl?.dataset?.neoflashOutputEndpoint||
+      doc?.body?.getAttribute?.('data-neoflash-output-endpoint')||
+      doc?.body?.dataset?.neoflashOutputEndpoint||
+      ''
+    ).trim();
+    if(!endpoint||!isLoopbackHttpOrigin(hostGlobal.location))return null;
+    const MAX_BATCH=64,BATCH_WINDOW_MS=16,MAX_TRACE_PER_SEC=5000;
+    const nowMs=typeof hostGlobal.performance?.now==='function'?()=>hostGlobal.performance.now():()=>Date.now();
+    const session=`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`;
+    const queue=[];
+    let seq=0,inFlight=false,timerId=0,lastFlushMs=-1e9,disabled=false;
+    let rateWindowStartMs=0,rateWindowCount=0,suppressedLines=0;
+    function clearTimer(){
+      if(timerId){
+        if(typeof hostGlobal.clearTimeout==='function')hostGlobal.clearTimeout(timerId);
+        timerId=0;
+      }
+    }
+    function flushSuppressedNotice(){
+      if(suppressedLines>0){
+        const count=suppressedLines;
+        suppressedLines=0;
+        queue.push({seq:++seq,kind:'trace',message:`[trace] ... suppressed ${count} lines ...`,sourcePath:null,line:null,column:null});
+      }
+    }
+    function scheduleNextFlush(){
+      if(disabled||inFlight||timerId||queue.length===0)return;
+      const elapsed=nowMs()-lastFlushMs;
+      const urgent=queue.some(item=>item.kind!=='trace');
+      if(urgent||elapsed>=BATCH_WINDOW_MS||queue.length>=MAX_BATCH){
+        flushAsync();
+      }else if(typeof hostGlobal.setTimeout==='function'){
+        const wait=Math.max(1,Math.ceil(BATCH_WINDOW_MS-elapsed));
+        timerId=hostGlobal.setTimeout(()=>{timerId=0;flushAsync();},wait);
+      }else{
+        flushAsync();
+      }
+    }
+    function flushAsync(){
+      clearTimer();
+      if(disabled||inFlight||queue.length===0)return;
+      if(typeof hostGlobal.fetch!=='function'){disabled=true;queue.length=0;return;}
+      inFlight=true;
+      lastFlushMs=nowMs();
+      const batch=queue.splice(0,MAX_BATCH);
+      const payload=JSON.stringify({session,events:batch});
+      let request;
+      try{
+        request=Promise.resolve(hostGlobal.fetch(endpoint,{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:payload,
+          cache:'no-store',
+          keepalive:payload.length<=32768,
+        }));
+      }catch(_){
+        inFlight=false;disabled=true;queue.length=0;return;
+      }
+      request.then(resp=>{
+        if(!resp||!resp.ok){disabled=true;queue.length=0;}
+      },()=>{
+        disabled=true;queue.length=0;
+      }).finally(()=>{
+        inFlight=false;
+        if(!disabled&&queue.length>0)scheduleNextFlush();
+      });
+    }
+    function flushUnload(){
+      clearTimer();
+      if(disabled)return;
+      flushSuppressedNotice();
+      while(queue.length>0){
+        const batch=queue.splice(0,MAX_BATCH);
+        const payload=JSON.stringify({session,events:batch});
+        let sent=false;
+        try{
+          if(typeof hostGlobal.navigator?.sendBeacon==='function'){
+            const body=typeof Blob==='function'?new Blob([payload],{type:'application/json'}):payload;
+            sent=Boolean(hostGlobal.navigator.sendBeacon(endpoint,body));
+          }
+        }catch(_){sent=false;}
+        if(!sent&&typeof hostGlobal.fetch==='function'){
+          try{
+            Promise.resolve(hostGlobal.fetch(endpoint,{
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body:payload,
+              cache:'no-store',
+              keepalive:true,
+            })).then(()=>{},()=>{});
+          }catch(_){}
+        }
+      }
+    }
+    function record(kind,message,location){
+      if(disabled)return;
+      const now=nowMs();
+      if(now-rateWindowStartMs>=1000){
+        flushSuppressedNotice();
+        rateWindowStartMs=now;
+        rateWindowCount=0;
+      }
+      if(kind==='trace'){
+        if(rateWindowCount>=MAX_TRACE_PER_SEC){
+          suppressedLines++;
+          return;
+        }
+        rateWindowCount++;
+      }else{
+        flushSuppressedNotice();
+      }
+      queue.push({
+        seq:++seq,
+        kind,
+        message:String(message??''),
+        sourcePath:typeof location?.source==='string'&&location.source?location.source:null,
+        line:Number.isInteger(location?.line)&&location.line>0?location.line:null,
+        column:Number.isInteger(location?.column)&&location.column>0?location.column:null,
+      });
+      if(kind!=='trace'){
+        if(!inFlight)flushAsync();
+      }else{
+        scheduleNextFlush();
+      }
+    }
+    hostGlobal.addEventListener?.('neoflash-script-message',event=>{
+      const detail=event?.detail;
+      if(!detail||typeof detail.kind!=='string')return;
+      record(detail.kind,detail.message,detail.location);
+    });
+    hostGlobal.addEventListener?.('pagehide',()=>flushUnload());
+    hostGlobal.addEventListener?.('beforeunload',()=>flushUnload());
+    const relay=Object.freeze({
+      endpoint,
+      session,
+      record,
+      flush:()=>{flushSuppressedNotice();flushAsync();},
+      flushUnload,
+      get pending(){return queue.length;},
+      get seq(){return seq;},
+    });
+    try{Object.defineProperty(hostGlobal,'__neoflashOutputRelay',{value:relay,configurable:true,enumerable:false});}catch(_){}
+    return relay;
+  }
+  const api={layout,Preview,isLoopbackHttpOrigin,installOutputRelay};if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashPreview=api;
 })(globalThis);

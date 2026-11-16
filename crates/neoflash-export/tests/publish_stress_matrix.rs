@@ -323,6 +323,7 @@ fn pass2_templates_scale_modes_accelerations_and_hud_permutations() {
             show_controls: (mask & 4) != 0,
             show_load_summary: (mask & 8) != 0,
             show_trace: (mask & 16) != 0,
+            ..PlayerChromeConfig::preview_default()
         };
         let cfg = HtmlPublishConfig {
             chrome,

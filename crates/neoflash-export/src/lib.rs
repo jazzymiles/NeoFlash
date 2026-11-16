@@ -2946,6 +2946,11 @@ fn html_document_with_config(
         Some(HtmlAcceleration::Software) => " data-acceleration=\"software\"",
         None => "",
     };
+    let canvas_output_attr = if config.is_some_and(|c| c.chrome.relay_output_to_host) {
+        " data-neoflash-output-endpoint=\"/__neoflash/output\""
+    } else {
+        ""
+    };
     let display_name = if let Some(cfg) = config {
         if cfg.chrome.show_dimensions && !clean {
             format!("{title} · {width}×{height}")
@@ -2988,11 +2993,11 @@ fn html_document_with_config(
             .unwrap_or("showAll");
         let dom_align = config.map(|c| c.stage_align.as_flash_code()).unwrap_or("");
         format!(
-            "<canvas id=\"stage\"{canvas_accel_attr} aria-hidden=\"true\"></canvas><neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\" width=\"{width}\" height=\"{height}\" scale-mode=\"{dom_scale}\" align=\"{dom_align}\"></neoflash-stage><div id=\"semantic-layer\"></div>"
+            "<canvas id=\"stage\"{canvas_accel_attr}{canvas_output_attr} aria-hidden=\"true\"></canvas><neoflash-stage id=\"stage-dom-root\" data-render-mode=\"dom\" width=\"{width}\" height=\"{height}\" scale-mode=\"{dom_scale}\" align=\"{dom_align}\"></neoflash-stage><div id=\"semantic-layer\"></div>"
         )
     } else {
         format!(
-            "<canvas id=\"stage\"{canvas_accel_attr} aria-label=\"{title}\"></canvas><div id=\"semantic-layer\"></div>{a11y_overlay_html}"
+            "<canvas id=\"stage\"{canvas_accel_attr}{canvas_output_attr} aria-label=\"{title}\"></canvas><div id=\"semantic-layer\"></div>{a11y_overlay_html}"
         )
     };
     format!(

@@ -256,6 +256,10 @@ const fn default_true() -> bool {
     true
 }
 
+const fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 const fn default_jpeg_quality() -> u8 {
     80
 }
@@ -282,6 +286,11 @@ pub struct PlayerChromeConfig {
     /// Show `trace()` output and script diagnostics in the preview bar.
     #[serde(default = "default_true")]
     pub show_trace: bool,
+    /// Preview-only telemetry toggle (`Test Movie` / `Test Scene`): when `true`, emits
+    /// `data-neoflash-output-endpoint="/__neoflash/output"` so the loopback preview host streams
+    /// live `trace()` and runtime errors back to NeoFlash's `Output` panel (`T-356`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub relay_output_to_host: bool,
 }
 
 impl Default for PlayerChromeConfig {
@@ -300,6 +309,7 @@ impl PlayerChromeConfig {
             show_controls: true,
             show_load_summary: true,
             show_trace: true,
+            relay_output_to_host: false,
         }
     }
 
@@ -312,6 +322,7 @@ impl PlayerChromeConfig {
             show_controls: false,
             show_load_summary: false,
             show_trace: false,
+            relay_output_to_host: false,
         }
     }
 
@@ -464,6 +475,18 @@ impl HtmlPublishConfig {
     pub fn clean_publish_default() -> Self {
         Self {
             chrome: PlayerChromeConfig::clean_publish(),
+            ..Self::default()
+        }
+    }
+
+    /// Preview configuration used by `Test Movie` / `Test Scene` (`--preview`), enabling source
+    /// maps and loopback `Output` telemetry relay (`T-356`).
+    pub fn preview_host_default() -> Self {
+        let mut chrome = PlayerChromeConfig::preview_default();
+        chrome.relay_output_to_host = true;
+        Self {
+            source_maps: true,
+            chrome,
             ..Self::default()
         }
     }
@@ -1005,5 +1028,26 @@ mod tests {
         assert_eq!(options.fonts, crate::FontExportPolicy::Device);
         assert_eq!(options.size, SizeLevel::Shared("../runtime".into()));
         assert!(SizeLevel::parse("shared", Some("javascript:alert(1)")).is_err());
+    }
+
+    #[test]
+    fn t356_preview_host_output_relay_attribute_is_absent_from_normal_publish_and_present_in_preview()
+     {
+        let default_cfg = HtmlPublishConfig::default();
+        assert!(!default_cfg.chrome.relay_output_to_host);
+        let default_json = serde_json::to_string(&default_cfg).unwrap();
+        assert!(
+            !default_json.contains("relay_output_to_host"),
+            "normal publish config must omit false relay_output_to_host: {default_json}"
+        );
+
+        let clean_cfg = HtmlPublishConfig::clean_publish_default();
+        assert!(!clean_cfg.chrome.relay_output_to_host);
+
+        let preview_cfg = HtmlPublishConfig::preview_host_default();
+        assert!(preview_cfg.chrome.relay_output_to_host);
+        assert!(preview_cfg.source_maps);
+        let preview_json = serde_json::to_string(&preview_cfg).unwrap();
+        assert!(preview_json.contains("\"relay_output_to_host\":true"));
     }
 }
