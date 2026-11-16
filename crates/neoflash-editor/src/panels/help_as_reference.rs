@@ -6,8 +6,8 @@
 //! Built strictly from `neoflash_ui` (NF2) tokens, typography, icons, and components.
 
 use super::help_manual::{
-    AUTHORING_CHAPTER_COUNT, HELP_BROWSER_TOPICS, HELP_CHAPTERS, illustration_canvas, mode_card,
-    paint_clipped_text, paragraph, section_overline, sub_bullet,
+    AUTHORING_CHAPTER_COUNT, HELP_BROWSER_TOPICS, HELP_CHAPTERS, LanguageScope,
+    illustration_canvas, mode_card, paint_clipped_text, paragraph, section_overline, sub_bullet,
 };
 use eframe::egui::{self, Rect, Stroke, StrokeKind, Ui, vec2};
 use neoflash_ui::{
@@ -296,6 +296,39 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
     // ── Category 3: ECMAScript & Async ──
     JsTsApiEntry {
         category: "ECMAScript & Async",
+        name: "function",
+        signature: "function name(p1, p2 = defaultVal, ...rest) { return value; } | (a, b) => a + b",
+        provenance: "ECMAScript",
+        availability: "Standard ES2023+ hoisted declarations, function expressions, closures & arrow functions",
+        summary: "Defines reusable callable blocks, lexical closures, higher-order callbacks, and explicit receiver methods.",
+        insertion: "function name() {\n    \n}",
+        ts_only: false,
+        kind: JsTsEntryKind::Keyword,
+    },
+    JsTsApiEntry {
+        category: "ECMAScript & Async",
+        name: "Function",
+        signature: "fn.call(thisArg, ...args) | fn.apply(thisArg, argsArray) | fn.bind(thisArg, ...args)",
+        provenance: "ECMAScript",
+        availability: "Standard ES2023+ Function.prototype receiver-binding methods",
+        summary: "Invokes or binds a function with an explicit `this` MovieClip/object receiver and individual or array-packed arguments.",
+        insertion: "fn.call(this)",
+        ts_only: false,
+        kind: JsTsEntryKind::Class,
+    },
+    JsTsApiEntry {
+        category: "ECMAScript & Async",
+        name: "return",
+        signature: "return expression; | return;",
+        provenance: "ECMAScript",
+        availability: "Inside any function, method, or arrow block body",
+        summary: "Exits the active function call immediately and returns `expression` (or `undefined` when omitted).",
+        insertion: "return;",
+        ts_only: false,
+        kind: JsTsEntryKind::Keyword,
+    },
+    JsTsApiEntry {
+        category: "ECMAScript & Async",
         name: "Promise",
         signature: "new Promise<T>((resolve, reject) => { ... }) | Promise.all(iterable)",
         provenance: "ECMAScript",
@@ -383,6 +416,17 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
         kind: JsTsEntryKind::Class,
     },
     // ── Category 4: TypeScript & Checker ──
+    JsTsApiEntry {
+        category: "TypeScript & Checker",
+        name: "function (typed)",
+        signature: "function calcDamage(base: number, crit?: boolean): number | type Handler = (x: number) => void",
+        provenance: "TypeScript",
+        availability: "Built-in NeoFlash TypeScript checker (ts_check); parameter/return annotations erased at runtime",
+        summary: "Declares statically checked parameter types, optional (?) / default parameters, return types, union arguments, and callable type aliases.",
+        insertion: "function compute(value: number): number {\n    return value;\n}",
+        ts_only: true,
+        kind: JsTsEntryKind::TypeConstruct,
+    },
     JsTsApiEntry {
         category: "TypeScript & Checker",
         name: "interface",
@@ -593,6 +637,901 @@ pub(crate) fn search_js_ts_entries(query: &str, include_ts: bool) -> Vec<&'stati
                 || entry.summary.to_ascii_lowercase().contains(&q)
         })
         .collect()
+}
+
+/// Complete Classic Flash 50 two-key `<ESC>` code-insertion chords (`<ESC>` followed sequentially
+/// by two characters inside the `Actions` or Project source editor).
+pub(crate) const CLASSIC_ESC_CHORDS: [(&str, &str, &str); 50] = [
+    ("br", "break;", "Exit current loop or switch"),
+    ("ca", "call ( );", "Legacy Flash 4 frame-script call"),
+    ("//", "// ", "Insert single-line comment"),
+    ("co", "continue;", "Advance loop to next iteration"),
+    ("da", "delete ( );", "Delete dynamic object property"),
+    (
+        "do",
+        "do { ... } while ( condition );",
+        "Post-condition do..while loop",
+    ),
+    (
+        "dm",
+        "duplicateMovieClip ( target, newname, depth );",
+        "Clone stage MovieClip instance",
+    ),
+    ("el", "} else {", "Fallback branch after if block"),
+    (
+        "ei",
+        "} else if ( condition ) {",
+        "Chained conditional branch",
+    ),
+    (
+        "fr",
+        "for ( init; condition; next ) { }",
+        "Counted for loop",
+    ),
+    (
+        "fi",
+        "for ( iterator in object ) { }",
+        "Enumerate dynamic keys / children",
+    ),
+    (
+        "fs",
+        "fscommand ( command, arguments );",
+        "Host player command bridge",
+    ),
+    (
+        "fn",
+        "function name ( ) { ... }",
+        "Declare named function block",
+    ),
+    (
+        "gu",
+        "getURL ( url, window, method );",
+        "Open URL or browser target",
+    ),
+    ("gp", "gotoAndPlay ( frame );", "Jump playhead and play"),
+    ("gs", "gotoAndStop ( frame );", "Jump playhead and stop"),
+    ("if", "if ( condition ) { }", "Conditional branch"),
+    (
+        "il",
+        "ifFrameLoaded ( frame ) { ... }",
+        "Legacy frame-stream check",
+    ),
+    (
+        "in",
+        "#include \"path\"",
+        "Compile-time external script include",
+    ),
+    (
+        "lm",
+        "loadMovie ( url, target, method );",
+        "Load SWF / media / bundle into clip",
+    ),
+    (
+        "ln",
+        "loadMovieNum ( url, level, method );",
+        "Load asset into _levelN",
+    ),
+    (
+        "lv",
+        "loadVariables ( url, target, method );",
+        "Load URL-encoded variables into clip",
+    ),
+    (
+        "vn",
+        "loadVariablesNum ( url, level, method );",
+        "Load URL-encoded variables into _levelN",
+    ),
+    ("nf", "nextFrame ();", "Step forward 1 frame and stop"),
+    ("ns", "nextScene ();", "Jump to next Scene"),
+    (
+        "on",
+        "on ( event ) { ... }",
+        "Button / instance pointer or key handler",
+    ),
+    (
+        "oc",
+        "onClipEvent ( event ) { }",
+        "MovieClip load / enterFrame handler",
+    ),
+    ("pl", "play ( );", "Resume timeline playback"),
+    ("pf", "prevFrame ( );", "Step back 1 frame and stop"),
+    ("ps", "prevScene ( );", "Jump to previous Scene"),
+    ("pr", "print ( target, type );", "Vector print job"),
+    (
+        "pb",
+        "printAsBitmap ( target, type );",
+        "Bitmap-rasterized print job",
+    ),
+    (
+        "bn",
+        "printAsBitmapNum ( level, type );",
+        "Bitmap print _levelN",
+    ),
+    ("pn", "printNum ( level, type );", "Vector print _levelN"),
+    (
+        "rm",
+        "removeMovieClip ( target );",
+        "Remove dynamic-depth MovieClip",
+    ),
+    ("rt", "return ( );", "Return value from active function"),
+    (
+        "sv",
+        "set ( name, value );",
+        "Legacy dynamic variable assignment",
+    ),
+    (
+        "sp",
+        "setProperty ( target, property, value );",
+        "Legacy MovieClip property setter",
+    ),
+    (
+        "dr",
+        "startDrag ( target, lockcenter, l, t, r, b );",
+        "Begin interactive MovieClip drag",
+    ),
+    ("st", "stop ( );", "Halt active timeline playhead"),
+    ("ss", "stopAllSounds ( );", "Silence all playing audio"),
+    ("sd", "stopDrag ( );", "End active MovieClip drag"),
+    (
+        "tt",
+        "tellTarget ( target ) { }",
+        "Legacy slash/dot timeline target block",
+    ),
+    (
+        "tq",
+        "toggleHighQuality ( );",
+        "Legacy anti-aliasing quality toggle",
+    ),
+    ("tr", "trace ( message );", "Log value to Output panel (F2)"),
+    (
+        "um",
+        "unloadMovie ( target );",
+        "Unload external clip content",
+    ),
+    ("un", "unloadMovieNum ( level );", "Unload _levelN content"),
+    ("vr", "var ;", "Declare function-local or timeline variable"),
+    ("wh", "while ( condition ) { }", "Pre-condition while loop"),
+    (
+        "wt",
+        "with ( object ) { }",
+        "Extend scope chain with target object",
+    ),
+];
+
+pub(crate) const AS2_FN_DECLARATIONS_AND_LITERALS_SAMPLE: &str =
+    "// 1. Hoisting: named function declarations can be called before or after their definition
+var openingHit:Number = calcDamage(24, true);
+trace(\"Opening hit:\", openingHit);
+
+function calcDamage(base:Number, crit:Boolean):Number {
+    if (base <= 0) {
+        return 0; // Early return exits immediately
+    }
+    var multiplier:Number = crit ? 2 : 1;
+    return base * multiplier;
+}
+
+// 2. Function literal / anonymous expression assigned to a Function variable (not hoisted)
+var easeOutQuad:Function = function(t:Number):Number {
+    return t * (2 - t);
+};
+trace(\"Ease at 50%:\", easeOutQuad(0.5));
+
+// 3. Passing an anonymous function as a callback comparator to Array.sort()
+var highScores:Array = [120, 450, 80, 310];
+highScores.sort(function(a:Number, b:Number):Number {
+    return b - a;
+});
+trace(\"Descending scores:\", highScores);";
+
+pub(crate) const AS2_FN_ARGUMENTS_CALL_APPLY_SAMPLE: &str =
+    "// 1. Variadic function inspecting arguments.length, arguments[i], and arguments.caller
+function sumAll():Number {
+    var total:Number = 0;
+    for (var i:Number = 0; i < arguments.length; i++) {
+        total += Number(arguments[i]);
+    }
+    if (arguments.caller != null) {
+        trace(\"sumAll called from nested helper\");
+    }
+    return total;
+}
+
+function awardWaveBonus():Number {
+    return sumAll(10, 25, 50, 15);
+}
+trace(\"Wave bonus:\", awardWaveBonus());
+
+// 2. Anonymous recursion via arguments.callee
+var factorial:Function = function(n:Number):Number {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * Number(arguments.callee(n - 1));
+};
+trace(\"5! =\", factorial(5));
+
+// 3. Function.call(thisObject, arg1, ...) & Function.apply(thisObject, argsArray)
+function translateClip(dx:Number, dy:Number):Void {
+    this._x += dx;
+    this._y += dy;
+}
+translateClip.call(hero_mc, 16, -8);
+var knockback:Array = [-24, 4];
+translateClip.apply(hero_mc, knockback);";
+
+pub(crate) const AS2_FN_PROTOTYPE_AND_CLOSURES_SAMPLE: &str =
+    "// 1. Constructor function & Function.prototype shared methods (AS1 / AS2)
+function Enemy(x:Number, y:Number, speed:Number) {
+    this.x = x;
+    this.y = y;
+    this.speed = speed;
+}
+Enemy.prototype.step = function():Void {
+    this.x -= this.speed;
+};
+var scout = new Enemy(240, 120, 3);
+scout.step();
+trace(\"Enemy x after step:\", scout.x);
+
+// 2. Local var activation scope & lexical closures vs timeline properties (this.score)
+this.score = 0;
+function makeCounter(start:Number):Function {
+    var count:Number = start; // Retained in the activation object captured by the inner function
+    return function(delta:Number):Number {
+        count += delta;
+        return count;
+    };
+}
+var nextWave:Function = makeCounter(1);
+trace(\"Wave A:\", nextWave(1), \"Wave B:\", nextWave(1));";
+
+pub(crate) const AS2_ONE_FRAME_GAME_LOOP_SAMPLE: &str =
+    "// Single-frame AS2 game pattern on Frame 1 ('Actions' layer) — run with Test Movie!
+stop();
+var score:Number = 0;
+var world:MovieClip = this.createEmptyMovieClip(\"world_mc\", this.getNextHighestDepth());
+
+function spawnCoin(xp:Number, yp:Number):MovieClip {
+    var d:Number = world.getNextHighestDepth();
+    return world.attachMovie(\"CoinSymbol\", \"coin_\" + d, d, {_x: xp, _y: yp});
+}
+
+start_btn.onPress = function():Void {
+    this._alpha = 75;
+};
+start_btn.onRelease = function():Void {
+    this._alpha = 100;
+    var c:MovieClip = spawnCoin(280, 160);
+    trace(\"Spawned coin:\", c._name);
+};
+
+var waveInterval:Number = setInterval(function():Void {
+    trace(\"Wave heartbeat — score:\", score);
+    if (score >= 500) {
+        clearInterval(waveInterval);
+    }
+}, 2000);
+
+this.onEnterFrame = function():Void {
+    var speed:Number = Key.isDown(Key.SHIFT) ? 7 : 4;
+    if (Key.isDown(Key.RIGHT)) { hero_mc._x += speed; }
+    if (Key.isDown(Key.LEFT))  { hero_mc._x -= speed; }
+    if (Key.isDown(Key.UP))    { hero_mc._y -= speed; }
+    if (Key.isDown(Key.DOWN))  { hero_mc._y += speed; }
+};";
+
+pub(crate) const AS3_FUNCTIONS_REST_CALL_CLOSURES_SAMPLE: &str = "import flash.display.MovieClip;
+import flash.events.Event;
+
+stop();
+
+// 1. Named function with typed default parameter & return value
+function calcDamage(base:Number, crit:Boolean = false):Number {
+    if (base <= 0) {
+        return 0;
+    }
+    return crit ? base * 2 : base;
+}
+
+// 2. Variadic ...rest array parameter (preferred over untyped AS2 arguments)
+function sumAll(...values):Number {
+    var total:Number = 0;
+    for (var i:int = 0; i < values.length; i++) {
+        total += Number(values[i]);
+    }
+    return total;
+}
+
+// 3. Lexical closure factory + Function.call(thisArg, ...) & Function.apply(thisArg, array)
+function makeCounter(start:int = 0):Function {
+    var count:int = start;
+    return function(step:int = 1):int {
+        count += step;
+        return count;
+    };
+}
+var nextWave:Function = makeCounter(1);
+var moveClip:Function = function(dx:Number, dy:Number):void {
+    this.x += dx;
+    this.y += dy;
+};
+var actor:MovieClip = new MovieClip();
+moveClip.call(actor, 12, -4);
+moveClip.apply(actor, [8, 16]);
+trace(\"AS3 fn results:\", calcDamage(25, true), sumAll(10, 20, 30), nextWave(), actor.x, actor.y);";
+
+pub(crate) const JS_FUNCTIONS_CLOSURES_AND_CALL_SAMPLE: &str = "// ES2023+ Functions: declarations, arrow callbacks, ...rest, closures & call / apply
+function calcDamage(base, crit = false) {
+    if (base <= 0) return 0;
+    return crit ? base * 2 : base;
+}
+
+const easeOutQuad = (t) => t * (2 - t);
+
+function sumAll(...values) {
+    return values.reduce((acc, n) => acc + n, 0);
+}
+
+function makeCounter(start = 0) {
+    let count = start;
+    return (step = 1) => {
+        count += step;
+        return count;
+    };
+}
+
+function nudgeReceiver(dx, dy) {
+    this.x = (this.x ?? 0) + dx;
+    this.y = (this.y ?? 0) + dy;
+}
+const spriteState = { x: 40, y: 60 };
+nudgeReceiver.call(spriteState, 10, -5);
+nudgeReceiver.apply(spriteState, [5, 15]);
+const nextId = makeCounter(100);
+trace(calcDamage(20, true), easeOutQuad(0.5), sumAll(5, 10, 15), nextId(), spriteState.x, spriteState.y);";
+
+pub(crate) const TS_TYPED_AND_GENERIC_FUNCTIONS_SAMPLE: &str = "type EasingFn = (t: number) => number;
+
+function calcDamage(base: number, crit: boolean = false, bonus?: number): number {
+    if (base <= 0) {
+        return 0;
+    }
+    const mult: number = crit ? 2 : 1;
+    return base * mult + (bonus ?? 0);
+}
+
+const easeOutQuad: EasingFn = (t: number): number => t * (2 - t);
+
+function firstOrFallback(items: Array<string>, fallback: string): string {
+    return items.length > 0 ? items[0] : fallback;
+}
+
+function makeCounter(start: number): (step: number) => number {
+    let count: number = start;
+    return (step: number): number => {
+        count += step;
+        return count;
+    };
+}
+
+const nextId = makeCounter(0);
+trace(calcDamage(30, true, 5), easeOutQuad(0.5), firstOrFallback([\"laser\", \"shield\"], \"none\"), nextId(1));";
+
+/// Structured search index entry covering language statements, core classes, multi-case examples,
+/// and authoring chords with explicit dialect badges (`[AS1/AS2]`, `[AS3]`, `[JS]`, `[TS]`).
+pub(crate) struct ReferenceTopicEntry {
+    pub dialect_badge: &'static str,
+    pub chapter_idx: usize,
+    pub title: &'static str,
+    pub signature: &'static str,
+    pub summary: &'static str,
+    pub keywords: &'static str,
+    pub code_preview: Option<&'static str>,
+}
+
+pub(crate) const REFERENCE_SEARCH_ENTRIES: &[ReferenceTopicEntry] = &[
+    // ── ActionScript 1.0 / 2.0: Complete function & Function coverage (Cases 1–7) ──
+    ReferenceTopicEntry {
+        dialect_badge: "[AS1/AS2]",
+        chapter_idx: 10,
+        title: "Named function Declarations, Parameters, Hoisting & return Values",
+        signature: "function calcDamage(base:Number, crit:Boolean):Number { return ...; }",
+        summary: "Declares a reusable named function on a timeline frame or inside another function. Named declarations are hoisted so they can be called before or after their definition; `return expr;` exits immediately (omitting `return` or `:Void` returns `undefined`).",
+        keywords: "function statement named declaration parameter return void hoisting calcdamage <esc>fn <esc>rt as1 as2",
+        code_preview: Some(AS2_FN_DECLARATIONS_AND_LITERALS_SAMPLE),
+    },
+    ReferenceTopicEntry {
+        dialect_badge: "[AS1/AS2]",
+        chapter_idx: 10,
+        title: "Function Literals / Anonymous Expressions & Higher-Order Callbacks",
+        signature: "var easeOutQuad:Function = function(t:Number):Number { return t * (2 - t); };",
+        summary: "Creates an unnamed `Function` value at assignment time (not hoisted). Pass function literals directly to `Array.sort(compareFn)`, `setInterval(fn, ms)`, `LoadVars.onLoad`, or dynamic MovieClip / Button callbacks.",
+        keywords: "function literal anonymous expression callback easeoutquad array.sort first-class value as1 as2",
+        code_preview: Some(AS2_FN_DECLARATIONS_AND_LITERALS_SAMPLE),
+    },
+    ReferenceTopicEntry {
+        dialect_badge: "[AS1/AS2]",
+        chapter_idx: 10,
+        title: "arguments Object — arguments.length, arguments[i], callee & caller",
+        signature: "arguments.length:Number · arguments[i] · arguments.callee:Function · arguments.caller:Function",
+        summary: "Every AS1/AS2 function call binds an implicit local `arguments` array-like object: inspect `arguments.length` and `arguments[i]` for variadic functions (`sumAll`), call `arguments.callee` for anonymous recursion, and read `arguments.caller` for the invoking function.",
+        keywords: "function arguments length callee caller variadic sumall recursion factorial as1 as2",
+        code_preview: Some(AS2_FN_ARGUMENTS_CALL_APPLY_SAMPLE),
+    },
+    ReferenceTopicEntry {
+        dialect_badge: "[AS1/AS2]",
+        chapter_idx: 11,
+        title: "Function.call(thisObject, ...) & Function.apply(thisObject, argsArray)",
+        signature: "fn.call(thisObject:Object, arg1, arg2, ...):Object · fn.apply(thisObject:Object, argsArray:Array):Object",
+        summary: "Methods of the built-in `Function` class that invoke any function with `this` explicitly bound to a target `MovieClip` or `Object` (`null` uses the global/timeline scope). Use `call` for comma-separated arguments and `apply` to forward an `Array` or `arguments`.",
+        keywords: "function class call apply thisobject explicit receiver movieclip array forwarding as1 as2",
+        code_preview: Some(AS2_FN_ARGUMENTS_CALL_APPLY_SAMPLE),
+    },
+    ReferenceTopicEntry {
+        dialect_badge: "[AS1/AS2]",
+        chapter_idx: 10,
+        title: "Constructor Functions, new & Function.prototype Inheritance",
+        signature: "function Enemy(x:Number, y:Number) { ... }; Enemy.prototype.step = function():Void { ... }; new Enemy(100, 80)",
+        summary: "Invoking a function with `new` constructs a fresh `Object` whose `__proto__` links to `Constructor.prototype` and runs the function with `this` bound to the new instance. Pair with `Object.registerClass(\"LinkageId\", Constructor)` for Library MovieClips.",
+        keywords: "function constructor new prototype __proto__ registerclass inheritance enemy object class as1 as2",
+        code_preview: Some(AS2_FN_PROTOTYPE_AND_CLOSURES_SAMPLE),
+    },
+    ReferenceTopicEntry {
+        dialect_badge: "[AS1/AS2]",
+        chapter_idx: 10,
+        title: "Variable Scope (var), Activation Objects, Nested Functions & Closures",
+        signature: "function makeCounter(start:Number):Function { var count:Number = start; return function():Number { ... }; }",
+        summary: "Variables declared with `var` inside a function live on that call's activation object rather than polluting the timeline (`this.score`). Nested functions capture the enclosing activation chain, forming stateful lexical closures.",
+        keywords: "function scope local var activation object nested closure makecounter timeline this.score <esc>vr as1 as2",
+        code_preview: Some(AS2_FN_PROTOTYPE_AND_CLOSURES_SAMPLE),
+    },
+    ReferenceTopicEntry {
+        dialect_badge: "[AS1/AS2]",
+        chapter_idx: 10,
+        title: "Event Handler Callbacks & 1-Frame Flash Game Loop Pattern",
+        signature: "stop(); btn.onPress / onRelease = function() { ... }; this.onEnterFrame = function() { ... }; setInterval(fn, ms);",
+        summary: "Author an entire interactive game on Frame 1: halt the playhead with `stop()`, spawn containers via `createEmptyMovieClip` / `attachMovie`, poll `Key.isDown(...)` in `this.onEnterFrame`, schedule waves with `setInterval`/`clearInterval`, and inspect `trace()` live in Output (`F2`) during Test Movie!",
+        keywords: "function 1-frame single frame game loop onenterframe onpress onrelease key.isdown setinterval clearinterval attachmovie createemptymovieclip trace test movie stop as1 as2",
+        code_preview: Some(AS2_ONE_FRAME_GAME_LOOP_SAMPLE),
+    },
+    // ── ActionScript 3.0: Functions, ...rest, Function.call/apply, Bound Methods & Game Loop ──
+    ReferenceTopicEntry {
+        dialect_badge: "[AS3]",
+        chapter_idx: 12,
+        title: "AS3 Functions — Default Parameters, ...rest, Closures & Function.call / apply",
+        signature: "function calcDamage(base:Number, crit:Boolean = false):Number · function sumAll(...values):Number",
+        summary: "ActionScript 3.0 adds compile-time parameter/return type checking, default parameter values (`crit:Boolean = false`), typed `...rest` variadic arrays, lexical closures (`makeCounter`), and `Function.call` / `Function.apply`.",
+        keywords: "function Function return default parameter rest arguments call apply closure makecounter calcdamage sumall as3",
+        code_preview: Some(AS3_FUNCTIONS_REST_CALL_CLOSURES_SAMPLE),
+    },
+    ReferenceTopicEntry {
+        dialect_badge: "[AS3]",
+        chapter_idx: 12,
+        title: "AS3 Class Methods (Bound `this` Closures) vs AS2 Function.prototype",
+        signature: "public class Enemy extends Sprite { public function step():void { this.x -= this.speed; } }",
+        summary: "In AS3 sealed classes, instance methods are automatically bound method closures (`var fn:Function = enemy.step` preserves `this == enemy` without manual `Function.call`), replacing AS1/AS2 `Enemy.prototype.step`.",
+        keywords: "function class method bound this closure prototype enemy extends sprite movieclip as3",
+        code_preview: None,
+    },
+    ReferenceTopicEntry {
+        dialect_badge: "[AS3]",
+        chapter_idx: 13,
+        title: "AS3 Event Listeners, Timer & 1-Frame Game Loop (`Event.ENTER_FRAME`)",
+        signature: "stop(); addEventListener(Event.ENTER_FRAME, onTick); stage.addEventListener(KeyboardEvent.KEY_DOWN, onKey);",
+        summary: "Replaces AS2 `onEnterFrame = function()` and `setInterval` with strongly typed `EventDispatcher.addEventListener(Event.ENTER_FRAME, fn)`, `MouseEvent.CLICK`, `KeyboardEvent.KEY_DOWN`, and `flash.utils.Timer`, streaming `trace()` to Output (`F2`).",
+        keywords: "function event listener addeventlistener enter_frame mouseevent keyboardevent timer 1-frame game loop trace as3",
+        code_preview: None,
+    },
+    // ── JavaScript & TypeScript: Functions, Arrow Callbacks, Generics & Checker ──
+    ReferenceTopicEntry {
+        dialect_badge: "[JS]",
+        chapter_idx: 16,
+        title: "JavaScript Functions, Arrow Expressions (`=>`), `...rest`, Closures & `call`/`apply`/`bind`",
+        signature: "function calcDamage(base, crit = false) · const fn = (t) => t * (2 - t) · fn.call(thisArg, ...args)",
+        summary: "Supports hoisted `function` declarations, lexical-`this` arrow functions `(event) => ...`, `...rest` parameters, closures (`makeCounter`), `async function` / `await`, and `Function.prototype.call` / `apply` / `bind`.",
+        keywords: "function Function arrow return rest closure call apply bind async await javascript js es2023",
+        code_preview: Some(JS_FUNCTIONS_CLOSURES_AND_CALL_SAMPLE),
+    },
+    ReferenceTopicEntry {
+        dialect_badge: "[TS]",
+        chapter_idx: 17,
+        title: "TypeScript Typed Functions, Optional/Default Parameters & Function Type Aliases",
+        signature: "function calcDamage(base: number, crit?: boolean): number · type EasingFn = (t: number) => number",
+        summary: "NeoFlash's built-in `ts_check` verifies parameter counts, optional (`?`) and default arguments, return types, higher-order closures, and function type aliases `(t: number) => number` before erasing annotations to pure JS.",
+        keywords: "function Function return optional default parameter type alias arity closure ts_check typescript ts",
+        code_preview: Some(TS_TYPED_AND_GENERIC_FUNCTIONS_SAMPLE),
+    },
+    // ── Authoring Quick-Typing Chords (<ESC> + 2 keys) ──
+    ReferenceTopicEntry {
+        dialect_badge: "[Authoring]",
+        chapter_idx: 9,
+        title: "Classic Flash <ESC> Two-Key Code Chords (<ESC>fn, <ESC>rt, <ESC>tr, <ESC>st — All 50 Chords)",
+        signature: "<ESC>fn → function name ( ) { ... } · <ESC>rt → return ( ); · <ESC>tr → trace ( message ); · <ESC>st → stop ( );",
+        summary: "Press Escape inside a focused Actions or Project source editor (with no hint popup open) followed by two keys to expand any of the 50 Classic Flash ActionScript quick-typing templates in one Undo step.",
+        keywords: "function <esc> esc chord shortcut quick typing <esc>fn fn <esc>rt rt <esc>tr tr <esc>st st <esc>on <esc>oc <esc>if <esc>fr <esc>wh <esc>vr actions",
+        code_preview: None,
+    },
+];
+
+/// Concrete search hit returned by `search_reference_hits`, carrying an explicit dialect badge
+/// (`[AS1/AS2]`, `[AS3]`, `[JS]`, `[TS]`, `[Authoring]`) and target chapter index.
+pub(crate) struct ComputedSearchHit {
+    pub dialect_badge: &'static str,
+    pub chapter_idx: usize,
+    pub title: String,
+    pub signature: String,
+    pub summary: String,
+    pub code_preview: Option<&'static str>,
+}
+
+/// Checks whether `chapter_idx` matches `query_lower` across chapter metadata, browser summary
+/// bullets, curated `REFERENCE_SEARCH_ENTRIES`, `JS_TS_API_ENTRIES`, and `<ESC>` chords.
+pub(crate) fn chapter_matches_search_deep(chapter_idx: usize, query_lower: &str) -> bool {
+    let q = query_lower.trim();
+    if q.is_empty() {
+        return true;
+    }
+    let Some(ch) = HELP_CHAPTERS.get(chapter_idx) else {
+        return false;
+    };
+    if ch.title.to_ascii_lowercase().contains(q)
+        || ch.sidebar_label.to_ascii_lowercase().contains(q)
+        || ch.subtitle.to_ascii_lowercase().contains(q)
+        || ch.keywords.to_ascii_lowercase().contains(q)
+        || ch.tags.iter().any(|t| t.to_ascii_lowercase().contains(q))
+    {
+        return true;
+    }
+    if let Some(topics) = HELP_BROWSER_TOPICS.get(chapter_idx)
+        && topics.iter().any(|t| t.to_ascii_lowercase().contains(q))
+    {
+        return true;
+    }
+    if REFERENCE_SEARCH_ENTRIES.iter().any(|entry| {
+        entry.chapter_idx == chapter_idx
+            && (entry.title.to_ascii_lowercase().contains(q)
+                || entry.signature.to_ascii_lowercase().contains(q)
+                || entry.summary.to_ascii_lowercase().contains(q)
+                || entry.keywords.to_ascii_lowercase().contains(q))
+    }) {
+        return true;
+    }
+    if chapter_idx == 9 && !matching_esc_chords(q).is_empty() {
+        return true;
+    }
+    false
+}
+
+fn matching_esc_chords(query_lower: &str) -> Vec<(&'static str, &'static str, &'static str)> {
+    let q = query_lower.trim();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    let stripped = q
+        .strip_prefix("<esc>")
+        .or_else(|| q.strip_prefix("esc "))
+        .or_else(|| q.strip_prefix("esc+"))
+        .map(str::trim);
+    CLASSIC_ESC_CHORDS
+        .iter()
+        .copied()
+        .filter(|(chord, expansion, desc)| {
+            if let Some(code) = stripped {
+                return code.is_empty()
+                    || chord.eq_ignore_ascii_case(code)
+                    || expansion.to_ascii_lowercase().contains(code)
+                    || desc.to_ascii_lowercase().contains(code);
+            }
+            let full_chord = format!("<esc>{chord}");
+            full_chord.contains(q)
+                || (q.len() == 2 && chord.eq_ignore_ascii_case(q))
+                || expansion.to_ascii_lowercase().contains(q)
+                || (q == "esc" || q == "<esc>" || q.contains("chord"))
+        })
+        .collect()
+}
+
+/// Searches curated multi-case topics, `<ESC>` chords, `JS_TS_API_ENTRIES`, and built-in AS2/AS3
+/// `script_api` members, returning `(in_scope_hits, hidden_other_dialect_count)`.
+pub(crate) fn search_reference_hits(
+    query: &str,
+    scope: LanguageScope,
+    project_lang: neoflash_core::ScriptLanguage,
+) -> (Vec<ComputedSearchHit>, usize) {
+    let q = query.trim().to_ascii_lowercase();
+    if q.is_empty() {
+        return (Vec::new(), 0);
+    }
+
+    let mut all_hits: Vec<ComputedSearchHit> = Vec::new();
+
+    // 1. Curated multi-case topics (function / Function / arguments / call / apply / prototype / closures / game loops)
+    for entry in REFERENCE_SEARCH_ENTRIES {
+        if entry.title.to_ascii_lowercase().contains(&q)
+            || entry.signature.to_ascii_lowercase().contains(&q)
+            || entry.summary.to_ascii_lowercase().contains(&q)
+            || entry.keywords.to_ascii_lowercase().contains(&q)
+        {
+            all_hits.push(ComputedSearchHit {
+                dialect_badge: entry.dialect_badge,
+                chapter_idx: entry.chapter_idx,
+                title: entry.title.to_owned(),
+                signature: entry.signature.to_owned(),
+                summary: entry.summary.to_owned(),
+                code_preview: entry.code_preview,
+            });
+        }
+    }
+
+    // 2. Matching Classic Flash <ESC> 2-key chords (up to 6 concise hits so `<ESC>fn` or `tr` is instant)
+    for (chord, expansion, desc) in matching_esc_chords(&q).into_iter().take(6) {
+        all_hits.push(ComputedSearchHit {
+            dialect_badge: "[Authoring]",
+            chapter_idx: 9,
+            title: format!("Classic <ESC>{chord} Quick-Typing Chord"),
+            signature: format!("<ESC>{chord}  →  {expansion}"),
+            summary: format!(
+                "{desc} (Actions & Project source editors; see full 50-chord table in Ch. 10)."
+            ),
+            code_preview: None,
+        });
+    }
+
+    // 3. JS / TS / Web API catalog entries
+    for entry in search_js_ts_entries(&q, true).into_iter().take(8) {
+        let (badge, ch_idx) = if entry.ts_only {
+            ("[TS]", 17)
+        } else if entry.provenance == "Browser host" {
+            ("[JS]", 18)
+        } else {
+            ("[JS]", 16)
+        };
+        let dup = all_hits
+            .iter()
+            .any(|h| h.dialect_badge == badge && h.title.eq_ignore_ascii_case(entry.name));
+        if !dup {
+            all_hits.push(ComputedSearchHit {
+                dialect_badge: badge,
+                chapter_idx: ch_idx,
+                title: format!("{} ({})", entry.name, entry.category),
+                signature: entry.signature.to_owned(),
+                summary: entry.summary.to_owned(),
+                code_preview: None,
+            });
+        }
+    }
+
+    // 4. Built-in ActionScript 2.0 and ActionScript 3.0 catalog classes & members via `script_api`
+    for (lang, badge, ch_idx) in [
+        (
+            neoflash_core::ScriptLanguage::ActionScript2,
+            "[AS1/AS2]",
+            11usize,
+        ),
+        (
+            neoflash_core::ScriptLanguage::ActionScript3,
+            "[AS3]",
+            12usize,
+        ),
+    ] {
+        if let Some(api) = crate::script_api::api(lang) {
+            let empty_proj = Vec::new();
+            for member in crate::script_api::search(&empty_proj, api, &q, 6) {
+                let owner = crate::script_api::short_name(&member.owner);
+                let full_name = if owner.is_empty() {
+                    member.label()
+                } else {
+                    format!("{owner}.{}", member.label())
+                };
+                let sig = if member.ty.is_empty() {
+                    full_name.clone()
+                } else {
+                    format!("{full_name}: {}", member.ty)
+                };
+                all_hits.push(ComputedSearchHit {
+                    dialect_badge: badge,
+                    chapter_idx: ch_idx,
+                    title: format!("{full_name} — Built-In API"),
+                    signature: sig,
+                    summary: format!(
+                        "Audited {} runtime declaration ({})",
+                        lang.display_label(),
+                        if owner.is_empty() {
+                            "global function / property"
+                        } else {
+                            &member.owner
+                        }
+                    ),
+                    code_preview: None,
+                });
+            }
+        }
+    }
+
+    // Prioritize hits matching the current project's active language when viewing `All languages`!
+    let preferred_scope = LanguageScope::from_script_language(project_lang);
+    all_hits.sort_by_key(|hit| {
+        let matches_proj =
+            preferred_scope.matches_badge(hit.dialect_badge) && hit.dialect_badge != "[Authoring]";
+        let has_code = hit.code_preview.is_some();
+        (!matches_proj, !has_code)
+    });
+
+    let mut visible = Vec::new();
+    let mut other_count = 0usize;
+    for hit in all_hits {
+        if scope.matches_badge(hit.dialect_badge) {
+            visible.push(hit);
+        } else {
+            other_count += 1;
+        }
+    }
+    (visible, other_count)
+}
+
+/// Renders the interactive dialect-scoped Search Results card at the top of the Help / Scripting
+/// Reference article pane whenever the search query is non-empty.
+pub(crate) fn render_search_results_panel(
+    ui: &mut Ui,
+    query: &str,
+    scope: &mut LanguageScope,
+    project_lang: neoflash_core::ScriptLanguage,
+    nav_target: &mut Option<usize>,
+) {
+    let p = neoflash_ui::palette(ui.ctx());
+    let (hits, hidden_other_count) = search_reference_hits(query, *scope, project_lang);
+    let r = egui::CornerRadius::same(radius::MD as u8);
+
+    egui::Frame::new()
+        .fill(p.bg_panel)
+        .stroke(Stroke::new(1.0_f32, p.accent_default))
+        .corner_radius(r)
+        .inner_margin(egui::Margin::same(space::S3 as i8))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(space::S2, space::S1);
+                icons::show(ui, i16::SEARCH, p.accent_default);
+                let heading = format!("Search results for “{}”", query.trim());
+                ui.label(rich(&heading, TextStyle::BodyStrong).color(p.text_primary));
+                let proj_badge = format!("Current project: {}", project_lang.display_label());
+                ui.add(Badge::new(&proj_badge, BadgeType::Accent));
+                let count_badge = format!("{} in {}", hits.len(), scope.label());
+                ui.add(Badge::new(&count_badge, BadgeType::Neutral));
+                if hidden_other_count > 0 {
+                    let show_all_lbl =
+                        format!("Show +{hidden_other_count} in other languages");
+                    if ui.add(Button::ghost(&show_all_lbl)).clicked() {
+                        *scope = LanguageScope::All;
+                    }
+                }
+            });
+
+            ui.add_space(space::S1);
+            let scope_opts = [
+                (LanguageScope::All, "All languages"),
+                (LanguageScope::As1As2, "AS1 / AS2"),
+                (LanguageScope::As3, "AS3"),
+                (LanguageScope::JsTs, "JS / TS"),
+            ];
+            c::Segmented::show(ui, scope, &scope_opts, false);
+            ui.add_space(space::S2);
+
+            if hits.is_empty() {
+                let empty_msg = if hidden_other_count > 0 {
+                    format!(
+                        "No matches in {} scope, but {hidden_other_count} match(es) exist in other languages. Switch to All languages above to inspect them.",
+                        scope.label()
+                    )
+                } else {
+                    "No matching topics, API signatures, or <ESC> chords found. Try searching 'function', 'arguments', 'apply', 'prototype', 'onEnterFrame', or '<ESC>fn'.".to_owned()
+                };
+                ui.add(
+                    egui::Label::new(rich(&empty_msg, TextStyle::Small).color(p.text_secondary))
+                        .wrap(),
+                );
+                return;
+            }
+
+            for (idx, hit) in hits.iter().take(12).enumerate() {
+                if idx > 0 {
+                    ui.add_space(space::S1);
+                    c::divider(ui, false);
+                    ui.add_space(space::S1);
+                }
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(space::S2, space::S1);
+                    let is_proj_match = LanguageScope::from_script_language(project_lang)
+                        .matches_badge(hit.dialect_badge)
+                        && hit.dialect_badge != "[Authoring]";
+                    ui.add(Badge::new(
+                        hit.dialect_badge,
+                        if is_proj_match {
+                            BadgeType::Accent
+                        } else {
+                            BadgeType::Neutral
+                        },
+                    ));
+                    ui.add(
+                        egui::Label::new(
+                            rich(&hit.title, TextStyle::BodyStrong).color(p.text_primary),
+                        )
+                        .wrap(),
+                    );
+                    if let Some(ch) = HELP_CHAPTERS.get(hit.chapter_idx) {
+                        let jump_lbl = format!("Open Ch.{} →", hit.chapter_idx + 1);
+                        if c::tooltip(ui.add(Button::new(&jump_lbl)), ch.title, None).clicked() {
+                            *nav_target = Some(hit.chapter_idx);
+                        }
+                    }
+                    if let Some(snippet) = hit.code_preview
+                        && ui.add(Button::ghost("Copy example")).clicked()
+                    {
+                        ui.ctx().copy_text(snippet.to_owned());
+                    }
+                });
+                ui.add(
+                    egui::Label::new(
+                        rich(&hit.signature, TextStyle::MonoSmall).color(p.syntax_function),
+                    )
+                    .wrap(),
+                );
+                ui.add(
+                    egui::Label::new(
+                        rich(&hit.summary, TextStyle::Small).color(p.text_secondary),
+                    )
+                    .wrap(),
+                );
+                if let Some(snippet) = hit.code_preview {
+                    let preview_lines: String =
+                        snippet.lines().take(8).collect::<Vec<_>>().join("\n");
+                    egui::Frame::new()
+                        .fill(p.bg_field)
+                        .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                        .corner_radius(egui::CornerRadius::same(radius::SM as u8))
+                        .inner_margin(egui::Margin::same(space::S2 as i8))
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.add(
+                                egui::Label::new(
+                                    rich(&preview_lines, TextStyle::MonoSmall)
+                                        .color(p.text_primary),
+                                )
+                                .wrap(),
+                            );
+                        });
+                }
+            }
+        });
+    ui.add_space(space::S3);
+}
+
+/// Renders the complete 50-chord Classic Flash `<ESC>` two-key code-insertion reference table
+/// inside Chapter 10 (`10. Scripting, Import & Publish`).
+pub(crate) fn render_esc_chords_reference(ui: &mut Ui) {
+    section_overline(
+        ui,
+        "Classic Flash <ESC> Two-Key Code Chords in Actions (All 50 Chords)",
+    );
+    paragraph(
+        ui,
+        "Inside a focused Actions (F9) or Project source editor with no autocomplete popup open, press Escape followed sequentially by two characters (for example Escape, f, n) to insert the template with automatic indentation, first-placeholder selection, and single-step Undo.",
+    );
+    let rows: Vec<(String, &str, &str)> = CLASSIC_ESC_CHORDS
+        .iter()
+        .map(|&(chord, expansion, desc)| (format!("<ESC>{chord}"), expansion, desc))
+        .collect();
+    let borrowed: Vec<(&str, &str, &str)> = rows
+        .iter()
+        .map(|(c_str, exp, desc)| (c_str.as_str(), *exp, *desc))
+        .collect();
+    api_signature_table(
+        ui,
+        "All 50 Classic Flash <ESC> + 2-Key ActionScript Chords (<ESC>br .. <ESC>wt)",
+        ["Chord", "Inserted Template", "Purpose"],
+        &borrowed,
+    );
 }
 
 /// A copyable, syntax-tinted code block for ActionScript 1.0 / 2.0 / 3.0 and JS/TS examples.
@@ -1037,11 +1976,121 @@ pub(crate) fn chapter_as1_as2_fundamentals(
         ],
     );
 
+    section_overline(
+        ui,
+        "Complete AS1 / AS2 function Statement, return, arguments & Function Class Reference",
+    );
+    api_signature_table(
+        ui,
+        "AS1 / AS2 function Statement, arguments Object & Function Class (Full Surface)",
+        [
+            "Construct / Member",
+            "Syntax & Signature",
+            "Runtime Semantics",
+        ],
+        &[
+            (
+                "function (Named)",
+                "function name(p1:Type, ...):ReturnType { ... }",
+                "Declares a reusable named function; hoisted within its frame script or outer function so callers above or below can invoke it.",
+            ),
+            (
+                "function (Literal)",
+                "var fn:Function = function(p1:Type):ReturnType { ... };",
+                "Evaluates an anonymous function expression at assignment time (not hoisted) for callbacks, `Array.sort`, timers, and handlers.",
+            ),
+            (
+                "return",
+                "return expression;  |  return;",
+                "Halts the current function call immediately and yields `expression` to the caller (or `undefined` when omitted / `:Void`).",
+            ),
+            (
+                "arguments.length / [i]",
+                "arguments.length:Number · arguments[0..n-1]",
+                "Implicit local array-like call object exposing all runtime arguments passed to any function, enabling variadic helpers (`sumAll`).",
+            ),
+            (
+                "arguments.callee / caller",
+                "arguments.callee:Function · arguments.caller:Function",
+                "`callee` references the currently executing function (for anonymous recursion); `caller` references the invoking function frame (or `null` at top level).",
+            ),
+            (
+                "Function.call()",
+                "fn.call(thisObject:Object, arg1, arg2, ...):Object",
+                "Invokes `fn` with `this` explicitly bound to `thisObject` (`MovieClip` or `Object`), passing individual arguments (`null` uses global/timeline scope).",
+            ),
+            (
+                "Function.apply()",
+                "fn.apply(thisObject:Object, argsArray:Array):Object",
+                "Invokes `fn` with `this` bound to `thisObject`, unpacking `argsArray` (or `arguments`) as positional parameters.",
+            ),
+            (
+                "Function.prototype",
+                "Ctor.prototype.method = fn · new Ctor(...) · __proto__",
+                "Attaches shared methods inherited by every `new Ctor(...)` instance and symbols linked via `Object.registerClass(id, Ctor)`.",
+            ),
+            (
+                "var Scope & Closures",
+                "var local:Type = val  vs  this.prop = val",
+                "`var` inside a function binds to its activation object and survives inside returned nested closures; `this.prop` persists on the timeline or MovieClip.",
+            ),
+        ],
+    );
+
+    mode_card(
+        ui,
+        Some(i16::CODE),
+        "Quick-Typing Chords (<ESC>fn, <ESC>rt, <ESC>vr, <ESC>tr, <ESC>st) & Test Movie Output",
+        "[AS1/AS2]",
+        BadgeType::Accent,
+        "F9 / ⌘↵ / F2",
+        &[
+            "Classic <ESC> + 2-Key Chords in Actions: Press Escape followed by `fn` (`function name ( ) { ... }`), `rt` (`return ( );`), `vr` (`var ;`), `tr` (`trace ( message );`), `st` (`stop ( );`), `on` (`on ( event )`), or `oc` (`onClipEvent ( event )`) — see Ch. 10 for all 50 chords!",
+            "Live trace() in Test Movie & In-Editor Play: Every `trace(...)` call on Frame 1, inside `onEnterFrame`, or inside button/timer callbacks streams directly to NeoFlash's Output panel (F2).",
+        ],
+    );
+
     code_block(
         ui,
         &CodeSample {
-            title: "AS2 Frame Script — Spawning Library Symbols, EnterFrame Loop & Hit Testing",
-            lang_badge: "ActionScript 2.0",
+            title: "AS2 Case 1 & 2 — Named function Declarations (Hoisting & return) + Anonymous Function Literals",
+            lang_badge: "[AS1/AS2]",
+            code: AS2_FN_DECLARATIONS_AND_LITERALS_SAMPLE,
+        },
+    );
+
+    code_block(
+        ui,
+        &CodeSample {
+            title: "AS2 Case 3 & 4 — Variadic arguments (length, callee, caller) + Function.call() & Function.apply()",
+            lang_badge: "[AS1/AS2]",
+            code: AS2_FN_ARGUMENTS_CALL_APPLY_SAMPLE,
+        },
+    );
+
+    code_block(
+        ui,
+        &CodeSample {
+            title: "AS2 Case 5 & 6 — Constructor Functions, Function.prototype Inheritance & Lexical Closures",
+            lang_badge: "[AS1/AS2]",
+            code: AS2_FN_PROTOTYPE_AND_CLOSURES_SAMPLE,
+        },
+    );
+
+    code_block(
+        ui,
+        &CodeSample {
+            title: "AS2 Case 7 — Complete 1-Frame Game Pattern (onPress/onRelease, onEnterFrame, Key, setInterval & trace)",
+            lang_badge: "[AS1/AS2]",
+            code: AS2_ONE_FRAME_GAME_LOOP_SAMPLE,
+        },
+    );
+
+    code_block(
+        ui,
+        &CodeSample {
+            title: "AS2 Frame Script — Spawning Library Symbols, EnterFrame Physics & Hit Testing",
+            lang_badge: "[AS1/AS2]",
             code: "// Frame 1 on 'Actions' layer (1-based timeline indexing)
 stop();
 var score:Number = 0;
@@ -1188,6 +2237,16 @@ pub(crate) fn chapter_as2_core_classes(
         ["Class", "Key Members", "Usage & Notes"],
         &[
             (
+                "Function & arguments",
+                "Function.call(thisObj, ...), Function.apply(thisObj, arr), prototype; arguments.length, arguments.callee, arguments.caller",
+                "First-class callable objects, explicit `this` receiver binding, variadic parameter inspection, anonymous recursion, and prototype chains.",
+            ),
+            (
+                "setInterval & clearInterval",
+                "setInterval(fn:Function, ms:Number, ...args):Number · setInterval(obj, \"method\", ms) · clearInterval(id)",
+                "Schedules repeating function or object-method callbacks at millisecond intervals independent of timeline fps.",
+            ),
+            (
                 "MovieClip",
                 "_x, _y, _xscale, _yscale, _rotation, _alpha, _visible, _currentframe, _totalframes",
                 "In AS2, _alpha and _xscale/_yscale use 0..100 percentages; _framesloaded tracks streaming progress.",
@@ -1239,7 +2298,7 @@ pub(crate) fn chapter_as2_core_classes(
         ui,
         &CodeSample {
             title: "AS2 Procedural Vector Drawing, Dynamic Text & Flash 8 BitmapData",
-            lang_badge: "ActionScript 2.0",
+            lang_badge: "[AS1/AS2]",
             code: "import flash.display.BitmapData;
 import flash.geom.Matrix;
 
@@ -1563,8 +2622,17 @@ pub(crate) fn chapter_as3_display_list(
     code_block(
         ui,
         &CodeSample {
+            title: "AS3 Functions — Default Parameters, ...rest, Closures & Function.call / apply",
+            lang_badge: "[AS3]",
+            code: AS3_FUNCTIONS_REST_CALL_CLOSURES_SAMPLE,
+        },
+    );
+
+    code_block(
+        ui,
+        &CodeSample {
             title: "AS3 Document Class — Building a Display List Hierarchy & Coordinate Transform",
-            lang_badge: "ActionScript 3.0",
+            lang_badge: "[AS3]",
             code: "package {
     import flash.display.Sprite;
     import flash.display.Shape;
@@ -1842,7 +2910,7 @@ pub(crate) fn chapter_as3_events_lifecycle(
         ui,
         &CodeSample {
             title: "AS3 Event Handling — Stage Keyboard Input, Mouse Dragging & Timer Loop",
-            lang_badge: "ActionScript 3.0",
+            lang_badge: "[AS3]",
             code: "import flash.events.Event;
 import flash.events.MouseEvent;
 import flash.events.KeyboardEvent;
@@ -2031,7 +3099,7 @@ pub(crate) fn chapter_as3_graphics_filters_sound(
         ui,
         &CodeSample {
             title: "AS3 Vector Graphics, Live Filters, SoundChannel & E4X XML Query",
-            lang_badge: "ActionScript 3.0",
+            lang_badge: "[AS3]",
             code: "import flash.display.Sprite;
 import flash.filters.GlowFilter;
 import flash.media.Sound;
@@ -2176,6 +3244,21 @@ pub(crate) fn chapter_as_migration_guide(
             "JavaScript / TypeScript & Scale Note",
         ],
         &[
+            (
+                "function (arguments / callee)",
+                "function (a:int = 0, ...rest):Number",
+                "`function (a = 0, ...rest)` or `(a, ...rest) => ...` (typed rest arrays replace `arguments.callee`).",
+            ),
+            (
+                "Enemy.prototype.step = fn",
+                "class Enemy { public function step():void }",
+                "`class Enemy { step() { ... } }` (AS3 methods auto-bind `this`; JS/TS use arrow fields or `.bind(this)`).",
+            ),
+            (
+                "fn.call(mc, a) / fn.apply(mc, [a])",
+                "fn.call(mc, a) / fn.apply(mc, [a])",
+                "`fn.call(mc, a)` / `fn.apply(mc, [a])` / `fn.bind(mc)` across all dialects.",
+            ),
             (
                 "_x, _y, _rotation, _visible",
                 "x, y, rotation, visible",
@@ -2574,8 +3657,17 @@ pub(crate) fn chapter_javascript_runtime(
     code_block(
         ui,
         &CodeSample {
+            title: "JavaScript Functions — Declarations, Arrow Callbacks, ...rest, Closures & call / apply",
+            lang_badge: "[JS]",
+            code: JS_FUNCTIONS_CLOSURES_AND_CALL_SAMPLE,
+        },
+    );
+
+    code_block(
+        ui,
+        &CodeSample {
             title: "JavaScript Frame Script — Timeline Control, Event Listeners, Async & JSX",
-            lang_badge: "JavaScript (ES2023+)",
+            lang_badge: "[JS]",
             code: "// Frame 1 script on 'Actions' layer (JavaScript / JSX mode)
 stop();
 trace(\"Entering level:\", this.currentFrame, \"of\", this.totalFrames);
@@ -2851,8 +3943,17 @@ pub(crate) fn chapter_typescript_checker(
     code_block(
         ui,
         &CodeSample {
+            title: "TypeScript Functions — Typed Signatures, Function Aliases, Generics & Closures",
+            lang_badge: "[TS]",
+            code: TS_TYPED_AND_GENERIC_FUNCTIONS_SAMPLE,
+        },
+    );
+
+    code_block(
+        ui,
+        &CodeSample {
             title: "TypeScript Script — Interfaces, Discriminated Unions, Generics & Utility Types",
-            lang_badge: "TypeScript",
+            lang_badge: "[TS]",
             code: "interface Actor {
     readonly id: string;
     x: number;
@@ -3150,7 +4251,7 @@ pub(crate) fn chapter_browser_web_apis(
         ui,
         &CodeSample {
             title: "TypeScript Browser Host — CanvasRenderingContext2D, Fetch JSON & LocalStorage",
-            lang_badge: "TypeScript + Web API",
+            lang_badge: "[TS] [JS]",
             code: "interface HighScoreEntry {
     player: string;
     score: number;
@@ -3783,30 +4884,67 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
             out.push_str(
                 "<tr><td><code>Backups &amp; Bug Reports</code></td><td>Versioned <code>.nflash</code> JSON + <code>About NeoFlash</code></td><td>Keep <code>.nflash</code> projects in Git or regular file backups. Attach a minimal <code>.nflash</code> repro, <code>Output</code> panel diagnostics, and the build commit from <code>NeoFlash &gt; About NeoFlash</code> when reporting bugs.</td></tr>\
                  <tr><td><code>Known Issues &amp; Limits</code></td><td>VoiceOver, Intel Macs, updates, Windows / Linux previews, graphics tablets</td><td>VoiceOver cannot read the editor interface yet. There is no build for Intel (x86_64) Macs. Updates are installed manually. The Windows preview is unsigned, so SmartScreen may warn before the first launch, and it has no connected debugger. The Linux preview is a portable archive tested on Ubuntu 24.04 x64 with X11 and Wayland, not an AppImage or deb package. Windows and Linux have had less testing than macOS. Import of legacy Flash files is partial. Graphics-tablet support is experimental.</td></tr>\
-                 </tbody></table>",
+                 </tbody></table>\
+                 <h3>Classic Flash &lt;ESC&gt; Two-Key Code Chords in Actions (All 50 Chords)</h3>\
+                 <table class=\"ref-table\"><thead><tr><th>Chord</th><th>Inserted Template</th><th>Purpose</th></tr></thead><tbody>",
             );
+            for &(chord, expansion, desc) in &CLASSIC_ESC_CHORDS {
+                out.push_str("<tr><td><code>&lt;ESC&gt;");
+                super::help_manual::escape_html(chord, out);
+                out.push_str("</code></td><td><code>");
+                super::help_manual::escape_html(expansion, out);
+                out.push_str("</code></td><td>");
+                super::help_manual::escape_html(desc, out);
+                out.push_str("</td></tr>");
+            }
+            out.push_str("</tbody></table>");
         }
         10 => {
             out.push_str(
-                "<h3>AS1 / AS2 Timeline &amp; Instance Handlers Quick Reference</h3>\
-                 <table class=\"ref-table\"><thead><tr><th>Construct / API</th><th>Scope</th><th>Behavior</th></tr></thead><tbody>\
+                "<h3>AS1 / AS2 Timeline, function Statement, arguments &amp; Function Class Reference</h3>\
+                 <table class=\"ref-table\"><thead><tr><th>Construct / API</th><th>Scope &amp; Signature</th><th>Behavior</th></tr></thead><tbody>\
+                 <tr><td><code>function name(p:Type):Return</code></td><td>Hoisted named declaration</td><td>Callable before or after its definition on the same frame; <code>return expr;</code> exits immediately (<code>Void</code> / omitted returns <code>undefined</code>).</td></tr>\
+                 <tr><td><code>var fn:Function = function(...)</code></td><td>Anonymous expression</td><td>Evaluated at assignment time; passed as first-class callbacks to <code>Array.sort</code>, <code>setInterval</code>, and event handlers.</td></tr>\
+                 <tr><td><code>arguments.length / callee / caller</code></td><td>Local call activation</td><td>Variadic argument array, anonymous self-recursion via <code>arguments.callee</code>, and caller inspection via <code>arguments.caller</code>.</td></tr>\
+                 <tr><td><code>Function.call / Function.apply</code></td><td><code>fn.call(thisObj, ...)</code> / <code>fn.apply(thisObj, arr)</code></td><td>Invokes <code>fn</code> with explicit <code>this</code> MovieClip/object binding and individual or array-packed arguments.</td></tr>\
+                 <tr><td><code>Function.prototype / new</code></td><td>Constructor inheritance</td><td>Attaches shared methods inherited via <code>__proto__</code> on <code>new Ctor()</code> and <code>Object.registerClass</code> symbols.</td></tr>\
+                 <tr><td><code>var local</code> vs <code>this.prop</code></td><td>Lexical closures</td><td><code>var</code> binds to the function activation object (surviving inside nested closures); <code>this.prop</code> persists on the timeline.</td></tr>\
                  <tr><td><code>play / stop / gotoAndPlay / gotoAndStop</code></td><td>Timeline &amp; MovieClip</td><td>1-based frame index or frame label navigation on <code>this</code>, <code>_root</code>, <code>_parent</code>, or child clips.</td></tr>\
-                 <tr><td><code>on(release | press | rollOver | keyPress)</code></td><td>Button / MovieClip instance</td><td>Attached classic object handlers executing in the owning timeline or clip scope.</td></tr>\
-                 <tr><td><code>onClipEvent(load | enterFrame | mouseDown)</code></td><td>MovieClip instance</td><td>Lifecycle and per-frame hooks with <code>this</code> bound to the placed MovieClip instance.</td></tr>\
-                 <tr><td><code>attachMovie / duplicateMovieClip / removeMovieClip</code></td><td>MovieClip depth zone</td><td>Dynamic symbol instantiation and teardown across AVM1 dynamic depths.</td></tr>\
+                 <tr><td><code>on(...) / onClipEvent(...)</code></td><td>Button / MovieClip instance</td><td>Attached classic object handlers and per-frame hooks.</td></tr>\
                  </tbody></table>\
-                 <h3>AS1 / AS2 Timeline &amp; Instance Code Example</h3>\
-                 <pre class=\"code-block\"><code>stop();\nvar depth:Number = this.getNextHighestDepth();\nvar coin:MovieClip = this.attachMovie(\"CoinSymbol\", \"coin_\" + depth, depth, {_x: 320, _y: 180});\nhero_mc.onEnterFrame = function():Void {\n    if (Key.isDown(Key.RIGHT)) { this._x += 5; }\n    if (this.hitTest(_root.coin._x, _root.coin._y, true)) {\n        _root.coin.removeMovieClip();\n    }\n};</code></pre>",
+                 <h3>AS2 Case 1 &amp; 2 — Named function Declarations, Hoisting, return &amp; Anonymous Literals</h3>\
+                 <pre class=\"code-block\"><code>",
             );
+            super::help_manual::escape_html(AS2_FN_DECLARATIONS_AND_LITERALS_SAMPLE, out);
+            out.push_str(
+                "</code></pre>\
+                 <h3>AS2 Case 3 &amp; 4 — Variadic arguments (callee, caller) &amp; Function.call / Function.apply</h3>\
+                 <pre class=\"code-block\"><code>",
+            );
+            super::help_manual::escape_html(AS2_FN_ARGUMENTS_CALL_APPLY_SAMPLE, out);
+            out.push_str(
+                "</code></pre>\
+                 <h3>AS2 Case 5 &amp; 6 — Constructor Functions, Function.prototype &amp; Lexical Closures</h3>\
+                 <pre class=\"code-block\"><code>",
+            );
+            super::help_manual::escape_html(AS2_FN_PROTOTYPE_AND_CLOSURES_SAMPLE, out);
+            out.push_str(
+                "</code></pre>\
+                 <h3>AS2 Case 7 — Complete 1-Frame Game Pattern (onRelease, onEnterFrame, Key, setInterval &amp; trace)</h3>\
+                 <pre class=\"code-block\"><code>",
+            );
+            super::help_manual::escape_html(AS2_ONE_FRAME_GAME_LOOP_SAMPLE, out);
+            out.push_str("</code></pre>");
         }
         11 => {
             out.push_str(
                 "<h3>AS2 Core Runtime Classes Quick Reference</h3>\
                  <table class=\"ref-table\"><thead><tr><th>Class / Object</th><th>Package</th><th>Key Members</th></tr></thead><tbody>\
+                 <tr><td><code>Function &amp; arguments</code></td><td>Top-level</td><td><code>call(thisObj, ...)</code>, <code>apply(thisObj, argsArray)</code>, <code>prototype</code>, <code>arguments.length</code>, <code>arguments.callee</code>, <code>arguments.caller</code>.</td></tr>\
                  <tr><td><code>MovieClip</code> (Drawing API)</td><td>Top-level</td><td><code>createEmptyMovieClip</code>, <code>lineStyle</code>, <code>beginFill</code>, <code>beginGradientFill</code>, <code>moveTo</code>, <code>lineTo</code>, <code>curveTo</code>, <code>endFill</code>.</td></tr>\
                  <tr><td><code>TextField &amp; TextFormat</code></td><td>Top-level</td><td><code>createTextField</code>, <code>text</code>, <code>htmlText</code>, <code>setTextFormat</code>, <code>setNewTextFormat</code>, <code>autoSize</code>, <code>wordWrap</code>.</td></tr>\
                  <tr><td><code>BitmapData / Matrix / ColorTransform</code></td><td><code>flash.display</code>, <code>flash.geom</code></td><td><code>draw</code>, <code>copyPixels</code>, <code>fillRect</code>, <code>getPixel32</code>, <code>perlinNoise</code>, <code>threshold</code>.</td></tr>\
-                 <tr><td><code>Sound / Stage / SharedObject / LoadVars</code></td><td>Top-level</td><td><code>attachSound</code>, <code>loadSound</code>, <code>Stage.scaleMode</code>, <code>Stage.align</code>, <code>Stage.displayState</code>, <code>getLocal</code>.</td></tr>\
+                 <tr><td><code>Sound / Stage / SharedObject / LoadVars</code></td><td>Top-level</td><td><code>attachSound</code>, <code>loadSound</code>, <code>Stage.scaleMode</code>, <code>Stage.align</code>, <code>Stage.displayState</code>, <code>getLocal</code>, <code>setInterval</code>, <code>clearInterval</code>.</td></tr>\
                  </tbody></table>\
                  <h3>AS2 Procedural Drawing, TextFormat &amp; BitmapData Example</h3>\
                  <pre class=\"code-block\"><code>import flash.display.BitmapData;\nimport flash.geom.Matrix;\nvar canvas:MovieClip = this.createEmptyMovieClip(\"badge_mc\", this.getNextHighestDepth());\ncanvas.lineStyle(2, 0x6C93FF, 100);\ncanvas.beginFill(0x1F2A48, 95);\ncanvas.moveTo(20, 20); canvas.lineTo(180, 20); canvas.lineTo(180, 70); canvas.lineTo(20, 70); canvas.endFill();\nthis.createTextField(\"label_txt\", this.getNextHighestDepth(), 32, 32, 140, 28);\nlabel_txt.text = \"READY PLAYER ONE\";\nlabel_txt.setTextFormat(new TextFormat(\"Inter\", 14, 0xFFFFFF, true));</code></pre>",
@@ -3814,13 +4952,20 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
         }
         12 => {
             out.push_str(
-                "<h3>AS3 Display List Hierarchy Quick Reference</h3>\
+                "<h3>AS3 Display List &amp; Function Semantics Quick Reference</h3>\
                  <table class=\"ref-table\"><thead><tr><th>Class</th><th>Package</th><th>Capabilities</th></tr></thead><tbody>\
+                 <tr><td><code>Function</code></td><td>Top-level</td><td>Default parameter values, typed <code>...rest</code> arrays, bound class method closures, <code>call(thisArg, ...)</code>, and <code>apply(thisArg, array)</code>.</td></tr>\
                  <tr><td><code>DisplayObject</code></td><td><code>flash.display</code></td><td><code>x</code>, <code>y</code>, <code>scaleX</code>, <code>scaleY</code>, <code>rotation</code>, <code>alpha</code>, <code>visible</code>, <code>filters</code>, <code>mask</code>, <code>localToGlobal</code>, <code>getBounds</code>.</td></tr>\
                  <tr><td><code>InteractiveObject</code></td><td><code>flash.display</code></td><td><code>mouseEnabled</code>, <code>tabEnabled</code>, <code>tabIndex</code>, <code>doubleClickEnabled</code>, keyboard &amp; pointer focus.</td></tr>\
                  <tr><td><code>DisplayObjectContainer / Sprite</code></td><td><code>flash.display</code></td><td><code>addChild</code>, <code>addChildAt</code>, <code>removeChild</code>, <code>swapChildren</code>, <code>graphics</code>, <code>buttonMode</code>, <code>startDrag</code>.</td></tr>\
                  <tr><td><code>MovieClip &amp; Stage</code></td><td><code>flash.display</code></td><td><code>currentFrame</code>, <code>currentLabel</code>, <code>totalFrames</code>, <code>stage.scaleMode</code>, <code>stage.align</code>, <code>stage.displayState</code>.</td></tr>\
                  </tbody></table>\
+                 <h3>AS3 Functions — Default Parameters, ...rest, Closures &amp; Function.call / apply</h3>\
+                 <pre class=\"code-block\"><code>",
+            );
+            super::help_manual::escape_html(AS3_FUNCTIONS_REST_CALL_CLOSURES_SAMPLE, out);
+            out.push_str(
+                "</code></pre>\
                  <h3>AS3 Display List &amp; Coordinate Space Example</h3>\
                  <pre class=\"code-block\"><code>package {\n    import flash.display.Sprite;\n    import flash.events.Event;\n    import flash.geom.Point;\n    public class Main extends Sprite {\n        public function Main() {\n            addEventListener(Event.ADDED_TO_STAGE, init);\n        }\n        private function init(e:Event):void {\n            var child:Sprite = new Sprite();\n            child.x = 120; child.y = 80;\n            addChild(child);\n            var globalPt:Point = child.localToGlobal(new Point(0, -18));\n            trace(\"Global position:\", globalPt.x, globalPt.y);\n        }\n    }\n}</code></pre>",
             );
@@ -3876,6 +5021,12 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
                  <tr><td><code>&lt;Tag prop={v}/&gt;</code></td><td><code>[NeoFlash binding]</code></td><td>Compiled deterministically to <code>__nfJsx(tag, props, ...children)</code>.</td></tr>\
                  <tr><td><code>Promise / async / await</code></td><td><code>[ECMAScript]</code></td><td>Standard ES2023+ promises, async functions, <code>Map</code>, <code>Set</code>, <code>JSON</code>, and <code>Math</code>.</td></tr>\
                  </tbody></table>\
+                 <h3>JavaScript Functions, Closures &amp; Function.call / apply Example</h3>\
+                 <pre class=\"code-block\"><code>",
+            );
+            super::help_manual::escape_html(JS_FUNCTIONS_CLOSURES_AND_CALL_SAMPLE, out);
+            out.push_str(
+                "</code></pre>\
                  <h3>JavaScript Frame Script &amp; JSX Example</h3>\
                  <pre class=\"code-block\"><code>stop();\ntrace(\"Entering level:\", this.currentFrame, \"of\", this.totalFrames);\nconst badge = &lt;hud-badge label=\"SCORE\" value={0} /&gt;;\nthis.start_btn.addEventListener(\"click\", (event) =&gt; {\n    trace(\"Clicked:\", event.target.name);\n    gotoAndPlay(\"gameplay\");\n});</code></pre>",
             );
@@ -3884,11 +5035,18 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
             out.push_str(
                 "<h3>TypeScript &amp; Built-In Checker (<code>ts_check</code>) Reference Table</h3>\
                  <table class=\"ref-table\"><thead><tr><th>Construct / Utility</th><th>Provenance</th><th>Static Verification &amp; Runtime Lowering</th></tr></thead><tbody>\
+                 <tr><td><code>function (typed)</code></td><td><code>[TypeScript]</code></td><td>Checks parameter arity, optional (<code>?</code>) / default arguments, function type aliases, and return types; erased at runtime.</td></tr>\
                  <tr><td><code>interface Name { ... }</code></td><td><code>[TypeScript]</code></td><td>Checked for required/optional (<code>?</code>) members and inheritance; erased at runtime.</td></tr>\
                  <tr><td><code>type Alias&lt;T&gt; = A | B</code></td><td><code>[TypeScript]</code></td><td>Unions (<code>|</code>), intersections (<code>&amp;</code>), tuples, and generic aliases; erased at runtime.</td></tr>\
                  <tr><td><code>enum Kind { A, B }</code></td><td><code>[TypeScript]</code></td><td>Checked for member access and lowered to a runtime lookup object.</td></tr>\
                  <tr><td><code>Record / Partial / Pick / Omit</code></td><td><code>[TypeScript]</code></td><td>Built-in utility types validated by <code>ts_check</code> without external <code>tsc</code> or <code>node_modules</code>.</td></tr>\
                  </tbody></table>\
+                 <h3>TypeScript Typed &amp; Generic Functions Example</h3>\
+                 <pre class=\"code-block\"><code>",
+            );
+            super::help_manual::escape_html(TS_TYPED_AND_GENERIC_FUNCTIONS_SAMPLE, out);
+            out.push_str(
+                "</code></pre>\
                  <h3>TypeScript Interfaces, Unions &amp; Utility Types Example</h3>\
                  <pre class=\"code-block\"><code>interface Actor {\n    readonly id: string;\n    x: number;\n    y: number;\n    hp: number;\n}\ntype ActorPatch = Partial&lt;Pick&lt;Actor, \"x\" | \"y\" | \"hp\"&gt;&gt;;\nfunction applyPatch(actor: Actor, patch: ActorPatch): Actor {\n    return { id: actor.id, x: patch.x ?? actor.x, y: patch.y ?? actor.y, hp: patch.hp ?? actor.hp };\n}</code></pre>",
             );
@@ -3934,11 +5092,50 @@ pub(crate) fn render_full_browser_help_html(initial_theme: Theme) -> String {
     render_browser_help_html_for_route(initial_theme, None, None, None)
 }
 
+fn chapter_html_lang_scopes(index: usize) -> &'static str {
+    let mut as12 = LanguageScope::As1As2.matches_chapter(index);
+    let mut as3 = LanguageScope::As3.matches_chapter(index);
+    let mut jsts = LanguageScope::JsTs.matches_chapter(index);
+    if index < AUTHORING_CHAPTER_COUNT {
+        as12 = true;
+        as3 = true;
+        jsts = true;
+    }
+    match (as12, as3, jsts) {
+        (true, true, true) => "ALL AS1_AS2 AS3 JS_TS",
+        (true, false, false) => "ALL AS1_AS2",
+        (false, true, false) => "ALL AS3",
+        (false, false, true) => "ALL JS_TS",
+        (true, true, false) => "ALL AS1_AS2 AS3",
+        (true, false, true) => "ALL AS1_AS2 JS_TS",
+        (false, true, true) => "ALL AS3 JS_TS",
+        (false, false, false) => "ALL",
+    }
+}
+
 pub(crate) fn render_browser_help_html_for_route(
     initial_theme: Theme,
     initial_mode: Option<super::help_manual::HelpManualMode>,
     active_page: Option<usize>,
     active_tag: Option<&str>,
+) -> String {
+    render_browser_help_html_for_project(
+        initial_theme,
+        initial_mode,
+        active_page,
+        active_tag,
+        None,
+        LanguageScope::All,
+    )
+}
+
+pub(crate) fn render_browser_help_html_for_project(
+    initial_theme: Theme,
+    initial_mode: Option<super::help_manual::HelpManualMode>,
+    active_page: Option<usize>,
+    active_tag: Option<&str>,
+    project_language: Option<neoflash_core::ScriptLanguage>,
+    initial_lang_scope: LanguageScope,
 ) -> String {
     use super::help_manual::HelpManualMode;
     let hash = char::from(35u8);
@@ -3948,6 +5145,7 @@ pub(crate) fn render_browser_help_html_for_route(
         Some(HelpManualMode::AuthoringHelp) => "AUTHORING",
         Some(HelpManualMode::ScriptingReference) => "SCRIPTING",
     };
+    let initial_lang_slug = initial_lang_scope.html_slug();
     let initial_tag = active_tag
         .filter(|t| HELP_ALL_TAGS.contains(t))
         .unwrap_or("ALL");
@@ -3960,10 +5158,10 @@ pub(crate) fn render_browser_help_html_for_route(
         }
         None => "NeoFlash Help &amp; Reference",
     };
-    let mut html = String::with_capacity(98_304);
+    let mut html = String::with_capacity(114_688);
     let _ = write!(
         html,
-        "<!doctype html><html lang=\"en\" data-initial-theme=\"{}\" data-initial-mode=\"{initial_mode_slug}\"><head><meta charset=\"utf-8\">\
+        "<!doctype html><html lang=\"en\" data-initial-theme=\"{}\" data-initial-mode=\"{initial_mode_slug}\" data-initial-lang=\"{initial_lang_slug}\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
          <meta name=\"color-scheme\" content=\"dark light\">\
          <title>{page_title}</title><style>",
@@ -4010,8 +5208,9 @@ pub(crate) fn render_browser_help_html_for_route(
          nav.sidebar{background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:12px;align-self:start;position:sticky;top:76px;max-height:calc(100vh - 96px);overflow-y:auto}\
          nav.sidebar ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}\
          nav.sidebar .nav-group{margin:8px 6px 4px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-tertiary)}\
-         nav.sidebar a{display:block;padding:6px 10px;border-radius:6px;color:var(--text-primary);text-decoration:none;font-size:12px;font-weight:500;overflow-wrap:anywhere}\
+         nav.sidebar a{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 10px;border-radius:6px;color:var(--text-primary);text-decoration:none;font-size:12px;font-weight:500;overflow-wrap:anywhere}\
          nav.sidebar a:hover{background:var(--bg-hover);color:var(--accent-default)}\
+         .nav-dialect{font-size:10.5px;color:var(--text-tertiary);font-family:'Roboto Mono',ui-monospace,monospace;flex-shrink:0}\
          main{display:flex;flex-direction:column;gap:20px;min-width:0}\
          section.chapter-card{background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:20px;scroll-margin-top:84px}\
          section.chapter-card:target,section.chapter-card.is-opened-chapter{border-color:var(--accent-default);box-shadow:0 0 0 1px var(--accent-default)}\
@@ -4036,7 +5235,7 @@ pub(crate) fn render_browser_help_html_for_route(
          .search-terms{margin-top:8px;font-size:11px;color:var(--text-tertiary)}",
     );
 
-    // Pure-CSS tag filter rules using :has() so selecting a tag radio highlights the pill and filters chapters
+    // Pure-CSS tag & language-scope filter rules using :has()
     for tag in HELP_ALL_TAGS {
         let _ = write!(
             html,
@@ -4045,8 +5244,17 @@ pub(crate) fn render_browser_help_html_for_route(
              .help-shell:has(input[data-tag=\"{tag}\"]:checked) nav.sidebar li.chapter-nav-item:not([data-tags~=\"{tag}\"]){{display:none}}"
         );
     }
+    for lang_slug in ["AS1_AS2", "AS3", "JS_TS"] {
+        let _ = write!(
+            html,
+            ".help-shell:has(input[data-lang=\"{lang_slug}\"]:checked) label[data-lang-pill=\"{lang_slug}\"]{{background:var(--accent-subtle);color:var(--accent-default);border-color:var(--accent-default)}}\
+             .help-shell:has(input[data-lang=\"{lang_slug}\"]:checked) section.chapter-card[data-section=\"scripting\"]:not([data-lang-scopes~=\"{lang_slug}\"]){{display:none}}\
+             .help-shell:has(input[data-lang=\"{lang_slug}\"]:checked) nav.sidebar li.chapter-nav-item[data-section=\"scripting\"]:not([data-lang-scopes~=\"{lang_slug}\"]){{display:none}}"
+        );
+    }
     html.push_str(
-        ".help-shell:has(input[data-tag=\"ALL\"]:checked) label[data-tag-pill=\"ALL\"]{background:var(--accent-subtle);color:var(--accent-default);border-color:var(--accent-default)}\
+        ".help-shell:has(input[data-lang=\"ALL\"]:checked) label[data-lang-pill=\"ALL\"]{background:var(--accent-subtle);color:var(--accent-default);border-color:var(--accent-default)}\
+         .help-shell:has(input[data-tag=\"ALL\"]:checked) label[data-tag-pill=\"ALL\"]{background:var(--accent-subtle);color:var(--accent-default);border-color:var(--accent-default)}\
          .help-shell:has(input[data-mode=\"ALL\"]:checked) label[data-mode-pill=\"ALL\"],\
          .help-shell:has(input[data-mode=\"AUTHORING\"]:checked) label[data-mode-pill=\"AUTHORING\"],\
          .help-shell:has(input[data-mode=\"SCRIPTING\"]:checked) label[data-mode-pill=\"SCRIPTING\"]{background:var(--accent-subtle);color:var(--accent-default);border-color:var(--accent-default)}\
@@ -4057,7 +5265,7 @@ pub(crate) fn render_browser_help_html_for_route(
     );
     html.push_str("</style></head><body>");
 
-    // Theme, section-mode and tag filters remain 100% declarative (zero <script>).
+    // Theme, section-mode, language-scope and tag filters remain 100% declarative (zero <script>).
     for theme in Theme::ALL {
         let _ = write!(
             html,
@@ -4077,6 +5285,17 @@ pub(crate) fn render_browser_help_html_for_route(
             html,
             "<input type=\"radio\" name=\"nf2-mode\" id=\"nf2-mode-{mode_slug}\" data-mode=\"{mode_slug}\" class=\"sr-toggle\" {}>",
             if mode_slug == initial_mode_slug {
+                "checked"
+            } else {
+                ""
+            }
+        );
+    }
+    for lang_slug in ["ALL", "AS1_AS2", "AS3", "JS_TS"] {
+        let _ = write!(
+            html,
+            "<input type=\"radio\" name=\"nf2-lang\" id=\"nf2-lang-{lang_slug}\" data-lang=\"{lang_slug}\" class=\"sr-toggle\" {}>",
+            if lang_slug == initial_lang_slug {
                 "checked"
             } else {
                 ""
@@ -4112,6 +5331,13 @@ pub(crate) fn render_browser_help_html_for_route(
     html.push_str(
         "</p></div><div style=\"display:flex;align-items:center;gap:8px;flex-wrap:wrap\">",
     );
+    if let Some(proj_lang) = project_language {
+        let _ = write!(
+            html,
+            "<span class=\"badge\">Current project: {}</span>",
+            proj_lang.display_label()
+        );
+    }
     if let Some(page) = clamped_page {
         let _ = write!(
             html,
@@ -4128,14 +5354,19 @@ pub(crate) fn render_browser_help_html_for_route(
          </div></header>",
     );
 
-    // Interactive Section Mode + Tag Filter Bar
+    // Interactive Section Mode + Language Scope + Tag Filter Bar
     let _ = write!(
         html,
-        "<div class=\"tag-bar\" role=\"toolbar\" aria-label=\"Filter by section and topic tag\">\
+        "<div class=\"tag-bar\" role=\"toolbar\" aria-label=\"Filter by section, language scope and topic tag\">\
          <span class=\"tag-bar-label\">Section:</span>\
          <label for=\"nf2-mode-ALL\" data-mode-pill=\"ALL\" class=\"tag-pill\">All Chapters ({})</label>\
          <label for=\"nf2-mode-AUTHORING\" data-mode-pill=\"AUTHORING\" class=\"tag-pill\">Authoring Manual (1–{})</label>\
          <label for=\"nf2-mode-SCRIPTING\" data-mode-pill=\"SCRIPTING\" class=\"tag-pill\">Scripting Reference ({}–{})</label>\
+         <span class=\"tag-bar-label\" style=\"margin-left:10px\">Language:</span>\
+         <label for=\"nf2-lang-ALL\" data-lang-pill=\"ALL\" class=\"tag-pill\">All languages</label>\
+         <label for=\"nf2-lang-AS1_AS2\" data-lang-pill=\"AS1_AS2\" class=\"tag-pill\">AS1 / AS2</label>\
+         <label for=\"nf2-lang-AS3\" data-lang-pill=\"AS3\" class=\"tag-pill\">AS3</label>\
+         <label for=\"nf2-lang-JS_TS\" data-lang-pill=\"JS_TS\" class=\"tag-pill\">JS / TS</label>\
          <span class=\"tag-bar-label\" style=\"margin-left:10px\">Tag:</span>",
         HELP_CHAPTERS.len(),
         AUTHORING_CHAPTER_COUNT,
@@ -4181,22 +5412,26 @@ pub(crate) fn render_browser_help_html_for_route(
             ""
         };
         let tags_joined = chapter.tags.join(" ");
+        let lang_scopes = chapter_html_lang_scopes(index);
         let _ = write!(
             html,
-            "<li class=\"chapter-nav-item\" data-section=\"{section_slug}\" data-tags=\"{tags_joined}\"><a href=\"{hash}chapter-{}\"{nav_cls}>",
+            "<li class=\"chapter-nav-item\" data-section=\"{section_slug}\" data-tags=\"{tags_joined}\" data-lang-scopes=\"{lang_scopes}\"><a href=\"{hash}chapter-{}\"{nav_cls}><span>",
             index + 1
         );
         super::help_manual::escape_html(chapter.title, &mut html);
+        html.push_str("</span>");
+        if !chapter.sidebar_badge.is_empty() {
+            html.push_str("<span class=\"nav-dialect\">");
+            super::help_manual::escape_html(chapter.sidebar_badge, &mut html);
+            html.push_str("</span>");
+        }
         html.push_str("</a></li>");
     }
     html.push_str("</ol></nav><main>");
 
-    // When opened on a specific chapter (e.g. Chapter 14 inside Scripting Reference), render that
-    // opened chapter first when it isn't already the first visible chapter in the active section, OR
-    // keep natural order and highlight it — natural order with `#chapter-{n}` URL fragment scrolls
-    // directly to it while keeping sequential reading intact.
     for (index, chapter) in HELP_CHAPTERS.iter().enumerate() {
         let tags_joined = chapter.tags.join(" ");
+        let lang_scopes = chapter_html_lang_scopes(index);
         let section_slug = if index < AUTHORING_CHAPTER_COUNT {
             "authoring"
         } else {
@@ -4218,13 +5453,21 @@ pub(crate) fn render_browser_help_html_for_route(
         };
         let _ = write!(
             html,
-            "<section class=\"{card_cls}\" id=\"chapter-{}\" data-section=\"{section_slug}\" data-tags=\"{tags_joined}\"><div class=\"chapter-head\"><h2>",
+            "<section class=\"{card_cls}\" id=\"chapter-{}\" data-section=\"{section_slug}\" data-tags=\"{tags_joined}\" data-lang-scopes=\"{lang_scopes}\"><div class=\"chapter-head\"><h2>",
             index + 1
         );
         super::help_manual::escape_html(chapter.title, &mut html);
+        html.push_str(
+            "</h2><div style=\"display:flex;gap:6px;flex-wrap:wrap;align-items:center\">",
+        );
+        for &db in chapter.dialect_badges {
+            html.push_str("<span class=\"badge\">");
+            super::help_manual::escape_html(db, &mut html);
+            html.push_str("</span>");
+        }
         let _ = write!(
             html,
-            "</h2><span class=\"badge\">{mode_badge} · Chapter {} of {}</span></div><p class=\"chapter-sub\">",
+            "<span class=\"badge\">{mode_badge} · Chapter {} of {}</span></div></div><p class=\"chapter-sub\">",
             index + 1,
             HELP_CHAPTERS.len()
         );
@@ -4283,6 +5526,64 @@ pub(crate) fn verify_all_reference_code_samples_compile() {
     use neoflash_core::ScriptLanguage;
 
     let samples: &[(&str, ScriptLanguage, &str)] = &[
+        (
+            "Ch.11 AS2 Named & Anonymous Functions",
+            ScriptLanguage::ActionScript2,
+            AS2_FN_DECLARATIONS_AND_LITERALS_SAMPLE,
+        ),
+        (
+            "Ch.11 AS1 Untyped Prototype & Closures",
+            ScriptLanguage::ActionScript1,
+            "function Enemy(x, y, speed) {
+    this.x = x;
+    this.y = y;
+    this.speed = speed;
+}
+Enemy.prototype.step = function() {
+    this.x -= this.speed;
+};
+var scout = new Enemy(240, 120, 3);
+scout.step();
+function makeCounter(start) {
+    var count = start;
+    return function(delta) {
+        count += delta;
+        return count;
+    };
+}
+var nextWave = makeCounter(1);
+trace(scout.x, nextWave(1));",
+        ),
+        (
+            "Ch.11 AS2 arguments + Function.call / apply",
+            ScriptLanguage::ActionScript2,
+            AS2_FN_ARGUMENTS_CALL_APPLY_SAMPLE,
+        ),
+        (
+            "Ch.11 AS2 Prototype & Closures",
+            ScriptLanguage::ActionScript2,
+            AS2_FN_PROTOTYPE_AND_CLOSURES_SAMPLE,
+        ),
+        (
+            "Ch.11 AS2 1-Frame Game Pattern",
+            ScriptLanguage::ActionScript2,
+            AS2_ONE_FRAME_GAME_LOOP_SAMPLE,
+        ),
+        (
+            "Ch.13 AS3 Functions, ...rest, Closures & call/apply",
+            ScriptLanguage::ActionScript3,
+            AS3_FUNCTIONS_REST_CALL_CLOSURES_SAMPLE,
+        ),
+        (
+            "Ch.17 JavaScript Functions, Closures & call/apply",
+            ScriptLanguage::JavaScript,
+            JS_FUNCTIONS_CLOSURES_AND_CALL_SAMPLE,
+        ),
+        (
+            "Ch.18 TypeScript Typed & Generic Functions",
+            ScriptLanguage::TypeScript,
+            TS_TYPED_AND_GENERIC_FUNCTIONS_SAMPLE,
+        ),
         (
             "Ch.11 AS2 Frame Script",
             ScriptLanguage::ActionScript2,
@@ -4552,4 +5853,136 @@ async function syncHighScore(canvas: HTMLCanvasElement, url: string) {
         "Ch.17/18 module graph example produced errors: {:?}",
         module_res.err()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use neoflash_core::ScriptLanguage;
+
+    #[test]
+    fn help_as_reference_code_samples_all_compile() {
+        verify_all_reference_code_samples_compile();
+    }
+
+    #[test]
+    fn help_as_reference_function_search_covers_all_as2_as3_js_ts_cases_and_esc_chords() {
+        assert_eq!(CLASSIC_ESC_CHORDS.len(), 50);
+        assert_eq!(CLASSIC_ESC_CHORDS[0].0, "br");
+        assert_eq!(
+            CLASSIC_ESC_CHORDS[12],
+            (
+                "fn",
+                "function name ( ) { ... }",
+                "Declare named function block"
+            )
+        );
+        assert_eq!(CLASSIC_ESC_CHORDS[49].0, "wt");
+
+        for query in ["function", "Function"] {
+            let (as2_hits, other_count) =
+                search_reference_hits(query, LanguageScope::As1As2, ScriptLanguage::ActionScript2);
+            assert!(
+                other_count >= 3,
+                "AS1/AS2 scope should filter out AS3/JS/TS hits while reporting hidden count"
+            );
+            for hit in &as2_hits {
+                assert!(
+                    matches!(hit.dialect_badge, "[AS1/AS2]" | "[Authoring]"),
+                    "unexpected dialect badge in AS1/AS2 scope: {}",
+                    hit.dialect_badge
+                );
+            }
+            let combined_text: String = as2_hits
+                .iter()
+                .map(|h| {
+                    format!(
+                        "{} {} {} {}",
+                        h.title,
+                        h.signature,
+                        h.summary,
+                        h.code_preview.unwrap_or("")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            for required_case in [
+                "calcDamage",
+                "return",
+                "easeOutQuad",
+                "arguments.length",
+                "arguments.callee",
+                "arguments.caller",
+                "call(",
+                "apply(",
+                "Enemy.prototype",
+                "makeCounter",
+                "onEnterFrame",
+                "setInterval",
+                "<ESC>fn",
+            ] {
+                assert!(
+                    combined_text.contains(required_case),
+                    "searching '{query}' in AS1/AS2 scope missed required case: {required_case}"
+                );
+            }
+
+            let (as3_hits, _) =
+                search_reference_hits(query, LanguageScope::As3, ScriptLanguage::ActionScript3);
+            assert!(
+                as3_hits
+                    .iter()
+                    .any(|h| h.dialect_badge == "[AS3]" && h.signature.contains("...values")),
+                "searching '{query}' in AS3 scope must surface ...rest & AS3 Function reference"
+            );
+
+            let (jsts_hits, _) =
+                search_reference_hits(query, LanguageScope::JsTs, ScriptLanguage::TypeScript);
+            assert!(
+                jsts_hits.iter().any(|h| h.dialect_badge == "[JS]")
+                    && jsts_hits.iter().any(|h| h.dialect_badge == "[TS]"),
+                "searching '{query}' in JS/TS scope must surface both [JS] and [TS] hits"
+            );
+        }
+
+        let (chord_hits, _) = search_reference_hits(
+            "<ESC>fn",
+            LanguageScope::As1As2,
+            ScriptLanguage::ActionScript2,
+        );
+        assert!(
+            chord_hits
+                .iter()
+                .any(|h| h.signature.contains("<ESC>fn") && h.signature.contains("function name")),
+            "searching '<ESC>fn' must surface the <ESC>fn chord"
+        );
+    }
+
+    #[test]
+    fn help_as_reference_browser_html_includes_project_language_scope_and_esc_chords() {
+        let html = render_browser_help_html_for_project(
+            Theme::Dark,
+            Some(super::super::help_manual::HelpManualMode::ScriptingReference),
+            Some(10),
+            None,
+            Some(ScriptLanguage::ActionScript2),
+            LanguageScope::As1As2,
+        );
+        assert!(html.contains("Current project: ActionScript 2.0"));
+        assert!(html.contains("data-initial-lang=\"AS1_AS2\""));
+        assert!(
+            html.contains(
+                "id=\"nf2-lang-AS1_AS2\" data-lang=\"AS1_AS2\" class=\"sr-toggle\" checked"
+            )
+        );
+        assert!(html.contains("[AS1/AS2]"));
+        assert!(html.contains("[AS3]"));
+        assert!(html.contains("[JS]"));
+        assert!(html.contains("[TS]"));
+        assert!(html.contains("calcDamage"));
+        assert!(html.contains("arguments.callee"));
+        assert!(html.contains("Enemy.prototype.step"));
+        assert!(html.contains("&lt;ESC&gt;fn"));
+        assert!(!html.contains("<script"));
+    }
 }

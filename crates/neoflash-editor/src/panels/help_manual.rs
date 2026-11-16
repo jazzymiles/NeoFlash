@@ -73,10 +73,85 @@ impl HelpManualMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum LanguageScope {
+    #[default]
+    All,
+    As1As2,
+    As3,
+    JsTs,
+}
+
+impl LanguageScope {
+    pub(crate) const fn from_script_language(lang: neoflash_core::ScriptLanguage) -> Self {
+        match lang {
+            neoflash_core::ScriptLanguage::ActionScript1
+            | neoflash_core::ScriptLanguage::ActionScript2 => Self::As1As2,
+            neoflash_core::ScriptLanguage::ActionScript3 => Self::As3,
+            neoflash_core::ScriptLanguage::JavaScript
+            | neoflash_core::ScriptLanguage::TypeScript => Self::JsTs,
+        }
+    }
+
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::All => "All languages",
+            Self::As1As2 => "AS1 / AS2",
+            Self::As3 => "AS3",
+            Self::JsTs => "JS / TS",
+        }
+    }
+
+    pub(crate) const fn html_slug(self) -> &'static str {
+        match self {
+            Self::All => "ALL",
+            Self::As1As2 => "AS1_AS2",
+            Self::As3 => "AS3",
+            Self::JsTs => "JS_TS",
+        }
+    }
+
+    pub(crate) const fn default_chapter(self, lang: neoflash_core::ScriptLanguage) -> usize {
+        match self {
+            Self::All | Self::As1As2 => AUTHORING_CHAPTER_COUNT, // 10 -> Ch. 11 AS1 & AS2
+            Self::As3 => 12,                                     // 12 -> Ch. 13 AS3 Display List
+            Self::JsTs => match lang {
+                neoflash_core::ScriptLanguage::TypeScript => 17, // 17 -> Ch. 18 TypeScript
+                _ => 16,                                         // 16 -> Ch. 17 JavaScript
+            },
+        }
+    }
+
+    pub(crate) const fn matches_chapter(self, idx: usize) -> bool {
+        match self {
+            Self::All => true,
+            Self::As1As2 => matches!(idx, 9 | 10 | 11 | 15),
+            Self::As3 => matches!(idx, 9 | 12 | 13 | 14 | 15),
+            Self::JsTs => matches!(idx, 9 | 15 | 16 | 17 | 18),
+        }
+    }
+
+    pub(crate) fn matches_badge(self, badge: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::As1As2 => matches!(badge, "[AS1/AS2]" | "[Authoring]"),
+            Self::As3 => matches!(badge, "[AS3]" | "[Authoring]"),
+            Self::JsTs => matches!(badge, "[JS]" | "[TS]" | "[TS] [JS]" | "[Authoring]"),
+        }
+    }
+
+    pub(crate) fn visible_scripting_chapters(self) -> Vec<usize> {
+        (AUTHORING_CHAPTER_COUNT..HELP_CHAPTERS.len())
+            .filter(|&idx| self.matches_chapter(idx))
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct HelpManualState {
     open: bool,
     mode: HelpManualMode,
+    lang_scope: LanguageScope,
     page: usize,
     query: String,
     diagram_tab: usize,
@@ -100,11 +175,13 @@ pub(crate) fn open_help_manual(ctx: &egui::Context) {
     });
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn open_scripting_reference(ctx: &egui::Context) {
     ctx.data_mut(|d| {
         let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
         s.open = true;
         s.mode = HelpManualMode::ScriptingReference;
+        s.lang_scope = LanguageScope::All;
         if s.page < AUTHORING_CHAPTER_COUNT || s.page >= HELP_CHAPTERS.len() {
             s.page = AUTHORING_CHAPTER_COUNT;
             s.diagram_tab = 0;
@@ -119,6 +196,9 @@ pub(crate) fn open_scripting_reference_page(ctx: &egui::Context, page: usize) {
         s.open = true;
         let clamped = page.clamp(AUTHORING_CHAPTER_COUNT, HELP_CHAPTERS.len() - 1);
         s.mode = HelpManualMode::ScriptingReference;
+        if !s.lang_scope.matches_chapter(clamped) {
+            s.lang_scope = LanguageScope::All;
+        }
         s.page = clamped;
         s.diagram_tab = 0;
     });
@@ -134,10 +214,22 @@ pub(crate) fn help_manual_mode(ctx: &egui::Context) -> HelpManualMode {
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn help_manual_language_scope(ctx: &egui::Context) -> LanguageScope {
+    ctx.data(|d| {
+        d.get_temp::<HelpManualState>(state_id())
+            .map(|s| s.lang_scope)
+            .unwrap_or_default()
+    })
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn set_help_manual_mode(ctx: &egui::Context, mode: HelpManualMode) {
     ctx.data_mut(|d| {
         let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
         s.mode = mode;
+        if mode == HelpManualMode::ScriptingReference {
+            s.lang_scope = LanguageScope::All;
+        }
         let range = mode.chapter_range();
         if !range.contains(&s.page) {
             s.page = range.start;
@@ -168,12 +260,17 @@ pub(crate) fn set_help_manual_page(ctx: &egui::Context, page: usize) {
         let clamped = page.min(HELP_CHAPTERS.len() - 1);
         s.page = clamped;
         s.mode = HelpManualMode::for_page(clamped);
+        if clamped >= AUTHORING_CHAPTER_COUNT && !s.lang_scope.matches_chapter(clamped) {
+            s.lang_scope = LanguageScope::All;
+        }
         s.diagram_tab = 0;
     });
 }
 
 pub(crate) struct HelpChapterMeta {
     pub sidebar_label: &'static str,
+    pub sidebar_badge: &'static str,
+    pub dialect_badges: &'static [&'static str],
     pub title: &'static str,
     pub subtitle: &'static str,
     pub icon: Icon,
@@ -185,6 +282,8 @@ pub(crate) struct HelpChapterMeta {
 pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     HelpChapterMeta {
         sidebar_label: "1. Workspace & Stage",
+        sidebar_badge: "",
+        dialect_badges: &["[Authoring]"],
         title: "1. Workspace & Stage",
         subtitle: "Stage, Pasteboard, Rulers, Guides, Grid & Snapping priority",
         icon: i16::DESKTOP,
@@ -194,6 +293,8 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "2. Drawing & Objects",
+        sidebar_badge: "",
+        dialect_badges: &["[Authoring]"],
         title: "2. Drawing Modes & Objects",
         subtitle: "Merge Drawing vs Object Drawing (J), Primitives, Groups & Combine",
         icon: i16::LAYERS,
@@ -203,6 +304,8 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "3. Select & Transform",
+        sidebar_badge: "",
+        dialect_badges: &["[Authoring]"],
         title: "3. Selection & Transform",
         subtitle: "Selection (V), Subselection (A), Free Transform (Q) & Lasso (L) modes",
         icon: i16::SELECT,
@@ -212,6 +315,8 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "4. Vector & Pen States",
+        sidebar_badge: "",
+        dialect_badges: &["[Authoring]"],
         title: "4. Vector & Pen States",
         subtitle: "Pen (P) 9 pointer states, Line (N), Shapes (R/O) & Pencil (Y) modes",
         icon: i16::PEN,
@@ -221,6 +326,8 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "5. Brush, Eraser & Deco",
+        sidebar_badge: "",
+        dialect_badges: &["[Authoring]"],
         title: "5. Brush, Eraser & Deco",
         subtitle: "Brush (B) 5 paint modes, Paint Bucket (K), Gradient (F), Eraser (E) & Deco",
         icon: i16::BRUSH,
@@ -230,6 +337,8 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "6. Symbols & Library",
+        sidebar_badge: "",
+        dialect_badges: &["[Authoring]"],
         title: "6. Symbols, 9-Slice & Library",
         subtitle: "MovieClip, Button (4 states), Graphic syncing, 9-Slice & Colour Effects",
         icon: i16::SYMBOL,
@@ -239,6 +348,8 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "7. Timeline & Masks",
+        sidebar_badge: "",
+        dialect_badges: &["[Authoring]"],
         title: "7. Timeline, Layers & Masks",
         subtitle: "Keyframes, Span selection, Layer roles, Masking, Onion Skin & Scenes",
         icon: i16::FILM,
@@ -248,6 +359,8 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "8. Tweens, Motion & IK",
+        sidebar_badge: "",
+        dialect_badges: &["[Authoring]"],
         title: "8. Tweens, Motion & IK",
         subtitle: "Motion Tween ◆ keys, Motion Editor, Classic Tween, Shape Hints & IK Bones",
         icon: i16::TWEEN_MOTION,
@@ -257,6 +370,8 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "9. Filters, Text & Audio",
+        sidebar_badge: "",
+        dialect_badges: &["[Authoring]"],
         title: "9. Filters, Text & Audio",
         subtitle: "7 Live Filters, 14 Blend Modes, Classic/TLF Text, Font Embedding & Sound",
         icon: i16::FILTER,
@@ -266,10 +381,12 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "10. Scripting & Publish",
+        sidebar_badge: "[AS/JS/TS]",
+        dialect_badges: &["[AS1/AS2]", "[AS3]", "[JS]", "[TS]"],
         title: "10. Scripting, Import & Publish",
-        subtitle: "AS2/AS3/JS/TS, Code Snippets, Debugger, FLA/SWF/PSD Import & HTML5/Atlas",
+        subtitle: "AS2/AS3/JS/TS, <ESC> 50 Chords, Snippets, Debugger, FLA/SWF Import & HTML5 Publish",
         icon: i16::CODE,
-        keywords: "actionscript as2 as3 javascript typescript actions code snippets debugger profiler import fla xfl swf psd ai svg figma avi webp bmp tiff trace bitmap publish html5 wasm banner sequence aep after effects expressions loadpublish sprite sheet atlas lottie shortcuts",
+        keywords: "actionscript as2 as3 javascript typescript actions <esc> esc chord <esc>fn <esc>tr <esc>st <esc>rt function code snippets debugger profiler import fla xfl swf psd ai svg figma avi webp bmp tiff trace bitmap publish html5 wasm banner sequence aep after effects expressions loadpublish sprite sheet atlas lottie shortcuts",
         tags: &[
             "Authoring",
             "Export",
@@ -285,42 +402,52 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "1. AS1 & AS2 Timeline",
+        sidebar_badge: "[AS1/AS2]",
+        dialect_badges: &["[AS1/AS2]"],
         title: "11. AS1 & AS2 Fundamentals & Timeline",
-        subtitle: "AVM1 Target Paths (_root/_parent/this), on/onClipEvent, Depths & Prototypes",
+        subtitle: "function Statement, arguments, Closures, Target Paths (_root/this), on/onClipEvent, Prototypes & 1-Frame Games",
         icon: i16::CODE,
-        keywords: "actionscript 1.0 2.0 as1 as2 avm1 _root _parent _level0 this telltarget on onclipevent gotoandplay gotoandstop stop play attachmovie duplicatemovieclip createmovieclip swapdepths getnexthighestdepth prototype registerclass initclip",
+        keywords: "actionscript 1.0 2.0 as1 as2 avm1 function return arguments callee caller call apply closure hoisting var local scope _root _parent _level0 this telltarget on onclipevent onenterframe onpress onrelease gotoandplay gotoandstop stop play attachmovie duplicatemovieclip createemptymovieclip swapdepths getnexthighestdepth prototype __proto__ constructor registerclass initclip setinterval clearinterval trace <esc>fn 1-frame game",
         tags: &["AS1", "AS2", "Timeline", "Symbols", "Events"],
         related: &[6, 11, 15, 16],
     },
     HelpChapterMeta {
         sidebar_label: "2. AS2 Core Classes",
+        sidebar_badge: "[AS1/AS2]",
+        dialect_badges: &["[AS1/AS2]"],
         title: "12. AS2 Core Classes & Built-Ins",
-        subtitle: "MovieClip Drawing API, TextField/TextFormat, Sound, Key/Mouse, BitmapData & LoadVars",
+        subtitle: "Function (call/apply/prototype), arguments, MovieClip Drawing API, TextField, Sound, Key/Mouse & BitmapData",
         icon: i16::BOOKMARK,
-        keywords: "as2 movieclip drawing api linestyle beginfill begingradientfill moveto lineto curveto textfield textformat sound attachsound loadsound key mouse stage bitmapdata matrix point rectangle colortransform loadvars xml sharedobject setinterval",
+        keywords: "as2 function call apply prototype arguments callee caller movieclip drawing api linestyle beginfill begingradientfill moveto lineto curveto textfield textformat sound attachsound loadsound key mouse stage bitmapdata matrix point rectangle colortransform loadvars xml sharedobject setinterval clearinterval",
         tags: &["AS1", "AS2", "Graphics", "Text", "Audio", "Events"],
         related: &[8, 10, 14, 15],
     },
     HelpChapterMeta {
         sidebar_label: "3. AS3 Display List",
+        sidebar_badge: "[AS3]",
+        dialect_badges: &["[AS3]"],
         title: "13. AS3 Architecture & Display List",
-        subtitle: "AVM2 Packages, Strong Types, Vector.<T>, DisplayObjectContainer & Coordinate Spaces",
+        subtitle: "AVM2 Packages, Functions (...rest, call/apply, Bound Closures), Strong Types, Vector.<T> & DisplayObjectContainer",
         icon: i16::CLASS,
-        keywords: "actionscript 3.0 as3 avm2 package class interface extends implements int uint number vector dictionary displayobject interactiveobject displayobjectcontainer sprite movieclip shape bitmap simplebutton addchild removechild getbounds hittestpoint localtoglobal globaltolocal",
+        keywords: "actionscript 3.0 as3 avm2 function return rest arguments call apply closure package class interface extends implements int uint number vector dictionary displayobject interactiveobject displayobjectcontainer sprite movieclip shape bitmap simplebutton addchild removechild getbounds hittestpoint localtoglobal globaltolocal",
         tags: &["AS3", "DisplayList", "Symbols"],
         related: &[5, 13, 14, 15],
     },
     HelpChapterMeta {
         sidebar_label: "4. AS3 Events & Flow",
+        sidebar_badge: "[AS3]",
+        dialect_badges: &["[AS3]"],
         title: "14. AS3 Events, Input & Lifecycle",
         subtitle: "EventDispatcher, 3-Phase Capture/Target/Bubble Flow, Frame Order, Mouse/Keyboard & Timer",
         icon: i16::PLAY,
-        keywords: "as3 eventdispatcher addeventlistener removeeventlistener dispatchevent capture target bubbling stoppropagation stopimmediatepropagation enter_frame frame_constructed exit_frame added_to_stage mouseevent keyboardevent timerevent timer",
+        keywords: "as3 function listener callback eventdispatcher addeventlistener removeeventlistener dispatchevent capture target bubbling stoppropagation stopimmediatepropagation enter_frame frame_constructed exit_frame added_to_stage mouseevent keyboardevent timerevent timer",
         tags: &["AS3", "Events", "Timeline", "DisplayList"],
         related: &[6, 12, 14, 15],
     },
     HelpChapterMeta {
         sidebar_label: "5. AS3 Graphics & Audio",
+        sidebar_badge: "[AS3]",
+        dialect_badges: &["[AS3]"],
         title: "15. AS3 Graphics, Filters, Sound & Data",
         subtitle: "flash.display.Graphics, Matrix/Filters, SoundChannel/SoundMixer, ByteArray & E4X XML",
         icon: i16::FILTER,
@@ -330,10 +457,12 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "6. Language Migration",
+        sidebar_badge: "[AS2/AS3/JS/TS]",
+        dialect_badges: &["[AS1/AS2]", "[AS3]", "[JS]", "[TS]"],
         title: "16. AS1/AS2 ↔ AS3 ↔ JS/TS Migration Guide",
-        subtitle: "Side-by-Side Equivalence Rosetta Stone, Scale/Alpha Rules & Porting Checklist",
+        subtitle: "Side-by-Side Equivalence Rosetta Stone, Function/Prototype Rules, Scale/Alpha & Porting Checklist",
         icon: i16::LINK,
-        keywords: "migration porting comparison rosetta stone as1 as2 as3 javascript typescript _alpha alpha _xscale scalex onrelease addeventlistener attachmovie addchild geturl navigatetourl gettimer",
+        keywords: "migration porting comparison rosetta stone function arguments rest prototype class call apply as1 as2 as3 javascript typescript _alpha alpha _xscale scalex onrelease addeventlistener attachmovie addchild geturl navigatetourl gettimer",
         tags: &[
             "AS1",
             "AS2",
@@ -350,10 +479,12 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "7. JavaScript Runtime",
+        sidebar_badge: "[JS]",
+        dialect_badges: &["[JS]"],
         title: "17. JavaScript (ES2023+ & NeoFlash Runtime)",
-        subtitle: "Frame/Object/Module Contexts (this, event, trace), ES2023+, Promises, Imports & JSX",
+        subtitle: "Functions, Arrow Callbacks, Closures, Frame/Object/Module Contexts (this, event, trace), Promises & JSX",
         icon: i16::CODE,
-        keywords: "javascript es2023 es2022 runtime frame object script this event trace gotoandplay gotoandstop play stop promise async await import export module jsx __nfjsx try catch map set",
+        keywords: "javascript js es2023 es2022 function arrow return rest closure call apply bind runtime frame object script this event trace gotoandplay gotoandstop play stop promise async await import export module jsx __nfjsx try catch map set",
         tags: &[
             "JavaScript",
             "JS/TS",
@@ -366,10 +497,12 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "8. TypeScript & Checker",
+        sidebar_badge: "[TS]",
+        dialect_badges: &["[TS]"],
         title: "18. TypeScript & Built-In Type Checker",
-        subtitle: "Interfaces, Union/Generic Types, Bounded Static Checker, Quick Fixes & Source Maps",
+        subtitle: "Typed & Generic Functions, Interfaces, Union Types, Bounded Static Checker, Quick Fixes & Source Maps",
         icon: i16::FILE_CODE,
-        keywords: "typescript tsx type checker ts_check interface type alias union intersection generic record partial pick omit readonly enum sourcemap vlq debugger quick fix",
+        keywords: "typescript ts tsx function return generic parameter type checker ts_check interface type alias union intersection record partial pick omit readonly enum sourcemap vlq debugger quick fix",
         tags: &[
             "TypeScript",
             "JavaScript",
@@ -382,6 +515,8 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     },
     HelpChapterMeta {
         sidebar_label: "9. Browser & Web APIs",
+        sidebar_badge: "[JS] [TS]",
+        dialect_badges: &["[JS]", "[TS]"],
         title: "19. Browser & Web APIs (Canvas / DOM / Fetch / Audio / Storage)",
         subtitle: "CanvasRenderingContext2D, DOM, Fetch, Storage, Timers, Web Audio & CORS/CSP Limits",
         icon: i16::DESKTOP,
@@ -466,6 +601,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
     ],
     &[
         "Frame, object and project scripts support five languages—ActionScript 3.0, ActionScript 2.0, ActionScript 1.0, TypeScript and JavaScript—governed by one unified project Script language policy (Document settings, with optional compatible-script compilation for AS1 in AS2 or JS in TS, while foreign scripts stay preserved in the document).",
+        "Focused Actions and Project source editors support all 50 Classic Flash <ESC> two-key quick-typing chords (<ESC>br through <ESC>wt, including <ESC>fn for function blocks, <ESC>rt for return, <ESC>tr for trace and <ESC>st for stop) with automatic indentation and single-step Undo.",
         "Preferences ▸ AI configures optional OpenAI, Anthropic, Gemini or custom HTTPS/loopback connections (storing keys only in macOS Keychain or NEOFLASH_AI_TOKEN_* env vars) and Edit ▸ Send to AI… reviews a redacted context pack before applying code or timing proposals as a single Undo step.",
         "Import accepts legacy FLA, XFL, SWF, compiled SWC component libraries (linked into Library symbols, scripts and assets), Kiwi/Zstd Figma (.fig / .figma.json), PSD/PSB, AI, SVG, PDF, WAV/MP3 plus FFmpeg-transcoded OGG/FLAC/AAC/M4A audio, MP4/WebM/AVI video, WebP/GIF/BMP/TIFF and numbered image sequences with located diagnostics.",
         "Publish and export targets include HTML5 plus WebAssembly (Canvas or semantic Web App · DOM), zero-WASM Web Banner · Native, Desktop apps, 5-format Texture Atlases, AI/SVG/PNG/JPEG/WebP/GIF/BMP frame sequences, Flash Player 8/9/10 SWF, Lottie JSON & dotLottie (.lottie with Original/PNG/JPEG/WebP images), audio/video, Adobe After Effects (.aep / .aepx / .jsx), and the machine-readable --headless CLI.",
@@ -481,6 +617,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
     ],
     &[
         "ActionScript 1.0 and 2.0 execute on the AVM1 timeline and target-path hierarchy (_level0, _root, _parent, this) with 1-based frame indexing.",
+        "Named function declarations (hoisted with optional parameter/return types and return values), anonymous function literals, the local arguments object (length, callee, caller), Function.call / Function.apply explicit receiver binding, lexical var closures and 1-frame onEnterFrame / setInterval game loops are all supported.",
         "Button instances accept on(press, release, rollOver, keyPress) blocks where this refers to the parent timeline; MovieClips accept onClipEvent(load, enterFrame, data) blocks.",
         "Author-time instances occupy negative depths (-16383..-1), while attachMovie, duplicateMovieClip and createEmptyMovieClip use positive dynamic depths (0..1048575) via getNextHighestDepth().",
         "AS1 prototype inheritance (Function.prototype and Object.registerClass) and AS2 class definitions (class X extends MovieClip) both bind directly to Library symbols.",
@@ -667,11 +804,23 @@ fn help_browser_html_for_state(
     )
 }
 
+#[cfg(test)]
 fn write_help_browser_document(
     theme: neoflash_ui::Theme,
     mode: HelpManualMode,
     page: usize,
     active_tag: Option<&str>,
+) -> Result<(PathBuf, String), String> {
+    write_help_browser_document_for_project(theme, mode, page, active_tag, None, LanguageScope::All)
+}
+
+fn write_help_browser_document_for_project(
+    theme: neoflash_ui::Theme,
+    mode: HelpManualMode,
+    page: usize,
+    active_tag: Option<&str>,
+    project_language: Option<neoflash_core::ScriptLanguage>,
+    lang_scope: LanguageScope,
 ) -> Result<(PathBuf, String), String> {
     let directory = std::env::temp_dir()
         .join("neoflash-help")
@@ -685,11 +834,20 @@ fn write_help_browser_document(
     let path = directory.join(filename);
     let clamped_page = page.min(HELP_CHAPTERS.len().saturating_sub(1));
     let effective_tag = active_tag.filter(|tag| HELP_CHAPTERS[clamped_page].tags.contains(tag));
-    std::fs::write(
-        &path,
-        help_browser_html_for_state(theme, mode, clamped_page, effective_tag),
-    )
-    .map_err(|error| format!("Cannot write the browser Help document: {error}"))?;
+    let html = if project_language.is_some() || lang_scope != LanguageScope::All {
+        super::help_as_reference::render_browser_help_html_for_project(
+            theme,
+            Some(mode),
+            Some(clamped_page),
+            effective_tag,
+            project_language,
+            lang_scope,
+        )
+    } else {
+        help_browser_html_for_state(theme, mode, clamped_page, effective_tag)
+    };
+    std::fs::write(&path, html)
+        .map_err(|error| format!("Cannot write the browser Help document: {error}"))?;
     let url = crate::platform_open::file_url_with_fragment(
         &path,
         &format!("chapter-{}", clamped_page + 1),
@@ -699,12 +857,139 @@ fn write_help_browser_document(
 }
 
 impl crate::app::Editor {
+    /// Resolves the script language currently active in `Actions` (if a non-empty script or
+    /// project source file is open there), falling back to `project.effective_script_language()`.
+    pub(crate) fn active_help_script_language(&self) -> neoflash_core::ScriptLanguage {
+        match self.script_target {
+            crate::app::ScriptTarget::Source => {
+                if let Some(src_id) = self.selected_source.as_ref()
+                    && let Some(unit) = self.project.sources.iter().find(|s| &s.id == src_id)
+                {
+                    return unit.language;
+                }
+            }
+            crate::app::ScriptTarget::Frame => {
+                if let Some(fs) = self
+                    .symbol()
+                    .timeline
+                    .frame_script_for_layer(self.layer, self.frame)
+                    && !fs.script.source.trim().is_empty()
+                {
+                    return fs.script.language;
+                }
+            }
+            crate::app::ScriptTarget::Object => {
+                if let Some(elem) = self.selected_element()
+                    && let Some(os) = elem.scripts.iter().find(|s| s.event == self.script_event)
+                    && !os.script.source.trim().is_empty()
+                {
+                    return os.script.language;
+                }
+            }
+        }
+        self.project.effective_script_language()
+    }
+
+    fn active_actions_source_text(&self) -> Option<&str> {
+        match self.script_target {
+            crate::app::ScriptTarget::Source => self
+                .selected_source
+                .as_ref()
+                .and_then(|id| self.project.sources.iter().find(|s| &s.id == id))
+                .map(|s| s.source.as_str()),
+            crate::app::ScriptTarget::Frame => self
+                .symbol()
+                .timeline
+                .frame_script_for_layer(self.layer, self.frame)
+                .map(|fs| fs.script.source.as_str()),
+            crate::app::ScriptTarget::Object => self
+                .selected_element()
+                .and_then(|e| e.scripts.iter().find(|s| s.event == self.script_event))
+                .map(|s| s.script.source.as_str()),
+        }
+        .filter(|src| !src.trim().is_empty())
+    }
+
     pub(crate) fn open_help_manual(&mut self, ctx: &egui::Context) {
         open_help_manual(ctx);
     }
 
     pub(crate) fn open_scripting_reference(&mut self, ctx: &egui::Context) {
-        open_scripting_reference(ctx);
+        let active_lang = self.active_help_script_language();
+        let scope = LanguageScope::from_script_language(active_lang);
+
+        // If Actions has focus (or an explicit text selection), check for a contextual keyword/API
+        // token at the caret or selection so opening Scripting Reference from Actions jumps right to it!
+        let editor_id = self.actions_editor_id();
+        let actions_focused = ctx.memory(|m| m.has_focus(editor_id));
+        let contextual_token = self.active_actions_source_text().and_then(|source| {
+            let state = egui::text_edit::TextEditState::load(ctx, editor_id)?;
+            let range = state.cursor.char_range()?;
+            let has_selection = range.primary.index != range.secondary.index;
+            if !actions_focused && !has_selection {
+                return None;
+            }
+            let candidate = crate::script_api::extract_reference_token(
+                source,
+                range.primary.index,
+                range.secondary.index,
+            )?;
+            let (hits, _) =
+                super::help_as_reference::search_reference_hits(&candidate, scope, active_lang);
+            if crate::script_api::keyword_reference_summary(active_lang, &candidate).is_some()
+                || !hits.is_empty()
+            {
+                let target_page = hits
+                    .first()
+                    .map(|h| h.chapter_idx)
+                    .filter(|&idx| idx >= AUTHORING_CHAPTER_COUNT)
+                    .unwrap_or_else(|| scope.default_chapter(active_lang));
+                Some((candidate, target_page))
+            } else {
+                None
+            }
+        });
+
+        ctx.data_mut(|d| {
+            let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
+            s.open = true;
+            s.mode = HelpManualMode::ScriptingReference;
+            s.lang_scope = scope;
+            if let Some((token, target_page)) = contextual_token {
+                s.query = token;
+                s.page = target_page;
+                s.diagram_tab = 0;
+            } else if !scope.matches_chapter(s.page)
+                || s.page < AUTHORING_CHAPTER_COUNT
+                || s.page >= HELP_CHAPTERS.len()
+            {
+                s.page = scope.default_chapter(active_lang);
+                s.diagram_tab = 0;
+            }
+        });
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn open_scripting_reference_for_token(&mut self, ctx: &egui::Context, token: &str) {
+        let active_lang = self.active_help_script_language();
+        let scope = LanguageScope::from_script_language(active_lang);
+        let trimmed = token.trim();
+        let (hits, _) =
+            super::help_as_reference::search_reference_hits(trimmed, scope, active_lang);
+        let target_page = hits
+            .first()
+            .map(|h| h.chapter_idx)
+            .filter(|&idx| idx >= AUTHORING_CHAPTER_COUNT)
+            .unwrap_or_else(|| scope.default_chapter(active_lang));
+        ctx.data_mut(|d| {
+            let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
+            s.open = true;
+            s.mode = HelpManualMode::ScriptingReference;
+            s.lang_scope = scope;
+            s.query = trimmed.to_owned();
+            s.page = target_page;
+            s.diagram_tab = 0;
+        });
     }
 
     pub(crate) fn help_manual_dialog(&mut self, ctx: &egui::Context) {
@@ -715,6 +1000,7 @@ impl crate::app::Editor {
         if !state.open {
             return;
         }
+        let proj_lang = self.project.effective_script_language();
         state.page = state.page.min(HELP_CHAPTERS.len() - 1);
         let mode_range = state.mode.chapter_range();
         let p = neoflash_ui::palette(ctx);
@@ -754,18 +1040,40 @@ impl crate::app::Editor {
                     top.y + neoflash_ui::metrics::dialog_header() - 0.5,
                     Stroke::new(1.0_f32, p.border_subtle),
                 );
-                let chapter_badge = if mode_range.contains(&state.page) {
-                    format!(
-                        "{} {} of {}",
-                        match state.mode {
-                            HelpManualMode::AuthoringHelp => "Help Ch.",
-                            HelpManualMode::ScriptingReference => "Ref Ch.",
-                        },
-                        state.page - mode_range.start + 1,
-                        mode_range.len()
-                    )
-                } else {
-                    format!("Chapter {} of {}", state.page + 1, HELP_CHAPTERS.len())
+                let visible_script_pages = state.lang_scope.visible_scripting_chapters();
+                let chapter_badge = match state.mode {
+                    HelpManualMode::AuthoringHelp if mode_range.contains(&state.page) => {
+                        format!(
+                            "Help Ch. {} of {}",
+                            state.page - mode_range.start + 1,
+                            mode_range.len()
+                        )
+                    }
+                    HelpManualMode::ScriptingReference => {
+                        if let Some(pos) =
+                            visible_script_pages.iter().position(|&idx| idx == state.page)
+                        {
+                            format!(
+                                "{} {} of {}",
+                                if state.lang_scope == LanguageScope::All {
+                                    "Ref Ch."
+                                } else {
+                                    state.lang_scope.label()
+                                },
+                                pos + 1,
+                                visible_script_pages.len()
+                            )
+                        } else if mode_range.contains(&state.page) {
+                            format!(
+                                "Ref Ch. {} of {}",
+                                state.page - mode_range.start + 1,
+                                mode_range.len()
+                            )
+                        } else {
+                            format!("Chapter {} of {}", state.page + 1, HELP_CHAPTERS.len())
+                        }
+                    }
+                    _ => format!("Chapter {} of {}", state.page + 1, HELP_CHAPTERS.len()),
                 };
                 egui::Frame::new()
                     .inner_margin(egui::Margin::same(space::S5 as i8))
@@ -791,28 +1099,100 @@ impl crate::app::Editor {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    let max_page = mode_range.end.saturating_sub(1);
-                                    let min_page = mode_range.start;
-                                    if ui
-                                        .add_enabled(
-                                            state.page < max_page,
-                                            Button::new("Next topic"),
-                                        )
-                                        .clicked()
+                                    if state.mode == HelpManualMode::ScriptingReference
+                                        && let Some(pos) = visible_script_pages
+                                            .iter()
+                                            .position(|&idx| idx == state.page)
                                     {
-                                        state.page = (state.page + 1).min(max_page);
-                                        state.diagram_tab = 0;
-                                    }
-                                    if ui
-                                        .add_enabled(state.page > min_page, Button::new("Previous"))
-                                        .clicked()
-                                    {
-                                        state.page = state.page.saturating_sub(1).max(min_page);
-                                        state.diagram_tab = 0;
+                                        let next_page = visible_script_pages.get(pos + 1).copied();
+                                        let prev_page = pos
+                                            .checked_sub(1)
+                                            .and_then(|p| visible_script_pages.get(p).copied());
+                                        if ui
+                                            .add_enabled(
+                                                next_page.is_some(),
+                                                Button::new("Next topic"),
+                                            )
+                                            .clicked()
+                                            && let Some(np) = next_page
+                                        {
+                                            state.page = np;
+                                            state.diagram_tab = 0;
+                                        }
+                                        if ui
+                                            .add_enabled(
+                                                prev_page.is_some(),
+                                                Button::new("Previous"),
+                                            )
+                                            .clicked()
+                                            && let Some(pp) = prev_page
+                                        {
+                                            state.page = pp;
+                                            state.diagram_tab = 0;
+                                        }
+                                    } else {
+                                        let max_page = mode_range.end.saturating_sub(1);
+                                        let min_page = mode_range.start;
+                                        if ui
+                                            .add_enabled(
+                                                state.page < max_page,
+                                                Button::new("Next topic"),
+                                            )
+                                            .clicked()
+                                        {
+                                            state.page = (state.page + 1).min(max_page);
+                                            state.diagram_tab = 0;
+                                        }
+                                        if ui
+                                            .add_enabled(
+                                                state.page > min_page,
+                                                Button::new("Previous"),
+                                            )
+                                            .clicked()
+                                        {
+                                            state.page = state.page.saturating_sub(1).max(min_page);
+                                            state.diagram_tab = 0;
+                                        }
                                     }
                                 },
                             );
                         });
+
+                        // Active Project Language Indicator + Dialect Scope Selector in Scripting Reference
+                        let lang_bar_h = if state.mode == HelpManualMode::ScriptingReference {
+                            let row_h = neoflash_ui::metrics::row() + 6.0;
+                            ui.horizontal(|ui| {
+                                ui.set_min_height(row_h);
+                                ui.set_max_height(row_h);
+                                ui.spacing_mut().item_spacing.x = space::S2;
+                                let proj_label =
+                                    format!("Current project: {}", proj_lang.display_label());
+                                ui.add(Badge::new(&proj_label, BadgeType::Accent));
+                                let scope_opts = [
+                                    (LanguageScope::All, "All languages"),
+                                    (LanguageScope::As1As2, "AS1 / AS2"),
+                                    (LanguageScope::As3, "AS3"),
+                                    (LanguageScope::JsTs, "JS / TS"),
+                                ];
+                                if c::Segmented::show(
+                                    ui,
+                                    &mut state.lang_scope,
+                                    &scope_opts,
+                                    false,
+                                )
+                                .is_some()
+                                    && (state.page < AUTHORING_CHAPTER_COUNT
+                                        || !state.lang_scope.matches_chapter(state.page)
+                                        || state.page == 15)
+                                {
+                                    state.page = state.lang_scope.default_chapter(proj_lang);
+                                    state.diagram_tab = 0;
+                                }
+                            });
+                            row_h + space::S2
+                        } else {
+                            0.0
+                        };
 
                         divider(ui, false);
 
@@ -820,6 +1200,7 @@ impl crate::app::Editor {
                         let body_height = (dialog_height
                             - neoflash_ui::metrics::dialog_header()
                             - neoflash_ui::metrics::control()
+                            - lang_bar_h
                             - 4.0 * space::S5
                             - footer_h)
                             .max(1.0);
@@ -886,34 +1267,41 @@ impl crate::app::Editor {
                                             && state.mode != HelpManualMode::ScriptingReference
                                         {
                                             state.mode = HelpManualMode::ScriptingReference;
-                                            if state.page < AUTHORING_CHAPTER_COUNT {
-                                                state.page = AUTHORING_CHAPTER_COUNT;
+                                            state.lang_scope =
+                                                LanguageScope::from_script_language(proj_lang);
+                                            if state.page < AUTHORING_CHAPTER_COUNT
+                                                || !state.lang_scope.matches_chapter(state.page)
+                                            {
+                                                state.page =
+                                                    state.lang_scope.default_chapter(proj_lang);
                                                 state.diagram_tab = 0;
                                             }
                                         }
                                     });
                                     divider(ui, false);
 
-                                    // TreeItem reserves 52pt on left (chevron + icon + padding) and 8pt on right.
-                                    let label_max_w = (sidebar_width - 66.0).max(64.0);
                                     let searching_all =
                                         !q.is_empty() || state.active_tag.is_some();
+                                    let mut shown_as_header = false;
+                                    let mut shown_jsts_header = false;
 
                                     for (idx, ch) in HELP_CHAPTERS.iter().enumerate() {
                                         if !searching_all && !mode_range.contains(&idx) {
                                             continue;
                                         }
+                                        if (state.mode == HelpManualMode::ScriptingReference
+                                            || idx >= AUTHORING_CHAPTER_COUNT)
+                                            && !state.lang_scope.matches_chapter(idx)
+                                            && state.page != idx
+                                        {
+                                            continue;
+                                        }
                                         let matches_tag =
                                             state.active_tag.is_none_or(|t| ch.tags.contains(&t));
                                         let matches_q = q.is_empty()
-                                            || ch.title.to_ascii_lowercase().contains(&q)
-                                            || ch.sidebar_label.to_ascii_lowercase().contains(&q)
-                                            || ch.subtitle.to_ascii_lowercase().contains(&q)
-                                            || ch.keywords.contains(&q)
-                                            || ch
-                                                .tags
-                                                .iter()
-                                                .any(|t| t.to_ascii_lowercase().contains(&q));
+                                            || super::help_as_reference::chapter_matches_search_deep(
+                                                idx, &q,
+                                            );
                                         if !matches_tag || !matches_q {
                                             continue;
                                         }
@@ -923,17 +1311,24 @@ impl crate::app::Editor {
                                                     rich("AUTHORING MANUAL", TextStyle::Overline)
                                                         .color(p.text_tertiary),
                                                 );
-                                            } else if idx == 10 {
+                                            } else if (10..16).contains(&idx) && !shown_as_header {
+                                                shown_as_header = true;
+                                                let grp = match state.lang_scope {
+                                                    LanguageScope::As1As2 => "ACTIONSCRIPT 1 / 2",
+                                                    LanguageScope::As3 => "ACTIONSCRIPT 3.0",
+                                                    LanguageScope::JsTs => "CROSS-LANGUAGE GUIDE",
+                                                    LanguageScope::All => "ACTIONSCRIPT 1 / 2 / 3",
+                                                };
                                                 ui.label(
-                                                    rich(
-                                                        "ACTIONSCRIPT 1 / 2 / 3",
-                                                        TextStyle::Overline,
-                                                    )
-                                                    .color(p.text_tertiary),
+                                                    rich(grp, TextStyle::Overline)
+                                                        .color(p.text_tertiary),
                                                 );
-                                            } else if idx == 16 {
-                                                ui.add_space(space::S1);
-                                                divider(ui, false);
+                                            } else if idx >= 16 && !shown_jsts_header {
+                                                shown_jsts_header = true;
+                                                if shown_as_header {
+                                                    ui.add_space(space::S1);
+                                                    divider(ui, false);
+                                                }
                                                 ui.label(
                                                     rich(
                                                         "JAVASCRIPT / TYPESCRIPT / WEB",
@@ -943,21 +1338,45 @@ impl crate::app::Editor {
                                                 );
                                             }
                                         }
+                                        let badge_w = if ch.sidebar_badge.is_empty() {
+                                            0.0
+                                        } else {
+                                            ui.fonts_mut(|f| {
+                                                f.layout_no_wrap(
+                                                    ch.sidebar_badge.to_owned(),
+                                                    font(TextStyle::Small),
+                                                    egui::Color32::WHITE,
+                                                )
+                                                .size()
+                                                .x
+                                            }) + space::S2
+                                        };
+                                        let label_max_w =
+                                            (sidebar_width - 66.0 - badge_w).max(48.0);
                                         let fitted_label = fit_text_to_width(
                                             ui,
                                             ch.sidebar_label,
                                             TextStyle::Body,
                                             label_max_w,
                                         );
+                                        let tip = if ch.sidebar_badge.is_empty() {
+                                            format!("{}\n{}", ch.title, ch.subtitle)
+                                        } else {
+                                            format!(
+                                                "{} {}\n{}",
+                                                ch.sidebar_badge, ch.title, ch.subtitle
+                                            )
+                                        };
                                         let item_resp = neoflash_ui::components::tooltip(
                                             TreeItem::new(
                                                 &fitted_label,
                                                 TreeItemType::Symbol(ch.icon),
                                             )
+                                            .meta(ch.sidebar_badge)
                                             .selected(state.page == idx)
                                             .show(ui)
                                             .row,
-                                            &format!("{}\n{}", ch.title, ch.subtitle),
+                                            &tip,
                                             None,
                                         );
                                         if item_resp.clicked() {
@@ -1002,7 +1421,7 @@ impl crate::app::Editor {
                                     let inner_w = (content_w - space::S4).max(1.0);
                                     ui.set_min_width(inner_w);
                                     ui.set_max_width(inner_w);
-                                    render_chapter(ui, &mut state);
+                                    render_chapter(ui, &mut state, proj_lang);
                                 });
                             ui.advance_cursor_after_rect(content_rect);
                         });
@@ -1051,13 +1470,16 @@ impl crate::app::Editor {
         let open_mode = state.mode;
         let open_page = state.page;
         let open_tag = state.active_tag;
+        let open_lang_scope = state.lang_scope;
         ctx.data_mut(|d| d.insert_temp(state_id(), state));
         if open_in_browser {
-            match write_help_browser_document(
+            match write_help_browser_document_for_project(
                 neoflash_ui::Theme::current(ctx),
                 open_mode,
                 open_page,
                 open_tag,
+                Some(proj_lang),
+                open_lang_scope,
             )
             .and_then(|(path, url)| {
                 crate::platform_open::open_url(&url)
@@ -1074,10 +1496,79 @@ impl crate::app::Editor {
     }
 }
 
-fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
+fn chapter_group_breadcrumb(page_idx: usize) -> &'static str {
+    match page_idx {
+        0..=8 => "Authoring Guide",
+        9 => "Scripting & Publish",
+        10 | 11 => "ActionScript 1.0 / 2.0",
+        12..=14 => "ActionScript 3.0",
+        15 => "Language Migration",
+        16 => "JavaScript (ES2023+)",
+        17 => "TypeScript",
+        _ => "Browser & Web APIs",
+    }
+}
+
+fn render_chapter(
+    ui: &mut Ui,
+    state: &mut HelpManualState,
+    proj_lang: neoflash_core::ScriptLanguage,
+) {
     let p = neoflash_ui::palette(ui.ctx());
+    let mut nav_target: Option<usize> = None;
+
+    if !state.query.trim().is_empty() {
+        let query_copy = state.query.clone();
+        super::help_as_reference::render_search_results_panel(
+            ui,
+            &query_copy,
+            &mut state.lang_scope,
+            proj_lang,
+            &mut nav_target,
+        );
+    }
+
     let page_idx = state.page.min(HELP_CHAPTERS.len() - 1);
     let meta = &HELP_CHAPTERS[page_idx];
+    let proj_scope = LanguageScope::from_script_language(proj_lang);
+
+    // Top Breadcrumb + Explicit Dialect Badges ([AS1/AS2], [AS3], [JS], [TS]) so the active
+    // language & open topic are unmistakable at all times.
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(space::S1, space::S1);
+        let root_section = if page_idx < AUTHORING_CHAPTER_COUNT {
+            "Authoring Manual"
+        } else {
+            "Scripting Reference"
+        };
+        ui.label(rich(root_section, TextStyle::SmallStrong).color(p.text_secondary));
+        c::breadcrumb_separator(ui);
+        ui.label(
+            rich(chapter_group_breadcrumb(page_idx), TextStyle::SmallStrong)
+                .color(p.accent_default),
+        );
+        c::breadcrumb_separator(ui);
+        ui.label(rich(meta.sidebar_label, TextStyle::Small).color(p.text_primary));
+        for &db in meta.dialect_badges {
+            let matches_proj = proj_scope.matches_badge(db) && db != "[Authoring]";
+            ui.add(Badge::new(
+                db,
+                if matches_proj || page_idx < AUTHORING_CHAPTER_COUNT {
+                    BadgeType::Accent
+                } else {
+                    BadgeType::Neutral
+                },
+            ));
+        }
+        if page_idx >= AUTHORING_CHAPTER_COUNT
+            && page_idx != 15
+            && !proj_scope.matches_chapter(page_idx)
+        {
+            let warn_txt = format!("Project uses {}", proj_lang.display_label());
+            ui.add(Badge::new(&warn_txt, BadgeType::Warning));
+        }
+    });
+    ui.add_space(space::S1);
 
     // Chapter Header Banner + Back history button
     ui.horizontal_top(|ui| {
@@ -1104,6 +1595,11 @@ fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
                     let clamped = prev.min(HELP_CHAPTERS.len() - 1);
                     state.page = clamped;
                     state.mode = HelpManualMode::for_page(clamped);
+                    if clamped >= AUTHORING_CHAPTER_COUNT
+                        && !state.lang_scope.matches_chapter(clamped)
+                    {
+                        state.lang_scope = LanguageScope::All;
+                    }
                     state.diagram_tab = 0;
                 }
             });
@@ -1162,7 +1658,6 @@ fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
     });
 
     // When a tag filter is active, show a quick cross-chapter jump bar for all chapters with that tag
-    let mut nav_target: Option<usize> = None;
     if let Some(active_tag) = state.active_tag {
         ui.add_space(space::S1);
         egui::Frame::new()
@@ -1276,6 +1771,9 @@ fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
         }
         state.page = target_idx;
         state.mode = HelpManualMode::for_page(target_idx);
+        if target_idx >= AUTHORING_CHAPTER_COUNT && !state.lang_scope.matches_chapter(target_idx) {
+            state.lang_scope = LanguageScope::All;
+        }
         state.diagram_tab = 0;
     }
 }
@@ -3174,6 +3672,8 @@ fn chapter_scripting_import_and_publish(
         Some("⌘↵ / ⇧F12 / F9 / ⌘L / ⌘F3"),
         "Preview runtime, publish bundle, and toggle core authoring panels.",
     );
+
+    super::help_as_reference::render_esc_chords_reference(ui);
 }
 
 #[cfg(test)]
@@ -3242,12 +3742,45 @@ mod tests {
             0
         );
 
+        // Project::demo() uses JavaScript -> opens JS/TS scope at Chapter 17 (idx 16).
+        assert_eq!(
+            editor.project.effective_script_language(),
+            neoflash_core::ScriptLanguage::JavaScript
+        );
         editor.open_scripting_reference(&ctx);
         assert!(is_help_manual_open(&ctx));
         assert_eq!(help_manual_mode(&ctx), HelpManualMode::ScriptingReference);
+        assert_eq!(help_manual_language_scope(&ctx), LanguageScope::JsTs);
+        assert_eq!(
+            ctx.data(|d| d.get_temp::<HelpManualState>(state_id()).unwrap().page),
+            16
+        );
+
+        // Switching project script language to ActionScript 3.0 opens AS3 scope at Chapter 13 (idx 12).
+        editor.project.script_language = Some(neoflash_core::ScriptLanguage::ActionScript3);
+        editor.open_scripting_reference(&ctx);
+        assert_eq!(help_manual_language_scope(&ctx), LanguageScope::As3);
+        assert_eq!(
+            ctx.data(|d| d.get_temp::<HelpManualState>(state_id()).unwrap().page),
+            12
+        );
+
+        // Switching project script language to ActionScript 2.0 opens AS1/AS2 scope at Chapter 11 (idx 10).
+        editor.project.script_language = Some(neoflash_core::ScriptLanguage::ActionScript2);
+        editor.open_scripting_reference(&ctx);
+        assert_eq!(help_manual_language_scope(&ctx), LanguageScope::As1As2);
         assert_eq!(
             ctx.data(|d| d.get_temp::<HelpManualState>(state_id()).unwrap().page),
             AUTHORING_CHAPTER_COUNT
+        );
+
+        // Switching project script language to TypeScript opens JS/TS scope at Chapter 18 (idx 17).
+        editor.project.script_language = Some(neoflash_core::ScriptLanguage::TypeScript);
+        editor.open_scripting_reference(&ctx);
+        assert_eq!(help_manual_language_scope(&ctx), LanguageScope::JsTs);
+        assert_eq!(
+            ctx.data(|d| d.get_temp::<HelpManualState>(state_id()).unwrap().page),
+            17
         );
 
         open_scripting_reference_page(&ctx, 16);
@@ -3263,6 +3796,157 @@ mod tests {
             ctx.data(|d| d.get_temp::<HelpManualState>(state_id()).unwrap().page),
             0
         );
+    }
+
+    #[test]
+    fn t361_scripting_reference_active_language_scope_contextual_lookup_and_function_examples() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut proj = Project::blank();
+        proj.script_language = Some(neoflash_core::ScriptLanguage::ActionScript2);
+        let mut editor = Editor::from_project(&ctx, proj);
+        let before_doc = serde_json::to_value(&editor.project).unwrap();
+
+        // 1. Open Scripting Reference in AS2 project and verify minimum-window (1024x720 @ 1.5x) bounds + active-language badge.
+        ctx.set_zoom_factor(1.5);
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1024.0, 720.0));
+        let input = || egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        let _ = ctx.run(input(), |_| {});
+        editor.open_scripting_reference(&ctx);
+        assert_eq!(help_manual_language_scope(&ctx), LanguageScope::As1As2);
+
+        let output1 = ctx.run(input(), |ctx| editor.help_manual_dialog(ctx));
+        let output = ctx.run(input(), |ctx| editor.help_manual_dialog(ctx));
+        let bounds = ctx.memory(|m| {
+            m.area_rect(egui::Id::new("neoflash-help-manual-modal"))
+                .expect("Scripting Reference modal area")
+        });
+        assert!(
+            screen.contains_rect(bounds),
+            "Scripting Reference must fit 1024x720 at 1.5x zoom: {bounds:?}"
+        );
+        let nodes1 = &output1
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .expect("AccessKit initial tree")
+            .nodes;
+        let nodes2 = &output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .expect("AccessKit incremental tree")
+            .nodes;
+        let has_a11y = |needle: &str| {
+            nodes1
+                .iter()
+                .chain(nodes2.iter())
+                .any(|(_, n)| n.label() == Some(needle) || n.value() == Some(needle))
+        };
+        let painted_texts: Vec<String> = output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            has_a11y("Current project: ActionScript 2.0")
+                && painted_texts
+                    .iter()
+                    .any(|t| t == "Current project: ActionScript 2.0"),
+            "Scripting Reference header must show Current project: ActionScript 2.0 badge"
+        );
+        assert!(has_a11y("All languages"));
+        assert!(has_a11y("AS1 / AS2"));
+        assert!(has_a11y("AS3"));
+        assert!(has_a11y("JS / TS"));
+        assert!(has_a11y("[AS1/AS2]"));
+        assert!(painted_texts.iter().any(|t| t == "[AS1/AS2]"));
+
+        // Verify non-overlapping horizontal geometry on the Language Scope bar at 1024x720 @ 1.5x.
+        let find_bounds = |needle: &str| {
+            nodes1
+                .iter()
+                .chain(nodes2.iter())
+                .find_map(|(_, n)| {
+                    (n.label() == Some(needle) || n.value() == Some(needle))
+                        .then(|| n.bounds())
+                        .flatten()
+                })
+                .unwrap_or_else(|| panic!("missing bounds for {needle}"))
+        };
+        let proj_rect = find_bounds("Current project: ActionScript 2.0");
+        let seg_all = find_bounds("All languages");
+        let seg_as2 = find_bounds("AS1 / AS2");
+        let seg_as3 = find_bounds("AS3");
+        let seg_jsts = find_bounds("JS / TS");
+        assert!(proj_rect.x1 <= seg_all.x0);
+        assert!(seg_all.x1 <= seg_as2.x0 + 1.0);
+        assert!(seg_as2.x1 <= seg_as3.x0 + 1.0);
+        assert!(seg_as3.x1 <= seg_jsts.x0 + 1.0);
+        assert!(seg_jsts.x1 <= 1024.0);
+
+        // 2. Searching "function" in AS2 project renders rich multi-case results without moving modal bounds or mutating document.
+        ctx.data_mut(|d| {
+            d.get_temp_mut_or_default::<HelpManualState>(state_id())
+                .query = "function".to_owned();
+        });
+        let _ = ctx.run(input(), |ctx| editor.help_manual_dialog(ctx));
+        let bounds_after_search = ctx.memory(|m| {
+            m.area_rect(egui::Id::new("neoflash-help-manual-modal"))
+                .expect("Scripting Reference modal area after search")
+        });
+        assert_eq!(bounds, bounds_after_search);
+        assert_eq!(before_doc, serde_json::to_value(&editor.project).unwrap());
+
+        // 3. Contextual keyword lookup from Actions selection ("arguments.callee") pre-fills query and jumps to AS1/AS2 chapter.
+        ctx.set_zoom_factor(1.0);
+        let root_id = editor.project.root.clone();
+        if let Some(root_sym) = editor.project.symbols.iter_mut().find(|s| s.id == root_id) {
+            let layer_id = root_sym.timeline.layers[0].id.clone();
+            root_sym.timeline.scripts.push(neoflash_core::FrameScript {
+                frame: 0,
+                layer: Some(layer_id),
+                script: neoflash_core::Script {
+                    language: neoflash_core::ScriptLanguage::ActionScript2,
+                    source: "function fact(n:Number):Number { return arguments.callee(n - 1); }"
+                        .to_owned(),
+                },
+            });
+        }
+        editor.script_target = crate::app::ScriptTarget::Frame;
+        let editor_id = editor.actions_editor_id();
+        let mut te_state = egui::text_edit::TextEditState::default();
+        te_state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::two(
+                egui::text::CCursor::new(40),
+                egui::text::CCursor::new(56),
+            )));
+        te_state.store(&ctx, editor_id);
+
+        editor.open_scripting_reference(&ctx);
+        let st = ctx
+            .data(|d| d.get_temp::<HelpManualState>(state_id()))
+            .expect("HelpManualState");
+        assert_eq!(st.mode, HelpManualMode::ScriptingReference);
+        assert_eq!(st.lang_scope, LanguageScope::As1As2);
+        assert_eq!(st.query, "arguments.callee");
+        assert_eq!(st.page, 10);
+
+        // 4. Explicit token lookup helper jumps straight toChapter 12 (idx 11) for Function.apply.
+        editor.open_scripting_reference_for_token(&ctx, "Function.apply");
+        let st_apply = ctx
+            .data(|d| d.get_temp::<HelpManualState>(state_id()))
+            .expect("HelpManualState after token lookup");
+        assert_eq!(st_apply.lang_scope, LanguageScope::As1As2);
+        assert_eq!(st_apply.query, "Function.apply");
+        assert_eq!(st_apply.page, 11);
     }
 
     #[test]
