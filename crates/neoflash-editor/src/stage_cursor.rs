@@ -180,7 +180,7 @@ impl Editor {
         if self.shown_stage_cursor.is_none() {
             return;
         }
-        let cursor_layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("nf2_cursor"));
+        let cursor_layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("nf2-cursor"));
         let Some(pos) = ctx.pointer_hover_pos() else {
             ctx.graphics_mut(|g| *g.entry(cursor_layer) = Default::default());
             self.shown_stage_cursor = None;
@@ -297,5 +297,35 @@ mod tests {
         }
         assert_eq!(authored_hotspot(nf::PENCIL), nf::PENCIL);
         assert_eq!(authored_hotspot(nf::CROSSHAIR), nf::CROSSHAIR);
+    }
+
+    #[test]
+    fn reconcile_stage_cursor_clears_nf2_cursor_layer_when_overlay_or_floating_panel_active() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, neoflash_core::Project::blank());
+        let canvas = egui::Rect::from_min_size(egui::pos2(50.0, 50.0), egui::vec2(400.0, 300.0));
+        let ptr = egui::pos2(120.0, 120.0);
+
+        let out = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800.0, 600.0),
+                )),
+                events: vec![egui::Event::PointerMoved(ptr)],
+                ..Default::default()
+            },
+            |ctx| {
+                let stage_layer = egui::LayerId::background();
+                editor.stage_cursor = Some(nf::HAND_OPEN);
+                editor.show_stage_cursor(ctx, canvas, stage_layer);
+                assert!(editor.shown_stage_cursor.is_some());
+                // Simulate a modal/overlay opening after stage_cursor painted onto `nf2-cursor`.
+                editor.show_about = true;
+                editor.reconcile_stage_cursor_after_overlays(ctx);
+                assert!(editor.shown_stage_cursor.is_none());
+            },
+        );
+        assert_eq!(out.platform_output.cursor_icon, egui::CursorIcon::Default);
     }
 }

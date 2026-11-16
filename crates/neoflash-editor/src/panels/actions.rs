@@ -1517,4 +1517,827 @@ mod tests {
         );
         editor.project.validate().unwrap();
     }
+
+    fn key_and_text_events(ch: char) -> Vec<egui::Event> {
+        let key = match ch.to_ascii_lowercase() {
+            'a' => Some(egui::Key::A),
+            'b' => Some(egui::Key::B),
+            'c' => Some(egui::Key::C),
+            'd' => Some(egui::Key::D),
+            'e' => Some(egui::Key::E),
+            'f' => Some(egui::Key::F),
+            'g' => Some(egui::Key::G),
+            'h' => Some(egui::Key::H),
+            'i' => Some(egui::Key::I),
+            'j' => Some(egui::Key::J),
+            'k' => Some(egui::Key::K),
+            'l' => Some(egui::Key::L),
+            'm' => Some(egui::Key::M),
+            'n' => Some(egui::Key::N),
+            'o' => Some(egui::Key::O),
+            'p' => Some(egui::Key::P),
+            'q' => Some(egui::Key::Q),
+            'r' => Some(egui::Key::R),
+            's' => Some(egui::Key::S),
+            't' => Some(egui::Key::T),
+            'u' => Some(egui::Key::U),
+            'v' => Some(egui::Key::V),
+            'w' => Some(egui::Key::W),
+            'x' => Some(egui::Key::X),
+            'y' => Some(egui::Key::Y),
+            'z' => Some(egui::Key::Z),
+            '/' => Some(egui::Key::Slash),
+            _ => None,
+        };
+        let mut out = Vec::new();
+        if let Some(key) = key {
+            out.push(egui::Event::Key {
+                key,
+                physical_key: Some(key),
+                pressed: true,
+                repeat: false,
+                modifiers: if ch.is_ascii_uppercase() {
+                    egui::Modifiers::SHIFT
+                } else {
+                    egui::Modifiers::NONE
+                },
+            });
+        }
+        out.push(egui::Event::Text(ch.to_string()));
+        out
+    }
+
+    fn esc_event() -> egui::Event {
+        egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: Some(egui::Key::Escape),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn actions_esc_chords_real_input_all_50_popup_dismiss_cancellation_and_one_step_undo() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut project = Project::blank();
+        project.script_language = Some(ScriptLanguage::ActionScript2);
+        let mut editor = Editor::from_project(&ctx, project);
+
+        let run_actions =
+            |ed: &mut Editor, time: Option<f64>, events: Vec<egui::Event>| -> egui::FullOutput {
+                ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1280.0, 640.0),
+                        )),
+                        time,
+                        focused: true,
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            ed.actions_contents(ui);
+                        });
+                        crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
+                    },
+                )
+            };
+
+        // Focus the Actions editor and run an initial settle frame so focus lock is registered.
+        let editor_id = editor.actions_editor_id();
+        ctx.memory_mut(|m| m.request_focus(editor_id));
+        let _ = run_actions(&mut editor, Some(1.0), vec![]);
+        assert!(ctx.memory(|m| m.has_focus(editor_id)));
+
+        // 1. `<ESC>` -> `f` -> `n`: keeps focus, shows prompts, leaves zero literal `"fn"`,
+        //    inserts `function name ( ) {\n\t\n}`, selects `name`, and undoes in 1 step!
+        let _ = run_actions(&mut editor, Some(1.1), vec![esc_event()]);
+        assert!(
+            ctx.memory(|m| m.has_focus(editor_id)),
+            "Escape must NOT blur the Actions code editor"
+        );
+        assert_eq!(editor.status, crate::code_tools::ESC_CHORD_ARMED_PROMPT);
+        assert!(editor.symbol().timeline.scripts.is_empty());
+        assert!(!editor.history.can_undo());
+
+        let _ = run_actions(&mut editor, Some(1.2), key_and_text_events('f'));
+        assert!(ctx.memory(|m| m.has_focus(editor_id)));
+        assert_eq!(
+            editor.status,
+            "ESC f_: fn (function), fr (for), fi (for..in), fs (fscommand)"
+        );
+        assert!(
+            editor.symbol().timeline.scripts.is_empty(),
+            "first chord key `f` must be consumed before TextEdit"
+        );
+
+        let _ = run_actions(&mut editor, Some(1.3), key_and_text_events('n'));
+        assert!(ctx.memory(|m| m.has_focus(editor_id)));
+        assert_eq!(
+            editor.symbol().timeline.scripts[0].script.source,
+            "function name ( ) {\n\t\n}"
+        );
+        let range = egui::text_edit::TextEditState::load(&ctx, editor_id)
+            .unwrap()
+            .cursor
+            .char_range()
+            .unwrap();
+        let (sel_lo, sel_hi) = (
+            range.secondary.index.min(range.primary.index),
+            range.secondary.index.max(range.primary.index),
+        );
+        assert_eq!(
+            &editor.symbol().timeline.scripts[0].script.source[sel_lo..sel_hi],
+            "name"
+        );
+
+        // One-step Undo reverts the entire `<ESC>fn` insertion cleanly!
+        assert!(editor.history.can_undo());
+        editor.undo();
+        assert!(editor.symbol().timeline.scripts.is_empty());
+        assert!(!editor.history.can_undo());
+        let _ = run_actions(&mut editor, Some(1.4), vec![]);
+
+        // 2. Indented `<ESC>tr` and `<ESC>//`, plus typing over the highlighted placeholder!
+        let _ = run_actions(
+            &mut editor,
+            Some(1.5),
+            vec![egui::Event::Text("    ".into())],
+        );
+        let _ = run_actions(&mut editor, Some(1.6), vec![esc_event()]);
+        let _ = run_actions(&mut editor, Some(1.7), key_and_text_events('t'));
+        let _ = run_actions(&mut editor, Some(1.8), key_and_text_events('r'));
+        assert_eq!(
+            editor.symbol().timeline.scripts[0].script.source,
+            "    trace ( message );"
+        );
+        // Typing `"\"ok\""` replaces the selected `message` placeholder directly.
+        let _ = run_actions(
+            &mut editor,
+            Some(1.9),
+            vec![egui::Event::Text("\"ok\"".into())],
+        );
+        assert_eq!(
+            editor.symbol().timeline.scripts[0].script.source,
+            "    trace ( \"ok\" );"
+        );
+
+        // 3. Invalid chord cancellation (`<ESC>fz`, `<ESC>z`, `<ESC>f<ESC>`, and >5s timeout).
+        let snapshot = editor.symbol().timeline.scripts[0].script.source.clone();
+        let _ = run_actions(&mut editor, Some(2.0), vec![esc_event()]);
+        let _ = run_actions(&mut editor, Some(2.1), key_and_text_events('f'));
+        let _ = run_actions(&mut editor, Some(2.2), key_and_text_events('z'));
+        assert_eq!(editor.symbol().timeline.scripts[0].script.source, snapshot);
+
+        let _ = run_actions(&mut editor, Some(2.3), vec![esc_event()]);
+        let _ = run_actions(&mut editor, Some(2.4), key_and_text_events('z'));
+        assert_eq!(editor.symbol().timeline.scripts[0].script.source, snapshot);
+
+        let _ = run_actions(&mut editor, Some(2.5), vec![esc_event()]);
+        let _ = run_actions(&mut editor, Some(2.6), key_and_text_events('f'));
+        let _ = run_actions(&mut editor, Some(2.7), vec![esc_event()]);
+        assert_eq!(editor.symbol().timeline.scripts[0].script.source, snapshot);
+        assert!(ctx.memory(|m| m.has_focus(editor_id)));
+
+        // Timeout expiration (> 5.0s): arming at t = 3.0 expires before t = 9.0, so `'x'` types normally.
+        let _ = run_actions(&mut editor, Some(3.0), vec![esc_event()]);
+        let _ = run_actions(&mut editor, Some(9.0), key_and_text_events('x'));
+        assert!(
+            editor.symbol().timeline.scripts[0]
+                .script
+                .source
+                .contains('x')
+        );
+
+        // 4. Popup-dismiss-before-chord: open code hints (`ShowHints`), press `Escape` once ->
+        //    dismisses hint popup while keeping focus and NOT arming `<ESC>` chord; second `Escape` arms!
+        editor.transact(|ed| ed.symbol_mut().timeline.scripts.clear());
+        ctx.memory_mut(|m| m.request_focus(editor_id));
+        editor.actions_ui.pending = Some(CodeCommand::ShowHints);
+        let _ = run_actions(&mut editor, Some(10.0), vec![]);
+        assert!(ctx.memory(|m| m.has_focus(editor_id)));
+
+        // First Escape closes the code-hint popup without arming `<ESC>` chord.
+        let _ = run_actions(&mut editor, Some(10.1), vec![esc_event()]);
+        assert!(
+            ctx.memory(|m| m.has_focus(editor_id)),
+            "dismissing code-hint popup with Escape must retain editor focus"
+        );
+        let _ = run_actions(&mut editor, Some(10.2), key_and_text_events('f'));
+        let _ = run_actions(&mut editor, Some(10.3), key_and_text_events('n'));
+        assert_eq!(
+            editor.symbol().timeline.scripts[0].script.source,
+            "fn",
+            "after popup-dismiss Escape, typing `fn` without a second Escape types literal `fn`"
+        );
+
+        // Second Escape (now with no popup open) arms `<ESC>` chord!
+        editor.transact(|ed| ed.symbol_mut().timeline.scripts.clear());
+        ctx.memory_mut(|m| m.request_focus(editor_id));
+        let _ = run_actions(&mut editor, Some(10.4), vec![]);
+        let _ = run_actions(&mut editor, Some(10.5), vec![esc_event()]);
+        let _ = run_actions(&mut editor, Some(10.6), key_and_text_events('/'));
+        let _ = run_actions(&mut editor, Some(10.7), key_and_text_events('/'));
+        assert_eq!(editor.symbol().timeline.scripts[0].script.source, "// ");
+
+        // 5. Exercise all 50 chords end-to-end through real `egui::Context` key+text events!
+        for (i, spec) in crate::code_tools::ESC_CHORDS.iter().enumerate() {
+            editor.transact(|ed| ed.symbol_mut().timeline.scripts.clear());
+            let id = editor.actions_editor_id();
+            ctx.memory_mut(|m| m.request_focus(id));
+            let base_t = 20.0 + (i as f64);
+            let _ = run_actions(&mut editor, Some(base_t), vec![]);
+            let _ = run_actions(&mut editor, Some(base_t + 0.1), vec![esc_event()]);
+            let _ = run_actions(
+                &mut editor,
+                Some(base_t + 0.2),
+                key_and_text_events(spec.keys[0]),
+            );
+            let _ = run_actions(
+                &mut editor,
+                Some(base_t + 0.3),
+                key_and_text_events(spec.keys[1]),
+            );
+            assert_eq!(
+                editor.symbol().timeline.scripts[0].script.source,
+                spec.template,
+                "end-to-end chord ESC+{}{}",
+                spec.keys[0],
+                spec.keys[1]
+            );
+        }
+
+        // 6. Verify full `Editor::shortcuts(ctx)` + `dock_grid(ctx)` + `dialog_helpers` pipeline
+        //    AND `ScriptTarget::Source` (`Project files`): `Escape` never swallows/blurs/clears
+        //    Stage selection when Actions/Source `TextEdit` has focus!
+        editor.project.sources.push(SourceUnit {
+            id: "main-src".into(),
+            path: "Main.as".into(),
+            language: ScriptLanguage::ActionScript2,
+            source: String::new(),
+        });
+        editor.project.enable_program();
+        editor.script_target = ScriptTarget::Source;
+        editor.selected_source = Some("main-src".into());
+        editor.show_panel(PanelId::Actions);
+        let src_editor_id = editor.actions_editor_id();
+        ctx.memory_mut(|m| m.request_focus(src_editor_id));
+
+        let run_full_dock = |ed: &mut Editor, t: f64, events: Vec<egui::Event>| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    time: Some(t),
+                    focused: true,
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    ed.shortcuts(ctx);
+                    ed.prepare_docked_panel_focus(ctx);
+                    ed.dock_grid(ctx);
+                    crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
+                },
+            );
+        };
+
+        run_full_dock(&mut editor, 80.0, vec![]);
+        assert!(ctx.memory(|m| m.has_focus(src_editor_id)));
+        run_full_dock(&mut editor, 80.1, vec![esc_event()]);
+        assert!(ctx.memory(|m| m.has_focus(src_editor_id)));
+        run_full_dock(&mut editor, 80.2, key_and_text_events('f'));
+        run_full_dock(&mut editor, 80.3, key_and_text_events('n'));
+        assert_eq!(
+            editor.project.sources[0].source,
+            "function name ( ) {\n\t\n}"
+        );
+
+        // 7. Regression (`#125` #1): `⌘Z` inside focused `Actions` `TextEdit` right after
+        //    un-stabilized (< 1.0s) typing + `<ESC>fn` MUST preserve the typed text instead of
+        //    wiping `undoer.flux` back to `""`!
+        editor.script_target = ScriptTarget::Frame;
+        editor.transact(|ed| ed.symbol_mut().timeline.scripts.clear());
+        let frame_editor_id = editor.actions_editor_id();
+        ctx.memory_mut(|m| m.request_focus(frame_editor_id));
+        // Let the cleared `""` baseline stabilize (>= 1.0s) in `TextEdit`'s `Undoer` before
+        // starting the rapid `< 1.0s` typing + `<ESC>fn` + `Cmd+Z` sequence.
+        run_full_dock(&mut editor, 88.5, vec![]);
+        run_full_dock(&mut editor, 90.0, vec![]);
+        assert!(ctx.memory(|m| m.has_focus(frame_editor_id)));
+
+        run_full_dock(
+            &mut editor,
+            90.1,
+            vec![egui::Event::Text("var x = 1;\n".into())],
+        );
+        assert_eq!(
+            editor.symbol().timeline.scripts[0].script.source,
+            "var x = 1;\n"
+        );
+        run_full_dock(&mut editor, 90.2, vec![esc_event()]);
+        run_full_dock(&mut editor, 90.3, key_and_text_events('f'));
+        run_full_dock(&mut editor, 90.4, key_and_text_events('n'));
+        assert_eq!(
+            editor.symbol().timeline.scripts[0].script.source,
+            "var x = 1;\nfunction name ( ) {\n\t\n}"
+        );
+        assert!(ctx.memory(|m| m.has_focus(frame_editor_id)));
+
+        let run_cmd_z = |ed: &mut Editor, t: f64| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    time: Some(t),
+                    focused: true,
+                    modifiers: egui::Modifiers::COMMAND,
+                    events: vec![egui::Event::Key {
+                        key: egui::Key::Z,
+                        physical_key: Some(egui::Key::Z),
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::COMMAND,
+                    }],
+                    ..Default::default()
+                },
+                |ctx| {
+                    ed.shortcuts(ctx);
+                    ed.prepare_docked_panel_focus(ctx);
+                    ed.dock_grid(ctx);
+                    crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
+                },
+            );
+        };
+
+        run_cmd_z(&mut editor, 90.5);
+        assert_eq!(
+            editor
+                .symbol()
+                .timeline
+                .scripts
+                .first()
+                .map(|s| s.script.source.as_str()),
+            Some("var x = 1;\n"),
+            "first Cmd+Z inside focused Actions must revert only the ESC chord and preserve <1.0s typing"
+        );
+        run_cmd_z(&mut editor, 90.6);
+        assert!(
+            editor.symbol().timeline.scripts.is_empty(),
+            "second Cmd+Z reverts the pre-chord typing cleanly"
+        );
+        editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn actions_window_level_policy_and_cursor_icon_enforcement() {
+        use crate::workspace::{DockEdge, PanelPlacement};
+        use std::cell::RefCell;
+        use std::collections::HashMap;
+        use std::rc::Rc;
+
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        ctx.set_embed_viewports(false);
+        let observed_levels: Rc<RefCell<HashMap<egui::ViewportId, Option<egui::WindowLevel>>>> =
+            Rc::new(RefCell::new(HashMap::new()));
+        let observed_cmds: Rc<RefCell<HashMap<egui::ViewportId, Vec<egui::ViewportCommand>>>> =
+            Rc::new(RefCell::new(HashMap::new()));
+        let child_outputs: Rc<RefCell<HashMap<egui::ViewportId, egui::FullOutput>>> =
+            Rc::new(RefCell::new(HashMap::new()));
+        let pending_child_events: Rc<RefCell<HashMap<egui::ViewportId, Vec<egui::Event>>>> =
+            Rc::new(RefCell::new(HashMap::new()));
+        let register_rgba_on_vp: Rc<RefCell<Option<(egui::ViewportId, egui::Id)>>> =
+            Rc::new(RefCell::new(None));
+        let levels_cb = observed_levels.clone();
+        let cmds_cb = observed_cmds.clone();
+        let outs_cb = child_outputs.clone();
+        let events_cb = pending_child_events.clone();
+        let rgba_cb = register_rgba_on_vp.clone();
+        egui::Context::set_immediate_viewport_renderer(move |ctx, mut viewport| {
+            let id = viewport.ids.this;
+            levels_cb
+                .borrow_mut()
+                .insert(id, viewport.builder.window_level);
+            let events = events_cb.borrow_mut().remove(&id).unwrap_or_default();
+            let mut input = egui::RawInput {
+                viewport_id: id,
+                focused: !events.is_empty(),
+                events,
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(640.0, 620.0),
+                )),
+                ..Default::default()
+            };
+            input.viewports.insert(
+                id,
+                egui::ViewportInfo {
+                    parent: Some(egui::ViewportId::ROOT),
+                    outer_rect: Some(egui::Rect::from_min_size(
+                        egui::pos2(80.0, 80.0),
+                        egui::vec2(640.0, 620.0),
+                    )),
+                    inner_rect: Some(egui::Rect::from_min_size(
+                        egui::pos2(80.0, 80.0),
+                        egui::vec2(640.0, 620.0),
+                    )),
+                    ..Default::default()
+                },
+            );
+            let register_rgba = rgba_cb
+                .borrow()
+                .and_then(|(vp, popup_id)| (vp == id).then_some(popup_id));
+            let child_out = ctx.run(input, |ctx| {
+                if let Some(popup_id) = register_rgba {
+                    crate::panels::dialog_helpers::track_rgba_popup(ctx, popup_id);
+                }
+                (viewport.viewport_ui_cb)(ctx);
+            });
+            if let Some(vo) = child_out.viewport_output.get(&id) {
+                cmds_cb.borrow_mut().insert(id, vo.commands.clone());
+            }
+            outs_cb.borrow_mut().insert(id, child_out);
+        });
+
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+
+        // Detach Actions (workspace/code window) AND Tools + Color (compact utility palettes).
+        editor.set_panel_visible(PanelId::Actions, true);
+        editor.set_panel_placement(&ctx, PanelId::Actions, PanelPlacement::Detached);
+        editor.set_panel_visible(PanelId::Tools, true);
+        editor.set_panel_placement(&ctx, PanelId::Tools, PanelPlacement::Detached);
+        editor.set_panel_visible(PanelId::Color, true);
+        editor.set_panel_placement(&ctx, PanelId::Color, PanelPlacement::Detached);
+
+        let actions_vp = egui::ViewportId::from_hash_of(PanelId::Actions.viewport_key().unwrap());
+        let tools_vp = egui::ViewportId::from_hash_of(PanelId::Tools.viewport_key().unwrap());
+        let color_vp = egui::ViewportId::from_hash_of(PanelId::Color.viewport_key().unwrap());
+
+        let step_detached = |ed: &mut Editor| -> egui::FullOutput {
+            observed_levels.borrow_mut().clear();
+            observed_cmds.borrow_mut().clear();
+            child_outputs.borrow_mut().clear();
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1440.0, 900.0),
+                    )),
+                    focused: true,
+                    ..Default::default()
+                },
+                |ctx| {
+                    ed.sync_closed_detached_panels(ctx);
+                    ed.detached_panels(ctx);
+                },
+            )
+        };
+
+        // 1. Idle state: Actions MUST be `WindowLevel::Normal` (never `AlwaysOnTop`),
+        //    while compact palettes (`Tools`, `Color`) are `WindowLevel::AlwaysOnTop`.
+        crate::native_windows::set_native_menu_tracking_for_test(false);
+        let _ = step_detached(&mut editor);
+        assert_eq!(
+            observed_levels.borrow().get(&actions_vp).copied().flatten(),
+            Some(egui::WindowLevel::Normal)
+        );
+        assert_eq!(
+            observed_levels.borrow().get(&tools_vp).copied().flatten(),
+            Some(egui::WindowLevel::AlwaysOnTop)
+        );
+        assert_eq!(
+            observed_levels.borrow().get(&color_vp).copied().flatten(),
+            Some(egui::WindowLevel::AlwaysOnTop)
+        );
+        assert!(!crate::native_windows::window_should_float_for_title(Some(
+            "Actions — NeoFlash"
+        )));
+        assert!(crate::native_windows::window_should_float_for_title(Some(
+            "Tools — NeoFlash"
+        )));
+        assert!(crate::native_windows::window_should_float_for_title(Some(
+            "Color — NeoFlash"
+        )));
+        assert!(!crate::native_windows::should_order_below_root_for_test());
+
+        // 2. Opening Scripting Reference (`Help`) lowers ALL floating windows (even `Tools`/`Color`)
+        //    to `Normal` AND orders them below `root`!
+        crate::panels::help_manual::open_scripting_reference(&ctx);
+        let out = step_detached(&mut editor);
+        assert_eq!(
+            observed_levels.borrow().get(&actions_vp).copied().flatten(),
+            Some(egui::WindowLevel::Normal)
+        );
+        assert_eq!(
+            observed_levels.borrow().get(&tools_vp).copied().flatten(),
+            Some(egui::WindowLevel::Normal)
+        );
+        assert_eq!(
+            observed_levels.borrow().get(&color_vp).copied().flatten(),
+            Some(egui::WindowLevel::Normal)
+        );
+        let tools_got_normal_cmd =
+            out.viewport_output.get(&tools_vp).is_some_and(|vo| {
+                vo.commands.contains(&egui::ViewportCommand::WindowLevel(
+                    egui::WindowLevel::Normal,
+                ))
+            }) || observed_cmds.borrow().get(&tools_vp).is_some_and(|cmds| {
+                cmds.contains(&egui::ViewportCommand::WindowLevel(
+                    egui::WindowLevel::Normal,
+                ))
+            });
+        assert!(tools_got_normal_cmd);
+        assert!(!crate::native_windows::window_should_float_for_title(Some(
+            "Tools — NeoFlash"
+        )));
+        assert!(crate::native_windows::should_order_below_root_for_test());
+
+        // Closing Help restores `Tools` and `Color` to `AlwaysOnTop`, keeping `Actions` at `Normal`.
+        crate::panels::help_manual::close_help_manual(&ctx);
+        let _ = step_detached(&mut editor);
+        assert_eq!(
+            observed_levels.borrow().get(&actions_vp).copied().flatten(),
+            Some(egui::WindowLevel::Normal)
+        );
+        assert_eq!(
+            observed_levels.borrow().get(&tools_vp).copied().flatten(),
+            Some(egui::WindowLevel::AlwaysOnTop)
+        );
+        assert!(!crate::native_windows::should_order_below_root_for_test());
+
+        // 3. Modal dialogs and root-viewport menus lower floating palettes AND set `order_below_root`;
+        //    native macOS `NSMenu` tracking lowers floating palettes WITHOUT setting `order_below_root`
+        //    (`#125` #3: never bury normal-level detached `Actions` behind `root` on menu bar clicks!).
+        editor.show_about = true;
+        let _ = step_detached(&mut editor);
+        assert_eq!(
+            observed_levels.borrow().get(&tools_vp).copied().flatten(),
+            Some(egui::WindowLevel::Normal)
+        );
+        assert!(crate::native_windows::should_order_below_root_for_test());
+        editor.show_about = false;
+
+        editor.clipboard.menu_open = true;
+        editor.clipboard.menu_viewport = None;
+        let _ = step_detached(&mut editor);
+        assert_eq!(
+            observed_levels.borrow().get(&tools_vp).copied().flatten(),
+            Some(egui::WindowLevel::Normal)
+        );
+        assert!(crate::native_windows::should_order_below_root_for_test());
+
+        // Context menu on a floating palette itself does NOT masquerade as a root menu!
+        editor.clipboard.menu_viewport = Some(tools_vp);
+        let _ = step_detached(&mut editor);
+        assert_eq!(
+            observed_levels.borrow().get(&tools_vp).copied().flatten(),
+            Some(egui::WindowLevel::AlwaysOnTop)
+        );
+        assert!(!crate::native_windows::should_order_below_root_for_test());
+        editor.clipboard.menu_open = false;
+        editor.clipboard.menu_viewport = None;
+
+        crate::native_windows::set_native_menu_tracking_for_test(true);
+        let _ = step_detached(&mut editor);
+        assert_eq!(
+            observed_levels.borrow().get(&tools_vp).copied().flatten(),
+            Some(egui::WindowLevel::Normal)
+        );
+        assert!(!crate::native_windows::window_should_float_for_title(Some(
+            "Tools — NeoFlash"
+        )));
+        assert!(
+            !crate::native_windows::should_order_below_root_for_test(),
+            "native macOS NSMenu tracking must lower floating palettes without ordering detached Actions below root"
+        );
+        crate::native_windows::set_native_menu_tracking_for_test(false);
+
+        // 3b. Regression (`#125` #2): Popovers opened INSIDE detached palettes (`Tools` modifier
+        //     popover, `Color` RGBA popover) MUST keep `Tools` and `Color` at `AlwaysOnTop` and
+        //     `order_below_root == false`, whereas root-viewport popovers lower them to `Normal`!
+        editor.tool = crate::app::Tool::Pencil;
+        let _ = step_detached(&mut editor);
+        let pencil_mode_center = child_outputs
+            .borrow()
+            .get(&tools_vp)
+            .and_then(|out| {
+                out.platform_output
+                    .accesskit_update
+                    .as_ref()?
+                    .nodes
+                    .iter()
+                    .find_map(|(_, node)| {
+                        (node.label() == Some("Pencil mode"))
+                            .then(|| node.bounds())
+                            .flatten()
+                            .map(|b| {
+                                egui::pos2(
+                                    ((b.x0 + b.x1) * 0.5) as f32,
+                                    ((b.y0 + b.y1) * 0.5) as f32,
+                                )
+                            })
+                    })
+            })
+            .expect("detached Tools viewport exposes Pencil mode modifier button");
+        let click_in_tools = |pos: egui::Pos2, ed: &mut Editor| {
+            pending_child_events.borrow_mut().insert(
+                tools_vp,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+            let _ = step_detached(ed);
+            pending_child_events.borrow_mut().insert(
+                tools_vp,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            let _ = step_detached(ed);
+        };
+        click_in_tools(pencil_mode_center, &mut editor);
+        assert!(
+            crate::panels::tools::is_rail_popover_open(&ctx),
+            "clicking Pencil mode on detached Tools opens its RailPopover"
+        );
+        // Next frame with detached `Tools` popover open: `Tools` & `Color` MUST stay `AlwaysOnTop`!
+        let _ = step_detached(&mut editor);
+        assert_eq!(
+            observed_levels.borrow().get(&tools_vp).copied().flatten(),
+            Some(egui::WindowLevel::AlwaysOnTop)
+        );
+        assert_eq!(
+            observed_levels.borrow().get(&color_vp).copied().flatten(),
+            Some(egui::WindowLevel::AlwaysOnTop)
+        );
+        assert!(crate::native_windows::window_should_float_for_title(Some(
+            "Tools — NeoFlash"
+        )));
+        assert!(!crate::native_windows::should_order_below_root_for_test());
+
+        // If `Tools` is docked on the root window while its RailPopover is open, it IS a root-viewport
+        // popover and MUST lower detached floating palettes (`Color`) to `Normal`!
+        editor.set_panel_placement(&ctx, PanelId::Tools, PanelPlacement::Docked);
+        let _ = step_detached(&mut editor);
+        assert_eq!(
+            observed_levels.borrow().get(&color_vp).copied().flatten(),
+            Some(egui::WindowLevel::Normal)
+        );
+        assert!(crate::native_windows::should_order_below_root_for_test());
+
+        // Re-detach `Tools` and close its Pencil mode popover cleanly.
+        editor.set_panel_placement(&ctx, PanelId::Tools, PanelPlacement::Detached);
+        let _ = step_detached(&mut editor);
+        if crate::panels::tools::is_rail_popover_open(&ctx) {
+            click_in_tools(pencil_mode_center, &mut editor);
+        }
+        assert!(!crate::panels::tools::is_rail_popover_open(&ctx));
+        editor.tool = crate::app::Tool::Select;
+
+        // Tracked RGBA colour popover inside detached `Color` vs `ViewportId::ROOT`:
+        let rgba_id = egui::Id::new("test-floating-rgba");
+        ctx.data_mut(|d| d.insert_temp(rgba_id.with("nf2-rgba-popup-open"), true));
+        *register_rgba_on_vp.borrow_mut() = Some((color_vp, rgba_id));
+        let _ = step_detached(&mut editor);
+        assert!(crate::panels::dialog_helpers::is_any_tracked_rgba_popup_open(&ctx));
+        let _ = step_detached(&mut editor);
+        assert_eq!(
+            observed_levels.borrow().get(&tools_vp).copied().flatten(),
+            Some(egui::WindowLevel::AlwaysOnTop)
+        );
+        assert!(!crate::native_windows::should_order_below_root_for_test());
+
+        // Moving that RGBA popover ownership to `ViewportId::ROOT` lowers floating palettes!
+        *register_rgba_on_vp.borrow_mut() = None;
+        crate::panels::dialog_helpers::track_rgba_popup(&ctx, rgba_id);
+        let _ = step_detached(&mut editor);
+        assert_eq!(
+            observed_levels.borrow().get(&tools_vp).copied().flatten(),
+            Some(egui::WindowLevel::Normal)
+        );
+        assert!(crate::native_windows::should_order_below_root_for_test());
+        ctx.data_mut(|d| d.insert_temp(rgba_id.with("nf2-rgba-popup-open"), false));
+        crate::panels::dialog_helpers::record_end_of_frame_focus(&ctx);
+
+        // 4. Dock `Actions` into the bottom dock (right below the horizontal dock splitter) and
+        //    verify `CursorIcon::Text` (`IBeam`) is enforced over the editable code body even
+        //    after splitter hover, stale `PointingHand` / `Grab` / `ResizeVertical` cursors, or
+        //    while a popover is open on a detached palette!
+        editor.set_panel_placement(&ctx, PanelId::Actions, PanelPlacement::Docked);
+        editor.show_panel(PanelId::Actions);
+        editor.workspace.dock.area_mut(DockEdge::Bottom).size = 260.0;
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                focused: true,
+                ..Default::default()
+            },
+            |ctx| {
+                editor.dock_grid(ctx);
+            },
+        );
+
+        // Hover over the bottom dock's top resize grip -> `ResizeVertical`.
+        let grip_y = 800.0 - 260.0 + 2.0;
+        let out_grip = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                focused: true,
+                events: vec![egui::Event::PointerMoved(egui::pos2(640.0, grip_y))],
+                ..Default::default()
+            },
+            |ctx| {
+                editor.dock_grid(ctx);
+            },
+        );
+        assert_eq!(
+            out_grip.platform_output.cursor_icon,
+            egui::CursorIcon::ResizeVertical
+        );
+
+        // Move pointer down into the `Actions` editable text body (and pre-poison stale cursors,
+        // even while an RGBA popover is open on detached `Color`!):
+        // cursor MUST be `CursorIcon::Text` both on hover and while typing!
+        ctx.data_mut(|d| d.insert_temp(rgba_id.with("nf2-rgba-popup-open"), true));
+        *register_rgba_on_vp.borrow_mut() = Some((color_vp, rgba_id));
+        let _ = step_detached(&mut editor);
+        *register_rgba_on_vp.borrow_mut() = None;
+
+        let code_body_pos = egui::pos2(720.0, 700.0);
+        for stale in [
+            egui::CursorIcon::ResizeVertical,
+            egui::CursorIcon::Grab,
+            egui::CursorIcon::PointingHand,
+        ] {
+            let out_hover = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    focused: true,
+                    events: vec![egui::Event::PointerMoved(code_body_pos)],
+                    ..Default::default()
+                },
+                |ctx| {
+                    ctx.set_cursor_icon(stale);
+                    editor.dock_grid(ctx);
+                },
+            );
+            assert_eq!(
+                out_hover.platform_output.cursor_icon,
+                egui::CursorIcon::Text,
+                "stale {stale:?} must be overridden to IBeam inside Actions code body"
+            );
+        }
+        ctx.data_mut(|d| d.insert_temp(rgba_id.with("nf2-rgba-popup-open"), false));
+        crate::panels::dialog_helpers::record_end_of_frame_focus(&ctx);
+
+        // Focus editor and type characters while pointer rests inside the code body (no PointerMoved event).
+        let editor_id = editor.actions_editor_id();
+        ctx.memory_mut(|m| m.request_focus(editor_id));
+        let out_typing = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                focused: true,
+                events: key_and_text_events('a'),
+                ..Default::default()
+            },
+            |ctx| {
+                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+                editor.dock_grid(ctx);
+            },
+        );
+        assert_eq!(
+            out_typing.platform_output.cursor_icon,
+            egui::CursorIcon::Text
+        );
+    }
 }

@@ -358,12 +358,18 @@ impl Editor {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let action = if !self.has_modal_dialog_in(ui.ctx()) && ui.is_enabled() {
+        let has_modal_dialog = self.has_modal_dialog_in(ui.ctx())
+            || crate::panels::help_manual::is_help_manual_open(ui.ctx());
+        let esc_before_diag = ui.ctx().input(|i| i.key_pressed(egui::Key::Escape));
+        let diag_open_before = diagnostic_ui.is_open();
+        let action = if !has_modal_dialog && ui.is_enabled() {
             diagnostic_ui.before_editor(ui.ctx(), editor_id, source, &current_diagnostics)
         } else {
             diagnostic_ui.close();
             None
         };
+        let esc_after_diag = ui.ctx().input(|i| i.key_pressed(egui::Key::Escape));
+        let diagnostic_dismissed_escape = diag_open_before && esc_before_diag && !esc_after_diag;
         self.diagnostic_action(action, &current_diagnostics);
         let show_hints = self.apply_code_command(ui.ctx(), editor_id, source);
         if *source != before_command {
@@ -431,7 +437,18 @@ impl Editor {
         } else {
             &[]
         };
-        let (mut response, caret, action, gutter_click) = ui
+        let host_state = CodeEditorHostState {
+            has_modal_dialog,
+            has_open_popup: crate::panels::dialog_helpers::is_editor_popup_open_on_viewport(
+                self,
+                ui.ctx(),
+                ui.ctx().viewport_id(),
+            ) || (ui.ctx().viewport_id() != egui::ViewportId::ROOT
+                && self.detached.context_menu_open),
+            has_active_drag: self.has_active_dock_or_window_drag(ui.ctx(), Some(editor_id)),
+            diagnostic_dismissed_escape,
+        };
+        let (mut response, caret, action, gutter_click, chord_status) = ui
             .scope_builder(egui::UiBuilder::new().max_rect(code), |ui| {
                 code_editor(
                     ui,
@@ -444,9 +461,13 @@ impl Editor {
                     &code_prefs,
                     paint_diagnostics,
                     &mut diagnostic_ui,
+                    host_state,
                 )
             })
             .inner;
+        if let Some(status) = chord_status {
+            self.status = status;
+        }
         if let Some((clicked_line, shift_held)) = gutter_click {
             if shift_held {
                 let fold_key = self.active_fold_tab_key();
@@ -1393,11 +1414,20 @@ fn hint_popover(
     clicked
 }
 
+#[derive(Clone, Copy)]
+struct CodeEditorHostState {
+    has_modal_dialog: bool,
+    has_open_popup: bool,
+    has_active_drag: bool,
+    diagnostic_dismissed_escape: bool,
+}
+
 type CodeEditorResult = (
     egui::Response,
     (usize, usize),
     Option<diagnostics_ui::Action>,
     Option<(usize, bool)>,
+    Option<String>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -1412,22 +1442,31 @@ fn code_editor(
     prefs: &CodeEditorPrefs,
     diagnostics: &[Diagnostic],
     diagnostic_ui: &mut diagnostics_ui::DiagnosticUi,
+    host: CodeEditorHostState,
 ) -> CodeEditorResult {
     let ctx = ui.ctx().clone();
     let checked_source = source.clone();
     let mut diagnostic_action = None;
     let mut gutter_click: Option<(usize, bool)> = None;
+    let mut chord_status: Option<String> = None;
     let state_id = id.with("code-hint-state");
+    let esc_chord_id = id.with("esc-chord-phase");
     let mut hint_state: HintState = ctx.data(|d| d.get_temp(state_id)).unwrap_or_default();
+    let mut esc_chord_phase: crate::code_tools::EscChordPhase =
+        ctx.data(|d| d.get_temp(esc_chord_id)).unwrap_or_default();
     if diagnostic_ui.is_open() {
         hint_state = HintState::default();
     }
     let focused = ctx.memory(|memory| memory.has_focus(id));
-    let frame_typed_dot = ctx.input(|i| {
-        i.events
-            .iter()
-            .any(|e| matches!(e, egui::Event::Text(t) if t.ends_with('.')))
-    });
+    if !focused
+        || !ui.is_enabled()
+        || host.has_modal_dialog
+        || host.has_open_popup
+        || host.diagnostic_dismissed_escape
+        || diagnostic_ui.is_open()
+    {
+        esc_chord_phase = crate::code_tools::EscChordPhase::Idle;
+    }
     let explicit_key =
         focused && ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Space));
     if show_hints || explicit_key {
@@ -1436,10 +1475,12 @@ fn code_editor(
             explicit: true,
             ..Default::default()
         };
+        esc_chord_phase = crate::code_tools::EscChordPhase::Idle;
     } else if !prefs.code_hints && !hint_state.explicit {
         hint_state = HintState::default();
     }
     let mut pre_edited = false;
+    let mut hint_dismissed_escape = false;
     if hint_state.open && hint_state.count > 0 && focused {
         let count = hint_state.count;
         let mut accept = None;
@@ -1460,7 +1501,9 @@ fn code_editor(
                     .retain(|e| !matches!(e, egui::Event::Text(t) if t == "\t"));
             }
             if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
-                hint_state.open = false;
+                hint_state = HintState::default();
+                hint_dismissed_escape = true;
+                esc_chord_phase = crate::code_tools::EscChordPhase::Idle;
             }
         });
         if let Some(index) = accept {
@@ -1469,8 +1512,55 @@ fn code_editor(
                 pre_edited = true;
             }
             hint_state = HintState::default();
+            esc_chord_phase = crate::code_tools::EscChordPhase::Idle;
         }
     }
+    if focused
+        && ui.is_enabled()
+        && !host.has_modal_dialog
+        && !host.has_open_popup
+        && !host.diagnostic_dismissed_escape
+        && !diagnostic_ui.is_open()
+        && !hint_dismissed_escape
+        && !(hint_state.open && hint_state.count > 0)
+    {
+        let mut state = egui::text_edit::TextEditState::load(&ctx, id).unwrap_or_default();
+        let end = source.chars().count();
+        let selection = state.cursor.char_range().map_or((end, end), |r| {
+            (r.secondary.index.min(end), r.primary.index.min(end))
+        });
+        let outcome =
+            crate::code_tools::step_esc_chord_input(&mut esc_chord_phase, &ctx, source, selection);
+        if let Some(msg) = outcome.status {
+            chord_status = Some(msg);
+        }
+        if let Some((new_text, (sel_start, sel_end))) = outcome.edit {
+            let old_range = state.cursor.char_range().unwrap_or_else(|| {
+                egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(selection.0),
+                    egui::text::CCursor::new(selection.1),
+                )
+            });
+            let mut undoer = state.undoer();
+            undoer.add_undo(&(old_range, source.clone()));
+            *source = new_text;
+            let new_range = egui::text::CCursorRange::two(
+                egui::text::CCursor::new(sel_start),
+                egui::text::CCursor::new(sel_end),
+            );
+            state.cursor.set_char_range(Some(new_range));
+            undoer.add_undo(&(new_range, source.clone()));
+            state.set_undoer(undoer);
+            state.store(&ctx, id);
+            ctx.memory_mut(|m| m.request_focus(id));
+            pre_edited = true;
+        }
+    }
+    let frame_typed_dot = ctx.input(|i| {
+        i.events
+            .iter()
+            .any(|e| matches!(e, egui::Event::Text(t) if t.ends_with('.')))
+    });
     if focused {
         let shift_tab = ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
         let plain_tab =
@@ -1854,6 +1944,76 @@ fn code_editor(
                     } else {
                         diagnostic_ui.close();
                     }
+                    let visible_rect = rect.intersect(ui.clip_rect());
+                    let visible_gutter = gutter_rect.intersect(ui.clip_rect());
+                    let editable_body_rect = egui::Rect::from_min_max(
+                        egui::pos2(
+                            gutter_rect.right().max(visible_rect.left()),
+                            visible_rect.top(),
+                        ),
+                        visible_rect.max,
+                    );
+                    if ui.is_enabled()
+                        && !host.has_modal_dialog
+                        && !host.has_open_popup
+                        && !host.has_active_drag
+                        && !egui::Popup::is_any_open(&ctx)
+                    {
+                        let typed_this_frame = output.response.has_focus()
+                            && (pre_edited
+                                || output.response.changed()
+                                || ctx.input(|i| {
+                                    i.events.iter().any(|e| {
+                                        matches!(
+                                            e,
+                                            egui::Event::Text(_)
+                                                | egui::Event::Key { pressed: true, .. }
+                                        )
+                                    })
+                                }));
+                        let pointer_pos = ctx.pointer_hover_pos().or_else(|| {
+                            typed_this_frame
+                                .then(|| ctx.input(|i| i.pointer.latest_pos()))
+                                .flatten()
+                        });
+                        if let Some(pos) = pointer_pos {
+                            let over_hint_popup = hint_state.open
+                                && (hint_state.hovered
+                                    || ctx
+                                        .memory(|m| m.area_rect(id.with("code-hints")))
+                                        .is_some_and(|r| r.contains(pos)));
+                            let over_diag_popup = diagnostic_ui.is_open()
+                                && ctx
+                                    .memory(|m| m.area_rect(id.with("diagnostic-popup")))
+                                    .is_some_and(|r| r.contains(pos));
+                            let top_layer_ok = ctx.layer_id_at(pos).is_none_or(|layer| {
+                                layer == ui.layer_id() || layer.order == egui::Order::Background
+                            });
+                            if !over_hint_popup && !over_diag_popup && top_layer_ok {
+                                if editable_body_rect.is_positive()
+                                    && editable_body_rect.contains(pos)
+                                {
+                                    ctx.set_cursor_icon(egui::CursorIcon::Text);
+                                } else if visible_gutter.is_positive()
+                                    && visible_gutter.contains(pos)
+                                {
+                                    let cur = ctx.output(|o| o.cursor_icon);
+                                    if matches!(
+                                        cur,
+                                        egui::CursorIcon::Text
+                                            | egui::CursorIcon::ResizeVertical
+                                            | egui::CursorIcon::ResizeHorizontal
+                                            | egui::CursorIcon::ResizeNwSe
+                                            | egui::CursorIcon::ResizeNeSw
+                                            | egui::CursorIcon::Grab
+                                            | egui::CursorIcon::Grabbing
+                                    ) {
+                                        ctx.set_cursor_icon(egui::CursorIcon::Default);
+                                    }
+                                }
+                            }
+                        }
+                    }
                     output.response
                 });
             #[cfg(test)]
@@ -1866,10 +2026,16 @@ fn code_editor(
             scroll_output.inner
         })
         .inner;
-    ctx.data_mut(|d| d.insert_temp(state_id, hint_state));
-    if diagnostic_ui.is_open() {
-        // egui handles Escape at begin_pass, before our popup can consume it. Retain text focus
-        // for this popup so Escape closes the explanation/menu without leaving the editor.
+    ctx.data_mut(|d| {
+        d.insert_temp(state_id, hint_state.clone());
+        d.insert_temp(esc_chord_id, esc_chord_phase);
+    });
+    if !host.has_modal_dialog
+        && (ctx.memory(|m| m.has_focus(id)) || diagnostic_ui.is_open() || hint_state.open)
+    {
+        // egui handles Escape at begin_pass, before widgets or chord/popup handlers run. Retain
+        // text focus on Escape so code-hint/diagnostic popups dismiss first and Classic Flash
+        // `<ESC>` two-key chords arm in-place without blurring the code editor.
         ctx.memory_mut(|memory| {
             memory.set_focus_lock_filter(
                 id,
@@ -1882,7 +2048,13 @@ fn code_editor(
             );
         });
     }
-    (response, caret, diagnostic_action, gutter_click)
+    (
+        response,
+        caret,
+        diagnostic_action,
+        gutter_click,
+        chord_status,
+    )
 }
 
 #[cfg(test)]

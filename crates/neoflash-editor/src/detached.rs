@@ -11,13 +11,15 @@ use crate::{
 };
 use eframe::egui;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     time::{Duration, Instant},
 };
 
 #[derive(Default)]
 pub(crate) struct DetachedState {
     active: HashSet<PanelId>,
+    applied_levels: HashMap<PanelId, egui::WindowLevel>,
+    was_modal_open: bool,
     pub focus: Option<PanelId>,
     pub focus_docked_actions: bool,
     monitors: Vec<ScreenRect>,
@@ -30,7 +32,7 @@ pub(crate) struct DetachedState {
     pub(crate) content_header: Option<PanelId>,
     pub(crate) dock_viewports: Vec<DockViewportTarget>,
     pub(crate) activation: u64,
-    context_menu_open: bool,
+    pub(crate) context_menu_open: bool,
     pub(crate) tools_desired_inner_height: Option<f32>,
 }
 
@@ -228,7 +230,67 @@ pub(crate) fn snap_tools_stage_anchor(
     Some((anchor.0, geometry))
 }
 
+/// Compact utility tool palettes stay above the main Stage window while no modal, `Help`, or
+/// menu/popup is open (`ai/knowledge/user.md` line 94). Workspace, document, and code windows
+/// (`Actions`, `Output`, `CompilerErrors`, `Debugger`, `Library`, `Timeline`, `MovieExplorer`,
+/// `Accessibility`, etc.) use `WindowLevel::Normal` (`NSNormalWindowLevel`) so clicking `Help` or
+/// the main window naturally brings it in front of `Actions`.
+pub(crate) fn is_compact_utility_palette(panel: PanelId) -> bool {
+    matches!(
+        panel,
+        PanelId::Tools
+            | PanelId::Color
+            | PanelId::Swatches
+            | PanelId::Align
+            | PanelId::Transform
+            | PanelId::Info
+            | PanelId::Brushes
+    )
+}
+
 impl Editor {
+    pub(crate) fn should_order_floating_windows_below_root(&self, ctx: &egui::Context) -> bool {
+        self.has_modal_dialog_in(ctx)
+            || crate::panels::help_manual::is_help_manual_open(ctx)
+            || crate::panels::dialog_helpers::is_editor_popup_open_on_viewport(
+                self,
+                ctx,
+                egui::ViewportId::ROOT,
+            )
+    }
+
+    pub(crate) fn should_lower_all_floating_windows(&self, ctx: &egui::Context) -> bool {
+        self.should_order_floating_windows_below_root(ctx)
+            || crate::native_windows::is_native_menu_tracking()
+    }
+
+    pub(crate) fn desired_floating_window_level(
+        &self,
+        ctx: &egui::Context,
+        visible_panels: &[PanelId],
+    ) -> egui::WindowLevel {
+        if self.should_lower_all_floating_windows(ctx) {
+            return egui::WindowLevel::Normal;
+        }
+        if !visible_panels.is_empty()
+            && visible_panels
+                .iter()
+                .copied()
+                .all(is_compact_utility_palette)
+        {
+            egui::WindowLevel::AlwaysOnTop
+        } else {
+            egui::WindowLevel::Normal
+        }
+    }
+
+    pub(crate) fn has_active_panel_or_window_drag(&self) -> bool {
+        self.detached
+            .drag
+            .is_some_and(|drag| drag.moved && !drag.released)
+            || self.detached.resize.is_some()
+    }
+
     fn tools_anchor_stage_rect(&self, zoom: f32) -> Option<egui::Rect> {
         let root = self.detached.root_inner?;
         let canvas = self.stage_view.canvas;
@@ -429,10 +491,29 @@ impl Editor {
             self.detached.drag_preview = None;
         }
         self.continue_panel_drag(ctx);
-        if self.detached.drag.is_some_and(|drag| drag.moved) {
+        if self
+            .detached
+            .drag
+            .is_some_and(|drag| drag.moved && !drag.released)
+        {
             ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
         } else if override_hover {
-            let tip_resp = response.clone().on_hover_cursor(egui::CursorIcon::Grab);
+            let popup_or_modal = self.has_modal_dialog_in(ctx)
+                || crate::panels::dialog_helpers::is_editor_popup_open_on_viewport(
+                    self,
+                    ctx,
+                    ctx.viewport_id(),
+                )
+                || (ctx.viewport_id() != egui::ViewportId::ROOT && self.detached.context_menu_open);
+            let in_resize_margin = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|pos| {
+                Self::in_floating_resize_margin(ctx, source == egui::ViewportId::ROOT, panel, pos)
+            });
+            let tip_resp = if !popup_or_modal && !in_resize_margin && self.detached.resize.is_none()
+            {
+                response.clone().on_hover_cursor(egui::CursorIcon::Grab)
+            } else {
+                response.clone()
+            };
             neoflash_ui::components::tooltip(
                 tip_resp,
                 "Drag to an edge, group or tab in any NeoFlash window. Drop outside a dock to detach; press Escape to cancel",
@@ -966,7 +1047,22 @@ impl Editor {
             && self.workspace.is_panel_docked(PanelId::Actions)
             && self.workspace.is_panel_visible(PanelId::Actions)
         {
-            ctx.memory_mut(|memory| memory.request_focus(self.actions_editor_id()));
+            let editor_id = self.actions_editor_id();
+            let has_modal = self.has_modal_dialog_in(ctx);
+            ctx.memory_mut(|memory| {
+                memory.request_focus(editor_id);
+                if !has_modal {
+                    memory.set_focus_lock_filter(
+                        editor_id,
+                        egui::EventFilter {
+                            tab: true,
+                            horizontal_arrows: true,
+                            vertical_arrows: true,
+                            escape: true,
+                        },
+                    );
+                }
+            });
         }
     }
 
@@ -1011,6 +1107,9 @@ impl Editor {
                 .collect()
         };
         self.detached.active.retain(|id| visible.contains(id));
+        self.detached
+            .applied_levels
+            .retain(|id, _| visible.contains(id));
         self.detached.dock_viewports.retain(|v| match v.surface {
             DockSurface::Main => true,
             DockSurface::Floating(id) => visible.contains(&id),
@@ -1019,6 +1118,14 @@ impl Editor {
             DockSurface::Main => true,
             DockSurface::Floating(id) => visible.contains(&id),
         });
+        let modal_open_now =
+            self.has_modal_dialog_in(ctx) || crate::panels::help_manual::is_help_manual_open(ctx);
+        if modal_open_now && !self.detached.was_modal_open && !visible.is_empty() {
+            ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
+            ctx.request_repaint_of(egui::ViewportId::ROOT);
+        }
+        self.detached.was_modal_open = modal_open_now;
+        let mut compact_palette_windows: Vec<(PanelId, String)> = Vec::new();
         for window_id in visible {
             let Some(window) = self
                 .workspace
@@ -1109,15 +1216,28 @@ impl Editor {
                 !active_resize_or_drag && (topology_changed || anchored) && saved != Some(geometry);
             let growing = !active_resize_or_drag
                 && saved.is_some_and(|saved| saved.inner_size != geometry.inner_size);
+            let visible_panels: Vec<PanelId> = panels
+                .iter()
+                .copied()
+                .filter(|panel| self.workspace.is_panel_visible(*panel))
+                .collect();
             let title = format!(
                 "{} — NeoFlash",
-                panels
+                visible_panels
                     .iter()
-                    .filter(|panel| self.workspace.is_panel_visible(**panel))
                     .map(|panel| panel.title())
                     .collect::<Vec<_>>()
                     .join(" + ")
             );
+            let is_compact_palette = !visible_panels.is_empty()
+                && visible_panels
+                    .iter()
+                    .copied()
+                    .all(is_compact_utility_palette);
+            if is_compact_palette {
+                compact_palette_windows.push((window_id, title.clone()));
+            }
+            let desired_level = self.desired_floating_window_level(ctx, &visible_panels);
             let mut builder = egui::ViewportBuilder::default()
                 .with_title(&title)
                 .with_decorations(false)
@@ -1127,7 +1247,7 @@ impl Editor {
                 .with_close_button(false)
                 .with_minimize_button(false)
                 .with_maximize_button(false)
-                .with_window_level(egui::WindowLevel::AlwaysOnTop)
+                .with_window_level(desired_level)
                 .with_min_inner_size([
                     minimum_logical[0],
                     if collapsed {
@@ -1144,6 +1264,14 @@ impl Editor {
                         maximum_logical[1]
                     },
                 ]);
+            if !initial
+                && self.detached.applied_levels.get(&window_id).copied() != Some(desired_level)
+            {
+                ctx.send_viewport_cmd_to(id, egui::ViewportCommand::WindowLevel(desired_level));
+            }
+            self.detached
+                .applied_levels
+                .insert(window_id, desired_level);
             if initial {
                 builder = builder
                     .with_position([
@@ -1276,7 +1404,22 @@ impl Editor {
                 if let Some(focus) = focus {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                     if focus == PanelId::Actions {
-                        ctx.memory_mut(|memory| memory.request_focus(self.actions_editor_id()));
+                        let editor_id = self.actions_editor_id();
+                        let has_modal = self.has_modal_dialog_in(ctx);
+                        ctx.memory_mut(|memory| {
+                            memory.request_focus(editor_id);
+                            if !has_modal {
+                                memory.set_focus_lock_filter(
+                                    editor_id,
+                                    egui::EventFilter {
+                                        tab: true,
+                                        horizontal_arrows: true,
+                                        vertical_arrows: true,
+                                        escape: true,
+                                    },
+                                );
+                            }
+                        });
                     }
                 }
                 let has_input = ctx.input(|i| !i.events.is_empty());
@@ -1351,7 +1494,10 @@ impl Editor {
                 self.finish_floating_context_menu(ctx);
                 if has_input {
                     ctx.request_repaint_of(egui::ViewportId::ROOT);
-                    if self.confirm.is_some() {
+                    if self.confirm.is_some()
+                        || self.has_modal_dialog_in(ctx)
+                        || crate::panels::help_manual::is_help_manual_open(ctx)
+                    {
                         ctx.send_viewport_cmd_to(
                             egui::ViewportId::ROOT,
                             egui::ViewportCommand::Focus,
@@ -1361,6 +1507,31 @@ impl Editor {
                 crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
             });
         }
+        let lower_all = self.should_lower_all_floating_windows(ctx);
+        if lower_all {
+            for (win_id, _) in &compact_palette_windows {
+                if self.detached.applied_levels.get(win_id).copied()
+                    == Some(egui::WindowLevel::AlwaysOnTop)
+                {
+                    ctx.send_viewport_cmd_to(
+                        viewport(*win_id),
+                        egui::ViewportCommand::WindowLevel(egui::WindowLevel::Normal),
+                    );
+                    self.detached
+                        .applied_levels
+                        .insert(*win_id, egui::WindowLevel::Normal);
+                }
+            }
+        }
+        let lower_below_root = self.should_order_floating_windows_below_root(ctx);
+        crate::native_windows::set_panel_window_levels(
+            lower_all,
+            lower_below_root,
+            compact_palette_windows
+                .into_iter()
+                .map(|(_, title)| title)
+                .collect(),
+        );
         self.docking_overlay(ctx, DockSurface::Main);
         self.finalize_panel_drag(ctx);
         if !self.detached.active.is_empty() {
@@ -1381,6 +1552,7 @@ impl Editor {
         }
         let id = viewport(window_id);
         self.detached.active.remove(&window_id);
+        self.detached.applied_levels.remove(&window_id);
         if self.detached.drag.is_some_and(|drag| drag.source == id) {
             self.detached.drag = None;
             self.detached.drag_preview = None;
@@ -1417,6 +1589,15 @@ impl Editor {
     /// Apply pending native close events on detached panel windows before menus or viewports draw,
     /// so the Window menu checkmark updates immediately and closing viewports are not re-submitted.
     pub(crate) fn sync_closed_detached_panels(&mut self, ctx: &egui::Context) {
+        if !self.has_document() || self.panels_hidden {
+            let lower_all = self.should_lower_all_floating_windows(ctx);
+            let lower_below_root = self.should_order_floating_windows_below_root(ctx);
+            crate::native_windows::set_panel_window_levels(
+                lower_all,
+                lower_below_root,
+                HashSet::new(),
+            );
+        }
         if self.panels_hidden {
             return;
         }
@@ -2091,6 +2272,9 @@ impl Editor {
             return false;
         }
         let rect = ctx.viewport_rect();
+        if !rect.contains(pos) {
+            return false;
+        }
         let edge = 5.0;
         let horizontal = pos.x <= rect.left() + edge || pos.x >= rect.right() - edge;
         let vertical = panel != PanelId::Tools
@@ -2213,22 +2397,41 @@ impl Editor {
                 width_px / zoom,
                 height_px / zoom,
             )));
-            ctx.set_cursor_icon(resize_cursor(
-                resize.left,
-                resize.right,
-                resize.top,
-                resize.bottom,
-            ));
             if !down {
                 self.detached.resize = None;
+                ctx.request_repaint();
             } else {
+                ctx.set_cursor_icon(resize_cursor(
+                    resize.left,
+                    resize.right,
+                    resize.top,
+                    resize.bottom,
+                ));
                 ctx.request_repaint_after(Duration::from_millis(16));
             }
+            return;
+        }
+        if self.has_modal_dialog_in(ctx)
+            || crate::panels::dialog_helpers::is_editor_popup_open_on_viewport(
+                self,
+                ctx,
+                ctx.viewport_id(),
+            )
+            || self.detached.context_menu_open
+        {
             return;
         }
         let Some(pos) = ctx.input(|i| i.pointer.hover_pos()) else {
             return;
         };
+        if !viewport_rect.contains(pos) {
+            return;
+        }
+        if ctx.layer_id_at(pos).is_some_and(|layer| {
+            matches!(layer.order, egui::Order::Foreground | egui::Order::Tooltip)
+        }) {
+            return;
+        }
         let edge = 5.0;
         let corner = 10.0;
         let near_l = pos.x <= viewport_rect.left() + edge;

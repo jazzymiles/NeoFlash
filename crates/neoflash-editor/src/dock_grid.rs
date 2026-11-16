@@ -577,6 +577,25 @@ impl Editor {
                     !vertical,
                     &response,
                 );
+                let splitter_hovered = response.hovered()
+                    && !self.has_modal_dialog_in(ui.ctx())
+                    && !crate::panels::dialog_helpers::is_editor_popup_open_on_viewport(
+                        self,
+                        ui.ctx(),
+                        ui.ctx().viewport_id(),
+                    )
+                    && ui.ctx().pointer_hover_pos().is_some_and(|pos| {
+                        separator.contains(pos)
+                            && ui.clip_rect().contains(pos)
+                            && ui.ctx().layer_id_at(pos) == Some(ui.layer_id())
+                    });
+                if splitter_hovered || response.dragged() {
+                    ui.ctx().set_cursor_icon(if vertical {
+                        egui::CursorIcon::ResizeVertical
+                    } else {
+                        egui::CursorIcon::ResizeHorizontal
+                    });
+                }
                 if response.dragged() {
                     let delta = ui.input(|i| {
                         if vertical {
@@ -695,16 +714,19 @@ impl Editor {
             });
         }
         let mut released = release.is_some();
-        if saved.is_some()
-            && let Some((global, down)) = crate::native_screens::pointer_state()
-            && (release.is_none() || down)
-        {
-            let inner = ui
-                .ctx()
-                .input(|input| input.viewport().inner_rect)
-                .unwrap_or_else(|| ui.ctx().viewport_rect());
-            pointer = Some(global / ui.ctx().zoom_factor() - inner.min.to_vec2());
-            released = !down;
+        if saved.is_some() {
+            if let Some((global, down)) = crate::native_screens::pointer_state() {
+                if release.is_none() || down {
+                    let inner = ui
+                        .ctx()
+                        .input(|input| input.viewport().inner_rect)
+                        .unwrap_or_else(|| ui.ctx().viewport_rect());
+                    pointer = Some(global / ui.ctx().zoom_factor() - inner.min.to_vec2());
+                    released = !down;
+                }
+            } else if press.is_none() && !ui.input(|i| i.pointer.primary_down()) {
+                released = true;
+            }
         }
         if escape || self.has_modal_dialog_in(ui.ctx()) {
             if let Some(saved) = saved {
@@ -736,7 +758,19 @@ impl Editor {
                 data.remove::<AreaResize>(state_id);
             }
         });
-        let active = response.hovered() || saved.is_some();
+        let genuinely_hovered = response.hovered()
+            && !self.has_modal_dialog_in(ui.ctx())
+            && !crate::panels::dialog_helpers::is_editor_popup_open_on_viewport(
+                self,
+                ui.ctx(),
+                ui.ctx().viewport_id(),
+            )
+            && ui.ctx().pointer_hover_pos().is_some_and(|pos| {
+                grip.contains(pos)
+                    && ui.clip_rect().contains(pos)
+                    && ui.ctx().layer_id_at(pos) == Some(ui.layer_id())
+            });
+        let active = genuinely_hovered || response.dragged() || saved.is_some();
         if active {
             ui.ctx().set_cursor_icon(if edge.vertical() {
                 egui::CursorIcon::ResizeHorizontal
@@ -1470,7 +1504,21 @@ impl Editor {
                     0.,
                     ui.visuals().widgets.noninteractive.bg_stroke.color,
                 );
-                if response.hovered() || response.dragged() {
+                let divider_hovered = response.hovered()
+                    && !self.has_modal_dialog_in(ui.ctx())
+                    && !crate::panels::dialog_helpers::is_editor_popup_open_on_viewport(
+                        self,
+                        ui.ctx(),
+                        ui.ctx().viewport_id(),
+                    )
+                    && !(ui.ctx().viewport_id() != egui::ViewportId::ROOT
+                        && self.detached.context_menu_open)
+                    && ui.ctx().pointer_hover_pos().is_some_and(|pos| {
+                        divider.contains(pos)
+                            && ui.clip_rect().contains(pos)
+                            && ui.ctx().layer_id_at(pos) == Some(ui.layer_id())
+                    });
+                if divider_hovered || response.dragged() {
                     ui.ctx().set_cursor_icon(if vertical {
                         egui::CursorIcon::ResizeVertical
                     } else {
@@ -1494,6 +1542,31 @@ impl Editor {
                 }
             }
         }
+    }
+
+    pub(crate) fn has_active_dock_or_window_drag(
+        &self,
+        ctx: &egui::Context,
+        exclude_widget: Option<egui::Id>,
+    ) -> bool {
+        if self.has_active_panel_or_window_drag()
+            || ctx
+                .dragged_id()
+                .is_some_and(|dragged| Some(dragged) != exclude_widget)
+        {
+            return true;
+        }
+        [
+            DockEdge::Top,
+            DockEdge::Bottom,
+            DockEdge::Left,
+            DockEdge::Right,
+        ]
+        .into_iter()
+        .any(|edge| {
+            let state_id = egui::Id::new(("dock-area-resize", edge)).with("origin");
+            ctx.data(|data| data.get_temp::<AreaResize>(state_id).is_some())
+        })
     }
 
     pub(crate) fn dock_panel_contents(&mut self, ui: &mut egui::Ui, panel: PanelId) {

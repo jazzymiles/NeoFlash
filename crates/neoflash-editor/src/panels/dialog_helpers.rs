@@ -55,28 +55,104 @@ pub(crate) fn escape_dismissed_focus_or_popup(ctx: &egui::Context) -> bool {
 const TRACKED_RGBA_POPUPS_ID: &str = "nf2-tracked-rgba-popups";
 
 /// Registers an RGBA colour popover (`paint_controls::show_color32_field_popup` or
-/// `show_rgba_color_popup`) so [`is_any_popup_open`] and [`DialogKeyboardState`] treat an open
-/// colour popover as a first-step `Escape` target and block unmodified Stage shortcuts.
+/// `show_rgba_color_popup`) alongside its owning `ViewportId` so [`is_any_popup_open`] and
+/// [`DialogKeyboardState`] treat an open colour popover as a first-step `Escape` target while
+/// [`is_editor_popup_open_on_viewport`] scopes z-order and cursor gating strictly to that viewport.
 pub(crate) fn track_rgba_popup(ctx: &egui::Context, response_id: egui::Id) {
     let open_id = response_id.with("nf2-rgba-popup-open");
+    let viewport_id = ctx.viewport_id();
     ctx.data_mut(|d| {
         let key = egui::Id::new(TRACKED_RGBA_POPUPS_ID);
-        let mut list = d.get_temp::<Vec<egui::Id>>(key).unwrap_or_default();
-        if !list.contains(&open_id) {
-            list.push(open_id);
-            d.insert_temp(key, list);
+        let mut list = d
+            .get_temp::<Vec<(egui::Id, egui::ViewportId)>>(key)
+            .unwrap_or_default();
+        if let Some(entry) = list.iter_mut().find(|(id, _)| *id == open_id) {
+            entry.1 = viewport_id;
+        } else {
+            list.push((open_id, viewport_id));
         }
+        d.insert_temp(key, list);
     });
 }
 
 pub(crate) fn is_any_tracked_rgba_popup_open(ctx: &egui::Context) -> bool {
     ctx.data(|d| {
-        d.get_temp::<Vec<egui::Id>>(egui::Id::new(TRACKED_RGBA_POPUPS_ID))
+        d.get_temp::<Vec<(egui::Id, egui::ViewportId)>>(egui::Id::new(TRACKED_RGBA_POPUPS_ID))
             .is_some_and(|list| {
                 list.into_iter()
-                    .any(|open_id| d.get_temp::<bool>(open_id).unwrap_or(false))
+                    .any(|(open_id, _)| d.get_temp::<bool>(open_id).unwrap_or(false))
             })
     })
+}
+
+pub(crate) fn is_tracked_rgba_popup_open_on_viewport(
+    ctx: &egui::Context,
+    viewport_id: egui::ViewportId,
+) -> bool {
+    ctx.data(|d| {
+        d.get_temp::<Vec<(egui::Id, egui::ViewportId)>>(egui::Id::new(TRACKED_RGBA_POPUPS_ID))
+            .is_some_and(|list| {
+                list.into_iter().any(|(open_id, vp)| {
+                    vp == viewport_id && d.get_temp::<bool>(open_id).unwrap_or(false)
+                })
+            })
+    })
+}
+
+fn panel_viewport(editor: &Editor, panel: crate::workspace::PanelId) -> egui::ViewportId {
+    crate::dock_grid::surface_viewport(editor.workspace.panel_surface(panel))
+}
+
+fn active_color_popover_viewport(editor: &Editor, ctx: &egui::Context) -> Option<egui::ViewportId> {
+    let popover = ctx.data(|d| {
+        d.get_temp::<crate::authoring_modify::ActiveColorPopover>(egui::Id::new(
+            "nf2-active-color-popover",
+        ))
+    })?;
+    let vp = match popover.source_id.as_str() {
+        "tool-well-fill" | "tool-well-stroke" => {
+            panel_viewport(editor, crate::workspace::PanelId::Brushes)
+        }
+        "swatches-open-mixer" => panel_viewport(editor, crate::workspace::PanelId::Swatches),
+        "live-bitmap-well-fill" | "live-bitmap-well-stroke" => egui::ViewportId::ROOT,
+        _ => panel_viewport(editor, crate::workspace::PanelId::Properties),
+    };
+    Some(vp)
+}
+
+/// Viewport-scoped popup/popover check so popovers opened inside a detached floating palette
+/// (`Tools` flyout/Fill/Stroke, `Swatches`/`Color`/`Brushes` popovers) never masquerade as
+/// root-window menus or suppress `Actions` cursors/chords in another viewport.
+pub(crate) fn is_editor_popup_open_on_viewport(
+    editor: &Editor,
+    ctx: &egui::Context,
+    viewport_id: egui::ViewportId,
+) -> bool {
+    let egui_popup = ctx.viewport_id() == viewport_id && egui::Popup::is_any_open(ctx);
+    let clipboard_menu = editor.clipboard.menu_open
+        && editor
+            .clipboard
+            .menu_viewport
+            .unwrap_or(egui::ViewportId::ROOT)
+            == viewport_id;
+    let rail_popover = super::tools::is_rail_popover_open(ctx)
+        && panel_viewport(editor, crate::workspace::PanelId::Tools) == viewport_id;
+    let color_popover = active_color_popover_viewport(editor, ctx) == Some(viewport_id);
+    let rgba_popover = is_tracked_rgba_popup_open_on_viewport(ctx, viewport_id);
+    let outline_popover = editor.is_layer_outline_color_popover_open(ctx)
+        && panel_viewport(editor, crate::workspace::PanelId::Timeline) == viewport_id;
+    let root_only = viewport_id == egui::ViewportId::ROOT
+        && (editor.stage_view.settings_open
+            || super::symbols_popover::is_symbols_popover_open(ctx)
+            || super::function_search::is_function_search_open(ctx)
+            || editor.timeline_shape_hints.context_menu.is_some());
+    egui_popup
+        || clipboard_menu
+        || rail_popover
+        || color_popover
+        || rgba_popover
+        || outline_popover
+        || root_only
 }
 
 /// Whether any `egui::Popup` (Select, MenuBar, context menu, Timeline menu) or editor popover
@@ -123,10 +199,10 @@ pub(crate) fn record_end_of_frame_focus(ctx: &egui::Context) {
         // inspected. Keep only popovers which must still gate shortcuts on the next frame; a
         // closed control registers itself again before it can reopen.
         let key = egui::Id::new(TRACKED_RGBA_POPUPS_ID);
-        if let Some(mut list) = d.get_temp::<Vec<egui::Id>>(key) {
-            list.retain(|open_id| d.get_temp::<bool>(*open_id).unwrap_or(false));
+        if let Some(mut list) = d.get_temp::<Vec<(egui::Id, egui::ViewportId)>>(key) {
+            list.retain(|(open_id, _)| d.get_temp::<bool>(*open_id).unwrap_or(false));
             if list.is_empty() {
-                d.remove::<Vec<egui::Id>>(key);
+                d.remove::<Vec<(egui::Id, egui::ViewportId)>>(key);
             } else {
                 d.insert_temp(key, list);
             }
@@ -217,7 +293,7 @@ mod tests {
 
     fn tracked_count(ctx: &egui::Context) -> usize {
         ctx.data(|d| {
-            d.get_temp::<Vec<egui::Id>>(egui::Id::new(TRACKED_RGBA_POPUPS_ID))
+            d.get_temp::<Vec<(egui::Id, egui::ViewportId)>>(egui::Id::new(TRACKED_RGBA_POPUPS_ID))
                 .map_or(0, |ids| ids.len())
         })
     }
