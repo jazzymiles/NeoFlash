@@ -1,5 +1,5 @@
 {
-  "format_version": 6,
+  "format_version": 13,
   "name": "Imported XFL",
   "width": 720,
   "height": 420,
@@ -326,6 +326,7 @@
         ],
         "scripts": [
           {
+            "layer": "layer-5",
             "frame": 0,
             "script": {
               "language": "action_script2",
@@ -569,6 +570,7 @@
         ],
         "scripts": [
           {
+            "layer": "layer-8",
             "frame": 0,
             "script": {
               "language": "action_script2",

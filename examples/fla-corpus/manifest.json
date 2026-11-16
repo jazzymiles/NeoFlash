@@ -40,8 +40,8 @@
     },
     {
       "path": "authored/frame-scripts-as3/frame-scripts-as3.nflash",
-      "sha256": "666035e6e79b03037200e72b34e6b2d3160567594e044dabd6ae53fee60a369f",
-      "bytes": 8582
+      "sha256": "b6360c0e5f024af712618488d26977c206c58600d92201c4d1e93d12f09f23dc",
+      "bytes": 8679
     },
     {
       "path": "authored/frame-scripts-as3/xfl/DOMDocument.xml",
@@ -65,8 +65,8 @@
     },
     {
       "path": "authored/nested-playback-as2/nested-playback-as2.nflash",
-      "sha256": "779d3aba8e997d0c7fad0bf0be784b411d65fbf278734b374220f03539a3ce62",
-      "bytes": 17785
+      "sha256": "cd009413be9af956b6e3aec308393de982c56c4ed53621a33f55863c30e875c2",
+      "bytes": 17850
     },
     {
       "path": "authored/nested-playback-as2/xfl/DOMDocument.xml",
@@ -115,8 +115,8 @@
     },
     {
       "path": "imported/ruffle-avm1-frame-labels.nflash",
-      "sha256": "15b60cc728b07a13f28458987dba618619d2971e472db3b08e2fffb5353c865a",
-      "bytes": 9495,
+      "sha256": "c2dcfb0255551241413e1b77a312e2469e9d9ef69f7043ea8eedbba1dac47e30",
+      "bytes": 9784,
       "derived_from": "upstream/ruffle/avm1-frame-labels/test.fla",
       "license": "MIT OR Apache-2.0"
     },
@@ -551,8 +551,8 @@
       "path": "imported/ruffle-avm1-clip-events.nflash",
       "derived_from": "upstream/ruffle/avm1-clip-events/test.fla",
       "license": "MIT OR Apache-2.0",
-      "sha256": "21f9cdab76e6372087b6a1d0c1ecfd6820faa96b89dbe88c739b3da27696dd89",
-      "bytes": 11062
+      "sha256": "3ad04a702e195a5fbdfc7561cdbf3490cb0e051d7e9e191605cb6aabcec0e98a",
+      "bytes": 11255
     },
     {
       "path": "imported/ruffle-avm2-button-frame-scripts.nflash",

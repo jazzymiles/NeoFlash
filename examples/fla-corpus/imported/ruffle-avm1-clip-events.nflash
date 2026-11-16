@@ -1,5 +1,5 @@
 {
-  "format_version": 6,
+  "format_version": 13,
   "name": "Imported XFL",
   "width": 550,
   "height": 400,
@@ -107,6 +107,7 @@
         ],
         "scripts": [
           {
+            "layer": "layer-5",
             "frame": 0,
             "script": {
               "language": "action_script2",
@@ -114,6 +115,7 @@
             }
           },
           {
+            "layer": "layer-5",
             "frame": 1,
             "script": {
               "language": "action_script2",
@@ -121,6 +123,7 @@
             }
           },
           {
+            "layer": "layer-5",
             "frame": 2,
             "script": {
               "language": "action_script2",
@@ -128,6 +131,7 @@
             }
           },
           {
+            "layer": "layer-5",
             "frame": 3,
             "script": {
               "language": "action_script2",
@@ -224,6 +228,7 @@
         ],
         "scripts": [
           {
+            "layer": "layer-7",
             "frame": 0,
             "script": {
               "language": "action_script2",
@@ -360,6 +365,7 @@
         ],
         "scripts": [
           {
+            "layer": "layer-8",
             "frame": 0,
             "script": {
               "language": "action_script2",
