@@ -2352,32 +2352,20 @@ impl Parser<'_> {
                     let (tween, tween_kind, orient_to_path) =
                         self.frame_tween(frame_node, has_motion_xml, file);
                     let sound = self.frame_sound(frame_node, file);
-                    let mut frame_label: String = frame_node.attribute("name").unwrap_or("").into();
-                    match frame_node.attribute("labelType").unwrap_or("name") {
-                        "name" => {}
-                        "comment" => {
-                            frame_label.clear();
-                            self.report.warning(
-                                "xfl_frame_comment",
-                                &frame_loc,
-                                "Authoring frame comment (labelType=\"comment\") is not exported as a runtime jump label.",
-                            );
-                        }
-                        "anchor" => {
-                            self.report.warning(
-                                "xfl_frame_anchor",
-                                &frame_loc,
-                                "Browser anchor frame label (labelType=\"anchor\") is imported as an ordinary frame label.",
-                            );
-                        }
+                    let frame_label: String = frame_node.attribute("name").unwrap_or("").into();
+                    let label_type = match frame_node.attribute("labelType").unwrap_or("name") {
+                        "name" => FrameLabelType::Name,
+                        "comment" => FrameLabelType::Comment,
+                        "anchor" => FrameLabelType::Anchor,
                         other => {
                             self.report.error(
                                 "frame_label_type",
                                 &frame_loc,
                                 format!("Unsupported frame labelType {other:?}."),
                             );
+                            FrameLabelType::Name
                         }
-                    }
+                    };
                     let frame = self.integer(frame_node, "index", 0, file);
                     let duration = self.integer(frame_node, "duration", 1, file);
                     if duration == 0 {
@@ -2391,7 +2379,10 @@ impl Parser<'_> {
                     if role != LayerRole::Folder {
                         if excluded {
                             excluded_end = excluded_end.max(end);
-                            if !frame_label.is_empty() {
+                            if !frame_label.is_empty()
+                                && label_type != FrameLabelType::Comment
+                                && !frame_label.starts_with("//")
+                            {
                                 self.report.error("excluded_layer_label", &frame_loc, "A label on an excluded hidden layer cannot be retained with its publication ownership in the current model. Move the label to a published layer before importing.");
                             }
                         } else {
@@ -2419,6 +2410,7 @@ impl Parser<'_> {
                         orient_to_path,
                         sound,
                         label: frame_label,
+                        label_type,
                         ..Default::default()
                     };
                     let mut elem_locs = vec![];
@@ -2829,6 +2821,7 @@ impl Parser<'_> {
         let mut blend_mode = BlendMode::Normal;
         let mut accessibility = None;
         let mut filters = Vec::new();
+        let mut instance_behavior = None;
         let kind = match tag {
             "DOMSymbolInstance" => {
                 self.audit(
@@ -3058,21 +3051,17 @@ impl Parser<'_> {
                     SymbolKind::Button => "button",
                     _ => "movie clip",
                 };
-                let playback = match node.attribute("symbolType").unwrap_or(default_type) {
+                let (parsed_kind, playback) = match node
+                    .attribute("symbolType")
+                    .unwrap_or(default_type)
+                {
                     "button" => {
-                        if target_kind != SymbolKind::Button {
-                            self.report.warning(
-                                "symbol_type_mismatch",
-                                &location,
-                                "Button instance behavior on a non-button library symbol is approximated using the target symbol's timeline.",
-                            );
-                        }
                         if track_as_menu {
                             self.report.warning(
-                                "xfl_button_track_as_menu",
-                                &location,
-                                "Button trackAsMenu behavior is approximated with standard button pointer tracking.",
-                            );
+                                    "xfl_button_track_as_menu",
+                                    &location,
+                                    "Button trackAsMenu behavior is approximated with standard button pointer tracking.",
+                                );
                         }
                         if first != 0 || node.attribute("loop").is_some() {
                             self.report.warning(
@@ -3081,16 +3070,9 @@ impl Parser<'_> {
                                 "Button instances ignore graphic loop and firstFrame attributes.",
                             );
                         }
-                        InstancePlayback::Independent
+                        (SymbolKind::Button, InstancePlayback::Independent)
                     }
                     "movie clip" => {
-                        if target_kind == SymbolKind::Button {
-                            self.report.warning(
-                                "symbol_type_mismatch",
-                                &location,
-                                "MovieClip instance behavior on a button library symbol is approximated.",
-                            );
-                        }
                         if track_as_menu {
                             self.report.warning(
                                 "symbol_type_mismatch",
@@ -3100,21 +3082,14 @@ impl Parser<'_> {
                         }
                         if first != 0 {
                             self.report.warning(
-                                "clip_start_frame",
-                                &location,
-                                "MovieClip firstFrame authoring attribute is ignored; MovieClips always start at frame 0.",
-                            );
+                                    "clip_start_frame",
+                                    &location,
+                                    "MovieClip firstFrame authoring attribute is ignored; MovieClips always start at frame 0.",
+                                );
                         }
-                        InstancePlayback::Independent
+                        (SymbolKind::MovieClip, InstancePlayback::Independent)
                     }
                     "graphic" => {
-                        if target_kind == SymbolKind::Button {
-                            self.report.warning(
-                                "symbol_type_mismatch",
-                                &location,
-                                "Graphic instance behavior on a button library symbol is approximated.",
-                            );
-                        }
                         if track_as_menu {
                             self.report.warning(
                                 "symbol_type_mismatch",
@@ -3122,7 +3097,7 @@ impl Parser<'_> {
                                 "trackAsMenu on a graphic instance is ignored.",
                             );
                         }
-                        match node.attribute("loop").unwrap_or("loop") {
+                        let pb = match node.attribute("loop").unwrap_or("loop") {
                             "single frame" => InstancePlayback::SingleFrame(first),
                             "loop" => {
                                 if first == 0 {
@@ -3146,7 +3121,8 @@ impl Parser<'_> {
                                 );
                                 InstancePlayback::Loop
                             }
-                        }
+                        };
+                        (SymbolKind::Graphic, pb)
                     }
                     other => {
                         self.report.error(
@@ -3154,9 +3130,12 @@ impl Parser<'_> {
                             &location,
                             format!("Unsupported instance type {other}"),
                         );
-                        InstancePlayback::Independent
+                        (target_kind, InstancePlayback::Independent)
                     }
                 };
+                if parsed_kind != target_kind {
+                    instance_behavior = Some(parsed_kind);
+                }
                 ElementKind::Instance {
                     symbol_id,
                     playback,
@@ -4284,6 +4263,7 @@ impl Parser<'_> {
             cache_as_bitmap,
             blend_mode,
             filters,
+            instance_behavior,
             ..Element::default()
         }]
     }

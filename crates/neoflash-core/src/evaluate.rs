@@ -60,6 +60,7 @@ pub(crate) struct Node {
     pub path: Vec<Id>,
     pub name: String,
     pub symbol_id: Option<Id>,
+    pub symbol_kind: Option<SymbolKind>,
     pub frame: u32,
     pub independent: bool,
     pub scripts: Vec<ObjectScript>,
@@ -2467,6 +2468,7 @@ pub(crate) fn snapshot_mode_with_overrides(
         path: vec![],
         name: root_patch.name.unwrap_or_else(|| root.name.clone()),
         symbol_id: Some(root.id.clone()),
+        symbol_kind: Some(root.kind),
         frame,
         independent: true,
         scripts: vec![],
@@ -2876,6 +2878,7 @@ impl Walker<'_> {
                     path: path.clone(),
                     name: e.name.clone(),
                     symbol_id: None,
+                    symbol_kind: None,
                     frame: 0,
                     independent: false,
                     scripts: e.scripts.clone(),
@@ -2911,31 +2914,33 @@ impl Walker<'_> {
                     else {
                         continue;
                     };
+                    let effective_kind = e.effective_symbol_kind_for(child);
                     let count = child.timeline.frame_count.max(1);
                     let age = if synced_layer {
                         frame
                     } else {
                         frame.saturating_sub(placement_start(layer, frame, &e.id))
                     };
+                    let independent_mc = effective_kind == SymbolKind::MovieClip
+                        && !synced_layer
+                        && (matches!(playback, InstancePlayback::Independent)
+                            || (e.instance_behavior == Some(SymbolKind::MovieClip)
+                                && matches!(playback, InstancePlayback::Loop)));
                     let child_frame = if let Some(ov_f) = override_frame {
                         ov_f.min(count - 1)
-                    } else if child.kind == SymbolKind::Button {
+                    } else if effective_kind == SymbolKind::Button {
                         button_frame.min(2).min(count - 1)
-                    } else if synced_layer {
+                    } else if effective_kind == SymbolKind::Graphic || synced_layer {
                         instance_frame_from_age(*playback, age, count)
+                    } else if independent_mc {
+                        (self.clock)(&path).unwrap_or(age % count) % count
                     } else {
-                        match playback {
-                            InstancePlayback::Independent => {
-                                (self.clock)(&path).unwrap_or(age % count) % count
-                            }
-                            _ => instance_frame_from_age(*playback, age, count),
-                        }
+                        instance_frame_from_age(*playback, age, count)
                     };
                     node.symbol_id = Some(child.id.clone());
+                    node.symbol_kind = Some(effective_kind);
                     node.frame = child_frame;
-                    node.independent = child.kind != SymbolKind::Button
-                        && !synced_layer
-                        && matches!(playback, InstancePlayback::Independent);
+                    node.independent = independent_mc;
                     self.result.nodes.push(node);
                     let child_overrides: Vec<InstancePropertyOverride> = active_key_overrides
                         .iter()

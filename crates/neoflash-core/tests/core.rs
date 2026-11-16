@@ -790,12 +790,147 @@ fn ruler_guides_are_validated() {
             .iter()
             .any(|i| i.message.contains("guide count"))
     );
-    project.format_version = 14;
+    project.format_version = 15;
     assert!(
         validate(&project)
             .iter()
-            .any(|i| i.message.contains("unsupported version 14"))
+            .any(|i| i.message.contains("unsupported version 15"))
     );
+}
+
+#[test]
+fn format_14_instance_behavior_and_label_types_roundtrip_evaluate_and_validate() {
+    let mut mc_sym = symbol(
+        "anim-mc",
+        3,
+        vec![
+            key(0, vec![shape("r0", 0.0)], None),
+            key(1, vec![shape("r1", 0.0)], None),
+            key(2, vec![shape("r2", 0.0)], None),
+        ],
+    );
+    mc_sym.timeline.scripts.push(FrameScript {
+        layer: None,
+        frame: 0,
+        script: js("stop();"),
+    });
+    let mut gfx_sym = symbol(
+        "anim-gfx",
+        3,
+        vec![
+            key(0, vec![shape("g0", 0.0)], None),
+            key(1, vec![shape("g1", 0.0)], None),
+            key(2, vec![shape("g2", 0.0)], None),
+        ],
+    );
+    gfx_sym.kind = SymbolKind::Graphic;
+    gfx_sym.timeline.scripts.push(FrameScript {
+        layer: None,
+        frame: 0,
+        script: js("ran_gfx_as_mc();"),
+    });
+
+    let mut inst_as_gfx = instance("as-gfx", "anim-mc", 0.0);
+    inst_as_gfx.instance_behavior = Some(SymbolKind::Graphic);
+    inst_as_gfx.kind = ElementKind::Instance {
+        symbol_id: "anim-mc".into(),
+        playback: InstancePlayback::Loop,
+    };
+
+    let mut inst_as_btn = instance("as-btn", "anim-mc", 20.0);
+    inst_as_btn.instance_behavior = Some(SymbolKind::Button);
+    inst_as_btn.kind = ElementKind::Instance {
+        symbol_id: "anim-mc".into(),
+        playback: InstancePlayback::SingleFrame(0),
+    };
+
+    let mut inst_as_mc = instance("as-mc", "anim-gfx", 40.0);
+    inst_as_mc.instance_behavior = Some(SymbolKind::MovieClip);
+    inst_as_mc.kind = ElementKind::Instance {
+        symbol_id: "anim-gfx".into(),
+        playback: InstancePlayback::Independent,
+    };
+
+    let mut comment_kf = key(
+        0,
+        vec![inst_as_gfx.clone(), inst_as_btn.clone(), inst_as_mc.clone()],
+        None,
+    );
+    comment_kf.label = "todo_note".into();
+    comment_kf.label_type = FrameLabelType::Comment;
+
+    let mut anchor_kf = key(
+        1,
+        vec![inst_as_gfx.clone(), inst_as_btn.clone(), inst_as_mc.clone()],
+        None,
+    );
+    anchor_kf.label = "section_two".into();
+    anchor_kf.label_type = FrameLabelType::Anchor;
+
+    let mut p = project(vec![
+        symbol("root", 3, vec![comment_kf, anchor_kf]),
+        mc_sym,
+        gfx_sym,
+    ]);
+    assert!(p.uses_format_14());
+    assert!(p.validate().unwrap_err().to_string().contains("version 14"));
+    p.upgrade_format_for_features();
+    assert_eq!(p.format_version, 14);
+    p.validate().unwrap();
+
+    // Reject instance_behavior on non-Instance elements.
+    let mut bad = p.clone();
+    let mut bad_rect = shape("bad", 0.0);
+    bad_rect.instance_behavior = Some(SymbolKind::Button);
+    bad.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(bad_rect);
+    assert!(
+        bad.validate()
+            .unwrap_err()
+            .to_string()
+            .contains("instance_behavior")
+    );
+
+    // JSON roundtrip preserves instance_behavior and label_type.
+    let reopened = Project::from_json(&p.to_json().unwrap()).unwrap();
+    assert_eq!(reopened, p);
+
+    // Comment labels are ignored by goto resolution; Anchor labels resolve normally.
+    let mut player = Player::new(&p);
+    assert_eq!(player.resolve_frame(&p, &[], "todo_note"), None);
+    assert_eq!(player.resolve_frame_as2(&p, &[], "todo_note"), None);
+    assert_eq!(player.resolve_frame(&p, &[], "section_two"), Some(1));
+    assert_eq!(player.resolve_frame_as2(&p, &[], "SECTION_TWO"), Some(1));
+
+    // MovieClip overridden to Graphic does NOT run its `stop();` script, while Graphic overridden to MovieClip DOES!
+    let initial_scripts: Vec<_> = player
+        .drain_scripts()
+        .into_iter()
+        .map(|d| (d.target_path, d.script.source))
+        .collect();
+    assert_eq!(
+        initial_scripts,
+        vec![(vec!["as-mc".into()], "ran_gfx_as_mc();".into())]
+    );
+
+    // DisplayNode owners reflect effective per-instance behavior without mutating Library Symbol.kind.
+    assert_eq!(p.symbol("anim-mc").unwrap().kind, SymbolKind::MovieClip);
+    assert_eq!(p.symbol("anim-gfx").unwrap().kind, SymbolKind::Graphic);
+    let nodes = player.display_nodes(&p);
+    let find_node = |id: &str| nodes.iter().find(|n| n.path == [id.to_owned()]).unwrap();
+    assert_eq!(find_node("as-gfx").owner, "graphic");
+    assert_eq!(find_node("as-btn").owner, "button");
+    assert_eq!(find_node("as-mc").owner, "movie_clip");
+
+    // Advancing parent frame 0 -> 1 advances both the parent-synced Graphic override and the independent MovieClip override,
+    // while Button override stays on Up (0) until hovered/pressed.
+    player.tick(&p);
+    let nodes = player.display_nodes(&p);
+    let find_node = |id: &str| nodes.iter().find(|n| n.path == [id.to_owned()]).unwrap();
+    assert_eq!(find_node("as-gfx").frame, 1);
+    assert_eq!(find_node("as-btn").frame, 0);
+    assert_eq!(find_node("as-mc").frame, 1);
 }
 
 #[test]

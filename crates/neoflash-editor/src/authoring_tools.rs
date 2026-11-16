@@ -2198,9 +2198,10 @@ impl Editor {
                 return;
             }
         }
-        let eligible: HashMap<_, _> = self
-            .editable_targets()
-            .into_iter()
+        let editable = self.editable_targets();
+        let eligible: HashMap<_, _> = editable
+            .iter()
+            .cloned()
             .map(|t| (t.element.clone(), t))
             .collect();
         let mut boxes = HashMap::<Id, Rect>::new();
@@ -2215,22 +2216,27 @@ impl Editor {
                     .or_insert(bounds);
             }
         }
+        for (empty_target, empty_el) in self.empty_editable_instances(scene) {
+            if eligible.contains_key(&empty_target.element)
+                && empty_el.transform.x.is_finite()
+                && empty_el.transform.y.is_finite()
+            {
+                let pt = Pos2::new(empty_el.transform.x as f32, empty_el.transform.y as f32);
+                boxes
+                    .entry(empty_target.element)
+                    .or_insert_with(|| Rect::from_min_max(pt, pt));
+            }
+        }
         let mut targets = if shift {
             self.selection.targets.clone()
         } else {
             vec![]
         };
-        targets.extend(
-            scene
-                .iter()
-                .filter_map(|item| item.instance_path.first())
-                .filter(|id| {
-                    boxes.get(*id).is_some_and(|bounds| {
-                        lasso_rect(points, *bounds, self.authoring_tools.lasso_contact)
-                    })
-                })
-                .filter_map(|id| eligible.get(id).cloned()),
-        );
+        targets.extend(editable.into_iter().filter(|target| {
+            boxes.get(&target.element).is_some_and(|bounds| {
+                lasso_rect(points, *bounds, self.authoring_tools.lasso_contact)
+            })
+        }));
         self.set_selection(targets);
     }
 

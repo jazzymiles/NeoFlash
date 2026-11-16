@@ -77,6 +77,7 @@ impl Editor {
     }
 
     pub(crate) fn properties(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let _ = Self::set_layer_duration;
         self.properties_contents(ui, ctx);
         self.show_active_color_popover(ui);
     }
@@ -318,7 +319,7 @@ impl Editor {
                 let mut edit_symbol = false;
                 let mut convert_text = false;
                 let mut swap_to_symbol: Option<Id> = None;
-                let mut set_symbol_kind: Option<(Id, SymbolKind)> = None;
+                let mut set_instance_behavior: Option<SymbolKind> = None;
                 let mut duplicate_symbol_clicked = false;
                 let is_instance = matches!(element.kind, ElementKind::Instance { .. });
                 let is_text_box = matches!(element.kind, ElementKind::TextBox { .. });
@@ -327,10 +328,8 @@ impl Editor {
                 ui.add_enabled_ui_semantic(self.selected_editable(), |ui| {
                     if let ElementKind::Instance { symbol_id, .. } = &element.kind {
                         let cur_sym_id = symbol_id.clone();
-                        let cur_sym_kind = self
-                            .project
-                            .symbol(&cur_sym_id)
-                            .map(|s| s.kind)
+                        let cur_sym_kind = element
+                            .effective_symbol_kind(&self.project)
                             .unwrap_or(SymbolKind::MovieClip);
                         // Row 1: Instance Name + Swap… button on one compact row (NF2 Properties — Movie clip).
                         ui.horizontal(|ui| {
@@ -338,7 +337,7 @@ impl Editor {
                             let swap_w = 72.0;
                             let name_w = (ui.available_width() - swap_w - space::S2).max(80.0);
                             let mut n_resp = ui.add(
-                                nf::TextField::new(&mut element.name, "Name")
+                                nf::TextField::new(&mut element.name, "<Instance Name>")
                                     .prefix("Name")
                                     .width(name_w),
                             );
@@ -348,7 +347,7 @@ impl Editor {
                                     ui.is_enabled(),
                                     &element.name,
                                     &element.name,
-                                    "Name",
+                                    "<Instance Name>",
                                 );
                                 info.label = Some("Name".into());
                                 info
@@ -422,7 +421,7 @@ impl Editor {
                                             .clicked()
                                         {
                                             if k != cur_sym_kind {
-                                                set_symbol_kind = Some((cur_sym_id.clone(), k));
+                                                set_instance_behavior = Some(k);
                                             }
                                             ui.close();
                                         }
@@ -491,10 +490,13 @@ impl Editor {
                                 }
                             }
                             other_kind => {
+                                let is_instance_kind =
+                                    matches!(other_kind, ElementKind::Instance { .. });
                                 let (base_w, base_h) = match other_kind {
-                                    ElementKind::Instance { symbol_id, .. } => {
-                                        self.unscaled_symbol_size(ctx, symbol_id)
-                                    }
+                                    ElementKind::Instance {
+                                        symbol_id,
+                                        playback,
+                                    } => self.unscaled_symbol_size(ctx, symbol_id, *playback),
                                     ElementKind::Bitmap { width, height, .. } => (
                                         f64::from(*width).max(1.0),
                                         f64::from(*height).max(1.0),
@@ -519,14 +521,28 @@ impl Editor {
                                     ),
                                     _ => (100.0, 100.0),
                                 };
-                                let mut w = (base_w * element.transform.scale_x.abs()).max(0.01);
-                                let mut h = (base_h * element.transform.scale_y.abs()).max(0.01);
+                                let mut w = if is_instance_kind && base_w <= 1e-6 {
+                                    0.0
+                                } else {
+                                    (base_w * element.transform.scale_x.abs()).max(0.01)
+                                };
+                                let mut h = if is_instance_kind && base_h <= 1e-6 {
+                                    0.0
+                                } else {
+                                    (base_h * element.transform.scale_y.abs()).max(0.01)
+                                };
+                                let min_dim =
+                                    if is_instance_kind && (base_w <= 1e-6 || base_h <= 1e-6) {
+                                        0.0
+                                    } else {
+                                        0.01
+                                    };
                                 let (old_w, old_h) = (w, h);
                                 let (responses, link) = numeric_pair_with_trailing(
                                     ui,
                                     ["W", "H"],
                                     [&mut w, &mut h],
-                                    0.01..=100_000.,
+                                    min_dim..=100_000.,
                                     1.,
                                     "",
                                     (crate::theme::control_h(), |ui| {
@@ -554,23 +570,23 @@ impl Editor {
                                         w = (h * old_w / old_h).clamp(0.01, 100_000.0);
                                     }
                                 }
-                                if w_changed || (linked && h_changed) {
+                                if (w_changed || (linked && h_changed)) && base_w > 1e-6 {
                                     let sign_x = if element.transform.scale_x < 0.0 {
                                         -1.0
                                     } else {
                                         1.0
                                     };
                                     element.transform.scale_x =
-                                        sign_x * (w / base_w.max(1e-6)).clamp(0.0001, 1000.0);
+                                        sign_x * (w / base_w).clamp(0.0001, 1000.0);
                                 }
-                                if h_changed || (linked && w_changed) {
+                                if (h_changed || (linked && w_changed)) && base_h > 1e-6 {
                                     let sign_y = if element.transform.scale_y < 0.0 {
                                         -1.0
                                     } else {
                                         1.0
                                     };
                                     element.transform.scale_y =
-                                        sign_y * (h / base_h.max(1e-6)).clamp(0.0001, 1000.0);
+                                        sign_y * (h / base_h).clamp(0.0001, 1000.0);
                                 }
                             }
                         }
@@ -639,11 +655,12 @@ impl Editor {
                             ));
                         }
                     });
+                    let eff_instance_kind = element.effective_symbol_kind(&self.project);
                     if let ElementKind::Instance { symbol_id, playback } = &mut element.kind
+                        && eff_instance_kind == Some(SymbolKind::MovieClip)
                         && let Some(count) = self
                             .project
                             .symbol(symbol_id)
-                            .filter(|s| s.kind == SymbolKind::MovieClip)
                             .map(|s| s.timeline.frame_count.max(1))
                     {
                         inspector_section(ui, "Timeline", |ui| {
@@ -858,8 +875,11 @@ impl Editor {
                         changes.control = Some(control);
                     }
                     inspector_section(ui, "Behavior / linkage", |ui| {
+                        let eff_kind = element
+                            .effective_symbol_kind(&self.project)
+                            .unwrap_or(SymbolKind::MovieClip);
                         if let ElementKind::Instance { symbol_id, playback } = &mut element.kind {
-                            if let Some(control) = self.instance_playback_ui(ui, symbol_id, playback) { changes.control = Some(control); }
+                            if let Some(control) = self.instance_playback_ui(ui, symbol_id, eff_kind, playback) { changes.control = Some(control); }
                             if let Some(symbol) = self.project.symbol(symbol_id) {
                                 for (label, value) in [("Linkage", symbol.linkage_id.as_deref()), ("Class", symbol.class_name.as_deref())] {
                                     if let Some(value) = value { property_row(ui, label, |ui| { let resp = ui.add(egui::Label::new(rich(value, TextStyle::Mono).color(neoflash_ui::palette(ctx).text_primary)).truncate()); nf::tooltip(resp, value, None); }); }
@@ -960,6 +980,7 @@ impl Editor {
                             current.name = element.name;
                             current.transform = element.transform;
                             current.kind = element.kind;
+                            current.instance_behavior = element.instance_behavior;
                             if let Some(appearance) = appearances
                                 .iter_mut()
                                 .find(|appearance| appearance.element_id == original.id)
@@ -976,13 +997,8 @@ impl Editor {
                 if let Some(target_sym_id) = swap_to_symbol {
                     let _ = self.swap_instance_symbol(&target_sym_id);
                 }
-                if let Some((sym_id, next_kind)) = set_symbol_kind {
-                    self.finish_edits();
-                    self.transact_named("Change symbol behavior", move |editor| {
-                        if let Some(sym) = editor.project.symbol_mut(&sym_id) {
-                            sym.kind = next_kind;
-                        }
-                    });
+                if let Some(next_kind) = set_instance_behavior {
+                    let _ = self.set_selected_instance_behavior(next_kind);
                 }
                 if duplicate_symbol_clicked {
                     let _ = self.duplicate_selected_instance_symbol();
@@ -1091,121 +1107,445 @@ impl Editor {
                 let mut fps = document.fps;
                 let timeline = &mut document.symbol_mut(&symbol_id).unwrap().timeline;
                 if frame_context {
+                    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+                    enum FrameTweenChoice {
+                        None,
+                        Motion,
+                        Classic,
+                        Shape,
+                    }
+                    impl FrameTweenChoice {
+                        const ALL: [(Self, &'static str); 4] = [
+                            (Self::None, "None"),
+                            (Self::Motion, "Motion"),
+                            (Self::Classic, "Classic"),
+                            (Self::Shape, "Shape"),
+                        ];
+                        fn label(self) -> &'static str {
+                            match self {
+                                Self::None => "None",
+                                Self::Motion => "Motion",
+                                Self::Classic => "Classic",
+                                Self::Shape => "Shape",
+                            }
+                        }
+                    }
+
                     let range = self.selected_frame_range();
-                    let subtitle = range.map(|(start, end, layers)| format!("Frames {}–{} · {} layer{}", start + 1, end + 1, layers, if layers == 1 { "" } else { "s" })).unwrap_or_default();
-                    // Inside a motion tween the frame inspector is Properties — Motion tween (PR-10).
+                    let subtitle = range
+                        .map(|(start, end, layers)| {
+                            format!(
+                                "Frames {}–{} · {} layer{}",
+                                start + 1,
+                                end + 1,
+                                layers,
+                                if layers == 1 { "" } else { "s" }
+                            )
+                        })
+                        .unwrap_or_default();
                     let motion = self.motion_tween_span();
                     match &motion {
-                        Some(span) => { ui.add(TypeHeader { icon: i16::TWEEN_MOTION, title: "Motion tween", subtitle: &format!("Layer \"{}\" · {}", span.layer_name, span.frame_label()) }); }
-                        None => { ui.add(TypeHeader { icon: i16::FRAME, title: "Frame", subtitle: &subtitle }); }
+                        Some(span) => {
+                            ui.add(TypeHeader {
+                                icon: i16::TWEEN_MOTION,
+                                title: "Motion tween",
+                                subtitle: &format!("Layer \"{}\" · {}", span.layer_name, span.frame_label()),
+                            });
+                        }
+                        None => {
+                            ui.add(TypeHeader {
+                                icon: i16::FRAME,
+                                title: "Frame",
+                                subtitle: &subtitle,
+                            });
+                        }
                     }
-                    let mut layer_end = None;
-                    inspector_section(ui, "Range / duration", |ui| {
-                        changes.note(text_row(ui, "Layer", &mut timeline.layers[layer].name));
-                        let mut end = timeline.layers[layer].properties.end_frame.unwrap_or(timeline.frame_count);
-                        let response = ui.add(nf::DragField::new(&mut end, "Layer end").prefix("Layer end").range(1..=10000).speed(0.25));
-                        if response.changed() { layer_end = Some(end); }
-                    });
-                    if let Some(end) = layer_end { self.set_layer_duration(end); return; }
-                    if let Some(span) = &motion { self.motion_tween_properties(ui, span); } else {
-                    inspector_section(ui, "Tween", |ui| {
-                        ui.add_enabled_ui_semantic(can_edit_selected_tween, |ui| {
-                            let guided = timeline.layers[layer].properties.motion_guide.is_some();
-                            if let Some(key) = timeline.layers[layer].key_at_mut(frame) {
-                                let mut options = vec![
-                                    (None, "No tween"),
-                                    (Some(Easing::Linear), "Linear"),
-                                    (Some(Easing::EaseIn), "Ease in"),
-                                    (Some(Easing::EaseOut), "Ease out"),
-                                    (Some(Easing::EaseInOut), "Ease in/out"),
-                                    (Some(Easing::Bounce), "Bounce"),
-                                    (Some(Easing::Elastic), "Elastic"),
-                                ];
-                                options.push((if let Some(curve @ Easing::CubicBezier { .. }) = key.tween { Some(curve) } else { Some(Easing::CubicBezier { x1: 0.25, y1: 0.1, x2: 0.25, y2: 1. }) }, "Custom curve"));
-                                options.push((if let Some(flash @ Easing::Flash { .. }) = key.tween { Some(flash) } else { Some(Easing::Flash { acceleration: 0. }) }, "Flash ease"));
-                                changes.note(select_row(ui, "Easing", "tween", &mut key.tween, &options));
-                                if key.tween.is_some() && key.tween_kind == TweenKind::Classic {
-                                    ui.add_enabled_ui_semantic(active_layer_editable, |ui| {
-                                        let mut turns = key.classic_rotate_turns as f64;
-                                        let old_direction = key.classic_rotate_dir;
-                                        let mut direction = old_direction;
-                                        let dir_label = format!("Direction: {}", direction.label());
-                                        let (r_turns, mut r_dir) = two_column_row(
-                                            ui,
-                                            |ui, width| ui.add(
-                                                nf::Field::new(&mut turns, "Rotate")
-                                                    .prefix("Rotate")
-                                                    .unit("×")
-                                                    .range(0.0..=(Keyframe::MAX_ROTATE_TURNS as f64))
-                                                    .stepper()
-                                                    .width(width),
-                                            ),
-                                            |ui, width| {
-                                                let (response, _) =
-                                                nf::Select::new("classic-direction", &dir_label)
-                                                    .width(width)
-                                                    .show(ui, |ui| {
-                                                        for dir in ClassicRotateDirection::ALL {
-                                                            if ui
-                                                                .add(
-                                                                    MenuItem::new(dir.label()).checked(
-                                                                        direction == dir,
-                                                                    ),
-                                                                )
-                                                                .clicked()
-                                                            {
-                                                                direction = dir;
-                                                                ui.close();
-                                                            }
-                                                        }
-                                                    });
-                                                response
-                                            },
-                                        );
-                                        if r_turns.changed() {
-                                            key.classic_rotate_turns = (turns.round().max(0.0) as u32)
-                                                .min(Keyframe::MAX_ROTATE_TURNS);
-                                        }
-                                        if direction != old_direction {
-                                            key.classic_rotate_dir = direction;
-                                            r_dir.mark_changed();
-                                        }
-                                        changes.note(r_turns);
-                                        changes.note(r_dir);
-                                        let orient_resp = ui.add_enabled(guided, nf::Checkbox::new(&mut key.orient_to_path, "Orient to path"));
-                                        changes.note(crate::ui_icons::hover_tooltip(orient_resp, "", None, Some("Needs a motion guide layer")));
-                                        let snap_resp = ui.add_enabled(guided, nf::Checkbox::new(&mut key.snap_to_guide, "Snap to motion guide"));
-                                        changes.note(crate::ui_icons::hover_tooltip(snap_resp, "", None, Some("Needs a motion guide layer")));
-                                        changes.note(ui.add(nf::Checkbox::new(&mut key.sync_symbols, "Sync graphic symbols")));
-                                        changes.note(ui.add(nf::Checkbox::new(&mut key.tween_scale, "Scale")));
-                                    });
-                                }
 
-                                // Y may overshoot (Back) or undershoot; the document allows |y| ≤ 100, x stays in 0–1.
-                                if let Some(Easing::CubicBezier{x1,y1,x2,y2})=&mut key.tween {
-                                    for (labels, values) in [(["X1","Y1"],[&mut *x1,&mut *y1]),(["X2","Y2"],[&mut *x2,&mut *y2])] {
-                                        for r in numeric_pair(ui, labels, values,-100. ..=100.,0.01) { changes.note(r); }
-                                    }
-                                    *x1 = x1.clamp(0., 1.); *x2 = x2.clamp(0., 1.);
-                                }
-                                if let Some(Easing::Flash{acceleration})=&mut key.tween {
-                                    changes.note(numeric_row(ui, "Acceleration", acceleration, -100. ..=100., 1.));
-                                }
-                            } else { hint(ui, "Select a frame with a keyframe to edit its tween."); }
-                        });
-                    });
-                    }
-                    inspector_section(ui, "Label / script", |ui| {
-                        ui.add_enabled_ui_semantic(self.layer_editable(), |ui| {
-                            if let Some(key) = timeline.layers[layer].key_at_mut(frame) { changes.note(text_row(ui, "Frame label", &mut key.label)); }
+                    // 1) Frame section (top): <Frame Label> + Label type (Name | Comment | Anchor) + Frame script… (F9).
+                    inspector_section(ui, "Frame", |ui| {
+                        ui.add_enabled_ui_semantic(active_layer_editable, |ui| {
+                            if let Some(key) = timeline.layers[layer].key_at_mut(frame) {
+                                let w = ui.available_width();
+                                let mut lbl_resp = ui.add(
+                                    nf::TextField::new(&mut key.label, "<Frame Label>")
+                                        .prefix("Name")
+                                        .width(w),
+                                );
+                                lbl_resp.id = nf::TextField::edit_id(lbl_resp.id);
+                                lbl_resp.widget_info(|| {
+                                    let mut info = egui::WidgetInfo::text_edit(
+                                        ui.is_enabled(),
+                                        &key.label,
+                                        &key.label,
+                                        "<Frame Label>",
+                                    );
+                                    info.label = Some("Frame label".into());
+                                    info
+                                });
+                                changes.note(lbl_resp);
+
+                                const LABEL_TYPES: [(FrameLabelType, &str); 3] = [
+                                    (FrameLabelType::Name, "Name"),
+                                    (FrameLabelType::Comment, "Comment"),
+                                    (FrameLabelType::Anchor, "Anchor"),
+                                ];
+                                changes.note(select_row(
+                                    ui,
+                                    "Label type",
+                                    "frame-label-type",
+                                    &mut key.label_type,
+                                    &LABEL_TYPES,
+                                ));
+                            } else {
+                                let mut empty_label = String::new();
+                                let w = ui.available_width();
+                                ui.add_enabled(
+                                    false,
+                                    nf::TextField::new(&mut empty_label, "<Frame Label>")
+                                        .prefix("Name")
+                                        .width(w),
+                                );
+                            }
                         });
                         let frame_act_sc = self.tooltip_sc(crate::commands::CommandId::WindowActions);
                         let mut frame_act_btn = nf::Button::new("Frame script…");
                         if let Some(sc) = frame_act_sc.as_deref() {
                             frame_act_btn = frame_act_btn.shortcut(sc);
                         }
-                        if ui.add(frame_act_btn).clicked() { self.open_frame_actions(); }
+                        if ui.add(frame_act_btn).clicked() {
+                            self.open_frame_actions();
+                        }
                     });
+
+                    // 2) Tween section: Tween selector + Scale, Ease (-100..=100 + preset + Edit…), Rotate + times, Orient/Sync/Snap.
+                    let has_range_ease_targets = self.has_selected_tween_ease_targets();
+                    let range_first_easing = has_range_ease_targets.then(|| {
+                        let live_tl = &self.symbol().timeline;
+                        self.target_tween_spans()
+                            .into_iter()
+                            .find_map(|(l_idx, starts)| {
+                                let l = live_tl.layers.get(l_idx)?;
+                                starts.into_iter().find_map(|st| {
+                                    l.keyframes
+                                        .iter()
+                                        .find(|k| k.frame == st)
+                                        .and_then(|k| k.tween)
+                                })
+                            })
+                    }).flatten();
+
+                    let cur_tween_choice = if motion.is_some() {
+                        FrameTweenChoice::Motion
+                    } else if let Some(k) = timeline.layers[layer].key_at(frame)
+                        && k.tween.is_some()
+                    {
+                        match k.tween_kind {
+                            TweenKind::Motion => FrameTweenChoice::Motion,
+                            TweenKind::Classic => FrameTweenChoice::Classic,
+                            TweenKind::Shape => FrameTweenChoice::Shape,
+                        }
+                    } else {
+                        FrameTweenChoice::None
+                    };
+
+                    let mut pending_tween_choice: Option<FrameTweenChoice> = None;
+                    let mut pending_ease_edit: Option<(Easing, Option<egui::Id>)> = None;
+                    let mut open_ease_panel = false;
+
+                    inspector_section(ui, "Tween", |ui| {
+                        ui.add_enabled_ui_semantic(can_edit_selected_tween, |ui| {
+                            let guided = timeline.layers[layer].properties.motion_guide.is_some();
+                            let has_key = timeline.layers[layer].key_at(frame).is_some() || motion.is_some();
+                            if has_key || has_range_ease_targets {
+                                // Row 1: Tween selector (None, Motion, Classic, Shape) + [x] Scale when tweened.
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = space::S2;
+                                    let show_scale = cur_tween_choice != FrameTweenChoice::None;
+                                    let select_w = if show_scale {
+                                        (ui.available_width() - 74.0 - space::S2).max(96.0)
+                                    } else {
+                                        ui.available_width()
+                                    };
+                                    nf::Select::new(
+                                        "frame-tween-kind",
+                                        &format!("Tween: {}", cur_tween_choice.label()),
+                                    )
+                                    .width(select_w)
+                                    .show(ui, |ui| {
+                                        for (choice, label) in FrameTweenChoice::ALL {
+                                            if ui
+                                                .add(
+                                                    MenuItem::new(label)
+                                                        .checked(choice == cur_tween_choice),
+                                                )
+                                                .clicked()
+                                            {
+                                                if choice != cur_tween_choice {
+                                                    pending_tween_choice = Some(choice);
+                                                }
+                                                ui.close();
+                                            }
+                                        }
+                                    });
+                                    if show_scale {
+                                        ui.add_enabled_ui_semantic(
+                                            active_layer_editable
+                                                && cur_tween_choice == FrameTweenChoice::Classic,
+                                            |ui| {
+                                                if let Some(key) =
+                                                    timeline.layers[layer].key_at_mut(frame)
+                                                {
+                                                    changes.note(ui.add(nf::Checkbox::new(
+                                                        &mut key.tween_scale,
+                                                        "Scale",
+                                                    )));
+                                                } else {
+                                                    let mut scale_placeholder = true;
+                                                    ui.add(nf::Checkbox::new(
+                                                        &mut scale_placeholder,
+                                                        "Scale",
+                                                    ));
+                                                }
+                                            },
+                                        );
+                                    }
+                                });
+
+                                // Row 2 (when tweened): Ease (-100..=100 in/out + preset curve) + Edit… button.
+                                let active_easing = motion
+                                    .as_ref()
+                                    .map(|sp| sp.easing)
+                                    .or_else(|| {
+                                        timeline.layers[layer]
+                                            .key_at(frame)
+                                            .and_then(|k| k.tween)
+                                    })
+                                    .or(range_first_easing);
+                                if let Some(cur_ease) = active_easing {
+                                    let (mut ease_val, ease_unit) = match cur_ease {
+                                        Easing::Linear => (0.0, ""),
+                                        Easing::EaseIn => (-100.0, "(in)"),
+                                        Easing::EaseOut => (100.0, "(out)"),
+                                        Easing::Flash { acceleration } if acceleration < 0.0 => {
+                                            (acceleration, "(in)")
+                                        }
+                                        Easing::Flash { acceleration } if acceleration > 0.0 => {
+                                            (acceleration, "(out)")
+                                        }
+                                        Easing::Flash { acceleration } => (acceleration, ""),
+                                        Easing::EaseInOut
+                                        | Easing::Bounce
+                                        | Easing::Elastic
+                                        | Easing::CubicBezier { .. } => (0.0, "(custom)"),
+                                    };
+                                    let preset_label = match cur_ease {
+                                        Easing::Linear => "Linear",
+                                        Easing::EaseIn => "Ease in",
+                                        Easing::EaseOut => "Ease out",
+                                        Easing::EaseInOut => "Ease in/out",
+                                        Easing::Bounce => "Bounce",
+                                        Easing::Elastic => "Elastic",
+                                        Easing::CubicBezier { .. } => "Custom curve",
+                                        Easing::Flash { .. } => "Flash ease",
+                                    };
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = space::S2;
+                                        let edit_w = 58.0;
+                                        let rem = (ui.available_width() - edit_w - space::S2).max(120.0);
+                                        let field_w = (rem * 0.52).max(64.0);
+                                        let preset_w = (rem - field_w - space::S2).max(56.0);
+                                        let r_ease = ui.add(
+                                            nf::Field::new(&mut ease_val, "Ease")
+                                                .prefix("Ease")
+                                                .unit(ease_unit)
+                                                .decimals(0)
+                                                .range(-100.0..=100.0)
+                                                .stepper()
+                                                .width(field_w),
+                                        );
+                                        if r_ease.changed() {
+                                            pending_ease_edit = Some((
+                                                Easing::Flash {
+                                                    acceleration: ease_val.round().clamp(-100.0, 100.0),
+                                                },
+                                                Some(r_ease.id),
+                                            ));
+                                        }
+                                        let custom_default =
+                                            if let curve @ Easing::CubicBezier { .. } = cur_ease {
+                                                curve
+                                            } else {
+                                                Easing::CubicBezier {
+                                                    x1: 0.25,
+                                                    y1: 0.1,
+                                                    x2: 0.25,
+                                                    y2: 1.0,
+                                                }
+                                            };
+                                        let flash_default =
+                                            if let flash @ Easing::Flash { .. } = cur_ease {
+                                                flash
+                                            } else {
+                                                Easing::Flash { acceleration: 0.0 }
+                                            };
+                                        let presets = [
+                                            (Easing::Linear, "Linear"),
+                                            (Easing::EaseIn, "Ease in"),
+                                            (Easing::EaseOut, "Ease out"),
+                                            (Easing::EaseInOut, "Ease in/out"),
+                                            (Easing::Bounce, "Bounce"),
+                                            (Easing::Elastic, "Elastic"),
+                                            (custom_default, "Custom curve"),
+                                            (flash_default, "Flash ease"),
+                                        ];
+                                        let (r_preset, _) =
+                                            nf::Select::new("frame-ease-preset", preset_label)
+                                                .width(preset_w)
+                                                .show(ui, |ui| {
+                                                    for (pe, plabel) in presets {
+                                                        if ui
+                                                            .add(
+                                                                MenuItem::new(plabel)
+                                                                    .checked(plabel == preset_label),
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            if pe != cur_ease {
+                                                                pending_ease_edit =
+                                                                    Some((pe, None));
+                                                            }
+                                                            ui.close();
+                                                        }
+                                                    }
+                                                });
+                                        let _ = r_preset;
+                                        if ui.add(nf::Button::new("Edit…")).clicked() {
+                                            open_ease_panel = true;
+                                        }
+                                    });
+                                }
+
+                                // Rows 3 & 4 (Classic tween): Rotate + times, and Orient to path / Sync / Snap.
+                                if cur_tween_choice == FrameTweenChoice::Classic
+                                    && let Some(key) = timeline.layers[layer].key_at_mut(frame)
+                                {
+                                    ui.add_enabled_ui_semantic(active_layer_editable, |ui| {
+                                        let mut turns = key.classic_rotate_turns as f64;
+                                        let old_direction = key.classic_rotate_dir;
+                                        let mut direction = old_direction;
+                                        let dir_label = format!("Rotate: {}", direction.label());
+                                        let (mut r_dir, r_turns) = two_column_row(
+                                            ui,
+                                            |ui, width| {
+                                                let (response, _) =
+                                                    nf::Select::new("classic-direction", &dir_label)
+                                                        .width(width)
+                                                        .show(ui, |ui| {
+                                                            for dir in ClassicRotateDirection::ALL {
+                                                                if ui
+                                                                    .add(
+                                                                        MenuItem::new(dir.label())
+                                                                            .checked(
+                                                                                direction == dir,
+                                                                            ),
+                                                                    )
+                                                                    .clicked()
+                                                                {
+                                                                    direction = dir;
+                                                                    ui.close();
+                                                                }
+                                                            }
+                                                        });
+                                                response
+                                            },
+                                            |ui, width| {
+                                                ui.add(
+                                                    nf::Field::new(&mut turns, "times")
+                                                        .unit("times")
+                                                        .decimals(0)
+                                                        .range(
+                                                            0.0..=(Keyframe::MAX_ROTATE_TURNS
+                                                                as f64),
+                                                        )
+                                                        .stepper()
+                                                        .width(width),
+                                                )
+                                            },
+                                        );
+                                        if r_turns.changed() {
+                                            key.classic_rotate_turns = (turns.round().max(0.0)
+                                                as u32)
+                                                .min(Keyframe::MAX_ROTATE_TURNS);
+                                        }
+                                        if direction != old_direction {
+                                            key.classic_rotate_dir = direction;
+                                            r_dir.mark_changed();
+                                        }
+                                        changes.note(r_dir);
+                                        changes.note(r_turns);
+
+                                        ui.horizontal_wrapped(|ui| {
+                                            let orient_resp = ui.add_enabled(
+                                                guided,
+                                                nf::Checkbox::new(
+                                                    &mut key.orient_to_path,
+                                                    "Orient to path",
+                                                ),
+                                            );
+                                            changes.note(crate::ui_icons::hover_tooltip(
+                                                orient_resp,
+                                                "",
+                                                None,
+                                                Some("Needs a motion guide layer"),
+                                            ));
+                                            changes.note(ui.add(nf::Checkbox::new(
+                                                &mut key.sync_symbols,
+                                                "Sync",
+                                            )));
+                                            let snap_resp = ui.add_enabled(
+                                                guided,
+                                                nf::Checkbox::new(&mut key.snap_to_guide, "Snap"),
+                                            );
+                                            changes.note(crate::ui_icons::hover_tooltip(
+                                                snap_resp,
+                                                "",
+                                                None,
+                                                Some("Needs a motion guide layer"),
+                                            ));
+                                        });
+                                    });
+                                }
+                            } else {
+                                hint(ui, "Select a frame with a keyframe to edit its tween.");
+                            }
+                        });
+                    });
+
+                    if open_ease_panel {
+                        self.show_panel(crate::workspace::PanelId::Ease);
+                    }
+                    if let Some(choice) = pending_tween_choice {
+                        match choice {
+                            FrameTweenChoice::None => self.remove_tween(),
+                            FrameTweenChoice::Motion => self.create_tween(TweenKind::Motion),
+                            FrameTweenChoice::Classic => self.create_tween(TweenKind::Classic),
+                            FrameTweenChoice::Shape => self.create_tween(TweenKind::Shape),
+                        }
+                        return;
+                    }
+                    if let Some((next_ease, control)) = pending_ease_edit {
+                        if let Some(span) = &motion
+                            && !explicit_frame_range
+                        {
+                            self.set_selected_motion_tween_ease(span, next_ease, control);
+                        } else {
+                            self.set_selected_tween_ease(next_ease, control);
+                        }
+                        return;
+                    }
+                    if let Some(span) = &motion {
+                        self.motion_tween_properties(ui, span);
+                    }
                     self.frame_sound_section(ui);
                     self.frame_video_section(ui);
                 } else {
@@ -1355,11 +1695,11 @@ impl Editor {
                         let min=timeline.layers.iter().flat_map(|l|&l.keyframes).map(|k|k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).chain(timeline.layers.iter().filter_map(|l|l.properties.end_frame)).max().unwrap_or(1);
                         timeline.frame_count=draft.frame_count.max(min);
                         if let Some(target)=timeline.layers.iter_mut().find(|l|l.id==layer_id) {
-                            target.name=draft.layers[layer].name.clone();
                             if target.visible && !target.locked && let Some(changed)=draft.layers[layer].key_at(frame) && let Some(key)=target.keyframes.iter_mut().find(|k|k.frame==changed.frame) {
                                 let sync_turned_on = !key.sync_symbols && changed.sync_symbols;
                                 let key_frame = key.frame;
                                 key.label=changed.label.clone();
+                                key.label_type=changed.label_type;
                                 key.tween=changed.tween;
                                 key.orient_to_path=changed.orient_to_path;
                                 key.snap_to_guide=changed.snap_to_guide;
@@ -1412,7 +1752,8 @@ impl Editor {
             ElementKind::PaintedPath { .. } => (i16::BRUSH, "Painted path"),
             ElementKind::Instance { symbol_id, .. } => {
                 let symbol = self.project.symbol(symbol_id);
-                let (icon, title) = match symbol.map(|s| s.kind) {
+                let eff_kind = element.instance_behavior.or_else(|| symbol.map(|s| s.kind));
+                let (icon, title) = match eff_kind {
                     Some(SymbolKind::Graphic) => (i16::GRAPHIC, "Graphic"),
                     Some(SymbolKind::Button) => (i16::BUTTON_SYMBOL, "Button"),
                     _ => (i16::MOVIECLIP, "Movie clip"),
@@ -1429,20 +1770,40 @@ impl Editor {
         (icon, title.into(), subtitle)
     }
 
-    /// Unscaled local width and height of `symbol_id` at frame 0 (fallback `100.0 × 100.0`).
-    fn unscaled_symbol_size(&self, ctx: &egui::Context, symbol_id: &str) -> (f64, f64) {
+    /// Unscaled local width and height of `symbol_id` on its sampled frame (`(0.0, 0.0)` when empty).
+    fn unscaled_symbol_size(
+        &self,
+        ctx: &egui::Context,
+        symbol_id: &str,
+        playback: InstancePlayback,
+    ) -> (f64, f64) {
+        let sample_frame = match playback {
+            InstancePlayback::Independent | InstancePlayback::Loop | InstancePlayback::PlayOnce => {
+                0
+            }
+            InstancePlayback::LoopFrom(f)
+            | InstancePlayback::PlayOnceFrom(f)
+            | InstancePlayback::SingleFrame(f) => f,
+        };
+        let count = self
+            .project
+            .symbol(symbol_id)
+            .map_or(1, |s| s.timeline.frame_count.max(1));
         let painter = ctx.layer_painter(egui::LayerId::background());
         let mut union = egui::Rect::NOTHING;
-        for item in evaluate(&self.project, symbol_id, 0) {
+        for item in evaluate(&self.project, symbol_id, sample_frame.min(count - 1)) {
             let r = crate::stage::world_bounds(&item, &painter);
             if r.is_finite() {
                 union = union.union(r);
             }
         }
-        if union.is_finite() && union.width() > 1e-3 && union.height() > 1e-3 {
-            (f64::from(union.width()), f64::from(union.height()))
+        if union.is_finite() {
+            (
+                f64::from(union.width()).max(0.0),
+                f64::from(union.height()).max(0.0),
+            )
         } else {
-            (100.0, 100.0)
+            (0.0, 0.0)
         }
     }
 

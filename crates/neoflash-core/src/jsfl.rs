@@ -4254,10 +4254,14 @@ impl<'a> JsflVm<'a> {
                 match prop {
                     "name" => Ok(JsflValue::String(kf.label.clone())),
                     "labelType" => Ok(JsflValue::String(
-                        if kf.label.is_empty() {
+                        if kf.label.is_empty() && kf.label_type.is_default() {
                             "none"
-                        } else if kf.label.starts_with("//") {
+                        } else if kf.label_type == crate::FrameLabelType::Comment
+                            || kf.label.starts_with("//")
+                        {
                             "comment"
+                        } else if kf.label_type == crate::FrameLabelType::Anchor {
+                            "anchor"
                         } else {
                             "name"
                         }
@@ -4424,7 +4428,7 @@ impl<'a> JsflVm<'a> {
                     "symbolType" => match &el.kind {
                         ElementKind::Instance { symbol_id, .. } => {
                             let sym = self.symbol_ref(symbol_id, span)?;
-                            let st = match sym.kind {
+                            let st = match el.effective_symbol_kind_for(sym) {
                                 SymbolKind::MovieClip => "movie clip",
                                 SymbolKind::Graphic => "graphic",
                                 SymbolKind::Button => "button",
@@ -4862,12 +4866,32 @@ impl<'a> JsflVm<'a> {
                             span,
                         )?;
                         if let Some(kf) = layer.keyframes.iter_mut().find(|k| k.frame == kf_start) {
-                            if lt == "none" {
-                                kf.label.clear();
-                            } else if lt == "comment" && !kf.label.starts_with("//") {
-                                kf.label = format!("//{}", kf.label);
+                            match lt.as_str() {
+                                "none" => {
+                                    kf.label.clear();
+                                    kf.label_type = crate::FrameLabelType::Name;
+                                }
+                                "name" => {
+                                    kf.label_type = crate::FrameLabelType::Name;
+                                    if let Some(stripped) = kf.label.strip_prefix("//") {
+                                        kf.label = stripped.to_owned();
+                                    }
+                                }
+                                "comment" => {
+                                    kf.label_type = crate::FrameLabelType::Comment;
+                                }
+                                "anchor" => {
+                                    kf.label_type = crate::FrameLabelType::Anchor;
+                                }
+                                _ => {
+                                    return Err(self.err(
+                                        span,
+                                        format!("Unsupported Frame.labelType '{lt}'."),
+                                    ));
+                                }
                             }
                         }
+                        self.project.upgrade_format_for_features();
                         Ok(())
                     }
                     "actionScript" => {
@@ -5212,6 +5236,42 @@ impl<'a> JsflVm<'a> {
                         "Element.libraryItem can only be set on a SymbolInstance.",
                     ))
                 }
+            }
+            "symbolType" => {
+                let st = val.to_display_string().to_lowercase();
+                let next_kind = match st.as_str() {
+                    "movie clip" | "movieclip" => SymbolKind::MovieClip,
+                    "graphic" => SymbolKind::Graphic,
+                    "button" => SymbolKind::Button,
+                    _ => {
+                        return Err(self.err(
+                            span,
+                            format!("Unsupported SymbolInstance.symbolType '{st}'."),
+                        ));
+                    }
+                };
+                let sym_id = {
+                    let el = self.resolve_element(eh, span)?;
+                    let ElementKind::Instance { symbol_id, .. } = &el.kind else {
+                        return Err(self.err(
+                            span,
+                            "Element.symbolType can only be set on a SymbolInstance.",
+                        ));
+                    };
+                    symbol_id.clone()
+                };
+                let lib_kind = self.symbol_ref(&sym_id, span)?.kind;
+                let el = self.resolve_element_mut(eh, span)?;
+                el.instance_behavior = (next_kind != lib_kind).then_some(next_kind);
+                if let ElementKind::Instance { playback, .. } = &mut el.kind {
+                    *playback = match next_kind {
+                        SymbolKind::MovieClip => InstancePlayback::Independent,
+                        SymbolKind::Graphic => InstancePlayback::Loop,
+                        SymbolKind::Button => InstancePlayback::SingleFrame(0),
+                    };
+                }
+                self.project.upgrade_format_for_features();
+                Ok(())
             }
             "firstFrame" => {
                 let ff = val.as_number().unwrap_or(0.0).max(0.0) as u32;
@@ -8859,5 +8919,87 @@ mod tests {
         );
         assert_eq!(jsfl_res.return_value, JsflValue::Number(3.0));
         assert_eq!(jsfl_res.project.custom_swatches(), vec![c_new, c_accent]);
+    }
+
+    #[test]
+    fn jsfl_element_symbol_type_and_frame_label_type_do_not_mutate_library_symbol() {
+        let mut project = Project::blank();
+        let mut clip = Symbol {
+            id: "hero-mc".into(),
+            name: "Hero".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            timeline: project.symbols[0].timeline.clone(),
+            class_name: None,
+            linkage_id: None,
+        };
+        clip.timeline.frame_count = 4;
+        clip.timeline.layers[0].id = "hero-layer".into();
+        clip.timeline.layers[0].keyframes[0].label = "start".into();
+        project.symbols.push(clip);
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "inst-1".into(),
+                name: String::new(),
+                transform: Transform::default(),
+                kind: ElementKind::Instance {
+                    symbol_id: "hero-mc".into(),
+                    playback: InstancePlayback::Independent,
+                },
+                ..Default::default()
+            });
+
+        let state = JsflAuthoringState::for_project(&project);
+        let sb = JsflSandbox::new();
+        let res = sb
+            .execute(
+                &project,
+                &state,
+                "instance_behavior_and_label_type.jsfl",
+                r##"
+                var doc = fl.getDocumentDOM();
+                var tl = doc.getTimeline();
+                var frame = tl.layers[0].frames[0];
+                var el = frame.elements[0];
+                var libItem = doc.library.items[0];
+                fl.trace("init=" + el.symbolType + "/" + libItem.itemType + "/" + frame.labelType);
+                el.symbolType = "graphic";
+                fl.trace("gfx=" + el.symbolType + "/" + libItem.itemType + "/" + el.loop);
+                el.symbolType = "button";
+                fl.trace("btn=" + el.symbolType + "/" + libItem.itemType);
+                frame.name = "author_note";
+                frame.labelType = "comment";
+                fl.trace("lbl=" + frame.name + "/" + frame.labelType);
+                frame.labelType = "anchor";
+                fl.trace("anc=" + frame.name + "/" + frame.labelType);
+                "##,
+            )
+            .unwrap();
+
+        assert_eq!(
+            res.output_lines,
+            vec![
+                "init=movie clip/movie clip/none",
+                "gfx=graphic/movie clip/loop",
+                "btn=button/movie clip",
+                "lbl=author_note/comment",
+                "anc=author_note/anchor",
+            ]
+        );
+        assert_eq!(
+            res.project.symbol("hero-mc").unwrap().kind,
+            SymbolKind::MovieClip,
+            "Library Symbol.kind must remain MovieClip"
+        );
+        let kf = &res.project.symbols[0].timeline.layers[0].keyframes[0];
+        assert_eq!(kf.label, "author_note");
+        assert_eq!(kf.label_type, crate::FrameLabelType::Anchor);
+        assert_eq!(
+            kf.elements[0].instance_behavior,
+            Some(SymbolKind::Button),
+            "Instance behavior override must be stored per-instance"
+        );
+        res.project.validate().unwrap();
     }
 }

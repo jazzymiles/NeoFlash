@@ -7466,8 +7466,10 @@ fn properties_context_is_automatic_without_selection_tool_toggle() {
         end: editor.frame,
     });
     let frame_context = render(&mut editor, 0.4);
-    assert!(named_bounds(&frame_context, "Range / duration").is_some());
-    assert!(named_bounds(&frame_context, "Layer end").is_some());
+    assert!(named_bounds(&frame_context, "Range / duration").is_none());
+    assert!(named_bounds(&frame_context, "Layer end").is_none());
+    assert!(named_bounds(&frame_context, "Frame").is_some());
+    assert!(named_bounds(&frame_context, "Tween").is_some());
     assert!(named_bounds(&frame_context, "Tool options").is_none());
 }
 
@@ -7613,7 +7615,7 @@ fn properties_easing_select_applies_to_every_tween_in_the_selected_frame_range()
 
     render_properties(&mut editor, &ctx, 0.1, vec![]);
     let output = render_properties(&mut editor, &ctx, 0.2, vec![]);
-    let easing = named_bounds(&output, "No tween").expect("enabled Easing selector on active hold");
+    let easing = named_bounds(&output, "Linear").expect("enabled Easing selector on active hold");
     render_properties(
         &mut editor,
         &ctx,
@@ -7705,34 +7707,15 @@ fn properties_easing_on_a_hold_only_frame_range_is_a_noop() {
 
     render(&mut editor, &ctx, 0.1, vec![]);
     let output = render(&mut editor, &ctx, 0.2, vec![]);
-    let easing = named_bounds(&output, "No tween").expect("hold easing selector");
-    render(
-        &mut editor,
-        &ctx,
-        0.3,
-        vec![primary_button(easing.center(), true)],
+    assert!(
+        named_bounds(&output, "Tween: None").is_some(),
+        "untweened hold range shows Tween: None"
     );
-    render(
-        &mut editor,
-        &ctx,
-        0.4,
-        vec![primary_button(easing.center(), false)],
+    assert!(
+        named_bounds(&output, "Linear").is_none() && named_bounds(&output, "Edit…").is_none(),
+        "untweened hold range hides Ease row"
     );
-    let popup = render(&mut editor, &ctx, 0.5, vec![]);
-    let ease_out = named_bounds(&popup, "Ease out").expect("Ease out popup item");
-    render(
-        &mut editor,
-        &ctx,
-        0.6,
-        vec![primary_button(ease_out.center(), true)],
-    );
-    render(
-        &mut editor,
-        &ctx,
-        0.7,
-        vec![primary_button(ease_out.center(), false)],
-    );
-    render(&mut editor, &ctx, 0.8, vec![]);
+    editor.set_selected_tween_ease(Easing::EaseOut, None);
 
     assert_eq!(
         editor.project, before,
@@ -7797,14 +7780,16 @@ fn properties_locked_active_tween_only_enables_range_easing_controls() {
 
     render(&mut editor, &ctx, 0.1);
     let output = render(&mut editor, &ctx, 0.2);
+    assert_eq!(named_disabled(&output, "Tween: Classic"), Some(false));
     assert_eq!(named_disabled(&output, "Linear"), Some(false));
+    assert_eq!(named_disabled(&output, "Edit…"), Some(false));
     for control in [
-        "Rotate",
-        "Direction: Auto",
-        "Orient to path",
-        "Snap to motion guide",
-        "Sync graphic symbols",
         "Scale",
+        "Rotate: Auto",
+        "times",
+        "Orient to path",
+        "Sync",
+        "Snap",
     ] {
         assert_eq!(
             named_disabled(&output, control),
@@ -11700,7 +11685,7 @@ fn t353_symbol_dialog_name_defaults_and_explicit_linkage_work() {
     d.click("Convert");
     assert!(d.editor.symbol_conversion.is_none());
     let instance = d.editor.selected_element().unwrap();
-    assert_eq!(instance.name, "Badge");
+    assert_eq!(instance.name, "");
     let ElementKind::Instance { symbol_id, .. } = &instance.kind else {
         panic!("conversion must place a symbol instance")
     };
@@ -11742,7 +11727,7 @@ fn t353_symbol_dialog_name_defaults_and_explicit_linkage_work() {
 
     d.click("Convert");
     let instance = d.editor.selected_element().unwrap();
-    assert_eq!(instance.name, "Renamed Badge");
+    assert_eq!(instance.name, "");
     let ElementKind::Instance { symbol_id, .. } = &instance.kind else {
         panic!("conversion must place a symbol instance")
     };
@@ -13047,4 +13032,183 @@ fn t319_click_to_jump_compiler_errors_movie_explorer_find_replace_and_actions_sc
     assert_eq!(d.editor.layer, 1);
     assert!(d.editor.script_target == ScriptTarget::Object);
     assert_eq!(d.editor.script_event, ObjectEvent::Click);
+}
+
+#[test]
+fn t359_t360_t362_properties_empty_symbol_size_independent_instance_behavior_and_classic_frame_inspector()
+ {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    // Add a 4-frame empty MovieClip symbol "HeroSym" in Library.
+    let mut hero_sym = editor.symbol().clone();
+    hero_sym.id = "hero-sym".into();
+    hero_sym.name = "HeroSym".into();
+    hero_sym.kind = SymbolKind::MovieClip;
+    hero_sym.timeline.frame_count = 4;
+    hero_sym.timeline.layers[0].id = "hero-sym-layer".into();
+    hero_sym.timeline.layers[0].keyframes[0].elements.clear();
+    editor.project.symbols.push(hero_sym);
+
+    editor
+        .place_library_symbol(&ctx, "hero-sym", Some([200.0, 150.0]))
+        .unwrap();
+    editor.transact_named("Scale empty symbol", |ed| {
+        let el = ed.selected_element_mut().unwrap();
+        el.transform.scale_x = 1.5;
+        el.transform.scale_y = 2.0;
+    });
+
+    let render_props = |ed: &mut Editor, time: f64, events: Vec<Event>| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(420.0, 1200.0))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| ed.properties(ui, ctx));
+            },
+        )
+    };
+
+    // 1. Empty symbol instance displays W = 0, H = 0 without corrupting scale_x / scale_y, and has empty Name.
+    let _ = render_props(&mut editor, 0.1, vec![]);
+    let out_empty = render_props(&mut editor, 0.2, vec![]);
+    assert_eq!(editor.selected_element().unwrap().name, "");
+    assert_eq!(editor.selected_element().unwrap().transform.scale_x, 1.5);
+    assert_eq!(editor.selected_element().unwrap().transform.scale_y, 2.0);
+    assert!(named_bounds(&out_empty, "Movie Clip").is_some());
+
+    // 2. Per-instance Behavior (MovieClip -> Graphic -> Button) never mutates Library Symbol.kind!
+    assert!(editor.set_selected_instance_behavior(SymbolKind::Graphic));
+    assert_eq!(
+        editor.project.symbol("hero-sym").unwrap().kind,
+        SymbolKind::MovieClip,
+        "Library Symbol.kind must remain MovieClip"
+    );
+    assert_eq!(
+        editor.selected_element().unwrap().instance_behavior,
+        Some(SymbolKind::Graphic)
+    );
+    assert!(matches!(
+        editor.selected_element().unwrap().kind,
+        ElementKind::Instance {
+            playback: InstancePlayback::Loop,
+            ..
+        }
+    ));
+    let out_gfx_closed = render_props(&mut editor, 0.25, vec![]);
+    let beh_hdr = named_bounds(&out_gfx_closed, "Behavior / linkage").expect("Behavior / linkage");
+    let _ = render_props(
+        &mut editor,
+        0.27,
+        vec![primary_button(beh_hdr.center(), true)],
+    );
+    let _ = render_props(
+        &mut editor,
+        0.29,
+        vec![primary_button(beh_hdr.center(), false)],
+    );
+    let out_gfx = render_props(&mut editor, 0.3, vec![]);
+    assert!(named_bounds(&out_gfx, "Graphic").is_some());
+    assert!(named_bounds(&out_gfx, "Loop").is_some());
+    assert!(!editor.can_open_selected_object_actions());
+
+    assert!(editor.set_selected_instance_behavior(SymbolKind::Button));
+    assert_eq!(
+        editor.project.symbol("hero-sym").unwrap().kind,
+        SymbolKind::MovieClip,
+        "Library Symbol.kind must still remain MovieClip"
+    );
+    assert_eq!(
+        editor.selected_element().unwrap().instance_behavior,
+        Some(SymbolKind::Button)
+    );
+    assert!(matches!(
+        editor.selected_element().unwrap().kind,
+        ElementKind::Instance {
+            playback: InstancePlayback::SingleFrame(0),
+            ..
+        }
+    ));
+    let _ = render_props(&mut editor, 0.38, vec![]);
+    let out_btn = render_props(&mut editor, 0.4, vec![]);
+    assert!(named_bounds(&out_btn, "Button").is_some());
+    assert!(editor.can_open_selected_object_actions());
+    assert_eq!(
+        Editor::default_object_event_for_instance(
+            editor.selected_element().unwrap(),
+            SymbolKind::Button,
+            ObjectEvent::Load,
+        ),
+        ObjectEvent::Click
+    );
+
+    editor.undo();
+    assert_eq!(
+        editor.selected_element().unwrap().instance_behavior,
+        Some(SymbolKind::Graphic)
+    );
+    editor.undo();
+    assert_eq!(editor.selected_element().unwrap().instance_behavior, None);
+    editor.project.validate().unwrap();
+
+    // 3. Classic Flash Frame Properties cleanup (T-362):
+    // Add second keyframe so Classic tween can span frames 0..5.
+    let root_layer_id = editor.symbol().timeline.layers[0].id.clone();
+    editor.symbol_mut().timeline.frame_count = 10;
+    editor.frame = 5;
+    editor.make_key(false);
+    editor.frame = 0;
+    editor.clear_selection();
+    editor.select_frame_range(FrameRange {
+        layers: vec![root_layer_id.clone()],
+        start: 0,
+        end: 0,
+    });
+
+    let _ = render_props(&mut editor, 0.5, vec![]);
+    let out_frame = render_props(&mut editor, 0.6, vec![]);
+    assert!(named_bounds(&out_frame, "Range / duration").is_none());
+    assert!(named_bounds(&out_frame, "Layer end").is_none());
+    let frame_hdr = named_bounds(&out_frame, "Frame").expect("Frame section");
+    let tween_hdr = named_bounds(&out_frame, "Tween").expect("Tween section");
+    assert!(
+        frame_hdr.top() < tween_hdr.top(),
+        "Frame section precedes Tween"
+    );
+    assert!(named_bounds(&out_frame, "Frame script…").is_some());
+    assert!(named_bounds(&out_frame, "Tween: None").is_some());
+
+    // Create Classic tween and verify Classic Flash rows (Scale, Ease + Edit…, Rotate + times, Orient/Sync/Snap).
+    editor.create_tween(TweenKind::Classic);
+    let _ = render_props(&mut editor, 0.7, vec![]);
+    let out_classic = render_props(&mut editor, 0.8, vec![]);
+    assert!(named_bounds(&out_classic, "Tween: Classic").is_some());
+    assert!(named_bounds(&out_classic, "Scale").is_some());
+    assert!(named_bounds(&out_classic, "Rotate: Auto").is_some());
+    assert!(named_bounds(&out_classic, "times").is_some());
+    assert!(named_bounds(&out_classic, "Orient to path").is_some());
+    assert!(named_bounds(&out_classic, "Sync").is_some());
+    assert!(named_bounds(&out_classic, "Snap").is_some());
+    let edit_btn = named_bounds(&out_classic, "Edit…").expect("Edit… ease button");
+    assert!(!editor.workspace.panels.ease);
+    let _ = render_props(
+        &mut editor,
+        0.9,
+        vec![primary_button(edit_btn.center(), true)],
+    );
+    let _ = render_props(
+        &mut editor,
+        1.0,
+        vec![primary_button(edit_btn.center(), false)],
+    );
+    assert!(
+        editor.workspace.panels.ease,
+        "Edit… button opens Ease panel"
+    );
+    editor.project.validate().unwrap();
 }

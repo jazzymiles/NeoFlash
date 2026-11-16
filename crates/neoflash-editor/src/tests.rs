@@ -72,12 +72,11 @@ fn editor_at_middle(easing: Easing) -> Editor {
 
 fn accept_default_symbol(editor: &mut Editor) {
     let draft = editor.symbol_conversion.take().expect("conversion dialog");
-    editor
-        .commit_symbol_conversion(
-            &draft,
-            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(30., 12.)),
-        )
-        .unwrap();
+    let painter = egui::Context::default().layer_painter(egui::LayerId::background());
+    let bounds = crate::symbol_dialog::conversion_bounds(editor, &draft, &painter).unwrap_or(
+        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(30., 12.)),
+    );
+    editor.commit_symbol_conversion(&draft, bounds).unwrap();
 }
 
 #[test]
@@ -242,7 +241,7 @@ fn conversion_preserves_appearance_identity_and_scripts_on_the_new_instance() {
         instance.id, expected.id,
         "instance references must survive conversion"
     );
-    assert_eq!(instance.name, expected.name);
+    assert_eq!(instance.name, "");
     assert_eq!(instance.transform, expected.transform);
     assert_eq!(instance.scripts, expected.scripts);
     let ElementKind::Instance {
@@ -308,11 +307,10 @@ fn conversion_preserves_appearance_identity_and_scripts_on_the_new_instance() {
     draft.set_name("Card");
     draft.class_name = "app.Card".into();
     assert_eq!(draft.linkage_id, "card-export");
+    let painter = egui::Context::default().layer_painter(egui::LayerId::background());
+    let conv_bounds = crate::symbol_dialog::conversion_bounds(&editor, &draft, &painter).unwrap();
     editor
-        .commit_symbol_conversion(
-            &draft,
-            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(30., 12.)),
-        )
+        .commit_symbol_conversion(&draft, conv_bounds)
         .unwrap();
     let symbol = editor
         .project
@@ -321,7 +319,7 @@ fn conversion_preserves_appearance_identity_and_scripts_on_the_new_instance() {
     assert_eq!(symbol.name, "Card");
     assert_eq!(symbol.linkage_id.as_deref(), Some("card-export"));
     assert_eq!(symbol.class_name.as_deref(), Some("app.Card"));
-    assert_eq!(editor.selected_element().unwrap().name, "moving_shape");
+    assert_eq!(editor.selected_element().unwrap().name, "");
     let converted = evaluate(&editor.project, editor.symbol_id(), editor.frame);
     for (before, after) in visible.iter().zip(&converted) {
         assert_eq!(before.kind, after.kind);
@@ -406,15 +404,16 @@ fn conversion_uses_entered_name_for_default_linkage_and_generated_or_empty_insta
     draft.set_name("Badge");
     assert_eq!(draft.linkage_id, "Badge");
     draft.export_enabled = true;
+    let painter = ctx.layer_painter(egui::LayerId::background());
+    let conv_bounds = crate::symbol_dialog::conversion_bounds(&editor, &draft, &painter).unwrap();
     editor
-        .commit_symbol_conversion(
-            &draft,
-            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(20., 12.)),
-        )
+        .commit_symbol_conversion(&draft, conv_bounds)
         .unwrap();
 
     let instance = editor.selected_element().unwrap();
-    assert_eq!(instance.name, "Badge");
+    assert_eq!(instance.name, "");
+    assert!((instance.transform.x - 12.0).abs() < 1e-6);
+    assert!((instance.transform.y - 34.0).abs() < 1e-6);
     let ElementKind::Instance { symbol_id, .. } = &instance.kind else {
         panic!("conversion must place a symbol instance")
     };
@@ -437,13 +436,11 @@ fn conversion_uses_entered_name_for_default_linkage_and_generated_or_empty_insta
     editor.convert_to_symbol();
     let mut draft = editor.symbol_conversion.take().unwrap();
     draft.set_name("Unnamed Badge");
+    let conv_bounds = crate::symbol_dialog::conversion_bounds(&editor, &draft, &painter).unwrap();
     editor
-        .commit_symbol_conversion(
-            &draft,
-            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(20., 12.)),
-        )
+        .commit_symbol_conversion(&draft, conv_bounds)
         .unwrap();
-    assert_eq!(editor.selected_element().unwrap().name, "Unnamed Badge");
+    assert_eq!(editor.selected_element().unwrap().name, "");
     editor.project.validate().unwrap();
     editor.undo();
     assert_eq!(editor.project, before);

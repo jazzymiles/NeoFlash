@@ -491,22 +491,21 @@ impl Editor {
             .collect();
         let mut instance = if elements.len() == 1 {
             let mut instance = elements[0].clone();
-            if has_generated_instance_name(&instance) {
-                instance.name = name.to_owned();
-            }
-            let shifted = crate::transform_geometry::transformed_point(
-                instance.transform,
-                [anchor.x as f64, anchor.y as f64],
-            );
-            instance.transform.x = shifted[0];
-            instance.transform.y = shifted[1];
-            let content = &mut elements[0];
-            content.id = new_id("object");
-            content.transform = Transform {
-                x: -anchor.x as f64,
-                y: -anchor.y as f64,
+            instance.name.clear();
+            instance.instance_behavior = None;
+            instance.transform = Transform {
+                x: anchor.x as f64,
+                y: anchor.y as f64,
+                alpha: elements[0].transform.alpha,
+                color_transform: elements[0].transform.color_transform,
                 ..Transform::default()
             };
+            let content = &mut elements[0];
+            content.id = new_id("object");
+            content.transform.x -= anchor.x as f64;
+            content.transform.y -= anchor.y as f64;
+            content.transform.alpha = 1.0;
+            content.transform.color_transform = ColorTransform::default();
             content.scripts.clear();
             content.accessibility = None;
             content.visible = true;
@@ -522,7 +521,7 @@ impl Editor {
             }
             Element {
                 id: new_id("object"),
-                name: name.to_owned(),
+                name: String::new(),
                 transform: Transform {
                     x: anchor.x as f64,
                     y: anchor.y as f64,
@@ -642,47 +641,6 @@ impl Editor {
     }
 }
 
-fn has_generated_instance_name(element: &Element) -> bool {
-    if element.name.is_empty() {
-        return true;
-    }
-    let Some(id_suffix) = element.id.strip_prefix("object-") else {
-        return false;
-    };
-    if id_suffix.is_empty() || !id_suffix.bytes().all(|byte| byte.is_ascii_digit()) {
-        return false;
-    }
-    let stems: &[&str] = match &element.kind {
-        ElementKind::Rectangle { .. } => &["rectangle"],
-        ElementKind::Ellipse { .. } => &["oval"],
-        ElementKind::Text { .. } | ElementKind::TextBox { .. } => &["text"],
-        ElementKind::Instance { .. } => &["clip"],
-        ElementKind::Path { .. } | ElementKind::PaintedPath { .. } => &["path", "fill", "stroke"],
-        ElementKind::Bitmap { .. } => &["bitmap"],
-        ElementKind::Video { .. } => &["video"],
-    };
-    stems
-        .iter()
-        .any(|stem| generated_name_matches(&element.name, stem, id_suffix))
-}
-
-fn generated_name_matches(name: &str, stem: &str, id_suffix: &str) -> bool {
-    let Some(rest) = name
-        .strip_prefix(stem)
-        .and_then(|rest| rest.strip_prefix('_'))
-    else {
-        return false;
-    };
-    let mut last = None;
-    for part in rest.split("_copy_") {
-        if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
-            return false;
-        }
-        last = Some(part);
-    }
-    last == Some(id_suffix)
-}
-
 fn symbol_from_draft(
     draft: &SymbolConversion,
     id: Id,
@@ -771,12 +729,11 @@ fn kind_name(kind: SymbolKind) -> &'static str {
     }
 }
 
-fn conversion_bounds(
+pub(crate) fn conversion_bounds(
     editor: &Editor,
     draft: &SymbolConversion,
     painter: &egui::Painter,
 ) -> Option<Rect> {
-    let single = (draft.sampled.len() == 1).then(|| transform_matrix(draft.sampled[0].1.transform));
     let scene = evaluate(&editor.project, &draft.symbol, draft.frame);
     let mut result = Rect::NOTHING;
     for item in scene {
@@ -797,13 +754,20 @@ fn conversion_bounds(
             local.left_bottom(),
             local.right_bottom(),
         ] {
-            let world = stage::affine(item.transform, point);
-            let point = if let Some(matrix) = single {
-                stage::inverse(matrix, world)?
-            } else {
-                world
-            };
-            result.extend_with(point);
+            result.extend_with(stage::affine(item.transform, point));
+        }
+    }
+    if !result.is_finite() {
+        for (_, element) in &draft.sampled {
+            if matches!(element.kind, ElementKind::Instance { .. })
+                && element.transform.x.is_finite()
+                && element.transform.y.is_finite()
+            {
+                result.extend_with(Pos2::new(
+                    element.transform.x as f32,
+                    element.transform.y as f32,
+                ));
+            }
         }
     }
     result.is_finite().then_some(result)

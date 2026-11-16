@@ -97,14 +97,11 @@ impl Editor {
             .selected_element()
             .cloned()
             .or_else(|| self.selected_sampled())?;
-        let ElementKind::Instance { symbol_id, .. } = &element.kind else {
-            return None;
-        };
-        let symbol = self.project.symbol(symbol_id)?;
-        if !matches!(symbol.kind, SymbolKind::MovieClip | SymbolKind::Button) {
+        let eff_kind = element.effective_symbol_kind(&self.project)?;
+        if !matches!(eff_kind, SymbolKind::MovieClip | SymbolKind::Button) {
             return None;
         }
-        Some((target, element, symbol.kind))
+        Some((target, element, eff_kind))
     }
 
     /// True when Stage `Actions…` (`F9`) is enabled for the current selection (`T-190`).

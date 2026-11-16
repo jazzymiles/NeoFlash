@@ -166,6 +166,8 @@ pub(crate) fn inverse(m: [f64; 6], p: Pos2) -> Option<Pos2> {
         ((-m[1] * x + m[0] * y) / d) as f32,
     ))
 }
+pub(crate) type StageInstanceMarkers = (Vec<(Id, Pos2, bool)>, Vec<(Id, Pos2)>);
+
 fn color(c: Color, alpha: f64, tint: Option<Color32>) -> Color32 {
     let a = (c[3] as f64 * alpha).clamp(0., 255.) as u8;
     if let Some(t) = tint {
@@ -1195,6 +1197,9 @@ impl Editor {
                 if !preview_consumed && !quick_stage_exit {
                     self.remember_empty_stage_click(ui, &p, origin, mapping, &scene, &response);
                 }
+                if !self.playing {
+                    self.paint_stage_instance_markers(&p, origin, mapping, &scene);
+                }
                 self.paint_shape_hints(&p, origin, mapping);
                 self.paint_snap_ring(&p);
                 self.stage_context_menu(&response, &scene, &p, mapping, origin);
@@ -1205,6 +1210,156 @@ impl Editor {
                 self.stage_chrome(ui, rect);
                 self.show_stage_cursor(ctx, rect, ui.layer_id());
             });
+    }
+
+    /// Screen positions of authoring-only `(empty_instance_markers, selected_registration_crosshairs)`
+    /// on the active edited timeline when `!self.playing`. Never emitted into published exports.
+    pub(crate) fn stage_instance_markers(
+        &self,
+        scene: &[DrawItem],
+        origin: Pos2,
+        mapping: StageMapping,
+    ) -> StageInstanceMarkers {
+        if self.playing {
+            return (Vec::new(), Vec::new());
+        }
+        let mut empty_markers = Vec::new();
+        for (target, element) in self.empty_editable_instances(scene) {
+            if !element.transform.x.is_finite() || !element.transform.y.is_finite() {
+                continue;
+            }
+            let center = mapping.edit_to_screen(
+                origin,
+                self.zoom,
+                Pos2::new(element.transform.x as f32, element.transform.y as f32),
+            );
+            let is_selected = self.selection.targets.contains(&target);
+            empty_markers.push((element.id, center, is_selected));
+        }
+        let mut reg_crosshairs = Vec::new();
+        for (_target, element) in self.sampled_targets() {
+            if matches!(element.kind, ElementKind::Instance { .. })
+                && element.transform.x.is_finite()
+                && element.transform.y.is_finite()
+            {
+                let center = mapping.edit_to_screen(
+                    origin,
+                    self.zoom,
+                    Pos2::new(element.transform.x as f32, element.transform.y as f32),
+                );
+                reg_crosshairs.push((element.id, center));
+            }
+        }
+        (empty_markers, reg_crosshairs)
+    }
+
+    fn paint_stage_instance_markers(
+        &self,
+        p: &egui::Painter,
+        origin: Pos2,
+        mapping: StageMapping,
+        scene: &[DrawItem],
+    ) {
+        let (empty_markers, reg_crosshairs) = self.stage_instance_markers(scene, origin, mapping);
+        if empty_markers.is_empty() && reg_crosshairs.is_empty() {
+            return;
+        }
+        let pal = neoflash_ui::palette(p.ctx());
+        let halo_stroke = Stroke::new(2.5_f32, pal.bg_panel.gamma_multiply(0.9));
+        let empty_ids: HashSet<&str> = empty_markers.iter().map(|(id, _, _)| id.as_str()).collect();
+
+        for (_id, center, is_selected) in &empty_markers {
+            let stroke_color = if *is_selected {
+                pal.accent_default
+            } else {
+                pal.text_secondary
+            };
+            let fill_color = if *is_selected {
+                pal.accent_default.gamma_multiply(0.22)
+            } else {
+                pal.bg_panel.gamma_multiply(0.55)
+            };
+            p.line_segment(
+                [
+                    Pos2::new(center.x - 7.5, center.y),
+                    Pos2::new(center.x + 7.5, center.y),
+                ],
+                halo_stroke,
+            );
+            p.line_segment(
+                [
+                    Pos2::new(center.x, center.y - 7.5),
+                    Pos2::new(center.x, center.y + 7.5),
+                ],
+                halo_stroke,
+            );
+            p.circle_filled(*center, 4.5, fill_color);
+            p.circle_stroke(*center, 4.5, Stroke::new(1.0_f32, stroke_color));
+            p.line_segment(
+                [
+                    Pos2::new(center.x - 7.5, center.y),
+                    Pos2::new(center.x + 7.5, center.y),
+                ],
+                Stroke::new(1.0_f32, stroke_color),
+            );
+            p.line_segment(
+                [
+                    Pos2::new(center.x, center.y - 7.5),
+                    Pos2::new(center.x, center.y + 7.5),
+                ],
+                Stroke::new(1.0_f32, stroke_color),
+            );
+        }
+
+        for (id, center) in &reg_crosshairs {
+            if empty_ids.contains(id.as_str()) {
+                // Empty selected instances already painted their accented ○+ registration marker;
+                // reinforce with the ±6.5 pt high-contrast registration crosshair strokes.
+                p.line_segment(
+                    [
+                        Pos2::new(center.x - 6.5, center.y),
+                        Pos2::new(center.x + 6.5, center.y),
+                    ],
+                    Stroke::new(1.25_f32, pal.accent_default),
+                );
+                p.line_segment(
+                    [
+                        Pos2::new(center.x, center.y - 6.5),
+                        Pos2::new(center.x, center.y + 6.5),
+                    ],
+                    Stroke::new(1.25_f32, pal.accent_default),
+                );
+                continue;
+            }
+            p.line_segment(
+                [
+                    Pos2::new(center.x - 6.5, center.y),
+                    Pos2::new(center.x + 6.5, center.y),
+                ],
+                halo_stroke,
+            );
+            p.line_segment(
+                [
+                    Pos2::new(center.x, center.y - 6.5),
+                    Pos2::new(center.x, center.y + 6.5),
+                ],
+                halo_stroke,
+            );
+            p.line_segment(
+                [
+                    Pos2::new(center.x - 6.5, center.y),
+                    Pos2::new(center.x + 6.5, center.y),
+                ],
+                Stroke::new(1.25_f32, pal.accent_default),
+            );
+            p.line_segment(
+                [
+                    Pos2::new(center.x, center.y - 6.5),
+                    Pos2::new(center.x, center.y + 6.5),
+                ],
+                Stroke::new(1.25_f32, pal.accent_default),
+            );
+        }
     }
 
     /// Treat two clean clicks on genuinely empty canvas as the classic one-level exit from symbol
@@ -1748,7 +1903,7 @@ impl Editor {
                 let Some(btn_sym) = self.project.symbol(symbol_id) else {
                     continue;
                 };
-                if btn_sym.kind != SymbolKind::Button {
+                if el.effective_symbol_kind_for(btn_sym) != SymbolKind::Button {
                     continue;
                 }
                 let Some(local_pt) = inverse(transform_matrix(el.transform), stage_point) else {

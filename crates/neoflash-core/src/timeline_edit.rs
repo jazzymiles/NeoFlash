@@ -211,6 +211,7 @@ fn sampled_key(timeline: &Timeline, layer: &Layer, frame: u32, fps: f64) -> Keyf
     }
     if let Some(original) = layer.keyframes.iter().find(|key| key.frame == frame) {
         key.label = original.label.clone();
+        key.label_type = original.label_type;
         key.video = original.video.clone();
     }
     key

@@ -1535,6 +1535,7 @@ mod tests {
                             merge: false,
                             accessibility: None,
                             scripts: vec![],
+                            ..Element::default()
                         }],
                         ..Default::default()
                     });

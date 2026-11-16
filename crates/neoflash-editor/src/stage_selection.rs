@@ -573,8 +573,8 @@ impl Editor {
         let mut world = Rect::NOTHING;
         let mut context_world = Rect::NOTHING;
         let mut local = Rect::NOTHING;
-        let mut per_target: Vec<(&Id, Rect, Rect)> = Vec::with_capacity(selected.len());
-        let mut per_target_idx: HashMap<&Id, usize> = HashMap::with_capacity(selected.len());
+        let mut per_target: Vec<(Id, Rect, Rect)> = Vec::with_capacity(selected.len());
+        let mut per_target_idx: HashMap<Id, usize> = HashMap::with_capacity(selected.len());
         for item in scene {
             let Some(id) = item.instance_path.first() else {
                 continue;
@@ -591,14 +591,34 @@ impl Editor {
                 per_target[idx].1 = per_target[idx].1.union(item_world);
                 per_target[idx].2 = per_target[idx].2.union(item_context);
             } else {
-                per_target_idx.insert(id, per_target.len());
-                per_target.push((id, item_world, item_context));
+                per_target_idx.insert(id.clone(), per_target.len());
+                per_target.push((id.clone(), item_world, item_context));
             }
             if let Some(matrix) = inverse {
                 local = local.union(transformed_rect(
                     rect,
                     affine_multiply(matrix, item.transform),
                 ));
+            }
+        }
+        for (_target, element) in self.sampled_targets() {
+            if selected.contains(&element.id)
+                && !per_target_idx.contains_key(&element.id)
+                && matches!(element.kind, ElementKind::Instance { .. })
+                && element.transform.x.is_finite()
+                && element.transform.y.is_finite()
+            {
+                let pt = Pos2::new(element.transform.x as f32, element.transform.y as f32);
+                let item_world = Rect::from_min_max(pt, pt);
+                let ctx_pt = mapping.edit_to_stage_pos(pt);
+                let item_context = Rect::from_min_max(ctx_pt, ctx_pt);
+                world = world.union(item_world);
+                context_world = context_world.union(item_context);
+                per_target_idx.insert(element.id.clone(), per_target.len());
+                per_target.push((element.id.clone(), item_world, item_context));
+                if inverse.is_some() {
+                    local = local.union(Rect::from_min_max(Pos2::ZERO, Pos2::ZERO));
+                }
             }
         }
         if !world.is_finite() || !context_world.is_finite() {
@@ -669,7 +689,7 @@ impl Editor {
             .into_iter()
             .filter(|(_, local, context)| local.is_finite() && context.is_finite())
         {
-            if let Some(&group_id) = member_to_group.get(id) {
+            if let Some(&group_id) = member_to_group.get(&id) {
                 if let Some(&idx) = group_box_idx.get(group_id) {
                     boxes[idx].1 = boxes[idx].1.union(local);
                     boxes[idx].2 = boxes[idx].2.union(context);
@@ -685,10 +705,10 @@ impl Editor {
                 }
             } else {
                 let (kind, is_merge) = kinds
-                    .get(id)
+                    .get(&id)
                     .copied()
                     .unwrap_or((cv::SelectionKind::Group, false));
-                boxes.push((id.clone(), local, context, kind, is_merge));
+                boxes.push((id, local, context, kind, is_merge));
             }
         }
         let world_pivot = if let Some(initial) = initial
@@ -728,28 +748,87 @@ impl Editor {
         point: Pos2,
         mapping: StageMapping,
     ) -> Option<SelectionTarget> {
-        let eligible: HashMap<_, _> = self
-            .editable_targets()
-            .into_iter()
-            .map(|target| (target.element.clone(), target))
-            .collect();
-        let authored = self.presented_interactive_authored_scene(self.show_layer_masking(p.ctx()));
-        let pick_with_slop = |slop: f32| {
-            scene.iter().rev().find_map(|item| {
-                let target = eligible.get(item.instance_path.first()?)?;
-                let mut mapped = item.clone();
-                mapped.transform = mapping.map_matrix(mapped.transform);
-                let context_point = mapping.edit_to_stage_pos(point);
-                (authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64])
-                    && crate::stage::hit_item_with_slop(&mapped, p, context_point, self.zoom, slop))
-                .then(|| target.clone())
-            })
-        };
-        if let Some(exact) = pick_with_slop(0.0) {
-            return Some(exact);
+        const EMPTY_INSTANCE_HIT_RADIUS_PT: f32 = 9.0;
+        let editable = self.editable_targets();
+        let eligible: HashSet<&str> = editable.iter().map(|t| t.element.as_str()).collect();
+        let mut items_by_root: HashMap<&str, Vec<&DrawItem>> = HashMap::new();
+        for item in scene {
+            if let Some(root_id) = item.instance_path.first()
+                && eligible.contains(root_id.as_str())
+            {
+                items_by_root
+                    .entry(root_id.as_str())
+                    .or_default()
+                    .push(item);
+            }
         }
+        let empty_map: HashMap<Id, Element> = if self.playing {
+            HashMap::new()
+        } else {
+            self.empty_editable_instances(scene)
+                .into_iter()
+                .map(|(t, el)| (t.element, el))
+                .collect()
+        };
+        let authored = self.presented_interactive_authored_scene(self.show_layer_masking(p.ctx()));
+        let context_point = mapping.edit_to_stage_pos(point);
+        let zoom = self.zoom.max(0.01);
+
+        for target in editable.iter().rev() {
+            if let Some(items) = items_by_root.get(target.element.as_str()) {
+                let hit = items.iter().rev().any(|item| {
+                    let mut mapped = (*item).clone();
+                    mapped.transform = mapping.map_matrix(mapped.transform);
+                    authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64])
+                        && crate::stage::hit_item_with_slop(
+                            &mapped,
+                            p,
+                            context_point,
+                            self.zoom,
+                            0.0,
+                        )
+                });
+                if hit {
+                    return Some(target.clone());
+                }
+            } else if let Some(empty_el) = empty_map.get(&target.element)
+                && empty_el.transform.x.is_finite()
+                && empty_el.transform.y.is_finite()
+            {
+                let marker_ctx = mapping.edit_to_stage_pos(Pos2::new(
+                    empty_el.transform.x as f32,
+                    empty_el.transform.y as f32,
+                ));
+                if (marker_ctx - context_point).length() * zoom <= EMPTY_INSTANCE_HIT_RADIUS_PT {
+                    return Some(target.clone());
+                }
+            }
+        }
+
         let slop = self.workspace.drawing.click_accuracy.click_slop_px();
-        (slop > 0.0).then(|| pick_with_slop(slop)).flatten()
+        if slop > 0.0 {
+            for target in editable.iter().rev() {
+                if let Some(items) = items_by_root.get(target.element.as_str()) {
+                    let hit = items.iter().rev().any(|item| {
+                        let mut mapped = (*item).clone();
+                        mapped.transform = mapping.map_matrix(mapped.transform);
+                        authored
+                            .contains_point(&item.instance_path, [point.x as f64, point.y as f64])
+                            && crate::stage::hit_item_with_slop(
+                                &mapped,
+                                p,
+                                context_point,
+                                self.zoom,
+                                slop,
+                            )
+                    });
+                    if hit {
+                        return Some(target.clone());
+                    }
+                }
+            }
+        }
+        None
     }
 
     pub(crate) fn pick_reshape_target(
@@ -976,6 +1055,24 @@ impl Editor {
                 } else {
                     indices.insert(id.clone(), candidates.len());
                     candidates.push((target.clone(), rect));
+                }
+            }
+            for (empty_target, empty_el) in self.empty_editable_instances(scene) {
+                if eligible.contains_key(&empty_target.element)
+                    && !indices.contains_key(&empty_target.element)
+                    && empty_el.transform.x.is_finite()
+                    && empty_el.transform.y.is_finite()
+                {
+                    let marker_screen = gesture.scope.mapping.edit_to_screen(
+                        gesture.scope.origin,
+                        gesture.scope.zoom,
+                        Pos2::new(empty_el.transform.x as f32, empty_el.transform.y as f32),
+                    );
+                    indices.insert(empty_target.element.clone(), candidates.len());
+                    candidates.push((
+                        empty_target,
+                        Rect::from_min_max(marker_screen, marker_screen),
+                    ));
                 }
             }
             targets.extend(
@@ -2291,7 +2388,10 @@ impl Editor {
                                 }
                             }
                         }
-                    } else {
+                    } else if !(rect.width() <= 1e-3
+                        && rect.height() <= 1e-3
+                        && *kind == cv::SelectionKind::Symbol)
+                    {
                         cv::paint_selection_box(p, p.ctx(), rect, *kind);
                         if *kind == cv::SelectionKind::TextDynamic
                             && let Some(items) = items_by_root.get(id)

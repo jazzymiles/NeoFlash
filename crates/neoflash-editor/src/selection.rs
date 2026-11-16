@@ -28,11 +28,51 @@ impl Selection {
 }
 
 impl Editor {
-    fn layer_is_selectable(&self, layer: &Layer) -> bool {
+    pub(crate) fn layer_is_selectable(&self, layer: &Layer) -> bool {
         layer.properties.role != LayerRole::Folder
             && layer_effectively_visible(&self.symbol().timeline, layer)
             && !layer_effectively_locked(&self.symbol().timeline, layer)
             && self.is_layer_id_effectively_soloed(&layer.id)
+    }
+
+    /// Editable `ElementKind::Instance` placements on the active timeline at `self.frame` that
+    /// produced 0 visible `DrawItem`s in `scene`, in bottom-to-top painter order.
+    pub(crate) fn empty_editable_instances(
+        &self,
+        scene: &[DrawItem],
+    ) -> Vec<(SelectionTarget, Element)> {
+        let non_empty: HashSet<&str> = scene
+            .iter()
+            .filter_map(|item| item.instance_path.first().map(String::as_str))
+            .collect();
+        let sym = self.symbol();
+        let count = sym.timeline.frame_count;
+        let fps = f64::from(self.project.fps);
+        let mut out = Vec::new();
+        for layer in &sym.timeline.layers {
+            if !self.layer_is_selectable(layer) || layer.properties.role == LayerRole::Guide {
+                continue;
+            }
+            let layer_end = layer.properties.end_frame.unwrap_or(count).min(count);
+            if self.frame >= layer_end {
+                continue;
+            }
+            for element in sample_layer_in_at_fps(&sym.timeline, layer, self.frame, fps) {
+                if element.visible
+                    && matches!(element.kind, ElementKind::Instance { .. })
+                    && !non_empty.contains(element.id.as_str())
+                {
+                    out.push((
+                        SelectionTarget {
+                            layer: layer.id.clone(),
+                            element: element.id.clone(),
+                        },
+                        element,
+                    ));
+                }
+            }
+        }
+        out
     }
 
     fn element_in_edit_scope<'a>(&self, layer: &'a Layer, id: &str) -> Option<&'a Element> {

@@ -144,11 +144,12 @@ impl Editor {
         &mut self,
         ui: &mut egui::Ui,
         symbol_id: &str,
+        effective_kind: SymbolKind,
         playback: &mut InstancePlayback,
     ) -> Option<egui::Id> {
         let symbol = self.project.symbol(symbol_id)?;
         let count = symbol.timeline.frame_count.max(1);
-        let kind = symbol.kind;
+        let kind = effective_kind;
         property_row(ui, "Type", |ui| {
             ui.label(match kind {
                 SymbolKind::MovieClip => "Movie Clip",
@@ -324,7 +325,7 @@ impl Editor {
                     return None;
                 };
                 let sym = self.project.symbol(symbol_id)?;
-                if sym.kind == SymbolKind::Button {
+                if element.effective_symbol_kind_for(sym) == SymbolKind::Button {
                     return None;
                 }
                 let max_first = sym.timeline.frame_count.max(1).saturating_sub(1);
@@ -375,6 +376,71 @@ impl Editor {
                 }
             }
         });
+        true
+    }
+
+    /// Set the per-instance `SymbolKind` behavior (`MovieClip` | `Graphic` | `Button`) on editable
+    /// selected `ElementKind::Instance` placements at the current frame in one Undo step, normalizing
+    /// `InstancePlayback` without mutating the Library `Symbol.kind`.
+    pub(crate) fn set_selected_instance_behavior(&mut self, next_kind: SymbolKind) -> bool {
+        let updates: Vec<_> = self
+            .sampled_targets()
+            .into_iter()
+            .filter_map(|(target, element)| {
+                if !self.target_editable(&target) {
+                    return None;
+                }
+                let ElementKind::Instance {
+                    symbol_id,
+                    playback,
+                } = &element.kind
+                else {
+                    return None;
+                };
+                let sym = self.project.symbol(symbol_id)?;
+                let cur_eff = element.effective_symbol_kind_for(sym);
+                let next_override = (next_kind != sym.kind).then_some(next_kind);
+                let next_playback = match next_kind {
+                    SymbolKind::MovieClip => InstancePlayback::Independent,
+                    SymbolKind::Graphic => InstancePlayback::Loop,
+                    SymbolKind::Button => InstancePlayback::SingleFrame(0),
+                };
+                if cur_eff == next_kind
+                    && element.instance_behavior == next_override
+                    && *playback == next_playback
+                {
+                    return None;
+                }
+                Some((target, next_override, next_playback))
+            })
+            .collect();
+        if updates.is_empty() {
+            return false;
+        }
+        self.finish_edits();
+        self.transact_named("Change instance behavior", move |s| {
+            for (target, next_override, next_playback) in updates {
+                s.ensure_key_for(&target.layer, false);
+                let frame = s.frame;
+                if let Some(layer) = s
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == target.layer)
+                    && let Some(element) = layer
+                        .key_at_mut(frame)
+                        .and_then(|k| k.elements.iter_mut().find(|e| e.id == target.element))
+                {
+                    element.instance_behavior = next_override;
+                    if let ElementKind::Instance { playback, .. } = &mut element.kind {
+                        *playback = next_playback;
+                    }
+                }
+            }
+            s.project.upgrade_format_for_features();
+        });
+        self.sync_active_actions_context();
         true
     }
 
@@ -512,7 +578,7 @@ impl Editor {
                 }
                 match &element.kind {
                     ElementKind::Instance { symbol_id, .. } if symbol_id != target_symbol_id => {
-                        let old_kind = self.project.symbol(symbol_id).map(|s| s.kind);
+                        let old_kind = element.effective_symbol_kind(&self.project);
                         Some((target, old_kind))
                     }
                     _ => None,
@@ -550,8 +616,16 @@ impl Editor {
                         playback,
                     } = &mut element.kind
                 {
-                    *playback =
-                        adapt_swapped_playback(*playback, old_kind, target_kind, target_frames);
+                    let effective_target = element.instance_behavior.unwrap_or(target_kind);
+                    *playback = adapt_swapped_playback(
+                        *playback,
+                        old_kind,
+                        effective_target,
+                        target_frames,
+                    );
+                    if element.instance_behavior == Some(target_kind) {
+                        element.instance_behavior = None;
+                    }
                     *symbol_id = target_symbol_id.to_owned();
                 }
             }
@@ -723,20 +797,35 @@ impl Editor {
                 for key in &mut layer.keyframes {
                     for element in &mut key.elements {
                         if target_element_ids.contains(&element.id)
-                            && let ElementKind::Instance {
+                            && matches!(
+                                &element.kind,
+                                ElementKind::Instance { symbol_id, .. } if symbol_id != target_symbol_id
+                            )
+                        {
+                            let old_kind = match &element.kind {
+                                ElementKind::Instance { symbol_id, .. } => element
+                                    .instance_behavior
+                                    .or_else(|| symbol_kinds.get(symbol_id).copied()),
+                                _ => None,
+                            };
+                            let effective_target =
+                                element.instance_behavior.unwrap_or(target_kind);
+                            if element.instance_behavior == Some(target_kind) {
+                                element.instance_behavior = None;
+                            }
+                            if let ElementKind::Instance {
                                 symbol_id,
                                 playback,
                             } = &mut element.kind
-                            && symbol_id != target_symbol_id
-                        {
-                            let old_kind = symbol_kinds.get(symbol_id).copied();
-                            *playback = adapt_swapped_playback(
-                                *playback,
-                                old_kind,
-                                target_kind,
-                                target_frames,
-                            );
-                            *symbol_id = target_symbol_id.to_owned();
+                            {
+                                *playback = adapt_swapped_playback(
+                                    *playback,
+                                    old_kind,
+                                    effective_target,
+                                    target_frames,
+                                );
+                                *symbol_id = target_symbol_id.to_owned();
+                            }
                         }
                     }
                 }
@@ -753,7 +842,7 @@ impl Editor {
         let Some(selected_id) = self.selection.single().map(|t| &t.element) else {
             return Vec::new();
         };
-        let Some(sym_id) = self
+        let Some((sym_id, eff_kind)) = self
             .symbol()
             .timeline
             .layers
@@ -761,7 +850,9 @@ impl Editor {
             .and_then(|l| l.key_at(self.frame))
             .and_then(|k| k.elements.iter().find(|e| &e.id == selected_id))
             .and_then(|e| match &e.kind {
-                ElementKind::Instance { symbol_id, .. } => Some(symbol_id.as_str()),
+                ElementKind::Instance { symbol_id, .. } => {
+                    Some((symbol_id.as_str(), e.effective_symbol_kind(&self.project)))
+                }
                 _ => None,
             })
         else {
@@ -770,7 +861,7 @@ impl Editor {
         let Some(sym) = self
             .project
             .symbol(sym_id)
-            .filter(|s| s.kind == SymbolKind::Graphic)
+            .filter(|_| eff_kind == Some(SymbolKind::Graphic))
         else {
             return Vec::new();
         };
@@ -807,7 +898,7 @@ impl Editor {
         };
         let layer_idx = self.layer;
         let frame = self.frame;
-        let Some((sym_id, base_elements)) = self
+        let Some((sym_id, eff_kind, base_elements)) = self
             .symbol()
             .timeline
             .layers
@@ -816,9 +907,11 @@ impl Editor {
             .and_then(|k| {
                 let el = k.elements.iter().find(|e| e.id == selected_id)?;
                 match &el.kind {
-                    ElementKind::Instance { symbol_id, .. } => {
-                        Some((symbol_id.clone(), k.elements.clone()))
-                    }
+                    ElementKind::Instance { symbol_id, .. } => Some((
+                        symbol_id.clone(),
+                        el.effective_symbol_kind(&self.project),
+                        k.elements.clone(),
+                    )),
                     _ => None,
                 }
             })
@@ -828,7 +921,7 @@ impl Editor {
         let Some(count) = self
             .project
             .symbol(&sym_id)
-            .filter(|s| s.kind == SymbolKind::Graphic)
+            .filter(|_| eff_kind == Some(SymbolKind::Graphic))
             .map(|s| s.timeline.frame_count.max(1))
         else {
             return false;

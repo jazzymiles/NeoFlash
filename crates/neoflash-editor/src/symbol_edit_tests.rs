@@ -835,3 +835,326 @@ fn t318_nested_edit_in_place_library_mutations_scene_delete_and_undo_never_dangl
         "current_matrix must remain invertible after normalization"
     );
 }
+
+#[test]
+fn t359_t360_convert_to_symbol_all_registrations_empty_clip_stage_marker_selection_and_edit_flow() {
+    use crate::app::Tool;
+    use crate::stage_mapping::StageMapping;
+    use crate::tests::{primary_button, rectangle_stage, stage_input_frame};
+    use neoflash_core::{
+        FilterSpec, ObjectEvent, ObjectScript, Script, ScriptLanguage, SymbolKind, evaluate,
+    };
+
+    // Part A: All 9 registration grid points (0..9) on a rotated, scaled, filtered, scripted single element.
+    let ctx = egui::Context::default();
+    let painter = ctx.layer_painter(egui::LayerId::background());
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let root_id = editor.project.root.clone();
+    editor.add_element_transformed(
+        ElementKind::Rectangle {
+            width: 100.0,
+            height: 80.0,
+            fill: [40, 120, 220, 255],
+            stroke: [10, 20, 40, 255],
+            stroke_width: 2.0,
+        },
+        Transform {
+            x: 200.0,
+            y: 150.0,
+            scale_x: 1.5,
+            scale_y: 0.8,
+            rotation: 35.0,
+            alpha: 0.7,
+            ..Transform::default()
+        },
+    );
+    editor.transact_named("Attach filter & script", |ed| {
+        let el = ed.selected_element_mut().unwrap();
+        el.name = "custom_shape".into();
+        el.filters.push(FilterSpec::Blur {
+            blur_x: 4.0,
+            blur_y: 4.0,
+            quality: 1,
+        });
+        el.scripts.push(ObjectScript {
+            event: ObjectEvent::Load,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "trace('loaded');".into(),
+            },
+        });
+    });
+
+    for reg in 0..9usize {
+        let snap_before = editor.project.clone();
+        let before_draws = evaluate(&editor.project, &root_id, 0);
+        editor.convert_to_symbol();
+        let mut draft = editor.symbol_conversion.take().unwrap();
+        draft.registration = reg;
+        draft.set_name(format!("ClipReg{reg}"));
+        draft.export_enabled = true;
+        let bounds = crate::symbol_dialog::conversion_bounds(&editor, &draft, &painter).unwrap();
+        let expected_anchor = egui::pos2(
+            bounds.left() + bounds.width() * (reg % 3) as f32 / 2.0,
+            bounds.top() + bounds.height() * (reg / 3) as f32 / 2.0,
+        );
+        editor.commit_symbol_conversion(&draft, bounds).unwrap();
+        editor.project.validate().unwrap();
+
+        let inst = editor.selected_element().unwrap();
+        assert_eq!(
+            inst.name, "",
+            "Convert to Symbol never copies Symbol.name into Instance.name"
+        );
+        assert!((inst.transform.x - f64::from(expected_anchor.x)).abs() < 1e-6);
+        assert!((inst.transform.y - f64::from(expected_anchor.y)).abs() < 1e-6);
+        assert_eq!(inst.transform.rotation, 0.0);
+        assert_eq!(inst.transform.scale_x, 1.0);
+        assert_eq!(inst.transform.scale_y, 1.0);
+        assert!((inst.transform.alpha - 0.7).abs() < 1e-9);
+        assert_eq!(inst.filters.len(), 1);
+        assert_eq!(inst.scripts.len(), 1);
+
+        let ElementKind::Instance { symbol_id, .. } = &inst.kind else {
+            panic!("expected Instance");
+        };
+        let created_sym = editor.project.symbol(symbol_id).unwrap();
+        assert_eq!(
+            created_sym.linkage_id.as_deref(),
+            Some(format!("ClipReg{reg}").as_str())
+        );
+
+        let after_draws = evaluate(&editor.project, &root_id, 0);
+        assert_eq!(before_draws.len(), after_draws.len());
+        for (b, a) in before_draws.iter().zip(&after_draws) {
+            assert_eq!(b.kind, a.kind);
+            assert!((b.alpha - a.alpha).abs() < 1e-9);
+            assert_matrix_close(a.transform, b.transform);
+        }
+
+        editor.undo();
+        assert_eq!(editor.project, snap_before);
+    }
+
+    // Part B: Exact Stage flow — MovieClip at (200, 150) -> delete contents -> empty ○+ marker,
+    // click/marquee/Lasso/drag/double-click Edit in Place -> Library isolated 50x50 square at (20, 30) -> (220, 180)!
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.set_tool(Tool::Select);
+    let root_id = editor.project.root.clone();
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 100.0,
+            height: 80.0,
+            fill: [220, 80, 40, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        200.0,
+        150.0,
+    );
+    editor.convert_to_symbol();
+    let mut draft = editor.symbol_conversion.take().unwrap();
+    draft.registration = 0; // Top-left registration -> exact (200, 150)
+    draft.kind = SymbolKind::MovieClip;
+    draft.set_name("ContainerClip");
+    let painter = ctx.layer_painter(egui::LayerId::background());
+    let bounds = crate::symbol_dialog::conversion_bounds(&editor, &draft, &painter).unwrap();
+    editor.commit_symbol_conversion(&draft, bounds).unwrap();
+
+    let mc_inst_id = editor.selected_element().unwrap().id.clone();
+    let mc_sym_id = match &editor.selected_element().unwrap().kind {
+        ElementKind::Instance { symbol_id, .. } => symbol_id.clone(),
+        _ => panic!("expected Instance"),
+    };
+    assert_eq!(editor.selected_element().unwrap().name, "");
+    assert!((editor.selected_element().unwrap().transform.x - 200.0).abs() < 1e-6);
+    assert!((editor.selected_element().unwrap().transform.y - 150.0).abs() < 1e-6);
+
+    // Selected non-empty MovieClip paints its + registration crosshair at (200, 150).
+    let scene_non_empty = evaluate(&editor.project, &root_id, 0);
+    let (empty_m, reg_m) =
+        editor.stage_instance_markers(&scene_non_empty, page.min, StageMapping::identity());
+    assert!(empty_m.is_empty());
+    assert_eq!(reg_m.len(), 1);
+    assert!((reg_m[0].1 - (page.min + egui::vec2(200.0, 150.0))).length() < 1e-3);
+
+    // Enter & delete contents -> exit to Stage.
+    assert!(editor.enter_selected_symbol_in_place());
+    editor.select_all();
+    editor.delete_selected();
+    editor.leave_symbol_to_level(0);
+    editor.clear_selection();
+
+    let scene_empty = evaluate(&editor.project, &root_id, 0);
+    assert!(scene_empty.is_empty(), "empty MovieClip emits 0 DrawItems");
+    let (empty_m, _) =
+        editor.stage_instance_markers(&scene_empty, page.min, StageMapping::identity());
+    assert_eq!(empty_m.len(), 1);
+    assert_eq!(empty_m[0].0, mc_inst_id);
+    assert!(!empty_m[0].2, "unselected empty marker");
+    let marker_screen = page.min + egui::vec2(200.0, 150.0);
+    assert!((empty_m[0].1 - marker_screen).length() < 1e-3);
+
+    // Authoring marker is suppressed while playing.
+    editor.playing = true;
+    assert!(
+        editor
+            .stage_instance_markers(&scene_empty, page.min, StageMapping::identity())
+            .0
+            .is_empty()
+    );
+    editor.playing = false;
+
+    // 1. Click hit-test within 9 pt of ○+ marker selects the empty MovieClip.
+    let click_pt = marker_screen + egui::vec2(5.0, -3.0);
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        1.0,
+        vec![
+            egui::Event::PointerMoved(click_pt),
+            primary_button(click_pt, true),
+        ],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        1.05,
+        vec![primary_button(click_pt, false)],
+    );
+    assert_eq!(
+        editor.selection.single().map(|t| t.element.as_str()),
+        Some(mc_inst_id.as_str()),
+        "click within 9 pt selects empty MovieClip"
+    );
+
+    // 2. Marquee containing marker center selects the empty MovieClip.
+    editor.clear_selection();
+    let m0 = marker_screen - egui::vec2(15.0, 15.0);
+    let m1 = marker_screen + egui::vec2(15.0, 15.0);
+    let _ = stage_input_frame(&mut editor, &ctx, 2.0, vec![primary_button(m0, true)]);
+    let _ = stage_input_frame(&mut editor, &ctx, 2.05, vec![egui::Event::PointerMoved(m1)]);
+    let _ = stage_input_frame(&mut editor, &ctx, 2.10, vec![primary_button(m1, false)]);
+    assert_eq!(
+        editor.selection.single().map(|t| t.element.as_str()),
+        Some(mc_inst_id.as_str()),
+        "marquee selects empty MovieClip"
+    );
+
+    // 3. Lasso containing marker center selects the empty MovieClip.
+    editor.clear_selection();
+    editor.set_tool(Tool::Lasso);
+    let l0 = marker_screen + egui::vec2(-16.0, -16.0);
+    let l1 = marker_screen + egui::vec2(16.0, -16.0);
+    let l2 = marker_screen + egui::vec2(16.0, 16.0);
+    let l3 = marker_screen + egui::vec2(-16.0, 16.0);
+    let _ = stage_input_frame(&mut editor, &ctx, 3.0, vec![primary_button(l0, true)]);
+    let _ = stage_input_frame(&mut editor, &ctx, 3.03, vec![egui::Event::PointerMoved(l1)]);
+    let _ = stage_input_frame(&mut editor, &ctx, 3.06, vec![egui::Event::PointerMoved(l2)]);
+    let _ = stage_input_frame(&mut editor, &ctx, 3.09, vec![egui::Event::PointerMoved(l3)]);
+    let _ = stage_input_frame(&mut editor, &ctx, 3.12, vec![primary_button(l3, false)]);
+    assert_eq!(
+        editor.selection.single().map(|t| t.element.as_str()),
+        Some(mc_inst_id.as_str()),
+        "Lasso selects empty MovieClip"
+    );
+
+    // 4. Drag-move empty MovieClip on Stage (+30, +20), then Undo back to (200, 150).
+    editor.set_tool(Tool::Select);
+    editor.stage_view.prefs.grid_snap = false;
+    editor.stage_view.prefs.guides_snap = false;
+    let drag_to = marker_screen + egui::vec2(30.0, 20.0);
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        4.0,
+        vec![primary_button(marker_screen, true)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        4.05,
+        vec![egui::Event::PointerMoved(drag_to)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        4.10,
+        vec![primary_button(drag_to, false)],
+    );
+    assert!((editor.selected_element().unwrap().transform.x - 230.0).abs() < 1e-4);
+    assert!((editor.selected_element().unwrap().transform.y - 170.0).abs() < 1e-4);
+    editor.undo();
+    assert!((editor.selected_element().unwrap().transform.x - 200.0).abs() < 1e-4);
+    assert!((editor.selected_element().unwrap().transform.y - 150.0).abs() < 1e-4);
+
+    // 5. Double-clicking empty MovieClip marker on Stage enters Edit in Place!
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        5.0,
+        vec![
+            egui::Event::PointerMoved(marker_screen),
+            primary_button(marker_screen, true),
+        ],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        5.05,
+        vec![primary_button(marker_screen, false)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        5.12,
+        vec![primary_button(marker_screen, true)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        5.16,
+        vec![primary_button(marker_screen, false)],
+    );
+    assert_eq!(
+        editor.edit_depth(),
+        2,
+        "double-click enters Edit in Place on empty MovieClip"
+    );
+    assert_eq!(editor.symbol_id(), mc_sym_id);
+    editor.leave_symbol_to_level(0);
+
+    // 6. Enter via Library & draw a 50x50 square at (20, 30) -> back on Stage, X=200, Y=150, square at (220, 180)!
+    editor.enter_symbol_isolated(mc_sym_id.clone());
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 50.0,
+            height: 50.0,
+            fill: [30, 180, 90, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        20.0,
+        30.0,
+    );
+    editor.leave_symbol_to_level(0);
+    editor.select_single_id(mc_inst_id.clone());
+
+    let inst_after = editor.selected_element().unwrap();
+    assert!((inst_after.transform.x - 200.0).abs() < 1e-6);
+    assert!((inst_after.transform.y - 150.0).abs() < 1e-6);
+    let draws = evaluate(&editor.project, &root_id, 0);
+    assert_eq!(draws.len(), 1);
+    assert!((draws[0].transform[4] - 220.0).abs() < 1e-6);
+    assert!((draws[0].transform[5] - 180.0).abs() < 1e-6);
+    let (_, reg_after) = editor.stage_instance_markers(&draws, page.min, StageMapping::identity());
+    assert_eq!(reg_after.len(), 1);
+    assert!((reg_after[0].1 - marker_screen).length() < 1e-3);
+
+    // Part C: Placing from Library onto Stage leaves element.name == "".
+    editor
+        .place_library_symbol(&ctx, &mc_sym_id, Some([320.0, 240.0]))
+        .unwrap();
+    assert_eq!(editor.selected_element().unwrap().name, "");
+    editor.project.validate().unwrap();
+}

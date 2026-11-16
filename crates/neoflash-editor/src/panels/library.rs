@@ -725,6 +725,37 @@ impl Editor {
             if kind == SymbolKind::Button {
                 sym.timeline.frame_count = sym.timeline.frame_count.max(4);
             }
+            for owner in &mut candidate.symbols {
+                for element in owner
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .flat_map(|layer| &mut layer.keyframes)
+                    .flat_map(|key| &mut key.elements)
+                {
+                    let matches_sym = matches!(
+                        &element.kind,
+                        ElementKind::Instance { symbol_id, .. } if symbol_id == id
+                    );
+                    if !matches_sym {
+                        continue;
+                    }
+                    if element.instance_behavior == Some(kind) {
+                        element.instance_behavior = None;
+                    } else if element.instance_behavior.is_none()
+                        && let ElementKind::Instance { playback, .. } = &mut element.kind
+                    {
+                        *playback = match kind {
+                            SymbolKind::MovieClip => InstancePlayback::Independent,
+                            SymbolKind::Button => InstancePlayback::SingleFrame(0),
+                            SymbolKind::Graphic => match *playback {
+                                InstancePlayback::Independent => InstancePlayback::Loop,
+                                other => other,
+                            },
+                        };
+                    }
+                }
+            }
             changed += 1;
         }
         if changed > 0 {
@@ -2992,8 +3023,17 @@ impl Editor {
                             if kind != before {
                                 for owner in &mut candidate.symbols {
                                     for element in owner.timeline.layers.iter_mut().flat_map(|layer| &mut layer.keyframes).flat_map(|key| &mut key.elements) {
-                                        if let ElementKind::Instance { symbol_id, playback } = &mut element.kind
-                                            && symbol_id.as_str() == id.as_str()
+                                        let matches_sym = matches!(
+                                            &element.kind,
+                                            ElementKind::Instance { symbol_id, .. } if symbol_id.as_str() == id.as_str()
+                                        );
+                                        if !matches_sym {
+                                            continue;
+                                        }
+                                        if element.instance_behavior == Some(kind) {
+                                            element.instance_behavior = None;
+                                        } else if element.instance_behavior.is_none()
+                                            && let ElementKind::Instance { playback, .. } = &mut element.kind
                                         {
                                             *playback = match kind {
                                                 SymbolKind::MovieClip => InstancePlayback::Independent,

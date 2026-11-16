@@ -762,7 +762,7 @@ fn classic_orient_and_snap_controls_follow_guide_state_and_commit_one_undo() {
                     },
                 )
             };
-            for label in ["Orient to path", "Snap to motion guide"] {
+            for label in ["Orient to path", "Snap"] {
                 let output = render(&mut editor, vec![]);
                 let node = &output
                     .platform_output

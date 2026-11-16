@@ -458,13 +458,17 @@ impl AuthoredPlayback {
             let Some(node) = self.player.previous.get(prefix) else {
                 continue;
             };
-            if node
-                .symbol_id
-                .as_deref()
-                .and_then(|id| project.symbol(id))
-                .is_some_and(|s| s.kind == SymbolKind::Button)
-            {
+            let effective_kind = node.symbol_kind.or_else(|| {
+                node.symbol_id
+                    .as_deref()
+                    .and_then(|id| project.symbol(id))
+                    .map(|s| s.kind)
+            });
+            if effective_kind == Some(SymbolKind::Button) {
                 return Some(prefix.to_vec());
+            }
+            if effective_kind == Some(SymbolKind::Graphic) {
+                continue;
             }
             if node
                 .scripts
@@ -507,7 +511,7 @@ impl AuthoredPlayback {
             let Some(sym) = project.symbol(sym_id) else {
                 continue;
             };
-            if sym.kind != SymbolKind::Button {
+            if node.symbol_kind.unwrap_or(sym.kind) != SymbolKind::Button {
                 continue;
             }
             if (1..=node.path.len()).any(|len| {
@@ -1524,9 +1528,15 @@ impl AuthoredPlayback {
         self.player
             .previous
             .get(path)
-            .and_then(|n| n.symbol_id.as_deref())
-            .and_then(|id| project.symbol(id))
-            .is_some_and(|s| s.kind == SymbolKind::Button)
+            .and_then(|n| {
+                n.symbol_kind.or_else(|| {
+                    n.symbol_id
+                        .as_deref()
+                        .and_then(|id| project.symbol(id))
+                        .map(|s| s.kind)
+                })
+            })
+            .is_some_and(|kind| kind == SymbolKind::Button)
     }
 
     /// Classic Flash (`T-240`): `on(...)` on a `Button` executes in its parent MovieClip's timeline
@@ -1784,7 +1794,7 @@ impl AuthoredPlayback {
             if !self.player.scenes().is_empty()
                 && let Some(root_sym) = project.symbol(&self.symbol)
             {
-                let labels = crate::scenes::timeline_labels(&root_sym.timeline);
+                let labels = root_sym.timeline.navigable_labels();
                 let frame = match frame_val.trim().parse::<f64>() {
                     Ok(num) => crate::scenes::GotoFrame::Number(num),
                     Err(_) => crate::scenes::GotoFrame::Label(frame_val.trim().to_owned()),
@@ -1852,7 +1862,7 @@ impl AuthoredPlayback {
             .layers
             .iter()
             .flat_map(|l| &l.keyframes)
-            .find(|k| !k.label.is_empty() && k.label.as_str() == label)
+            .find(|k| k.is_navigable_label() && k.label.as_str() == label)
             .map(|k| k.frame)
     }
 

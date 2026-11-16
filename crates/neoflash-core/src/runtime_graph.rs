@@ -893,7 +893,7 @@ impl Player {
             .iter()
             .filter_map(|node| {
                 let symbol = node.symbol_id.as_ref().and_then(|id| project.symbol(id))?;
-                (symbol.kind == SymbolKind::Button)
+                (node.symbol_kind.unwrap_or(symbol.kind) == SymbolKind::Button)
                     .then(|| {
                         self.object_ref(&node.path)
                             .map(|id| (id, symbol.id.clone()))
@@ -939,7 +939,7 @@ impl Player {
             });
             for node in source.nodes {
                 if let Some(symbol) = node.symbol_id.as_ref().and_then(|id| project.symbol(id))
-                    && symbol.kind == SymbolKind::Button
+                    && node.symbol_kind.unwrap_or(symbol.kind) == SymbolKind::Button
                     && let Some(reference) = self.graph.linked_ref(namespace, &node.path)
                 {
                     button_symbols.insert(reference, symbol.id.clone());
@@ -2528,19 +2528,17 @@ impl Player {
     fn button_symbol_id(&self, project: &Project, reference: &ObjectRef) -> Option<Id> {
         if let Some(address) = self.graph.source_address(reference) {
             let scope = self.graph.namespaces.get(&address.namespace)?;
-            let sym_id = scope
-                .player
-                .previous
-                .get(&address.path)?
-                .symbol_id
-                .as_ref()?;
+            let node = scope.player.previous.get(&address.path)?;
+            let sym_id = node.symbol_id.as_ref()?;
             let sym = project.symbol(sym_id)?;
-            return (sym.kind == SymbolKind::Button).then(|| sym.id.clone());
+            return (node.symbol_kind.unwrap_or(sym.kind) == SymbolKind::Button)
+                .then(|| sym.id.clone());
         }
         let path = self.graph.paths.get(reference)?;
-        let sym_id = self.previous.get(path)?.symbol_id.as_ref()?;
+        let node = self.previous.get(path)?;
+        let sym_id = node.symbol_id.as_ref()?;
         let sym = project.symbol(sym_id)?;
-        (sym.kind == SymbolKind::Button).then(|| sym.id.clone())
+        (node.symbol_kind.unwrap_or(sym.kind) == SymbolKind::Button).then(|| sym.id.clone())
     }
 
     fn is_button_object(&self, project: &Project, reference: &ObjectRef) -> bool {

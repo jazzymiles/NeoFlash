@@ -1172,6 +1172,7 @@ fn parse_fxg_node_into_elements(
             blend_mode,
             filters,
             merge: false,
+            instance_behavior: None,
         });
         return;
     }
@@ -1278,6 +1279,7 @@ fn parse_fxg_node_into_elements(
                 blend_mode,
                 filters,
                 merge: false,
+                instance_behavior: None,
             });
         }
         "Ellipse" => {
@@ -1327,6 +1329,7 @@ fn parse_fxg_node_into_elements(
                 blend_mode,
                 filters,
                 merge: false,
+                instance_behavior: None,
             });
         }
         "Line" => {
@@ -1394,6 +1397,7 @@ fn parse_fxg_node_into_elements(
                 blend_mode,
                 filters,
                 merge: false,
+                instance_behavior: None,
             });
         }
         "Path" => {
@@ -1477,6 +1481,7 @@ fn parse_fxg_node_into_elements(
                     blend_mode,
                     filters,
                     merge: false,
+                    instance_behavior: None,
                 });
                 return;
             }
@@ -1528,6 +1533,7 @@ fn parse_fxg_node_into_elements(
                 blend_mode,
                 filters,
                 merge: false,
+                instance_behavior: None,
             });
         }
         "RichText" | "SimpleText" | "BitmapGraphic" if tag != "BitmapGraphic" => {
@@ -1564,6 +1570,7 @@ fn parse_fxg_node_into_elements(
                 blend_mode,
                 filters,
                 merge: false,
+                instance_behavior: None,
             });
         }
         other => {
@@ -1949,6 +1956,7 @@ pub fn inspect_and_migrate_legacy_interchange(
                             blend_mode: BlendMode::Normal,
                             filters: Vec::new(),
                             merge: false,
+                            instance_behavior: None,
                         });
                         report.statistics.elements += 1;
                     }
@@ -2117,6 +2125,7 @@ pub fn import_flash_screens_xml_into_project(
                 blend_mode: BlendMode::Normal,
                 filters: Vec::new(),
                 merge: false,
+                instance_behavior: None,
             });
         }
         let mut scripts = Vec::new();

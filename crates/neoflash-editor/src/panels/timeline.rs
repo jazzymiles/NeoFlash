@@ -1735,9 +1735,18 @@ impl Editor {
                     );
                 }
                 if !key.label.is_empty() {
-                    let (kind, text) = match key.label.strip_prefix("//") {
-                        Some(comment) => (FrameLabelKind::Comment, comment.trim_start()),
-                        None => (FrameLabelKind::Label, key.label.as_str()),
+                    let (kind, text) = match key.label_type {
+                        FrameLabelType::Anchor => (FrameLabelKind::Anchor, key.label.as_str()),
+                        FrameLabelType::Comment => (
+                            FrameLabelKind::Comment,
+                            key.label
+                                .strip_prefix("//")
+                                .map_or(key.label.as_str(), str::trim_start),
+                        ),
+                        FrameLabelType::Name => match key.label.strip_prefix("//") {
+                            Some(comment) => (FrameLabelKind::Comment, comment.trim_start()),
+                            None => (FrameLabelKind::Label, key.label.as_str()),
+                        },
                     };
                     tl::paint_frame_label(
                         &rp,

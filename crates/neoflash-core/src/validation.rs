@@ -124,11 +124,11 @@ fn validate_with_options(
 ) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=13) {
+    if !matches!(project.format_version, 1..=14) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1 through 13",
+                "unsupported version {}; supported versions are 1 through 14",
                 project.format_version
             ),
         );
@@ -185,6 +185,13 @@ fn validate_with_options(
         add(
             "format_version".into(),
             "layer-owned frame scripts require document version 13".into(),
+        );
+    }
+    if project.uses_format_14() && project.format_version < 14 {
+        add(
+            "format_version".into(),
+            "per-instance symbol behavior overrides and frame label types require document version 14"
+                .into(),
         );
     }
     let mut scene_ids = HashSet::new();
@@ -1825,6 +1832,14 @@ fn validate_with_options(
                                 add(format!("{ep}.kind"), error.into());
                             }
                         }
+                    }
+                    if element.instance_behavior.is_some()
+                        && !matches!(element.kind, ElementKind::Instance { .. })
+                    {
+                        add(
+                            format!("{ep}.instance_behavior"),
+                            "instance_behavior is only valid on symbol instance elements".into(),
+                        );
                     }
                     match &element.kind {
                         ElementKind::Video { .. } => {

@@ -12,8 +12,8 @@ use crate::{
 };
 use neoflash_core::{
     AuthoredBitmapFill, AuthoredTextFieldOptions, Color, ColorTransform, Easing, Element,
-    ElementKind, FilterSpec, FrameSound, GradientKind, GradientPaint, GradientStop, Id,
-    InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, ObjectEvent, ObjectScript,
+    ElementKind, FilterSpec, FrameLabelType, FrameSound, GradientKind, GradientPaint, GradientStop,
+    Id, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, ObjectEvent, ObjectScript,
     PathCommand, Project, ResourceUnit, Script, ScriptLanguage, SoundEffect, SoundSync, Symbol,
     SymbolKind, TextAlign, TextFieldType, TextFormat, TextFormatRun, Timeline, Transform,
     TweenKind, sample_layer_in_at_fps, transform_matrix, valid_library_folder,
@@ -1234,6 +1234,7 @@ struct PreparedFrame {
     index: u32,
     duration: u32,
     label: String,
+    label_type: FrameLabelType,
     tween: Option<(Easing, TweenKind, bool)>,
     sound: Option<FrameSound>,
     script: Option<String>,
@@ -1311,6 +1312,7 @@ fn render_dom_timeline(
                 index: 0,
                 duration: timeline_frames,
                 label: String::new(),
+                label_type: FrameLabelType::Name,
                 tween: None,
                 sound: None,
                 script: None,
@@ -1448,6 +1450,7 @@ fn build_synthetic_actions_layer(scripts: &[(u32, String)], timeline_frames: u32
                 index: cursor,
                 duration: *script_frame - cursor,
                 label: String::new(),
+                label_type: FrameLabelType::Name,
                 tween: None,
                 sound: None,
                 script: None,
@@ -1462,6 +1465,7 @@ fn build_synthetic_actions_layer(scripts: &[(u32, String)], timeline_frames: u32
             index: *script_frame,
             duration: next_boundary - *script_frame,
             label: String::new(),
+            label_type: FrameLabelType::Name,
             tween: None,
             sound: None,
             script: Some(source_code.clone()),
@@ -1594,13 +1598,14 @@ fn expand_motion_spans(
                 .max(start.frame.saturating_add(1));
             let bake_end = raw_span_end.min(layer_end.max(start.frame.saturating_add(1)));
 
-            let mut meta_by_frame: HashMap<u32, (String, Option<FrameSound>)> = HashMap::new();
+            let mut meta_by_frame: HashMap<u32, (String, FrameLabelType, Option<FrameSound>)> =
+                HashMap::new();
             for k in &deduped[idx..prop_end_idx] {
-                meta_by_frame.insert(k.frame, (k.label.clone(), k.sound.clone()));
+                meta_by_frame.insert(k.frame, (k.label.clone(), k.label_type, k.sound.clone()));
             }
 
             for f in start.frame..bake_end {
-                let (label, sound) = meta_by_frame.remove(&f).unwrap_or_default();
+                let (label, label_type, sound) = meta_by_frame.remove(&f).unwrap_or_default();
                 let has_following_frame = f + 1 < bake_end || next_ord_frame == Some(bake_end);
                 out.push(Keyframe {
                     frame: f,
@@ -1608,18 +1613,21 @@ fn expand_motion_spans(
                     tween: has_following_frame.then_some(Easing::Linear),
                     tween_kind: TweenKind::Classic,
                     label,
+                    label_type,
                     sound,
                     ..Default::default()
                 });
             }
             if next_ord_frame.is_none() && bake_end < layer_end {
-                let (label, sound) = meta_by_frame.remove(&bake_end).unwrap_or_default();
+                let (label, label_type, sound) =
+                    meta_by_frame.remove(&bake_end).unwrap_or_default();
                 out.push(Keyframe {
                     frame: bake_end,
                     elements: sample_layer_in_at_fps(timeline, layer, bake_end, fps),
                     tween: None,
                     tween_kind: TweenKind::Classic,
                     label,
+                    label_type,
                     sound,
                     ..Default::default()
                 });
@@ -1730,6 +1738,11 @@ fn split_multi_element_continuous_instances(
                         orig_k.label.clone()
                     } else {
                         String::new()
+                    },
+                    label_type: if ti == 0 {
+                        orig_k.label_type
+                    } else {
+                        FrameLabelType::Name
                     },
                     sound: if ti == 0 { orig_k.sound.clone() } else { None },
                     ..Default::default()
@@ -1936,6 +1949,7 @@ fn build_prepared_frames(
             index: 0,
             duration: layer_end.max(1),
             label: String::new(),
+            label_type: FrameLabelType::Name,
             tween: None,
             sound: None,
             script: None,
@@ -1954,6 +1968,7 @@ fn build_prepared_frames(
             index: 0,
             duration: keys[0].frame,
             label: String::new(),
+            label_type: FrameLabelType::Name,
             tween: None,
             sound: None,
             script: None,
@@ -2028,6 +2043,7 @@ fn build_prepared_frames(
                     index: f0,
                     duration: 1,
                     label: key.label.clone(),
+                    label_type: key.label_type,
                     tween: linear_classic,
                     sound: key.sound.clone(),
                     script: None,
@@ -2038,6 +2054,7 @@ fn build_prepared_frames(
                     index: f0,
                     duration: duration - 1,
                     label: key.label.clone(),
+                    label_type: key.label_type,
                     tween: linear_classic,
                     sound: key.sound.clone(),
                     script: None,
@@ -2047,6 +2064,7 @@ fn build_prepared_frames(
                     index: f1 - 1,
                     duration: 1,
                     label: String::new(),
+                    label_type: FrameLabelType::Name,
                     tween: linear_classic,
                     sound: None,
                     script: None,
@@ -2058,6 +2076,7 @@ fn build_prepared_frames(
                 index: f0,
                 duration,
                 label: key.label.clone(),
+                label_type: key.label_type,
                 tween: authored_tween,
                 sound: key.sound.clone(),
                 script: None,
@@ -2126,13 +2145,20 @@ fn render_dom_frame(xml: &mut String, indent: &str, frame: &PreparedFrame, ctx: 
     if frame.duration > 1 {
         write!(xml, " duration=\"{}\"", frame.duration).unwrap();
     }
+    let label_type_str = match frame.label_type {
+        FrameLabelType::Name => "name",
+        FrameLabelType::Comment => "comment",
+        FrameLabelType::Anchor => "anchor",
+    };
     if !frame.label.is_empty() {
         write!(
             xml,
-            " name=\"{}\" labelType=\"name\"",
+            " name=\"{}\" labelType=\"{label_type_str}\"",
             escape_xml_attr(&frame.label)
         )
         .unwrap();
+    } else if !frame.label_type.is_default() {
+        write!(xml, " labelType=\"{label_type_str}\"").unwrap();
     }
 
     let mut custom_ease_bezier: Option<[f64; 4]> = None;
@@ -2610,38 +2636,54 @@ fn render_symbol_instance(
     )
     .unwrap();
 
-    match sym_info.kind {
-        SymbolKind::Button => {
+    let write_graphic_loop = |xml: &mut String, playback: InstancePlayback| match playback {
+        InstancePlayback::Independent | InstancePlayback::Loop => {
+            xml.push_str(" symbolType=\"graphic\" loop=\"loop\"");
+        }
+        InstancePlayback::LoopFrom(first) => {
+            xml.push_str(" symbolType=\"graphic\" loop=\"loop\"");
+            if first > 0 {
+                write!(xml, " firstFrame=\"{first}\"").unwrap();
+            }
+        }
+        InstancePlayback::PlayOnce => {
+            xml.push_str(" symbolType=\"graphic\" loop=\"play once\"");
+        }
+        InstancePlayback::PlayOnceFrom(first) => {
+            xml.push_str(" symbolType=\"graphic\" loop=\"play once\"");
+            if first > 0 {
+                write!(xml, " firstFrame=\"{first}\"").unwrap();
+            }
+        }
+        InstancePlayback::SingleFrame(first) => {
+            xml.push_str(" symbolType=\"graphic\" loop=\"single frame\"");
+            if first > 0 {
+                write!(xml, " firstFrame=\"{first}\"").unwrap();
+            }
+        }
+    };
+    match element.instance_behavior {
+        Some(SymbolKind::Button) => {
             xml.push_str(" symbolType=\"button\"");
         }
-        SymbolKind::MovieClip | SymbolKind::Graphic => match playback {
-            InstancePlayback::Independent => {
-                xml.push_str(" symbolType=\"movie clip\"");
+        Some(SymbolKind::MovieClip) => {
+            xml.push_str(" symbolType=\"movie clip\"");
+        }
+        Some(SymbolKind::Graphic) => {
+            write_graphic_loop(&mut xml, playback);
+        }
+        None => match sym_info.kind {
+            SymbolKind::Button => {
+                xml.push_str(" symbolType=\"button\"");
             }
-            InstancePlayback::Loop => {
-                xml.push_str(" symbolType=\"graphic\" loop=\"loop\"");
-            }
-            InstancePlayback::LoopFrom(first) => {
-                xml.push_str(" symbolType=\"graphic\" loop=\"loop\"");
-                if first > 0 {
-                    write!(xml, " firstFrame=\"{first}\"").unwrap();
+            SymbolKind::MovieClip | SymbolKind::Graphic => match playback {
+                InstancePlayback::Independent => {
+                    xml.push_str(" symbolType=\"movie clip\"");
                 }
-            }
-            InstancePlayback::PlayOnce => {
-                xml.push_str(" symbolType=\"graphic\" loop=\"play once\"");
-            }
-            InstancePlayback::PlayOnceFrom(first) => {
-                xml.push_str(" symbolType=\"graphic\" loop=\"play once\"");
-                if first > 0 {
-                    write!(xml, " firstFrame=\"{first}\"").unwrap();
+                other => {
+                    write_graphic_loop(&mut xml, other);
                 }
-            }
-            InstancePlayback::SingleFrame(first) => {
-                xml.push_str(" symbolType=\"graphic\" loop=\"single frame\"");
-                if first > 0 {
-                    write!(xml, " firstFrame=\"{first}\"").unwrap();
-                }
-            }
+            },
         },
     }
 
@@ -4761,6 +4803,7 @@ mod tests {
                 cache_as_bitmap: true,
                 blend_mode: BlendMode::Multiply,
                 merge: false,
+                instance_behavior: None,
                 accessibility: Some(Accessibility {
                     name: "Hero Box".into(),
                     description: "Clickable box".into(),
@@ -4972,5 +5015,138 @@ mod tests {
         };
         assert!(tf.bold);
         assert!(tf.italic);
+    }
+
+    #[test]
+    fn xfl_roundtrips_instance_behavior_and_frame_label_types() {
+        let mut project = Project::blank();
+        let mut mc_sym = project.symbols[0].clone();
+        mc_sym.id = "mc-lib".into();
+        mc_sym.name = "HeroClip".into();
+        mc_sym.kind = SymbolKind::MovieClip;
+        mc_sym.timeline.layers[0].id = "mc-lib-layer".into();
+        mc_sym.timeline.frame_count = 3;
+
+        let mut gfx_sym = mc_sym.clone();
+        gfx_sym.id = "gfx-lib".into();
+        gfx_sym.name = "BadgeGraphic".into();
+        gfx_sym.kind = SymbolKind::Graphic;
+        gfx_sym.timeline.layers[0].id = "gfx-lib-layer".into();
+
+        project.symbols.push(mc_sym);
+        project.symbols.push(gfx_sym);
+
+        let root_id = project.root.clone();
+        let root_sym = project.symbol_mut(&root_id).unwrap();
+        root_sym.timeline.frame_count = 3;
+        root_sym.timeline.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                label: "author_comment".into(),
+                label_type: FrameLabelType::Comment,
+                elements: vec![
+                    Element {
+                        id: "inst-gfx-ov".into(),
+                        name: String::new(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Instance {
+                            symbol_id: "mc-lib".into(),
+                            playback: InstancePlayback::SingleFrame(1),
+                        },
+                        instance_behavior: Some(SymbolKind::Graphic),
+                        ..Default::default()
+                    },
+                    Element {
+                        id: "inst-btn-ov".into(),
+                        name: "btn1".into(),
+                        transform: Transform {
+                            x: 100.0,
+                            ..Default::default()
+                        },
+                        kind: ElementKind::Instance {
+                            symbol_id: "mc-lib".into(),
+                            playback: InstancePlayback::SingleFrame(0),
+                        },
+                        instance_behavior: Some(SymbolKind::Button),
+                        ..Default::default()
+                    },
+                    Element {
+                        id: "inst-mc-ov".into(),
+                        name: "clip1".into(),
+                        transform: Transform {
+                            x: 200.0,
+                            ..Default::default()
+                        },
+                        kind: ElementKind::Instance {
+                            symbol_id: "gfx-lib".into(),
+                            playback: InstancePlayback::Independent,
+                        },
+                        instance_behavior: Some(SymbolKind::MovieClip),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+            Keyframe {
+                frame: 1,
+                label: "deep_link".into(),
+                label_type: FrameLabelType::Anchor,
+                elements: vec![],
+                ..Default::default()
+            },
+        ];
+        project.upgrade_format_for_features();
+        project.validate().unwrap();
+
+        let temp_path =
+            std::env::temp_dir().join(format!("neoflash-xfl-t360-t362-{}.fla", std::process::id()));
+        export_fla(&project, &temp_path).expect("export fla");
+        let imported = crate::import_project(&temp_path).expect("reimport exported fla");
+        let _ = fs::remove_file(&temp_path);
+        imported.validate().unwrap();
+
+        let hero = imported
+            .symbols
+            .iter()
+            .find(|s| s.name == "HeroClip")
+            .unwrap();
+        assert_eq!(hero.kind, SymbolKind::MovieClip);
+        let badge = imported
+            .symbols
+            .iter()
+            .find(|s| s.name == "BadgeGraphic")
+            .unwrap();
+        assert_eq!(badge.kind, SymbolKind::Graphic);
+
+        let imp_root = imported.symbol(&imported.root).unwrap();
+        let all_kfs: Vec<&Keyframe> = imp_root
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|l| &l.keyframes)
+            .collect();
+        assert!(all_kfs.iter().any(|k| {
+            k.frame == 0 && k.label == "author_comment" && k.label_type == FrameLabelType::Comment
+        }));
+        assert!(all_kfs.iter().any(|k| {
+            k.frame == 1 && k.label == "deep_link" && k.label_type == FrameLabelType::Anchor
+        }));
+
+        let all_els: Vec<&Element> = all_kfs.iter().flat_map(|k| &k.elements).collect();
+        let imp_btn = all_els.iter().find(|e| e.name == "btn1").unwrap();
+        assert_eq!(imp_btn.instance_behavior, Some(SymbolKind::Button));
+        let imp_mc = all_els.iter().find(|e| e.name == "clip1").unwrap();
+        assert_eq!(imp_mc.instance_behavior, Some(SymbolKind::MovieClip));
+        let imp_gfx = all_els
+            .iter()
+            .find(|e| e.instance_behavior == Some(SymbolKind::Graphic))
+            .expect("graphic override preserved");
+        assert!(matches!(
+            imp_gfx.kind,
+            ElementKind::Instance {
+                playback: InstancePlayback::SingleFrame(1),
+                ..
+            }
+        ));
     }
 }

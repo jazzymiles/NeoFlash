@@ -1309,7 +1309,7 @@ impl Editor {
         }
         let element = Element {
             id: new_id("object"),
-            name: source.name.clone(),
+            name: String::new(),
             transform: Transform {
                 x: at[0] - center.x as f64,
                 y: at[1] - center.y as f64,

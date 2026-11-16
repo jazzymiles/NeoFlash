@@ -274,16 +274,11 @@ pub(crate) fn validate_ranges(ranges: &[SceneRange], frame_count: u32) -> Result
     Ok(())
 }
 
-/// Labels in authored order (layer order, then keyframe order) with
+/// Navigable labels in authored order (layer order, then keyframe order) with
 /// zero-based frames of the timeline that owns them.
-pub(crate) fn timeline_labels(timeline: &Timeline) -> Vec<(&str, u32)> {
-    timeline
-        .layers
-        .iter()
-        .flat_map(|layer| &layer.keyframes)
-        .filter(|key| !key.label.is_empty())
-        .map(|key| (key.label.as_str(), key.frame))
-        .collect()
+#[cfg(test)]
+fn timeline_labels(timeline: &Timeline) -> Vec<(&str, u32)> {
+    timeline.navigable_labels()
 }
 
 /// Scene metadata with labels scoped to each scene and sorted by frame. When

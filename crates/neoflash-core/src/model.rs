@@ -339,6 +339,17 @@ impl Symbol {
 }
 
 impl Timeline {
+    /// Runtime-navigable labels (`Name` and `Anchor`, excluding `Comment` and legacy `//` comments)
+    /// in authored order (layer order, then keyframe order) with zero-based frame indices.
+    pub fn navigable_labels(&self) -> Vec<(&str, u32)> {
+        self.layers
+            .iter()
+            .flat_map(|layer| &layer.keyframes)
+            .filter(|key| key.is_navigable_label())
+            .map(|key| (key.label.as_str(), key.frame))
+            .collect()
+    }
+
     /// Remap all internal layer, group, and element IDs on this timeline using `fresh_id`,
     /// plus optional `symbol_map` (`ElementKind::Instance`) and `resource_map` (`sound`, `video`,
     /// `bitmap_fills`, `ElementKind::Bitmap`) (`T-259` / `T-260`).
@@ -614,6 +625,25 @@ impl Project {
         if self.uses_format_13() {
             self.format_version = self.format_version.max(13);
         }
+        if self.uses_format_14() {
+            self.format_version = self.format_version.max(14);
+        }
+    }
+
+    /// Per-instance symbol behavior overrides (`Element.instance_behavior`) and Classic Flash
+    /// keyframe label types (`Keyframe.label_type` = `Comment` | `Anchor`) (format 14).
+    pub fn uses_format_14(&self) -> bool {
+        self.symbols
+            .iter()
+            .flat_map(|symbol| &symbol.timeline.layers)
+            .flat_map(|layer| &layer.keyframes)
+            .any(|key| {
+                !key.label_type.is_default()
+                    || key
+                        .elements
+                        .iter()
+                        .any(|element| element.instance_behavior.is_some())
+            })
     }
 
     /// Explicit authoring ownership of frame scripts by layer (format 13).
@@ -821,6 +851,32 @@ impl ClassicRotateDirection {
             Self::None => "None",
             Self::Cw => "CW",
             Self::Ccw => "CCW",
+        }
+    }
+}
+
+/// Classic Flash keyframe label classification (`Name`, `Comment`, `Anchor`; format 14).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FrameLabelType {
+    #[default]
+    Name,
+    Comment,
+    Anchor,
+}
+
+impl FrameLabelType {
+    pub const ALL: [Self; 3] = [Self::Name, Self::Comment, Self::Anchor];
+
+    pub fn is_default(&self) -> bool {
+        matches!(self, Self::Name)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Name => "Name",
+            Self::Comment => "Comment",
+            Self::Anchor => "Anchor",
         }
     }
 }
@@ -1467,6 +1523,10 @@ pub struct Keyframe {
     pub elements: Vec<Element>,
     pub tween: Option<Easing>,
     pub label: String,
+    /// Classification of `label`: navigable `Name` (default), authoring-only `Comment`, or
+    /// browser/bookmark `Anchor` (format 14).
+    #[serde(default, skip_serializing_if = "FrameLabelType::is_default")]
+    pub label_type: FrameLabelType,
     /// How the span starting here interpolates when `tween` is set.
     #[serde(default, skip_serializing_if = "TweenKind::is_classic")]
     pub tween_kind: TweenKind,
@@ -1578,6 +1638,7 @@ impl Default for Keyframe {
             elements: Vec::new(),
             tween: None,
             label: String::new(),
+            label_type: FrameLabelType::Name,
             tween_kind: TweenKind::Classic,
             keyed_properties: None,
             orient_to_path: false,
@@ -1615,6 +1676,14 @@ impl Default for Keyframe {
 
 impl Keyframe {
     pub const MAX_ROTATE_TURNS: u32 = 1000;
+
+    /// True when this keyframe carries a runtime-navigable frame label (`Name` or `Anchor`,
+    /// non-empty, and not a legacy `//` authoring comment).
+    pub fn is_navigable_label(&self) -> bool {
+        !self.label.is_empty()
+            && self.label_type != FrameLabelType::Comment
+            && !self.label.starts_with("//")
+    }
 
     pub fn motion_track(&self, element_id: &str) -> Option<&MotionTrackOverride> {
         self.motion_tracks
@@ -2501,6 +2570,10 @@ pub struct Element {
     /// Object Drawing shape (document version 7).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub merge: bool,
+    /// Optional per-instance behavior override (`MovieClip` | `Graphic` | `Button`) independent
+    /// of the referenced Library `Symbol.kind` (format 14). `None` inherits `Symbol.kind`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_behavior: Option<SymbolKind>,
 }
 
 impl Default for Element {
@@ -2523,11 +2596,27 @@ impl Default for Element {
             blend_mode: BlendMode::Normal,
             filters: Vec::new(),
             merge: false,
+            instance_behavior: None,
         }
     }
 }
 
 impl Element {
+    /// Effective symbol behavior for a `SymbolInstance`: returns `self.instance_behavior` when set,
+    /// otherwise the referenced `Symbol`'s `kind` (`None` for non-instances or missing symbols).
+    pub fn effective_symbol_kind(&self, project: &Project) -> Option<SymbolKind> {
+        let ElementKind::Instance { symbol_id, .. } = &self.kind else {
+            return None;
+        };
+        let symbol = project.symbol(symbol_id)?;
+        Some(self.instance_behavior.unwrap_or(symbol.kind))
+    }
+
+    /// Effective symbol behavior given an already-resolved `Symbol` reference.
+    pub fn effective_symbol_kind_for(&self, symbol: &Symbol) -> SymbolKind {
+        self.instance_behavior.unwrap_or(symbol.kind)
+    }
+
     pub fn pivot(&self) -> Option<[f64; 2]> {
         self.transform.pivot
     }

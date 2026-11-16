@@ -300,6 +300,7 @@ fn build_fill_element(
         blend_mode: template.blend_mode,
         filters: template.filters.clone(),
         merge,
+        instance_behavior: None,
     }
 }
 
@@ -345,6 +346,7 @@ fn build_stroke_element(
         blend_mode: template.blend_mode,
         filters: template.filters.clone(),
         merge,
+        instance_behavior: None,
     }
 }
 
@@ -4002,6 +4004,7 @@ fn build_combined_shape_element(
         blend_mode: template.blend_mode,
         filters: template.filters.clone(),
         merge: false,
+        instance_behavior: None,
     }
 }
 

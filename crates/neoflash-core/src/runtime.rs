@@ -700,7 +700,7 @@ impl Player {
 
     pub(crate) fn node_owner(project: &Project, node: &Node) -> &'static str {
         let symbol = node.symbol_id.as_ref().and_then(|id| project.symbol(id));
-        match symbol.map(|s| s.kind) {
+        match node.symbol_kind.or_else(|| symbol.map(|s| s.kind)) {
             Some(SymbolKind::MovieClip) => "movie_clip",
             Some(SymbolKind::Graphic) => "graphic",
             Some(SymbolKind::Button) => "button",
@@ -841,10 +841,9 @@ impl Player {
                 .nodes
                 .iter()
                 .filter(|node| {
-                    self.previous
-                        .get(&node.path)
-                        .is_some_and(|old| old.symbol_id != node.symbol_id)
-                        && invalidated.insert(node.path.clone())
+                    self.previous.get(&node.path).is_some_and(|old| {
+                        old.symbol_id != node.symbol_id || old.symbol_kind != node.symbol_kind
+                    }) && invalidated.insert(node.path.clone())
                 })
                 .map(|node| node.path.clone())
                 .collect();
@@ -942,20 +941,24 @@ impl Player {
         });
         let mut created = HashSet::new();
         for node in &scene.nodes {
-            let is_new = self
-                .previous
-                .get(&node.path)
-                .is_none_or(|old| old.symbol_id != node.symbol_id)
-                || (0..node.path.len()).any(|n| created.contains(&node.path[..n]));
+            let is_new = self.previous.get(&node.path).is_none_or(|old| {
+                old.symbol_id != node.symbol_id || old.symbol_kind != node.symbol_kind
+            }) || (0..node.path.len()).any(|n| created.contains(&node.path[..n]));
             if is_new {
                 created.insert(node.path.clone());
                 self.lifetimes.insert(node.path.clone(), self.next_lifetime);
                 self.next_lifetime = self.next_lifetime.wrapping_add(1);
-                for handler in &node.scripts {
-                    if handler.event == ObjectEvent::Load
-                        || is_as2_legacy_event_wrapper_script(&handler.script)
-                    {
-                        self.enqueue(node.path.clone(), ScriptEvent::Load, handler.script.clone());
+                if node.symbol_kind != Some(SymbolKind::Graphic) {
+                    for handler in &node.scripts {
+                        if handler.event == ObjectEvent::Load
+                            || is_as2_legacy_event_wrapper_script(&handler.script)
+                        {
+                            self.enqueue(
+                                node.path.clone(),
+                                ScriptEvent::Load,
+                                handler.script.clone(),
+                            );
+                        }
                     }
                 }
             }
@@ -964,13 +967,16 @@ impl Player {
             if let Some(symbol_id) = &node.symbol_id {
                 let moved = created.contains(&node.path)
                     || self.previous.get(&node.path).is_none_or(|old| {
-                        old.frame != node.frame || old.symbol_id != node.symbol_id
+                        old.frame != node.frame
+                            || old.symbol_id != node.symbol_id
+                            || old.symbol_kind != node.symbol_kind
                     });
                 let entered = forced.contains(&node.path) || moved;
                 if entered && let Some(symbol) = project.symbol(symbol_id) {
                     // A one-frame timeline that "loops" in place does not re-enter its frame.
                     // Button transitions still play their frame sounds even when transport is paused.
-                    let is_button = symbol.kind == SymbolKind::Button;
+                    let effective_kind = node.symbol_kind.unwrap_or(symbol.kind);
+                    let is_button = effective_kind == SymbolKind::Button;
                     if (self.playing || is_button) && (moved || symbol.timeline.frame_count > 1) {
                         let sound_transform = if is_button {
                             self.object_ref(&node.path)
@@ -986,13 +992,15 @@ impl Player {
                             sound_transform,
                         );
                     }
-                    for script in &symbol.timeline.scripts {
-                        if script.frame == node.frame {
-                            self.enqueue(
-                                node.path.clone(),
-                                ScriptEvent::Frame(node.frame),
-                                script.script.clone(),
-                            );
+                    if effective_kind == SymbolKind::MovieClip {
+                        for script in &symbol.timeline.scripts {
+                            if script.frame == node.frame {
+                                self.enqueue(
+                                    node.path.clone(),
+                                    ScriptEvent::Frame(node.frame),
+                                    script.script.clone(),
+                                );
+                            }
                         }
                     }
                 }
@@ -1000,6 +1008,9 @@ impl Player {
         }
         if enter_frame {
             for node in &scene.nodes {
+                if node.symbol_kind == Some(SymbolKind::Graphic) {
+                    continue;
+                }
                 for handler in &node.scripts {
                     if handler.event == ObjectEvent::EnterFrame
                         && !is_as2_legacy_event_wrapper_script(&handler.script)
@@ -1051,10 +1062,15 @@ impl Player {
         let Some(clock) = self.clocks.get_mut(path) else {
             return false;
         };
-        if project
-            .symbol(&clock.symbol_id)
-            .is_some_and(|s| s.kind == SymbolKind::Button)
-        {
+        let effective_kind = self
+            .previous
+            .get(path)
+            .and_then(|node| node.symbol_kind)
+            .or_else(|| project.symbol(&clock.symbol_id).map(|s| s.kind));
+        if matches!(
+            effective_kind,
+            Some(SymbolKind::Button | SymbolKind::Graphic)
+        ) {
             return false;
         }
         let count = project
@@ -1115,9 +1131,15 @@ impl Player {
             || !self
                 .previous
                 .get(path)
-                .and_then(|node| node.symbol_id.as_ref())
-                .and_then(|id| project.symbol(id))
-                .is_some_and(|symbol| symbol.kind == SymbolKind::Button)
+                .and_then(|node| {
+                    node.symbol_kind.or_else(|| {
+                        node.symbol_id
+                            .as_ref()
+                            .and_then(|id| project.symbol(id))
+                            .map(|s| s.kind)
+                    })
+                })
+                .is_some_and(|kind| kind == SymbolKind::Button)
         {
             return false;
         }
@@ -1442,12 +1464,12 @@ impl Player {
     pub fn clip_metadata(&self, project: &Project, path: &[Id]) -> Option<TimelineMetadata> {
         let node = self.previous.get(path)?;
         let symbol = project.symbol(node.symbol_id.as_ref()?)?;
-        if symbol.kind != SymbolKind::MovieClip {
+        if node.symbol_kind.unwrap_or(symbol.kind) != SymbolKind::MovieClip {
             return None;
         }
         let clock = self.clocks.get(path)?;
         let ranges = self.timeline_scenes(project, path, symbol);
-        let labels = crate::scenes::timeline_labels(&symbol.timeline);
+        let labels = symbol.timeline.navigable_labels();
         let scenes = crate::scenes::scene_metadata(&ranges, &labels);
         let index = ranges
             .iter()
@@ -1571,7 +1593,7 @@ impl Player {
         if path.is_empty() && self.source_root.is_none() && self.scenes.is_empty() {
             scenes[0].name = symbol.name.clone();
         }
-        let labels = crate::scenes::timeline_labels(&symbol.timeline);
+        let labels = symbol.timeline.navigable_labels();
         crate::scenes::resolve_goto(&scenes, &labels, frame, request)
     }
 
@@ -1589,7 +1611,7 @@ impl Player {
             .layers
             .iter()
             .flat_map(|l| &l.keyframes)
-            .find(|k| k.label == label && !label.is_empty())
+            .find(|k| k.is_navigable_label() && k.label == label)
             .map(|k| k.frame)
     }
 
@@ -1610,7 +1632,7 @@ impl Player {
             .layers
             .iter()
             .flat_map(|layer| &layer.keyframes)
-            .filter(|key| key.label.eq_ignore_ascii_case(label))
+            .filter(|key| key.is_navigable_label() && key.label.eq_ignore_ascii_case(label))
             .map(|key| key.frame)
             .min()
     }

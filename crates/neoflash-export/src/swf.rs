@@ -14,10 +14,10 @@ use crate::fla_preflight::{
 use flate2::Compression;
 use flate2::write::ZlibEncoder;
 use neoflash_core::{
-    BlendMode, Color, ColorTransform, Easing, Element, ElementKind, FilterSpec, FrameSound,
-    GradientKind, GradientPaint, GradientSpread, LayerRole, ObjectEvent, ObjectScript, PathCommand,
-    Project, ScriptLanguage, SoundEffect, SoundSync, Symbol, SymbolKind, TextAlign, Timeline,
-    TweenKind, flatten_scenes_with_ranges, transform_matrix,
+    BlendMode, Color, ColorTransform, Easing, Element, ElementKind, FilterSpec, FrameLabelType,
+    FrameSound, GradientKind, GradientPaint, GradientSpread, LayerRole, ObjectEvent, ObjectScript,
+    PathCommand, Project, ScriptLanguage, SoundEffect, SoundSync, Symbol, SymbolKind, TextAlign,
+    Timeline, TweenKind, flatten_scenes_with_ranges, transform_matrix,
 };
 pub use neoflash_import::{
     SwfAudioEvent, SwfBytecodePlayer, SwfDisplayEntry, SwfFrameState, SwfInspection,
@@ -1700,14 +1700,10 @@ pub fn preflight_swf_publish(
 
                 for el in &kf.elements {
                     let el_loc = format!("{kf_loc}:element:{}", el.id);
-                    let target_sym = match &el.kind {
-                        ElementKind::Instance { symbol_id, .. } => project.symbol(symbol_id),
-                        _ => None,
-                    };
-                    let valid_object_script_host = target_sym.is_some_and(|s| {
-                        matches!(s.kind, SymbolKind::MovieClip | SymbolKind::Button)
-                    });
-                    let is_button_host = target_sym.is_some_and(|s| s.kind == SymbolKind::Button);
+                    let eff_kind = el.effective_symbol_kind(project);
+                    let valid_object_script_host =
+                        matches!(eff_kind, Some(SymbolKind::MovieClip | SymbolKind::Button));
+                    let is_button_host = eff_kind == Some(SymbolKind::Button);
 
                     for os in &el.scripts {
                         match os.script.language {
@@ -8050,6 +8046,7 @@ struct SwfDictionaryCompiler<'a> {
     font_ids: BTreeMap<(String, bool, bool), u16>,
     symbol_char_ids: BTreeMap<String, u16>,
     button_variant_ids: BTreeMap<(String, String), u16>,
+    sprite_variant_ids: BTreeMap<String, u16>,
     avm1_exports: Vec<(u16, String)>,
     avm2_symbol_classes: Vec<(u16, String)>,
     avm2_symbol_kinds: BTreeMap<String, SymbolKind>,
@@ -8123,6 +8120,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
             font_ids: BTreeMap::new(),
             symbol_char_ids: BTreeMap::new(),
             button_variant_ids: BTreeMap::new(),
+            sprite_variant_ids: BTreeMap::new(),
             avm1_exports: Vec::new(),
             avm2_symbol_classes: Vec::new(),
             avm2_symbol_kinds: BTreeMap::new(),
@@ -8232,23 +8230,47 @@ impl<'a> SwfDictionaryCompiler<'a> {
     fn ensure_element_character(&mut self, element: &Element) -> Result<Option<u16>, ExportError> {
         match &element.kind {
             ElementKind::Instance { symbol_id, .. } => {
-                if !self.options.profile.is_avm2()
-                    && !self.options.scriptless_mode
-                    && !element.scripts.is_empty()
-                    && let Some(sym) = self.project.symbol(symbol_id).cloned()
-                    && sym.kind == SymbolKind::Button
-                {
-                    let key = button_scripts_variant_key(&element.scripts);
-                    if let Some(&cid) = self
-                        .button_variant_ids
-                        .get(&(symbol_id.clone(), key.clone()))
+                if let Some(sym) = self.project.symbol(symbol_id).cloned() {
+                    let eff_kind = element.effective_symbol_kind_for(&sym);
+                    if eff_kind == SymbolKind::Button
+                        && (sym.kind != SymbolKind::Button
+                            || (!self.options.profile.is_avm2()
+                                && !self.options.scriptless_mode
+                                && !element.scripts.is_empty()))
                     {
+                        let scripts =
+                            if self.options.profile.is_avm2() || self.options.scriptless_mode {
+                                &[][..]
+                            } else {
+                                &element.scripts[..]
+                            };
+                        let key = button_scripts_variant_key(scripts);
+                        if let Some(&cid) = self
+                            .button_variant_ids
+                            .get(&(symbol_id.clone(), key.clone()))
+                        {
+                            return Ok(Some(cid));
+                        }
+                        let cid = self.compile_button_symbol(&sym, scripts)?;
+                        self.button_variant_ids
+                            .insert((symbol_id.clone(), key), cid);
                         return Ok(Some(cid));
                     }
-                    let cid = self.compile_button_symbol(&sym, &element.scripts)?;
-                    self.button_variant_ids
-                        .insert((symbol_id.clone(), key), cid);
-                    return Ok(Some(cid));
+                    if eff_kind != SymbolKind::Button && sym.kind == SymbolKind::Button {
+                        if let Some(&sid) = self.sprite_variant_ids.get(symbol_id) {
+                            return Ok(Some(sid));
+                        }
+                        let (sprite_tags, frame_count) =
+                            self.build_timeline_tags(&sym.timeline, false)?;
+                        let sid = self.alloc_char_id();
+                        let mut w = SwfBitWriter::new();
+                        w.u16(sid);
+                        w.u16(frame_count);
+                        w.bytes(&sprite_tags);
+                        self.root_tags.write_tag(39, &w.buf);
+                        self.sprite_variant_ids.insert(symbol_id.clone(), sid);
+                        return Ok(Some(sid));
+                    }
                 }
                 Ok(self.symbol_char_ids.get(symbol_id).copied())
             }
@@ -8612,7 +8634,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
 
         for frame in 0..total_frames {
             let mut next_slots: BTreeMap<u16, SlotPlacement> = BTreeMap::new();
-            let mut frame_labels: Vec<&str> = Vec::new();
+            let mut frame_labels: Vec<(&str, bool)> = Vec::new();
             let mut frame_sounds: Vec<&FrameSound> = Vec::new();
 
             for (l_idx, layer) in timeline.layers.iter().enumerate() {
@@ -8624,8 +8646,11 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 if frame < effective_end {
                     for kf in &layer.keyframes {
                         if kf.frame == frame {
-                            if !kf.label.is_empty() {
-                                frame_labels.push(&kf.label);
+                            if kf.is_navigable_label() {
+                                frame_labels.push((
+                                    kf.label.as_str(),
+                                    kf.label_type == FrameLabelType::Anchor,
+                                ));
                             }
                             if let Some(snd) = &kf.sound {
                                 frame_sounds.push(snd);
@@ -8691,13 +8716,8 @@ impl<'a> SwfDictionaryCompiler<'a> {
                                 .expect("element offset is checked by SWF depth preflight"),
                         )
                         .expect("display depth is checked by SWF preflight");
-                    let is_button_inst = match &el.kind {
-                        ElementKind::Instance { symbol_id, .. } => self
-                            .project
-                            .symbol(symbol_id)
-                            .is_some_and(|s| s.kind == SymbolKind::Button),
-                        _ => false,
-                    };
+                    let is_button_inst =
+                        el.effective_symbol_kind(self.project) == Some(SymbolKind::Button);
                     let clip_actions = if !self.options.profile.is_avm2()
                         && !self.options.scriptless_mode
                         && !is_button_inst
@@ -8768,9 +8788,12 @@ impl<'a> SwfDictionaryCompiler<'a> {
 
             // Emit FrameLabel (tag 43), StartSound (tag 15), and DoAction (tag 12) in stream order
             // AFTER display-list updates for the frame and BEFORE ShowFrame (tag 1).
-            if let Some(lbl) = frame_labels.first() {
+            if let Some(&(lbl, is_anchor)) = frame_labels.first() {
                 let mut lw = SwfBitWriter::new();
                 lw.c_string(lbl);
+                if is_anchor && self.options.profile.swf_version() >= 6 {
+                    lw.u8(1);
+                }
                 stream_tags.write_tag(43, &lw.buf);
             }
 
