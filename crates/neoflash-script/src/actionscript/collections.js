@@ -82,8 +82,13 @@ function __nfArrayDeleteProp(target, key) {
         throw new __nfArrayTypeError(`Cannot delete '${__nfArrayString(key)}' on borrowed Array target.`);
     }
 }
-function __nfArrayFormatElement(item, locale) {
-    if (item === null || item === undefined) return '';
+function __nfArrayFormatElement(item, locale, as3 = true, isAs1 = false) {
+    if (as3) {
+        if (item === null || item === undefined) return '';
+    } else {
+        if (item === undefined) return isAs1 ? '' : 'undefined';
+        if (item === null) return 'null';
+    }
     const program = typeof __nfProgram !== 'undefined' ? __nfProgram : null;
     if (__nfArrayIsArray(item)) {
         const key = locale ? 'toLocaleString' : 'toString';
@@ -91,7 +96,7 @@ function __nfArrayFormatElement(item, locale) {
         if (resolved !== __nfArrayMethods[key] && typeof resolved === 'function') {
             return __nfArrayString(__nfArrayApply(resolved, item, []));
         }
-        return locale ? __nfArrayLocaleString(item) : __nfArrayJoin(item, ',');
+        return locale ? __nfArrayLocaleString(item) : __nfArrayJoin(item, ',', as3, isAs1);
     }
     if (typeof item === 'object' || typeof item === 'function') {
         const key = locale ? 'toLocaleString' : 'toString';
@@ -104,14 +109,19 @@ function __nfArrayFormatElement(item, locale) {
     if (locale) return __nfArrayString(Object(item).toLocaleString());
     return __nfArrayString(item);
 }
-function __nfArrayJoin(target, separator) {
+function __nfArrayJoin(target, separator, as3 = true, isAs1 = false) {
     const length = __nfArrayReadLength(target);
     if (__nfArraySeen.has(target)) return '';
     __nfArraySeen.add(target);
     try {
         const parts = [];
         for (let index = 0; index < length; index++) {
-            parts.push(index in target ? __nfArrayFormatElement(target[index], false) : '');
+            if (as3) {
+                parts.push(index in target ? __nfArrayFormatElement(target[index], false, true, false) : '');
+            } else {
+                const elem = index in target ? target[index] : undefined;
+                parts.push(__nfArrayFormatElement(elem, false, false, isAs1));
+            }
         }
         return __nfArrayApply(__nfArrayMethods.join, parts, [separator]);
     } finally {
@@ -413,11 +423,20 @@ function __nfArrayIndexSearch(target, length, backwards, args) {
     }
     return -1;
 }
-function __nfArrayExecute(receiver, name, args, as3) {
+function __nfArrayExecute(receiver, name, args, as3, legacyCase) {
     const target = __nfArrayEnsureReceiver(receiver, name);
     const array = __nfArrayIsArray(target);
     const length = __nfArrayReadLength(target);
-    if (!as3 && (name === 'toString' || name === 'toLocaleString')) return __nfArrayApply(__nfArrayMethods[name], target, args);
+    const isAs1 = !as3 && (Boolean(legacyCase) || (legacyCase === undefined && typeof __nfLegacyCase !== 'undefined' && Boolean(__nfLegacyCase)));
+    if (!as3 && name === 'join') {
+        const sep = !args.length || args[0] === undefined ? ',' : (args[0] === null ? 'null' : __nfArrayString(args[0]));
+        return __nfArrayJoin(target, sep, false, isAs1);
+    }
+    if (!as3 && name === 'toString') {
+        if (array) return __nfArrayJoin(target, ',', false, isAs1);
+        return __nfArrayApply(__nfArrayMethods.toString, target, args);
+    }
+    if (!as3 && name === 'toLocaleString') return __nfArrayApply(__nfArrayMethods[name], target, args);
     if (name === 'insertAt' || name === 'removeAt') {
         if (!as3) throw new __nfArrayTypeError(`${name} is an AS3 Array method.`);
         return __nfArrayMutateAt(target, length, name, args);
@@ -492,7 +511,7 @@ function __nfArrayExecute(receiver, name, args, as3) {
     }
     return __nfArrayApply(__nfArrayMethods[name], target, args);
 }
-function __nfArrayMethod(receiver, name, as3, resolved) {
+function __nfArrayMethod(receiver, name, as3, resolved, legacyCase) {
     // Resolve once before caller evaluates arguments. An override, including a
     // getter or explicitly undefined property, must retain ordinary call behavior.
     const method = resolved ? resolved.value : receiver[name];
@@ -506,6 +525,6 @@ function __nfArrayMethod(receiver, name, as3, resolved) {
             if (typeof method !== 'function') throw new __nfArrayTypeError(`Array/custom member '${name}' is not callable.`);
             return __nfArrayApply(method, receiver, args);
         }
-        return __nfArrayExecute(receiver, name, args, as3);
+        return __nfArrayExecute(receiver, name, args, as3, legacyCase);
     };
 }

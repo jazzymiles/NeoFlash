@@ -118,16 +118,63 @@ impl PreviewValue {
             Self::Bool(b) => b.to_string(),
             Self::Number(n) => format_number(*n),
             Self::String(s) => s.clone(),
-            Self::Array(items) => items
-                .iter()
-                .map(|v| match v {
-                    Self::Undefined | Self::Null => String::new(),
-                    other => other.to_es_string(is_as1),
-                })
-                .collect::<Vec<_>>()
-                .join(","),
+            Self::Array(items) => {
+                let lang = if is_as1 {
+                    ScriptLanguage::ActionScript1
+                } else {
+                    ScriptLanguage::ActionScript3
+                };
+                Self::join_array_elements(items, ",", lang)
+            }
             Self::Object(_) => "[object Object]".to_owned(),
         }
+    }
+
+    pub fn to_es_string_for(&self, lang: ScriptLanguage) -> String {
+        match self {
+            Self::Undefined => {
+                if lang == ScriptLanguage::ActionScript1 {
+                    String::new()
+                } else {
+                    "undefined".to_owned()
+                }
+            }
+            Self::Null => "null".to_owned(),
+            Self::Bool(b) => b.to_string(),
+            Self::Number(n) => format_number(*n),
+            Self::String(s) => s.clone(),
+            Self::Array(items) => Self::join_array_elements(items, ",", lang),
+            Self::Object(_) => "[object Object]".to_owned(),
+        }
+    }
+
+    pub fn join_array_elements(items: &[Self], sep: &str, lang: ScriptLanguage) -> String {
+        let is_avm1 = matches!(
+            lang,
+            ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+        );
+        items
+            .iter()
+            .map(|v| match v {
+                Self::Undefined => {
+                    if is_avm1 && lang == ScriptLanguage::ActionScript2 {
+                        "undefined".to_owned()
+                    } else {
+                        String::new()
+                    }
+                }
+                Self::Null => {
+                    if is_avm1 {
+                        "null".to_owned()
+                    } else {
+                        String::new()
+                    }
+                }
+                Self::Array(nested) => Self::join_array_elements(nested, ",", lang),
+                other => other.to_es_string_for(lang),
+            })
+            .collect::<Vec<_>>()
+            .join(sep)
     }
 
     fn is_nested_container(&self) -> bool {
@@ -1297,8 +1344,23 @@ impl AuthoredPlayback {
                 for decl in split_top_level_comma(rest) {
                     if let Some((lhs, rhs)) = split_top_level_assign(decl) {
                         let name = lhs.split(':').next().unwrap_or(lhs).trim();
+                        let rhs_trimmed = rhs.trim();
+                        if !is_supported_preview_rhs(rhs_trimmed) {
+                            let snippet = truncate_snippet(stmt, 56);
+                            self.record_diagnostic(
+                                origin,
+                                line,
+                                &format!(
+                                    "statement `{snippet}` is outside the bounded native stage preview subset"
+                                ),
+                            );
+                        }
                         if !name.is_empty() {
-                            let val = self.eval_preview_value(project, &scope_path, rhs.trim());
+                            let val = if is_supported_preview_rhs(rhs_trimmed) {
+                                self.eval_preview_value(project, &scope_path, rhs_trimmed)
+                            } else {
+                                PreviewValue::Undefined
+                            };
                             self.vars.insert((scope_path.clone(), name.to_owned()), val);
                         }
                     } else {
@@ -1315,10 +1377,20 @@ impl AuthoredPlayback {
             // 2. trace(...)
             if let Some(inner) = extract_call_arg(stmt, "trace") {
                 let args = split_top_level_comma(inner);
-                let rendered: Vec<String> = args
-                    .into_iter()
-                    .map(|a| self.eval_preview_expr(project, path, a))
-                    .collect();
+                let mut rendered = Vec::with_capacity(args.len());
+                for a in args {
+                    if !is_supported_preview_rhs(a) {
+                        let snippet = truncate_snippet(a, 56);
+                        self.record_diagnostic(
+                            origin,
+                            line,
+                            &format!(
+                                "expression `{snippet}` is outside the bounded native stage preview subset"
+                            ),
+                        );
+                    }
+                    rendered.push(self.eval_preview_expr(project, path, a));
+                }
                 self.traces.push(rendered.join(" "));
                 continue;
             }
@@ -2053,6 +2125,9 @@ impl AuthoredPlayback {
                 .vars
                 .contains_key(&(scope_path.clone(), prop_raw.to_owned()))
         {
+            if !is_supported_preview_rhs(rhs) {
+                return false;
+            }
             let cur_val = self
                 .vars
                 .get(&(scope_path.clone(), prop_raw.to_owned()))
@@ -2323,6 +2398,9 @@ impl AuthoredPlayback {
         if let Some(arr_val) = self.eval_array_or_object_literal(project, path, s) {
             return arr_val;
         }
+        if let Some(builtin_val) = self.eval_builtin_pure_call(project, path, s) {
+            return builtin_val;
+        }
         if let Some(indexed_val) = self.eval_postfix_container_access(project, path, s) {
             return indexed_val;
         }
@@ -2424,8 +2502,175 @@ impl AuthoredPlayback {
                     .property(project, &target_path, "alpha")
                     .map_or(100.0, |a| a * 100.0),
             ),
-            _ if is_valid_identifier(prop) => PreviewValue::Undefined,
-            _ => PreviewValue::String(s.to_owned()),
+            _ => PreviewValue::Undefined,
+        }
+    }
+
+    fn eval_builtin_pure_call(
+        &self,
+        project: &Project,
+        path: &[Id],
+        s: &str,
+    ) -> Option<PreviewValue> {
+        let (head, args_raw) = parse_qualified_call(s.trim())?;
+        if !is_supported_builtin_pure_call_head(head) {
+            return None;
+        }
+        let is_as1 = self.is_as1();
+        let lang = self.current_language;
+        let args: Vec<PreviewValue> = split_top_level_comma(args_raw)
+            .into_iter()
+            .map(|a| self.eval_preview_value(project, path, a))
+            .collect();
+        match head {
+            "String" => Some(PreviewValue::String(
+                args.first()
+                    .map_or_else(String::new, |v| v.to_es_string_for(lang)),
+            )),
+            "Number" => Some(PreviewValue::Number(
+                args.first().map_or(0.0, |v| v.to_number(is_as1)),
+            )),
+            "Boolean" => Some(PreviewValue::Bool(
+                args.first().is_some_and(|v| v.is_truthy(is_as1)),
+            )),
+            "int" => {
+                let n = args.first().map_or(0.0, |v| v.to_number(is_as1));
+                let i = if !n.is_finite() || n == 0.0 {
+                    0i32
+                } else {
+                    (n.trunc() as i64) as i32
+                };
+                Some(PreviewValue::Number(f64::from(i)))
+            }
+            "uint" => {
+                let n = args.first().map_or(0.0, |v| v.to_number(is_as1));
+                let u = if !n.is_finite() || n == 0.0 {
+                    0u32
+                } else {
+                    (n.trunc() as i64) as u32
+                };
+                Some(PreviewValue::Number(f64::from(u)))
+            }
+            "parseFloat" => {
+                let st = args
+                    .first()
+                    .map(|v| v.to_es_string_for(lang))
+                    .unwrap_or_default();
+                let trimmed = st.trim_start();
+                let end = trimmed
+                    .char_indices()
+                    .take_while(|&(idx, c)| {
+                        c.is_ascii_digit()
+                            || c == '.'
+                            || ((c == '+' || c == '-') && idx == 0)
+                            || c == 'e'
+                            || c == 'E'
+                    })
+                    .map(|(idx, c)| idx + c.len_utf8())
+                    .last()
+                    .unwrap_or(0);
+                let parsed = trimmed[..end].parse::<f64>().unwrap_or(f64::NAN);
+                Some(PreviewValue::Number(parsed))
+            }
+            "parseInt" => {
+                let st = args
+                    .first()
+                    .map(|v| v.to_es_string_for(lang))
+                    .unwrap_or_default();
+                let radix_raw = args.get(1).map_or(0.0, |v| v.to_number(is_as1));
+                let mut trimmed = st.trim_start();
+                let mut sign = 1.0f64;
+                if let Some(rest) = trimmed.strip_prefix('-') {
+                    sign = -1.0;
+                    trimmed = rest;
+                } else if let Some(rest) = trimmed.strip_prefix('+') {
+                    trimmed = rest;
+                }
+                let mut radix = if radix_raw.is_finite() && radix_raw != 0.0 {
+                    radix_raw.trunc() as i32
+                } else {
+                    0
+                };
+                if (radix == 0 || radix == 16)
+                    && let Some(hex) = trimmed
+                        .strip_prefix("0x")
+                        .or_else(|| trimmed.strip_prefix("0X"))
+                {
+                    trimmed = hex;
+                    radix = 16;
+                } else if radix == 0 {
+                    radix = 10;
+                }
+                if !(2..=36).contains(&radix) {
+                    return Some(PreviewValue::Number(f64::NAN));
+                }
+                let r_u32 = radix as u32;
+                let digits: String = trimmed.chars().take_while(|c| c.is_digit(r_u32)).collect();
+                if digits.is_empty() {
+                    return Some(PreviewValue::Number(f64::NAN));
+                }
+                let val = i128::from_str_radix(&digits, r_u32)
+                    .map(|v| (v as f64) * sign)
+                    .unwrap_or(f64::NAN);
+                Some(PreviewValue::Number(val))
+            }
+            "Math.abs" => Some(PreviewValue::Number(
+                args.first().map_or(f64::NAN, |v| v.to_number(is_as1).abs()),
+            )),
+            "Math.floor" => Some(PreviewValue::Number(
+                args.first()
+                    .map_or(f64::NAN, |v| v.to_number(is_as1).floor()),
+            )),
+            "Math.ceil" => Some(PreviewValue::Number(
+                args.first()
+                    .map_or(f64::NAN, |v| v.to_number(is_as1).ceil()),
+            )),
+            "Math.round" => Some(PreviewValue::Number(args.first().map_or(f64::NAN, |v| {
+                let n = v.to_number(is_as1);
+                if n.is_finite() { (n + 0.5).floor() } else { n }
+            }))),
+            "Math.sqrt" => Some(PreviewValue::Number(
+                args.first()
+                    .map_or(f64::NAN, |v| v.to_number(is_as1).sqrt()),
+            )),
+            "Math.pow" => {
+                let a = args.first().map_or(f64::NAN, |v| v.to_number(is_as1));
+                let b = args.get(1).map_or(f64::NAN, |v| v.to_number(is_as1));
+                Some(PreviewValue::Number(a.powf(b)))
+            }
+            "Math.min" => {
+                if args.is_empty() {
+                    return Some(PreviewValue::Number(f64::INFINITY));
+                }
+                let mut acc = f64::INFINITY;
+                for v in &args {
+                    let n = v.to_number(is_as1);
+                    if n.is_nan() {
+                        return Some(PreviewValue::Number(f64::NAN));
+                    }
+                    if n < acc {
+                        acc = n;
+                    }
+                }
+                Some(PreviewValue::Number(acc))
+            }
+            "Math.max" => {
+                if args.is_empty() {
+                    return Some(PreviewValue::Number(f64::NEG_INFINITY));
+                }
+                let mut acc = f64::NEG_INFINITY;
+                for v in &args {
+                    let n = v.to_number(is_as1);
+                    if n.is_nan() {
+                        return Some(PreviewValue::Number(f64::NAN));
+                    }
+                    if n > acc {
+                        acc = n;
+                    }
+                }
+                Some(PreviewValue::Number(acc))
+            }
+            _ => None,
         }
     }
 
@@ -2543,6 +2788,8 @@ impl AuthoredPlayback {
             || base.starts_with('{')
             || base.starts_with('"')
             || base.starts_with('\'')
+            || base.starts_with("new ")
+            || base.ends_with(')')
         {
             return Some((self.eval_preview_value(project, path, base), 0));
         }
@@ -2662,9 +2909,329 @@ impl AuthoredPlayback {
                         _ => PreviewValue::Undefined,
                     }
                 }
+                PostfixToken::Call(method, args_raw) => {
+                    self.eval_postfix_method(project, path, &cur, method, args_raw)?
+                }
             };
         }
         Some(cur)
+    }
+
+    fn eval_postfix_method(
+        &self,
+        project: &Project,
+        path: &[Id],
+        receiver: &PreviewValue,
+        method: &str,
+        args_raw: &str,
+    ) -> Option<PreviewValue> {
+        let is_as1 = self.is_as1();
+        let lang = self.current_language;
+        let args: Vec<PreviewValue> = split_top_level_comma(args_raw)
+            .into_iter()
+            .map(|a| self.eval_preview_value(project, path, a))
+            .collect();
+
+        match (receiver, method) {
+            (PreviewValue::Array(items), "join") => {
+                let sep = match args.first() {
+                    None | Some(PreviewValue::Undefined) => ",".to_owned(),
+                    Some(v) => v.to_es_string_for(lang),
+                };
+                Some(PreviewValue::String(PreviewValue::join_array_elements(
+                    items, &sep, lang,
+                )))
+            }
+            (PreviewValue::Array(items), "toString") if args.is_empty() => Some(
+                PreviewValue::String(PreviewValue::join_array_elements(items, ",", lang)),
+            ),
+            (PreviewValue::Array(items), "slice") => {
+                let len = items.len() as i64;
+                let rel = |raw: Option<&PreviewValue>, default: i64| -> usize {
+                    let Some(v) = raw else {
+                        return default.clamp(0, len) as usize;
+                    };
+                    if matches!(v, PreviewValue::Undefined) {
+                        return default.clamp(0, len) as usize;
+                    }
+                    let n = v.to_number(is_as1);
+                    if n.is_nan() || n == 0.0 {
+                        0
+                    } else if n == f64::INFINITY {
+                        len as usize
+                    } else if n == f64::NEG_INFINITY {
+                        0
+                    } else {
+                        let i = n.trunc() as i64;
+                        (if i < 0 { (len + i).max(0) } else { i.min(len) }) as usize
+                    }
+                };
+                let start = rel(args.first(), 0);
+                let end = rel(args.get(1), len);
+                let out = if end > start {
+                    items[start..end].to_vec()
+                } else {
+                    Vec::new()
+                };
+                Some(PreviewValue::Array(out))
+            }
+            (PreviewValue::Array(items), "concat") => {
+                let mut out = items.clone();
+                for arg in args {
+                    if let PreviewValue::Array(extra) = arg {
+                        let room = 10_000usize.saturating_sub(out.len());
+                        out.extend(extra.into_iter().take(room));
+                    } else if out.len() < 10_000 {
+                        out.push(arg);
+                    }
+                }
+                Some(PreviewValue::Array(out))
+            }
+            (PreviewValue::Array(items), "indexOf") => {
+                let needle = args.first().unwrap_or(&PreviewValue::Undefined);
+                let len = items.len() as i64;
+                let from_raw = args.get(1).map_or(0.0, |v| v.to_number(is_as1));
+                let mut start = if from_raw.is_nan() || from_raw == 0.0 {
+                    0
+                } else if from_raw.is_infinite() {
+                    if from_raw.is_sign_positive() { len } else { 0 }
+                } else {
+                    let i = from_raw.trunc() as i64;
+                    if i < 0 { (len + i).max(0) } else { i }
+                };
+                if start < 0 {
+                    start = 0;
+                }
+                let found = (start as usize..items.len())
+                    .find(|&idx| items[idx].strict_eq(needle))
+                    .map_or(-1.0, |idx| idx as f64);
+                Some(PreviewValue::Number(found))
+            }
+            (PreviewValue::Array(items), "lastIndexOf") => {
+                let needle = args.first().unwrap_or(&PreviewValue::Undefined);
+                if items.is_empty() {
+                    return Some(PreviewValue::Number(-1.0));
+                }
+                let len = items.len() as i64;
+                let from_raw = args
+                    .get(1)
+                    .map_or((len - 1) as f64, |v| v.to_number(is_as1));
+                let end_idx = if from_raw.is_nan() {
+                    0i64
+                } else if from_raw.is_infinite() {
+                    if from_raw.is_sign_positive() {
+                        len - 1
+                    } else {
+                        -1
+                    }
+                } else {
+                    let i = from_raw.trunc() as i64;
+                    if i < 0 { len + i } else { i.min(len - 1) }
+                };
+                if end_idx < 0 {
+                    return Some(PreviewValue::Number(-1.0));
+                }
+                let found = (0..=end_idx as usize)
+                    .rev()
+                    .find(|&idx| items[idx].strict_eq(needle))
+                    .map_or(-1.0, |idx| idx as f64);
+                Some(PreviewValue::Number(found))
+            }
+            (PreviewValue::String(st), "split") => {
+                let limit = args
+                    .get(1)
+                    .and_then(|v| {
+                        if matches!(v, PreviewValue::Undefined) {
+                            None
+                        } else {
+                            let n = v.to_number(is_as1);
+                            (n.is_finite() && n >= 0.0).then_some((n.trunc() as usize).min(10_000))
+                        }
+                    })
+                    .unwrap_or(10_000);
+                if limit == 0 {
+                    return Some(PreviewValue::Array(Vec::new()));
+                }
+                let out: Vec<PreviewValue> = match args.first() {
+                    None | Some(PreviewValue::Undefined) => vec![PreviewValue::String(st.clone())],
+                    Some(sep_val) => {
+                        let sep = sep_val.to_es_string_for(lang);
+                        if sep.is_empty() {
+                            st.chars()
+                                .take(limit)
+                                .map(|c| PreviewValue::String(c.to_string()))
+                                .collect()
+                        } else {
+                            st.split(&sep)
+                                .take(limit)
+                                .map(|part| PreviewValue::String(part.to_owned()))
+                                .collect()
+                        }
+                    }
+                };
+                Some(PreviewValue::Array(out))
+            }
+            (PreviewValue::String(st), "charAt") => {
+                let n = args.first().map_or(0.0, |v| v.to_number(is_as1));
+                let idx = if n.is_nan() || n == 0.0 {
+                    0isize
+                } else if !n.is_finite() {
+                    -1
+                } else {
+                    n.trunc() as isize
+                };
+                let ch = if idx < 0 {
+                    String::new()
+                } else {
+                    st.chars()
+                        .nth(idx as usize)
+                        .map_or_else(String::new, |c| c.to_string())
+                };
+                Some(PreviewValue::String(ch))
+            }
+            (PreviewValue::String(st), "charCodeAt") => {
+                let n = args.first().map_or(0.0, |v| v.to_number(is_as1));
+                let idx = if n.is_nan() || n == 0.0 {
+                    0isize
+                } else if !n.is_finite() {
+                    -1
+                } else {
+                    n.trunc() as isize
+                };
+                let code = if idx < 0 {
+                    f64::NAN
+                } else {
+                    st.encode_utf16()
+                        .nth(idx as usize)
+                        .map_or(f64::NAN, f64::from)
+                };
+                Some(PreviewValue::Number(code))
+            }
+            (PreviewValue::String(st), "indexOf") => {
+                let needle = args
+                    .first()
+                    .map_or_else(|| "undefined".to_owned(), |v| v.to_es_string_for(lang));
+                let chars: Vec<char> = st.chars().collect();
+                let from_raw = args.get(1).map_or(0.0, |v| v.to_number(is_as1));
+                let start_char = if !from_raw.is_finite() {
+                    if from_raw.is_sign_positive() {
+                        chars.len()
+                    } else {
+                        0
+                    }
+                } else {
+                    (from_raw.trunc() as isize).clamp(0, chars.len() as isize) as usize
+                };
+                let byte_start = st
+                    .char_indices()
+                    .nth(start_char)
+                    .map_or(st.len(), |(b, _)| b);
+                let found = st[byte_start..].find(&needle).map_or(-1.0, |rel_b| {
+                    st[..byte_start + rel_b].chars().count() as f64
+                });
+                Some(PreviewValue::Number(found))
+            }
+            (PreviewValue::String(st), "lastIndexOf") => {
+                let needle = args
+                    .first()
+                    .map_or_else(|| "undefined".to_owned(), |v| v.to_es_string_for(lang));
+                let found = st
+                    .rfind(&needle)
+                    .map_or(-1.0, |b| st[..b].chars().count() as f64);
+                Some(PreviewValue::Number(found))
+            }
+            (PreviewValue::String(st), "slice" | "substring" | "substr") => {
+                let chars: Vec<char> = st.chars().collect();
+                let len = chars.len() as i64;
+                let (s_idx, e_idx) = if method == "substr" {
+                    let s_raw = args.first().map_or(0.0, |v| v.to_number(is_as1));
+                    let start = if s_raw.is_nan() || s_raw == 0.0 {
+                        0
+                    } else if !s_raw.is_finite() {
+                        if s_raw.is_sign_positive() { len } else { 0 }
+                    } else {
+                        let i = s_raw.trunc() as i64;
+                        if i < 0 { (len + i).max(0) } else { i.min(len) }
+                    };
+                    let count = match args.get(1) {
+                        None | Some(PreviewValue::Undefined) => len - start,
+                        Some(v) => {
+                            let c = v.to_number(is_as1);
+                            if c.is_nan() || c <= 0.0 {
+                                0
+                            } else if c.is_infinite() {
+                                len - start
+                            } else {
+                                (c.trunc() as i64).min(len - start)
+                            }
+                        }
+                    };
+                    (start as usize, (start + count) as usize)
+                } else if method == "substring" {
+                    let norm = |raw: Option<&PreviewValue>, def: i64| -> i64 {
+                        let Some(v) = raw else { return def };
+                        if matches!(v, PreviewValue::Undefined) {
+                            return def;
+                        }
+                        let n = v.to_number(is_as1);
+                        if n.is_nan() || n <= 0.0 {
+                            0
+                        } else if n.is_infinite() {
+                            len
+                        } else {
+                            (n.trunc() as i64).clamp(0, len)
+                        }
+                    };
+                    let a = norm(args.first(), 0);
+                    let b = norm(args.get(1), len);
+                    (a.min(b) as usize, a.max(b) as usize)
+                } else {
+                    let norm = |raw: Option<&PreviewValue>, def: i64| -> i64 {
+                        let Some(v) = raw else { return def };
+                        if matches!(v, PreviewValue::Undefined) {
+                            return def;
+                        }
+                        let n = v.to_number(is_as1);
+                        if n.is_nan() || n == 0.0 {
+                            0
+                        } else if n.is_infinite() {
+                            if n.is_sign_positive() { len } else { 0 }
+                        } else {
+                            let i = n.trunc() as i64;
+                            if i < 0 { (len + i).max(0) } else { i.min(len) }
+                        }
+                    };
+                    let a = norm(args.first(), 0);
+                    let b = norm(args.get(1), len);
+                    (a as usize, b.max(a) as usize)
+                };
+                Some(PreviewValue::String(
+                    chars[s_idx..e_idx].iter().collect::<String>(),
+                ))
+            }
+            (PreviewValue::String(st), "toUpperCase") if args.is_empty() => {
+                Some(PreviewValue::String(st.to_uppercase()))
+            }
+            (PreviewValue::String(st), "toLowerCase") if args.is_empty() => {
+                Some(PreviewValue::String(st.to_lowercase()))
+            }
+            (PreviewValue::String(st), "trim") if args.is_empty() => {
+                Some(PreviewValue::String(st.trim().to_owned()))
+            }
+            (val, "toString")
+                if args.is_empty()
+                    && !matches!(val, PreviewValue::Undefined | PreviewValue::Null) =>
+            {
+                Some(PreviewValue::String(val.to_es_string_for(lang)))
+            }
+            (val, "valueOf")
+                if args.is_empty()
+                    && !matches!(val, PreviewValue::Undefined | PreviewValue::Null) =>
+            {
+                Some(val.clone())
+            }
+            _ => None,
+        }
     }
 
     fn concrete_access_steps(
@@ -2673,10 +3240,11 @@ impl AuthoredPlayback {
         scope_path: &[Id],
         tokens: &[PostfixToken<'_>],
         is_as1: bool,
-    ) -> Vec<ConcreteAccessStep> {
-        tokens
-            .iter()
-            .map(|tok| match tok {
+    ) -> Option<Vec<ConcreteAccessStep>> {
+        let mut out = Vec::with_capacity(tokens.len());
+        for tok in tokens {
+            let step = match tok {
+                PostfixToken::Call(_, _) => return None,
                 PostfixToken::Prop(p) => ConcreteAccessStep::Prop((*p).to_owned()),
                 PostfixToken::Index(idx_expr) => {
                     let kv = self.eval_preview_value(project, scope_path, idx_expr);
@@ -2701,8 +3269,10 @@ impl AuthoredPlayback {
                         other => ConcreteAccessStep::Prop(other.to_es_string(is_as1)),
                     }
                 }
-            })
-            .collect()
+            };
+            out.push(step);
+        }
+        Some(out)
     }
 
     fn try_apply_nested_container_mutation(
@@ -2728,7 +3298,11 @@ impl AuthoredPlayback {
         else {
             return false;
         };
-        let steps = self.concrete_access_steps(project, scope_path, &tokens[start_idx..], is_as1);
+        let Some(steps) =
+            self.concrete_access_steps(project, scope_path, &tokens[start_idx..], is_as1)
+        else {
+            return false;
+        };
         if steps.is_empty() {
             return false;
         }
@@ -2763,7 +3337,11 @@ impl AuthoredPlayback {
             return false;
         };
         let is_as1 = self.is_as1();
-        let steps = self.concrete_access_steps(project, &scope_path, &tokens[start_idx..], is_as1);
+        let Some(steps) =
+            self.concrete_access_steps(project, &scope_path, &tokens[start_idx..], is_as1)
+        else {
+            return false;
+        };
         let arg_vals: Vec<PreviewValue> = split_top_level_comma(args_str)
             .into_iter()
             .map(|a| self.eval_preview_value(project, &scope_path, a))
@@ -2818,6 +3396,7 @@ impl AuthoredPlayback {
 enum PostfixToken<'a> {
     Index(&'a str),
     Prop(&'a str),
+    Call(&'a str, &'a str),
 }
 
 #[derive(Clone, Debug)]
@@ -3047,7 +3626,46 @@ fn parse_postfix_steps(expr: &str) -> Option<(&str, Vec<PostfixToken<'_>>)> {
             {
                 i += 1;
             }
-            i
+            if &s[..i] == "new" && bytes.get(i).is_some_and(u8::is_ascii_whitespace) {
+                let mut k = i;
+                while k < bytes.len() && bytes[k].is_ascii_whitespace() {
+                    k += 1;
+                }
+                let ctor_start = k;
+                while k < bytes.len()
+                    && (bytes[k].is_ascii_alphanumeric() || bytes[k] == b'_' || bytes[k] == b'$')
+                {
+                    k += 1;
+                }
+                let ctor_name = &s[ctor_start..k];
+                if !matches!(ctor_name, "Array" | "Object") {
+                    return None;
+                }
+                let mut m = k;
+                while m < bytes.len() && bytes[m].is_ascii_whitespace() {
+                    m += 1;
+                }
+                if m < bytes.len() && bytes[m] == b'(' {
+                    let close = find_matching_delim(&s[m..], b'(', b')')?;
+                    m + close + 1
+                } else {
+                    k
+                }
+            } else {
+                let mut m = i;
+                while m < bytes.len() && bytes[m].is_ascii_whitespace() {
+                    m += 1;
+                }
+                if m < bytes.len()
+                    && bytes[m] == b'('
+                    && (&s[..i] == "Array" || is_supported_builtin_pure_call_head(&s[..i]))
+                {
+                    let close = find_matching_delim(&s[m..], b'(', b')')?;
+                    m + close + 1
+                } else {
+                    i
+                }
+            }
         }
         _ => return None,
     };
@@ -3074,10 +3692,13 @@ fn parse_postfix_steps(expr: &str) -> Option<(&str, Vec<PostfixToken<'_>>)> {
             let prop = &after_dot[..i];
             let tail = after_dot[i..].trim_start();
             if tail.starts_with('(') {
-                return None;
+                let close = find_matching_delim(tail, b'(', b')')?;
+                tokens.push(PostfixToken::Call(prop, tail[1..close].trim()));
+                rest = tail[close + 1..].trim_start();
+            } else {
+                tokens.push(PostfixToken::Prop(prop));
+                rest = tail;
             }
-            tokens.push(PostfixToken::Prop(prop));
-            rest = tail;
         }
     }
     Some((base, tokens))
@@ -3225,8 +3846,53 @@ fn is_valid_identifier(s: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'$')
 }
 
+fn is_supported_builtin_pure_call_head(head: &str) -> bool {
+    matches!(
+        head,
+        "String"
+            | "Number"
+            | "Boolean"
+            | "int"
+            | "uint"
+            | "parseInt"
+            | "parseFloat"
+            | "Math.abs"
+            | "Math.floor"
+            | "Math.ceil"
+            | "Math.round"
+            | "Math.sqrt"
+            | "Math.pow"
+            | "Math.min"
+            | "Math.max"
+    )
+}
+
+fn is_supported_postfix_value_method(method: &str) -> bool {
+    matches!(
+        method,
+        "join"
+            | "toString"
+            | "valueOf"
+            | "slice"
+            | "concat"
+            | "indexOf"
+            | "lastIndexOf"
+            | "split"
+            | "charAt"
+            | "charCodeAt"
+            | "substring"
+            | "substr"
+            | "toUpperCase"
+            | "toLowerCase"
+            | "trim"
+    )
+}
+
 fn is_supported_preview_rhs(rhs: &str) -> bool {
-    let trimmed = rhs.trim();
+    let mut trimmed = rhs.trim();
+    while trimmed.starts_with('(') && trimmed.ends_with(')') && is_single_paren_group(trimmed) {
+        trimmed = trimmed[1..trimmed.len() - 1].trim();
+    }
     if trimmed.is_empty() || extract_function_literal_body(trimmed).is_some() {
         return false;
     }
@@ -3236,6 +3902,22 @@ fn is_supported_preview_rhs(rhs: &str) -> bool {
             || ctor == "Array"
             || ctor.starts_with("Object(")
             || ctor == "Object";
+    }
+    if let Some((head, _)) = parse_qualified_call(trimmed) {
+        if head == "Array" || is_supported_builtin_pure_call_head(head) {
+            return true;
+        }
+        if let Some((_, method)) = split_receiver_member(head) {
+            return is_supported_postfix_value_method(method);
+        }
+        return false;
+    }
+    if let Some((_, tokens)) = parse_postfix_steps(trimmed)
+        && tokens
+            .iter()
+            .any(|t| matches!(t, PostfixToken::Call(m, _) if !is_supported_postfix_value_method(m)))
+    {
+        return false;
     }
     true
 }
@@ -5306,5 +5988,74 @@ mod tests {
                 && d.contains("outside the bounded native stage preview subset")),
             "unsupported constructor statements must continue emitting diagnostics: {diags:?}"
         );
+    }
+
+    #[test]
+    fn t369_authored_playback_array_join_nested_matrices_chained_string_methods_and_unsupported_call_diagnostics()
+     {
+        let run = |lang: ScriptLanguage, src: &str| -> (Vec<String>, Vec<String>) {
+            let mut project = Project::blank();
+            project.script_language = Some(lang);
+            let root = project.root.clone();
+            project.symbol_mut(&root).unwrap().timeline.scripts = vec![crate::FrameScript {
+                layer: None,
+                frame: 0,
+                script: crate::Script {
+                    language: lang,
+                    source: src.to_owned(),
+                },
+            }];
+            let mut preview = AuthoredPlayback::with_live_scripts(&project, &root, 0, true);
+            (preview.drain_traces(), preview.drain_diagnostics())
+        };
+
+        // Exact user snippet + chained flatten + builtin Math/String/Array value methods + unsupported call diagnostic
+        let (as2_traces, as2_diags) = run(
+            ScriptLanguage::ActionScript2,
+            &[
+                "stop();",
+                "lFigure = new Array([0,1,0],[0,1,0],[0,1,0],[0,1,0]);",
+                "f=lFigure.join(\"\");",
+                "trace ( f );",
+                "trace ( lFigure );",
+                "flat = lFigure.join(\"\").split(\",\").join(\"\");",
+                "trace ( flat, flat.length, flat.slice(1, 5), Math.floor(3.9), parseInt(\"0x10\") );",
+                "avm1Join = [\"zero\", undefined, null, \"five\"].join(\"/\");",
+                "avm1Hole = new Array(2).toString();",
+                "trace ( avm1Join, avm1Hole );",
+                "bad = lFigure.length();",
+                "trace ( bad );",
+            ]
+            .join("\n"),
+        );
+        assert_eq!(
+            as2_traces,
+            vec![
+                "0,1,00,1,00,1,00,1,0",
+                "[\n  [0, 1, 0],\n  [0, 1, 0],\n  [0, 1, 0],\n  [0, 1, 0]\n]",
+                "010010010010 12 1001 3 16",
+                "zero/undefined/null/five undefined,undefined",
+                "undefined",
+            ]
+        );
+        assert!(
+            as2_diags.iter().any(|d| d.contains("lFigure.length()")
+                && d.contains("outside the bounded native stage preview subset")),
+            "unsupported call `.length()` must emit a preview diagnostic instead of storing raw source text: {as2_diags:?}"
+        );
+
+        let (as1_traces, as1_diags) = run(
+            ScriptLanguage::ActionScript1,
+            "stop();\ntrace([\"zero\", undefined, null, \"five\"].join(\"/\"), new Array(2).toString());",
+        );
+        assert!(as1_diags.is_empty());
+        assert_eq!(as1_traces, vec!["zero//null/five ,"]);
+
+        let (as3_traces, as3_diags) = run(
+            ScriptLanguage::ActionScript3,
+            "stop();\nvar lFigure:Array = new Array([0,1,0],[0,1,0],[0,1,0],[0,1,0]);\nvar f:String = lFigure.join(\"\");\ntrace(f, [\"zero\", undefined, null, \"five\"].join(\"/\"), new Array(2).toString());",
+        );
+        assert!(as3_diags.is_empty());
+        assert_eq!(as3_traces, vec!["0,1,00,1,00,1,00,1,0 zero///five ,"]);
     }
 }

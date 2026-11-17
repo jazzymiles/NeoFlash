@@ -51,6 +51,10 @@ var xmlShadow=localXML(function(value){return value;},function(value){return val
 var stock={apples:2,pears:3}; var stockTotal=0;
 for(var stockKey:String in stock) stockTotal+=stock[stockKey];
 var hadPears="pears" in stock; var removedPears=delete stock.pears;
+var lFigure = new Array([0,1,0],[0,1,0],[0,1,0],[0,1,0]);
+var joinedFigure = lFigure.join("");
+var avm1Join = ["zero", undefined, null, "five"].join("/");
+var avm1Holes = new Array(2).toString();
 result = labels.join("|");
 trace("AS2", result, "order", order.join(","), "numbers", numeric.join(","));`,
   as3: `function localXML(XML:Function,XMLList:Function):String {return XML("new")+XMLList("list");}
@@ -221,6 +225,7 @@ export const collectionsFixtures = [
       assert.deepEqual(c.numeric,[2,11,30]); assert.equal(c.unique,0); assert.deepEqual(c.duplicate,['echo','echo']);
       assert.equal(c.reversed,c.copy); assert.equal(c.custom,'custom:16');
       assert.equal(c.xmlShadow,'oldnode');assert.equal(c.stockTotal,5);assert.equal(c.hadPears,true);assert.equal(c.removedPears,true);assert.equal(Object.hasOwn(c.stock,'pears'),false);
+      assert.equal(c.joinedFigure,'0,1,00,1,00,1,00,1,0');assert.equal(c.avm1Join,'zero/undefined/null/five');assert.equal(c.avm1Holes,'undefined,undefined');
       assert.deepEqual(logs,[['AS2','Zoe:45|Ada:30|Bob:20','order','1,0,2','numbers','2,11,30']]);
     } },
   { language:'action_script3', profile:collectionsProfile, source:collectionSources.as3, context:{},

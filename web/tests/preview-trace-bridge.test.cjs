@@ -843,6 +843,9 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
         'trace(new Piece("L", [[1, 0], [1, 1]]));',
         'trace(new NamedBadge("gold"));',
         'trace("COERCE:" + [1, 2] + "|" + ({ a: 1 }));',
+        'var lFigure = new Array([0,1,0],[0,1,0],[0,1,0],[0,1,0]);',
+        'var f = lFigure.join("");',
+        'trace(f);',
       ].join('\n'),
       [
         {
@@ -961,7 +964,7 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
     cdp.consoleErrors.length = 0;
     cdp.uncaughtExceptions.length = 0;
     await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-as2/index.html`);
-    await waitForCondition(() => serverInfo.state.events.length >= 6, 'AS2 structured traces');
+    await waitForCondition(() => serverInfo.state.events.length >= 7, 'AS2 structured traces');
     assert.deepEqual(
       serverInfo.state.events.map(e => e.message),
       [
@@ -971,6 +974,7 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
         'Piece {\n  kind: "L",\n  matrix: [\n    [1, 0],\n    [1, 1]\n  ]\n}',
         'Badge(gold)',
         'COERCE:1,2|[object Object]',
+        '0,1,00,1,00,1,00,1,0',
       ],
     );
     assert.deepEqual(cdp.consoleErrors, []);

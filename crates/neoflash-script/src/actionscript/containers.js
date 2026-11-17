@@ -233,7 +233,7 @@ function __nfContainerMethod(receiver,key,as3,caller,legacyCase){
         return (...args)=>__nfApply(method,receiver,args);
     }
     key=__nfLegacyKey(receiver,key,as3,legacyCase);
-    if(__nfArrayIsArray(receiver)&&!(as3&&(key==='hasOwnProperty'||key==='propertyIsEnumerable'||key==='setPropertyIsEnumerable')))return __nfArrayMethod(receiver,key,as3);
+    if(__nfArrayIsArray(receiver)&&!(as3&&(key==='hasOwnProperty'||key==='propertyIsEnumerable'||key==='setPropertyIsEnumerable')))return __nfArrayMethod(receiver,key,as3,null,legacyCase);
     if(typeof receiver==='string')return __nfStringMethod(receiver,key,as3);
     if(__nfDateIs(receiver))return __nfDateMethod(receiver,key,as3);
     if(as3&&key==='toFixed')return __nfFixedMethod(receiver);

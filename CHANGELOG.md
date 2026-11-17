@@ -4,11 +4,14 @@
 
 - Preserved nested structure when tracing multidimensional arrays (`2D`/`3D` matrices, sparse holes, AS2 associative
   keys, AS3 `Vector.<T>`) and objects (`{...}`, `Object.create(null)`, AS3 `Dictionary`, `Map`, `Set`, `TypedArray`,
-  and AS2/AS3/JS/TS class instances without a custom `toString()`) in **Output**, while keeping standard ECMA/Flash
-  `Array.prototype.toString()` and `Object.prototype.toString()` coercions unchanged inside authored expressions;
-  extended the same structured formatting and source-mapped locations to JS/TS `console.{log,info,debug,dir,warn,error}`
-  in **Test Movie** / **Test Scene**, Chromium **Debugger** console output and **Variables** previews (without invoking
-  getters or `Proxy` traps), in-editor **Play** (`Enter`), and multi-line **Output** search filtering (`T-368`).
+  and AS2/AS3/JS/TS class instances without a custom `toString()`) in **Output**, while keeping Flash/ECMA
+  `Array.prototype.join()` / `Array.prototype.toString()` (including dialect-exact AS1 vs AS2 AVM1 `undefined`/`null`
+  element formatting and comma-joined nested arrays) and `Object.prototype.toString()` coercions intact inside authored
+  expressions; extended structured formatting, pure Array/String/`Math` value methods (`.join`, `.split`, `.slice`,
+  `.concat`, `.indexOf`, etc.) and unsupported-call diagnostics to in-editor **Play** (`Enter`), JS/TS
+  `console.{log,info,debug,dir,warn,error}` in **Test Movie** / **Test Scene**, Chromium **Debugger** console output
+  and **Variables** previews (without invoking getters or `Proxy` traps), and multi-line **Output** search filtering
+  (`T-368`, `T-369`).
 - Streamed live `trace(...)`, `Restart` boundaries and source-mapped runtime errors from browser `Test Movie` (`⌘Return`)
   and `Test Scene` (`⌥⌘Return`) directly into the originating document's **Output** (`F2`) panel over a loopback preview
   relay (`POST /__neoflash/output`, synchronous pre-Frame-1 capture, bounded micro-batching with `>5,000`/s burst
