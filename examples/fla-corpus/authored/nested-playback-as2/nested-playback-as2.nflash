@@ -1,5 +1,5 @@
 {
-  "format_version": 13,
+  "format_version": 14,
   "name": "Imported XFL",
   "width": 720,
   "height": 420,
@@ -277,7 +277,8 @@
                       "symbol_id": "symbol-1",
                       "playback": "loop"
                     },
-                    "scripts": []
+                    "scripts": [],
+                    "instance_behavior": "graphic"
                   },
                   {
                     "id": "xfl-symbol-3-0-2",
@@ -295,7 +296,8 @@
                       "symbol_id": "symbol-1",
                       "playback": "play_once"
                     },
-                    "scripts": []
+                    "scripts": [],
+                    "instance_behavior": "graphic"
                   },
                   {
                     "id": "xfl-symbol-3-0-3",
@@ -315,7 +317,8 @@
                         "single_frame": 12
                       }
                     },
-                    "scripts": []
+                    "scripts": [],
+                    "instance_behavior": "graphic"
                   }
                 ],
                 "tween": null,
@@ -559,7 +562,8 @@
                         "single_frame": 12
                       }
                     },
-                    "scripts": []
+                    "scripts": [],
+                    "instance_behavior": "graphic"
                   }
                 ],
                 "tween": null,

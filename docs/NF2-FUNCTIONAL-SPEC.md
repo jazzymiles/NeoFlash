@@ -69,7 +69,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | ST-08 | Breadcrumb ▾ menu + Symbols & scenes popover | Stage chrome | done | editor | P2 |
 | ST-09 | Toasts / progress / spinner | Window chrome | partial | UI-only | P1 |
 | ST-10 | Dock compass | Docking | absent | UI-only | P3 |
-| ST-11 | Canvas editing chrome (Selection/Transform box variants, gradient transform focal handle) | Stage | partial (boxes, anchors, marquee, transformation point done) | editor | P2 |
+| ST-11 | Canvas editing chrome (Selection/Transform box variants, gradient transform focal handle) | Stage | partial (boxes, `○+` empty-symbol markers, `+` registration crosshairs, anchors, marquee, transformation point done) | editor | P2 |
 | PR-01 | Properties — Text (full NF2 variant) | Properties | partial (`Embed font` / `Embedding…` working) | yes | P2 |
 | PR-02 | Properties — Oval / Rectangle primitive options | Properties | done | yes | P2 |
 | PR-03 | Stroke style (line style, cap, join, miter, hinting, scale) + Stroke style dialog | Properties / dialog | done (`panels/stroke_style.rs`) | yes | P2 |
@@ -80,7 +80,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | PR-08 | Properties — Sound (frame) | Properties | partial | yes | P3 |
 | PR-09 | Properties — Video playback & cue points | Properties | partial (`panels/properties_video.rs`; resource/sync/loop/mute, interactive In/Out trim, Split at playhead, Link/Unlink, Extract audio and cue-point authoring/retiming work; native Progressive/skin/Swap remain) | yes | P3 |
 | PR-10 | Properties — Motion tween | Properties | done | yes | P2 |
-| PR-11 | Frame easing: overshoot values, Flash acceleration field | Properties | done | UI-only | P1 |
+| PR-11 | Classic Flash Frame Properties & easing (`Frame Label`, `Label type`, `Include frame scripts`, `Tween`, `Scale`, `Ease` + `Edit…`, `Rotate`, `Orient`/`Sync`/`Snap`) | Properties | done | yes | P1 |
 | CO-01 | Color panel fill type: Linear / Radial gradient | Color | done | yes (small) | P2 |
 | CO-02 | Color panel fill type: Bitmap fill (+ Bitmap fill panel) | Color | done (`panels/live_planned.rs` + `bitmaps.rs`) | yes | P3 |
 | CO-03 | Color panel: Swatches tab, panel menu Add swatch, picker area | Color | partial (Add swatch + Swatches panel done) | editor | P1 |
@@ -93,9 +93,9 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | AC-05 | Actions toolbar: block comment / line comment / uncomment | Actions | done | UI-only | P1 |
 | AC-06 | Actions toolbar: toolbox sidebar + script navigator | Actions | done | yes | P2 |
 | AC-07 | Script assist | Actions | partial (`sources.rs` + `panels/actions.rs` bounded insertion across AS2/AS3/JS/TS) | yes | P3 |
-| AC-08 | Gutter markers (warning, breakpoint, fold), inline error peek + Quick fix, overview ruler | Actions | partial (`sources.rs`: diagnostic gutter markers, underlines, peek + Quick fix work; breakpoint/fold gutter icons and overview ruler await NF2 component design) | yes | P2 |
+| AC-08 | Gutter markers (warning, breakpoint, fold), inline error peek + Quick fix, bottom status diagnostics, `<ESC>` chords, pinnable script tabs, overview ruler | Actions | partial (`sources.rs`: diagnostic gutter markers, underlines, peek + Quick fix, bottom `script_status` counter, 50 `<ESC>` chords and pinnable `ScriptTab`s work; breakpoint/fold gutter icons and overview ruler await NF2 component design) | yes | P2 |
 | OU-01 | Output: filter search, empty state, Show All / Errors / Warnings / Trace, timestamps | Output | partial (`panels/output.rs`: search filter, Copy, Clear, virtualization and empty-on-launch NF2 EmptyState work; structured level filter and timestamps absent) | editor | P1 |
-| OU-02 | Output: trace() from native Play / Test Movie | Output | done (native Live ActionScript + browser Test Movie / Debug Movie console & exception bridge) | yes | P2 |
+| OU-02 | Output: trace() from native Play / Test Movie | Output | done (native Live ActionScript incl. 1-frame Play + browser Test Movie / Test Scene loopback relay & CDP Debug Movie console/exception bridge) | yes | P2 |
 | PP-01 | Ease panel | Panel | done | editor | P1 |
 | PP-02 | Motion editor | Panel | partial | yes | P2 |
 | PP-03 | Properties — Motion tween | Properties | done | yes | P2 (= PR-10) |
@@ -143,6 +143,8 @@ groups.
 inside an existing range collapses it to that cell. Shift-click extends from the exact anchor, and pointer drag selects
 the exact rectangular layer/frame range. Span-based click selection remains an explicit Timeline preference, with
 ⌘-click as its single-cell override. Selecting another layer must not leave a range from the previous layer active.
+Hovering Timeline frame-grid cells stays silent without a multi-line tooltip banner while unlocked keyframes retain
+their `Grab` cursor feedback (`T-365`).
 
 **TL-01 · Add motion guide** — `timeline_layer_actions` · done
 - Done (2026-11-01): `LayerProperties.motion_guide` link to a Guide-role layer (format 6); Timeline button, Insert ▸ Motion guide and layer menu Add classic motion guide; the guided layer indents under the guide, which shows the Motion guide type. Classic tweens follow the guide's first stroke (`evaluate::sample_layer_in`). `Keyframe.orient_to_path` turns the object with the guide tangent (editor and HTML5; `Editor::set_orient_to_path`). Classic Tween Properties exposes Orient / Snap only on guided layers (R-007); drawing the path when the guide has no stroke is the author's step.
@@ -508,12 +510,12 @@ actions are tracked separately.
   defaults to cutting and selecting only the enclosed raw Merge fill/stroke fragments. A rectangular marquee applies
   the same split, so Backspace removes only the selected segment; Shift preserves the prior selection. Object Drawing
   placements and authoring groups remain whole. Selection and Subselection draw `NF2/Selection Box` per other selected placement (Symbol for instances, Static text
-  for point text, Dynamic text for text boxes, Group otherwise); Free Transform draws `NF2/Transform Box` (Scale mode)
-  on the selection's axis-aligned stage bounds, also for rotated objects, with Flash zones and a draggable
+  for point text, Dynamic text for text boxes, Group otherwise), always paint a `±6.5 pt` `+` registration crosshair at true `(0, 0)` on selected `SymbolInstance`s, and render an authoring-only `○+` marker on `0 × 0` empty `SymbolInstance`s so empty MovieClips remain clickable, marquee/Lasso-selectable, draggable and double-clickable for `Edit in Place` across `Selection`, `Subselection` and `Free Transform` while reporting `0 × 0` `W`/`H` bounds (`T-359`); Free Transform draws `NF2/Transform Box` (Scale mode)
+  on the selection's axis-aligned stage bounds (skipping collapsed `0 × 0` empty-symbol boxes so `○+` drags and double-clicks cleanly), also for rotated objects, with Flash zones and a draggable
   `NF2/Transformation Point` (`Transform.pivot` in format 7 for single placements + transient group pivot; rotation and
   `⌥`-scale pivot around it, double-click resets to centre, one Undo step): handles scale (a single placement resizes in
   its own axes), edges skew (`transform_geometry::skew_many`), outside a corner rotates about the transformation point,
-  inside moves. Marquee uses `NF2/Marquee`; path points and pen anchors use `NF2/Anchor Point` and `NF2/Bezier Handle`
+  inside moves. Detached workspace/code windows (`Actions`, `Help`, `Scripting Reference`, etc.) stay at `WindowLevel::Normal` (`NSNormalWindowLevel`), while compact floating utility palettes (`Tools`, `Color`, `Swatches`, `Align`, `Transform`, `Info`, `Brushes`) drop to `Normal` whenever `Help`, modals, root-viewport popups or native `NSMenu` tracking open (`T-357`). Marquee uses `NF2/Marquee`; path points and pen anchors use `NF2/Anchor Point` and `NF2/Bezier Handle`
   (Pen click on a selected path segment subdivides to insert an anchor; Subselection `Delete`/`Backspace` or `⌥`-click
   deletes selected anchors). Open request R-011 (rotated box, contrast over artwork, Light transformation point).
   Screenshot aid: `NEOFLASH_SCREENSHOT_SELECT=select|transform|subselect` selects everything on the frame with that tool.
@@ -641,8 +643,11 @@ their own layout.
   (`Symbol`), or `Place “<new>”` without `⌥`) or Timeline layer row/frame span (`timeline_row_selected` fill + `1 pt`
   `accent_default` outline + `Replace on all keyframes of “<layer>”`), replaces `ElementKind::Instance.symbol_id` across the
   layer/instance while preserving transform, instance name, scripts, filters, blend mode, accessibility and compatible playback
-  settings (`authoring_symbols.rs::swap_layer_or_selected_symbol`, cycle-safe, one Undo). Selected symbol-instance Properties
-  also provides symbol behavior switching (`Movie Clip` / `Button` / `Graphic`), `Edit symbol`, `Duplicate…`, and
+  settings (`authoring_symbols.rs::swap_layer_or_selected_symbol`, cycle-safe, one Undo). `Convert to Symbol` preserves exact
+  nine-point registration without double-offsetting single placements (`T-359`) and leaves Stage `<Instance Name>` (`Element.name`)
+  empty by default on conversion and Library placement, independent of `Symbol.name` (`T-360`). Selected symbol-instance Properties
+  also provides per-instance behavior switching (`Movie Clip` / `Button` / `Graphic` stored in format-14 `Element.instance_behavior`
+  and JSFL `element.symbolType` + XFL/SWF round-trips without mutating `Symbol.kind` in the Library), `Edit symbol`, `Duplicate…`, and
   two-column `Position and size` (`W`/`H` + `Constrain proportions` lock inside the H cell on Row 1, `X`/`Y` on Row 2,
   `Scale X`/`Scale Y` in `100 %` on Row 3, `Rotation`/`Skew` on Row 4), with one stable second-column axis.
 - Parameters tab: component parameters — no component model. **NEW**, P3.
@@ -694,13 +699,18 @@ their own layout.
 - Reusable: `Editor::set_orient_to_path` (any tweened span); `TimelineEdit::SyncSymbols` / `Editor::sync_symbols`;
   `timeline_motion.rs::paint_motion_path`.
 
-**PR-11 · Frame easing values** — done (`properties` Tween section)
-- Done: Y1/Y2 accept −100…100 (X stays 0–1); "Flash ease" option with an Acceleration field −100…100.
-- Done: a chosen easing applies to every existing editable tween span intersecting the selected multi-layer frame
-  range as one Undo step; locked, hidden and hold spans remain unchanged.
-- Behaviour: allow Y outside 0–1 (Ease panel ranges: −30…130 % in the overshoot graph); add Flash acceleration
-  −100…100 as the existing field style (no new control type — if a field must be added, request).
-- Depends on: UI-only. Acceptance: Y2 = 1.12 saves, reloads and overshoots in editor and HTML5.
+**PR-11 · Classic Flash Frame Properties & easing** — done (`panels/properties.rs`)
+- Done: Frame `Properties` removes redundant `Range / duration` (`Layer` / `Layer end`) rows and composes the Classic Flash
+  Frame inspector from existing NF2 components: `Frame` `<Frame Label>`, format-14 `Label type` (`Name` | `Comment` | `Anchor`,
+  where `Comment` labels stay authoring-only and are skipped by `gotoAndPlay`/`gotoAndStop`), `Frame script…`, `Include frame scripts`,
+  `Tween` kind switcher + `Scale`, `Ease` `-100..=100` + `Edit…` (opening `PanelId::Ease`), `Rotate: Auto | None | CW | CCW` +
+  `times`, and `Orient to path` / `Sync` / `Snap` (`[x] Sync` respects per-instance `Element.instance_behavior` when synchronizing
+  `Graphic` placements) (`T-362`, `T-366`).
+- Done: Y1/Y2 accept −100…100 (X stays 0–1); "Flash ease" option with an Acceleration field −100…100; a chosen easing applies
+  to every existing editable tween span intersecting the selected multi-layer frame range as one Undo step while locked, hidden
+  and hold spans remain unchanged.
+- Depends on: engine + editor. Acceptance: Y2 = 1.12 saves, reloads and overshoots in editor and HTML5; `Comment` labels do not
+  match `gotoAndPlay`/`gotoAndStop`; `[x] Sync` synchronizes `Graphic`-behaving instances without altering `MovieClip`/`Button` instances.
 
 ## 5. Color panel (`crates/neoflash-editor/src/authoring_modify.rs` › `color_panel_*`, `fill_type_select`)
 
@@ -748,11 +758,19 @@ their own layout.
 
 Status: AC-02, AC-04, AC-05 and AC-06 work, AC-01 re-indents only, bounded AC-07 statement insertion works (details in [NF2-ACTIONS-EDITOR.md](NF2-ACTIONS-EDITOR.md)), AC-03 connects to the docked `Debugger` (`PanelId::Debugger`), and AC-08 is partial.
 
-Actions follows the exact current authoring context. A frame target reads and writes the selected layer's ordinary key
+Actions follows the exact current authoring context unless an explicitly pinned bottom-bar `ScriptTab` (`📌` `i16::PIN`
+for `Frame`, `Object` or `Project files`, toggleable via tab icon, context menu or toolbar, `T-364`) is active, in which
+case Stage/Timeline selection changes update the unpinned current-selection tab alongside it without hijacking the active
+pinned script. A frame target reads and writes the selected layer's ordinary key
 at the selected frame through format-13 `FrameScript.layer`; scripts owned by different layers at the same frame stay
 independent. An object target follows the exact selected object and event. A context with no script opens empty instead
 of falling back to code from another explicitly owned layer, frame or object. Compatible legacy layerless frame scripts
-remain timeline-global until the next edit assigns them to the selected layer.
+remain timeline-global until the next edit assigns them to the selected layer. Focused `Actions` and Project source
+editors also support all 50 Classic Flash `<ESC>` + two-key code-insertion chords (`br`..`wt`) with current-line
+indentation, first-placeholder selection, live chord status prompts and single-step Undo (`T-358`), enforce `CursorIcon::Text`
+(`IBeam`) over the code body (`T-357`), and surface live check/diagnostic counts in the interactive right-aligned bottom
+`script_status` bar (with hover summary tooltip and click-to-jump navigation across in-file and cross-file problems,
+replacing the height-stealing `code_feedback` row, `T-363`).
 
 | ID | Element | Purpose / behaviour | Data / engine | Acceptance |
 | --- | --- | --- | --- | --- |
@@ -776,9 +794,9 @@ remain timeline-global until the next edit assigns them to the selected layer.
 - Missing: structured `All / Errors / Warnings / Trace` severity selector and per-line timestamps remain absent (`Editor.output: Vec<String>`).
 - Acceptance: launching a blank document renders `NF2/EmptyState`; search filter hides non-matching lines; copy copies the filtered lines.
 
-**OU-02 · trace() from native Play / Test Movie** — done (`app.rs`, `debugger.rs`, `debugger_protocol.rs`)
-- Available: native Play with `Control ▸ Live ActionScript` drains bounded `trace()` output, and Chromium `Test Movie` / `Debug Movie` streams CDP `Runtime.consoleAPICalled` and `Runtime.exceptionThrown` events directly into the active document session's `Output`. Compile failures on `Test Movie`, `Test Scene`, and `Debug Movie` also refresh and focus `Compiler errors`.
-- Acceptance: `trace("x")` and runtime errors from `Test Movie` appear in the originating document's `Output` without bleeding across document tabs.
+**OU-02 · trace() from native Play / Test Movie** — done (`app.rs`, `preview.rs`, `output_pipeline.rs`, `web/preview.js`, `debugger.rs`, `debugger_protocol.rs`)
+- Available: native Play with `Control ▸ Live ActionScript` drains bounded `trace()` output (including Frame-1 and `onEnterFrame` ticks on 1-frame game timelines), browser `Test Movie` (`⌘↵`) and `Test Scene` (`⌥⌘↵`) stream `trace(...)`, `#restart` session boundaries and source-mapped runtime errors back into the active document's `Output` via `PreviewHttpServer` (`POST /__neoflash/output`, synchronous pre-Frame-1 capture in `web/preview.js`, bounded micro-batching with `>5,000`/s burst suppression, immediate `egui::Context::request_repaint`, clickable `Actions` navigation, and zero endpoint/overhead in ordinary or `--clean` `Publish` exports, `T-356`), and Chromium `Debug Movie` streams CDP `Runtime.consoleAPICalled` and `Runtime.exceptionThrown` events. Compile failures on `Test Movie`, `Test Scene`, and `Debug Movie` also refresh and focus `Compiler errors`.
+- Acceptance: `trace("x")` and runtime errors from `Test Movie`, `Test Scene`, and 1-frame native `Play` appear in the originating document's `Output` without bleeding across document tabs or emitting preview telemetry in normal `Publish` exports.
 
 ## 9. Promoted utility panels (former `Planned panels`; `PlannedPanel` retired — all panels/dialogs are now live dockable panels, modals, or Properties sections)
 
@@ -1056,7 +1074,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 | Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Live ActionScript, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |
 | Document | Document settings; open-document list and Next/Previous document | Requires an open document for settings and navigation |
 | Window | `Panels` groups all real authoring panels including Brushes; built-in and named workspaces, Save/Update/Reset/Rename/Delete layouts, Hide panels, detach/dock, Appearance ▸ Dark / Light / Mid Neutral Gray / Dark Graphite | Duplicate window disabled; Debugger is connected; Follow system is not exposed; other planned panels retain their stated limits |
-| Help | `Search functions…` (F1) opens an immediate focused fuzzy-search palette of registered menu commands, accepts the first keystroke after menu dismissal, supports ↑/↓/↵/Esc and runs the chosen command; its native text field controls a semantic result list and identifies the selected result without losing text/caret focus; NeoFlash Help & Reference keeps fixed bounds with independently scrolling chapters/article and can open a portable English text edition in the browser; that edition inherits the active theme and its single header control cycles all four NF2 themes; Open example; About NeoFlash | Keyboard shortcuts remains a separate Preferences page |
+| Help | `Search functions…` (F1) opens an immediate focused fuzzy-search palette of registered menu commands, accepts the first keystroke after menu dismissal, supports ↑/↓/↵/Esc and runs the chosen command; its native text field controls a semantic result list and identifies the selected result without losing text/caret focus; separate `NeoFlash Help` and `Scripting Reference` windows keep fixed bounds with independently scrolling chapters/article, `Current project: <Language>` badge + `Language scope` filter (`All languages` / `AS1 / AS2` / `AS3` / `JS / TS`), contextual `Actions` token lookup, `[AS1/AS2]`/`[AS3]`/`[JS]`/`[TS]` dialect badges, compiler-verified `function`/`Function` examples and the 50-chord `<ESC>` table (`T-361`), and open portable scriptless browser editions (`:has()` dialect filtering, cycling all four NF2 themes); Open example; About NeoFlash | Keyboard shortcuts remains a separate Preferences page |
 
 New/Open insert a tab after the active tab; opening an already open path activates it without replacing edits.
 Each document keeps its selection, playhead, script state, Undo and recovery. Dirty Close/Close all/Quit prompts
@@ -1080,6 +1098,6 @@ These checks do not claim end-to-end acceptance of every context-dependent comma
 
 | Menu | Still absent or disabled | Depends on |
 | --- | --- | --- |
-| Frame | Working: tweens, Ease…, Clear / Convert keyframes, Select all frames, Remove Frames, Copy / Paste motion, Paste motion special, Reverse frames, Synchronise symbols | Appropriate frame/span selection |
+| Frame | Working: tweens, Ease…, Clear / Convert keyframes, Select all frames, Remove Frames, Copy / Paste motion, Paste motion special, Reverse frames, Synchronise symbols, and `Utils` submenu (`Tween2Keys` on 2s/3s, `Convert to keyframes (on 2s, keep ease)`, `Split clip at playhead`, `Link video & audio`, `Unlink video & audio`; `Include frame scripts` lives in Frame `Properties`, `T-366`) | Appropriate frame/span selection |
 | Layer | — (Add classic motion guide, Guide / Mask toggles, `Sync layer to timeline` and `Blending` submenu work; `Folder and mask…` also edits layer blend mode and timeline sync; `Window ▸ Panels ▸ Filters` edits layer `Blending` when no stage object is selected). Right-clicking blank Layers-column space below the rows opens this same menu for the active layer. | — |
 | Stage object | Working under every active tool: Edit in place defaults to the exact selected instance with its affine parent context dimmed; Library/Explorer definition editing remains isolated. Nested sessions preserve each level's frame, selection, viewport, ruler zero and Timeline focus, and restore them on exit. Double-clicking genuinely empty canvas with no active draft/gesture consumes the complete gesture and leaves exactly one hierarchy level without changing the sticky tool or reopening the restored child; repeat the gesture to continue upward, while breadcrumbs provide direct deliberate navigation. Swap symbol…, Duplicate symbol…, Create motion tween, Show in library, Break apart (⌘B), Group (⌘G), Ungroup (⇧⌘G) and Distribute to layers ⇧⌘D work. Edit in new window stays disabled; Bitmap Trace awaits R-060. Non-affine 9-slice instances refuse in-place editing. Local guides/grid work for axis-preserving and quarter-turn mappings; signed/reflected ruler labels and arbitrary oblique local guide/grid/ruler chrome await R-063, with a safe screen-ruler fallback. | PR-06, LI-01, R-060, R-063 |

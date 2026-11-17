@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- Streamed live `trace(...)`, `Restart` boundaries and source-mapped runtime errors from browser `Test Movie` (`⌘Return`)
+  and `Test Scene` (`⌥⌘Return`) directly into the originating document's **Output** (`F2`) panel over a loopback preview
+  relay (`POST /__neoflash/output`, synchronous pre-Frame-1 capture, bounded micro-batching with `>5,000`/s burst
+  suppression, immediate background repaint and click-to-jump **Actions** navigation), with zero endpoints or overhead
+  in ordinary/`--clean` **Publish** exports, plus Frame-1 and `onEnterFrame` trace execution during 1-frame in-editor
+  **Play** (`Enter`) (`T-356`).
+- Added all 50 Classic Flash `<ESC>` two-key code-insertion chords (`br`..`wt`) in **Actions** and Project source
+  editors with current-line indentation, first-placeholder selection, live status prompts and single-step Undo, plus
+  pinnable script tabs (`📌`) in the **Actions** bottom bar and toolbar for `Frame`, `Object` and `Project files`
+  scripts so pinned tabs remain one-click accessible without Stage or Timeline selection changes hijacking the active
+  script (`T-358`, `T-364`).
+- Moved **Actions** check and diagnostic feedback out of the height-stealing banner into an interactive right-aligned
+  bottom status counter with hover summary and click-to-jump navigation, kept detached **Actions** and workspace windows
+  at normal macOS window level while lowering floating utility palettes below **Help**, modals and open menus, and
+  enforced `IBeam` text cursors over the **Actions** code body (`T-357`, `T-363`).
+- Fixed single-object **Convert to Symbol** registration math across all nine anchor points so Stage `(X, Y)` matches
+  registration `(0, 0)` without double-offsetting; added authoring-only `○+` Stage markers for empty `SymbolInstance`s
+  (supporting click, marquee, Lasso, drag-move, context menu and double-click **Edit in Place** across **Selection**,
+  **Subselection** and **Free Transform**), `+` registration crosshairs on selected instances, and `0 × 0` `W`/`H`
+  bounds for empty symbols (`T-359`).
+- Separated Library **Symbol** name and type from Stage `<Instance Name>` (empty by default on **Convert to Symbol** and
+  Library placement) and per-instance **Behavior** (`MovieClip` / `Button` / `Graphic` via format-14
+  `Element.instance_behavior`, JSFL `element.symbolType`, timeline Graphic **Sync**, Stage context-menu Graphic playback
+  modes, and XFL/SWF round-trips without mutating `Symbol.kind` in the Library) (`T-360`).
+- Streamlined Classic Flash Frame **Properties** (`<Frame Label>`, format-14 `Label type`: `Name` | `Comment` | `Anchor`
+  with `Comment` skipped by `gotoAndPlay`/`gotoAndStop`, `Frame script…`, `Include frame scripts`, `Tween` kind switcher
+  + `Scale`, `Ease` `-100..=100` + `Edit…` curve opener, `Rotate` + `times`, and `Orient to path` / `Sync` / `Snap`
+  without redundant layer-duration rows), removed the continuous 4-line hover tooltip on Timeline frame-grid cells while
+  preserving `Grab` keyframe cursors, and grouped six frame utility commands under a **Utils** submenu in the Timeline
+  frame context menu (`T-362`, `T-365`, `T-366`).
+- Clarified the active language in **Scripting Reference** with a **Current project** language badge, interactive
+  **Language scope** filter (`All languages`, `AS1 / AS2`, `AS3`, `JS / TS`), contextual **Actions** token lookup,
+  dialect badges across chapters, search and the scriptless browser manual, compiler-verified `function` / `Function`
+  reference examples (`arguments`, `call`/`apply`, `prototype`, closures and 1-frame game loops), and the 50-chord
+  `<ESC>` shortcut table (`T-361`).
 - Made headless automation transactional across real external effects: strict JSON `batch` now includes in-memory
   `import` and rolls explicit saves, multi-file exports, permitted JSFL `FLfile` mutations and final project output
   back to their pre-command state after a later returned error, cooperative cancellation or response-write failure.
@@ -14,8 +49,8 @@
   active-layer menu; right-clicking a selected frame preserves its range, so Remove Frames follows that range in one
   Undo/Redo operation.
 - New documents now begin with one frame and one blank keyframe. Convert to Symbol uses the entered Name as the
-  default export Identifier and for a generated or unnamed converted instance, while preserving an explicitly edited
-  Identifier.
+  default export Identifier while preserving an explicitly edited Identifier and leaving the placed Stage
+  `<Instance Name>` empty until named by the author.
 - Actions now follows the exact selected layer/frame or object/event. Format 13 stores explicit frame-script layer
   ownership so different layers can keep independent scripts at the same frame; legacy layerless scripts remain
   readable through deterministic row inference.
