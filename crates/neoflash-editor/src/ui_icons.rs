@@ -1137,29 +1137,7 @@ pub(crate) fn hover_tooltip(
         ctx.request_repaint_after(std::time::Duration::from_secs_f64(delay - still + 0.01));
         return response;
     }
-    let p = neoflash_ui::palette(&ctx);
-    let anchor = response.rect.center_bottom() + egui::vec2(0.0, neoflash_ui::tokens::space::S2);
-    egui::Area::new(response.id.with("nf2-disabled-tooltip"))
-        .order(egui::Order::Tooltip)
-        .pivot(egui::Align2::CENTER_TOP)
-        .fixed_pos(anchor)
-        .interactable(false)
-        .constrain(true)
-        .show(&ctx, |ui| {
-            egui::Frame::new()
-                .fill(p.tooltip_bg)
-                .corner_radius(egui::CornerRadius::same(
-                    neoflash_ui::tokens::radius::MD as u8,
-                ))
-                .inner_margin(egui::Margin::symmetric(10, 5))
-                .shadow(neoflash_ui::metrics::SHADOW_POPOVER.egui())
-                .show(ui, |ui| {
-                    ui.label(
-                        neoflash_ui::typography::rich(reason, neoflash_ui::TextStyle::Body)
-                            .color(p.text_inverse),
-                    );
-                });
-        });
+    neoflash_ui::components::paint_tooltip_bubble(&ctx, response.rect, reason, None);
     response
 }
 

@@ -11,12 +11,14 @@
 - Added all 50 Classic Flash `<ESC>` two-key code-insertion chords (`br`..`wt`) in **Actions** and Project source
   editors with current-line indentation, first-placeholder selection, live status prompts and single-step Undo, plus
   pinnable script tabs (`📌`) in the **Actions** bottom bar and toolbar for `Frame`, `Object` and `Project files`
-  scripts so pinned tabs remain one-click accessible without Stage or Timeline selection changes hijacking the active
-  script (`T-358`, `T-364`).
-- Moved **Actions** check and diagnostic feedback out of the height-stealing banner into an interactive right-aligned
-  bottom status counter with hover summary and click-to-jump navigation, kept detached **Actions** and workspace windows
-  at normal macOS window level while lowering floating utility palettes below **Help**, modals and open menus, and
-  enforced `IBeam` text cursors over the **Actions** code body (`T-357`, `T-363`).
+  scripts (including unextended timeline frames and non-interactive overlay tooltips that flip above bottom-edge
+  controls without stealing hover or clicks) so pinned tabs remain one-click accessible without Stage, Timeline or
+  panel-header clicks hijacking the active script (`T-358`, `T-364`, `T-367`).
+- Moved **Actions** check and diagnostic feedback out of the height-stealing banner into a width-adaptive right-aligned
+  bottom status counter with progressive compact position formatting in narrow/floating **Actions** windows, hover
+  summary and click-to-jump navigation, kept detached **Actions** and workspace windows at normal macOS window level
+  while lowering floating utility palettes below **Help**, modals and open menus, and enforced `IBeam` text cursors
+  over the **Actions** code body (`T-357`, `T-363`, `T-367`).
 - Fixed single-object **Convert to Symbol** registration math across all nine anchor points so Stage `(X, Y)` matches
   registration `(0, 0)` without double-offsetting; added authoring-only `○+` Stage markers for empty `SymbolInstance`s
   (supporting click, marquee, Lasso, drag-move, context menu and double-click **Edit in Place** across **Selection**,

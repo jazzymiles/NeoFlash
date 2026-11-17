@@ -155,11 +155,120 @@ pub fn tooltip_shortcuts(ctx: &egui::Context) -> bool {
     })
 }
 
+/// Paint a non-interactive `NF2/Tooltip` bubble on the `Order::Tooltip` overlay layer without
+/// registering an `egui::Area` in `Memory::areas` (so tooltips can never steal hover, cursor, or
+/// clicks from controls beneath them) and automatically flip above `target_rect` when near the
+/// bottom edge of the viewport (`T-367`).
+pub fn paint_tooltip_bubble(
+    ctx: &egui::Context,
+    target_rect: Rect,
+    label: &str,
+    shortcut: Option<&str>,
+) {
+    if label.is_empty() {
+        return;
+    }
+    let shortcut = shortcut.filter(|_| tooltip_shortcuts(ctx));
+    let p = palette(ctx);
+    let raw_screen = ctx.input(|i| i.viewport_rect());
+    let screen = if raw_screen.is_positive() && raw_screen.width().is_finite() {
+        raw_screen
+    } else {
+        ctx.content_rect()
+    };
+    let max_text_w = (screen.width() - 32.0).max(120.0);
+    let mut label_job = egui::text::LayoutJob::single_section(
+        label.to_owned(),
+        crate::typography::format(TextStyle::Body, p.text_inverse),
+    );
+    label_job.wrap.max_width = max_text_w;
+    let label_galley = ctx.fonts_mut(|f| f.layout_job(label_job));
+
+    let kbd_layout = shortcut.and_then(|raw_key| {
+        let key_str = platform_shortcut(raw_key);
+        if key_str.is_empty() {
+            return None;
+        }
+        let job = egui::text::LayoutJob::single_section(
+            key_str.into_owned(),
+            crate::typography::format_line(TextStyle::Small, p.text_inverse),
+        );
+        let g = ctx.fonts_mut(|f| f.layout_job(job));
+        let chip_w = (g.size().x + 12.0).max(20.0);
+        Some((g, chip_w))
+    });
+
+    let pad_x = 10.0;
+    let pad_y = 5.0;
+    let content_w = label_galley.size().x
+        + kbd_layout
+            .as_ref()
+            .map_or(0.0, |(_, chip_w)| space::S3 + *chip_w);
+    let content_h = label_galley
+        .size()
+        .y
+        .max(if kbd_layout.is_some() { KBD } else { 0.0 });
+    let box_w = content_w + 2.0 * pad_x;
+    let box_h = content_h + 2.0 * pad_y;
+
+    let below_y = target_rect.bottom() + space::S2;
+    let above_y = target_rect.top() - space::S2 - box_h;
+    let y = if below_y + box_h <= screen.bottom() - 2.0 {
+        below_y
+    } else if above_y >= screen.top() + 2.0 {
+        above_y
+    } else if target_rect.top() - screen.top() > screen.bottom() - target_rect.bottom() {
+        above_y.max(screen.top() + 2.0)
+    } else {
+        below_y.min((screen.bottom() - box_h - 2.0).max(screen.top() + 2.0))
+    };
+    let min_x = screen.left() + 4.0;
+    let max_x = (screen.right() - box_w - 4.0).max(min_x);
+    let x = (target_rect.center().x - box_w * 0.5).clamp(min_x, max_x);
+    let box_rect = Rect::from_min_size(egui::pos2(x, y), egui::vec2(box_w, box_h));
+
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        egui::Id::new("nf2-tooltip-layer"),
+    ));
+    painter.add(
+        crate::metrics::SHADOW_POPOVER
+            .egui()
+            .as_shape(box_rect, cr(radius::MD)),
+    );
+    painter.rect_filled(box_rect, cr(radius::MD), p.tooltip_bg);
+
+    let label_pos = egui::pos2(
+        box_rect.left() + pad_x,
+        box_rect.center().y - label_galley.size().y * 0.5,
+    );
+    painter.galley(label_pos, label_galley.clone(), p.text_inverse);
+
+    if let Some((kbd_galley, chip_w)) = kbd_layout {
+        let chip_rect = Rect::from_min_size(
+            egui::pos2(
+                box_rect.left() + pad_x + label_galley.size().x + space::S3,
+                box_rect.center().y - KBD * 0.5,
+            ),
+            egui::vec2(chip_w, KBD),
+        );
+        painter.rect_filled(chip_rect, cr(radius::SM), p.text_primary);
+        painter.rect_stroke(
+            chip_rect,
+            cr(radius::SM),
+            Stroke::new(1.0_f32, p.text_primary),
+            egui::StrokeKind::Inside,
+        );
+        let gx = chip_rect.center().x - kbd_galley.size().x * 0.5;
+        let gy = chip_rect.center().y - kbd_galley.size().y * 0.5;
+        painter.galley(egui::pos2(gx, gy), kbd_galley, p.text_inverse);
+    }
+}
+
 /// `NF2/Tooltip` — `tooltip/bg` + `text/inverse`, label and optional shortcut chip.
 /// Use instead of `on_hover_text` for every icon-only control.
 pub fn tooltip(response: Response, label: &str, shortcut: Option<&str>) -> Response {
     let ctx = response.ctx.clone();
-    let shortcut = shortcut.filter(|_| tooltip_shortcuts(&ctx));
     if !response.hovered() || label.is_empty() || ctx.input(|i| i.pointer.any_down()) {
         return response;
     }
@@ -169,32 +278,7 @@ pub fn tooltip(response: Response, label: &str, shortcut: Option<&str>) -> Respo
         ctx.request_repaint_after(std::time::Duration::from_secs_f64(delay - still + 0.01));
         return response;
     }
-    let p = palette(&ctx);
-    let anchor = response.rect.center_bottom() + egui::vec2(0.0, space::S2);
-    egui::Area::new(response.id.with("nf2-tooltip"))
-        .order(egui::Order::Tooltip)
-        .pivot(egui::Align2::CENTER_TOP)
-        .fixed_pos(anchor)
-        .interactable(false)
-        .constrain(true)
-        .show(&ctx, |ui| {
-            egui::Frame::new()
-                .fill(p.tooltip_bg)
-                .corner_radius(cr(radius::MD))
-                .inner_margin(egui::Margin::symmetric(10, 5))
-                .shadow(crate::metrics::SHADOW_POPOVER.egui())
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S3;
-                        ui.label(
-                            crate::typography::rich(label, TextStyle::Body).color(p.text_inverse),
-                        );
-                        if let Some(k) = shortcut {
-                            kbd(ui, k, true);
-                        }
-                    });
-                });
-        });
+    paint_tooltip_bubble(&ctx, response.rect, label, shortcut);
     response
 }
 

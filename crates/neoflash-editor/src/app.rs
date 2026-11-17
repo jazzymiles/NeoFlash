@@ -850,6 +850,7 @@ impl Editor {
         if self.script_target == ScriptTarget::Object && !self.selected_editable() {
             self.script_target = ScriptTarget::Frame;
         }
+        self.activate_current_actions_location();
         self.reveal_panel(PanelId::Actions);
         self.detached.focus_docked_actions = self.workspace.is_panel_docked(PanelId::Actions);
     }

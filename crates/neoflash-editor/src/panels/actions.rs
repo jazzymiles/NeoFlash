@@ -219,6 +219,21 @@ impl Editor {
                     }
                 });
             nf::tooltip(target_response, context.trim_end_matches('.'), None);
+            let btn_w = neoflash_ui::metrics::control();
+            let wrap_if_needed = |ui: &mut egui::Ui, needed_w: f32| {
+                if ui.cursor().left() > ui.max_rect().left() + 1.0
+                    && ui.cursor().left() + needed_w > ui.max_rect().right()
+                {
+                    ui.end_row();
+                }
+            };
+            let divider_if_fits = |ui: &mut egui::Ui, next_w: f32| {
+                if ui.cursor().left() + 5.0 + next_w <= ui.max_rect().right() {
+                    nf::divider(ui, true);
+                } else {
+                    ui.end_row();
+                }
+            };
             if !source {
                 let proj_lang = self.project.effective_script_language();
                 let skipped = has_stored_script
@@ -227,7 +242,10 @@ impl Editor {
                         self.project.also_compile_compatible_scripts,
                         script.language,
                     ) == ScriptDisposition::SkippedForeign;
-                ui.add_space(space::S1);
+                wrap_if_needed(ui, 120.0);
+                if ui.cursor().left() > ui.max_rect().left() + 1.0 {
+                    ui.add_space(space::S1);
+                }
                 Self::script_language_badge(ui, script.language, skipped);
             }
             if active_target == ScriptTarget::Object {
@@ -235,7 +253,10 @@ impl Editor {
                     Some(ScriptLocation::Object { event, .. }) => *event,
                     _ => self.script_event,
                 };
-                ui.add_space(space::S1);
+                wrap_if_needed(ui, 150.0 + space::S1);
+                if ui.cursor().left() > ui.max_rect().left() + 1.0 {
+                    ui.add_space(space::S1);
+                }
                 let label = format!("Event: {cur_event:?}");
                 nf::Select::new("actions_object_event", &label)
                     .width(150.)
@@ -276,12 +297,13 @@ impl Editor {
                     });
             }
             ui.add_space(space::S1);
-            nf::divider(ui, true);
+            divider_if_fits(ui, btn_w);
             let check_label = if source {
                 "Check project"
             } else {
                 "Check script"
             };
+            wrap_if_needed(ui, btn_w);
             let check = ui.add_enabled_semantic(
                 !source || active_source_id.is_some(),
                 nf::IconButton::new(i16::CHECK, check_label),
@@ -308,6 +330,7 @@ impl Editor {
             let has_api = language.and_then(crate::script_api::api).is_some();
             for group in CODE_TOOLS {
                 for (icon, label, command) in group {
+                    wrap_if_needed(ui, btn_w);
                     let Some(command) = command else {
                         if *label == "Debug options" {
                             if ui.add(nf::IconButton::new(*icon, label)).clicked() {
@@ -353,8 +376,9 @@ impl Editor {
                         self.actions_ui.pending = Some(command.clone());
                     }
                 }
-                nf::divider(ui, true);
+                divider_if_fits(ui, btn_w);
             }
+            wrap_if_needed(ui, btn_w);
             let sidebar = ui.add(
                 nf::IconButton::new(i16::SIDEBAR, "Show toolbox sidebar")
                     .selected(self.actions_ui.sidebar),
@@ -365,16 +389,23 @@ impl Editor {
             let is_pinned = active_loc
                 .as_ref()
                 .is_some_and(|loc| self.actions_ui.pinned_tabs.contains(loc));
+            let pin_label = if is_pinned {
+                "Unpin script tab"
+            } else {
+                "Pin script tab"
+            };
+            wrap_if_needed(ui, btn_w);
             let pin_btn = ui.add_enabled_semantic(
                 active_loc.is_some(),
-                nf::IconButton::new(i16::PIN, "Pin script tab").selected(is_pinned),
+                nf::IconButton::new(i16::PIN, pin_label).selected(is_pinned),
             );
             if pin_btn.clicked()
                 && let Some(loc) = active_loc.clone()
             {
                 self.toggle_pin_script_tab(loc);
             }
-            let right = 140. + neoflash_ui::metrics::control() + 2. * 2.;
+            let right = 140. + btn_w + 2. * 2.;
+            wrap_if_needed(ui, right);
             // In a wrapped row `available_width` is the full row width, not what is left of it.
             let rest = ui.max_rect().right() - ui.cursor().left() - right - space::S4;
             if rest > 0. {
@@ -534,7 +565,16 @@ impl Editor {
         ui: &mut egui::Ui,
         empty_state: nf::EmptyState<'_>,
     ) {
-        let avail = ui.available_rect_before_wrap();
+        let raw_avail = ui.available_rect_before_wrap();
+        let bound_right = ui.max_rect().right().min(ui.clip_rect().right());
+        let bound_bottom = ui.max_rect().bottom().min(ui.clip_rect().bottom());
+        let avail = egui::Rect::from_min_max(
+            raw_avail.min,
+            egui::pos2(
+                bound_right.max(raw_avail.left()),
+                bound_bottom.max(raw_avail.top()),
+            ),
+        );
         let bar_h = if self.actions_ui.pinned_tabs.is_empty() {
             0.0
         } else {
@@ -790,7 +830,16 @@ impl Editor {
         }
         ui.spacing_mut().item_spacing.y = saved_y_spacing;
         // Sidebar (toolbox + Script navigator) left of the script area, as in the NF2 Actions panel.
-        let rest = ui.available_rect_before_wrap();
+        let raw_rest = ui.available_rect_before_wrap();
+        let bound_right = ui.max_rect().right().min(ui.clip_rect().right());
+        let bound_bottom = ui.max_rect().bottom().min(ui.clip_rect().bottom());
+        let rest = egui::Rect::from_min_max(
+            raw_rest.min,
+            egui::pos2(
+                bound_right.max(raw_rest.left()),
+                bound_bottom.max(raw_rest.top()),
+            ),
+        );
         ui.advance_cursor_after_rect(rest);
         let nav_label = location_before
             .as_ref()

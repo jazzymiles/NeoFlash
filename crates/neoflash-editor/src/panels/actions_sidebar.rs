@@ -607,7 +607,7 @@ impl Editor {
                 frame,
             } => {
                 let sym = self.project.symbol(symbol)?;
-                if *frame >= sym.timeline.frame_count {
+                if sym.timeline.layers.is_empty() || *frame >= 1_000_000 {
                     return None;
                 }
                 let resolved_layer = if let Some(layer_id) = layer {
@@ -675,17 +675,10 @@ impl Editor {
         }
     }
 
-    pub(crate) fn has_pending_explicit_actions_open(&self) -> bool {
-        (self.detached.focus_docked_actions
-            || self.detached.focus == Some(crate::workspace::PanelId::Actions))
-            && !self.detached.pending_placement_focus
-    }
-
     /// Script location currently open in the `Actions` editor (`active_pinned` when set and valid,
     /// otherwise the live Stage/Timeline `current_script_location()`).
     pub(crate) fn effective_actions_location(&self) -> Option<ScriptLocation> {
-        if !self.has_pending_explicit_actions_open()
-            && let Some(pinned) = &self.actions_ui.active_pinned
+        if let Some(pinned) = &self.actions_ui.active_pinned
             && let Some(valid) = self.canonical_script_location(pinned)
         {
             return Some(valid);

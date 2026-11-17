@@ -752,3 +752,396 @@ fn t363_status_bar_diagnostics_click_jump_cross_file_and_skipped_foreign() {
         "valid skipped AS2 script must report No errors without foreign TS document_class errors: {skip_labels:?}"
     );
 }
+
+#[test]
+fn t367_narrow_floating_actions_status_fits_and_pin_never_flickers() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut project = Project::blank();
+    project.format_version = 13;
+    project.script_language = Some(ScriptLanguage::ActionScript2);
+    project.symbols[0].timeline.frame_count = 1;
+    project.symbols[0].timeline.layers[0].name = "filed".into();
+    let mut src = String::new();
+    for i in 1..=20 {
+        src.push_str(&format!(
+            "var line_{i}:Number = {i}; // AllFigures = new Array(TFigure, IFigure, QFigure, L1Figure, L2Figure);\n"
+        ));
+    }
+    src.push_str(
+        "function populateDropSet(){\n    proxy = new Array(AllFigures);\n    for (i=proxy.length();i>0;i--){\n        pos=Math.floor(Math.random(proxy.length));\n        dropSet[i]=proxy.splice(pos, 1)[0];\n    }\n}\n\n\nfunction NewGame(){\n    createEmptyGF();\n    populateDropSet();\n}\n\n\n\n\n\n\n",
+    );
+    let script = Script {
+        language: ScriptLanguage::ActionScript2,
+        source: src.clone(),
+    };
+    let layer_id = project.symbols[0].timeline.layers[0].id.clone();
+    project.symbols[0].timeline.scripts.push(FrameScript {
+        layer: Some(layer_id.clone()),
+        frame: 0,
+        script: script.clone(),
+    });
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.fonts.install_ui(&ctx);
+    neoflash_ui::typography::install_text_styles(&mut (*ctx.style()).clone());
+    editor.set_panel_placement(
+        &ctx,
+        crate::workspace::PanelId::Actions,
+        crate::workspace::PanelPlacement::Detached,
+    );
+    editor.show_panel(crate::workspace::PanelId::Actions);
+    editor.check_action_source(&script, false);
+    jump_to(&ctx, editor.actions_editor_id(), &src, 40, 1);
+
+    let run_floating = |editor: &mut Editor,
+                        win_rect: egui::Rect,
+                        t: f64,
+                        events: Vec<egui::Event>|
+     -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(win_rect),
+                time: Some(t),
+                focused: true,
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default()
+                    .frame(neoflash_ui::components::Surface::PanelFlush.frame(ctx))
+                    .show(ctx, |ui| {
+                        ui.set_min_size(win_rect.size());
+                        let _ = editor.native_floating_panel(
+                            ui,
+                            crate::workspace::PanelId::Actions,
+                            &[crate::workspace::PanelId::Actions],
+                            [320.0, 220.0],
+                            1.0,
+                        );
+                    });
+            },
+        )
+    };
+
+    let ax_rect = |out: &egui::FullOutput, label: &str| -> egui::Rect {
+        let nodes = &out.platform_output.accesskit_update.as_ref().unwrap().nodes;
+        let b = nodes
+            .iter()
+            .find_map(|(_, n)| {
+                n.label()
+                    .or(n.value())
+                    .filter(|l| *l == label)
+                    .and_then(|_| n.bounds())
+            })
+            .unwrap_or_else(|| {
+                let all: Vec<_> = nodes
+                    .iter()
+                    .filter_map(|(_, n)| n.label().or(n.value()))
+                    .collect();
+                panic!("missing AX node {label:?} in {all:?}");
+            });
+        egui::Rect::from_min_max(
+            egui::pos2(b.x0 as f32, b.y0 as f32),
+            egui::pos2(b.x1 as f32, b.y1 as f32),
+        )
+    };
+
+    fn collect_texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+        match shape {
+            egui::Shape::Text(t) => {
+                out.push((
+                    t.galley.job.text.clone(),
+                    egui::Rect::from_min_size(t.pos, t.galley.size()),
+                ));
+            }
+            egui::Shape::Vec(v) => v.iter().for_each(|s| collect_texts(s, out)),
+            _ => {}
+        }
+    }
+
+    // 1. At 580x440 (narrow floating Actions window matching the user's screenshot), toolbar
+    //    controls wrap cleanly inside <= 580 px and bottom-right `script_status` fits completely
+    //    inside the right border with `"20"` warnings visible.
+    let win_580 = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(580.0, 440.0));
+    let out_580 = run_floating(&mut editor, win_580, 0.0, vec![]);
+    let status_580 = ax_rect(&out_580, "Line 40, Col 1  ·  40 lines  ·  20 warnings");
+    let tab_580 = ax_rect(&out_580, "filed : Frame 1");
+    let pin_580 = ax_rect(&out_580, "Pin script tab: filed : Frame 1");
+    assert!(
+        status_580.right() <= 580.0,
+        "script_status must fit inside 580 px floating window: {status_580:?}"
+    );
+    assert!(
+        status_580.left() >= pin_580.right(),
+        "script_status ({status_580:?}) must not overlap ScriptTab ({tab_580:?} / {pin_580:?})"
+    );
+    for toolbar_lbl in [
+        "Check script",
+        "Remove comment",
+        "Pin script tab",
+        "About Actions",
+    ] {
+        let r = ax_rect(&out_580, toolbar_lbl);
+        assert!(
+            r.right() <= 580.0,
+            "toolbar button {toolbar_lbl:?} overflowed 580 px window: {r:?}"
+        );
+    }
+    let mut texts_580 = Vec::new();
+    for cs in &out_580.shapes {
+        collect_texts(&cs.shape, &mut texts_580);
+    }
+    let bottom_texts_580: Vec<_> = texts_580
+        .into_iter()
+        .filter(|(_, r)| r.top() >= 404.0)
+        .collect();
+    assert!(
+        bottom_texts_580.iter().any(|(t, _)| t == "20"),
+        "warning count '20' must be painted in bottom bar: {bottom_texts_580:?}"
+    );
+    for (txt, rect) in &bottom_texts_580 {
+        assert!(
+            rect.right() <= 580.0,
+            "bottom bar text {txt:?} overflowed 580 px right edge: {rect:?}"
+        );
+    }
+
+    // 2. At minimum 320x240 floating Actions width, progressive compact position formatting keeps
+    //    warning/error counts completely inside <= 320 px without colliding with ScriptTab.
+    let win_320 = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(320.0, 240.0));
+    let out_320 = run_floating(&mut editor, win_320, 0.1, vec![]);
+    let status_320 = ax_rect(&out_320, "Line 40, Col 1  ·  40 lines  ·  20 warnings");
+    assert!(
+        status_320.right() <= 320.0,
+        "script_status must fit inside minimum 320 px window: {status_320:?}"
+    );
+    let mut texts_320 = Vec::new();
+    for cs in &out_320.shapes {
+        collect_texts(&cs.shape, &mut texts_320);
+    }
+    let warn_320 = texts_320
+        .iter()
+        .find(|(t, r)| t == "20" && r.top() >= 204.0)
+        .map(|(_, r)| *r)
+        .expect("warning count '20' must still render at 320 px width");
+    assert!(
+        warn_320.right() <= 320.0,
+        "warning count '20' clipped at 320 px width: {warn_320:?}"
+    );
+
+    // 3. Hovering the bottom `ScriptTab` `📌` pin past `tooltip_delay` must NEVER flicker cursor
+    //    or hover state, flips the tooltip above the bottom bar, and pins/unpins reliably on click.
+    let _ = run_floating(&mut editor, win_580, 0.2, vec![]);
+    let pin_pos = pin_580.center();
+    let _ = run_floating(
+        &mut editor,
+        win_580,
+        1.0,
+        vec![egui::Event::PointerMoved(pin_pos)],
+    );
+    for i in 1..=5 {
+        let out_hover = run_floating(&mut editor, win_580, 2.0 + i as f64 * 0.016, vec![]);
+        assert_eq!(
+            out_hover.platform_output.cursor_icon,
+            egui::CursorIcon::PointingHand,
+            "bottom pin cursor flickered on hover frame {i}"
+        );
+        let mut hover_texts = Vec::new();
+        for cs in &out_hover.shapes {
+            collect_texts(&cs.shape, &mut hover_texts);
+        }
+        let tip_rect = hover_texts
+            .iter()
+            .find(|(t, _)| t == "Pin script tab")
+            .map(|(_, r)| *r)
+            .expect("tooltip 'Pin script tab' must stay visible across every hover frame");
+        assert!(
+            tip_rect.bottom() <= pin_580.top(),
+            "bottom-bar tooltip ({tip_rect:?}) must flip above pin button ({pin_580:?})"
+        );
+    }
+    // Click bottom pin -> pins cleanly!
+    let _ = run_floating(
+        &mut editor,
+        win_580,
+        2.2,
+        vec![egui::Event::PointerButton {
+            pos: pin_pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    let _ = run_floating(
+        &mut editor,
+        win_580,
+        2.22,
+        vec![egui::Event::PointerButton {
+            pos: pin_pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert_eq!(editor.actions_ui.pinned_tabs.len(), 1);
+    let out_pinned = run_floating(&mut editor, win_580, 2.24, vec![]);
+    let _ = ax_rect(&out_pinned, "Unpin script tab: filed : Frame 1");
+    let _ = ax_rect(&out_pinned, "Unpin script tab");
+
+    // Hover again past tooltip_delay and click bottom pin -> unpins cleanly!
+    let unpin_pos = ax_rect(&out_pinned, "Unpin script tab: filed : Frame 1").center();
+    let _ = run_floating(
+        &mut editor,
+        win_580,
+        3.0,
+        vec![egui::Event::PointerMoved(unpin_pos)],
+    );
+    let out_unpin_hover = run_floating(&mut editor, win_580, 4.0, vec![]);
+    assert_eq!(
+        out_unpin_hover.platform_output.cursor_icon,
+        egui::CursorIcon::PointingHand
+    );
+    let _ = run_floating(
+        &mut editor,
+        win_580,
+        4.1,
+        vec![egui::Event::PointerButton {
+            pos: unpin_pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    let _ = run_floating(
+        &mut editor,
+        win_580,
+        4.12,
+        vec![egui::Event::PointerButton {
+            pos: unpin_pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(editor.actions_ui.pinned_tabs.is_empty());
+
+    // 4. Unextended playhead frame (`frame = 10` on a 1-frame timeline) pins cleanly via toolbar
+    //    `Pin script tab`, stays pinned when playhead moves back to Frame 1, survives clicking the
+    //    floating `"Actions"` header tab, and unpins via toolbar `"Unpin script tab"`.
+    editor.frame = 10;
+    let out_f11 = run_floating(&mut editor, win_580, 5.0, vec![]);
+    let toolbar_pin_pos = ax_rect(&out_f11, "Pin script tab").center();
+    let _ = run_floating(
+        &mut editor,
+        win_580,
+        5.1,
+        vec![
+            egui::Event::PointerMoved(toolbar_pin_pos),
+            egui::Event::PointerButton {
+                pos: toolbar_pin_pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    let _ = run_floating(
+        &mut editor,
+        win_580,
+        5.12,
+        vec![egui::Event::PointerButton {
+            pos: toolbar_pin_pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    let frame11_loc = crate::panels::actions_sidebar::ScriptLocation::Frame {
+        symbol: editor.project.root.clone(),
+        layer: Some(layer_id),
+        frame: 10,
+    };
+    assert_eq!(editor.actions_ui.pinned_tabs, vec![frame11_loc.clone()]);
+    assert_eq!(editor.actions_ui.active_pinned, Some(frame11_loc.clone()));
+
+    // Move playhead to Frame 1 and click floating `"Actions"` header tab -> `Frame 11` stays pinned and active!
+    editor.frame = 0;
+    let out_after_move = run_floating(&mut editor, win_580, 5.2, vec![]);
+    assert_eq!(editor.actions_ui.pinned_tabs, vec![frame11_loc.clone()]);
+    assert_eq!(editor.actions_ui.active_pinned, Some(frame11_loc.clone()));
+    let header_tab_pos = egui::pos2(64.0, 18.0);
+    let _ = run_floating(
+        &mut editor,
+        win_580,
+        5.3,
+        vec![
+            egui::Event::PointerMoved(header_tab_pos),
+            egui::Event::PointerButton {
+                pos: header_tab_pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    let out_after_hdr = run_floating(
+        &mut editor,
+        win_580,
+        5.32,
+        vec![egui::Event::PointerButton {
+            pos: header_tab_pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert_eq!(
+        editor.actions_ui.active_pinned,
+        Some(frame11_loc),
+        "clicking floating Actions header tab must not clear active_pinned"
+    );
+    let _ = ax_rect(&out_after_move, "filed : Frame 1");
+    let frame11_ed_id = editor.actions_editor_id();
+    ctx.memory_mut(|m| m.request_focus(frame11_ed_id));
+    let _ = run_floating(&mut editor, win_580, 5.34, vec![]);
+    let _ = run_floating(
+        &mut editor,
+        win_580,
+        5.36,
+        vec![egui::Event::Text("stop();".into())],
+    );
+    assert_eq!(editor.symbol().timeline.frame_count, 11);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.symbol().timeline.frame_count, 1);
+    editor.project.validate().unwrap();
+    let toolbar_unpin_pos = ax_rect(&out_after_hdr, "Unpin script tab").center();
+    let _ = run_floating(
+        &mut editor,
+        win_580,
+        5.4,
+        vec![
+            egui::Event::PointerMoved(toolbar_unpin_pos),
+            egui::Event::PointerButton {
+                pos: toolbar_unpin_pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    let _ = run_floating(
+        &mut editor,
+        win_580,
+        5.42,
+        vec![egui::Event::PointerButton {
+            pos: toolbar_unpin_pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(editor.actions_ui.pinned_tabs.is_empty());
+    assert_eq!(editor.actions_ui.active_pinned, None);
+    editor.project.validate().unwrap();
+}

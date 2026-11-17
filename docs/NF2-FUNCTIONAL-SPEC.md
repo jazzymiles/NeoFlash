@@ -759,18 +759,20 @@ their own layout.
 Status: AC-02, AC-04, AC-05 and AC-06 work, AC-01 re-indents only, bounded AC-07 statement insertion works (details in [NF2-ACTIONS-EDITOR.md](NF2-ACTIONS-EDITOR.md)), AC-03 connects to the docked `Debugger` (`PanelId::Debugger`), and AC-08 is partial.
 
 Actions follows the exact current authoring context unless an explicitly pinned bottom-bar `ScriptTab` (`📌` `i16::PIN`
-for `Frame`, `Object` or `Project files`, toggleable via tab icon, context menu or toolbar, `T-364`) is active, in which
-case Stage/Timeline selection changes update the unpinned current-selection tab alongside it without hijacking the active
-pinned script. A frame target reads and writes the selected layer's ordinary key
+for `Frame`, `Object` or `Project files`, toggleable via tab icon, context menu or toolbar including on unextended
+timeline frames, with non-interactive overlay tooltips that flip above bottom-edge controls, `T-364`, `T-367`) is active,
+in which case Stage, Timeline or panel-header clicks update only the unpinned current-selection tab or window focus
+without hijacking the active pinned script. A frame target reads and writes the selected layer's ordinary key
 at the selected frame through format-13 `FrameScript.layer`; scripts owned by different layers at the same frame stay
 independent. An object target follows the exact selected object and event. A context with no script opens empty instead
 of falling back to code from another explicitly owned layer, frame or object. Compatible legacy layerless frame scripts
 remain timeline-global until the next edit assigns them to the selected layer. Focused `Actions` and Project source
 editors also support all 50 Classic Flash `<ESC>` + two-key code-insertion chords (`br`..`wt`) with current-line
 indentation, first-placeholder selection, live chord status prompts and single-step Undo (`T-358`), enforce `CursorIcon::Text`
-(`IBeam`) over the code body (`T-357`), and surface live check/diagnostic counts in the interactive right-aligned bottom
-`script_status` bar (with hover summary tooltip and click-to-jump navigation across in-file and cross-file problems,
-replacing the height-stealing `code_feedback` row, `T-363`).
+(`IBeam`) over the code body (`T-357`), and surface live check/diagnostic counts in the width-adaptive right-aligned
+bottom `script_status` bar (with progressive compact position formatting in narrow/floating `Actions` windows, hover
+summary tooltip and click-to-jump navigation across in-file and cross-file problems, replacing the height-stealing
+`code_feedback` row, `T-363`, `T-367`).
 
 | ID | Element | Purpose / behaviour | Data / engine | Acceptance |
 | --- | --- | --- | --- | --- |

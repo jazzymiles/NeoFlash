@@ -516,8 +516,7 @@ pub fn script_status(
     } else {
         format!("{lines} lines")
     };
-    let pos_label = format!("Line {line}, Col {column}  ·  {lines_str}");
-    let pos_galley = galley(ui, &pos_label, TextStyle::Mono, dim);
+    let full_pos_label = format!("Line {line}, Col {column}  ·  {lines_str}");
     let sep_galley = problems.map(|_| galley(ui, "·", TextStyle::Mono, dim));
     let no_errors_galley = problems.and_then(|(e, w)| {
         (e == 0 && w == 0).then(|| galley(ui, "No errors", TextStyle::Mono, dim))
@@ -545,24 +544,80 @@ pub fn script_status(
 
     let gap = space::S1;
     let icon_sz = 16.0;
-    let mut total_w = pos_galley.size().x;
-    if let Some(sep) = &sep_galley {
-        total_w += gap + sep.size().x;
-        if let Some(ne) = &no_errors_galley {
-            total_w += gap + ne.size().x;
-        } else {
-            if let Some(eg) = &err_galley {
-                total_w += gap + icon_sz + gap + eg.size().x;
+    let mut problems_only_w = 0.0;
+    if let Some(ne) = &no_errors_galley {
+        problems_only_w += ne.size().x;
+    } else {
+        if let Some(eg) = &err_galley {
+            if problems_only_w > 0.0 {
+                problems_only_w += gap;
             }
-            if let Some(wg) = &warn_galley {
-                total_w += gap + icon_sz + gap + wg.size().x;
+            problems_only_w += icon_sz + gap + eg.size().x;
+        }
+        if let Some(wg) = &warn_galley {
+            if problems_only_w > 0.0 {
+                problems_only_w += gap;
             }
+            problems_only_w += icon_sz + gap + wg.size().x;
         }
     }
+    let sep_and_problems_w = sep_galley
+        .as_ref()
+        .map_or(0.0, |sep| gap + sep.size().x + gap + problems_only_w);
+
+    let avail_w = ui.available_width();
+    let max_w = if avail_w.is_finite() && avail_w > 0.0 {
+        avail_w
+    } else {
+        f32::INFINITY
+    };
+
+    let candidates = [
+        full_pos_label.clone(),
+        format!("Ln {line}, Col {column}"),
+        format!("{line}:{column}"),
+    ];
+    let mut pos_galley: Option<std::sync::Arc<egui::Galley>> = None;
+    for candidate in &candidates {
+        let g = galley(ui, candidate, TextStyle::Mono, dim);
+        if g.size().x + sep_and_problems_w <= max_w + 0.5 {
+            pos_galley = Some(g);
+            break;
+        }
+    }
+    if pos_galley.is_none() {
+        let pos_budget = max_w - sep_and_problems_w;
+        if pos_budget >= 28.0 {
+            pos_galley = Some(super::galley_truncated(
+                ui,
+                &candidates[2],
+                TextStyle::Mono,
+                dim,
+                pos_budget,
+            ));
+        } else if problems.is_none() {
+            pos_galley = Some(super::galley_truncated(
+                ui,
+                &candidates[2],
+                TextStyle::Mono,
+                dim,
+                max_w.max(1.0),
+            ));
+        }
+    }
+
+    let show_sep = pos_galley.is_some() && sep_galley.is_some();
+    let mut total_w = pos_galley.as_ref().map_or(0.0, |g| g.size().x);
+    if show_sep {
+        total_w += sep_and_problems_w;
+    } else if problems.is_some() {
+        total_w += problems_only_w;
+    }
+    let alloc_w = total_w.min(max_w).max(1.0);
     let h = ui
         .available_height()
         .max(TextStyle::Mono.spec().line_height + 4.0);
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(total_w, h), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(alloc_w, h), Sense::click());
     let has_problems = problems.is_some_and(|(e, w)| e > 0 || w > 0);
     let s = State::of(ui, &response);
     if has_problems && s.hovered {
@@ -570,20 +625,24 @@ pub fn script_status(
     }
 
     let mut x = rect.left();
-    super::text_at(ui, x, rect, pos_galley, dim);
-    x += galley(ui, &pos_label, TextStyle::Mono, dim).size().x;
+    if let Some(pg) = pos_galley {
+        let pw = pg.size().x;
+        super::text_at(ui, x, rect, pg, dim);
+        x += pw;
+    }
     if let Some(sep) = sep_galley {
-        x += gap;
-        let sw = sep.size().x;
-        super::text_at(ui, x, rect, sep, dim);
-        x += sw;
-        if let Some(ne) = no_errors_galley {
+        if show_sep {
             x += gap;
+            let sw = sep.size().x;
+            super::text_at(ui, x, rect, sep, dim);
+            x += sw + gap;
+        }
+        if let Some(ne) = no_errors_galley {
             super::text_at(ui, x, rect, ne, dim);
         } else {
+            let mut drew_any = false;
             if let Some(eg) = err_galley {
                 let c = Severity::Error.color(p);
-                x += gap;
                 icons::paint(
                     ui.painter(),
                     ui.ctx(),
@@ -598,10 +657,13 @@ pub fn script_status(
                 let ew = eg.size().x;
                 super::text_at(ui, x, rect, eg, c);
                 x += ew;
+                drew_any = true;
             }
             if let Some(wg) = warn_galley {
                 let c = Severity::Warning.color(p);
-                x += gap;
+                if drew_any {
+                    x += gap;
+                }
                 icons::paint(
                     ui.painter(),
                     ui.ctx(),
@@ -620,6 +682,7 @@ pub fn script_status(
     if has_problems {
         super::focus(ui, s, rect, radius::SM);
     }
+    let pos_label = full_pos_label;
     let a11y_label = match problems {
         None => pos_label,
         Some((0, 0)) => format!("{pos_label}  ·  No errors"),

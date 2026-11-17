@@ -494,7 +494,16 @@ impl Editor {
             }
         }
         let bar_h = neoflash_ui::metrics::script_tab() + 2.;
-        let full = ui.available_rect_before_wrap();
+        let raw_full = ui.available_rect_before_wrap();
+        let bound_right = ui.max_rect().right().min(ui.clip_rect().right());
+        let bound_bottom = ui.max_rect().bottom().min(ui.clip_rect().bottom());
+        let full = egui::Rect::from_min_max(
+            raw_full.min,
+            egui::pos2(
+                bound_right.max(raw_full.left()),
+                bound_bottom.max(raw_full.top()),
+            ),
+        );
         let show_dbg = self.actions_debugger_inspector_visible(&tab_key);
         let dbg_h = if show_dbg {
             240.0_f32.min(full.height() * 0.50)
@@ -585,10 +594,16 @@ impl Editor {
             bar.top() + 0.5,
             egui::Stroke::new(1.0_f32, p.border_subtle),
         );
+        let min_tabs_w = 112.0_f32.min(bar.width() * 0.42);
+        let status_left = (bar.left() + min_tabs_w + space::S2).min(bar.right() - space::S2);
+        let status_zone = egui::Rect::from_min_max(
+            egui::pos2(status_left, bar.top()),
+            egui::pos2((bar.right() - space::S2).max(status_left), bar.bottom()),
+        );
         let (status_rect, status_clicked) = ui
             .scope_builder(
                 egui::UiBuilder::new()
-                    .max_rect(bar.shrink2(egui::vec2(space::S2, 0.)))
+                    .max_rect(status_zone)
                     .layout(egui::Layout::right_to_left(egui::Align::Center)),
                 |ui| {
                     let lines = source.chars().filter(|c| *c == '\n').count() + 1;
@@ -697,10 +712,9 @@ impl Editor {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 0.0;
-                            for (tab_idx, (loc_opt, label, icon, pinned, active)) in
-                                tab_items.iter().enumerate()
-                            {
-                                ui.push_id(("nf2-actions-script-tab", tab_idx, label), |ui| {
+                            for (loc_opt, label, icon, pinned, active) in &tab_items {
+                                let tab_salt = format!("{loc_opt:?}");
+                                ui.push_id(("nf2-actions-script-tab", tab_salt, label), |ui| {
                                     let resp = nf::ScriptTab {
                                         label,
                                         pinned: *pinned,
@@ -1194,7 +1208,16 @@ impl Editor {
                 | ScriptLanguage::TypeScript
                 | ScriptLanguage::JavaScript => None,
             };
-            let avail = ui.available_rect_before_wrap();
+            let raw_avail = ui.available_rect_before_wrap();
+            let bound_right = ui.max_rect().right().min(ui.clip_rect().right());
+            let bound_bottom = ui.max_rect().bottom().min(ui.clip_rect().bottom());
+            let avail = egui::Rect::from_min_max(
+                raw_avail.min,
+                egui::pos2(
+                    bound_right.max(raw_avail.left()),
+                    bound_bottom.max(raw_avail.top()),
+                ),
+            );
             let bar_h = if self.actions_ui.pinned_tabs.is_empty() {
                 0.0
             } else {
