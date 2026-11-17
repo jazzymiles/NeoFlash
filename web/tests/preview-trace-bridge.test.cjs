@@ -708,3 +708,325 @@ test('T-356: preview HTML relays Frame-1 trace, onEnterFrame, button click, mapp
     fs.rmSync(userDataDir, { recursive: true, force: true });
   }
 });
+
+test('T-368: formatTraceValue and formatTraceArgs preserve structure for 2D/3D/sparse/associative arrays, shared DAGs, cycles, plain/null-proto objects, Map, Set, TypedArray, and custom toString without invoking getters', () => {
+  const { formatTraceValue, formatTraceArgs } = require('../runtime.js');
+
+  assert.equal(formatTraceValue([0, 1, 0]), '[0, 1, 0]');
+
+  const tFigure = [
+    [0, 1, 0],
+    [1, 1, 1],
+    [0, 0, 0],
+  ];
+  assert.equal(
+    formatTraceValue(tFigure),
+    '[\n  [0, 1, 0],\n  [1, 1, 1],\n  [0, 0, 0]\n]',
+  );
+
+  const allFigures = [tFigure, [[1, 1, 1, 1]]];
+  assert.equal(
+    formatTraceValue(allFigures),
+    '[\n  [\n    [0, 1, 0],\n    [1, 1, 1],\n    [0, 0, 0]\n  ],\n  [\n    [1, 1, 1, 1]\n  ]\n]',
+  );
+
+  // Shared non-circular DAG sub-array must expand in full both times, while true self-cycle prints [Circular].
+  const sharedRow = [1, 2];
+  assert.equal(formatTraceValue([sharedRow, sharedRow]), '[\n  [1, 2],\n  [1, 2]\n]');
+  const cyc = [1];
+  cyc.push(cyc);
+  assert.equal(formatTraceValue(cyc), '[\n  1,\n  [Circular]\n]');
+
+  // Sparse holes + AS2-style associative string keys on an Array.
+  const sparseAssoc = [1, , 3];
+  sparseAssoc.piece = 'T';
+  assert.equal(formatTraceValue(sparseAssoc), '[1, <empty>, 3, piece: "T"]');
+
+  // Object.create(null) + nested objects + side-effect-free [Getter] safety.
+  let getterCalled = 0;
+  const nullProto = Object.create(null);
+  nullProto.kind = 'grid';
+  nullProto.cells = [[1, 0], [0, 1]];
+  Object.defineProperty(nullProto, 'boom', {
+    enumerable: true,
+    get() {
+      getterCalled += 1;
+      throw new Error('must never invoke getter');
+    },
+  });
+  assert.equal(
+    formatTraceValue(nullProto),
+    '{\n  kind: "grid",\n  cells: [\n    [1, 0],\n    [0, 1]\n  ],\n  boom: [Getter]\n}',
+  );
+  assert.equal(getterCalled, 0);
+
+  // Map, Set, TypedArray, and custom toString preservation.
+  const map = new Map([['hp', 100], ['pos', [3, 4]]]);
+  assert.equal(formatTraceValue(map), 'Map(2) {\n  "hp" => 100,\n  "pos" => [3, 4]\n}');
+  assert.equal(formatTraceValue(new Set([1, 2, 3])), 'Set(3) { 1, 2, 3 }');
+  assert.equal(formatTraceValue(new Int32Array([4, 5, 6])), 'Int32Array(3) [4, 5, 6]');
+
+  class CustomBadge {
+    toString() {
+      return '<Badge#7>';
+    }
+  }
+  assert.equal(formatTraceArgs(['Label:', new CustomBadge(), [1, 2]]), 'Label: <Badge#7> [1, 2]');
+});
+
+test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector/Dictionary/classes, and JS console.log/warn objects with mapped locations while keeping Array/Object.toString intact', async t => {
+  const chromeBin = findChromeBinary();
+  if (!chromeBin) {
+    t.skip('Google Chrome / Chromium binary not installed');
+    return;
+  }
+  assert.ok(
+    fs.existsSync(path.join(runtimeDir, 'neoflash_web_bg.wasm')),
+    'target/web-runtime/neoflash_web_bg.wasm missing — run ./scripts/build-web.sh first',
+  );
+  const bin = ensureFreshExportBinary();
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'neoflash-t368-structured-'));
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'neoflash-t368-chrome-'));
+  let serverInfo = null;
+  let cdp = null;
+
+  const makeStructuredProject = (name, scriptLanguage, frameSource, sources = []) => ({
+    format_version: 6,
+    name,
+    width: 320,
+    height: 200,
+    fps: 24,
+    background: [20, 24, 30, 255],
+    script_language: scriptLanguage,
+    root: 'root',
+    symbols: [
+      {
+        id: 'root',
+        name: 'Scene 1',
+        kind: 'movie_clip',
+        timeline: {
+          frame_count: 1,
+          layers: [
+            {
+              id: 'layer-1',
+              name: 'Layer 1',
+              visible: true,
+              locked: false,
+              keyframes: [{ frame: 0, label: '', tween: null, elements: [] }],
+            },
+          ],
+          scripts: [
+            {
+              frame: 0,
+              script: { language: scriptLanguage, source: frameSource },
+            },
+          ],
+        },
+      },
+    ],
+    sources,
+    resources: [],
+  });
+
+  try {
+    // 1) AS2 project: Tetris 2D/3D arrays, plain object, AS2 class without toString, AS2 class with custom toString, and ECMA String/+ conformance.
+    const as2Proj = makeStructuredProject(
+      'Structured_AS2',
+      'action_script2',
+      [
+        'stop();',
+        'var TFigure = [[0, 1, 0], [1, 1, 1], [0, 0, 0]];',
+        'var AllFigures = new Array(TFigure, [[1, 1, 1, 1]]);',
+        'trace(TFigure);',
+        'trace(AllFigures);',
+        'trace({ name: "T", cells: [[1, 0], [1, 1]] });',
+        'trace(new Piece("L", [[1, 0], [1, 1]]));',
+        'trace(new NamedBadge("gold"));',
+        'trace("COERCE:" + [1, 2] + "|" + ({ a: 1 }));',
+      ].join('\n'),
+      [
+        {
+          id: 'src-piece',
+          path: 'Piece.as',
+          language: 'action_script2',
+          source: [
+            'class Piece {',
+            '  var kind:String;',
+            '  var matrix:Array;',
+            '  function Piece(k:String, m:Array) {',
+            '    this.kind = k;',
+            '    this.matrix = m;',
+            '  }',
+            '}',
+          ].join('\n'),
+        },
+        {
+          id: 'src-badge',
+          path: 'NamedBadge.as',
+          language: 'action_script2',
+          source: [
+            'class NamedBadge {',
+            '  var tier:String;',
+            '  function NamedBadge(t:String) { this.tier = t; }',
+            '  function toString():String { return "Badge(" + this.tier + ")"; }',
+            '}',
+          ].join('\n'),
+        },
+      ],
+    );
+
+    // 2) AS3 project: nested Vector.<Vector.<int>>, Dictionary, Point, XML, AS3 class with public fields + getter safety, and String() conformance.
+    const as3Proj = {
+      ...makeStructuredProject('Structured_AS3', 'action_script3', '', [
+        {
+          id: 'src-main',
+          path: 'app/Main.as',
+          language: 'action_script3',
+          source: [
+            'package app {',
+            '  import flash.display.MovieClip;',
+            '  import flash.utils.Dictionary;',
+            '  import flash.geom.Point;',
+            '  public class Main extends MovieClip {',
+            '    public function Main() {',
+            '      super();',
+            '      stop();',
+            '      var row0:Vector.<int> = new Vector.<int>();',
+            '      row0.push(0, 1, 0);',
+            '      var row1:Vector.<int> = new Vector.<int>();',
+            '      row1.push(1, 1, 1);',
+            '      var grid:Vector.<Vector.<int>> = new Vector.<Vector.<int>>();',
+            '      grid.push(row0, row1);',
+            '      trace(grid);',
+            '      var dict:Dictionary = new Dictionary();',
+            '      dict["hp"] = 100;',
+            '      trace(dict);',
+            '      trace(new Point(3, 4));',
+            '      trace(new XML("<item id=\\"7\\"/>"));',
+            '      var bs:BoardState = new BoardState();',
+            '      trace(bs, bs.getterCalls);',
+            '      trace("AS3_COERCE:" + String([1, 2]) + "|" + String({ a: 1 }));',
+            '    }',
+            '  }',
+            '}',
+          ].join('\n'),
+        },
+        {
+          id: 'src-board-state',
+          path: 'app/BoardState.as',
+          language: 'action_script3',
+          source: [
+            'package app {',
+            '  public class BoardState {',
+            '    public var level:int = 3;',
+            '    public var rows:Array = [[1, 0], [0, 1]];',
+            '    public var getterCalls:int = 0;',
+            '    public function get computed():int {',
+            '      getterCalls += 1;',
+            '      return 99;',
+            '    }',
+            '  }',
+            '}',
+          ].join('\n'),
+        },
+      ]),
+      document_class: 'app.Main',
+    };
+
+    // 3) JavaScript project: console.log & console.warn with nested arrays/objects and mapped source locations.
+    const jsProj = makeStructuredProject(
+      'Structured_JS',
+      'java_script',
+      [
+        'stop();',
+        'console.log("JS_MAT", [[1, 2], [3, 4]]);',
+        'console.warn({ warnCode: 7, nested: { ok: true } });',
+      ].join('\n'),
+    );
+
+    for (const [slug, proj] of [['as2', as2Proj], ['as3', as3Proj], ['js', jsProj]]) {
+      const pPath = path.join(tempRoot, `${slug}.nflash`);
+      fs.writeFileSync(pPath, JSON.stringify(proj, null, 2));
+      execFileSync(bin, ['--runtime', runtimeDir, pPath, '--output', path.join(tempRoot, `preview-${slug}`), '--preview'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      });
+    }
+
+    serverInfo = await startPreviewCaptureServer(tempRoot);
+    cdp = await launchCdpSession(chromeBin, userDataDir);
+
+    // Verify AS2 structured output:
+    serverInfo.state.clear();
+    cdp.consoleErrors.length = 0;
+    cdp.uncaughtExceptions.length = 0;
+    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-as2/index.html`);
+    await waitForCondition(() => serverInfo.state.events.length >= 6, 'AS2 structured traces');
+    assert.deepEqual(
+      serverInfo.state.events.map(e => e.message),
+      [
+        '[\n  [0, 1, 0],\n  [1, 1, 1],\n  [0, 0, 0]\n]',
+        '[\n  [\n    [0, 1, 0],\n    [1, 1, 1],\n    [0, 0, 0]\n  ],\n  [\n    [1, 1, 1, 1]\n  ]\n]',
+        '{\n  name: "T",\n  cells: [\n    [1, 0],\n    [1, 1]\n  ]\n}',
+        'Piece {\n  kind: "L",\n  matrix: [\n    [1, 0],\n    [1, 1]\n  ]\n}',
+        'Badge(gold)',
+        'COERCE:1,2|[object Object]',
+      ],
+    );
+    assert.deepEqual(cdp.consoleErrors, []);
+    assert.deepEqual(cdp.uncaughtExceptions, []);
+
+    // Verify AS3 structured output:
+    serverInfo.state.clear();
+    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-as3/index.html`);
+    await waitForCondition(() => serverInfo.state.events.length >= 6, 'AS3 structured traces');
+    assert.deepEqual(
+      serverInfo.state.events.map(e => e.message),
+      [
+        'Vector.<Vector.<int>>[\n  Vector.<int>[0, 1, 0],\n  Vector.<int>[1, 1, 1]\n]',
+        'Dictionary { "hp" => 100 }',
+        '(x=3, y=4)',
+        '<item id="7"/>',
+        'app.BoardState {\n  level: 3,\n  rows: [\n    [1, 0],\n    [0, 1]\n  ],\n  getterCalls: 0,\n  computed: [Getter]\n} 0',
+        'AS3_COERCE:1,2|[object Object]',
+      ],
+    );
+    assert.deepEqual(cdp.consoleErrors, []);
+    assert.deepEqual(cdp.uncaughtExceptions, []);
+
+    // Verify JS console.log / console.warn structured output + mapped source locations:
+    serverInfo.state.clear();
+    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-js/index.html`);
+    await waitForCondition(() => serverInfo.state.events.length >= 2, 'JS console structured events');
+    assert.deepEqual(
+      serverInfo.state.events.map(e => ({ kind: e.kind, message: e.message, sourcePath: e.sourcePath, line: e.line })),
+      [
+        {
+          kind: 'trace',
+          message: 'JS_MAT [\n  [1, 2],\n  [3, 4]\n]',
+          sourcePath: 'Scene 1 / frame 1',
+          line: 2,
+        },
+        {
+          kind: 'warning',
+          message: '{\n  warnCode: 7,\n  nested: { ok: true }\n}',
+          sourcePath: 'Scene 1 / frame 1',
+          line: 3,
+        },
+      ],
+    );
+    assert.deepEqual(cdp.uncaughtExceptions, []);
+  } finally {
+    if (cdp) {
+      try {
+        cdp.ws.close();
+      } catch (_) {}
+      cdp.chromeProc.kill('SIGKILL');
+    }
+    if (serverInfo) {
+      await new Promise(resolve => serverInfo.server.close(resolve));
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+  }
+});

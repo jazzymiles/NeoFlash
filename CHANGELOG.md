@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Preserved nested structure when tracing multidimensional arrays (`2D`/`3D` matrices, sparse holes, AS2 associative
+  keys, AS3 `Vector.<T>`) and objects (`{...}`, `Object.create(null)`, AS3 `Dictionary`, `Map`, `Set`, `TypedArray`,
+  and AS2/AS3/JS/TS class instances without a custom `toString()`) in **Output**, while keeping standard ECMA/Flash
+  `Array.prototype.toString()` and `Object.prototype.toString()` coercions unchanged inside authored expressions;
+  extended the same structured formatting and source-mapped locations to JS/TS `console.{log,info,debug,dir,warn,error}`
+  in **Test Movie** / **Test Scene**, Chromium **Debugger** console output and **Variables** previews (without invoking
+  getters or `Proxy` traps), in-editor **Play** (`Enter`), and multi-line **Output** search filtering (`T-368`).
 - Streamed live `trace(...)`, `Restart` boundaries and source-mapped runtime errors from browser `Test Movie` (`⌘Return`)
   and `Test Scene` (`⌥⌘Return`) directly into the originating document's **Output** (`F2`) panel over a loopback preview
   relay (`POST /__neoflash/output`, synchronous pre-Frame-1 capture, bounded micro-batching with `>5,000`/s burst

@@ -253,7 +253,7 @@
         },
         {
           "id": "live-test-movie-output-relay",
-          "title": "Stream live trace() and mapped runtime errors into Output during Test Movie, Test Scene and 1-frame Play",
+          "title": "Stream structured live trace() (multidimensional arrays, Vector, Dictionary, objects and classes), JS/TS console.* and mapped runtime errors into Output across Test Movie, Test Scene, Debugger and 1-frame Play",
           "status": "working"
         },
         {

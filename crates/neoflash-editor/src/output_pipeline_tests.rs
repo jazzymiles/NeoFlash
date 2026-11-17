@@ -1774,3 +1774,44 @@ fn t319_output_click_to_jump_switches_scenes_nested_symbols_and_soloed_object_sc
     assert!(editor.script_target == ScriptTarget::Source);
     assert_eq!(editor.selected_source.as_deref(), Some("src-jump-ctrl"));
 }
+
+#[test]
+fn t368_output_filter_preserves_complete_multiline_structured_trace_blocks() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    let structured_msg = [
+        "state = {",
+        "  player: \"hero\",",
+        "  matrix: [",
+        "    [0, 1, 0],",
+        "    [1, 1, 1],",
+        "    [0, 0, 0]",
+        "  ]",
+        "}",
+    ]
+    .join("\n");
+    editor.push_output(structured_msg.clone());
+    editor.push_output("unrelated frame tick 42");
+
+    set_output_filter_text(&editor, &ctx, "player");
+    let filtered_out = run_output_frame(&mut editor, &ctx, vec![]);
+    let copy_pos =
+        find_accesskit_button_center(&filtered_out, "Copy output").expect("Copy output enabled");
+    let copy_out = run_output_frame(&mut editor, &ctx, click_events(copy_pos));
+    let copied = copy_out
+        .platform_output
+        .commands
+        .iter()
+        .find_map(|cmd| match cmd {
+            egui::OutputCommand::CopyText(text) => Some(text.clone()),
+            _ => None,
+        })
+        .expect("Copy output must emit CopyText command");
+
+    assert_eq!(
+        copied, structured_msg,
+        "filtering a structured multi-line trace event by one key must keep all nested matrix/closing lines intact"
+    );
+}

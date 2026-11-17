@@ -194,6 +194,40 @@
       if(!detail||typeof detail.kind!=='string')return;
       record(detail.kind,detail.message,detail.location);
     });
+    if(hostGlobal.console&&typeof hostGlobal.console==='object'&&!hostGlobal.console.__neoflashConsoleRelayInstalled){
+      const consoleObj=hostGlobal.console;
+      const formatConsoleCall=args=>{
+        if(typeof hostGlobal.__neoflashConsoleFormat==='function'){
+          return hostGlobal.__neoflashConsoleFormat(args);
+        }
+        if(typeof hostGlobal.NeoFlashFormatTrace?.formatTraceArgs==='function'){
+          return {message:hostGlobal.NeoFlashFormatTrace.formatTraceArgs(args),location:null};
+        }
+        return {
+          message:args.map(v=>{
+            if(typeof v==='string')return v;
+            if(v!==null&&typeof v==='object'){try{return JSON.stringify(v,null,2);}catch(_){}}
+            return String(v);
+          }).join(' '),
+          location:null,
+        };
+      };
+      const isInternalHostLog=args=>args.length>0&&typeof args[0]==='string'&&(args[0].startsWith('[NeoFlash]')||args[0].startsWith('NeoFlash:')||args[0].startsWith('NeoFlash '));
+      for(const [method,kind] of [['log','trace'],['info','trace'],['debug','trace'],['dir','trace'],['warn','warning'],['error','error']]){
+        const orig=consoleObj[method];
+        if(typeof orig!=='function')continue;
+        consoleObj[method]=function(...args){
+          try{
+            if(!hostGlobal.__neoflashSuppressConsoleRelay&&!isInternalHostLog(args)){
+              const formatted=formatConsoleCall(args);
+              record(kind,formatted.message,formatted.location);
+            }
+          }catch(_){}
+          return orig.apply(this,args);
+        };
+      }
+      try{Object.defineProperty(consoleObj,'__neoflashConsoleRelayInstalled',{value:true,configurable:true,enumerable:false});}catch(_){}
+    }
     hostGlobal.addEventListener?.('pagehide',()=>flushUnload());
     hostGlobal.addEventListener?.('beforeunload',()=>flushUnload());
     const relay=Object.freeze({

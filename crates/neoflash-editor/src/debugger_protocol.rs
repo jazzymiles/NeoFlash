@@ -1012,7 +1012,7 @@ impl DebugProtocol {
         self.snapshot.locals.clear();
         let scopes = self.scopes.get(frame).cloned().unwrap_or_default();
         for scope in scopes {
-            self.queue("Runtime.getProperties", json!({"objectId":scope.object_id,"ownProperties":true,"accessorPropertiesOnly":false,"generatePreview":false}),
+            self.queue("Runtime.getProperties", json!({"objectId":scope.object_id,"ownProperties":true,"accessorPropertiesOnly":false,"generatePreview":true}),
                 Pending::Properties { pause:self.pause_generation, frame, scope:scope.name }, true);
         }
     }
@@ -1111,6 +1111,23 @@ impl DebugProtocol {
             .and_then(Value::as_array)?;
         frames.iter().find_map(|frame| self.map_location(frame))
     }
+    fn parse_neoflash_location_arg(&self, arg: &Value) -> Option<AuthoredLocation> {
+        let raw = arg.get("value").and_then(Value::as_str)?;
+        let (before_col, col_str) = raw.rsplit_once(':')?;
+        let (src_name, line_str) = before_col.rsplit_once(':')?;
+        let line: usize = line_str.parse().ok().filter(|&v| v > 0)?;
+        let column: usize = col_str.parse().ok().filter(|&v| v > 0)?;
+        let known_source = self
+            .sources
+            .iter()
+            .flat_map(|u| &u.locations)
+            .any(|l| l.source == src_name);
+        known_source.then(|| AuthoredLocation {
+            source: src_name.to_owned(),
+            line,
+            column,
+        })
+    }
     fn console_api_called(&mut self, params: &Value) {
         let kind = params.get("type").and_then(Value::as_str).unwrap_or("log");
         let args = params
@@ -1118,6 +1135,7 @@ impl DebugProtocol {
             .and_then(Value::as_array)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
+        let mut loc = self.mapped_stack_location(Some(params));
         let start = if args.len() > 1
             && args[0].get("value").and_then(Value::as_str) == Some("[NeoFlash]")
         {
@@ -1125,7 +1143,21 @@ impl DebugProtocol {
         } else {
             0
         };
-        let parts: Vec<String> = args[start..]
+        let trailing_loc = if start == 1 && args.len() > 2 {
+            args.last()
+                .and_then(|v| self.parse_neoflash_location_arg(v))
+        } else {
+            None
+        };
+        let end = if trailing_loc.is_some() {
+            args.len() - 1
+        } else {
+            args.len()
+        };
+        if loc.is_none() {
+            loc = trailing_loc;
+        }
+        let parts: Vec<String> = args[start..end]
             .iter()
             .map(console_arg_text)
             .filter(|s| !s.is_empty())
@@ -1134,7 +1166,6 @@ impl DebugProtocol {
         if text.is_empty() {
             return;
         }
-        let loc = self.mapped_stack_location(Some(params));
         let (out_kind, formatted) = match kind {
             "error" | "assert" => (
                 DebugOutputKind::Error,
@@ -1263,9 +1294,227 @@ fn console_arg_text(value: &Value) -> String {
     if let Some(Value::String(text)) = value.get("value") {
         return bounded(text, MAX_TEXT);
     }
-    remote_summary(value)
+    remote_summary_inner(value, true)
 }
 fn remote_summary(value: &Value) -> String {
+    remote_summary_inner(value, false)
+}
+fn format_cdp_key(name: &str) -> String {
+    let valid_ident = !name.is_empty()
+        && name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+    if valid_ident {
+        bounded(name, 256)
+    } else {
+        format!("{:?}", bounded(name, 256))
+    }
+}
+fn format_cdp_property_preview(prop: &Value, depth: usize, multiline: bool) -> (String, bool) {
+    if let Some(sub) = prop.get("valuePreview")
+        && let Some(nested) = format_cdp_object_preview(sub, depth + 1, multiline)
+    {
+        return (nested, true);
+    }
+    let kind = prop.get("type").and_then(Value::as_str).unwrap_or("");
+    let subtype = prop.get("subtype").and_then(Value::as_str);
+    if kind == "accessor" {
+        return ("[Getter]".into(), false);
+    }
+    if subtype == Some("null") {
+        return ("null".into(), false);
+    }
+    if let Some(val) = prop.get("value").and_then(Value::as_str) {
+        if kind == "string" {
+            return (format!("{:?}", bounded(val, 256)), false);
+        }
+        return (bounded(val, 256), false);
+    }
+    if kind == "undefined" {
+        return ("undefined".into(), false);
+    }
+    let fallback = subtype.unwrap_or(if kind.is_empty() { "object" } else { kind });
+    (format!("<{}>", bounded(fallback, 64)), false)
+}
+fn format_cdp_object_preview(preview: &Value, depth: usize, multiline: bool) -> Option<String> {
+    if depth > 6 || !preview.is_object() {
+        return None;
+    }
+    let subtype = preview.get("subtype").and_then(Value::as_str);
+    if subtype == Some("proxy") {
+        return None;
+    }
+    let overflow = preview
+        .get("overflow")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let desc = preview
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+
+    if matches!(subtype, Some("array" | "typedarray")) {
+        let props = preview.get("properties").and_then(Value::as_array)?;
+        let mut indexed: BTreeMap<usize, (String, bool)> = BTreeMap::new();
+        let mut extra: Vec<(String, bool)> = Vec::new();
+        for prop in props.iter().take(128) {
+            let name = prop.get("name").and_then(Value::as_str).unwrap_or("");
+            let (val_s, is_nested) = format_cdp_property_preview(prop, depth, multiline);
+            if let Ok(idx) = name.parse::<usize>() {
+                indexed.insert(idx, (val_s, is_nested));
+            } else if !name.is_empty() {
+                extra.push((format!("{}: {}", format_cdp_key(name), val_s), is_nested));
+            }
+        }
+        let declared_len = desc
+            .strip_prefix("Array(")
+            .and_then(|s| s.strip_suffix(')'))
+            .and_then(|s| s.parse::<usize>().ok());
+        let max_idx = indexed.keys().next_back().map(|k| k + 1).unwrap_or(0);
+        let len = declared_len.unwrap_or(max_idx).min(max_idx.max(128));
+        let mut items: Vec<String> = Vec::new();
+        let mut has_nested = false;
+        let render_len = if overflow { max_idx } else { len.min(128) };
+        for idx in 0..render_len {
+            if let Some((val_s, nested)) = indexed.remove(&idx) {
+                has_nested |= nested;
+                items.push(val_s);
+            } else {
+                items.push("<empty>".into());
+            }
+        }
+        for (_, (val_s, nested)) in indexed {
+            has_nested |= nested;
+            items.push(val_s);
+        }
+        for (pair, nested) in extra {
+            has_nested |= nested;
+            items.push(pair);
+        }
+        if overflow || declared_len.is_some_and(|dl| dl > render_len && render_len == 128) {
+            items.push("…".into());
+        }
+        let prefix = if subtype == Some("typedarray") && !desc.is_empty() {
+            format!("{} ", bounded(desc, 64))
+        } else {
+            String::new()
+        };
+        if items.is_empty() {
+            return Some(format!("{prefix}[]"));
+        }
+        if multiline && (has_nested || items.iter().any(|s| s.contains('\n'))) {
+            let child_indent = "  ".repeat(depth + 1);
+            let close_indent = "  ".repeat(depth);
+            let body = items
+                .into_iter()
+                .map(|s| format!("{child_indent}{s}"))
+                .collect::<Vec<_>>()
+                .join(",\n");
+            return Some(bounded(
+                &format!("{prefix}[\n{body}\n{close_indent}]"),
+                MAX_TEXT,
+            ));
+        }
+        return Some(bounded(
+            &format!("{prefix}[{}]", items.join(", ")),
+            MAX_TEXT,
+        ));
+    }
+
+    if matches!(subtype, Some("map" | "set")) {
+        let entries = preview.get("entries").and_then(Value::as_array)?;
+        let mut items = Vec::new();
+        for entry in entries.iter().take(64) {
+            let val_s = entry
+                .get("value")
+                .and_then(|v| format_cdp_object_preview(v, depth + 1, false))
+                .or_else(|| {
+                    entry
+                        .get("value")
+                        .map(|v| format_cdp_property_preview(v, depth, false).0)
+                })
+                .unwrap_or_else(|| "undefined".into());
+            if subtype == Some("map") {
+                let key_s = entry
+                    .get("key")
+                    .and_then(|k| format_cdp_object_preview(k, depth + 1, false))
+                    .or_else(|| {
+                        entry
+                            .get("key")
+                            .map(|k| format_cdp_property_preview(k, depth, false).0)
+                    })
+                    .unwrap_or_else(|| "undefined".into());
+                items.push(format!("{key_s} => {val_s}"));
+            } else {
+                items.push(val_s);
+            }
+        }
+        if overflow {
+            items.push("…".into());
+        }
+        let label = if !desc.is_empty() {
+            bounded(desc, 64)
+        } else if subtype == Some("map") {
+            "Map".into()
+        } else {
+            "Set".into()
+        };
+        return Some(if items.is_empty() {
+            format!("{label} {{}}")
+        } else {
+            bounded(&format!("{label} {{ {} }}", items.join(", ")), MAX_TEXT)
+        });
+    }
+
+    if matches!(subtype, Some("date" | "regexp" | "error")) && !desc.is_empty() {
+        return Some(bounded(desc, MAX_TEXT));
+    }
+
+    let props = preview.get("properties").and_then(Value::as_array)?;
+    let mut items = Vec::new();
+    let mut has_nested = false;
+    for prop in props.iter().take(64) {
+        let Some(name) = prop.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let (val_s, nested) = format_cdp_property_preview(prop, depth, multiline);
+        has_nested |= nested;
+        items.push(format!("{}: {}", format_cdp_key(name), val_s));
+    }
+    if overflow {
+        items.push("…".into());
+    }
+    let prefix = if !desc.is_empty() && desc != "Object" && !desc.starts_with('[') {
+        format!("{} ", bounded(desc, 64))
+    } else {
+        String::new()
+    };
+    if items.is_empty() {
+        return Some(format!("{prefix}{{}}"));
+    }
+    if multiline && (has_nested || items.iter().any(|s| s.contains('\n'))) {
+        let child_indent = "  ".repeat(depth + 1);
+        let close_indent = "  ".repeat(depth);
+        let body = items
+            .into_iter()
+            .map(|s| format!("{child_indent}{s}"))
+            .collect::<Vec<_>>()
+            .join(",\n");
+        return Some(bounded(
+            &format!("{prefix}{{\n{body}\n{close_indent}}}"),
+            MAX_TEXT,
+        ));
+    }
+    Some(bounded(
+        &format!("{prefix}{{ {} }}", items.join(", ")),
+        MAX_TEXT,
+    ))
+}
+fn remote_summary_inner(value: &Value, multiline: bool) -> String {
     if let Some(value) = value.get("value") {
         return match value {
             Value::String(value) => format!("{:?}", bounded(value, MAX_TEXT)),
@@ -1282,6 +1531,13 @@ fn remote_summary(value: &Value) -> String {
         .unwrap_or("unavailable");
     if kind == "undefined" {
         return "undefined".into();
+    }
+    let subtype = value.get("subtype").and_then(Value::as_str);
+    if subtype != Some("proxy")
+        && let Some(preview) = value.get("preview")
+        && let Some(formatted) = format_cdp_object_preview(preview, 0, multiline)
+    {
+        return formatted;
     }
     format!(
         "<{}>",
@@ -1504,7 +1760,7 @@ mod tests {
         assert_eq!(locals[0]["method"], "Runtime.getProperties");
         assert_eq!(
             locals[0]["params"],
-            json!({"objectId":"scope-1","ownProperties":true,"accessorPropertiesOnly":false,"generatePreview":false})
+            json!({"objectId":"scope-1","ownProperties":true,"accessorPropertiesOnly":false,"generatePreview":true})
         );
         reply(
             &mut protocol,
@@ -1732,5 +1988,161 @@ mod tests {
                 "Runtime error (Scene / frame 1 · line 12): ReferenceError: hero is not defined",
             ]
         );
+    }
+
+    #[test]
+    fn t368_debugger_formats_structured_multidimensional_arrays_objects_and_strips_trailing_location()
+     {
+        let mut protocol = connect();
+        let request = parsed(&mut protocol);
+        reply(
+            &mut protocol,
+            &request,
+            json!({"scriptSource":wrapped(&source())}),
+        );
+        let commands = protocol.drain_commands();
+        reply(&mut protocol, &commands[0], json!({}));
+        let breakpoint = commands.last().unwrap().clone();
+        reply(
+            &mut protocol,
+            &breakpoint,
+            json!({"breakpointId":"authored-bp","actualLocation":breakpoint["params"]["location"]}),
+        );
+
+        let matrix_preview = json!({
+            "type": "object",
+            "subtype": "array",
+            "description": "Array(2)",
+            "overflow": false,
+            "properties": [
+                {
+                    "name": "0",
+                    "type": "object",
+                    "subtype": "array",
+                    "value": "Array(3)",
+                    "valuePreview": {
+                        "type": "object",
+                        "subtype": "array",
+                        "description": "Array(3)",
+                        "overflow": false,
+                        "properties": [
+                            {"name": "0", "type": "number", "value": "0"},
+                            {"name": "1", "type": "number", "value": "1"},
+                            {"name": "2", "type": "number", "value": "0"}
+                        ]
+                    }
+                },
+                {
+                    "name": "1",
+                    "type": "object",
+                    "subtype": "array",
+                    "value": "Array(3)",
+                    "valuePreview": {
+                        "type": "object",
+                        "subtype": "array",
+                        "description": "Array(3)",
+                        "overflow": false,
+                        "properties": [
+                            {"name": "0", "type": "number", "value": "1"},
+                            {"name": "1", "type": "number", "value": "1"},
+                            {"name": "2", "type": "number", "value": "1"}
+                        ]
+                    }
+                }
+            ]
+        });
+
+        event(
+            &mut protocol,
+            "Runtime.consoleAPICalled",
+            json!({
+                "type": "log",
+                "args": [
+                    {"type": "string", "value": "[NeoFlash]"},
+                    {"type": "object", "subtype": "array", "description": "Array(2)", "preview": matrix_preview},
+                    {"type": "string", "value": "Scene / frame 1:12:1"}
+                ]
+            }),
+        );
+        event(
+            &mut protocol,
+            "Runtime.consoleAPICalled",
+            json!({
+                "type": "log",
+                "args": [{
+                    "type": "object",
+                    "className": "Object",
+                    "description": "Object",
+                    "preview": {
+                        "type": "object",
+                        "description": "Object",
+                        "overflow": false,
+                        "properties": [
+                            {"name": "level", "type": "number", "value": "2"},
+                            {
+                                "name": "grid",
+                                "type": "object",
+                                "subtype": "array",
+                                "value": "Array(2)",
+                                "valuePreview": matrix_preview
+                            }
+                        ]
+                    }
+                }]
+            }),
+        );
+
+        assert_eq!(
+            protocol.snapshot().output_events,
+            vec![
+                "[\n  [0, 1, 0],\n  [1, 1, 1]\n]",
+                "{\n  level: 2,\n  grid: [\n    [0, 1, 0],\n    [1, 1, 1]\n  ]\n}",
+            ]
+        );
+
+        event(&mut protocol, "Debugger.paused", paused_frame(5));
+        let locals_req = protocol.drain_commands().pop().unwrap();
+        reply(
+            &mut protocol,
+            &locals_req,
+            json!({"result": [
+                {
+                    "name": "figure",
+                    "value": {"type": "object", "subtype": "array", "description": "Array(2)", "preview": matrix_preview}
+                },
+                {
+                    "name": "stats",
+                    "value": {
+                        "type": "object",
+                        "subtype": "map",
+                        "description": "Map(1)",
+                        "preview": {
+                            "type": "object",
+                            "subtype": "map",
+                            "description": "Map(1)",
+                            "overflow": false,
+                            "properties": [],
+                            "entries": [{
+                                "key": {"type": "string", "value": "hp"},
+                                "value": {"type": "number", "value": "100"}
+                            }]
+                        }
+                    }
+                },
+                {
+                    "name": "hostileProxy",
+                    "value": {
+                        "type": "object",
+                        "subtype": "proxy",
+                        "description": "do not stringify me",
+                        "preview": matrix_preview
+                    }
+                }
+            ]}),
+        );
+        let snap = protocol.snapshot();
+        assert_eq!(snap.locals[0].value, "[[0, 1, 0], [1, 1, 1]]");
+        assert_eq!(snap.locals[1].value, "Map(1) { \"hp\" => 100 }");
+        assert_eq!(snap.locals[2].value, "<proxy>");
     }
 }

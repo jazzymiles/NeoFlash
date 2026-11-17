@@ -339,6 +339,288 @@
     function clear(){gradients.clear();clippings.clear();if(blendScratch){blendScratch.width=1;blendScratch.height=1;blendScratch=null;}}
     return {draw,paintItem,paintBounds,clear};
   }
+  const traceGetterBrand = Symbol.for('neoflash.trace.getter.v1');
+  const vectorInstanceBrand = Symbol.for('neoflash.as3.vector.instance.v1');
+  const dictionaryInstanceBrand = Symbol.for('neoflash.as3.dictionary.v1');
+  function formatTraceKey(key) {
+    const s = String(key);
+    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(s) ? s : JSON.stringify(s);
+  }
+  function resolveInheritedDescriptor(obj, prop) {
+    for (let cur = obj, guard = 0; cur && guard < 64; cur = Object.getPrototypeOf(cur), guard++) {
+      const desc = Object.getOwnPropertyDescriptor(cur, prop);
+      if (desc) return desc;
+    }
+    return null;
+  }
+  function isDefaultPlainOrClassObject(val) {
+    const tagDesc = resolveInheritedDescriptor(val, Symbol.toStringTag);
+    if (tagDesc) return false;
+    const tsDesc = resolveInheritedDescriptor(val, 'toString');
+    if (!tsDesc) return true;
+    return Object.hasOwn(tsDesc, 'value') && tsDesc.value === Object.prototype.toString;
+  }
+  function isNestedTraceContainer(val, program) {
+    if (val === null || typeof val !== 'object') return false;
+    try {
+      if (Object.getOwnPropertyDescriptor(val, traceGetterBrand)?.value === true) return false;
+      if (Array.isArray(val)) return val.length > 0 || Object.keys(val).length > 0;
+      const vecState = Object.getOwnPropertyDescriptor(val, vectorInstanceBrand)?.value;
+      if (vecState?.version === 1 && Array.isArray(vecState.values)) return vecState.values.length > 0;
+      const dictState = Object.getOwnPropertyDescriptor(val, dictionaryInstanceBrand)?.value;
+      if (dictState?.version === 1) return (dictState.entries?.size || 0) > 0;
+      if (val instanceof Map || val instanceof Set) return val.size > 0;
+      if (ArrayBuffer.isView(val) && !(val instanceof DataView)) return val.length > 0;
+      if (val instanceof Date || val instanceof RegExp || val instanceof Error) return false;
+      const clsInfo = program?.traceObjectInfo?.(val);
+      if (clsInfo) return !clsInfo.customToString && clsInfo.entries.length > 0;
+      if (isDefaultPlainOrClassObject(val)) return Object.keys(val).length > 0;
+    } catch (_) {}
+    return false;
+  }
+  function formatTraceBlock(open, close, items, hasNested, depth, maxInlineItems = 24, maxInlineChars = 88) {
+    if (items.length === 0) return open + close;
+    const hasNewline = items.some(item => item.includes('\n'));
+    if (!hasNested && !hasNewline && items.length <= maxInlineItems) {
+      const joined = items.join(', ');
+      if (open.length + joined.length + close.length <= maxInlineChars) {
+        return open === '{' ? `{ ${joined} }` : open.endsWith('{') ? `${open} ${joined} }` : `${open}${joined}${close}`;
+      }
+    }
+    const childIndent = '  '.repeat(depth + 1);
+    const closeIndent = '  '.repeat(depth);
+    return `${open}\n${items.map(item => childIndent + item).join(',\n')}\n${closeIndent}${close}`;
+  }
+  function formatTraceValue(value, options = {}) {
+    const topLevel = options.topLevel !== false;
+    const depth = options.depth || 0;
+    const maxDepth = options.maxDepth ?? 10;
+    const maxItems = options.maxItems ?? 200;
+    const program = options.program || null;
+    const seen = options.seen || new Set();
+
+    if (value === undefined) return 'undefined';
+    if (value === null) return 'null';
+    const kind = typeof value;
+    if (kind === 'string') return topLevel ? value : JSON.stringify(value);
+    if (kind === 'boolean' || kind === 'number') return String(value);
+    if (kind === 'bigint') return topLevel ? String(value) : `${value}n`;
+    if (kind === 'symbol') return String(value);
+    if (kind === 'function') {
+      try {
+        const clsName = program?.className?.(value);
+        if (clsName) return `[class ${clsName}]`;
+        return value.name ? `[Function: ${value.name}]` : '[Function]';
+      } catch (_) {
+        return '[Function]';
+      }
+    }
+    try {
+      if (Object.getOwnPropertyDescriptor(value, traceGetterBrand)?.value === true) return '[Getter]';
+      if (value instanceof Number || value instanceof String || value instanceof Boolean) {
+        const prim = value.valueOf();
+        return formatTraceValue(prim, { ...options, topLevel });
+      }
+      if (value instanceof Date) {
+        const t = value.getTime();
+        return Number.isNaN(t) ? 'Invalid Date' : value.toISOString();
+      }
+      if (value instanceof RegExp) return String(value);
+      if (value instanceof Error) return describeThrown(value);
+      if (value[Symbol.toStringTag] === 'NeoFlashDisplayObject') return String(value);
+      if (value[Symbol.toStringTag] === 'XML' || value[Symbol.toStringTag] === 'XMLList') {
+        return typeof value.toXMLString === 'function' ? String(value.toXMLString()) : String(value);
+      }
+
+      if (seen.has(value)) return '[Circular]';
+
+      const childOpts = { topLevel: false, depth: depth + 1, maxDepth, maxItems, program, seen };
+
+      if (Array.isArray(value)) {
+        if (depth >= maxDepth) return `[Array(${value.length})]`;
+        seen.add(value);
+        try {
+          const items = [];
+          let hasNested = false;
+          const limit = Math.min(value.length, maxItems);
+          for (let i = 0; i < limit; i++) {
+            const desc = Object.getOwnPropertyDescriptor(value, i);
+            if (!desc) {
+              items.push('<empty>');
+            } else if (!Object.hasOwn(desc, 'value')) {
+              items.push('[Getter]');
+            } else {
+              if (isNestedTraceContainer(desc.value, program)) hasNested = true;
+              items.push(formatTraceValue(desc.value, childOpts));
+            }
+          }
+          if (value.length > maxItems) items.push(`... +${value.length - maxItems} more`);
+          for (const key of Object.keys(value)) {
+            if (/^(?:0|[1-9]\d*)$/.test(key) && Number(key) < 4294967295) continue;
+            if (items.length >= maxItems + 32) { items.push('...'); break; }
+            const desc = Object.getOwnPropertyDescriptor(value, key);
+            if (!desc) continue;
+            const elem = Object.hasOwn(desc, 'value') ? desc.value : { [traceGetterBrand]: true };
+            if (isNestedTraceContainer(elem, program)) hasNested = true;
+            items.push(`${formatTraceKey(key)}: ${formatTraceValue(elem, childOpts)}`);
+          }
+          return formatTraceBlock('[', ']', items, hasNested, depth);
+        } finally {
+          seen.delete(value);
+        }
+      }
+
+      const vecState = Object.getOwnPropertyDescriptor(value, vectorInstanceBrand)?.value;
+      if (vecState?.version === 1 && Array.isArray(vecState.values)) {
+        const typeName = vecState.element?.name || '*';
+        const prefix = `Vector.<${typeName}>`;
+        if (depth >= maxDepth) return `${prefix}[...(${vecState.values.length})]`;
+        seen.add(value);
+        try {
+          const items = [];
+          let hasNested = false;
+          const vals = vecState.values;
+          const limit = Math.min(vals.length, maxItems);
+          for (let i = 0; i < limit; i++) {
+            if (isNestedTraceContainer(vals[i], program)) hasNested = true;
+            items.push(formatTraceValue(vals[i], childOpts));
+          }
+          if (vals.length > maxItems) items.push(`... +${vals.length - maxItems} more`);
+          return formatTraceBlock(`${prefix}[`, ']', items, hasNested, depth);
+        } finally {
+          seen.delete(value);
+        }
+      }
+
+      const dictState = Object.getOwnPropertyDescriptor(value, dictionaryInstanceBrand)?.value;
+      if (dictState?.version === 1 && dictState.entries instanceof Map) {
+        if (depth >= maxDepth) return 'Dictionary {...}';
+        seen.add(value);
+        try {
+          const items = [];
+          let hasNested = false;
+          let count = 0, total = 0;
+          for (const [token, entry] of dictState.entries) {
+            const isObj = Object.hasOwn(entry, 'object') || Object.hasOwn(entry, 'weak');
+            const rawKey = entry.weak ? entry.weak.deref() : isObj ? entry.object : entry.primitive;
+            if (isObj && rawKey === undefined) continue;
+            const rec = (isObj ? dictState.objects : dictState.primitives)?.get(rawKey);
+            if (!rec || rec.token !== token) continue;
+            total++;
+            if (count >= maxItems) continue;
+            count++;
+            const displayKey = isObj ? formatTraceValue(rawKey, childOpts) : (/^(?:0|[1-9]\d*)$/.test(rawKey) && Number(rawKey) <= 268435455 ? rawKey : JSON.stringify(rawKey));
+            if (isNestedTraceContainer(rawKey, program) || isNestedTraceContainer(rec.value, program)) hasNested = true;
+            items.push(`${displayKey} => ${formatTraceValue(rec.value, childOpts)}`);
+          }
+          if (total > maxItems) items.push(`... +${total - maxItems} more`);
+          return items.length === 0 ? 'Dictionary {}' : formatTraceBlock('Dictionary {', '}', items, hasNested, depth, 6, 88);
+        } finally {
+          seen.delete(value);
+        }
+      }
+
+      if (ArrayBuffer.isView(value) && !(value instanceof DataView)) {
+        const ctor = value.constructor?.name || 'TypedArray';
+        if (depth >= maxDepth) return `${ctor}(${value.length}) [...]`;
+        const items = [];
+        const limit = Math.min(value.length, maxItems);
+        for (let i = 0; i < limit; i++) items.push(String(value[i]));
+        if (value.length > maxItems) items.push(`... +${value.length - maxItems} more`);
+        return `${ctor}(${value.length}) [${items.join(', ')}]`;
+      }
+
+      if (value instanceof Map) {
+        if (depth >= maxDepth) return `Map(${value.size}) {...}`;
+        seen.add(value);
+        try {
+          const items = [];
+          let hasNested = false, i = 0;
+          for (const [k, v] of value.entries()) {
+            if (i++ >= maxItems) { items.push(`... +${value.size - maxItems} more`); break; }
+            if (isNestedTraceContainer(k, program) || isNestedTraceContainer(v, program)) hasNested = true;
+            items.push(`${formatTraceValue(k, childOpts)} => ${formatTraceValue(v, childOpts)}`);
+          }
+          return items.length === 0 ? 'Map(0) {}' : formatTraceBlock(`Map(${value.size}) {`, '}', items, hasNested, depth, 6, 88);
+        } finally {
+          seen.delete(value);
+        }
+      }
+
+      if (value instanceof Set) {
+        if (depth >= maxDepth) return `Set(${value.size}) {...}`;
+        seen.add(value);
+        try {
+          const items = [];
+          let hasNested = false, i = 0;
+          for (const v of value.values()) {
+            if (i++ >= maxItems) { items.push(`... +${value.size - maxItems} more`); break; }
+            if (isNestedTraceContainer(v, program)) hasNested = true;
+            items.push(formatTraceValue(v, childOpts));
+          }
+          return items.length === 0 ? 'Set(0) {}' : formatTraceBlock(`Set(${value.size}) {`, '}', items, hasNested, depth, 12, 88);
+        } finally {
+          seen.delete(value);
+        }
+      }
+
+      const clsInfo = program?.traceObjectInfo?.(value);
+      if (clsInfo) {
+        if (clsInfo.customToString) return String(value.toString());
+        const open = `${clsInfo.className} {`;
+        if (depth >= maxDepth) return `${open}...}`;
+        seen.add(value);
+        try {
+          const items = [];
+          let hasNested = false;
+          const limit = Math.min(clsInfo.entries.length, maxItems);
+          for (let i = 0; i < limit; i++) {
+            const [k, v] = clsInfo.entries[i];
+            if (isNestedTraceContainer(v, program)) hasNested = true;
+            items.push(`${formatTraceKey(k)}: ${formatTraceValue(v, childOpts)}`);
+          }
+          if (clsInfo.entries.length > maxItems) items.push(`... +${clsInfo.entries.length - maxItems} more`);
+          return items.length === 0 ? `${clsInfo.className} {}` : formatTraceBlock(open, '}', items, hasNested, depth, 6, 88);
+        } finally {
+          seen.delete(value);
+        }
+      }
+
+      if (isDefaultPlainOrClassObject(value)) {
+        const proto = Object.getPrototypeOf(value);
+        const rawCtorName = proto && proto !== Object.prototype ? proto.constructor?.name : '';
+        const prefix = rawCtorName && rawCtorName !== 'Object' ? `${rawCtorName} ` : '';
+        const open = `${prefix}{`;
+        if (depth >= maxDepth) return `${open}...}`;
+        seen.add(value);
+        try {
+          const keys = Object.keys(value);
+          const items = [];
+          let hasNested = false;
+          const limit = Math.min(keys.length, maxItems);
+          for (let i = 0; i < limit; i++) {
+            const k = keys[i];
+            const desc = Object.getOwnPropertyDescriptor(value, k);
+            if (!desc) continue;
+            const elem = Object.hasOwn(desc, 'value') ? desc.value : { [traceGetterBrand]: true };
+            if (isNestedTraceContainer(elem, program)) hasNested = true;
+            items.push(`${formatTraceKey(k)}: ${formatTraceValue(elem, childOpts)}`);
+          }
+          if (keys.length > maxItems) items.push(`... +${keys.length - maxItems} more`);
+          return items.length === 0 ? `${prefix}{}` : formatTraceBlock(open, '}', items, hasNested, depth, 6, 88);
+        } finally {
+          seen.delete(value);
+        }
+      }
+
+      return String(value);
+    } catch (_) {
+      return '<unprintable object>';
+    }
+  }
+  function formatTraceArgs(values, options = {}) {
+    return values.map(v => formatTraceValue(v, { ...options, topLevel: true, depth: 0 })).join(' ');
+  }
   function emitScriptMessage(kind, message, frames, host = global) {
     try {
       if (typeof host.CustomEvent === 'function') host.dispatchEvent(new host.CustomEvent('neoflash-script-message', {
@@ -354,8 +636,11 @@
     if (errors.length === 1) throw errors[0];
     if (errors.length) throw new AggregateError(errors, 'Multiple runtime cleanup operations failed.', {cause: errors[0]});
   }
-  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, scriptFunction, mapScriptStack, sourceLocationText, mappedErrorFrames, emitScriptMessage, completeCleanup, ensureBundleFontsLoaded, mountAfterBundleFonts };
+  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, scriptFunction, mapScriptStack, sourceLocationText, mappedErrorFrames, formatTraceValue, formatTraceArgs, emitScriptMessage, completeCleanup, ensureBundleFontsLoaded, mountAfterBundleFonts };
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
+  if (global && typeof global === 'object') {
+    try { Object.defineProperty(global, 'NeoFlashFormatTrace', { value: Object.freeze({ formatTraceValue, formatTraceArgs }), configurable: true }); } catch (_) {}
+  }
   if (typeof document === 'undefined') return;
   global.NeoFlashPreview?.installOutputRelay?.(global);
 
@@ -366,7 +651,11 @@
   function fail(error) {
     // Cleanup and already queued host callbacks may fail too. Keep the first
     // authored failure visible until an explicit Restart, and do not recurse.
-    if (failed) { console.error(error); return; }
+    if (failed) {
+      global.__neoflashSuppressConsoleRelay = true;
+      try { console.error(error); } finally { global.__neoflashSuppressConsoleRelay = false; }
+      return;
+    }
     failed = true;
     document.getElementById('loading').style.display = 'none';
     errorElement.style.display = 'block';
@@ -375,8 +664,13 @@
     const frames = sourceFrames(error);
     const location = sourceLocationText(frames[0]);
     errorElement.textContent = 'NeoFlash could not run this project.\n\n' + (location ? location + '\n' : '') + describeThrown(error, true) + hint;
-    console.error(error);
-    try { stopAsyncOnFailure(); } catch (cleanupError) { console.error(cleanupError); }
+    global.__neoflashSuppressConsoleRelay = true;
+    try {
+      console.error(error);
+      try { stopAsyncOnFailure(); } catch (cleanupError) { console.error(cleanupError); }
+    } finally {
+      global.__neoflashSuppressConsoleRelay = false;
+    }
     emitScriptMessage('error', describeThrown(error), frames);
   }
 
@@ -652,7 +946,12 @@
         });
       } catch (error) { throw new Error(`Script syntax error in ${script.location}: ${describeThrown(error)}`, { cause: error }); }
     }
-    for (const warning of bundle.warnings) console.warn('NeoFlash:', warning);
+    global.__neoflashSuppressConsoleRelay = true;
+    try {
+      for (const warning of bundle.warnings) console.warn('NeoFlash:', warning);
+    } finally {
+      global.__neoflashSuppressConsoleRelay = false;
+    }
 
     const propertyMap = {
       x: 'x', y: 'y', rotation: 'rotation', alpha: 'alpha', scaleX: 'scale_x', scaleY: 'scale_y',
@@ -679,6 +978,12 @@
     let display = null, eventHub = null, stageHost = null, legacyHost = null, legacyGlobals = null, timerHost = null, binaryHost = null, netHost = null, bitmapHost = null, textHost = null, filterHost = null, audioHost = null, videoHost = null, xmlHost = null, loaderHost = null, amfHost = null, storageHost = null, textInputHost = null, externalHost = null, program = null, as2PlatformHost = null, as2ObjectHost = null, as2TextHost = null, as2DataHost = null, as2BindingHost = null, as2NetworkHost = null, as2FilesHost = null, as2LocaleHost = null, as2MediaHost = null, as2ServicesHost = null, as2TransitionsHost = null, as2DepthManagerHost = null, as2StageHost = null, as2CaptureHost = null, as2ConnectionsHost = null, as2BoxingHost = null, as2PrintHost = null;
     let geometryHost = null, geometry3dHost = null, easingHost = null, broadcasterHost = null, airHost = null, as3NetSysHost = null, fte3dHost = null, as3MediaEventsHost = null, domStageHost = null, currentBuiltins = null;
     let frameLabelType = null, sceneValueFactory = null;
+    if (global && typeof global === 'object') {
+      global.__neoflashConsoleFormat = args => ({
+        message: formatTraceArgs(args, { program }),
+        location: sourceFrames(new Error())[0] || null,
+      });
+    }
     const timelineMetadataProperties=Object.freeze({currentLabel:'current_label',currentFrameLabel:'current_frame_label',currentLabels:'labels',framesLoaded:'frames_loaded',isPlaying:'is_playing',currentScene:'scene_name',scenes:'scene_name'});
     let eventFamilies = {};
     let timerRenderGeneration=0, timerRenderRafId=0, familyDisposed=false, capturePainter=null, islandPainter=null, inputPaths=null;
@@ -2563,9 +2868,14 @@
       if (typeof bundle !== 'undefined' && bundle?.player_config?.include_trace === false) return;
       const frames = sourceFrames(new Error());
       const location = sourceLocationText(frames[0]);
-      console.log('[NeoFlash]', ...values, ...(location ? [location] : []));
-      const message = values.map(value => typeof value === 'string' ? value : String(value)).join(' ');
-      lastTrace = message.slice(0, 160);
+      if (global && typeof global === 'object') global.__neoflashSuppressConsoleRelay = true;
+      try {
+        console.log('[NeoFlash]', ...values, ...(location ? [location] : []));
+      } finally {
+        if (global && typeof global === 'object') global.__neoflashSuppressConsoleRelay = false;
+      }
+      const message = formatTraceArgs(values, { program });
+      lastTrace = message.replace(/\r?\n\s*/g, ' ').slice(0, 160);
       lastTraceLocation = location;
       emitScriptMessage('trace', message, frames);
     }
@@ -3075,7 +3385,10 @@
         loadInfoElement.textContent = summaryText;
         loadInfoElement.title = summaryText;
       }
-      if (!isCleanChrome) console.info(`[NeoFlash] ${summaryText}`);
+      if (!isCleanChrome) {
+        global.__neoflashSuppressConsoleRelay = true;
+        try { console.info(`[NeoFlash] ${summaryText}`); } finally { global.__neoflashSuppressConsoleRelay = false; }
+      }
     }
     if (bundle.size_report && sizeReportElement && reportToggle && chromeConfig.show_load_summary !== false && !isCleanChrome) {
       sizeReportElement.textContent = bundle.size_report;

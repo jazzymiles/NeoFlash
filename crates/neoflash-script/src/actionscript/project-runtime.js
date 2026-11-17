@@ -641,7 +641,67 @@ const __nfProgram = (() => {
     function runInitClips(root) {
         for (const entry of initClips) __nfRunInitClip(entry.key, root, entry.fn);
     }
-    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, defineNamespace, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, isDynamic: dynamicAllowed, ref, assertDynamicWrite, objectDescriptor, isClass, isInterface, constructClass, className, reflect, defaultObjectMethod, isProxy, hasTrait, invokeProxy, resolveQualifiedSlot,
+    const getterMarker = Object.freeze({ [Symbol.for('neoflash.trace.getter.v1')]: true });
+    function traceObjectInfo(value) {
+        if (value == null || (typeof value !== 'object' && typeof value !== 'function')) return null;
+        if (classFacades.has(value) || __nfBuiltins.__nfIsNativeDisplay?.(value)) return null;
+        const name = identities.get(value);
+        if (!name) return null;
+        const definition = definitions.get(name);
+        if (!definition) return null;
+        const tsSlot = publicSlot(value, 'toString');
+        if (tsSlot && tsSlot.kind === 'method') return { className: name, customToString: true };
+        const ownTs = Object.getOwnPropertyDescriptor(value, 'toString');
+        if (ownTs && Object.hasOwn(ownTs, 'value') && typeof ownTs.value === 'function' && ownTs.value !== Object.prototype.toString) {
+            return { className: name, customToString: true };
+        }
+        if (definition.dialect === 'as2') {
+            for (const def of chain(name)) {
+                if (def.methods.some(m => !m.static && m.name === 'toString')) return { className: name, customToString: true };
+            }
+        }
+        const entries = [], seenKeys = new Set();
+        if (definition.dialect === 'as2') {
+            for (const def of chain(name)) {
+                for (const field of def.fields) {
+                    if (field.static || seenKeys.has(field.name)) continue;
+                    seenKeys.add(field.name);
+                    let desc = Object.getOwnPropertyDescriptor(value, field.name);
+                    if (!desc) {
+                        for (let p = Object.getPrototypeOf(value); p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+                            desc = Object.getOwnPropertyDescriptor(p, field.name);
+                            if (desc) break;
+                        }
+                    }
+                    if (desc) entries.push([field.name, Object.hasOwn(desc, 'value') ? desc.value : getterMarker]);
+                }
+            }
+        } else {
+            const states = fieldStates.get(value);
+            for (const def of chain(name)) {
+                for (const field of def.fields) {
+                    if (field.static || field.access !== 'public' || seenKeys.has(field.name)) continue;
+                    seenKeys.add(field.name);
+                    const state = states?.get(field.slot);
+                    if (state) entries.push([field.name, state.value]);
+                }
+            }
+            for (const slot of slots.get(value)?.values() || []) {
+                if (slot.member.access === 'public' && slot.kind === 'accessor' && slot.readable && !seenKeys.has(slot.member.name)) {
+                    seenKeys.add(slot.member.name);
+                    entries.push([slot.member.name, getterMarker]);
+                }
+            }
+        }
+        for (const key of Object.keys(value)) {
+            if (seenKeys.has(key)) continue;
+            seenKeys.add(key);
+            const desc = Object.getOwnPropertyDescriptor(value, key);
+            if (desc) entries.push([key, Object.hasOwn(desc, 'value') ? desc.value : getterMarker]);
+        }
+        return { className: name, customToString: false, entries };
+    }
+    return Object.freeze({ type, is, cast, as2Cast, define, defineInterface, defineNamespace, declareIntrinsic, registerInitClip, runInitClips, attach, construct, superConstruct, superView, initializeFields, initializeStatics, jsonKeys, elementDescriptor, enumerationKeys, hasFixedProperty, isDynamic: dynamicAllowed, ref, assertDynamicWrite, objectDescriptor, isClass, isInterface, constructClass, className, reflect, defaultObjectMethod, isProxy, hasTrait, invokeProxy, resolveQualifiedSlot, traceObjectInfo,
         instanceClassName:value=>identities.get(value)||null,
         setNativeTypes:names=>{nativeTypeNames=names;},
         dialect:name=>definitions.get(name)?.dialect });

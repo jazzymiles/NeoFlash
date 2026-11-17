@@ -91,6 +91,14 @@ fn cached_output_lines(
                 collected
             }
         };
+        let event_full_text = if event.repeat_count > 1 {
+            format!("{} (×{})", event.message, event.repeat_count)
+        } else {
+            event.message.clone()
+        };
+        if !parsed.matches_line(&event_full_text, &loc_summary) {
+            continue;
+        }
         let last_idx = raw_lines.len().saturating_sub(1);
         for (idx, raw_line) in raw_lines.into_iter().enumerate() {
             let text = if idx == last_idx && event.repeat_count > 1 {
@@ -98,14 +106,12 @@ fn cached_output_lines(
             } else {
                 raw_line.to_owned()
             };
-            if parsed.matches_line(&text, &loc_summary) {
-                visible_lines.push(text.clone());
-                rows.push(CachedOutputRow {
-                    severity: ui_severity,
-                    text,
-                    location: event.location.clone(),
-                });
-            }
+            visible_lines.push(text.clone());
+            rows.push(CachedOutputRow {
+                severity: ui_severity,
+                text,
+                location: event.location.clone(),
+            });
         }
     }
 

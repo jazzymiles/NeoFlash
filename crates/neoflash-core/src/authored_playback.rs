@@ -18,7 +18,7 @@ fn script_is_compiled(project: &Project, language: ScriptLanguage) -> bool {
         .is_compiled()
 }
 
-/// Typed runtime value for live authoring script preview (`T-266`).
+/// Typed runtime value for live authoring script preview (`T-266`, `T-368`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum PreviewValue {
     Undefined,
@@ -26,6 +26,8 @@ pub enum PreviewValue {
     Bool(bool),
     Number(f64),
     String(String),
+    Array(Vec<PreviewValue>),
+    Object(Vec<(String, PreviewValue)>),
 }
 
 impl PreviewValue {
@@ -41,6 +43,7 @@ impl PreviewValue {
                     !s.is_empty()
                 }
             }
+            Self::Array(_) | Self::Object(_) => true,
         }
     }
 
@@ -71,6 +74,24 @@ impl PreviewValue {
                         .unwrap_or(if is_as1 { 0.0 } else { f64::NAN })
                 }
             }
+            Self::Array(items) => match items.as_slice() {
+                [] => 0.0,
+                [single] => single.to_number(is_as1),
+                _ => {
+                    if is_as1 {
+                        0.0
+                    } else {
+                        f64::NAN
+                    }
+                }
+            },
+            Self::Object(_) => {
+                if is_as1 {
+                    0.0
+                } else {
+                    f64::NAN
+                }
+            }
         }
     }
 
@@ -97,17 +118,109 @@ impl PreviewValue {
             Self::Bool(b) => b.to_string(),
             Self::Number(n) => format_number(*n),
             Self::String(s) => s.clone(),
+            Self::Array(items) => items
+                .iter()
+                .map(|v| match v {
+                    Self::Undefined | Self::Null => String::new(),
+                    other => other.to_es_string(is_as1),
+                })
+                .collect::<Vec<_>>()
+                .join(","),
+            Self::Object(_) => "[object Object]".to_owned(),
         }
     }
 
-    pub fn to_display_string(&self) -> String {
+    fn is_nested_container(&self) -> bool {
+        match self {
+            Self::Array(items) => !items.is_empty(),
+            Self::Object(entries) => !entries.is_empty(),
+            _ => false,
+        }
+    }
+
+    fn format_trace_inner(&self, top_level: bool, depth: usize) -> String {
         match self {
             Self::Undefined => "undefined".to_owned(),
             Self::Null => "null".to_owned(),
             Self::Bool(b) => b.to_string(),
             Self::Number(n) => format_number(*n),
-            Self::String(s) => s.clone(),
+            Self::String(s) => {
+                if top_level {
+                    s.clone()
+                } else {
+                    format!("{s:?}")
+                }
+            }
+            Self::Array(items) => {
+                if items.is_empty() {
+                    return "[]".to_owned();
+                }
+                if depth >= 10 {
+                    return format!("[Array({})]", items.len());
+                }
+                let has_nested = items.iter().any(Self::is_nested_container);
+                let rendered: Vec<String> = items
+                    .iter()
+                    .take(200)
+                    .map(|v| v.format_trace_inner(false, depth + 1))
+                    .collect();
+                let has_newline = rendered.iter().any(|s| s.contains('\n'));
+                if !has_nested && !has_newline && rendered.len() <= 24 {
+                    let joined = rendered.join(", ");
+                    if joined.len() + 2 <= 88 {
+                        return format!("[{joined}]");
+                    }
+                }
+                let child_indent = "  ".repeat(depth + 1);
+                let close_indent = "  ".repeat(depth);
+                let body = rendered
+                    .into_iter()
+                    .map(|s| format!("{child_indent}{s}"))
+                    .collect::<Vec<_>>()
+                    .join(",\n");
+                format!("[\n{body}\n{close_indent}]")
+            }
+            Self::Object(entries) => {
+                if entries.is_empty() {
+                    return "{}".to_owned();
+                }
+                if depth >= 10 {
+                    return "{...}".to_owned();
+                }
+                let has_nested = entries.iter().any(|(_, v)| v.is_nested_container());
+                let rendered: Vec<String> = entries
+                    .iter()
+                    .take(200)
+                    .map(|(k, v)| {
+                        let key_fmt = if is_valid_identifier(k) {
+                            k.clone()
+                        } else {
+                            format!("{k:?}")
+                        };
+                        format!("{key_fmt}: {}", v.format_trace_inner(false, depth + 1))
+                    })
+                    .collect();
+                let has_newline = rendered.iter().any(|s| s.contains('\n'));
+                if !has_nested && !has_newline && rendered.len() <= 6 {
+                    let joined = rendered.join(", ");
+                    if joined.len() + 4 <= 88 {
+                        return format!("{{ {joined} }}");
+                    }
+                }
+                let child_indent = "  ".repeat(depth + 1);
+                let close_indent = "  ".repeat(depth);
+                let body = rendered
+                    .into_iter()
+                    .map(|s| format!("{child_indent}{s}"))
+                    .collect::<Vec<_>>()
+                    .join(",\n");
+                format!("{{\n{body}\n{close_indent}}}")
+            }
         }
+    }
+
+    pub fn to_display_string(&self) -> String {
+        self.format_trace_inner(true, 0)
     }
 
     pub fn strict_eq(&self, other: &Self) -> bool {
@@ -116,6 +229,8 @@ impl PreviewValue {
             (Self::Bool(a), Self::Bool(b)) => a == b,
             (Self::Number(a), Self::Number(b)) => a == b,
             (Self::String(a), Self::String(b)) => a == b,
+            (Self::Array(a), Self::Array(b)) => a == b,
+            (Self::Object(a), Self::Object(b)) => a == b,
             _ => false,
         }
     }
@@ -127,12 +242,15 @@ impl PreviewValue {
             (Self::Bool(a), Self::Bool(b)) => a == b,
             (Self::Number(a), Self::Number(b)) => a == b,
             (Self::String(a), Self::String(b)) => a == b,
+            (Self::Array(a), Self::Array(b)) => a == b,
+            (Self::Object(a), Self::Object(b)) => a == b,
             (Self::Bool(b), rhs) => Self::Number(if *b { 1.0 } else { 0.0 }).loose_eq(rhs),
             (lhs, Self::Bool(b)) => lhs.loose_eq(&Self::Number(if *b { 1.0 } else { 0.0 })),
             (Self::Number(n), Self::String(s)) | (Self::String(s), Self::Number(n)) => {
                 let s_num = Self::String(s.clone()).to_number(false);
                 *n == s_num
             }
+            _ => false,
         }
     }
 
@@ -1224,6 +1342,10 @@ impl AuthoredPlayback {
                 );
                 continue;
             }
+            // 4b. Container mutating method call (`arr.push(x, y)`)
+            if self.try_apply_container_method_call(project, path, stmt) {
+                continue;
+            }
             // 5. Property or variable assignments on `this.`, named child, `_root.`, or bare `_prop` / `var`
             if self.try_apply_property_or_var_mutation(project, path, stmt) {
                 continue;
@@ -1919,8 +2041,13 @@ impl AuthoredPlayback {
             None => (None, lhs.trim()),
         };
 
-        // Check if mutating an existing script variable (`score += 10`, `count = 2`)
+        // Check if mutating a nested array index or object property (`fig[1][2] = 9`, `state.score += 10`)
         let is_as1 = self.is_as1();
+        if self.try_apply_nested_container_mutation(project, &scope_path, lhs, op, rhs, is_as1) {
+            return true;
+        }
+
+        // Check if mutating an existing script variable (`score += 10`, `count = 2`)
         if recv_opt.is_none()
             && self
                 .vars
@@ -2193,6 +2320,12 @@ impl AuthoredPlayback {
             let val = self.eval_preview_value(project, path, inner);
             return PreviewValue::Number(-val.to_number(is_as1));
         }
+        if let Some(arr_val) = self.eval_array_or_object_literal(project, path, s) {
+            return arr_val;
+        }
+        if let Some(indexed_val) = self.eval_postfix_container_access(project, path, s) {
+            return indexed_val;
+        }
         if let Some(val) = self.vars.get(&(path.to_vec(), s.to_owned())) {
             return val.clone();
         }
@@ -2295,6 +2428,774 @@ impl AuthoredPlayback {
             _ => PreviewValue::String(s.to_owned()),
         }
     }
+
+    fn eval_array_or_object_literal(
+        &self,
+        project: &Project,
+        path: &[Id],
+        s: &str,
+    ) -> Option<PreviewValue> {
+        let trimmed = s.trim();
+        if trimmed.starts_with('[')
+            && find_matching_delim(trimmed, b'[', b']') == Some(trimmed.len() - 1)
+        {
+            let inner = trimmed[1..trimmed.len() - 1].trim();
+            if inner.is_empty() {
+                return Some(PreviewValue::Array(Vec::new()));
+            }
+            let mut parts = split_top_level_comma(inner);
+            if parts.last() == Some(&"") {
+                parts.pop();
+            }
+            let items = parts
+                .into_iter()
+                .map(|part| {
+                    if part.trim().is_empty() {
+                        PreviewValue::Undefined
+                    } else {
+                        self.eval_preview_value(project, path, part)
+                    }
+                })
+                .collect();
+            return Some(PreviewValue::Array(items));
+        }
+
+        let array_call_args = if trimmed == "new Array" {
+            Some("")
+        } else if let Some(rest) = trimmed.strip_prefix("new ") {
+            extract_call_arg(rest.trim_start(), "Array")
+        } else {
+            extract_call_arg(trimmed, "Array")
+        };
+        if let Some(arg_str) = array_call_args {
+            let args = split_top_level_comma(arg_str);
+            if args.is_empty() {
+                return Some(PreviewValue::Array(Vec::new()));
+            }
+            if args.len() == 1 {
+                let first = self.eval_preview_value(project, path, args[0]);
+                if let PreviewValue::Number(n) = first
+                    && n.is_finite()
+                    && n >= 0.0
+                    && (n - n.trunc()).abs() < 1e-9
+                    && (n as usize) <= 10_000
+                {
+                    return Some(PreviewValue::Array(vec![
+                        PreviewValue::Undefined;
+                        n as usize
+                    ]));
+                }
+                return Some(PreviewValue::Array(vec![first]));
+            }
+            let items = args
+                .into_iter()
+                .map(|a| self.eval_preview_value(project, path, a))
+                .collect();
+            return Some(PreviewValue::Array(items));
+        }
+
+        if trimmed == "new Object"
+            || trimmed
+                .strip_prefix("new ")
+                .and_then(|r| extract_call_arg(r.trim_start(), "Object"))
+                == Some("")
+        {
+            return Some(PreviewValue::Object(Vec::new()));
+        }
+
+        if trimmed.starts_with('{')
+            && find_matching_delim(trimmed, b'{', b'}') == Some(trimmed.len() - 1)
+        {
+            let inner = trimmed[1..trimmed.len() - 1].trim();
+            if inner.is_empty() {
+                return Some(PreviewValue::Object(Vec::new()));
+            }
+            let mut parts = split_top_level_comma(inner);
+            if parts.last() == Some(&"") {
+                parts.pop();
+            }
+            let mut entries: Vec<(String, PreviewValue)> = Vec::with_capacity(parts.len());
+            for entry_str in parts {
+                let (raw_key, raw_val) = split_top_level_colon(entry_str)?;
+                let key = parse_object_literal_key(raw_key)?;
+                let val = self.eval_preview_value(project, path, raw_val);
+                if let Some((_, slot)) = entries.iter_mut().find(|(k, _)| k == &key) {
+                    *slot = val;
+                } else {
+                    entries.push((key, val));
+                }
+            }
+            return Some(PreviewValue::Object(entries));
+        }
+
+        None
+    }
+
+    fn resolve_container_chain<'a>(
+        &self,
+        project: &Project,
+        path: &[Id],
+        base: &'a str,
+        tokens: &[PostfixToken<'a>],
+    ) -> Option<(PreviewValue, usize)> {
+        if base.starts_with('(')
+            || base.starts_with('[')
+            || base.starts_with('{')
+            || base.starts_with('"')
+            || base.starts_with('\'')
+        {
+            return Some((self.eval_preview_value(project, path, base), 0));
+        }
+        if let Some(val) = self.vars.get(&(path.to_vec(), base.to_owned())) {
+            return Some((val.clone(), 0));
+        }
+        // Check receiver-qualified container variable, e.g. `this.fig[0]`, `_root.board[1][2]`, `mc.state.hp`
+        let mut recv_prefix = base.to_owned();
+        for (idx, tok) in tokens.iter().enumerate() {
+            let PostfixToken::Prop(prop_name) = tok else {
+                break;
+            };
+            if let Some(recv_path) = self.resolve_receiver_path(project, path, &recv_prefix)
+                && let Some(val) = self.vars.get(&(recv_path, (*prop_name).to_owned()))
+                && (idx + 1 < tokens.len()
+                    || matches!(val, PreviewValue::Array(_) | PreviewValue::Object(_)))
+            {
+                return Some((val.clone(), idx + 1));
+            }
+            recv_prefix.push('.');
+            recv_prefix.push_str(prop_name);
+        }
+        None
+    }
+
+    fn resolve_mutable_container_root<'a>(
+        &self,
+        project: &Project,
+        scope_path: &[Id],
+        base: &'a str,
+        tokens: &[PostfixToken<'a>],
+        allow_empty_remaining: bool,
+    ) -> Option<(Vec<Id>, String, usize)> {
+        if let Some(PreviewValue::Array(_) | PreviewValue::Object(_)) =
+            self.vars.get(&(scope_path.to_vec(), base.to_owned()))
+            && (allow_empty_remaining || !tokens.is_empty())
+        {
+            return Some((scope_path.to_vec(), base.to_owned(), 0));
+        }
+        let mut recv_prefix = base.to_owned();
+        for (idx, tok) in tokens.iter().enumerate() {
+            let PostfixToken::Prop(prop_name) = tok else {
+                break;
+            };
+            if let Some(recv_path) = self.resolve_receiver_path(project, scope_path, &recv_prefix)
+                && let Some(PreviewValue::Array(_) | PreviewValue::Object(_)) =
+                    self.vars.get(&(recv_path.clone(), (*prop_name).to_owned()))
+                && (allow_empty_remaining || idx + 1 < tokens.len())
+            {
+                return Some((recv_path, (*prop_name).to_owned(), idx + 1));
+            }
+            recv_prefix.push('.');
+            recv_prefix.push_str(prop_name);
+        }
+        None
+    }
+
+    fn eval_postfix_container_access(
+        &self,
+        project: &Project,
+        path: &[Id],
+        s: &str,
+    ) -> Option<PreviewValue> {
+        let (base, tokens) = parse_postfix_steps(s.trim())?;
+        if tokens.is_empty() {
+            return None;
+        }
+        let (mut cur, start_idx) = self.resolve_container_chain(project, path, base, &tokens)?;
+        if start_idx >= tokens.len() {
+            return Some(cur);
+        }
+        let is_as1 = self.is_as1();
+        for tok in &tokens[start_idx..] {
+            cur = match tok {
+                PostfixToken::Prop(prop) => match &cur {
+                    PreviewValue::Array(items) if *prop == "length" => {
+                        PreviewValue::Number(items.len() as f64)
+                    }
+                    PreviewValue::String(st) if *prop == "length" => {
+                        PreviewValue::Number(st.encode_utf16().count() as f64)
+                    }
+                    PreviewValue::Object(entries) => entries
+                        .iter()
+                        .find(|(k, _)| k == prop)
+                        .map(|(_, v)| v.clone())
+                        .unwrap_or(PreviewValue::Undefined),
+                    _ => PreviewValue::Undefined,
+                },
+                PostfixToken::Index(idx_expr) => {
+                    let key_val = self.eval_preview_value(project, path, idx_expr);
+                    match (&cur, &key_val) {
+                        (PreviewValue::Array(items), PreviewValue::Number(n))
+                            if n.is_finite() && *n >= 0.0 && (*n - n.trunc()).abs() < 1e-9 =>
+                        {
+                            items
+                                .get(*n as usize)
+                                .cloned()
+                                .unwrap_or(PreviewValue::Undefined)
+                        }
+                        (PreviewValue::Array(items), PreviewValue::String(st)) => {
+                            if st == "length" {
+                                PreviewValue::Number(items.len() as f64)
+                            } else if let Ok(idx) = st.trim().parse::<usize>() {
+                                items.get(idx).cloned().unwrap_or(PreviewValue::Undefined)
+                            } else {
+                                PreviewValue::Undefined
+                            }
+                        }
+                        (PreviewValue::Object(entries), _) => {
+                            let key = key_val.to_es_string(is_as1);
+                            entries
+                                .iter()
+                                .find(|(k, _)| k == &key)
+                                .map(|(_, v)| v.clone())
+                                .unwrap_or(PreviewValue::Undefined)
+                        }
+                        _ => PreviewValue::Undefined,
+                    }
+                }
+            };
+        }
+        Some(cur)
+    }
+
+    fn concrete_access_steps(
+        &self,
+        project: &Project,
+        scope_path: &[Id],
+        tokens: &[PostfixToken<'_>],
+        is_as1: bool,
+    ) -> Vec<ConcreteAccessStep> {
+        tokens
+            .iter()
+            .map(|tok| match tok {
+                PostfixToken::Prop(p) => ConcreteAccessStep::Prop((*p).to_owned()),
+                PostfixToken::Index(idx_expr) => {
+                    let kv = self.eval_preview_value(project, scope_path, idx_expr);
+                    match kv {
+                        PreviewValue::Number(n)
+                            if n.is_finite()
+                                && n >= 0.0
+                                && (n - n.trunc()).abs() < 1e-9
+                                && (n as usize) <= 10_000 =>
+                        {
+                            ConcreteAccessStep::Index(n as usize)
+                        }
+                        PreviewValue::String(ref st) => {
+                            if let Ok(idx) = st.trim().parse::<usize>()
+                                && idx <= 10_000
+                            {
+                                ConcreteAccessStep::Index(idx)
+                            } else {
+                                ConcreteAccessStep::Prop(st.clone())
+                            }
+                        }
+                        other => ConcreteAccessStep::Prop(other.to_es_string(is_as1)),
+                    }
+                }
+            })
+            .collect()
+    }
+
+    fn try_apply_nested_container_mutation(
+        &mut self,
+        project: &Project,
+        scope_path: &[Id],
+        lhs: &str,
+        op: &str,
+        rhs: &str,
+        is_as1: bool,
+    ) -> bool {
+        if !is_supported_preview_rhs(rhs) {
+            return false;
+        }
+        let Some((base, tokens)) = parse_postfix_steps(lhs.trim()) else {
+            return false;
+        };
+        if tokens.is_empty() {
+            return false;
+        }
+        let Some((owner_path, root_var, start_idx)) =
+            self.resolve_mutable_container_root(project, scope_path, base, &tokens, false)
+        else {
+            return false;
+        };
+        let steps = self.concrete_access_steps(project, scope_path, &tokens[start_idx..], is_as1);
+        if steps.is_empty() {
+            return false;
+        }
+        let rhs_val = self.eval_preview_value(project, scope_path, rhs);
+        let Some(root_slot) = self.vars.get_mut(&(owner_path, root_var)) else {
+            return false;
+        };
+        mutate_preview_container(root_slot, &steps, op, &rhs_val, is_as1)
+    }
+
+    fn try_apply_container_method_call(
+        &mut self,
+        project: &Project,
+        path: &[Id],
+        stmt: &str,
+    ) -> bool {
+        let Some((target_expr, method, args_str)) = parse_postfix_method_call(stmt.trim()) else {
+            return false;
+        };
+        if !matches!(method, "push" | "pop" | "shift" | "unshift" | "reverse") {
+            return false;
+        }
+        let scope_path = self.effective_scope_path(project, path);
+        let (base, tokens) = match parse_postfix_steps(target_expr) {
+            Some(parsed) => parsed,
+            None if is_valid_identifier(target_expr) => (target_expr, Vec::new()),
+            None => return false,
+        };
+        let Some((owner_path, root_var, start_idx)) =
+            self.resolve_mutable_container_root(project, &scope_path, base, &tokens, true)
+        else {
+            return false;
+        };
+        let is_as1 = self.is_as1();
+        let steps = self.concrete_access_steps(project, &scope_path, &tokens[start_idx..], is_as1);
+        let arg_vals: Vec<PreviewValue> = split_top_level_comma(args_str)
+            .into_iter()
+            .map(|a| self.eval_preview_value(project, &scope_path, a))
+            .collect();
+        if matches!(method, "pop" | "shift" | "reverse") && !arg_vals.is_empty() {
+            return false;
+        }
+        let Some(root_slot) = self.vars.get_mut(&(owner_path, root_var)) else {
+            return false;
+        };
+        let Some(PreviewValue::Array(items)) = navigate_preview_container_mut(root_slot, &steps)
+        else {
+            return false;
+        };
+        match method {
+            "push" => {
+                for v in arg_vals {
+                    if items.len() < 10_000 {
+                        items.push(v);
+                    }
+                }
+                true
+            }
+            "pop" => {
+                items.pop();
+                true
+            }
+            "shift" => {
+                if !items.is_empty() {
+                    items.remove(0);
+                }
+                true
+            }
+            "unshift" => {
+                for (i, v) in arg_vals.into_iter().enumerate() {
+                    if items.len() < 10_000 {
+                        items.insert(i, v);
+                    }
+                }
+                true
+            }
+            "reverse" => {
+                items.reverse();
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum PostfixToken<'a> {
+    Index(&'a str),
+    Prop(&'a str),
+}
+
+#[derive(Clone, Debug)]
+enum ConcreteAccessStep {
+    Index(usize),
+    Prop(String),
+}
+
+fn navigate_preview_container_mut<'a>(
+    mut cur: &'a mut PreviewValue,
+    steps: &[ConcreteAccessStep],
+) -> Option<&'a mut PreviewValue> {
+    for step in steps {
+        cur = match (cur, step) {
+            (PreviewValue::Array(items), ConcreteAccessStep::Index(idx)) => items.get_mut(*idx)?,
+            (PreviewValue::Object(entries), ConcreteAccessStep::Prop(key)) => {
+                &mut entries.iter_mut().find(|(k, _)| k == key)?.1
+            }
+            _ => return None,
+        };
+    }
+    Some(cur)
+}
+
+fn mutate_preview_container(
+    cur: &mut PreviewValue,
+    steps: &[ConcreteAccessStep],
+    op: &str,
+    rhs_val: &PreviewValue,
+    is_as1: bool,
+) -> bool {
+    let Some((first, rest)) = steps.split_first() else {
+        return false;
+    };
+    if rest.is_empty() {
+        return match (cur, first) {
+            (PreviewValue::Array(items), ConcreteAccessStep::Index(idx)) => {
+                if *idx > 10_000 {
+                    return false;
+                }
+                if *idx >= items.len() {
+                    items.resize(*idx + 1, PreviewValue::Undefined);
+                }
+                let Some(next) = apply_compound_var_op(op, &items[*idx], rhs_val, is_as1) else {
+                    return false;
+                };
+                items[*idx] = next;
+                true
+            }
+            (PreviewValue::Array(items), ConcreteAccessStep::Prop(key))
+                if key == "length" && op == "=" =>
+            {
+                if let PreviewValue::Number(n) = rhs_val
+                    && n.is_finite()
+                    && *n >= 0.0
+                    && (*n - n.trunc()).abs() < 1e-9
+                    && (*n as usize) <= 10_000
+                {
+                    items.resize(*n as usize, PreviewValue::Undefined);
+                    true
+                } else {
+                    false
+                }
+            }
+            (PreviewValue::Object(entries), ConcreteAccessStep::Prop(key)) => {
+                if let Some((_, slot)) = entries.iter_mut().find(|(k, _)| k == key) {
+                    let Some(next) = apply_compound_var_op(op, slot, rhs_val, is_as1) else {
+                        return false;
+                    };
+                    *slot = next;
+                } else {
+                    let Some(next) =
+                        apply_compound_var_op(op, &PreviewValue::Undefined, rhs_val, is_as1)
+                    else {
+                        return false;
+                    };
+                    entries.push((key.clone(), next));
+                }
+                true
+            }
+            (PreviewValue::Object(entries), ConcreteAccessStep::Index(idx)) => {
+                let key = idx.to_string();
+                if let Some((_, slot)) = entries.iter_mut().find(|(k, _)| k == &key) {
+                    let Some(next) = apply_compound_var_op(op, slot, rhs_val, is_as1) else {
+                        return false;
+                    };
+                    *slot = next;
+                } else {
+                    let Some(next) =
+                        apply_compound_var_op(op, &PreviewValue::Undefined, rhs_val, is_as1)
+                    else {
+                        return false;
+                    };
+                    entries.push((key, next));
+                }
+                true
+            }
+            _ => false,
+        };
+    }
+
+    match (cur, first) {
+        (PreviewValue::Array(items), ConcreteAccessStep::Index(idx)) => {
+            let Some(child) = items.get_mut(*idx) else {
+                return false;
+            };
+            mutate_preview_container(child, rest, op, rhs_val, is_as1)
+        }
+        (PreviewValue::Object(entries), ConcreteAccessStep::Prop(key)) => {
+            let Some((_, child)) = entries.iter_mut().find(|(k, _)| k == key) else {
+                return false;
+            };
+            mutate_preview_container(child, rest, op, rhs_val, is_as1)
+        }
+        (PreviewValue::Object(entries), ConcreteAccessStep::Index(idx)) => {
+            let key = idx.to_string();
+            let Some((_, child)) = entries.iter_mut().find(|(k, _)| k == &key) else {
+                return false;
+            };
+            mutate_preview_container(child, rest, op, rhs_val, is_as1)
+        }
+        _ => false,
+    }
+}
+
+fn split_top_level_colon(entry: &str) -> Option<(&str, &str)> {
+    let parts = split_top_level_op(entry, ":");
+    if parts.len() >= 2 {
+        let colon_pos = entry.find(':')?;
+        let _ = colon_pos;
+        // Rejoin rhs in case value contains ternary `:` by splitting only at the first top-level `:`
+        let bytes = entry.as_bytes();
+        let mut i = 0;
+        let mut in_s = false;
+        let mut in_d = false;
+        let mut paren = 0usize;
+        let mut brace = 0usize;
+        let mut bracket = 0usize;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if in_s {
+                if b == b'\\' {
+                    i += 2;
+                    continue;
+                }
+                if b == b'\'' {
+                    in_s = false;
+                }
+                i += 1;
+                continue;
+            }
+            if in_d {
+                if b == b'\\' {
+                    i += 2;
+                    continue;
+                }
+                if b == b'"' {
+                    in_d = false;
+                }
+                i += 1;
+                continue;
+            }
+            match b {
+                b'\'' => in_s = true,
+                b'"' => in_d = true,
+                b'(' => paren += 1,
+                b')' => paren = paren.saturating_sub(1),
+                b'{' => brace += 1,
+                b'}' => brace = brace.saturating_sub(1),
+                b'[' => bracket += 1,
+                b']' => bracket = bracket.saturating_sub(1),
+                b':' if paren == 0 && brace == 0 && bracket == 0 => {
+                    return Some((entry[..i].trim(), entry[i + 1..].trim()));
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+    }
+    None
+}
+
+fn parse_object_literal_key(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if (trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2)
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2)
+    {
+        return Some(unescape_string_literal(&trimmed[1..trimmed.len() - 1]));
+    }
+    if is_valid_identifier(trimmed) || trimmed.parse::<i64>().is_ok() {
+        return Some(trimmed.to_owned());
+    }
+    None
+}
+
+fn parse_postfix_steps(expr: &str) -> Option<(&str, Vec<PostfixToken<'_>>)> {
+    let s = expr.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let bytes = s.as_bytes();
+    let base_end = match bytes[0] {
+        b'(' => find_matching_delim(s, b'(', b')')? + 1,
+        b'[' => find_matching_delim(s, b'[', b']')? + 1,
+        b'{' => find_matching_delim(s, b'{', b'}')? + 1,
+        b'\'' | b'"' => {
+            let quote = bytes[0];
+            let mut i = 1usize;
+            let mut end = None;
+            while i < bytes.len() {
+                if bytes[i] == b'\\' {
+                    i += 2;
+                    continue;
+                }
+                if bytes[i] == quote {
+                    end = Some(i + 1);
+                    break;
+                }
+                i += 1;
+            }
+            end?
+        }
+        b if b.is_ascii_alphabetic() || b == b'_' || b == b'$' => {
+            let mut i = 1usize;
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'$')
+            {
+                i += 1;
+            }
+            i
+        }
+        _ => return None,
+    };
+
+    let base = s[..base_end].trim();
+    let mut rest = s[base_end..].trim_start();
+    let mut tokens = Vec::new();
+    while !rest.is_empty() {
+        if rest.starts_with('[') {
+            let close = find_matching_delim(rest, b'[', b']')?;
+            tokens.push(PostfixToken::Index(rest[1..close].trim()));
+            rest = rest[close + 1..].trim_start();
+        } else {
+            let after_dot = rest.strip_prefix('.')?.trim_start();
+            let ab = after_dot.as_bytes();
+            if ab.is_empty() || !(ab[0].is_ascii_alphabetic() || ab[0] == b'_' || ab[0] == b'$') {
+                return None;
+            }
+            let mut i = 1usize;
+            while i < ab.len() && (ab[i].is_ascii_alphanumeric() || ab[i] == b'_' || ab[i] == b'$')
+            {
+                i += 1;
+            }
+            let prop = &after_dot[..i];
+            let tail = after_dot[i..].trim_start();
+            if tail.starts_with('(') {
+                return None;
+            }
+            tokens.push(PostfixToken::Prop(prop));
+            rest = tail;
+        }
+    }
+    Some((base, tokens))
+}
+
+fn parse_postfix_method_call(stmt: &str) -> Option<(&str, &str, &str)> {
+    let s = stmt.trim();
+    if !s.ends_with(')') {
+        return None;
+    }
+    let bytes = s.as_bytes();
+    let mut in_s = false;
+    let mut in_d = false;
+    let mut paren = 0usize;
+    let mut brace = 0usize;
+    let mut bracket = 0usize;
+    let mut call_open = None;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_s {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if b == b'\'' {
+                in_s = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_d {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if b == b'"' {
+                in_d = false;
+            }
+            i += 1;
+            continue;
+        }
+        match b {
+            b'\'' => in_s = true,
+            b'"' => in_d = true,
+            b'(' => {
+                if paren == 0 && brace == 0 && bracket == 0 {
+                    call_open = Some(i);
+                }
+                paren += 1;
+            }
+            b')' => paren = paren.saturating_sub(1),
+            b'{' => brace += 1,
+            b'}' => brace = brace.saturating_sub(1),
+            b'[' => bracket += 1,
+            b']' => bracket = bracket.saturating_sub(1),
+            _ => {}
+        }
+        i += 1;
+    }
+    let open = call_open?;
+    if find_matching_delim(&s[open..], b'(', b')') != Some(s.len() - 1 - open) {
+        return None;
+    }
+    let callee = s[..open].trim();
+    let cb = callee.as_bytes();
+    let mut last_dot = None;
+    let mut in_s = false;
+    let mut in_d = false;
+    let mut paren = 0usize;
+    let mut brace = 0usize;
+    let mut bracket = 0usize;
+    let mut j = 0usize;
+    while j < cb.len() {
+        let b = cb[j];
+        if in_s {
+            if b == b'\\' {
+                j += 2;
+                continue;
+            }
+            if b == b'\'' {
+                in_s = false;
+            }
+            j += 1;
+            continue;
+        }
+        if in_d {
+            if b == b'\\' {
+                j += 2;
+                continue;
+            }
+            if b == b'"' {
+                in_d = false;
+            }
+            j += 1;
+            continue;
+        }
+        match b {
+            b'\'' => in_s = true,
+            b'"' => in_d = true,
+            b'(' => paren += 1,
+            b')' => paren = paren.saturating_sub(1),
+            b'{' => brace += 1,
+            b'}' => brace = brace.saturating_sub(1),
+            b'[' => bracket += 1,
+            b']' => bracket = bracket.saturating_sub(1),
+            b'.' if paren == 0 && brace == 0 && bracket == 0 => last_dot = Some(j),
+            _ => {}
+        }
+        j += 1;
+    }
+    let dot = last_dot?;
+    let target = callee[..dot].trim();
+    let method = callee[dot + 1..].trim();
+    if target.is_empty() || !is_valid_identifier(method) {
+        return None;
+    }
+    Some((target, method, s[open + 1..s.len() - 1].trim()))
 }
 
 fn eval_add_values(lhs: PreviewValue, rhs: PreviewValue, is_as1: bool) -> PreviewValue {
@@ -2326,7 +3227,17 @@ fn is_valid_identifier(s: &str) -> bool {
 
 fn is_supported_preview_rhs(rhs: &str) -> bool {
     let trimmed = rhs.trim();
-    !trimmed.is_empty() && !trimmed.starts_with("new ") && !trimmed.contains('{')
+    if trimmed.is_empty() || extract_function_literal_body(trimmed).is_some() {
+        return false;
+    }
+    if let Some(rest) = trimmed.strip_prefix("new ") {
+        let ctor = rest.trim_start();
+        return ctor.starts_with("Array(")
+            || ctor == "Array"
+            || ctor.starts_with("Object(")
+            || ctor == "Object";
+    }
+    true
 }
 
 fn apply_compound_var_op(
@@ -2652,6 +3563,7 @@ fn split_script_statements(source: &str) -> Vec<(usize, &str)> {
                     if !after_trimmed.starts_with("else")
                         && !after_trimmed.starts_with(';')
                         && !after_trimmed.starts_with(')')
+                        && !after_trimmed.starts_with(',')
                     {
                         let seg = source[start..=i].trim();
                         if !seg.is_empty() {
@@ -3201,6 +4113,8 @@ fn split_top_level_plus(expr: &str) -> Vec<&str> {
     let mut in_single = false;
     let mut in_double = false;
     let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut brace_depth = 0usize;
     let bytes = expr.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
@@ -3232,7 +4146,11 @@ fn split_top_level_plus(expr: &str) -> Vec<&str> {
             b'"' => in_double = true,
             b'(' => paren_depth += 1,
             b')' => paren_depth = paren_depth.saturating_sub(1),
-            b'+' if paren_depth == 0 => {
+            b'[' => bracket_depth += 1,
+            b']' => bracket_depth = bracket_depth.saturating_sub(1),
+            b'{' => brace_depth += 1,
+            b'}' => brace_depth = brace_depth.saturating_sub(1),
+            b'+' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
                 let next = bytes.get(i + 1).copied().unwrap_or(0);
                 if next != b'+' && next != b'=' {
                     parts.push(expr[start..i].trim());
@@ -3254,6 +4172,8 @@ fn split_top_level_binary_minus(expr: &str) -> Option<(&str, &str)> {
     let mut in_s = false;
     let mut in_d = false;
     let mut paren = 0usize;
+    let mut bracket = 0usize;
+    let mut brace = 0usize;
     let mut last_minus = None;
     let mut i = 0;
     while i < bytes.len() {
@@ -3285,13 +4205,17 @@ fn split_top_level_binary_minus(expr: &str) -> Option<(&str, &str)> {
             b'"' => in_d = true,
             b'(' => paren += 1,
             b')' => paren = paren.saturating_sub(1),
-            b'-' if paren == 0 => {
+            b'[' => bracket += 1,
+            b']' => bracket = bracket.saturating_sub(1),
+            b'{' => brace += 1,
+            b'}' => brace = brace.saturating_sub(1),
+            b'-' if paren == 0 && bracket == 0 && brace == 0 => {
                 let prev_non_ws = expr[..i].trim_end().as_bytes().last().copied();
                 let next = bytes.get(i + 1).copied().unwrap_or(0);
                 if next != b'-'
                     && next != b'='
                     && prev_non_ws.is_some_and(|p| {
-                        p.is_ascii_alphanumeric() || matches!(p, b')' | b'"' | b'\'' | b'_')
+                        p.is_ascii_alphanumeric() || matches!(p, b')' | b']' | b'"' | b'\'' | b'_')
                     })
                 {
                     last_minus = Some(i);
@@ -4324,6 +5248,63 @@ mod tests {
         assert_eq!(
             hud_fill[0], 200,
             "attach_to_camera HUD layer must not receive camera color_transform"
+        );
+    }
+
+    #[test]
+    fn t368_authored_playback_traces_multidimensional_arrays_objects_and_container_mutations() {
+        let mut project = Project::blank();
+        project.script_language = Some(ScriptLanguage::ActionScript2);
+        let root = project.root.clone();
+        project.symbol_mut(&root).unwrap().timeline.scripts = vec![crate::FrameScript {
+            layer: None,
+            frame: 0,
+            script: crate::Script {
+                language: ScriptLanguage::ActionScript2,
+                source: [
+                    "stop();",
+                    "var row = [0, 1, 0];",
+                    "trace(row);",
+                    "var TFigure = [[0, 1, 0], [1, 1, 1], [0, 0, 0]];",
+                    "trace(TFigure);",
+                    "var AllFigures = new Array(TFigure, [[1, 1, 1, 1]]);",
+                    "trace(AllFigures);",
+                    "var sized = new Array(3);",
+                    "var wrapped = new Array(row);",
+                    "trace(sized.length, wrapped);",
+                    "TFigure[0][2] = 9;",
+                    "TFigure.push([2, 2, 2]);",
+                    "trace(TFigure);",
+                    "var state = { title: \"Tetris\", score: 100, board: [[1, 0], [0, 1]] };",
+                    "state.score += 50;",
+                    "state.board[1][0] = 7;",
+                    "trace(state);",
+                    "trace(\"csv=\" + row + \"|obj=\" + state);",
+                    "new Sound();",
+                ]
+                .join("\n"),
+            },
+        }];
+
+        let mut preview = AuthoredPlayback::with_live_scripts(&project, &root, 0, true);
+        let traces = preview.drain_traces();
+        assert_eq!(
+            traces,
+            vec![
+                "[0, 1, 0]",
+                "[\n  [0, 1, 0],\n  [1, 1, 1],\n  [0, 0, 0]\n]",
+                "[\n  [\n    [0, 1, 0],\n    [1, 1, 1],\n    [0, 0, 0]\n  ],\n  [\n    [1, 1, 1, 1]\n  ]\n]",
+                "3 [\n  [0, 1, 0]\n]",
+                "[\n  [0, 1, 9],\n  [1, 1, 1],\n  [0, 0, 0],\n  [2, 2, 2]\n]",
+                "{\n  title: \"Tetris\",\n  score: 150,\n  board: [\n    [1, 0],\n    [7, 1]\n  ]\n}",
+                "csv=0,1,0|obj=[object Object]",
+            ]
+        );
+        let diags = preview.drain_diagnostics();
+        assert!(
+            diags.iter().any(|d| d.contains("new Sound()")
+                && d.contains("outside the bounded native stage preview subset")),
+            "unsupported constructor statements must continue emitting diagnostics: {diags:?}"
         );
     }
 }
