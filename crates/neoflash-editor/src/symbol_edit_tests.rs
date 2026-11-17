@@ -1158,3 +1158,167 @@ fn t359_t360_convert_to_symbol_all_registrations_empty_clip_stage_marker_selecti
     assert_eq!(editor.selected_element().unwrap().name, "");
     editor.project.validate().unwrap();
 }
+
+#[test]
+fn empty_movieclip_free_transform_drag_double_click_and_subselect() {
+    use crate::app::Tool;
+    use crate::tests::{primary_button, rectangle_stage, stage_input_frame};
+    use neoflash_core::SymbolKind;
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.set_tool(Tool::Select);
+    editor.stage_view.prefs.grid_snap = false;
+    editor.stage_view.prefs.guides_snap = false;
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 60.0,
+            height: 40.0,
+            fill: [180, 90, 40, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        200.0,
+        150.0,
+    );
+    editor.convert_to_symbol();
+    let mut draft = editor.symbol_conversion.take().unwrap();
+    draft.registration = 0;
+    draft.kind = SymbolKind::MovieClip;
+    draft.set_name("EmptyTransformClip");
+    let painter = ctx.layer_painter(egui::LayerId::background());
+    let bounds = crate::symbol_dialog::conversion_bounds(&editor, &draft, &painter).unwrap();
+    editor.commit_symbol_conversion(&draft, bounds).unwrap();
+
+    let mc_inst_id = editor.selected_element().unwrap().id.clone();
+    let mc_sym_id = match &editor.selected_element().unwrap().kind {
+        ElementKind::Instance { symbol_id, .. } => symbol_id.clone(),
+        _ => panic!("expected Instance"),
+    };
+    assert!(editor.enter_selected_symbol_in_place());
+    editor.select_all();
+    editor.delete_selected();
+    editor.leave_symbol_to_level(0);
+    editor.clear_selection();
+
+    let marker_screen = page.min + egui::vec2(200.0, 150.0);
+
+    // 1. Subselect tool click within 9 pt of ○+ marker selects the empty MovieClip.
+    editor.set_tool(Tool::Subselect);
+    let _ = stage_input_frame(&mut editor, &ctx, 0.5, vec![]);
+    let sub_click = marker_screen + egui::vec2(4.0, -3.0);
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        1.0,
+        vec![
+            egui::Event::PointerMoved(sub_click),
+            primary_button(sub_click, true),
+        ],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        1.05,
+        vec![primary_button(sub_click, false)],
+    );
+    assert_eq!(
+        editor.selection.single().map(|t| t.element.as_str()),
+        Some(mc_inst_id.as_str()),
+        "Tool::Subselect click within 9 pt selects empty MovieClip"
+    );
+
+    // 2. FreeTransform (Tool::Transform) click-selects and drag-moves (transform.x, transform.y)
+    // without Zone::Pivot or Zone::Rotate hijacking the gesture!
+    editor.clear_selection();
+    editor.set_tool(Tool::Transform);
+    let ft_click = marker_screen + egui::vec2(3.0, 2.0);
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        2.0,
+        vec![
+            egui::Event::PointerMoved(ft_click),
+            primary_button(ft_click, true),
+        ],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        2.05,
+        vec![primary_button(ft_click, false)],
+    );
+    assert_eq!(
+        editor.selection.single().map(|t| t.element.as_str()),
+        Some(mc_inst_id.as_str()),
+        "Tool::Transform click selects empty MovieClip"
+    );
+
+    let drag_to = marker_screen + egui::vec2(40.0, -25.0);
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        3.0,
+        vec![primary_button(marker_screen, true)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        3.05,
+        vec![egui::Event::PointerMoved(drag_to)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        3.10,
+        vec![primary_button(drag_to, false)],
+    );
+    let moved_t = editor.selected_element().unwrap().transform;
+    assert!((moved_t.x - 240.0).abs() < 1e-4, "moved_t={moved_t:?}");
+    assert!((moved_t.y - 125.0).abs() < 1e-4, "moved_t={moved_t:?}");
+    assert_eq!(
+        moved_t.pivot, None,
+        "Zone::Pivot must not steal drag on empty symbol"
+    );
+    assert!(
+        moved_t.rotation.abs() < 1e-6,
+        "Zone::Rotate must not steal drag on empty symbol"
+    );
+    editor.undo();
+    assert!((editor.selected_element().unwrap().transform.x - 200.0).abs() < 1e-4);
+    assert!((editor.selected_element().unwrap().transform.y - 150.0).abs() < 1e-4);
+
+    // 3. Double-clicking ○+ with Tool::Transform active enters Edit in Place (not swallowed by Pivot reset)!
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        4.0,
+        vec![
+            egui::Event::PointerMoved(marker_screen),
+            primary_button(marker_screen, true),
+        ],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        4.04,
+        vec![primary_button(marker_screen, false)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        4.10,
+        vec![primary_button(marker_screen, true)],
+    );
+    let _ = stage_input_frame(
+        &mut editor,
+        &ctx,
+        4.14,
+        vec![primary_button(marker_screen, false)],
+    );
+    assert_eq!(
+        editor.edit_depth(),
+        2,
+        "Tool::Transform double-click on empty MovieClip enters Edit in Place"
+    );
+    assert_eq!(editor.symbol_id(), mc_sym_id);
+    editor.project.validate().unwrap();
+}

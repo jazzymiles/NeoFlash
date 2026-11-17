@@ -1556,3 +1556,386 @@ fn motion_editor_places_wiggler_and_sketch_bar_at_top_only_in_motion_context() {
         "toolbar row must sit above the Property table header: apply={apply:?}, property_y={property_y}"
     );
 }
+
+#[test]
+fn timeline_grid_hover_omits_four_line_tooltip_and_keeps_keyframe_grab_cursor() {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, neoflash_ui::Theme::Dark);
+    ctx.enable_accesskit();
+    ctx.style_mut(|s| {
+        s.interaction.tooltip_delay = 0.0;
+        s.interaction.show_tooltips_only_when_still = false;
+    });
+
+    let mut editor = classic_editor();
+    let run_timeline =
+        |editor: &mut Editor, time: f64, pos: Option<egui::Pos2>| -> egui::FullOutput {
+            let mut events = Vec::new();
+            if let Some(p) = pos {
+                events.push(egui::Event::PointerMoved(p));
+            }
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 320.0),
+                    )),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        editor.timeline_contents(ui);
+                    });
+                },
+            )
+        };
+
+    let warmup = run_timeline(&mut editor, 0.0, None);
+    let divider = warmup
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .and_then(|u| {
+            u.nodes.iter().find_map(|(_, n)| {
+                (n.label() == Some("Resize layer column")).then(|| {
+                    let b = n.bounds().unwrap();
+                    egui::Rect::from_min_max(
+                        egui::pos2(b.x0 as f32, b.y0 as f32),
+                        egui::pos2(b.x1 as f32, b.y1 as f32),
+                    )
+                })
+            })
+        })
+        .expect("Resize layer column divider");
+    let grid_left = divider.center().x;
+    let grid_top = divider.top() + crate::timeline_paint::ruler_height();
+    let cell_w = editor.timeline_cell;
+    let row_h = editor.workspace.timeline.row_height();
+
+    let assert_no_grid_tooltip = |out: &egui::FullOutput| {
+        for s in &out.shapes {
+            if let egui::Shape::Text(t) = &s.shape {
+                let txt = t.galley.text();
+                assert!(
+                    !txt.contains("Shift-click/drag selects a frame range")
+                        && !txt.contains("Right-click for frame commands and Actions")
+                        && !txt.contains("Content held from keyframe"),
+                    "unexpected timeline frame hover tooltip: {txt:?}"
+                );
+            }
+        }
+    };
+
+    // 1. Hovering unlocked visible keyframe cell (frame 0, row 0) sets Grab cursor without 4-line tooltip.
+    let kf0_pos = egui::pos2(grid_left + 0.5 * cell_w, grid_top + 0.5 * row_h);
+    let _ = run_timeline(&mut editor, 1.0, Some(kf0_pos));
+    let out_kf0 = run_timeline(&mut editor, 1.5, Some(kf0_pos));
+    assert_eq!(out_kf0.platform_output.cursor_icon, egui::CursorIcon::Grab);
+    assert_no_grid_tooltip(&out_kf0);
+
+    // 2. Hovering held non-keyframe cell (frame 3, row 0) shows neither Grab cursor nor 4-line tooltip.
+    let held_pos = egui::pos2(grid_left + 3.5 * cell_w, grid_top + 0.5 * row_h);
+    let _ = run_timeline(&mut editor, 2.0, Some(held_pos));
+    let out_held = run_timeline(&mut editor, 2.5, Some(held_pos));
+    assert_ne!(out_held.platform_output.cursor_icon, egui::CursorIcon::Grab);
+    assert_no_grid_tooltip(&out_held);
+
+    // 3. Locking the layer suppresses Grab cursor on keyframe cell too.
+    editor.symbol_mut().timeline.layers[0].locked = true;
+    let _ = run_timeline(&mut editor, 3.0, Some(kf0_pos));
+    let out_locked = run_timeline(&mut editor, 3.5, Some(kf0_pos));
+    assert_ne!(
+        out_locked.platform_output.cursor_icon,
+        egui::CursorIcon::Grab
+    );
+    assert_no_grid_tooltip(&out_locked);
+}
+
+#[test]
+fn frame_context_menu_utils_submenu_and_properties_include_frame_scripts() {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, neoflash_ui::Theme::Dark);
+    ctx.enable_accesskit();
+
+    let mut editor = classic_editor();
+    let collect_texts = |out: &egui::FullOutput| -> Vec<String> {
+        let mut texts = Vec::new();
+        for s in &out.shapes {
+            if let egui::Shape::Text(t) = &s.shape {
+                texts.push(t.galley.text().to_owned());
+            }
+        }
+        texts
+    };
+    let find_bounds = |out: &egui::FullOutput, needle: &str| -> Option<egui::Rect> {
+        out.platform_output.accesskit_update.as_ref().and_then(|u| {
+            u.nodes.iter().find_map(|(_, n)| {
+                (n.label() == Some(needle)).then(|| {
+                    let b = n.bounds().unwrap();
+                    egui::Rect::from_min_max(
+                        egui::pos2(b.x0 as f32, b.y0 as f32),
+                        egui::pos2(b.x1 as f32, b.y1 as f32),
+                    )
+                })
+            })
+        })
+    };
+
+    let run_menu = |editor: &mut Editor, time: f64, events: Vec<egui::Event>| -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1024.0, 768.0),
+                )),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    crate::ui_icons::menu_contents(ui, 280.0, |ui| editor.frame_context_menu(ui));
+                });
+            },
+        )
+    };
+
+    let out_root = run_menu(&mut editor, 0.0, vec![]);
+    let root_texts = collect_texts(&out_root);
+    assert!(
+        root_texts.iter().any(|t| t == "Distribute to keyframes"),
+        "Distribute to keyframes remains in root frame menu: {root_texts:?}"
+    );
+    assert!(
+        root_texts.iter().any(|t| t == "Utils"),
+        "Utils submenu entry present in root frame menu: {root_texts:?}"
+    );
+    for removed in [
+        "Options",
+        "Include frame scripts",
+        "Tween2Keys (On 2s)",
+        "Tween2Keys (On 3s)",
+        "Convert to keyframes (on 2s, keep ease)",
+        "Split clip at playhead",
+        "Link video & audio",
+        "Unlink video & audio",
+    ] {
+        assert!(
+            !root_texts.iter().any(|t| t == removed),
+            "{removed:?} must not appear in root frame context menu: {root_texts:?}"
+        );
+    }
+
+    // Hovering "Utils" opens the submenu containing all 6 items.
+    let utils_center = find_bounds(&out_root, "Utils")
+        .expect("Utils submenu item")
+        .center();
+    let _ = run_menu(
+        &mut editor,
+        0.1,
+        vec![egui::Event::PointerMoved(utils_center)],
+    );
+    let out_sub = run_menu(
+        &mut editor,
+        0.5,
+        vec![egui::Event::PointerMoved(utils_center)],
+    );
+    let sub_texts = collect_texts(&out_sub);
+    for expected in [
+        "Tween2Keys (On 2s)",
+        "Tween2Keys (On 3s)",
+        "Convert to keyframes (on 2s, keep ease)",
+        "Split clip at playhead",
+        "Link video & audio",
+        "Unlink video & audio",
+    ] {
+        assert!(
+            sub_texts.iter().any(|t| t == expected),
+            "expected {expected:?} inside Utils submenu: {sub_texts:?}"
+        );
+    }
+
+    // Frame Properties exposes and toggles "Include frame scripts" in the Frame section.
+    editor.clear_selection();
+    editor.select_all_frames();
+    let initial_include = editor.timeline_edit.include_scripts;
+    let run_props =
+        |editor: &mut Editor, time: f64, events: Vec<egui::Event>| -> egui::FullOutput {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(420.0, 900.0),
+                    )),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        editor.properties(ui, ctx);
+                    });
+                },
+            )
+        };
+    let _ = run_props(&mut editor, 1.0, vec![]);
+    let out_props = run_props(&mut editor, 1.1, vec![]);
+    let cb_rect =
+        find_bounds(&out_props, "Include frame scripts").expect("Include frame scripts checkbox");
+    let frame_btn_rect = find_bounds(&out_props, "Frame script…").expect("Frame script… button");
+    assert!(
+        cb_rect.top() >= frame_btn_rect.top(),
+        "Include frame scripts sits alongside Frame script… in the Frame section"
+    );
+
+    let click_pos = cb_rect.center();
+    let _ = run_props(
+        &mut editor,
+        1.2,
+        vec![
+            egui::Event::PointerMoved(click_pos),
+            egui::Event::PointerButton {
+                pos: click_pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    let _ = run_props(
+        &mut editor,
+        1.25,
+        vec![egui::Event::PointerButton {
+            pos: click_pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert_eq!(editor.timeline_edit.include_scripts, !initial_include);
+}
+
+#[test]
+fn stage_graphic_commands_and_classic_sync_respect_instance_behavior_overrides() {
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 10;
+
+    let mut mc_sym = project.symbols[0].clone();
+    mc_sym.id = "mc_lib".into();
+    mc_sym.name = "HeroMC".into();
+    mc_sym.kind = SymbolKind::MovieClip;
+    mc_sym.timeline.layers[0].id = "mc-l".into();
+    mc_sym.timeline.frame_count = 6;
+
+    let mut gfx_sym = project.symbols[0].clone();
+    gfx_sym.id = "gfx_lib".into();
+    gfx_sym.name = "BadgeGfx".into();
+    gfx_sym.kind = SymbolKind::Graphic;
+    gfx_sym.timeline.layers[0].id = "gfx-l".into();
+    gfx_sym.timeline.frame_count = 6;
+    project.symbols.push(mc_sym);
+    project.symbols.push(gfx_sym);
+
+    project.symbols[0].timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            tween: Some(Easing::Linear),
+            tween_kind: TweenKind::Classic,
+            elements: vec![
+                Element {
+                    id: "mc_as_gfx_0".into(),
+                    kind: ElementKind::Instance {
+                        symbol_id: "mc_lib".into(),
+                        playback: InstancePlayback::LoopFrom(1),
+                    },
+                    instance_behavior: Some(SymbolKind::Graphic),
+                    ..Element::default()
+                },
+                Element {
+                    id: "gfx_as_mc_0".into(),
+                    kind: ElementKind::Instance {
+                        symbol_id: "gfx_lib".into(),
+                        playback: InstancePlayback::LoopFrom(1),
+                    },
+                    instance_behavior: Some(SymbolKind::MovieClip),
+                    ..Element::default()
+                },
+            ],
+            ..Default::default()
+        },
+        Keyframe {
+            frame: 4,
+            elements: vec![
+                Element {
+                    id: "mc_as_gfx_4".into(),
+                    kind: ElementKind::Instance {
+                        symbol_id: "mc_lib".into(),
+                        playback: InstancePlayback::Loop,
+                    },
+                    instance_behavior: Some(SymbolKind::Graphic),
+                    ..Element::default()
+                },
+                Element {
+                    id: "gfx_as_mc_4".into(),
+                    kind: ElementKind::Instance {
+                        symbol_id: "gfx_lib".into(),
+                        playback: InstancePlayback::Loop,
+                    },
+                    instance_behavior: Some(SymbolKind::MovieClip),
+                    ..Element::default()
+                },
+            ],
+            ..Default::default()
+        },
+    ];
+
+    let mut editor = Editor::from_project(&egui::Context::default(), project);
+
+    // 1. Turning on Classic tween [x] Sync chains placement_start across key 0..4 and updates
+    // mc_as_gfx_4 from Loop -> LoopFrom(1) (so age 4 + first 1 = frame 5), while keeping gfx_as_mc_4 untouched (Loop).
+    assert!(editor.set_classic_tween_sync_symbols(true));
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[1].elements[0].kind,
+        ElementKind::Instance {
+            symbol_id: "mc_lib".into(),
+            playback: InstancePlayback::LoopFrom(1),
+        }
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[1].elements[1].kind,
+        ElementKind::Instance {
+            symbol_id: "gfx_lib".into(),
+            playback: InstancePlayback::Loop,
+        }
+    );
+
+    // 2. Stage Graphic commands refuse MovieClip-overridden Graphic ("gfx_as_mc_0") and accept Graphic-overridden MovieClip ("mc_as_gfx_0").
+    editor.frame = 2;
+    editor.select_single_id("gfx_as_mc_0".into());
+    assert!(!editor.can_enter_graphic_at_current_frame());
+    assert!(!editor.has_selected_graphic_instance());
+    assert!(!editor.set_selected_graphic_playback(InstancePlayback::SingleFrame(0), true));
+    assert!(!editor.enter_graphic_at_current_frame());
+
+    editor.select_single_id("mc_as_gfx_0".into());
+    assert!(editor.can_enter_graphic_at_current_frame());
+    assert!(editor.has_selected_graphic_instance());
+    // At parent frame 2 with LoopFrom(1), synced child frame is (1 + 2) % 6 = 3.
+    assert!(editor.set_selected_graphic_playback(InstancePlayback::SingleFrame(0), true));
+    assert_eq!(
+        editor.selected_element().unwrap().kind,
+        ElementKind::Instance {
+            symbol_id: "mc_lib".into(),
+            playback: InstancePlayback::SingleFrame(3),
+        }
+    );
+    assert!(editor.enter_graphic_at_current_frame());
+    assert_eq!(editor.symbol_id(), "mc_lib");
+    assert_eq!(editor.frame, 3);
+    editor.leave_symbol_to_level(0);
+    editor.project.validate().unwrap();
+}

@@ -360,27 +360,61 @@ impl Editor {
             let recenter = (zoom_changed || controls.recenter) && scroll_to.is_none();
             let view = self.workspace.timeline;
             let button_states = self.symbol().kind == SymbolKind::Button;
-            let cell_width = if button_states { 64. } else { self.timeline_cell };
+            let cell_width = if button_states {
+                64.
+            } else {
+                self.timeline_cell
+            };
             let height = (ui.available_height() - ruler_height()).max(25.);
             let (header, _) = ui.allocate_exact_size(
                 Vec2::new(ui.available_width(), ruler_height()),
                 Sense::hover(),
             );
             let divider_x = header.left() + layer_column_width;
-            let divider_rect = Rect::from_min_max(Pos2::new(divider_x - 3., header.top()), Pos2::new(divider_x + 3., header.bottom() + height));
-            let divider = ui.interact(divider_rect.intersect(ui.clip_rect()), ui.id().with("layer-column-divider"), Sense::click_and_drag());
-            divider.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Resize layer column"));
-            if !cancelled && let Some(start)=pressed.filter(|point| divider_rect.contains(*point) && ui.clip_rect().contains(*point) && ui.is_enabled() && ctx.layer_id_at(*point)==Some(ui.layer_id())) {
-                resize=Some(ColumnResize {start,width:layer_column_width,saved:self.workspace.sizes.layer_column_width,moved:false});
-                reorder=None;
-                self.timeline_key_drag=None;
+            let divider_rect = Rect::from_min_max(
+                Pos2::new(divider_x - 3., header.top()),
+                Pos2::new(divider_x + 3., header.bottom() + height),
+            );
+            let divider = ui.interact(
+                divider_rect.intersect(ui.clip_rect()),
+                ui.id().with("layer-column-divider"),
+                Sense::click_and_drag(),
+            );
+            divider.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Button,
+                    ui.is_enabled(),
+                    "Resize layer column",
+                )
+            });
+            if !cancelled
+                && let Some(start) = pressed.filter(|point| {
+                    divider_rect.contains(*point)
+                        && ui.clip_rect().contains(*point)
+                        && ui.is_enabled()
+                        && ctx.layer_id_at(*point) == Some(ui.layer_id())
+                })
+            {
+                resize = Some(ColumnResize {
+                    start,
+                    width: layer_column_width,
+                    saved: self.workspace.sizes.layer_column_width,
+                    moved: false,
+                });
+                reorder = None;
+                self.timeline_key_drag = None;
             }
-            if divider.hovered() || resize.is_some() {ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);}
-            if let Some(drag)=&mut resize && let Some(position)=pointer {
-                drag.moved |= (position.x-drag.start.x).abs()>0.5;
+            if divider.hovered() || resize.is_some() {
+                ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            }
+            if let Some(drag) = &mut resize
+                && let Some(position) = pointer
+            {
+                drag.moved |= (position.x - drag.start.x).abs() > 0.5;
                 if drag.moved {
-                    layer_column_width=(drag.width + position.x - drag.start.x).clamp(140.,maximum_layer_width);
-                    self.workspace.sizes.layer_column_width=layer_column_width;
+                    layer_column_width =
+                        (drag.width + position.x - drag.start.x).clamp(140., maximum_layer_width);
+                    self.workspace.sizes.layer_column_width = layer_column_width;
                     ctx.request_repaint();
                 }
             }
@@ -388,7 +422,10 @@ impl Editor {
             let show_mode = layer_column_width >= 260.;
             let header_toggles = ui
                 .scope_builder(
-                    egui::UiBuilder::new().max_rect(Rect::from_min_size(header.min, Vec2::new(layer_column_width, ruler_height()))),
+                    egui::UiBuilder::new().max_rect(Rect::from_min_size(
+                        header.min,
+                        Vec2::new(layer_column_width, ruler_height()),
+                    )),
                     |ui| {
                         tl::layers_header_with(
                             ui,
@@ -428,7 +465,11 @@ impl Editor {
             let layer_indices = visible_layer_indices(&self.symbol().timeline);
             if !layer_indices.contains(&self.layer) {
                 let previous_layer = self.layer;
-                self.layer = layer_indices.iter().copied().rfind(|index| *index < self.layer).unwrap_or(0);
+                self.layer = layer_indices
+                    .iter()
+                    .copied()
+                    .rfind(|index| *index < self.layer)
+                    .unwrap_or(0);
                 if self.layer != previous_layer {
                     self.clear_timeline_frame_selection();
                 }
@@ -461,7 +502,8 @@ impl Editor {
                 .min_scrolled_height(25.)
                 .max_height(height)
                 .auto_shrink([false, false])
-                .themed().show(ui, |ui| {
+                .themed()
+                .show(ui, |ui| {
                     ui.spacing_mut().item_spacing = Vec2::ZERO;
                     ui.horizontal_top(|ui| {
                         ui.allocate_ui_with_layout(
@@ -513,20 +555,16 @@ impl Editor {
                                             keyframes: Vec::new(),
                                             properties: real_layer.properties.clone(),
                                         };
-                                        (
-                                            header_layer,
-                                            depth,
-                                            kind,
-                                            effective_blend_label,
-                                            color,
-                                        )
+                                        (header_layer, depth, kind, effective_blend_label, color)
                                     };
                                     drawn_layer_rows += 1;
                                     let (row_rect, row_response) = ui.allocate_exact_size(
                                         Vec2::new(layer_column_width, row_height),
                                         Sense::click_and_drag(),
                                     );
-                                    let renaming = rename.as_ref().is_some_and(|draft| draft.layer == layer.id);
+                                    let renaming = rename
+                                        .as_ref()
+                                        .is_some_and(|draft| draft.layer == layer.id);
                                     let is_mask_row = layer.properties.role == LayerRole::Mask;
                                     let mode_cell = if !show_mode {
                                         tl::ModeCell::Hidden
@@ -621,61 +659,104 @@ impl Editor {
                                             .width(180.0)
                                             .frame(nf::popover_frame(ui.ctx()))
                                             .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
-                                            .show(|ui| {
-                                                nf::menu::menu_style(ui.style_mut());
-                                                ui.set_min_width(180.0);
-                                                crate::layer_controls::populate_blend_mode_menu(
-                                                    ui,
-                                                    layer.properties.blend_mode,
-                                                    |mode| {
-                                                        self.set_layer_blend_mode(idx, mode);
-                                                    },
-                                                );
-                                            });
+                                            .show(
+                                                |ui| {
+                                                    nf::menu::menu_style(ui.style_mut());
+                                                    ui.set_min_width(180.0);
+                                                    crate::layer_controls::populate_blend_mode_menu(
+                                                        ui,
+                                                        layer.properties.blend_mode,
+                                                        |mode| {
+                                                            self.set_layer_blend_mode(idx, mode);
+                                                        },
+                                                    );
+                                                },
+                                            );
                                         }
                                     }
                                     // The outline swatch keeps its right-click colour menu.
                                     let swatch = Rect::from_min_size(
-                                        Pos2::new(row_rect.right() - space::S2 - LAYER_TOGGLE, row_rect.top()),
+                                        Pos2::new(
+                                            row_rect.right() - space::S2 - LAYER_TOGGLE,
+                                            row_rect.top(),
+                                        ),
                                         Vec2::new(LAYER_TOGGLE, row_rect.height()),
                                     );
-                                    self.record_layer_outline_swatch_rect(ui.ctx(), &layer.id, swatch);
-                                    let swatch = ui.interact(swatch, row.row.id.with(ToggleKind::Outline as u8), Sense::click());
+                                    self.record_layer_outline_swatch_rect(
+                                        ui.ctx(),
+                                        &layer.id,
+                                        swatch,
+                                    );
+                                    let swatch = ui.interact(
+                                        swatch,
+                                        row.row.id.with(ToggleKind::Outline as u8),
+                                        Sense::click(),
+                                    );
                                     self.layer_outline_menu(&swatch, &layer);
-                                    if let Some(draft) = rename.as_mut().filter(|draft| draft.layer == layer.id) {
+                                    if let Some(draft) =
+                                        rename.as_mut().filter(|draft| draft.layer == layer.id)
+                                    {
                                         let rename_style = if row_height < 18.0 {
                                             TextStyle::Small
                                         } else {
                                             TextStyle::Body
                                         };
-                                        let field = ui.put(row.label_rect,
+                                        let field = ui.put(
+                                            row.label_rect,
                                             egui::TextEdit::singleline(&mut draft.text)
                                                 .id(ui.id().with(("layer-name", &layer.id)))
                                                 .font(typography::font(rename_style))
                                                 .vertical_align(egui::Align::Center)
-                                                .hint_text("Layer name"));
+                                                .hint_text("Layer name"),
+                                        );
                                         if draft.focus {
                                             field.request_focus();
-                                            if let Some(mut state) = egui::text_edit::TextEditState::load(ui.ctx(), field.id) {
-                                                state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
-                                                    egui::text::CCursor::new(0),
-                                                    egui::text::CCursor::new(draft.text.chars().count()),
-                                                )));
+                                            if let Some(mut state) =
+                                                egui::text_edit::TextEditState::load(
+                                                    ui.ctx(),
+                                                    field.id,
+                                                )
+                                            {
+                                                state.cursor.set_char_range(Some(
+                                                    egui::text::CCursorRange::two(
+                                                        egui::text::CCursor::new(0),
+                                                        egui::text::CCursor::new(
+                                                            draft.text.chars().count(),
+                                                        ),
+                                                    ),
+                                                ));
                                                 state.store(ui.ctx(), field.id);
                                             }
                                             draft.focus = false;
-                                        } else if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+                                        } else if ui.input_mut(|i| {
+                                            i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                                        }) {
                                             cancel_rename = true;
                                             field.surrender_focus();
                                         } else if field.lost_focus()
-                                            || ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+                                            || ui.input_mut(|i| {
+                                                i.consume_key(
+                                                    egui::Modifiers::NONE,
+                                                    egui::Key::Enter,
+                                                )
+                                            })
                                         {
-                                            let _ = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-                                            commit_rename = Some((draft.layer.clone(), draft.text.trim().to_owned()));
+                                            let _ = ui.input_mut(|i| {
+                                                i.consume_key(
+                                                    egui::Modifiers::NONE,
+                                                    egui::Key::Enter,
+                                                )
+                                            });
+                                            commit_rename = Some((
+                                                draft.layer.clone(),
+                                                draft.text.trim().to_owned(),
+                                            ));
                                             field.surrender_focus();
                                         }
                                         if !cancel_rename && commit_rename.is_none() {
-                                            super::dialog_helpers::mark_inline_edit_active(ui.ctx());
+                                            super::dialog_helpers::mark_inline_edit_active(
+                                                ui.ctx(),
+                                            );
                                         }
                                         continue;
                                     }
@@ -687,15 +768,31 @@ impl Editor {
                                             row_rect.bottom(),
                                         ),
                                     );
-                                    if !cancelled && resize.is_none() && let Some(start)=pressed.filter(|point| grab.contains(*point) && ui.clip_rect().contains(*point) && ui.is_enabled() && ctx.layer_id_at(*point)==Some(ui.layer_id())) {
+                                    if !cancelled
+                                        && resize.is_none()
+                                        && let Some(start) = pressed.filter(|point| {
+                                            grab.contains(*point)
+                                                && ui.clip_rect().contains(*point)
+                                                && ui.is_enabled()
+                                                && ctx.layer_id_at(*point) == Some(ui.layer_id())
+                                        })
+                                    {
                                         let mods = ui.input(|i| i.modifiers);
-                                        if !mods.shift && !mods.command && !self.is_layer_row_selected(idx) {
+                                        if !mods.shift
+                                            && !mods.command
+                                            && !self.is_layer_row_selected(idx)
+                                        {
                                             self.finish_edits();
                                             self.timeline_key_drag = None;
                                             self.select_layer_row(idx, false, false);
                                             self.clear_selection();
                                         }
-                                        reorder=Some(LayerReorder {symbol:self.symbol_id().to_owned(),layer:layer.id.clone(),start,moved:false});
+                                        reorder = Some(LayerReorder {
+                                            symbol: self.symbol_id().to_owned(),
+                                            layer: layer.id.clone(),
+                                            start,
+                                            moved: false,
+                                        });
                                     }
                                     let response = row.row;
                                     if response.clicked() {
@@ -726,7 +823,11 @@ impl Editor {
                                         if pointer.is_some_and(|p| p.x < row.label_rect.left()) {
                                             self.open_layer_properties(ui.ctx(), idx);
                                         } else {
-                                            rename = Some(LayerRename { layer: layer.id.clone(), text: layer.name.clone(), focus: true });
+                                            rename = Some(LayerRename {
+                                                layer: layer.id.clone(),
+                                                text: layer.name.clone(),
+                                                focus: true,
+                                            });
                                         }
                                         ui.ctx().request_repaint();
                                     }
@@ -737,7 +838,11 @@ impl Editor {
                                     )
                                     .context_menu(|ui| {
                                         if self.timeline_layer_menu(ui, idx) {
-                                            rename = Some(LayerRename { layer: layer.id.clone(), text: layer.name.clone(), focus: true });
+                                            rename = Some(LayerRename {
+                                                layer: layer.id.clone(),
+                                                text: layer.name.clone(),
+                                                focus: true,
+                                            });
                                             ui.ctx().request_repaint();
                                         }
                                         crate::ui_icons::menu_contents(ui, 280., |ui| {
@@ -765,15 +870,33 @@ impl Editor {
                                                 ui.close();
                                             }
                                             neoflash_ui::components::menu_separator(ui);
-                                            if crate::ui_icons::menu_item(ui, "Delete empty layers", "").clicked() {
+                                            if crate::ui_icons::menu_item(
+                                                ui,
+                                                "Delete empty layers",
+                                                "",
+                                            )
+                                            .clicked()
+                                            {
                                                 self.delete_empty_layers();
                                                 ui.close();
                                             }
-                                            if crate::ui_icons::menu_item(ui, "Rename layers from symbol", "").clicked() {
+                                            if crate::ui_icons::menu_item(
+                                                ui,
+                                                "Rename layers from symbol",
+                                                "",
+                                            )
+                                            .clicked()
+                                            {
                                                 self.rename_layers_from_content();
                                                 ui.close();
                                             }
-                                            if crate::ui_icons::menu_item(ui, "Add actions & stop() layer", "").clicked() {
+                                            if crate::ui_icons::menu_item(
+                                                ui,
+                                                "Add actions & stop() layer",
+                                                "",
+                                            )
+                                            .clicked()
+                                            {
                                                 self.add_actions_and_stop_layer();
                                                 ui.close();
                                             }
@@ -793,11 +916,14 @@ impl Editor {
                         let frames = egui::ScrollArea::horizontal()
                             .id_salt("frames")
                             .scroll_source(scroll_source)
-                            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
+                            .scroll_bar_visibility(
+                                egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
+                            )
                             .auto_shrink([false, false])
-                            .themed().show(ui, |ui| {
-                                let width = ((count + 1) as f32 * cell_width)
-                                    .max(ui.available_width());
+                            .themed()
+                            .show(ui, |ui| {
+                                let width =
+                                    ((count + 1) as f32 * cell_width).max(ui.available_width());
                                 let (rect, response) = ui.allocate_exact_size(
                                     Vec2::new(width, (content_height + 8.).max(height - 18.)),
                                     Sense::click_and_drag(),
@@ -811,47 +937,67 @@ impl Editor {
                                 };
                                 grid_rect = rect;
                                 grid_clip = ui.clip_rect().intersect(rect);
-                                self.timeline_grid_interact(ui, &response, rect, grid_clip, cell_width, grid_count, &layer_indices, resize.is_some() || reorder.is_some());
+                                self.timeline_grid_interact(
+                                    ui,
+                                    &response,
+                                    rect,
+                                    grid_clip,
+                                    cell_width,
+                                    grid_count,
+                                    &layer_indices,
+                                    resize.is_some() || reorder.is_some(),
+                                );
                                 let painter = ui.painter_at(rect);
                                 painter.rect_filled(rect, 0, palette.panel_fill);
-                                let mut stats = self.paint_timeline_rows(&painter, rect, grid_clip, cell_width, &layer_indices, &script_frames, view.tinted);
+                                let mut stats = self.paint_timeline_rows(
+                                    &painter,
+                                    rect,
+                                    grid_clip,
+                                    cell_width,
+                                    &layer_indices,
+                                    &script_frames,
+                                    view.tinted,
+                                );
                                 stats.drawn_layer_rows = drawn_layer_rows;
                                 virtual_stats = Some(stats);
                                 self.paint_frame_selection(ui, rect, cell_width, &layer_indices);
                                 let selected_cell = Rect::from_min_size(
-                                    Pos2::new(rect.left() + self.frame as f32 * cell_width, rect.top() + layer_indices.iter().position(|i| *i == self.layer).unwrap_or(0) as f32 * row_height),
+                                    Pos2::new(
+                                        rect.left() + self.frame as f32 * cell_width,
+                                        rect.top()
+                                            + layer_indices
+                                                .iter()
+                                                .position(|i| *i == self.layer)
+                                                .unwrap_or(0)
+                                                as f32
+                                                * row_height,
+                                    ),
                                     Vec2::new(cell_width, row_height),
                                 );
                                 if response.hovered()
                                     && let Some(pos) = response.hover_pos()
-                                    && let Some((frame, layer_row)) = timeline_cell_at(pos, rect.min, cell_width, grid_count, total_rows, row_height)
+                                    && let Some((frame, layer_row)) = timeline_cell_at(
+                                        pos, rect.min, cell_width, grid_count, total_rows,
+                                        row_height,
+                                    )
                                     && let Some(&layer_idx) = layer_indices.get(layer_row)
-                                    && let Some(hover_layer) = self.symbol().timeline.layers.get(layer_idx)
+                                    && let Some(hover_layer) =
+                                        self.symbol().timeline.layers.get(layer_idx)
                                 {
-                                    let layer_end = hover_layer.properties.end_frame.unwrap_or(count).min(count);
-                                    let key = (frame < layer_end).then(|| hover_layer.key_at(frame)).flatten();
-                                    let label = match key {
-                                        Some(key) if key.frame == frame && key.elements.is_empty() => "Blank keyframe".to_owned(),
-                                        Some(key) if key.frame == frame => "Keyframe · drag to move, Option-drag to copy".to_owned(),
-                                        Some(key) if key.elements.is_empty() => format!("Empty frames from {}", key.frame + 1),
-                                        Some(key) => format!("Content held from keyframe {}", key.frame + 1),
-                                        None if frame >= layer_end => format!("Empty frame (layer ends at frame {} · F5 to insert frame, F6/F7 for keyframe)", layer_end),
-                                        None => "Empty before the first keyframe".to_owned(),
-                                    };
-                                    if key.is_some_and(|key| key.frame == frame) && !hover_layer.locked && hover_layer.visible {
+                                    let layer_end = hover_layer
+                                        .properties
+                                        .end_frame
+                                        .unwrap_or(count)
+                                        .min(count);
+                                    let key = (frame < layer_end)
+                                        .then(|| hover_layer.key_at(frame))
+                                        .flatten();
+                                    if key.is_some_and(|key| key.frame == frame)
+                                        && !hover_layer.locked
+                                        && hover_layer.visible
+                                    {
                                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                                     }
-                                    let hover_layer_name = hover_layer.name.clone();
-                                    neoflash_ui::components::tooltip(
-                                        response.clone(),
-                                        &format!(
-                                            "{} · Frame {}\n{}\nShift-click/drag selects a frame range. Drag a selected range to move; Option-drag copies.\nRight-click for frame commands and Actions",
-                                            hover_layer_name,
-                                            frame + 1,
-                                            label
-                                        ),
-                                        None,
-                                    );
                                 }
                                 if response.dragged_by(egui::PointerButton::Primary)
                                     && let Some((symbol, layer_id, from)) = &self.timeline_key_drag
@@ -865,7 +1011,10 @@ impl Editor {
                                 {
                                     let layer = &self.symbol().timeline.layers[layer_idx];
                                     let key_conflict = self.frame != *from
-                                        && layer.keyframes.binary_search_by_key(&self.frame, |key| key.frame).is_ok();
+                                        && layer
+                                            .keyframes
+                                            .binary_search_by_key(&self.frame, |key| key.frame)
+                                            .is_ok();
                                     let script_conflict = self.frame != *from
                                         && self
                                             .symbol()
@@ -873,56 +1022,111 @@ impl Editor {
                                             .key_carries_frame_script(layer_idx, *from)
                                         && self.symbol().timeline.has_frame_script(self.frame);
                                     let blocked = key_conflict || script_conflict;
-                                    let stroke = Stroke::new(2_f32, if blocked { palette.error_text } else { palette.accent });
-                                    painter.rect_stroke(selected_cell.shrink(1.), 0, stroke, egui::StrokeKind::Inside);
-                                    ui.ctx().set_cursor_icon(if blocked { egui::CursorIcon::NotAllowed } else { egui::CursorIcon::Grabbing });
+                                    let stroke = Stroke::new(
+                                        2_f32,
+                                        if blocked {
+                                            palette.error_text
+                                        } else {
+                                            palette.accent
+                                        },
+                                    );
+                                    painter.rect_stroke(
+                                        selected_cell.shrink(1.),
+                                        0,
+                                        stroke,
+                                        egui::StrokeKind::Inside,
+                                    );
+                                    ui.ctx().set_cursor_icon(if blocked {
+                                        egui::CursorIcon::NotAllowed
+                                    } else {
+                                        egui::CursorIcon::Grabbing
+                                    });
                                     let text = if key_conflict {
                                         "Destination already has a keyframe".to_owned()
                                     } else if script_conflict {
                                         "Destination already has a frame script".to_owned()
                                     } else {
-                                        format!("{} key {} → {}", if ui.input(|i| i.modifiers.alt) { "Copy" } else { "Move" }, from + 1, self.frame + 1)
+                                        format!(
+                                            "{} key {} → {}",
+                                            if ui.input(|i| i.modifiers.alt) {
+                                                "Copy"
+                                            } else {
+                                                "Move"
+                                            },
+                                            from + 1,
+                                            self.frame + 1
+                                        )
                                     };
-                                    painter.text(Pos2::new(grid_clip.left() + space::S1, grid_clip.bottom() - space::S1), Align2::LEFT_BOTTOM, text, typography::font(TextStyle::Small), stroke.color);
+                                    painter.text(
+                                        Pos2::new(
+                                            grid_clip.left() + space::S1,
+                                            grid_clip.bottom() - space::S1,
+                                        ),
+                                        Align2::LEFT_BOTTOM,
+                                        text,
+                                        typography::font(TextStyle::Small),
+                                        stroke.color,
+                                    );
                                 }
                                 if response.context_menu_opened()
-                                    || response.interact_pointer_pos().is_some_and(|pos| timeline_cell_at(pos, rect.min, cell_width, grid_count, total_rows, row_height).is_some())
+                                    || response.interact_pointer_pos().is_some_and(|pos| {
+                                        timeline_cell_at(
+                                            pos, rect.min, cell_width, grid_count, total_rows,
+                                            row_height,
+                                        )
+                                        .is_some()
+                                    })
                                 {
-                                response.context_menu(|ui| {
-                                    crate::ui_icons::menu_contents(ui, 280., |ui| self.frame_context_menu(ui));
-                                });
+                                    response.context_menu(|ui| {
+                                        crate::ui_icons::menu_contents(ui, 280., |ui| {
+                                            self.frame_context_menu(ui)
+                                        });
+                                    });
                                 }
                             });
                         if let Some(first) = scroll_to {
                             let mut state = frames.state;
-                            let maximum = (frames.content_size.x - frames.inner_rect.width()).max(0.);
+                            let maximum =
+                                (frames.content_size.x - frames.inner_rect.width()).max(0.);
                             state.offset.x = (first as f32 * cell_width).clamp(0., maximum);
                             state.store(ui.ctx(), frames.id);
                             ui.ctx().request_repaint();
                         }
                         if recenter {
                             let mut state = frames.state;
-                            let maximum = (frames.content_size.x - frames.inner_rect.width()).max(0.);
+                            let maximum =
+                                (frames.content_size.x - frames.inner_rect.width()).max(0.);
                             state.offset.x = ((self.frame as f32 + 0.5) * cell_width
-                                - frames.inner_rect.width() * 0.5).clamp(0., maximum);
+                                - frames.inner_rect.width() * 0.5)
+                                .clamp(0., maximum);
                             state.store(ui.ctx(), frames.id);
                             ui.ctx().request_repaint();
                         }
                         // Continue an existing key drag at the horizontal viewport edge;
                         // never start a drag from a scrollbar or an out-of-range cell.
                         if self.timeline_edit.dragging()
-                            && ui.input(|i| i.pointer.primary_down() && i.pointer.is_decidedly_dragging())
+                            && ui.input(|i| {
+                                i.pointer.primary_down() && i.pointer.is_decidedly_dragging()
+                            })
                             && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
                             && pos.y >= frames.inner_rect.top()
                             && pos.y < frames.inner_rect.bottom()
                         {
                             let margin = 24.;
-                            let direction = if pos.x < frames.inner_rect.left() + margin { -1. } else if pos.x > frames.inner_rect.right() - margin { 1. } else { 0. };
+                            let direction = if pos.x < frames.inner_rect.left() + margin {
+                                -1.
+                            } else if pos.x > frames.inner_rect.right() - margin {
+                                1.
+                            } else {
+                                0.
+                            };
                             if direction != 0. {
                                 let mut state = frames.state;
                                 let dt = ui.input(|i| i.stable_dt).min(0.05);
-                                let maximum = (frames.content_size.x - frames.inner_rect.width()).max(0.);
-                                let next = (state.offset.x + direction * 360. * dt).clamp(0., maximum);
+                                let maximum =
+                                    (frames.content_size.x - frames.inner_rect.width()).max(0.);
+                                let next =
+                                    (state.offset.x + direction * 360. * dt).clamp(0., maximum);
                                 if next != state.offset.x {
                                     state.offset.x = next;
                                     state.store(ui.ctx(), frames.id);
@@ -993,8 +1197,19 @@ impl Editor {
                     }
                 }
             }
-            ui.painter().vline(divider_x, header.top()..=rows.inner_rect.bottom(), Stroke::new(if resize.is_some() {2.0_f32} else {1.0_f32}, if resize.is_some() {palette.accent} else {palette.divider}));
-            if let Some(drag)=&mut reorder {
+            ui.painter().vline(
+                divider_x,
+                header.top()..=rows.inner_rect.bottom(),
+                Stroke::new(
+                    if resize.is_some() { 2.0_f32 } else { 1.0_f32 },
+                    if resize.is_some() {
+                        palette.accent
+                    } else {
+                        palette.divider
+                    },
+                ),
+            );
+            if let Some(drag) = &mut reorder {
                 fn layer_row_at<'a>(
                     timeline: &'a Timeline,
                     layer_indices: &[usize],
@@ -1003,23 +1218,36 @@ impl Editor {
                     let &idx = layer_indices.get(row)?;
                     timeline.layers.get(idx)
                 }
-                if drag.symbol!=self.symbol_id() || !layer_indices.iter().any(|&idx| self.symbol().timeline.layers[idx].id==drag.layer) {reorder=None;}
-                else if let Some(position)=pointer {
-                    drag.moved |= position.distance(drag.start)>=6.;
+                if drag.symbol != self.symbol_id()
+                    || !layer_indices
+                        .iter()
+                        .any(|&idx| self.symbol().timeline.layers[idx].id == drag.layer)
+                {
+                    reorder = None;
+                } else if let Some(position) = pointer {
+                    drag.moved |= position.distance(drag.start) >= 6.;
                     if drag.moved {
-                        let names_view=Rect::from_min_max(Pos2::new(header.left(),rows.inner_rect.top()),Pos2::new(header.left()+layer_column_width,rows.inner_rect.bottom()));
-                        let within=names_view.contains(position);
-                        ctx.set_cursor_icon(if within {egui::CursorIcon::Grabbing} else {egui::CursorIcon::NotAllowed});
+                        let names_view = Rect::from_min_max(
+                            Pos2::new(header.left(), rows.inner_rect.top()),
+                            Pos2::new(header.left() + layer_column_width, rows.inner_rect.bottom()),
+                        );
+                        let within = names_view.contains(position);
+                        ctx.set_cursor_icon(if within {
+                            egui::CursorIcon::Grabbing
+                        } else {
+                            egui::CursorIcon::NotAllowed
+                        });
                         if within {
                             let timeline = &self.symbol().timeline;
                             let rel_y = (position.y - grid_rect.top()) / row_height;
                             let hover_row = rel_y.floor().max(0.) as usize;
                             let row_frac = rel_y - hover_row as f32;
-                            let folder_target = layer_row_at(timeline, &layer_indices, hover_row).filter(|l| {
-                                l.properties.role == LayerRole::Folder
-                                    && l.id != drag.layer
-                                    && (0.22..=0.78).contains(&row_frac)
-                            });
+                            let folder_target = layer_row_at(timeline, &layer_indices, hover_row)
+                                .filter(|l| {
+                                    l.properties.role == LayerRole::Folder
+                                        && l.id != drag.layer
+                                        && (0.22..=0.78).contains(&row_frac)
+                                });
                             if let Some(folder) = folder_target {
                                 let highlight = Rect::from_min_max(
                                     Pos2::new(
@@ -1048,7 +1276,9 @@ impl Editor {
                                 let boundary = (rel_y.round().max(0.) as usize).min(total_rows);
                                 let y = (grid_rect.top() + boundary as f32 * row_height)
                                     .clamp(names_view.top(), names_view.bottom());
-                                let above = boundary.checked_sub(1).and_then(|i| layer_row_at(timeline, &layer_indices, i));
+                                let above = boundary
+                                    .checked_sub(1)
+                                    .and_then(|i| layer_row_at(timeline, &layer_indices, i));
                                 let below = layer_row_at(timeline, &layer_indices, boundary);
                                 let dragged_parent = timeline
                                     .layers
@@ -1069,9 +1299,8 @@ impl Editor {
                                     Some(b.properties.parent.clone())
                                 } else if let Some(a) = above
                                     && a.properties.parent.is_some()
-                                    && below.is_none_or(|b| {
-                                        b.properties.parent != a.properties.parent
-                                    })
+                                    && below
+                                        .is_none_or(|b| b.properties.parent != a.properties.parent)
                                 {
                                     if dragged_parent == a.properties.parent
                                         || position.x < names_view.left() + 44.0
@@ -1112,12 +1341,23 @@ impl Editor {
                                 }
                             }
                             if down {
-                                let direction=if position.y<names_view.top()+18. {-1.} else if position.y>names_view.bottom()-18. {1.} else {0.};
-                                if direction!=0. {
-                                    let mut state=rows.state;
-                                    let maximum=(rows.content_size.y-rows.inner_rect.height()).max(0.);
-                                    state.offset.y=(state.offset.y+direction*220.*ui.input(|input|input.stable_dt).min(0.05)).clamp(0.,maximum);
-                                    state.store(ui.ctx(),rows.id);
+                                let direction = if position.y < names_view.top() + 18. {
+                                    -1.
+                                } else if position.y > names_view.bottom() - 18. {
+                                    1.
+                                } else {
+                                    0.
+                                };
+                                if direction != 0. {
+                                    let mut state = rows.state;
+                                    let maximum =
+                                        (rows.content_size.y - rows.inner_rect.height()).max(0.);
+                                    state.offset.y = (state.offset.y
+                                        + direction
+                                            * 220.
+                                            * ui.input(|input| input.stable_dt).min(0.05))
+                                    .clamp(0., maximum);
+                                    state.store(ui.ctx(), rows.id);
                                     ctx.request_repaint();
                                 }
                             }
@@ -1125,8 +1365,13 @@ impl Editor {
                     }
                 }
             }
-            if divider.hovered() || resize.is_some() {ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);}
-            if released.is_some() || !down {reorder=None;resize=None;}
+            if divider.hovered() || resize.is_some() {
+                ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            }
+            if released.is_some() || !down {
+                reorder = None;
+                resize = None;
+            }
             // Paint the fixed ruler after scrolling, using the same current X
             // origin as the frame canvas. Layer and grid rows share one Y scroll.
             if grid_rect.is_finite() {
@@ -1134,7 +1379,11 @@ impl Editor {
                     Pos2::new(grid_clip.left(), header.top()),
                     Pos2::new(grid_clip.right(), header.bottom()),
                 );
-                let geo = Geometry { origin_x: grid_rect.left(), frame_width: cell_width, row_height };
+                let geo = Geometry {
+                    origin_x: grid_rect.left(),
+                    frame_width: cell_width,
+                    row_height,
+                };
                 let end_x = grid_rect.left() + count as f32 * cell_width;
                 let grid_end_x = if button_states {
                     end_x
@@ -1150,7 +1399,11 @@ impl Editor {
                 };
                 let rp = ui.painter_at(ruler);
                 rp.rect_filled(ruler, 0, p.bg_panel);
-                rp.hline(ruler.x_range(), ruler.bottom() - 0.5, Stroke::new(1.0_f32, p.border_subtle));
+                rp.hline(
+                    ruler.x_range(),
+                    ruler.bottom() - 0.5,
+                    Stroke::new(1.0_f32, p.border_subtle),
+                );
                 let show_onion_range = self.onion || self.timeline_edit.edit_multiple;
                 let onion_range = if show_onion_range {
                     let (start, end) = self.onion_range();
@@ -1159,27 +1412,60 @@ impl Editor {
                 } else {
                     None
                 };
-                let seconds_row = if view.show_seconds && !button_states { ruler_height() * 0.45 } else { 0. };
+                let seconds_row = if view.show_seconds && !button_states {
+                    ruler_height() * 0.45
+                } else {
+                    0.
+                };
                 if button_states {
                     // Button symbols: Up · Over · Down · Hit instead of frame numbers.
-                    for (frame, name) in crate::authoring_symbols::BUTTON_STATES.iter().enumerate().take(count as usize) {
+                    for (frame, name) in crate::authoring_symbols::BUTTON_STATES
+                        .iter()
+                        .enumerate()
+                        .take(count as usize)
+                    {
                         let x = geo.frame_x(frame as u32 + 1);
-                        rp.vline(x + 0.5, ruler.bottom() - 7.0..=ruler.bottom(), Stroke::new(1.0_f32, p.border_default));
-                        rp.text(Pos2::new(x + cell_width / 2., ruler.center().y), Align2::CENTER_CENTER, *name, typography::font(TextStyle::MonoSmall), p.text_tertiary);
+                        rp.vline(
+                            x + 0.5,
+                            ruler.bottom() - 7.0..=ruler.bottom(),
+                            Stroke::new(1.0_f32, p.border_default),
+                        );
+                        rp.text(
+                            Pos2::new(x + cell_width / 2., ruler.center().y),
+                            Align2::CENTER_CENTER,
+                            *name,
+                            typography::font(TextStyle::MonoSmall),
+                            p.text_tertiary,
+                        );
                     }
                 } else {
                     // Ticks, frame numbers and seconds span the full visible timeline grid.
                     let digits = grid_count.max(1).ilog10() as f32 + 1.;
                     let overhang = (digits * 7. - cell_width).max(0.);
-                    let full_ruler = Rect::from_min_max(Pos2::new(grid_rect.left(), ruler.top()), Pos2::new(grid_end_x + overhang, ruler.bottom()));
+                    let full_ruler = Rect::from_min_max(
+                        Pos2::new(grid_rect.left(), ruler.top()),
+                        Pos2::new(grid_end_x + overhang, ruler.bottom()),
+                    );
                     let fps = self.project.fps.max(1) as f32;
-                    let numbers = rp.with_clip_rect(Rect::from_min_max(Pos2::new(ruler.left(), ruler.top() + seconds_row), Pos2::new(grid_end_x + overhang, ruler.bottom())));
+                    let numbers = rp.with_clip_rect(Rect::from_min_max(
+                        Pos2::new(ruler.left(), ruler.top() + seconds_row),
+                        Pos2::new(grid_end_x + overhang, ruler.bottom()),
+                    ));
                     tl::paint_ruler(&numbers, &ctx, full_ruler, &geo, fps, view.show_seconds);
-                    let seconds = rp.with_clip_rect(Rect::from_min_max(ruler.min, Pos2::new(grid_end_x, ruler.top() + seconds_row)));
+                    let seconds = rp.with_clip_rect(Rect::from_min_max(
+                        ruler.min,
+                        Pos2::new(grid_end_x, ruler.top() + seconds_row),
+                    ));
                     tl::paint_ruler(&seconds, &ctx, full_ruler, &geo, fps, view.show_seconds);
                 }
-                let ruler_first = (((ruler.left() - grid_rect.left()) / cell_width).floor().max(0.) as u32).min(count);
-                let ruler_last = (((ruler.right() - grid_rect.left()) / cell_width).ceil().max(0.) as u32).min(count);
+                let ruler_first = (((ruler.left() - grid_rect.left()) / cell_width)
+                    .floor()
+                    .max(0.) as u32)
+                    .min(count);
+                let ruler_last = (((ruler.right() - grid_rect.left()) / cell_width)
+                    .ceil()
+                    .max(0.) as u32)
+                    .min(count);
                 let start_sf = script_frames.partition_point(|&f| f < ruler_first);
                 for &frame in &script_frames[start_sf..] {
                     if frame > ruler_last {
@@ -1189,7 +1475,13 @@ impl Editor {
                         self.symbol().timeline.frame_has_unplaced_script(frame);
                     if needs_ruler_marker && frame < count {
                         let cell = geo.cell(ruler, frame + 1);
-                        rp.text(Pos2::new(cell.center().x, ruler.top() + seconds_row / 2. + space::S1), Align2::CENTER_CENTER, "a", typography::font(TextStyle::MonoSmall), palette.timeline_script);
+                        rp.text(
+                            Pos2::new(cell.center().x, ruler.top() + seconds_row / 2. + space::S1),
+                            Align2::CENTER_CENTER,
+                            "a",
+                            typography::font(TextStyle::MonoSmall),
+                            palette.timeline_script,
+                        );
                     }
                 }
                 let response =
@@ -1210,11 +1502,7 @@ impl Editor {
                     for (is_start, r) in [(true, r0), (false, r1)] {
                         let hit_rect = r.intersect(ruler);
                         let handle_id = ui.id().with(("onion", is_start));
-                        let handle = ui.interact(
-                            hit_rect,
-                            handle_id,
-                            Sense::click_and_drag(),
-                        );
+                        let handle = ui.interact(hit_rect, handle_id, Sense::click_and_drag());
                         let press_key = handle_id.with("press_origin_x");
                         let released_drag_pos = if ctx.input(|i| i.pointer.primary_down()) {
                             if let Some(origin) = ctx.input(|i| i.pointer.press_origin())
@@ -1265,8 +1553,7 @@ impl Editor {
                                 }
                                 self.onion_before =
                                     self.frame.saturating_sub(self.anchored_range.0);
-                                self.onion_after =
-                                    self.anchored_range.1.saturating_sub(self.frame);
+                                self.onion_after = self.anchored_range.1.saturating_sub(self.frame);
                             } else if is_start {
                                 self.onion_before = self.frame.saturating_sub(f.min(self.frame));
                             } else {
@@ -1286,23 +1573,44 @@ impl Editor {
                     if pos.x < grid_end_x {
                         self.reset_authored_preview();
                         let frame = frame_at_x(pos.x, grid_rect.left(), cell_width, grid_count);
-                        self.frame = if view.snap_playhead && !ui.input(|i| i.modifiers.shift) && frame < count {
+                        self.frame = if view.snap_playhead
+                            && !ui.input(|i| i.modifiers.shift)
+                            && frame < count
+                        {
                             self.snap_scrub_frame(frame, pos.x, grid_rect.left(), cell_width)
                         } else {
                             frame
                         };
-                        self.select_frame_range(FrameRange { layers: vec![self.symbol().timeline.layers[self.layer].id.clone()], start: self.frame, end: self.frame });
+                        self.select_frame_range(FrameRange {
+                            layers: vec![self.symbol().timeline.layers[self.layer].id.clone()],
+                            start: self.frame,
+                            end: self.frame,
+                        });
                         self.script_target = ScriptTarget::Frame;
                         self.clear_selection();
                     }
                 }
                 // NF2/TL Playhead over ruler and rows: frame chip, time chip on the seconds row.
-                let rows_bottom = (grid_rect.top() + content_height).min(grid_clip.bottom()).max(header.bottom());
+                let rows_bottom = (grid_rect.top() + content_height)
+                    .min(grid_clip.bottom())
+                    .max(header.bottom());
                 let full = Rect::from_min_max(ruler.min, Pos2::new(ruler.right(), rows_bottom));
-                let time = (seconds_row > 0.).then(|| format!("{:.2}s", self.frame as f64 / self.project.fps.max(1) as f64));
-                tl::paint_playhead(&ui.painter_at(full.expand2(Vec2::new(0., 1.))), &ctx, full, ruler, &geo, geo.frame_x(self.frame + 1), self.frame + 1, time.as_deref());
+                let time = (seconds_row > 0.)
+                    .then(|| format!("{:.2}s", self.frame as f64 / self.project.fps.max(1) as f64));
+                tl::paint_playhead(
+                    &ui.painter_at(full.expand2(Vec2::new(0., 1.))),
+                    &ctx,
+                    full,
+                    ruler,
+                    &geo,
+                    geo.frame_x(self.frame + 1),
+                    self.frame + 1,
+                    time.as_deref(),
+                );
             }
-            if let Some(crate::library::LibraryDrag::Symbol(sym_id)) = self.library_panel.drag.clone() {
+            if let Some(crate::library::LibraryDrag::Symbol(sym_id)) =
+                self.library_panel.drag.clone()
+            {
                 if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                     self.library_panel.drag = None;
                 } else {
@@ -1775,10 +2083,10 @@ impl Editor {
     }
 
     /// Frame (right-click) menu, design §8.
-    fn frame_context_menu(&mut self, ui: &mut egui::Ui) {
+    pub(crate) fn frame_context_menu(&mut self, ui: &mut egui::Ui) {
         use crate::commands::CommandId as C;
         use crate::timeline_edit::FrameCommand as F;
-        use crate::ui_icons::{menu_item, menu_item_enabled, menu_toggle};
+        use crate::ui_icons::{menu_item, menu_item_enabled};
         let editable = self.layer_editable();
         let tweenable = self.can_create_tween();
         for (label, cmd_id, kind) in [
@@ -1864,26 +2172,6 @@ impl Editor {
             self.convert_to_keyframes(true);
             ui.close();
         }
-        let can_step_keys = editable && self.can_convert_to_keyframes_stepped();
-        if menu_item_enabled(ui, can_step_keys, "Tween2Keys (On 2s)", "").clicked() {
-            self.tween_to_keys_on_twos();
-            ui.close();
-        }
-        if menu_item_enabled(ui, can_step_keys, "Tween2Keys (On 3s)", "").clicked() {
-            self.tween_to_keys_on_threes();
-            ui.close();
-        }
-        if menu_item_enabled(
-            ui,
-            can_step_keys,
-            "Convert to keyframes (on 2s, keep ease)",
-            "",
-        )
-        .clicked()
-        {
-            self.convert_to_keyframes_stepped(2, false);
-            ui.close();
-        }
         if menu_item_enabled(
             ui,
             self.can_distribute_to_keyframes(),
@@ -1895,39 +2183,63 @@ impl Editor {
             self.distribute_selection_to_keyframes();
             ui.close();
         }
-        if menu_item_enabled(
-            ui,
-            editable && self.frame > 0,
-            "Split clip at playhead",
-            &self.sc(C::ModifyTimelineSplitClip),
-        )
-        .clicked()
-        {
-            self.split_clip_at_playhead();
-            ui.close();
-        }
-        if menu_item_enabled(
-            ui,
-            self.can_link_av_layers(),
-            "Link video & audio",
-            &self.sc(C::ModifyTimelineLinkTracks),
-        )
-        .clicked()
-        {
-            self.link_selected_or_adjacent_av_layers();
-            ui.close();
-        }
-        if menu_item_enabled(
-            ui,
-            self.can_unlink_av_layers(),
-            "Unlink video & audio",
-            &self.sc(C::ModifyTimelineUnlinkTracks),
-        )
-        .clicked()
-        {
-            self.unlink_active_layers();
-            ui.close();
-        }
+        nf::submenu(ui, "Utils", |ui| {
+            crate::ui_icons::menu_contents(ui, 310., |ui| {
+                let can_step_keys = editable && self.can_convert_to_keyframes_stepped();
+                if menu_item_enabled(ui, can_step_keys, "Tween2Keys (On 2s)", "").clicked() {
+                    self.tween_to_keys_on_twos();
+                    ui.close();
+                }
+                if menu_item_enabled(ui, can_step_keys, "Tween2Keys (On 3s)", "").clicked() {
+                    self.tween_to_keys_on_threes();
+                    ui.close();
+                }
+                if menu_item_enabled(
+                    ui,
+                    can_step_keys,
+                    "Convert to keyframes (on 2s, keep ease)",
+                    "",
+                )
+                .clicked()
+                {
+                    self.convert_to_keyframes_stepped(2, false);
+                    ui.close();
+                }
+                if menu_item_enabled(
+                    ui,
+                    editable && self.frame > 0,
+                    "Split clip at playhead",
+                    &self.sc(C::ModifyTimelineSplitClip),
+                )
+                .clicked()
+                {
+                    self.split_clip_at_playhead();
+                    ui.close();
+                }
+                if menu_item_enabled(
+                    ui,
+                    self.can_link_av_layers(),
+                    "Link video & audio",
+                    &self.sc(C::ModifyTimelineLinkTracks),
+                )
+                .clicked()
+                {
+                    self.link_selected_or_adjacent_av_layers();
+                    ui.close();
+                }
+                if menu_item_enabled(
+                    ui,
+                    self.can_unlink_av_layers(),
+                    "Unlink video & audio",
+                    &self.sc(C::ModifyTimelineUnlinkTracks),
+                )
+                .clicked()
+                {
+                    self.unlink_active_layers();
+                    ui.close();
+                }
+            });
+        });
         nf::menu_separator(ui);
         for (label, cmd) in [
             ("Cut frames", F::Cut),
@@ -2013,19 +2325,6 @@ impl Editor {
             self.apply_copied_ease_to_selection();
             ui.close();
         }
-        nf::menu_separator(ui);
-        nf::menu_section(ui, "Options");
-        let include_resp = menu_toggle(
-            ui,
-            &mut self.timeline_edit.include_scripts,
-            "Include frame scripts",
-            "",
-        );
-        neoflash_ui::components::tooltip(
-            include_resp,
-            "Frame scripts belong to this timeline, not to a layer. Include them once in frame copy, move, insert and remove operations. Script collisions are rejected",
-            None,
-        );
     }
 
     /// One frame-range command row (Edit ▸ Timeline and the frame menu).

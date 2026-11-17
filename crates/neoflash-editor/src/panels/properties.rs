@@ -1215,6 +1215,15 @@ impl Editor {
                         if ui.add(frame_act_btn).clicked() {
                             self.open_frame_actions();
                         }
+                        let include_scripts_resp = ui.add(nf::Checkbox::new(
+                            &mut self.timeline_edit.include_scripts,
+                            "Include frame scripts",
+                        ));
+                        nf::tooltip(
+                            include_scripts_resp,
+                            "Include frame scripts in frame copy, move, insert and remove operations (script collisions are rejected)",
+                            None,
+                        );
                     });
 
                     // 2) Tween section: Tween selector + Scale, Ease (-100..=100 + preset + Edit…), Rotate + times, Orient/Sync/Snap.

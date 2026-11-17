@@ -1941,138 +1941,151 @@ impl Editor {
         let mut transform_frame = None;
         let mut transform_pivot_screen = None;
         if let Some(g) = &geometry {
+            let frame = context_rect_to_screen(g.context_world, origin, zoom);
+            let collapsed_empty_symbols = frame.width() <= 1e-3
+                && frame.height() <= 1e-3
+                && !g.boxes.is_empty()
+                && g.boxes
+                    .iter()
+                    .all(|(_, _, _, k, _)| *k == cv::SelectionKind::Symbol);
             if self.tool == Tool::Transform {
-                use crate::authoring_tools::FreeTransformMode;
-                use geometry::ResizeHandle as H;
-                const BOX: [H; 8] = [
-                    H::NorthWest,
-                    H::NorthEast,
-                    H::SouthEast,
-                    H::SouthWest,
-                    H::North,
-                    H::East,
-                    H::South,
-                    H::West,
-                ];
-                let active_mode = self.active_free_transform_mode();
-                let frame = context_rect_to_screen(g.context_world, origin, zoom);
-                transform_frame = Some(frame);
-                let context_world = bounds(g.context_world);
-                let pal = neoflash_ui::palette(p.ctx());
-                let ctx_to_screen = |pt: geometry::Point| -> Pos2 {
-                    origin + egui::vec2(pt[0] as f32, pt[1] as f32) * zoom
-                };
+                if !collapsed_empty_symbols {
+                    use crate::authoring_tools::FreeTransformMode;
+                    use geometry::ResizeHandle as H;
+                    const BOX: [H; 8] = [
+                        H::NorthWest,
+                        H::NorthEast,
+                        H::SouthEast,
+                        H::SouthWest,
+                        H::North,
+                        H::East,
+                        H::South,
+                        H::West,
+                    ];
+                    let active_mode = self.active_free_transform_mode();
+                    transform_frame = Some(frame);
+                    let context_world = bounds(g.context_world);
+                    let pal = neoflash_ui::palette(p.ctx());
+                    let ctx_to_screen = |pt: geometry::Point| -> Pos2 {
+                        origin + egui::vec2(pt[0] as f32, pt[1] as f32) * zoom
+                    };
 
-                if active_mode == FreeTransformMode::Envelope {
-                    let sampled = self.sampled_targets();
-                    let session_valid = self
-                        .authoring_modify
-                        .envelope_session
-                        .as_ref()
-                        .is_some_and(|s| {
-                            s.symbol == self.symbol_id()
-                                && s.frame == self.frame
-                                && s.targets == self.selection.targets
-                                && s.last_applied_elements == sampled
-                        });
-                    if !session_valid {
-                        let cage = geometry::EnvelopeCage::from_bounds(context_world);
-                        self.authoring_modify.envelope_session =
-                            Some(crate::authoring_modify::ActiveEnvelopeSession {
-                                symbol: self.symbol_id().to_owned(),
-                                frame: self.frame,
-                                targets: self.selection.targets.clone(),
-                                cage,
-                                base_elements: sampled.clone(),
-                                last_applied_elements: sampled,
+                    if active_mode == FreeTransformMode::Envelope {
+                        let sampled = self.sampled_targets();
+                        let session_valid = self
+                            .authoring_modify
+                            .envelope_session
+                            .as_ref()
+                            .is_some_and(|s| {
+                                s.symbol == self.symbol_id()
+                                    && s.frame == self.frame
+                                    && s.targets == self.selection.targets
+                                    && s.last_applied_elements == sampled
                             });
-                    }
-                    if let Some(session) = &self.authoring_modify.envelope_session {
-                        let cage = session.cage;
-                        let ref_rect = Rect::from_min_max(
-                            ctx_to_screen(cage.bounds.min),
-                            ctx_to_screen(cage.bounds.max),
-                        );
-                        p.rect_stroke(
-                            ref_rect,
-                            0.0,
-                            Stroke::new(1.0_f32, pal.accent_default),
-                            egui::StrokeKind::Inside,
-                        );
-                        for seg in 0..8 {
-                            let mut prev_pt = ctx_to_screen(cage.boundary_segment(seg, 0.0));
-                            for step in 1..=12 {
-                                let next_pt =
-                                    ctx_to_screen(cage.boundary_segment(seg, step as f64 / 12.0));
-                                p.line_segment(
-                                    [prev_pt, next_pt],
-                                    Stroke::new(1.0_f32, pal.accent_default),
-                                );
-                                prev_pt = next_pt;
+                        if !session_valid {
+                            let cage = geometry::EnvelopeCage::from_bounds(context_world);
+                            self.authoring_modify.envelope_session =
+                                Some(crate::authoring_modify::ActiveEnvelopeSession {
+                                    symbol: self.symbol_id().to_owned(),
+                                    frame: self.frame,
+                                    targets: self.selection.targets.clone(),
+                                    cage,
+                                    base_elements: sampled.clone(),
+                                    last_applied_elements: sampled,
+                                });
+                        }
+                        if let Some(session) = &self.authoring_modify.envelope_session {
+                            let cage = session.cage;
+                            let ref_rect = Rect::from_min_max(
+                                ctx_to_screen(cage.bounds.min),
+                                ctx_to_screen(cage.bounds.max),
+                            );
+                            p.rect_stroke(
+                                ref_rect,
+                                0.0,
+                                Stroke::new(1.0_f32, pal.accent_default),
+                                egui::StrokeKind::Inside,
+                            );
+                            for seg in 0..8 {
+                                let mut prev_pt = ctx_to_screen(cage.boundary_segment(seg, 0.0));
+                                for step in 1..=12 {
+                                    let next_pt = ctx_to_screen(
+                                        cage.boundary_segment(seg, step as f64 / 12.0),
+                                    );
+                                    p.line_segment(
+                                        [prev_pt, next_pt],
+                                        Stroke::new(1.0_f32, pal.accent_default),
+                                    );
+                                    prev_pt = next_pt;
+                                }
                             }
-                        }
-                        for i in 0..8 {
-                            let a = ctx_to_screen(cage.anchors[i]);
-                            let tp = ctx_to_screen(cage.tangent_prev[i]);
-                            let tn = ctx_to_screen(cage.tangent_next[i]);
-                            p.line_segment([a, tp], Stroke::new(1.0_f32, pal.accent_default));
-                            p.line_segment([a, tn], Stroke::new(1.0_f32, pal.accent_default));
-                        }
-                        // Register anchor squares first in `zones` so overlapping anchor/tangent hits prefer the anchor if exact, then paint tangents and anchors.
-                        for i in 0..8 {
-                            let pos = ctx_to_screen(cage.anchors[i]);
-                            let h_rect = Rect::from_center_size(pos, egui::Vec2::splat(7.5));
-                            zones.push((
-                                Zone::Handle(h_rect),
-                                GestureKind::Envelope {
-                                    initial_cage: cage,
-                                    handle: geometry::EnvelopeHandle::Anchor(i),
-                                },
-                                nf::ARROW_MOVE,
-                            ));
-                        }
-                        for i in 0..8 {
-                            for (pt, handle) in [
-                                (
-                                    cage.tangent_prev[i],
-                                    geometry::EnvelopeHandle::TangentPrev(i),
-                                ),
-                                (
-                                    cage.tangent_next[i],
-                                    geometry::EnvelopeHandle::TangentNext(i),
-                                ),
-                            ] {
-                                let pos = ctx_to_screen(pt);
-                                p.circle_filled(pos, 4.0, pal.bg_panel);
-                                p.circle_filled(pos, 2.5, pal.text_primary);
-                                p.circle_stroke(pos, 4.0, Stroke::new(1.0_f32, pal.accent_default));
+                            for i in 0..8 {
+                                let a = ctx_to_screen(cage.anchors[i]);
+                                let tp = ctx_to_screen(cage.tangent_prev[i]);
+                                let tn = ctx_to_screen(cage.tangent_next[i]);
+                                p.line_segment([a, tp], Stroke::new(1.0_f32, pal.accent_default));
+                                p.line_segment([a, tn], Stroke::new(1.0_f32, pal.accent_default));
+                            }
+                            // Register anchor squares first in `zones` so overlapping anchor/tangent hits prefer the anchor if exact, then paint tangents and anchors.
+                            for i in 0..8 {
+                                let pos = ctx_to_screen(cage.anchors[i]);
                                 let h_rect = Rect::from_center_size(pos, egui::Vec2::splat(7.5));
                                 zones.push((
                                     Zone::Handle(h_rect),
                                     GestureKind::Envelope {
                                         initial_cage: cage,
-                                        handle,
+                                        handle: geometry::EnvelopeHandle::Anchor(i),
                                     },
                                     nf::ARROW_MOVE,
                                 ));
                             }
+                            for i in 0..8 {
+                                for (pt, handle) in [
+                                    (
+                                        cage.tangent_prev[i],
+                                        geometry::EnvelopeHandle::TangentPrev(i),
+                                    ),
+                                    (
+                                        cage.tangent_next[i],
+                                        geometry::EnvelopeHandle::TangentNext(i),
+                                    ),
+                                ] {
+                                    let pos = ctx_to_screen(pt);
+                                    p.circle_filled(pos, 4.0, pal.bg_panel);
+                                    p.circle_filled(pos, 2.5, pal.text_primary);
+                                    p.circle_stroke(
+                                        pos,
+                                        4.0,
+                                        Stroke::new(1.0_f32, pal.accent_default),
+                                    );
+                                    let h_rect =
+                                        Rect::from_center_size(pos, egui::Vec2::splat(7.5));
+                                    zones.push((
+                                        Zone::Handle(h_rect),
+                                        GestureKind::Envelope {
+                                            initial_cage: cage,
+                                            handle,
+                                        },
+                                        nf::ARROW_MOVE,
+                                    ));
+                                }
+                            }
+                            for i in 0..8 {
+                                let pos = ctx_to_screen(cage.anchors[i]);
+                                let sq = Rect::from_center_size(pos, egui::Vec2::splat(6.5));
+                                p.rect_filled(sq, 0.0, pal.text_primary);
+                                p.rect_stroke(
+                                    sq.expand(0.75),
+                                    0.0,
+                                    Stroke::new(1.25_f32, pal.bg_panel),
+                                    egui::StrokeKind::Outside,
+                                );
+                            }
                         }
-                        for i in 0..8 {
-                            let pos = ctx_to_screen(cage.anchors[i]);
-                            let sq = Rect::from_center_size(pos, egui::Vec2::splat(6.5));
-                            p.rect_filled(sq, 0.0, pal.text_primary);
-                            p.rect_stroke(
-                                sq.expand(0.75),
-                                0.0,
-                                Stroke::new(1.25_f32, pal.bg_panel),
-                                egui::StrokeKind::Outside,
-                            );
-                        }
-                    }
-                } else if active_mode == FreeTransformMode::Distort {
-                    let sampled = self.sampled_targets();
-                    let session_valid =
-                        self.authoring_modify
+                    } else if active_mode == FreeTransformMode::Distort {
+                        let sampled = self.sampled_targets();
+                        let session_valid = self
+                            .authoring_modify
                             .distort_session
                             .as_ref()
                             .is_some_and(|s| {
@@ -2081,148 +2094,43 @@ impl Editor {
                                     && s.targets == self.selection.targets
                                     && s.last_applied_elements == sampled
                             });
-                    if !session_valid {
-                        let quad = geometry::DistortQuad::from_bounds(context_world);
-                        self.authoring_modify.distort_session =
-                            Some(crate::authoring_modify::ActiveDistortSession {
-                                symbol: self.symbol_id().to_owned(),
-                                frame: self.frame,
-                                targets: self.selection.targets.clone(),
-                                source_bounds: context_world,
-                                quad,
-                                base_elements: sampled.clone(),
-                                last_applied_elements: sampled,
-                            });
-                    }
-                    if let Some(session) = &self.authoring_modify.distort_session {
-                        let source_bounds = session.source_bounds;
-                        let quad = session.quad;
-                        for i in 0..4 {
-                            let a = ctx_to_screen(quad.corners[i]);
-                            let b = ctx_to_screen(quad.corners[(i + 1) % 4]);
-                            p.line_segment([a, b], Stroke::new(1.0_f32, pal.accent_default));
+                        if !session_valid {
+                            let quad = geometry::DistortQuad::from_bounds(context_world);
+                            self.authoring_modify.distort_session =
+                                Some(crate::authoring_modify::ActiveDistortSession {
+                                    symbol: self.symbol_id().to_owned(),
+                                    frame: self.frame,
+                                    targets: self.selection.targets.clone(),
+                                    source_bounds: context_world,
+                                    quad,
+                                    base_elements: sampled.clone(),
+                                    last_applied_elements: sampled,
+                                });
                         }
-                        let quad_center = ctx_to_screen(quad.center());
-                        for box_handle in BOX {
-                            let pos = ctx_to_screen(quad.handle_point(box_handle));
-                            let h_rect = Rect::from_center_size(pos, egui::Vec2::splat(7.0));
-                            p.rect_filled(h_rect, 0.0, pal.bg_panel);
-                            p.rect_stroke(
-                                h_rect,
-                                0.0,
-                                Stroke::new(1.25_f32, pal.accent_default),
-                                egui::StrokeKind::Inside,
-                            );
-                            let cursor = crate::stage_cursor::resize_cursor(pos - quad_center);
-                            zones.push((
-                                Zone::Handle(h_rect),
-                                GestureKind::Distort {
-                                    source_bounds,
-                                    initial_quad: quad,
-                                    handle: box_handle,
-                                },
-                                cursor,
-                            ));
-                        }
-                    }
-                } else {
-                    // `NF2/Transform Box` (Scale / RotateAndSkew / FreeTransform) on the selection's stage bounds.
-                    let rects =
-                        cv::paint_transform_box(p, p.ctx(), frame, cv::TransformMode::Scale);
-                    let pivot_world = g.world_pivot;
-                    let pivot_screen = screen(position(pivot_world));
-                    transform_pivot_screen = Some(pivot_screen);
-                    if pivot_screen.distance(frame.center()) > 0.5 {
-                        cv::transformation_point(p, p.ctx(), pivot_screen);
-                    }
-                    let pivot_first = (frame.width() > 18.0 && frame.height() > 18.0)
-                        || pivot_screen.distance(frame.center()) > 0.5;
-                    if pivot_first {
-                        zones.push((
-                            Zone::Pivot(pivot_screen),
-                            GestureKind::Pivot {
-                                initial_world: pivot_world,
-                            },
-                            nf::MOVE,
-                        ));
-                    }
-                    let single = g.local.is_some() && g.initial.is_some();
-                    let context_pivot = mapping.edit_to_stage_point(pivot_world);
-                    let can_deform = self.can_distort_or_envelope_selection();
-                    if matches!(
-                        active_mode,
-                        FreeTransformMode::FreeTransform | FreeTransformMode::Scale
-                    ) && g.resizable
-                    {
-                        let is_curved_or_path = self.selected_sampled().is_some_and(|el| {
-                            matches!(
-                                el.kind,
-                                ElementKind::Path { .. }
-                                    | ElementKind::PaintedPath { .. }
-                                    | ElementKind::Ellipse { .. }
-                            )
-                        });
-                        for (rect, box_handle) in rects.iter().zip(BOX) {
-                            let kind = if let (Some(local), Some(initial)) = (g.local, g.initial) {
-                                let mapped_initial = mapping.map_matrix(transform_matrix(initial));
-                                let axis_aligned_in_context = (mapped_initial[1].abs() <= 1e-6
-                                    && mapped_initial[2].abs() <= 1e-6)
-                                    || (mapped_initial[0].abs() <= 1e-6
-                                        && mapped_initial[3].abs() <= 1e-6);
-                                let use_box_scale = !axis_aligned_in_context
-                                    && (initial.skew.abs() > 1e-4
-                                        || is_curved_or_path
-                                        || !box_handle.is_corner());
-                                if use_box_scale {
-                                    GestureKind::BoxScale {
-                                        bounds: context_world,
-                                        handle: box_handle,
-                                        center: context_pivot,
-                                    }
-                                } else {
-                                    // A single placement resizes in its own axes: the box handle drives the
-                                    // local handle of the same kind nearest to it on screen.
-                                    let distance = |h: &H| {
-                                        screen(position(geometry::transformed_point(
-                                            initial,
-                                            h.point(local),
-                                        )))
-                                        .distance(rect.center())
-                                    };
-                                    let handle = H::ALL
-                                        .into_iter()
-                                        .filter(|h| h.is_corner() == box_handle.is_corner())
-                                        .min_by(|a, b| distance(a).total_cmp(&distance(b)))
-                                        .unwrap_or(box_handle);
-                                    GestureKind::Resize {
-                                        bounds: local,
-                                        handle,
-                                    }
-                                }
-                            } else if !box_handle.is_corner() {
-                                GestureKind::BoxScale {
-                                    bounds: context_world,
-                                    handle: box_handle,
-                                    center: context_pivot,
-                                }
-                            } else {
-                                GestureKind::Scale {
-                                    context_pivot: box_handle.opposite().point(context_world),
-                                    context_center: context_pivot,
-                                }
-                            };
-                            let cursor =
-                                crate::stage_cursor::resize_cursor(rect.center() - frame.center());
-                            zones.push((Zone::Handle(*rect), kind, cursor));
-                            if active_mode == FreeTransformMode::FreeTransform
-                                && can_deform
-                                && box_handle.is_corner()
-                            {
-                                let quad = geometry::DistortQuad::from_bounds(context_world);
-                                cmd_corner_distort_zones.push((
-                                    rect.expand(3.0),
+                        if let Some(session) = &self.authoring_modify.distort_session {
+                            let source_bounds = session.source_bounds;
+                            let quad = session.quad;
+                            for i in 0..4 {
+                                let a = ctx_to_screen(quad.corners[i]);
+                                let b = ctx_to_screen(quad.corners[(i + 1) % 4]);
+                                p.line_segment([a, b], Stroke::new(1.0_f32, pal.accent_default));
+                            }
+                            let quad_center = ctx_to_screen(quad.center());
+                            for box_handle in BOX {
+                                let pos = ctx_to_screen(quad.handle_point(box_handle));
+                                let h_rect = Rect::from_center_size(pos, egui::Vec2::splat(7.0));
+                                p.rect_filled(h_rect, 0.0, pal.bg_panel);
+                                p.rect_stroke(
+                                    h_rect,
+                                    0.0,
+                                    Stroke::new(1.25_f32, pal.accent_default),
+                                    egui::StrokeKind::Inside,
+                                );
+                                let cursor = crate::stage_cursor::resize_cursor(pos - quad_center);
+                                zones.push((
+                                    Zone::Handle(h_rect),
                                     GestureKind::Distort {
-                                        source_bounds: context_world,
+                                        source_bounds,
                                         initial_quad: quad,
                                         handle: box_handle,
                                     },
@@ -2230,87 +2138,205 @@ impl Editor {
                                 ));
                             }
                         }
-                    } else if active_mode == FreeTransformMode::RotateAndSkew {
-                        // In `Rotate and Skew` sub-mode, corner handles rotate and edge midpoint handles skew.
-                        for (rect, box_handle) in rects.iter().zip(BOX) {
-                            if box_handle.is_corner() {
-                                zones.push((
-                                    Zone::Handle(*rect),
-                                    GestureKind::Rotate {
-                                        single,
-                                        pivot: pivot_world,
-                                        local_bounds: g.local,
-                                    },
-                                    nf::ROTATE,
-                                ));
-                            } else {
-                                let (horizontal, edge, opposite) = match box_handle {
-                                    H::North => (true, context_world.min[1], context_world.max[1]),
-                                    H::South => (true, context_world.max[1], context_world.min[1]),
-                                    H::West => (false, context_world.min[0], context_world.max[0]),
-                                    H::East => (false, context_world.max[0], context_world.min[0]),
-                                    _ => unreachable!(),
+                    } else {
+                        // `NF2/Transform Box` (Scale / RotateAndSkew / FreeTransform) on the selection's stage bounds.
+                        let rects =
+                            cv::paint_transform_box(p, p.ctx(), frame, cv::TransformMode::Scale);
+                        let pivot_world = g.world_pivot;
+                        let pivot_screen = screen(position(pivot_world));
+                        transform_pivot_screen = Some(pivot_screen);
+                        if pivot_screen.distance(frame.center()) > 0.5 {
+                            cv::transformation_point(p, p.ctx(), pivot_screen);
+                        }
+                        let pivot_first = (frame.width() > 18.0 && frame.height() > 18.0)
+                            || pivot_screen.distance(frame.center()) > 0.5;
+                        if pivot_first {
+                            zones.push((
+                                Zone::Pivot(pivot_screen),
+                                GestureKind::Pivot {
+                                    initial_world: pivot_world,
+                                },
+                                nf::MOVE,
+                            ));
+                        }
+                        let single = g.local.is_some() && g.initial.is_some();
+                        let context_pivot = mapping.edit_to_stage_point(pivot_world);
+                        let can_deform = self.can_distort_or_envelope_selection();
+                        if matches!(
+                            active_mode,
+                            FreeTransformMode::FreeTransform | FreeTransformMode::Scale
+                        ) && g.resizable
+                        {
+                            let is_curved_or_path = self.selected_sampled().is_some_and(|el| {
+                                matches!(
+                                    el.kind,
+                                    ElementKind::Path { .. }
+                                        | ElementKind::PaintedPath { .. }
+                                        | ElementKind::Ellipse { .. }
+                                )
+                            });
+                            for (rect, box_handle) in rects.iter().zip(BOX) {
+                                let kind = if let (Some(local), Some(initial)) =
+                                    (g.local, g.initial)
+                                {
+                                    let mapped_initial =
+                                        mapping.map_matrix(transform_matrix(initial));
+                                    let axis_aligned_in_context = (mapped_initial[1].abs() <= 1e-6
+                                        && mapped_initial[2].abs() <= 1e-6)
+                                        || (mapped_initial[0].abs() <= 1e-6
+                                            && mapped_initial[3].abs() <= 1e-6);
+                                    let use_box_scale = !axis_aligned_in_context
+                                        && (initial.skew.abs() > 1e-4
+                                            || is_curved_or_path
+                                            || !box_handle.is_corner());
+                                    if use_box_scale {
+                                        GestureKind::BoxScale {
+                                            bounds: context_world,
+                                            handle: box_handle,
+                                            center: context_pivot,
+                                        }
+                                    } else {
+                                        // A single placement resizes in its own axes: the box handle drives the
+                                        // local handle of the same kind nearest to it on screen.
+                                        let distance = |h: &H| {
+                                            screen(position(geometry::transformed_point(
+                                                initial,
+                                                h.point(local),
+                                            )))
+                                            .distance(rect.center())
+                                        };
+                                        let handle = H::ALL
+                                            .into_iter()
+                                            .filter(|h| h.is_corner() == box_handle.is_corner())
+                                            .min_by(|a, b| distance(a).total_cmp(&distance(b)))
+                                            .unwrap_or(box_handle);
+                                        GestureKind::Resize {
+                                            bounds: local,
+                                            handle,
+                                        }
+                                    }
+                                } else if !box_handle.is_corner() {
+                                    GestureKind::BoxScale {
+                                        bounds: context_world,
+                                        handle: box_handle,
+                                        center: context_pivot,
+                                    }
+                                } else {
+                                    GestureKind::Scale {
+                                        context_pivot: box_handle.opposite().point(context_world),
+                                        context_center: context_pivot,
+                                    }
+                                };
+                                let cursor = crate::stage_cursor::resize_cursor(
+                                    rect.center() - frame.center(),
+                                );
+                                zones.push((Zone::Handle(*rect), kind, cursor));
+                                if active_mode == FreeTransformMode::FreeTransform
+                                    && can_deform
+                                    && box_handle.is_corner()
+                                {
+                                    let quad = geometry::DistortQuad::from_bounds(context_world);
+                                    cmd_corner_distort_zones.push((
+                                        rect.expand(3.0),
+                                        GestureKind::Distort {
+                                            source_bounds: context_world,
+                                            initial_quad: quad,
+                                            handle: box_handle,
+                                        },
+                                        cursor,
+                                    ));
+                                }
+                            }
+                        } else if active_mode == FreeTransformMode::RotateAndSkew {
+                            // In `Rotate and Skew` sub-mode, corner handles rotate and edge midpoint handles skew.
+                            for (rect, box_handle) in rects.iter().zip(BOX) {
+                                if box_handle.is_corner() {
+                                    zones.push((
+                                        Zone::Handle(*rect),
+                                        GestureKind::Rotate {
+                                            single,
+                                            pivot: pivot_world,
+                                            local_bounds: g.local,
+                                        },
+                                        nf::ROTATE,
+                                    ));
+                                } else {
+                                    let (horizontal, edge, opposite) = match box_handle {
+                                        H::North => {
+                                            (true, context_world.min[1], context_world.max[1])
+                                        }
+                                        H::South => {
+                                            (true, context_world.max[1], context_world.min[1])
+                                        }
+                                        H::West => {
+                                            (false, context_world.min[0], context_world.max[0])
+                                        }
+                                        H::East => {
+                                            (false, context_world.max[0], context_world.min[0])
+                                        }
+                                        _ => unreachable!(),
+                                    };
+                                    let cursor = if horizontal { nf::SKEW_H } else { nf::SKEW_V };
+                                    zones.push((
+                                        Zone::Handle(*rect),
+                                        GestureKind::Skew {
+                                            horizontal,
+                                            edge,
+                                            opposite,
+                                            center: context_pivot[if horizontal { 1 } else { 0 }],
+                                        },
+                                        cursor,
+                                    ));
+                                }
+                            }
+                        }
+                        if !pivot_first {
+                            zones.push((
+                                Zone::Pivot(pivot_screen),
+                                GestureKind::Pivot {
+                                    initial_world: pivot_world,
+                                },
+                                nf::MOVE,
+                            ));
+                        }
+                        if matches!(
+                            active_mode,
+                            FreeTransformMode::FreeTransform | FreeTransformMode::RotateAndSkew
+                        ) {
+                            let [nw, ne, se, sw, n, e, s, w] = rects.map(|r| r.center());
+                            let edges = [
+                                (nw, n, true, context_world.min[1], context_world.max[1]),
+                                (n, ne, true, context_world.min[1], context_world.max[1]),
+                                (sw, s, true, context_world.max[1], context_world.min[1]),
+                                (s, se, true, context_world.max[1], context_world.min[1]),
+                                (nw, w, false, context_world.min[0], context_world.max[0]),
+                                (w, sw, false, context_world.min[0], context_world.max[0]),
+                                (ne, e, false, context_world.max[0], context_world.min[0]),
+                                (e, se, false, context_world.max[0], context_world.min[0]),
+                            ];
+                            for (from, to, horizontal, edge, opposite) in edges {
+                                // Leave room around the handles; tiny boxes have no skew zone.
+                                let gap = (to - from).normalized() * 9.;
+                                if from.distance(to) <= 18. || !gap.is_finite() {
+                                    continue;
+                                }
+                                let kind = GestureKind::Skew {
+                                    horizontal,
+                                    edge,
+                                    opposite,
+                                    center: context_pivot[if horizontal { 1 } else { 0 }],
                                 };
                                 let cursor = if horizontal { nf::SKEW_H } else { nf::SKEW_V };
-                                zones.push((
-                                    Zone::Handle(*rect),
-                                    GestureKind::Skew {
-                                        horizontal,
-                                        edge,
-                                        opposite,
-                                        center: context_pivot[if horizontal { 1 } else { 0 }],
-                                    },
-                                    cursor,
-                                ));
+                                zones.push((Zone::Edge(from + gap, to - gap), kind, cursor));
                             }
-                        }
-                    }
-                    if !pivot_first {
-                        zones.push((
-                            Zone::Pivot(pivot_screen),
-                            GestureKind::Pivot {
-                                initial_world: pivot_world,
-                            },
-                            nf::MOVE,
-                        ));
-                    }
-                    if matches!(
-                        active_mode,
-                        FreeTransformMode::FreeTransform | FreeTransformMode::RotateAndSkew
-                    ) {
-                        let [nw, ne, se, sw, n, e, s, w] = rects.map(|r| r.center());
-                        let edges = [
-                            (nw, n, true, context_world.min[1], context_world.max[1]),
-                            (n, ne, true, context_world.min[1], context_world.max[1]),
-                            (sw, s, true, context_world.max[1], context_world.min[1]),
-                            (s, se, true, context_world.max[1], context_world.min[1]),
-                            (nw, w, false, context_world.min[0], context_world.max[0]),
-                            (w, sw, false, context_world.min[0], context_world.max[0]),
-                            (ne, e, false, context_world.max[0], context_world.min[0]),
-                            (e, se, false, context_world.max[0], context_world.min[0]),
-                        ];
-                        for (from, to, horizontal, edge, opposite) in edges {
-                            // Leave room around the handles; tiny boxes have no skew zone.
-                            let gap = (to - from).normalized() * 9.;
-                            if from.distance(to) <= 18. || !gap.is_finite() {
-                                continue;
+                            for corner in [nw, ne, se, sw] {
+                                let kind = GestureKind::Rotate {
+                                    single,
+                                    pivot: pivot_world,
+                                    local_bounds: g.local,
+                                };
+                                zones.push((Zone::Rotate { corner, frame }, kind, nf::ROTATE));
                             }
-                            let kind = GestureKind::Skew {
-                                horizontal,
-                                edge,
-                                opposite,
-                                center: context_pivot[if horizontal { 1 } else { 0 }],
-                            };
-                            let cursor = if horizontal { nf::SKEW_H } else { nf::SKEW_V };
-                            zones.push((Zone::Edge(from + gap, to - gap), kind, cursor));
-                        }
-                        for corner in [nw, ne, se, sw] {
-                            let kind = GestureKind::Rotate {
-                                single,
-                                pivot: pivot_world,
-                                local_bounds: g.local,
-                            };
-                            zones.push((Zone::Rotate { corner, frame }, kind, nf::ROTATE));
                         }
                     }
                 }
@@ -2693,6 +2719,7 @@ impl Editor {
         {
             cv::paint_marquee(p, p.ctx(), Rect::from_two_pos(g.press, g.latest));
         }
+        let mut pivot_double_clicked = false;
         if self.tool == Tool::Transform
             && response.double_clicked()
             && !self.stage_view.guide_pointer
@@ -2702,7 +2729,12 @@ impl Editor {
                 .is_some_and(|pos| pos.distance(pivot_screen) <= 8.0)
         {
             self.reset_transformation_point();
+            pivot_double_clicked = true;
         }
+        let double_click_on_transform_handle = self.tool == Tool::Transform
+            && response
+                .interact_pointer_pos()
+                .is_some_and(|pos| zones.iter().any(|(z, ..)| z.contains(pos)));
         let double_click_hits_selection = response.interact_pointer_pos().is_some_and(|pos| {
             self.pick_placement(
                 scene,
@@ -2712,7 +2744,9 @@ impl Editor {
             )
             .is_some_and(|target| self.selection.targets.contains(&target))
         });
-        if self.tool == Tool::Select
+        if matches!(self.tool, Tool::Select | Tool::Transform)
+            && !pivot_double_clicked
+            && !double_click_on_transform_handle
             && response.double_clicked()
             && !self.stage_view.guide_pointer
             && double_click_hits_selection

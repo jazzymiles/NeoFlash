@@ -3147,11 +3147,17 @@ impl Editor {
         project: &Project,
         layer: &Layer,
         parent_frame: u32,
-        symbol_id: &str,
-        playback: InstancePlayback,
+        element: &Element,
     ) -> Option<u32> {
+        let ElementKind::Instance {
+            ref symbol_id,
+            playback,
+        } = element.kind
+        else {
+            return None;
+        };
         let sym = project.symbol(symbol_id)?;
-        if sym.kind != SymbolKind::Graphic {
+        if element.effective_symbol_kind_for(sym) != SymbolKind::Graphic {
             return None;
         }
         let count = sym.timeline.frame_count.max(1);
@@ -3168,15 +3174,9 @@ impl Editor {
     }
 
     pub(crate) fn can_enter_graphic_at_current_frame(&self) -> bool {
-        let Some(placement) = self.selected_sampled() else {
-            return false;
-        };
-        let ElementKind::Instance { symbol_id, .. } = placement.kind else {
-            return false;
-        };
-        self.project
-            .symbol(&symbol_id)
-            .is_some_and(|sym| sym.kind == SymbolKind::Graphic)
+        self.selected_sampled().is_some_and(|placement| {
+            placement.effective_symbol_kind(&self.project) == Some(SymbolKind::Graphic)
+        })
     }
 
     /// ToonMonkey `Enter Graphic at Current Frame` (`Edit in Place at Synced Frame`): enters
@@ -3190,13 +3190,10 @@ impl Editor {
         let Some(placement) = self.selected_sampled() else {
             return false;
         };
-        let ElementKind::Instance {
-            symbol_id,
-            playback,
-        } = placement.kind
-        else {
+        let ElementKind::Instance { ref symbol_id, .. } = placement.kind else {
             return false;
         };
+        let symbol_id = symbol_id.clone();
         let Some(layer) = self
             .symbol()
             .timeline
@@ -3207,7 +3204,7 @@ impl Editor {
             return false;
         };
         let Some(synced_frame) =
-            Self::graphic_synced_frame_at(&self.project, layer, self.frame, &symbol_id, playback)
+            Self::graphic_synced_frame_at(&self.project, layer, self.frame, &placement)
         else {
             return false;
         };
@@ -3224,14 +3221,7 @@ impl Editor {
     pub(crate) fn has_selected_graphic_instance(&self) -> bool {
         self.sampled_targets().into_iter().any(|(target, el)| {
             self.target_editable(&target)
-                && matches!(
-                    el.kind,
-                    ElementKind::Instance { ref symbol_id, .. }
-                        if self
-                            .project
-                            .symbol(symbol_id)
-                            .is_some_and(|s| s.kind == SymbolKind::Graphic)
-                )
+                && el.effective_symbol_kind(&self.project) == Some(SymbolKind::Graphic)
         })
     }
 
@@ -3251,23 +3241,11 @@ impl Editor {
             if !self.target_editable(&target) {
                 continue;
             }
-            let ElementKind::Instance {
-                ref symbol_id,
-                playback: current_playback,
-            } = el.kind
-            else {
-                continue;
-            };
             let Some(layer) = timeline.layers.iter().find(|l| l.id == target.layer) else {
                 continue;
             };
-            let Some(synced) = Self::graphic_synced_frame_at(
-                &self.project,
-                layer,
-                frame,
-                symbol_id,
-                current_playback,
-            ) else {
+            let Some(synced) = Self::graphic_synced_frame_at(&self.project, layer, frame, &el)
+            else {
                 continue;
             };
             let next_playback = if lock_current_synced_frame {

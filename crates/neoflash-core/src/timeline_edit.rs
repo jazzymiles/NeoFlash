@@ -1598,13 +1598,12 @@ fn continued_playback(
 
 /// Synchronize graphic symbol playback on `layer` across `start..=end` without requiring a change.
 pub fn sync_layer_symbols(project: &Project, layer: &mut Layer, start: u32, end: u32) -> usize {
-    let graphics: HashMap<Id, u32> = project
+    let symbols: HashMap<Id, (SymbolKind, u32)> = project
         .symbols
         .iter()
-        .filter(|s| s.kind == SymbolKind::Graphic)
-        .map(|s| (s.id.clone(), s.timeline.frame_count.max(1)))
+        .map(|s| (s.id.clone(), (s.kind, s.timeline.frame_count.max(1))))
         .collect();
-    sync_symbols(layer, start, end, &graphics, None)
+    sync_symbols(layer, start, end, &symbols, None)
 }
 
 /// Synchronize one graphic symbol placement without changing sibling instances on the layer.
@@ -1615,13 +1614,17 @@ pub fn sync_layer_symbol(
     end: u32,
     element_id: &str,
 ) -> usize {
-    let graphics: HashMap<Id, u32> = project
+    let symbols: HashMap<Id, (SymbolKind, u32)> = project
         .symbols
         .iter()
-        .filter(|symbol| symbol.kind == SymbolKind::Graphic)
-        .map(|symbol| (symbol.id.clone(), symbol.timeline.frame_count.max(1)))
+        .map(|symbol| {
+            (
+                symbol.id.clone(),
+                (symbol.kind, symbol.timeline.frame_count.max(1)),
+            )
+        })
         .collect();
-    sync_symbols(layer, start, end, &graphics, Some(element_id))
+    sync_symbols(layer, start, end, &symbols, Some(element_id))
 }
 
 /// Synchronise symbols on one layer: keyframes in `start..=end` (in frame order) continue the
@@ -1630,7 +1633,7 @@ fn sync_symbols(
     layer: &mut Layer,
     start: u32,
     end: u32,
-    graphics: &HashMap<Id, u32>,
+    symbols: &HashMap<Id, (SymbolKind, u32)>,
     target_element: Option<&str>,
 ) -> usize {
     layer.keyframes.sort_by_key(|key| key.frame);
@@ -1653,28 +1656,38 @@ fn sync_symbols(
             else {
                 continue;
             };
-            let Some(&count) = graphics.get(symbol_id) else {
+            let Some(&(sym_kind, count)) = symbols.get(symbol_id) else {
                 continue;
             };
-            let instance = |e: &&Element| matches!(&e.kind, ElementKind::Instance { symbol_id: s, .. } if s == symbol_id);
-            let exact_before = previous
+            if element.instance_behavior.unwrap_or(sym_kind) != SymbolKind::Graphic {
+                continue;
+            }
+            let is_graphic_of_symbol = |candidate: &Element| {
+                matches!(&candidate.kind, ElementKind::Instance { symbol_id: s, .. } if s == symbol_id)
+                    && candidate.instance_behavior.unwrap_or(sym_kind) == SymbolKind::Graphic
+            };
+            let same_id_on_previous = previous
                 .elements
                 .iter()
-                .filter(instance)
                 .find(|candidate| candidate.id == element.id);
-            let Some(before) = exact_before.or_else(|| {
-                if target_element.is_some() {
-                    let ordinal = layer.keyframes[index].elements[..=element_index]
-                        .iter()
-                        .filter(|candidate| {
-                            matches!(&candidate.kind, ElementKind::Instance { symbol_id: candidate_symbol, .. } if candidate_symbol == symbol_id)
-                        })
-                        .count()
-                        .saturating_sub(1);
-                    previous.elements.iter().filter(instance).nth(ordinal)
-                } else {
-                    previous.elements.iter().find(instance)
-                }
+            let Some(before) = (if let Some(exact) = same_id_on_previous {
+                is_graphic_of_symbol(exact).then_some(exact)
+            } else if target_element.is_some() {
+                let ordinal = layer.keyframes[index].elements[..=element_index]
+                    .iter()
+                    .filter(|candidate| is_graphic_of_symbol(candidate))
+                    .count()
+                    .saturating_sub(1);
+                previous
+                    .elements
+                    .iter()
+                    .filter(|candidate| is_graphic_of_symbol(candidate))
+                    .nth(ordinal)
+            } else {
+                previous
+                    .elements
+                    .iter()
+                    .find(|candidate| is_graphic_of_symbol(candidate))
             }) else {
                 continue;
             };
@@ -1862,13 +1875,12 @@ pub fn convert_layer_to_keyframes_stepped(
 pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> Result<(), String> {
     let mut candidate = project.clone();
     let fps = f64::from(candidate.fps);
-    // Graphic symbols and their frame counts (Synchronise symbols and Razor / SplitClip).
-    let graphics: HashMap<Id, u32> = match &edit {
+    // Symbols and their frame counts (Synchronise symbols and Razor / SplitClip).
+    let symbols_for_sync: HashMap<Id, (SymbolKind, u32)> = match &edit {
         TimelineEdit::SyncSymbols { .. } | TimelineEdit::SplitClip { .. } => candidate
             .symbols
             .iter()
-            .filter(|s| s.kind == SymbolKind::Graphic)
-            .map(|s| (s.id.clone(), s.timeline.frame_count.max(1)))
+            .map(|s| (s.id.clone(), (s.kind, s.timeline.frame_count.max(1))))
             .collect(),
         _ => HashMap::new(),
     };
@@ -2275,7 +2287,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                     &mut timeline.layers[index],
                     range.start,
                     range.end,
-                    &graphics,
+                    &symbols_for_sync,
                     None,
                 );
             }
@@ -2399,7 +2411,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                         right_key.sound = Some(right_sound);
                     }
                 }
-                let _ = sync_symbols(&mut layer, at, at, &graphics, None);
+                let _ = sync_symbols(&mut layer, at, at, &symbols_for_sync, None);
                 timeline.layers[index] = layer;
                 split_count += 1;
             }
@@ -3642,6 +3654,165 @@ mod tests {
         assert_eq!(
             p, snapshot,
             "failed Event split must leave both linked layers untouched"
+        );
+    }
+
+    #[test]
+    fn sync_symbols_and_split_clip_respect_per_instance_behavior_overrides() {
+        let mut p = Project::blank();
+        let root_id = p.root.clone();
+        p.symbols[0].timeline.frame_count = 10;
+        let layer_id = p.symbols[0].timeline.layers[0].id.clone();
+
+        let mut mc_sym = p.symbols[0].clone();
+        mc_sym.id = "mc_lib".into();
+        mc_sym.name = "HeroMC".into();
+        mc_sym.kind = SymbolKind::MovieClip;
+        mc_sym.timeline.layers[0].id = "mc-layer".into();
+        mc_sym.timeline.frame_count = 8;
+
+        let mut gfx_sym = p.symbols[0].clone();
+        gfx_sym.id = "gfx_lib".into();
+        gfx_sym.name = "BadgeGfx".into();
+        gfx_sym.kind = SymbolKind::Graphic;
+        gfx_sym.timeline.layers[0].id = "gfx-layer".into();
+        gfx_sym.timeline.frame_count = 8;
+        p.symbols.push(mc_sym);
+        p.symbols.push(gfx_sym);
+
+        let inst_with_behavior =
+            |id: &str, sym: &str, behavior: SymbolKind, playback: InstancePlayback| Element {
+                id: id.into(),
+                name: String::new(),
+                transform: Transform::default(),
+                kind: ElementKind::Instance {
+                    symbol_id: sym.into(),
+                    playback,
+                },
+                instance_behavior: Some(behavior),
+                ..Element::default()
+            };
+
+        p.symbols[0].timeline.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                elements: vec![
+                    inst_with_behavior(
+                        "mc_as_gfx_0",
+                        "mc_lib",
+                        SymbolKind::Graphic,
+                        InstancePlayback::LoopFrom(2),
+                    ),
+                    inst_with_behavior(
+                        "gfx_as_mc_0",
+                        "gfx_lib",
+                        SymbolKind::MovieClip,
+                        InstancePlayback::LoopFrom(2),
+                    ),
+                ],
+                ..Default::default()
+            },
+            Keyframe {
+                frame: 5,
+                elements: vec![
+                    inst_with_behavior(
+                        "mc_as_gfx_5",
+                        "mc_lib",
+                        SymbolKind::Graphic,
+                        InstancePlayback::Loop,
+                    ),
+                    inst_with_behavior(
+                        "gfx_as_mc_5",
+                        "gfx_lib",
+                        SymbolKind::MovieClip,
+                        InstancePlayback::Loop,
+                    ),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        // 1. sync_layer_symbols syncs the Graphic-overridden MovieClip ((2 + 5) % 8 = 7)
+        // while leaving the MovieClip-overridden Graphic untouched (even though its playback field is Loop).
+        let mut layer_copy = p.symbols[0].timeline.layers[0].clone();
+        let changed = sync_layer_symbols(&p, &mut layer_copy, 0, 9);
+        assert_eq!(changed, 1);
+        assert_eq!(
+            layer_copy.keyframes[1].elements[0].kind,
+            ElementKind::Instance {
+                symbol_id: "mc_lib".into(),
+                playback: InstancePlayback::LoopFrom(7),
+            }
+        );
+        assert_eq!(
+            layer_copy.keyframes[1].elements[1].kind,
+            ElementKind::Instance {
+                symbol_id: "gfx_lib".into(),
+                playback: InstancePlayback::Loop,
+            }
+        );
+
+        // 2. TimelineEdit::SplitClip and TimelineEdit::SyncSymbols also respect instance_behavior.
+        edit_frames(
+            &mut p,
+            &root_id,
+            TimelineEdit::SplitClip {
+                layers: vec![layer_id.clone()],
+                at: 3,
+            },
+        )
+        .unwrap();
+        let split_key = p.symbols[0].timeline.layers[0]
+            .keyframes
+            .iter()
+            .find(|k| k.frame == 3)
+            .unwrap();
+        // Same element ID across split: placement_start == 0, so LoopFrom(2) stays LoopFrom(2).
+        assert_eq!(
+            split_key.elements[0].kind,
+            ElementKind::Instance {
+                symbol_id: "mc_lib".into(),
+                playback: InstancePlayback::LoopFrom(2),
+            }
+        );
+        assert_eq!(
+            split_key.elements[1].kind,
+            ElementKind::Instance {
+                symbol_id: "gfx_lib".into(),
+                playback: InstancePlayback::LoopFrom(2),
+            }
+        );
+
+        edit_frames(
+            &mut p,
+            &root_id,
+            TimelineEdit::SyncSymbols {
+                range: FrameRange {
+                    layers: vec![layer_id],
+                    start: 5,
+                    end: 5,
+                },
+            },
+        )
+        .unwrap();
+        let k5 = p.symbols[0].timeline.layers[0]
+            .keyframes
+            .iter()
+            .find(|k| k.frame == 5)
+            .unwrap();
+        assert_eq!(
+            k5.elements[0].kind,
+            ElementKind::Instance {
+                symbol_id: "mc_lib".into(),
+                playback: InstancePlayback::LoopFrom(7),
+            }
+        );
+        assert_eq!(
+            k5.elements[1].kind,
+            ElementKind::Instance {
+                symbol_id: "gfx_lib".into(),
+                playback: InstancePlayback::Loop,
+            }
         );
     }
 }
