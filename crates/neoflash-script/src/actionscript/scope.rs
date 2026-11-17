@@ -526,6 +526,7 @@ impl<'a> Analysis<'a> {
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "Vector"|"Dictionary") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,format!("{name} is an AS3 native collection; AS2 user bindings/classes may use that name, but the native family is unavailable."))),
             Expr::Name(name) if name=="Vector" && self.context.intrinsic_type(name,self.script.language==ScriptLanguage::ActionScript3) && self.resolve(scope,name).is_none() => return Err(self.error(self.scopes[&scope].offset,"Vector requires a resolved element type: Vector.<T>. Untyped native Vector class values are unsupported.")),
             Expr::TypeValue(_,offset) | Expr::NewVector(_,_,offset) if self.resolve(scope,"Vector").is_some() => return Err(self.error(*offset,"A shadowed Vector value cannot act as the native generic class; use an unshadowed type name.")),
+            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name == "eval" && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "ActionScript 3.0 removed global eval(); use bracket property access (obj[name]) instead.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="XMLNode" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"Bare XMLNode belongs to the AS2 legacy DOM profile. AS3 XML/XMLList are supported; flash.xml legacy aliases are not integrated yet.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="Selection" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"Selection is the AS2 focus singleton. AS3 uses Stage.focus and TextField selection methods.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="MovieClipLoader" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"MovieClipLoader is the AS2 loading API. AS3 uses flash.display.Loader and its contentLoaderInfo.")),
@@ -599,6 +600,9 @@ impl<'a> Analysis<'a> {
                 }
                 if self.script.language==ScriptLanguage::ActionScript2 && binding.is_none() && matches!(callee.as_ref(),Expr::Name(name) if name=="Selection" && !self.context.types.contains_key(name)) {
                     return Err(self.error(*offset,"AS2 Selection is a shared focus singleton, not a function. Call a Selection method instead."));
+                }
+                if self.script.language == ScriptLanguage::ActionScript3 && binding.is_none() && matches!(callee.as_ref(), Expr::Name(name) if name == "eval") {
+                    return Err(self.error(*offset, "ActionScript 3.0 removed global eval(); use bracket property access (obj[name]) instead."));
                 }
                 if binding.is_none() && matches!(callee.as_ref(),Expr::Name(name) if name == "JSON" && self.context.intrinsic_type(name,true)) {
                     return Err(self.error(*offset,"JSON supplies static parse/stringify functions and cannot be called as a function."));

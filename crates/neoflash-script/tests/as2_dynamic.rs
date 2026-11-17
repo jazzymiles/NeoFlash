@@ -55,3 +55,32 @@ fn as2_goto_aliases_are_diagnosed_without_blocking_local_shadowing() {
         );
     }
 }
+
+#[test]
+fn t370_eval_and_set_compile_in_as1_and_as2_and_diagnose_cleanly_in_as3() {
+    for lang in [ScriptLanguage::ActionScript1, ScriptLanguage::ActionScript2] {
+        assert!(
+            compile(
+                "set('score', 42); var x = eval('score'); var ok = ('a' add 'b') eq 'ab'; var b = (-1 >>> 1) | (4294967297 & 3);",
+                lang
+            )
+            .is_ok()
+        );
+    }
+    let err_call = compile("var x = eval('score');", ScriptLanguage::ActionScript3).unwrap_err();
+    assert!(
+        err_call[0]
+            .message
+            .contains("ActionScript 3.0 removed global eval()"),
+        "unexpected AS3 eval() diagnostic: {err_call:?}"
+    );
+    let err_val = compile("var fnRef = eval;", ScriptLanguage::ActionScript3).unwrap_err();
+    assert!(
+        err_val[0]
+            .message
+            .contains("ActionScript 3.0 removed global eval()"),
+        "unexpected AS3 eval value diagnostic: {err_val:?}"
+    );
+    assert!(compile("set('score', 1);", ScriptLanguage::ActionScript3).is_err());
+    assert!(compile("eval('score') = 1;", ScriptLanguage::ActionScript2).is_err());
+}

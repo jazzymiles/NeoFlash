@@ -55,6 +55,10 @@ var lFigure = new Array([0,1,0],[0,1,0],[0,1,0],[0,1,0]);
 var joinedFigure = lFigure.join("");
 var avm1Join = ["zero", undefined, null, "five"].join("/");
 var avm1Holes = new Array(2).toString();
+var avm1PlusArr = "" + [undefined, null, 1] + "|" + String([undefined, null, 1]) + "|" + ([1, 2] + [3, 4]);
+var sideIdx = 0; var sideArr = [1, 2]; sideArr[sideIdx++] |= 6; sideArr[sideIdx++] >>>= 1;
+var valObjPlus = "" + { valueOf: function() { return 7; }, toString: function() { return "str"; } };
+var strObjCall = String({ valueOf: function() { return 7; }, toString: function() { return "str"; } });
 result = labels.join("|");
 trace("AS2", result, "order", order.join(","), "numbers", numeric.join(","));`,
   as3: `function localXML(XML:Function,XMLList:Function):String {return XML("new")+XMLList("list");}
@@ -226,6 +230,9 @@ export const collectionsFixtures = [
       assert.equal(c.reversed,c.copy); assert.equal(c.custom,'custom:16');
       assert.equal(c.xmlShadow,'oldnode');assert.equal(c.stockTotal,5);assert.equal(c.hadPears,true);assert.equal(c.removedPears,true);assert.equal(Object.hasOwn(c.stock,'pears'),false);
       assert.equal(c.joinedFigure,'0,1,00,1,00,1,00,1,0');assert.equal(c.avm1Join,'zero/undefined/null/five');assert.equal(c.avm1Holes,'undefined,undefined');
+      assert.equal(c.avm1PlusArr,'undefined,null,1|undefined,null,1|1,23,4');
+      assert.equal(c.sideIdx,2);assert.deepEqual(c.sideArr,[7,1]);
+      assert.equal(c.valObjPlus,'7');assert.equal(c.strObjCall,'str');
       assert.deepEqual(logs,[['AS2','Zoe:45|Ada:30|Bob:20','order','1,0,2','numbers','2,11,30']]);
     } },
   { language:'action_script3', profile:collectionsProfile, source:collectionSources.as3, context:{},

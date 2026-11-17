@@ -25,11 +25,27 @@ function __nfStringBound(value) {
     }
     return value;
 }
+function __nfToStringValue(value, as3, isAs1 = false) {
+    if (value === undefined) return (!as3 && isAs1) ? '' : 'undefined';
+    if (value === null) return 'null';
+    if (typeof value === 'string') return value;
+    if (__nfArrayIsArray(value) && value.toString === __nfArrayMethods.toString) {
+        return __nfArrayJoin(value, ',', as3, isAs1);
+    }
+    if (typeof value === 'object' || typeof value === 'function') {
+        const program = typeof __nfProgram !== 'undefined' ? __nfProgram : null;
+        const resolved = value.toString;
+        const defaultMethod = program?.defaultObjectMethod?.(value, 'toString', resolved);
+        if (defaultMethod) return __nfStringNative(__nfStringApply(defaultMethod, value, []));
+    }
+    return __nfStringNative(value);
+}
 function __nfStringCreate(as3, args, isNew = false) {
     if (isNew && !as3) return __nfBoxCreate('String', args);
+    const isAs1 = !as3 && typeof __nfLegacyCase !== 'undefined' && Boolean(__nfLegacyCase);
     // Both VMs ignore extra constructor arguments. Typed String slots retain
     // their separate nullable coercion; calling String(null) produces "null".
-    return __nfStringBound(args.length ? __nfStringNative(args[0]) : '');
+    return __nfStringBound(args.length ? __nfToStringValue(args[0], as3, isAs1) : '');
 }
 function __nfStringFromCharCode(as3, args) {
     return (as3 ? __nfAs3Strings() : __nfAs2Strings()).invoke('fromCharCode', '', args);

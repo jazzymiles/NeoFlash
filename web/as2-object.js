@@ -116,7 +116,8 @@
       if(!writing&&object(path))return path;
       if(!writing&&typeof path!=='string')return undefined;
       if(typeof path!=='string')throw new TypeError('AS2 eval/set requires a variable path string or an object reference for eval.');
-      const parts=JSON.parse(wasm.as2_reference_path_json(path));if(!parts.length){if(writing)throw new TypeError('AS2 set requires a nonempty variable path.');return undefined;}
+      let parts;try{parts=JSON.parse(wasm.as2_reference_path_json(path));}catch(error){if(writing||path.length>4096)throw error;return undefined;}
+      if(!parts.length){if(writing)throw new TypeError('AS2 set requires a nonempty variable path.');return undefined;}
       const first=parts.shift(),firstLookup=legacyCase?first.toLowerCase():first;
       const known=firstLookup==='this'?null:lexical?.(first),environment=globals(frame),level=parseLevel(firstLookup);
       const root=firstLookup==='this'?{get:()=>frame}:known??(level!==null?{get:()=>level===0?environment._level0:undefined}:null)??globalProp(firstLookup)??(Object.hasOwn(environment,firstLookup)?{get:()=>environment[firstLookup]}:null);
@@ -133,6 +134,7 @@
       if(writing){
         if(!parts.length&&root){if(!root.set)throw new TypeError('This AS2 named binding cannot be reassigned.');root.set(value);return undefined;}
         if(owner==null)throw new TypeError('AS2 set target does not exist.');
+        if(Array.isArray(owner)&&name==='length'&&(!Number.isInteger(value)||value<0||value>1000000))throw new RangeError('NeoFlash Array operations currently support integer lengths from 0 through 1000000.');
         const ref=nativeRef(owner,name);if(ref){ref.set(value);return undefined;}set(owner,name,value,()=>owner[name],next=>{if(!Reflect.set(owner,name,next))throw new TypeError('Cannot write AS2 named property.');});return undefined;
       }
       return !parts.length&&root?root.get():owner==null?undefined:namedGet(owner,name,legacyCase);

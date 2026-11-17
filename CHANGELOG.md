@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Audited and aligned string, array, `eval()`/`set()` and 32-bit bitwise operators across compiled HTML5 (**Test Movie**
+  / **Publish** for AS1, AS2, AS3 and JS/TS) and live in-editor **Play** (`Enter`): matched AS1/AS2/AS3 `+`, `+=`,
+  `String(...)` and Classic Flash string operators (`add`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `<>`, `chr`, `ord`,
+  `length`, `substring`) on arrays, objects and `undefined`/`null` (preserving `valueOf()`-first `+` coercion and SWF6
+  `undefined < 1`), added safe AVM1 `eval()` return of `undefined` on malformed path syntax plus an explicit AS3
+  `eval()` compile diagnostic, and extended `AuthoredPlayback` with ECMA-262 32-bit `ToInt32`/`ToUint32` bitwise
+  operators (`&`, `|`, `^`, `~`, `<<`, `>>`, `>>>`, `&=`, `|=`, `^=`, `<<=`, `>>=`, `>>>=`), `delete` on array holes
+  and object keys, `in`/`instanceof`/`is`/`as`/`typeof`/ternary `? :`, and bounded `eval()`/`set()` path resolution
+  (`T-370`).
 - Preserved nested structure when tracing multidimensional arrays (`2D`/`3D` matrices, sparse holes, AS2 associative
   keys, AS3 `Vector.<T>`) and objects (`{...}`, `Object.create(null)`, AS3 `Dictionary`, `Map`, `Set`, `TypedArray`,
   and AS2/AS3/JS/TS class instances without a custom `toString()`) in **Output**, while keeping Flash/ECMA

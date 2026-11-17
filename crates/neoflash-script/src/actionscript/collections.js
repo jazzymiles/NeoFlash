@@ -14,6 +14,7 @@ const __nfArrayString = String;
 const __nfArrayTypeError = TypeError;
 const __nfArrayRangeError = RangeError;
 const __nfArrayObjectToString = Object.prototype.toString;
+const __nfArrayValueOf = Array.prototype.valueOf;
 const __nfArrayTraitNames = [
     'push', 'pop', 'shift', 'unshift', 'join', 'slice', 'concat', 'reverse', 'splice',
     'sort', 'sortOn', 'indexOf', 'lastIndexOf', 'map', 'filter', 'forEach', 'every', 'some',
@@ -127,6 +128,12 @@ function __nfArrayJoin(target, separator, as3 = true, isAs1 = false) {
     } finally {
         __nfArraySeen.delete(target);
     }
+}
+function __nfArrayDefaultString(value, as3 = true, isAs1 = false) {
+    if (__nfArrayIsArray(value) && value.valueOf === __nfArrayValueOf && value.toString === __nfArrayMethods.toString) {
+        return __nfArrayJoin(value, ',', as3, isAs1);
+    }
+    return value;
 }
 function __nfArrayLocaleString(target) {
     const length = __nfArrayReadLength(target);

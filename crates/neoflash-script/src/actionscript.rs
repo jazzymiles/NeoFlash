@@ -4023,12 +4023,19 @@ impl Emitter<'_> {
                 "add" | "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "and" | "or"
             )
         {
-            format!("__nfLegacyStringOperator({op:?}, {left}, {right})")
+            if self.legacy_case() {
+                format!("__nfLegacyStringOperator({op:?}, {left}, {right}, true)")
+            } else {
+                format!("__nfLegacyStringOperator({op:?}, {left}, {right})")
+            }
         } else if !self.as3 && op == "<>" {
             format!("__nfLegacyStringOperator(\"unequal\", {left}, {right})")
         } else if self.as3 && matches!(op, "+" | "==" | "!=" | "===" | "!==") {
             format!("__nfXMLBinary({op:?}, {left}, {right})")
-        } else if !self.as3 && matches!(op, "+" | "-" | "*" | "/" | "%") {
+        } else if !self.as3
+            && (matches!(op, "+" | "-" | "*" | "/" | "%")
+                || (self.legacy_case() && matches!(op, "<" | "<=" | ">" | ">=")))
+        {
             format!(
                 "__nfLegacyBinary({op:?}, {left}, {right}, {})",
                 self.legacy_case()
@@ -5604,7 +5611,7 @@ function __nfXMLBinary(op,left,right) {
             }
         }
     }
-    switch(op){case '+':return left+right;case '==':return left==right;case '!=':return left!=right;case '===':return left===right;case '!==':return left!==right;}
+    switch(op){case '+':return __nfArrayDefaultString(left,true,false)+__nfArrayDefaultString(right,true,false);case '==':return left==right;case '!=':return left!=right;case '===':return left===right;case '!==':return left!==right;}
     throw new __nfTypeError('Unsupported XML operator.');
 }
 const __nfPrimitiveTypes = new Map();
@@ -5678,18 +5685,38 @@ function __nfLegacyNumOperand(val, legacyCase) {
 function __nfLegacyBinary(op, left, right, legacyCase) {
     const isAs1 = Boolean(legacyCase) || (legacyCase === undefined && typeof __nfLegacyCase !== 'undefined' && Boolean(__nfLegacyCase));
     if (op === '+') {
-        if (typeof left === 'string' || typeof right === 'string') {
+        const lArr = __nfArrayDefaultString(left, false, isAs1);
+        const rArr = __nfArrayDefaultString(right, false, isAs1);
+        if (typeof lArr === 'string' || typeof rArr === 'string') {
             if (isAs1) {
-                const l = left === undefined ? '' : __nfString(left);
-                const r = right === undefined ? '' : __nfString(right);
-                return l + r;
+                return (lArr === undefined ? '' : lArr) + (rArr === undefined ? '' : rArr);
             }
-            return left + right;
+            return lArr + rArr;
         }
-        if ((left !== null && typeof left === 'object') || (right !== null && typeof right === 'object')) {
-            return left + right;
+        if ((lArr !== null && typeof lArr === 'object') || (rArr !== null && typeof rArr === 'object')) {
+            return lArr + rArr;
         }
-        return __nfLegacyNumOperand(left, isAs1) + __nfLegacyNumOperand(right, isAs1);
+        return __nfLegacyNumOperand(lArr, isAs1) + __nfLegacyNumOperand(rArr, isAs1);
+    }
+    if (op === '<' || op === '<=' || op === '>' || op === '>=') {
+        if ((typeof left === 'string' && typeof right === 'string')
+            || (left !== null && typeof left === 'object')
+            || (right !== null && typeof right === 'object')) {
+            switch (op) {
+                case '<': return left < right;
+                case '<=': return left <= right;
+                case '>': return left > right;
+                case '>=': return left >= right;
+            }
+        }
+        const a = __nfLegacyNumOperand(left, isAs1);
+        const b = __nfLegacyNumOperand(right, isAs1);
+        switch (op) {
+            case '<': return a < b;
+            case '<=': return a <= b;
+            case '>': return a > b;
+            case '>=': return a >= b;
+        }
     }
     const a = __nfLegacyNumOperand(left, isAs1);
     const b = __nfLegacyNumOperand(right, isAs1);

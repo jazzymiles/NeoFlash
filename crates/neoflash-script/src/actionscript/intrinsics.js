@@ -282,7 +282,15 @@ function __nfMath(as3) {
 }
 const __nfLegacyStringGlobals = Object.freeze(Object.fromEntries(
     ['chr', 'ord', 'length', 'substring', 'mbchr', 'mbord', 'mblength', 'mbsubstring']
-        .map(name => [name, (...args) => __nfAs2Strings().invoke('global.' + name, '', args)])
+        .map(name => [name, (...args) => {
+            const isAs1 = typeof __nfLegacyCase !== 'undefined' && Boolean(__nfLegacyCase);
+            if (args.length && name !== 'chr' && name !== 'mbchr') {
+                const copy = args.slice();
+                copy[0] = __nfToStringValue(copy[0], false, isAs1);
+                return __nfAs2Strings().invoke('global.' + name, '', copy);
+            }
+            return __nfAs2Strings().invoke('global.' + name, '', args);
+        }])
 ));
 function __nfMethodValue(value) {
     // A computed property name can select the native method without any
@@ -302,7 +310,16 @@ function __nfPropertyValue(receiver, key) {
     return __nfMethodValue(receiver[key]);
 }
 function __nfParseInt2(...args) { return __nfAs2Strings().invoke('global.parseInt', '', args); }
-function __nfLegacyStringOperator(op, left, right) { return __nfAs2Strings().invoke('operator.' + op, '', [left, right]); }
+function __nfLegacyStringOperator(op, left, right, legacyCase = false) {
+    const isAs1 = Boolean(legacyCase) || (legacyCase === undefined && typeof __nfLegacyCase !== 'undefined' && Boolean(__nfLegacyCase));
+    if (op === 'add' || op === 'eq' || op === 'ne' || op === 'lt' || op === 'le' || op === 'gt' || op === 'ge') {
+        // Preserve AVM1 stack coercion order (right operand first, then left).
+        const r = __nfToStringValue(right, false, isAs1);
+        const l = __nfToStringValue(left, false, isAs1);
+        return __nfAs2Strings().invoke('operator.' + op, '', [l, r]);
+    }
+    return __nfAs2Strings().invoke('operator.' + op, '', [left, right]);
+}
 function __nfParseInt3(value, radix) {
     // AS3 has decimal default radix; no AVM1 automatic octal or signed-hex quirks.
     // The pinned VM's native signature is String="NaN", int=0. Explicit

@@ -846,6 +846,8 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
         'var lFigure = new Array([0,1,0],[0,1,0],[0,1,0],[0,1,0]);',
         'var f = lFigure.join("");',
         'trace(f);',
+        'set("dynSlot", 19); var sIdx = 0; var bArr = [1, 20]; bArr[sIdx++] |= 6; var delOk = delete bArr[1];',
+        'trace(("" + [undefined, null, 1]) + "|" + ("10" lt "2") + "|" + eval("dyn" + "Slot") + "|" + String(eval("a..b")) + "|" + bArr[0] + "|" + delOk + "|" + (1 in bArr) + "|" + (-1 >>> 0) + "|" + (4294967297 | 0) + "|" + (~0));',
       ].join('\n'),
       [
         {
@@ -909,6 +911,7 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
             '      var bs:BoardState = new BoardState();',
             '      trace(bs, bs.getterCalls);',
             '      trace("AS3_COERCE:" + String([1, 2]) + "|" + String({ a: 1 }));',
+            '      trace(("" + [bs, null]) + "|" + ((-3 >>> 1) == 2147483646) + "|" + (([1] + [2]) == "12"));',
             '    }',
             '  }',
             '}',
@@ -964,7 +967,7 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
     cdp.consoleErrors.length = 0;
     cdp.uncaughtExceptions.length = 0;
     await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-as2/index.html`);
-    await waitForCondition(() => serverInfo.state.events.length >= 7, 'AS2 structured traces');
+    await waitForCondition(() => serverInfo.state.events.length >= 8, 'AS2 structured traces');
     assert.deepEqual(
       serverInfo.state.events.map(e => e.message),
       [
@@ -975,6 +978,7 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
         'Badge(gold)',
         'COERCE:1,2|[object Object]',
         '0,1,00,1,00,1,00,1,0',
+        'undefined,null,1|true|19|undefined|7|true|false|4294967295|1|-1',
       ],
     );
     assert.deepEqual(cdp.consoleErrors, []);
@@ -983,7 +987,7 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
     // Verify AS3 structured output:
     serverInfo.state.clear();
     await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-as3/index.html`);
-    await waitForCondition(() => serverInfo.state.events.length >= 6, 'AS3 structured traces');
+    await waitForCondition(() => serverInfo.state.events.length >= 7, 'AS3 structured traces');
     assert.deepEqual(
       serverInfo.state.events.map(e => e.message),
       [
@@ -993,6 +997,7 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
         '<item id="7"/>',
         'app.BoardState {\n  level: 3,\n  rows: [\n    [1, 0],\n    [0, 1]\n  ],\n  getterCalls: 0,\n  computed: [Getter]\n} 0',
         'AS3_COERCE:1,2|[object Object]',
+        '[object BoardState],|true|true',
       ],
     );
     assert.deepEqual(cdp.consoleErrors, []);
