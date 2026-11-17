@@ -109,27 +109,54 @@ fn tab(
     response
 }
 
-/// `NF2/Script Tab` — 30 px tab at the bottom of the Actions editor, with optional pin.
+/// `NF2/Script Tab` — 30 px tab at the bottom of the Actions editor, with optional interactive pin (`T-364`).
 pub struct ScriptTab<'a> {
     pub label: &'a str,
     pub pinned: bool,
     pub active: bool,
 }
 
-impl Widget for ScriptTab<'_> {
-    fn ui(self, ui: &mut Ui) -> Response {
+/// Separate responses for clicking a [`ScriptTab`] body vs its `📌` (`i16::PIN`) toggle button.
+pub struct ScriptTabResponse {
+    /// Tab body response (primary click selects tab; secondary click opens context menu).
+    pub tab: Response,
+    /// Pin icon hit response when `pinnable || pinned`.
+    pub pin: Option<Response>,
+}
+
+impl<'a> ScriptTab<'a> {
+    /// Render the script tab with a custom leading `icon` and disjoint hit-testing for the
+    /// trailing `i16::PIN` button (`pinned` tabs always show `📌`; unpinned `pinnable` tabs
+    /// show `📌` in `text_tertiary` when active or hovered).
+    pub fn show_interactive(self, ui: &mut Ui, icon: Icon, pinnable: bool) -> ScriptTabResponse {
         let p = palette(ui.ctx());
         let g = galley(ui, self.label, TextStyle::Small, p.text_primary);
+        let has_pin_slot = pinnable || self.pinned;
         let w = space::S3
             + 16.0
             + space::S2
             + g.size().x
-            + if self.pinned { space::S2 + 16.0 } else { 0.0 }
+            + if has_pin_slot { space::S2 + 16.0 } else { 0.0 }
             + space::S3;
-        let (rect, response) =
-            ui.allocate_exact_size(egui::vec2(w, crate::metrics::script_tab()), Sense::click());
-        let s = State::of(ui, &response);
-        let fg = if self.active || s.hovered {
+        let (rect, full_resp) =
+            ui.allocate_exact_size(egui::vec2(w, crate::metrics::script_tab()), Sense::hover());
+        let (tab_resp, raw_pin_resp, pin_center_x) = if has_pin_slot {
+            let pin_hit_left = (rect.right() - space::S3 - 16.0 - space::S1 * 0.5).max(rect.left());
+            let body_rect = Rect::from_min_max(rect.min, egui::pos2(pin_hit_left, rect.bottom()));
+            let pin_rect = Rect::from_min_max(egui::pos2(pin_hit_left, rect.top()), rect.max);
+            let tab_r = ui.interact(body_rect, full_resp.id.with("body"), Sense::click());
+            let pin_r = ui.interact(pin_rect, full_resp.id.with("pin"), Sense::click());
+            (tab_r, Some(pin_r), rect.right() - space::S3 - 8.0)
+        } else {
+            let tab_r = ui.interact(rect, full_resp.id.with("body"), Sense::click());
+            (tab_r, None, rect.right() - space::S3 - 8.0)
+        };
+        let pin_hovered = raw_pin_resp.as_ref().is_some_and(Response::hovered);
+        let any_hovered = full_resp.hovered() || tab_resp.hovered() || pin_hovered;
+        if any_hovered && !self.active {
+            ui.painter().rect_filled(rect, cr(0.0), p.bg_hover);
+        }
+        let fg = if self.active || any_hovered {
             p.text_primary
         } else {
             p.text_secondary
@@ -142,15 +169,15 @@ impl Widget for ScriptTab<'_> {
             );
         }
         let mut x = rect.left() + space::S3;
+        let icon_fg = if self.active { p.accent_default } else { fg };
         icons::paint(
             ui.painter(),
             ui.ctx(),
             Rect::from_center_size(egui::pos2(x + 8.0, rect.center().y), egui::vec2(16.0, 16.0)),
-            i16::FILE_CODE,
-            fg,
+            icon,
+            icon_fg,
         );
         x += 16.0 + space::S2;
-        let gw = g.size().x;
         text_at(
             ui,
             x,
@@ -158,25 +185,65 @@ impl Widget for ScriptTab<'_> {
             galley(ui, self.label, TextStyle::Small, fg),
             fg,
         );
-        if self.pinned {
+        let show_pin_icon = self.pinned || (pinnable && (self.active || any_hovered));
+        if show_pin_icon {
+            let pin_fg = if self.pinned {
+                if pin_hovered {
+                    p.accent_hover
+                } else if self.active {
+                    p.accent_default
+                } else {
+                    p.text_primary
+                }
+            } else if pin_hovered {
+                p.text_primary
+            } else {
+                p.text_tertiary
+            };
             icons::paint(
                 ui.painter(),
                 ui.ctx(),
                 Rect::from_center_size(
-                    egui::pos2(x + gw + space::S2 + 8.0, rect.center().y),
+                    egui::pos2(pin_center_x, rect.center().y),
                     egui::vec2(16.0, 16.0),
                 ),
                 i16::PIN,
-                p.text_tertiary,
+                pin_fg,
             );
         }
         a11y(
-            &response,
+            &tab_resp,
             egui::WidgetType::SelectableLabel,
             self.label,
             Some(self.active),
         );
-        response
+        let tab = tab_resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+        let pin = raw_pin_resp.map(|pin_r| {
+            let tip = if self.pinned {
+                "Unpin script tab"
+            } else {
+                "Pin script tab"
+            };
+            let pin_label = format!("{tip}: {}", self.label);
+            a11y(
+                &pin_r,
+                egui::WidgetType::Button,
+                &pin_label,
+                Some(self.pinned),
+            );
+            super::tooltip(
+                pin_r.on_hover_cursor(egui::CursorIcon::PointingHand),
+                tip,
+                None,
+            )
+        });
+        ScriptTabResponse { tab, pin }
+    }
+}
+
+impl Widget for ScriptTab<'_> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        self.show_interactive(ui, i16::FILE_CODE, false).tab
     }
 }
 

@@ -1091,30 +1091,70 @@ fn nf2_actions_panel_reports_caret_planned_tools_and_jumps_to_diagnostics() {
     );
     assert_eq!(has("Check script"), Some(false));
 
-    // A failed check lists diagnostics; clicking one moves the caret to its line.
+    // A failed check surfaces the error count in the bottom `script_status` bar (never a
+    // height-stealing `code_feedback` row inside `Actions`), logs to `Output`, and clicking
+    // `script_status` jumps the caret directly to the diagnostic line (`T-363`).
     let script = editor.symbol().timeline.scripts[0].script.clone();
     editor.check_action_source(&script, true);
     let id = editor.actions_editor_id();
-    let found = labels(render(&mut editor));
-    let message = found
+    let check_out = render(&mut editor);
+    let status_bounds = check_out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
         .iter()
-        .find(|(l, _)| l.starts_with("Error:"))
-        .map(|(l, _)| l.clone());
-    let message = message.unwrap_or_else(|| panic!("no diagnostic row: {found:?}"));
-    let line: usize = message
-        .rsplit("Line ")
-        .next()
-        .and_then(|s| s.split(',').next())
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap();
-    // The row's click handler calls the same jump.
-    crate::sources::tests_jump(&ctx, id, &script.source, line, 1);
+        .find_map(|(_, node)| {
+            let lbl = node.label().or(node.value())?;
+            (lbl.starts_with("Line 1, Col 1") && lbl.contains("1 error"))
+                .then(|| node.bounds())
+                .flatten()
+                .map(|r| {
+                    egui::Rect::from_min_max(
+                        egui::pos2(r.x0 as f32, r.y0 as f32),
+                        egui::pos2(r.x1 as f32, r.y1 as f32),
+                    )
+                })
+        });
+    let found = labels(check_out);
+    assert!(
+        !found.iter().any(|(l, _)| l.starts_with("Error:")),
+        "height-stealing code_feedback row must not render inside Actions: {found:?}"
+    );
+    let status_rect =
+        status_bounds.unwrap_or_else(|| panic!("missing 1-error script_status button: {found:?}"));
+    let click_pos = status_rect.center();
+    for pressed in [true, false] {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400., 420.),
+                )),
+                events: vec![
+                    egui::Event::PointerMoved(click_pos),
+                    egui::Event::PointerButton {
+                        pos: click_pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.actions_contents(ui));
+            },
+        );
+    }
     let state = egui::text_edit::TextEditState::load(&ctx, id).unwrap();
     let index = state.cursor.char_range().unwrap().primary.index;
     assert_eq!(
         neoflash_ui::components::code::line_col(&script.source, index).0,
-        line
+        2
     );
+    crate::sources::tests_jump(&ctx, id, &script.source, 1, 1);
     assert_eq!(editor.project, original);
     assert!(!editor.history.can_undo());
 }

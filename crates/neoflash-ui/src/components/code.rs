@@ -500,6 +500,8 @@ pub fn char_index(text: &str, line: usize, column: usize) -> usize {
 
 /// Script bar status: "Line 19, Col 10 · 20 lines" in `NF2/Mono`, `text/tertiary`, then the problems
 /// counter (error / warning icons with counts, or "No errors") when `problems` is known. Right to left.
+/// Interactive (`Sense::click()`, hugging its own width) so callers can attach tooltips and
+/// click-to-jump diagnostic navigation without overlapping the left-hand script tabs (`T-363`).
 pub fn script_status(
     ui: &mut Ui,
     line: usize,
@@ -509,45 +511,148 @@ pub fn script_status(
 ) -> Response {
     let p = palette(ui.ctx());
     let dim = p.text_tertiary;
-    let response = ui
-        .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = space::S1;
-            if let Some((errors, warnings)) = problems {
-                if errors == 0 && warnings == 0 {
-                    ui.label(crate::typography::rich("No errors", TextStyle::Mono).color(dim));
-                } else {
-                    for (count, severity) in
-                        [(warnings, Severity::Warning), (errors, Severity::Error)]
-                    {
-                        if count > 0 {
-                            let c = severity.color(p);
-                            ui.label(
-                                crate::typography::rich(count.to_string(), TextStyle::Mono)
-                                    .color(c),
-                            );
-                            icons::show(ui, severity.icon(), c);
-                        }
-                    }
-                }
-                ui.label(crate::typography::rich("·", TextStyle::Mono).color(dim));
-            }
-            let lines = if lines == 1 {
-                "1 line".to_owned()
-            } else {
-                format!("{lines} lines")
-            };
-            ui.label(
-                crate::typography::rich(
-                    format!("Line {line}, Col {column}  ·  {lines}"),
-                    TextStyle::Mono,
-                )
-                .color(dim),
-            );
+    let lines_str = if lines == 1 {
+        "1 line".to_owned()
+    } else {
+        format!("{lines} lines")
+    };
+    let pos_label = format!("Line {line}, Col {column}  ·  {lines_str}");
+    let pos_galley = galley(ui, &pos_label, TextStyle::Mono, dim);
+    let sep_galley = problems.map(|_| galley(ui, "·", TextStyle::Mono, dim));
+    let no_errors_galley = problems.and_then(|(e, w)| {
+        (e == 0 && w == 0).then(|| galley(ui, "No errors", TextStyle::Mono, dim))
+    });
+    let err_galley = problems.and_then(|(e, _)| {
+        (e > 0).then(|| {
+            galley(
+                ui,
+                &e.to_string(),
+                TextStyle::Mono,
+                Severity::Error.color(p),
+            )
         })
-        .response;
-    let text = format!("Line {line}, column {column}, {lines} lines");
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &text));
-    response
+    });
+    let warn_galley = problems.and_then(|(_, w)| {
+        (w > 0).then(|| {
+            galley(
+                ui,
+                &w.to_string(),
+                TextStyle::Mono,
+                Severity::Warning.color(p),
+            )
+        })
+    });
+
+    let gap = space::S1;
+    let icon_sz = 16.0;
+    let mut total_w = pos_galley.size().x;
+    if let Some(sep) = &sep_galley {
+        total_w += gap + sep.size().x;
+        if let Some(ne) = &no_errors_galley {
+            total_w += gap + ne.size().x;
+        } else {
+            if let Some(eg) = &err_galley {
+                total_w += gap + icon_sz + gap + eg.size().x;
+            }
+            if let Some(wg) = &warn_galley {
+                total_w += gap + icon_sz + gap + wg.size().x;
+            }
+        }
+    }
+    let h = ui
+        .available_height()
+        .max(TextStyle::Mono.spec().line_height + 4.0);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(total_w, h), Sense::click());
+    let has_problems = problems.is_some_and(|(e, w)| e > 0 || w > 0);
+    let s = State::of(ui, &response);
+    if has_problems && s.hovered {
+        ui.painter().rect_filled(rect, cr(radius::SM), p.bg_hover);
+    }
+
+    let mut x = rect.left();
+    super::text_at(ui, x, rect, pos_galley, dim);
+    x += galley(ui, &pos_label, TextStyle::Mono, dim).size().x;
+    if let Some(sep) = sep_galley {
+        x += gap;
+        let sw = sep.size().x;
+        super::text_at(ui, x, rect, sep, dim);
+        x += sw;
+        if let Some(ne) = no_errors_galley {
+            x += gap;
+            super::text_at(ui, x, rect, ne, dim);
+        } else {
+            if let Some(eg) = err_galley {
+                let c = Severity::Error.color(p);
+                x += gap;
+                icons::paint(
+                    ui.painter(),
+                    ui.ctx(),
+                    Rect::from_center_size(
+                        egui::pos2(x + icon_sz * 0.5, rect.center().y),
+                        egui::vec2(icon_sz, icon_sz),
+                    ),
+                    Severity::Error.icon(),
+                    c,
+                );
+                x += icon_sz + gap;
+                let ew = eg.size().x;
+                super::text_at(ui, x, rect, eg, c);
+                x += ew;
+            }
+            if let Some(wg) = warn_galley {
+                let c = Severity::Warning.color(p);
+                x += gap;
+                icons::paint(
+                    ui.painter(),
+                    ui.ctx(),
+                    Rect::from_center_size(
+                        egui::pos2(x + icon_sz * 0.5, rect.center().y),
+                        egui::vec2(icon_sz, icon_sz),
+                    ),
+                    Severity::Warning.icon(),
+                    c,
+                );
+                x += icon_sz + gap;
+                super::text_at(ui, x, rect, wg, c);
+            }
+        }
+    }
+    if has_problems {
+        super::focus(ui, s, rect, radius::SM);
+    }
+    let a11y_label = match problems {
+        None => pos_label,
+        Some((0, 0)) => format!("{pos_label}  ·  No errors"),
+        Some((errors, warnings)) => {
+            let mut parts = Vec::new();
+            if errors > 0 {
+                parts.push(if errors == 1 {
+                    "1 error".to_owned()
+                } else {
+                    format!("{errors} errors")
+                });
+            }
+            if warnings > 0 {
+                parts.push(if warnings == 1 {
+                    "1 warning".to_owned()
+                } else {
+                    format!("{warnings} warnings")
+                });
+            }
+            format!("{pos_label}  ·  {}", parts.join(", "))
+        }
+    };
+    let widget_type = if has_problems {
+        egui::WidgetType::Button
+    } else {
+        egui::WidgetType::Label
+    };
+    a11y(&response, widget_type, &a11y_label, None);
+    if has_problems {
+        response.on_hover_cursor(egui::CursorIcon::PointingHand)
+    } else {
+        response
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

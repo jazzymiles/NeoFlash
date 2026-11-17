@@ -148,15 +148,29 @@ impl Editor {
 
     pub(crate) fn check_action_source(&mut self, script: &Script, announce: bool) {
         // R-102 item 7: `Check script` checks the open script in its own language (`script.language`).
+        let proj_lang = self.project.effective_script_language();
+        let is_skipped_foreign = self.project.script_disposition_for(
+            proj_lang,
+            self.project.also_compile_compatible_scripts,
+            script.language,
+        ) == neoflash_core::ScriptDisposition::SkippedForeign;
         let mut lang_project = self.project.clone();
         lang_project.script_language = Some(script.language);
+        if is_skipped_foreign {
+            lang_project.document_class = None;
+        }
         let mut diagnostics = match neoflash_script::compile_project(&lang_project) {
             Ok(program) => neoflash_script::compile_with_program(script, &program)
                 .err()
                 .unwrap_or_default(),
             Err(mut proj_errs) => {
-                proj_errs.extend(neoflash_script::compile(script).err().unwrap_or_default());
-                proj_errs
+                let own_errs = neoflash_script::compile(script).err().unwrap_or_default();
+                if is_skipped_foreign {
+                    own_errs
+                } else {
+                    proj_errs.extend(own_errs);
+                    proj_errs
+                }
             }
         };
         diagnostics.extend(
@@ -179,18 +193,33 @@ impl Editor {
     /// "Check project": compile project sources; when the selected file is in a foreign language,
     /// check it under its own language so editing feedback in Actions follows the file's language.
     pub(crate) fn check_project_sources(&mut self, announce: bool) {
+        let active_source_id = match self.effective_actions_location() {
+            Some(crate::panels::actions_sidebar::ScriptLocation::Source(id)) => Some(id),
+            _ => self.selected_source.clone(),
+        };
         let selected_unit = self
             .project
             .sources
             .iter()
-            .find(|unit| Some(&unit.id) == self.selected_source.as_ref())
+            .find(|unit| Some(&unit.id) == active_source_id.as_ref())
             .cloned();
+        let proj_lang = self.project.effective_script_language();
         let check_lang = selected_unit
             .as_ref()
             .map(|u| u.language)
-            .unwrap_or_else(|| self.project.effective_script_language());
+            .unwrap_or(proj_lang);
+        let is_skipped_foreign = selected_unit.as_ref().is_some_and(|u| {
+            self.project.script_disposition_for(
+                proj_lang,
+                self.project.also_compile_compatible_scripts,
+                u.language,
+            ) == neoflash_core::ScriptDisposition::SkippedForeign
+        });
         let mut check_proj = self.project.clone();
         check_proj.script_language = Some(check_lang);
+        if is_skipped_foreign {
+            check_proj.document_class = None;
+        }
         let mut diagnostics = neoflash_script::compile_project(&check_proj)
             .err()
             .unwrap_or_default();
@@ -249,14 +278,20 @@ impl Editor {
     }
 
     fn diagnostic_is_current(&self, diagnostic: &Diagnostic) -> bool {
-        match diagnostic.path.as_deref() {
-            None => self.script_target != ScriptTarget::Source,
-            Some(path) => {
-                self.script_target == ScriptTarget::Source
-                    && self.project.sources.iter().any(|unit| {
-                        Some(&unit.id) == self.selected_source.as_ref() && unit.path == path
-                    })
-            }
+        match (
+            diagnostic.path.as_deref(),
+            self.effective_actions_location(),
+        ) {
+            (None, loc) => !matches!(
+                loc,
+                Some(crate::panels::actions_sidebar::ScriptLocation::Source(_))
+            ),
+            (Some(path), Some(crate::panels::actions_sidebar::ScriptLocation::Source(id))) => self
+                .project
+                .sources
+                .iter()
+                .any(|unit| unit.id == id && unit.path == path),
+            (Some(_), _) => false,
         }
     }
 
@@ -269,8 +304,11 @@ impl Editor {
                 .find(|unit| unit.path == path)
                 .cloned()
             {
+                let loc = crate::panels::actions_sidebar::ScriptLocation::Source(unit.id.clone());
                 self.selected_source = Some(unit.id);
                 self.script_target = ScriptTarget::Source;
+                self.actions_ui.active_pinned =
+                    self.actions_ui.pinned_tabs.contains(&loc).then_some(loc);
                 jump_to(
                     ctx,
                     self.actions_editor_id(),
@@ -288,6 +326,62 @@ impl Editor {
                 diagnostic.column,
             );
         }
+    }
+
+    fn jump_to_next_bar_diagnostic(
+        &mut self,
+        ctx: &egui::Context,
+        source: &str,
+        caret: (usize, usize),
+        diagnostics: &[Diagnostic],
+    ) {
+        if diagnostics.is_empty() {
+            return;
+        }
+        let chosen = diagnostics
+            .iter()
+            .find(|d| self.diagnostic_is_current(d) && (d.line, d.column) > caret)
+            .or_else(|| diagnostics.iter().find(|d| !self.diagnostic_is_current(d)))
+            .unwrap_or(&diagnostics[0])
+            .clone();
+        self.jump_to_diagnostic(ctx, source, &chosen);
+    }
+
+    pub(crate) fn format_script_status_tooltip(
+        success: bool,
+        text: &str,
+        diagnostics: &[Diagnostic],
+    ) -> String {
+        if diagnostics.is_empty() {
+            return if success {
+                format!("✓ {text}")
+            } else {
+                text.to_owned()
+            };
+        }
+        let max_shown = 5;
+        let mut lines: Vec<String> = diagnostics
+            .iter()
+            .take(max_shown)
+            .map(|d| {
+                let code_prefix = d
+                    .code
+                    .as_deref()
+                    .map_or_else(String::new, |c| format!("[{c}] "));
+                let path_prefix = d
+                    .path
+                    .as_deref()
+                    .map_or_else(String::new, |p| format!("{p} · "));
+                format!(
+                    "{code_prefix}{path_prefix}Line {}, col {}: {} — click to jump",
+                    d.line, d.column, d.message
+                )
+            })
+            .collect();
+        if diagnostics.len() > max_shown {
+            lines.push(format!("…and {} more", diagnostics.len() - max_shown));
+        }
+        lines.join("\n")
     }
 
     fn diagnostic_action(
@@ -337,7 +431,10 @@ impl Editor {
             })
             && self.current_feedback(&script).is_none()
         {
-            if self.script_target == ScriptTarget::Source {
+            if matches!(
+                self.effective_actions_location(),
+                Some(crate::panels::actions_sidebar::ScriptLocation::Source(_))
+            ) {
                 self.check_project_sources(false);
             } else {
                 self.check_action_source(&script, false);
@@ -396,7 +493,6 @@ impl Editor {
                 markers.push((bp.line, Severity::Info));
             }
         }
-        let message_count = feedback.as_ref().map_or(0, |(_, _, d)| d.len().max(1));
         let bar_h = neoflash_ui::metrics::script_tab() + 2.;
         let full = ui.available_rect_before_wrap();
         let show_dbg = self.actions_debugger_inspector_visible(&tab_key);
@@ -405,31 +501,16 @@ impl Editor {
         } else {
             0.0
         };
-        let diag_h = if message_count == 0 {
-            0.
-        } else {
-            (message_count as f32 * (52. + space::S1))
-                .min(120.)
-                .min(full.height() / 3.)
-        };
         let bar =
             egui::Rect::from_min_max(egui::pos2(full.left(), full.bottom() - bar_h), full.max);
         let dbg_rect = egui::Rect::from_min_max(
             egui::pos2(full.left(), bar.top() - dbg_h),
             egui::pos2(full.right(), bar.top()),
         );
-        let diag = egui::Rect::from_min_max(
-            egui::pos2(full.left(), dbg_rect.top() - diag_h),
-            egui::pos2(full.right(), dbg_rect.top()),
-        );
-        let gap = if diag_h > 0. || dbg_h > 0. {
-            space::S2
-        } else {
-            0.
-        };
+        let gap = if dbg_h > 0. { space::S2 } else { 0. };
         let code = egui::Rect::from_min_max(
             full.min,
-            egui::pos2(full.right(), (diag.top() - gap).max(full.top() + 60.)),
+            egui::pos2(full.right(), (dbg_rect.top() - gap).max(full.top() + 60.)),
         );
         let hint_context = || self.hint_context(language);
         let paint_diagnostics = if *source == before_command {
@@ -485,51 +566,6 @@ impl Editor {
         }
         diagnostic_ui.store(ui.ctx(), editor_id);
         self.live_check(ui.ctx(), editor_id, &response, source, language);
-        if let Some((success, text, diagnostics)) = &feedback {
-            ui.scope_builder(egui::UiBuilder::new().max_rect(diag), |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt(("code_feedback", editor_id))
-                    .auto_shrink([false, false])
-                    .themed()
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.y = space::S1;
-                        if diagnostics.is_empty() {
-                            let severity = if *success {
-                                Severity::Success
-                            } else {
-                                Severity::Error
-                            };
-                            ui.add(nf::LogLine {
-                                severity,
-                                time: "",
-                                text,
-                            });
-                        }
-                        for diagnostic in diagnostics {
-                            let path = diagnostic
-                                .path
-                                .as_ref()
-                                .map_or(String::new(), |path| format!("{path} · "));
-                            let location = format!(
-                                "{path}Line {}, column {}",
-                                diagnostic.line, diagnostic.column
-                            );
-                            let message = diagnostic.code.as_ref().map_or_else(
-                                || diagnostic.message.clone(),
-                                |code| format!("[{code}] {}", diagnostic.message),
-                            );
-                            let row = ui.add(nf::CompilerMessage {
-                                severity: diagnostic_severity(diagnostic.severity),
-                                message: &message,
-                                location: &location,
-                            });
-                            if row.clicked() {
-                                self.jump_to_diagnostic(ui.ctx(), source, diagnostic);
-                            }
-                        }
-                    });
-            });
-        }
         let p = neoflash_ui::palette(ui.ctx());
         if show_dbg {
             ui.painter().hline(
@@ -549,39 +585,210 @@ impl Editor {
             bar.top() + 0.5,
             egui::Stroke::new(1.0_f32, p.border_subtle),
         );
-        ui.scope_builder(
-            egui::UiBuilder::new()
-                .max_rect(bar)
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-            |ui| {
-                ui.add(nf::ScriptTab {
-                    label: tab,
-                    pinned: false,
-                    active: true,
-                })
-            },
-        );
-        ui.scope_builder(
-            egui::UiBuilder::new()
-                .max_rect(bar.shrink2(egui::vec2(space::S2, 0.)))
-                .layout(egui::Layout::right_to_left(egui::Align::Center)),
-            |ui| {
-                let lines = source.chars().filter(|c| *c == '\n').count() + 1;
-                let problems = feedback.as_ref().map(|(_, _, d)| {
-                    (
-                        d.iter()
+        let (status_rect, status_clicked) = ui
+            .scope_builder(
+                egui::UiBuilder::new()
+                    .max_rect(bar.shrink2(egui::vec2(space::S2, 0.)))
+                    .layout(egui::Layout::right_to_left(egui::Align::Center)),
+                |ui| {
+                    let lines = source.chars().filter(|c| *c == '\n').count() + 1;
+                    let problems = feedback.as_ref().map(|(success, _, d)| {
+                        let mut errs = d
+                            .iter()
                             .filter(|d| d.severity == DiagnosticSeverity::Error)
-                            .count(),
-                        d.iter()
+                            .count();
+                        let warns = d
+                            .iter()
                             .filter(|d| d.severity == DiagnosticSeverity::Warning)
-                            .count(),
-                    )
-                });
-                nf::code::script_status(ui, caret.0, caret.1, lines, problems);
-            },
-        );
+                            .count();
+                        if !*success && errs == 0 {
+                            errs = 1;
+                        }
+                        (errs, warns)
+                    });
+                    let mut status_resp =
+                        nf::code::script_status(ui, caret.0, caret.1, lines, problems);
+                    if let Some((success, text, diagnostics)) = &feedback {
+                        let tip = Self::format_script_status_tooltip(*success, text, diagnostics);
+                        status_resp = nf::tooltip(status_resp, &tip, None);
+                    }
+                    (status_resp.rect, status_resp.clicked())
+                },
+            )
+            .inner;
+        if status_clicked
+            && let Some((_, _, diagnostics)) = &feedback
+            && !diagnostics.is_empty()
+        {
+            self.jump_to_next_bar_diagnostic(ui.ctx(), source, caret, diagnostics);
+        }
+        let tabs_right = (status_rect.left() - space::S2).max(bar.left() + 48.0);
+        let tabs_rect = egui::Rect::from_min_max(bar.min, egui::pos2(tabs_right, bar.bottom()));
+        self.render_actions_script_tabs_bar(ui, tabs_rect, tab);
         ui.advance_cursor_after_rect(full);
         response
+    }
+
+    /// Render the bottom `ScriptTab` bar inside `tabs_rect` (`T-364`): all pinned script tabs in
+    /// order followed by the unpinned live-selection tab (when not already pinned), with disjoint
+    /// `📌` pin/unpin click hit-testing and right-click context menu (`Pin tab` / `Unpin tab` /
+    /// `Unpin other tabs`).
+    pub(crate) fn render_actions_script_tabs_bar(
+        &mut self,
+        ui: &mut egui::Ui,
+        tabs_rect: egui::Rect,
+        fallback_tab: &str,
+    ) {
+        use crate::panels::actions_sidebar::ScriptLocation;
+        self.prune_stale_pinned_script_tabs();
+        let active_loc = self.effective_actions_location();
+        let live_loc = self
+            .current_script_location()
+            .and_then(|l| self.canonical_script_location(&l));
+
+        let mut tab_items: Vec<(
+            Option<ScriptLocation>,
+            String,
+            neoflash_ui::Icon,
+            bool,
+            bool,
+        )> = Vec::new();
+        for pinned_loc in self.actions_ui.pinned_tabs.clone() {
+            let (label, icon) = self.script_location_tab_label(&pinned_loc);
+            let is_active = active_loc.as_ref() == Some(&pinned_loc);
+            tab_items.push((Some(pinned_loc), label, icon, true, is_active));
+        }
+        if let Some(live) = live_loc {
+            if !self.actions_ui.pinned_tabs.contains(&live) {
+                let (label, icon) = self.script_location_tab_label(&live);
+                let is_active = self.actions_ui.active_pinned.is_none();
+                tab_items.push((Some(live), label, icon, false, is_active));
+            }
+        } else if tab_items.is_empty() && !fallback_tab.is_empty() {
+            tab_items.push((
+                None,
+                fallback_tab.to_owned(),
+                neoflash_ui::icons::i16::FILE_CODE,
+                false,
+                true,
+            ));
+        }
+
+        enum TabAction {
+            SelectPinned(ScriptLocation),
+            SelectLive,
+            TogglePin(ScriptLocation),
+            Pin(ScriptLocation),
+            Unpin(ScriptLocation),
+            UnpinOthers(ScriptLocation),
+        }
+        let mut action: Option<TabAction> = None;
+        let pinned_snapshot = self.actions_ui.pinned_tabs.clone();
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(tabs_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            |ui| {
+                ui.set_clip_rect(ui.clip_rect().intersect(tabs_rect));
+                egui::ScrollArea::horizontal()
+                    .id_salt(("actions_script_tabs", &self.clipboard.session))
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            for (tab_idx, (loc_opt, label, icon, pinned, active)) in
+                                tab_items.iter().enumerate()
+                            {
+                                ui.push_id(("nf2-actions-script-tab", tab_idx, label), |ui| {
+                                    let resp = nf::ScriptTab {
+                                        label,
+                                        pinned: *pinned,
+                                        active: *active,
+                                    }
+                                    .show_interactive(ui, *icon, loc_opt.is_some());
+                                    if let Some(loc) = loc_opt {
+                                        if resp.pin.as_ref().is_some_and(egui::Response::clicked) {
+                                            action = Some(TabAction::TogglePin(loc.clone()));
+                                        } else if resp.tab.clicked() {
+                                            action = Some(if *pinned {
+                                                TabAction::SelectPinned(loc.clone())
+                                            } else {
+                                                TabAction::SelectLive
+                                            });
+                                        }
+                                        let has_others = pinned_snapshot.iter().any(|p| p != loc);
+                                        let build_menu =
+                                            |ui: &mut egui::Ui, act: &mut Option<TabAction>| {
+                                                if *pinned {
+                                                    if ui
+                                                        .add(
+                                                            nf::MenuItem::new("Unpin tab")
+                                                                .icon(neoflash_ui::icons::i16::PIN),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        *act = Some(TabAction::Unpin(loc.clone()));
+                                                        ui.close();
+                                                    }
+                                                } else if ui
+                                                    .add(
+                                                        nf::MenuItem::new("Pin tab")
+                                                            .icon(neoflash_ui::icons::i16::PIN),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    *act = Some(TabAction::Pin(loc.clone()));
+                                                    ui.close();
+                                                }
+                                                if ui
+                                                    .add_enabled_semantic(
+                                                        has_others,
+                                                        nf::MenuItem::new("Unpin other tabs"),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    *act =
+                                                        Some(TabAction::UnpinOthers(loc.clone()));
+                                                    ui.close();
+                                                }
+                                            };
+                                        nf::context_menu(&resp.tab, |ui| {
+                                            build_menu(ui, &mut action)
+                                        });
+                                        if let Some(pin_r) = &resp.pin {
+                                            nf::context_menu(pin_r, |ui| {
+                                                build_menu(ui, &mut action)
+                                            });
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    });
+            },
+        );
+        match action {
+            Some(TabAction::SelectPinned(loc)) => {
+                self.actions_ui.active_pinned = Some(loc);
+            }
+            Some(TabAction::SelectLive) => {
+                self.actions_ui.active_pinned = None;
+            }
+            Some(TabAction::TogglePin(loc)) => {
+                self.toggle_pin_script_tab(loc);
+            }
+            Some(TabAction::Pin(loc)) => {
+                self.pin_script_tab(loc);
+            }
+            Some(TabAction::Unpin(loc)) => {
+                self.unpin_script_tab(&loc);
+            }
+            Some(TabAction::UnpinOthers(loc)) => {
+                self.unpin_other_script_tabs(&loc);
+            }
+            None => {}
+        }
     }
 
     /// Apply the queued toolbar/toolbox command to the visible editor. Returns `true` when code
@@ -626,32 +833,91 @@ impl Editor {
     /// Code-hint resolver for the open script: `this` follows the edited timeline/object (or the
     /// class of the open project file) and named stage instances of the current timeline.
     fn hint_context(&self, language: ScriptLanguage) -> Option<HintContext<'static>> {
-        if self.script_target == ScriptTarget::Source {
-            return self
+        use crate::panels::actions_sidebar::ScriptLocation;
+        let kind_of =
+            |element: &neoflash_core::Element| ThisKind::of_element(&self.project, &element.kind);
+        match self.effective_actions_location() {
+            Some(ScriptLocation::Source(id)) => self
                 .project
                 .sources
                 .iter()
-                .find(|unit| Some(&unit.id) == self.selected_source.as_ref())
-                .and_then(|unit| self.source_hint_context(unit));
+                .find(|unit| unit.id == id)
+                .and_then(|unit| self.source_hint_context(unit)),
+            Some(ScriptLocation::Object {
+                symbol, element, ..
+            }) => {
+                let sym = self
+                    .project
+                    .symbol(&symbol)
+                    .unwrap_or_else(|| self.symbol());
+                let this_kind = sym
+                    .timeline
+                    .layers
+                    .iter()
+                    .flat_map(|l| &l.keyframes)
+                    .flat_map(|k| &k.elements)
+                    .find(|e| e.id == element)
+                    .map_or(ThisKind::MovieClip, kind_of);
+                let mut seen = std::collections::HashSet::new();
+                let instances = sym
+                    .timeline
+                    .layers
+                    .iter()
+                    .flat_map(|layer| &layer.keyframes)
+                    .flat_map(|key| &key.elements)
+                    .filter(|el| !el.name.is_empty() && seen.insert(el.name.clone()))
+                    .map(|el| (el.name.clone(), kind_of(el)))
+                    .collect();
+                Some(
+                    HintContext::new(&self.project, language, this_kind)?.with_instances(instances),
+                )
+            }
+            Some(ScriptLocation::Frame { symbol, .. }) => {
+                let sym = self
+                    .project
+                    .symbol(&symbol)
+                    .unwrap_or_else(|| self.symbol());
+                let mut seen = std::collections::HashSet::new();
+                let instances = sym
+                    .timeline
+                    .layers
+                    .iter()
+                    .flat_map(|layer| &layer.keyframes)
+                    .flat_map(|key| &key.elements)
+                    .filter(|el| !el.name.is_empty() && seen.insert(el.name.clone()))
+                    .map(|el| (el.name.clone(), kind_of(el)))
+                    .collect();
+                Some(
+                    HintContext::new(&self.project, language, ThisKind::MovieClip)?
+                        .with_instances(instances),
+                )
+            }
+            None => {
+                if self.script_target == ScriptTarget::Source {
+                    return self
+                        .project
+                        .sources
+                        .iter()
+                        .find(|unit| Some(&unit.id) == self.selected_source.as_ref())
+                        .and_then(|unit| self.source_hint_context(unit));
+                }
+                let mut seen = std::collections::HashSet::new();
+                let instances = self
+                    .symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .flat_map(|layer| &layer.keyframes)
+                    .flat_map(|key| &key.elements)
+                    .filter(|element| !element.name.is_empty() && seen.insert(element.name.clone()))
+                    .map(|element| (element.name.clone(), kind_of(element)))
+                    .collect();
+                Some(
+                    HintContext::new(&self.project, language, ThisKind::MovieClip)?
+                        .with_instances(instances),
+                )
+            }
         }
-        let kind_of =
-            |element: &neoflash_core::Element| ThisKind::of_element(&self.project, &element.kind);
-        let this_kind = match self.script_target {
-            ScriptTarget::Object => self.selected_element().map_or(ThisKind::MovieClip, kind_of),
-            _ => ThisKind::MovieClip,
-        };
-        let mut seen = std::collections::HashSet::new();
-        let instances = self
-            .symbol()
-            .timeline
-            .layers
-            .iter()
-            .flat_map(|layer| &layer.keyframes)
-            .flat_map(|key| &key.elements)
-            .filter(|element| !element.name.is_empty() && seen.insert(element.name.clone()))
-            .map(|element| (element.name.clone(), kind_of(element)))
-            .collect();
-        Some(HintContext::new(&self.project, language, this_kind)?.with_instances(instances))
     }
 
     fn source_hint_context(&self, unit: &SourceUnit) -> Option<HintContext<'static>> {
@@ -726,7 +992,10 @@ impl Editor {
             return;
         }
         self.actions_ui.edited = None;
-        if self.script_target == ScriptTarget::Source {
+        if matches!(
+            self.effective_actions_location(),
+            Some(crate::panels::actions_sidebar::ScriptLocation::Source(_))
+        ) {
             self.check_project_sources(false);
         } else {
             let script = Script {
@@ -738,19 +1007,32 @@ impl Editor {
     }
 
     pub(crate) fn project_sources(&mut self, ui: &mut egui::Ui) {
-        if !self
-            .project
-            .sources
-            .iter()
-            .any(|source| Some(&source.id) == self.selected_source.as_ref())
-        {
-            self.selected_source = self.project.sources.first().map(|source| source.id.clone());
-        }
+        let pinned_source = match self.effective_actions_location() {
+            Some(crate::panels::actions_sidebar::ScriptLocation::Source(id))
+                if self.actions_ui.active_pinned.is_some() =>
+            {
+                Some(id)
+            }
+            _ => None,
+        };
+        let target_id = if let Some(pinned_id) = pinned_source {
+            Some(pinned_id)
+        } else {
+            if !self
+                .project
+                .sources
+                .iter()
+                .any(|source| Some(&source.id) == self.selected_source.as_ref())
+            {
+                self.selected_source = self.project.sources.first().map(|source| source.id.clone());
+            }
+            self.selected_source.clone()
+        };
         let index = self
             .project
             .sources
             .iter()
-            .position(|s| Some(&s.id) == self.selected_source.as_ref());
+            .position(|s| Some(&s.id) == target_id.as_ref());
         let original = index.map(|index| self.project.sources[index].clone());
         let unit = original.clone();
         ui.horizontal(|ui| {
@@ -767,12 +1049,18 @@ impl Editor {
                 .width(select_w)
                 .show(ui, |ui| {
                     for source in &self.project.sources {
-                        let current = Some(&source.id) == self.selected_source.as_ref();
+                        let current = Some(&source.id) == target_id.as_ref();
                         if ui
                             .add(nf::MenuItem::new(&source.path).checked(current))
                             .clicked()
                         {
+                            let loc = crate::panels::actions_sidebar::ScriptLocation::Source(
+                                source.id.clone(),
+                            );
                             self.selected_source = Some(source.id.clone());
+                            self.script_target = ScriptTarget::Source;
+                            self.actions_ui.active_pinned =
+                                self.actions_ui.pinned_tabs.contains(&loc).then_some(loc);
                         }
                     }
                 });
@@ -812,6 +1100,7 @@ impl Editor {
                     };
                     if ui.add(nf::MenuItem::new(label)).clicked() {
                         self.new_source_class(language);
+                        self.activate_current_actions_location();
                     }
                 });
             }
@@ -823,20 +1112,24 @@ impl Editor {
                 .clicked()
             {
                 self.import_source_file();
+                self.activate_current_actions_location();
             }
             let remove = ui.add_enabled_semantic(
-                self.selected_source.is_some(),
+                target_id.is_some(),
                 nf::IconButton::new(neoflash_ui::icons::i16::TRASH, "Remove source file"),
             );
             if remove.clicked() {
-                let selected = self.selected_source.clone();
+                let selected = target_id.clone();
                 self.transact_named("Delete source file", |editor| {
                     editor
                         .project
                         .sources
                         .retain(|source| Some(&source.id) != selected.as_ref())
                 });
-                self.selected_source = None;
+                if self.selected_source == selected {
+                    self.selected_source = None;
+                }
+                self.prune_stale_pinned_script_tabs();
             }
         });
         ui.add_space(space::S1);
@@ -901,15 +1194,44 @@ impl Editor {
                 | ScriptLanguage::TypeScript
                 | ScriptLanguage::JavaScript => None,
             };
-            let new = nf::EmptyState {
-                icon: neoflash_ui::icons::i16::FILE_CODE,
-                title: "No project classes",
-                body: "Add a project class to reuse code across frames and symbol instances. Files are stored inside the project.",
-                action: empty_action.map(|(label, _)| label),
+            let avail = ui.available_rect_before_wrap();
+            let bar_h = if self.actions_ui.pinned_tabs.is_empty() {
+                0.0
+            } else {
+                neoflash_ui::metrics::script_tab() + 2.0
+            };
+            let empty_rect = egui::Rect::from_min_max(
+                avail.min,
+                egui::pos2(avail.right(), (avail.bottom() - bar_h).max(avail.top())),
+            );
+            let new = ui
+                .scope_builder(egui::UiBuilder::new().max_rect(empty_rect), |ui| {
+                    nf::EmptyState {
+                        icon: neoflash_ui::icons::i16::FILE_CODE,
+                        title: "No project classes",
+                        body: "Add a project class to reuse code across frames and symbol instances. Files are stored inside the project.",
+                        action: empty_action.map(|(label, _)| label),
+                    }
+                    .show(ui)
+                })
+                .inner;
+            if bar_h > 0.0 {
+                let bar = egui::Rect::from_min_max(
+                    egui::pos2(avail.left(), avail.bottom() - bar_h),
+                    avail.max,
+                );
+                let p = neoflash_ui::palette(ui.ctx());
+                ui.painter().hline(
+                    bar.x_range(),
+                    bar.top() + 0.5,
+                    egui::Stroke::new(1.0_f32, p.border_subtle),
+                );
+                self.render_actions_script_tabs_bar(ui, bar, "");
+                ui.advance_cursor_after_rect(avail);
             }
-            .show(ui);
             if new && let Some((_, language)) = empty_action {
                 self.new_source_class(language);
+                self.activate_current_actions_location();
             }
             return;
         };
@@ -1086,16 +1408,11 @@ impl Editor {
     /// Retag the open script (`Frame`, `Object`, or eligible `SourceUnit`) to the project's
     /// script language in one Undo step without modifying its source text (`R-102` item 7).
     pub fn mark_current_script_as_project_language(&mut self) -> bool {
+        use crate::panels::actions_sidebar::ScriptLocation;
         let proj_lang = self.project.effective_script_language();
-        match self.script_target {
-            ScriptTarget::Source => {
-                let selected_id = self
-                    .selected_source
-                    .clone()
-                    .or_else(|| self.project.sources.first().map(|s| s.id.clone()));
-                let Some(selected_id) = selected_id else {
-                    return false;
-                };
+        let active_loc = self.effective_actions_location();
+        match active_loc {
+            Some(ScriptLocation::Source(selected_id)) => {
                 let Some(unit) = self.project.sources.iter().find(|s| s.id == selected_id) else {
                     return false;
                 };
@@ -1104,7 +1421,9 @@ impl Editor {
                 {
                     return false;
                 }
-                self.selected_source = Some(selected_id.clone());
+                if self.actions_ui.active_pinned.is_none() {
+                    self.selected_source = Some(selected_id.clone());
+                }
                 self.finish_edits();
                 self.transact_named("Mark script language", |editor| {
                     editor.project.script_language.get_or_insert(proj_lang);
@@ -1122,12 +1441,24 @@ impl Editor {
                 self.check_project_sources(false);
                 true
             }
-            ScriptTarget::Frame => {
-                let frame = self.frame;
-                let layer_index = self.layer;
-                let layer_id = self.symbol().timeline.layers[layer_index].id.clone();
-                let Some(existing) = self
-                    .symbol()
+            Some(ScriptLocation::Frame {
+                symbol,
+                layer,
+                frame,
+            }) => {
+                let Some(sym) = self.project.symbol(&symbol) else {
+                    return false;
+                };
+                let layer_index = layer
+                    .as_deref()
+                    .and_then(|id| sym.timeline.layers.iter().position(|l| l.id == id))
+                    .or_else(|| sym.timeline.action_layer_for_frame(frame))
+                    .unwrap_or(0);
+                let Some(layer_id) = sym.timeline.layers.get(layer_index).map(|l| l.id.clone())
+                else {
+                    return false;
+                };
+                let Some(existing) = sym
                     .timeline
                     .frame_script_for_layer(layer_index, frame)
                     .filter(|fs| !fs.script.source.is_empty())
@@ -1141,12 +1472,12 @@ impl Editor {
                 self.finish_edits();
                 self.transact_named("Mark script language", |editor| {
                     editor.project.script_language.get_or_insert(proj_lang);
-                    if let Some(index) = editor
-                        .symbol()
-                        .timeline
-                        .frame_script_index_for_layer(layer_index, frame)
+                    if let Some(sym_mut) = editor.project.symbol_mut(&symbol)
+                        && let Some(index) = sym_mut
+                            .timeline
+                            .frame_script_index_for_layer(layer_index, frame)
                     {
-                        let fs = &mut editor.symbol_mut().timeline.scripts[index];
+                        let fs = &mut sym_mut.timeline.scripts[index];
                         fs.layer = Some(layer_id.clone());
                         fs.script.language = proj_lang;
                     }
@@ -1160,16 +1491,26 @@ impl Editor {
                 self.check_action_source(&updated, false);
                 true
             }
-            ScriptTarget::Object => {
-                if !self.selected_editable() {
+            Some(ScriptLocation::Object {
+                symbol,
+                element,
+                event,
+                ..
+            }) => {
+                if self.actions_ui.active_pinned.is_none() && !self.selected_editable() {
                     return false;
                 }
-                let event = self.script_event;
-                let Some(object_id) = self.selected_element().map(|e| e.id.clone()) else {
-                    return false;
-                };
                 let Some(existing) = self
-                    .selected_element()
+                    .project
+                    .symbol(&symbol)
+                    .and_then(|sym| {
+                        sym.timeline
+                            .layers
+                            .iter()
+                            .flat_map(|l| &l.keyframes)
+                            .flat_map(|k| &k.elements)
+                            .find(|e| e.id == element)
+                    })
                     .and_then(|e| {
                         e.scripts
                             .iter()
@@ -1183,13 +1524,22 @@ impl Editor {
                     return false;
                 }
                 self.finish_edits();
-                self.select_single_id(object_id);
+                if self.actions_ui.active_pinned.is_none() {
+                    self.select_single_id(element.clone());
+                }
                 self.transact_named("Mark script language", |editor| {
                     editor.project.script_language.get_or_insert(proj_lang);
-                    if let Some(el) = editor.selected_element_mut()
-                        && let Some(os) = el.scripts.iter_mut().find(|os| os.event == event)
-                    {
-                        os.script.language = proj_lang;
+                    if let Some(sym_mut) = editor.project.symbol_mut(&symbol) {
+                        for l in &mut sym_mut.timeline.layers {
+                            for k in &mut l.keyframes {
+                                if let Some(el) = k.elements.iter_mut().find(|e| e.id == element)
+                                    && let Some(os) =
+                                        el.scripts.iter_mut().find(|os| os.event == event)
+                                {
+                                    os.script.language = proj_lang;
+                                }
+                            }
+                        }
                     }
                     editor.project.upgrade_format_for_features();
                 });
@@ -1200,6 +1550,15 @@ impl Editor {
                 };
                 self.check_action_source(&updated, false);
                 true
+            }
+            None => {
+                if self.script_target == ScriptTarget::Source
+                    && let Some(first_id) = self.project.sources.first().map(|s| s.id.clone())
+                {
+                    self.selected_source = Some(first_id);
+                    return self.mark_current_script_as_project_language();
+                }
+                false
             }
         }
     }
@@ -2208,7 +2567,10 @@ mod integration_tests {
                 .filter_map(|(_, node)| node.label().map(str::to_owned))
                 .collect();
             assert!(
-                labels.iter().any(|label| label.starts_with("Warning:")),
+                labels
+                    .iter()
+                    .any(|label| label.starts_with("Line 1, Col 1") && label.contains("1 warning"))
+                    && !labels.iter().any(|label| label.starts_with("Warning:")),
                 "{labels:?}"
             );
             jump_to(&ctx, editor.actions_editor_id(), text, 2, 1);
@@ -3712,12 +4074,9 @@ impl Editor {
     }
 
     pub(crate) fn current_source_tab_key(&self, fallback_tab: &str) -> String {
-        if self.script_target == ScriptTarget::Source
-            && let Some(unit) = self
-                .project
-                .sources
-                .iter()
-                .find(|s| Some(&s.id) == self.selected_source.as_ref())
+        if let Some(crate::panels::actions_sidebar::ScriptLocation::Source(id)) =
+            self.effective_actions_location()
+            && let Some(unit) = self.project.sources.iter().find(|s| s.id == id)
         {
             return unit.path.clone();
         }
@@ -4515,21 +4874,30 @@ impl Editor {
     }
 
     fn active_fold_tab_key(&self) -> String {
-        if self.script_target == ScriptTarget::Source
-            && let Some(unit) = self
-                .project
-                .sources
-                .iter()
-                .find(|s| Some(&s.id) == self.selected_source.as_ref())
-        {
-            return unit.path.clone();
+        use crate::panels::actions_sidebar::ScriptLocation;
+        match self.effective_actions_location() {
+            Some(ScriptLocation::Source(id)) => {
+                if let Some(unit) = self.project.sources.iter().find(|s| s.id == id) {
+                    return unit.path.clone();
+                }
+                format!("source:{id}")
+            }
+            Some(ScriptLocation::Frame {
+                symbol,
+                layer,
+                frame,
+            }) => match layer {
+                Some(l) => format!("{symbol}:{frame}:frame:{l}"),
+                None => format!("{symbol}:{frame}:frame"),
+            },
+            Some(ScriptLocation::Object {
+                symbol,
+                frame,
+                element,
+                event,
+            }) => format!("{symbol}:{frame}:object:{element}:{event:?}"),
+            None => format!("{}:{}:frame", self.symbol_id(), self.frame),
         }
-        let target_label = match self.script_target {
-            ScriptTarget::Frame => "frame",
-            ScriptTarget::Object => "object",
-            ScriptTarget::Source => "source",
-        };
-        format!("{}:{}:{target_label}", self.symbol_id(), self.frame)
     }
 
     pub fn folded_lines(&self) -> std::collections::BTreeSet<usize> {
@@ -4578,11 +4946,13 @@ impl Editor {
         ctx: &egui::Context,
         fallback_source: &str,
     ) -> bool {
-        let source = if self.script_target == ScriptTarget::Source {
+        let source = if let Some(crate::panels::actions_sidebar::ScriptLocation::Source(id)) =
+            self.effective_actions_location()
+        {
             self.project
                 .sources
                 .iter()
-                .find(|s| Some(&s.id) == self.selected_source.as_ref())
+                .find(|s| s.id == id)
                 .map_or(fallback_source, |s| s.source.as_str())
                 .to_owned()
         } else {
@@ -4639,11 +5009,9 @@ impl Editor {
 
     /// Insert a bounded Script Assist statement into the active frame, object, or project source script.
     pub fn insert_script_assist_snippet(&mut self, template: ScriptAssistTemplate) -> bool {
-        match self.script_target {
-            ScriptTarget::Source => {
-                let Some(selected_id) = self.selected_source.clone() else {
-                    return false;
-                };
+        use crate::panels::actions_sidebar::ScriptLocation;
+        match self.effective_actions_location() {
+            Some(ScriptLocation::Source(selected_id)) => {
                 let Some(unit) = self.project.sources.iter().find(|s| s.id == selected_id) else {
                     return false;
                 };
@@ -4660,24 +5028,43 @@ impl Editor {
                 });
                 true
             }
-            ScriptTarget::Frame => {
-                let frame = self.frame;
-                let layer_index = self.layer;
-                let layer_id = self.symbol().timeline.layers[layer_index].id.clone();
+            Some(ScriptLocation::Frame {
+                symbol,
+                layer,
+                frame,
+            }) => {
+                let Some(sym) = self.project.symbol(&symbol) else {
+                    return false;
+                };
+                let layer_index = layer
+                    .as_deref()
+                    .and_then(|id| sym.timeline.layers.iter().position(|l| l.id == id))
+                    .or_else(|| sym.timeline.action_layer_for_frame(frame))
+                    .unwrap_or(0);
+                let Some(layer_id) = sym.timeline.layers.get(layer_index).map(|l| l.id.clone())
+                else {
+                    return false;
+                };
                 let default_lang = self.default_script_language_for_project();
-                let language = self
-                    .symbol()
+                let language = sym
                     .timeline
                     .frame_script_for_layer(layer_index, frame)
                     .map_or(default_lang, |s| s.script.language);
                 let snippet = format_script_assist_snippet(&template, language);
                 self.transact_named("Script assist", |editor| {
+                    let prev_editing = editor.editing.clone();
+                    if editor.symbol_id() != symbol {
+                        editor.editing = vec![symbol.clone()];
+                    }
                     editor.ensure_frame_script_key_at(&layer_id, frame);
-                    let existing = editor
-                        .symbol()
+                    editor.editing = prev_editing;
+                    let Some(sym_mut) = editor.project.symbol_mut(&symbol) else {
+                        return;
+                    };
+                    let existing = sym_mut
                         .timeline
                         .frame_script_index_for_layer(layer_index, frame);
-                    let scripts = &mut editor.symbol_mut().timeline.scripts;
+                    let scripts = &mut sym_mut.timeline.scripts;
                     if let Some(index) = existing {
                         let existing = &mut scripts[index];
                         existing.layer = Some(layer_id.clone());
@@ -4697,40 +5084,93 @@ impl Editor {
                 });
                 true
             }
-            ScriptTarget::Object => {
-                if !self.selected_editable() {
+            Some(ScriptLocation::Object {
+                symbol,
+                element,
+                event,
+                ..
+            }) => {
+                let editing_pinned = self.actions_ui.active_pinned.is_some();
+                if !editing_pinned && !self.selected_editable() {
                     return false;
                 }
-                let event = self.script_event;
                 let default_lang = self.default_script_language_for_project();
-                let language = self
-                    .selected_element()
-                    .and_then(|e| {
+                let Some(language) = self
+                    .project
+                    .symbol(&symbol)
+                    .and_then(|sym| {
+                        sym.timeline
+                            .layers
+                            .iter()
+                            .flat_map(|l| &l.keyframes)
+                            .flat_map(|k| &k.elements)
+                            .find(|e| e.id == element)
+                    })
+                    .map(|e| {
                         e.scripts
                             .iter()
                             .find(|s| s.event == event && !s.script.source.trim().is_empty())
+                            .map_or(default_lang, |s| s.script.language)
                     })
-                    .map_or(default_lang, |s| s.script.language);
+                else {
+                    return false;
+                };
                 let snippet = format_script_assist_snippet(&template, language);
                 self.transact_named("Script assist", |editor| {
-                    editor.ensure_selected_key();
-                    if let Some(el) = editor.selected_element_mut() {
-                        if let Some(existing) = el.scripts.iter_mut().find(|s| s.event == event) {
-                            existing.script.language = language;
-                            append_script_assist_to_source(&mut existing.script.source, &snippet);
-                        } else {
-                            el.scripts.push(neoflash_core::ObjectScript {
-                                event,
-                                script: Script {
-                                    language,
-                                    source: snippet,
-                                },
-                            });
+                    if editing_pinned {
+                        if let Some(sym_mut) = editor.project.symbol_mut(&symbol) {
+                            for l in &mut sym_mut.timeline.layers {
+                                for k in &mut l.keyframes {
+                                    if let Some(el) =
+                                        k.elements.iter_mut().find(|e| e.id == element)
+                                    {
+                                        if let Some(existing) =
+                                            el.scripts.iter_mut().find(|s| s.event == event)
+                                        {
+                                            existing.script.language = language;
+                                            append_script_assist_to_source(
+                                                &mut existing.script.source,
+                                                &snippet,
+                                            );
+                                        } else {
+                                            el.scripts.push(neoflash_core::ObjectScript {
+                                                event,
+                                                script: Script {
+                                                    language,
+                                                    source: snippet.clone(),
+                                                },
+                                            });
+                                        }
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        editor.ensure_selected_key();
+                        if let Some(el) = editor.selected_element_mut() {
+                            if let Some(existing) = el.scripts.iter_mut().find(|s| s.event == event)
+                            {
+                                existing.script.language = language;
+                                append_script_assist_to_source(
+                                    &mut existing.script.source,
+                                    &snippet,
+                                );
+                            } else {
+                                el.scripts.push(neoflash_core::ObjectScript {
+                                    event,
+                                    script: Script {
+                                        language,
+                                        source: snippet,
+                                    },
+                                });
+                            }
                         }
                     }
                 });
                 true
             }
+            None => false,
         }
     }
 

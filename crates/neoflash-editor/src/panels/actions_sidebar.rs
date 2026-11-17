@@ -34,6 +34,10 @@ pub(crate) struct ActionsUi {
     pub pending: Option<CodeCommand>,
     /// Last text change (editor id, time) for the live check debounce.
     pub edited: Option<(egui::Id, f64)>,
+    /// Script tabs pinned to the bottom bar of `Actions` (`T-364`).
+    pub pinned_tabs: Vec<ScriptLocation>,
+    /// Currently active pinned tab (`None` = follow live Stage/Timeline selection).
+    pub active_pinned: Option<ScriptLocation>,
 }
 
 impl Default for ActionsUi {
@@ -45,6 +49,8 @@ impl Default for ActionsUi {
             selected: None,
             pending: None,
             edited: None,
+            pinned_tabs: Vec::new(),
+            active_pinned: None,
         }
     }
 }
@@ -99,11 +105,11 @@ fn member_tooltip(member: &Member) -> String {
 impl Editor {
     /// Language whose toolbox is shown: the open script's, or the selected project file's.
     fn sidebar_language(&self, script_language: ScriptLanguage) -> ScriptLanguage {
-        if self.script_target == ScriptTarget::Source {
+        if let Some(ScriptLocation::Source(id)) = self.effective_actions_location() {
             self.project
                 .sources
                 .iter()
-                .find(|s| Some(&s.id) == self.selected_source.as_ref())
+                .find(|s| s.id == id)
                 .map_or(script_language, |s| s.language)
         } else {
             script_language
@@ -298,10 +304,10 @@ impl Editor {
     /// symbol definitions and project files.
     fn script_navigator(&mut self, ui: &mut egui::Ui, current_label: &str) {
         if self.folder_row(ui, "nav:current", "Current selection", i16::TARGET, 0) {
-            let icon = if self.script_target == ScriptTarget::Source {
-                i16::FILE_CODE
-            } else {
-                i16::FRAME
+            let icon = match self.effective_actions_location() {
+                Some(ScriptLocation::Source(_)) => i16::FILE_CODE,
+                Some(ScriptLocation::Object { .. }) => i16::MOVIECLIP,
+                _ => i16::FRAME,
             };
             nf::TreeItem::new(current_label, TreeItemType::Symbol(icon))
                 .depth(1)
@@ -368,7 +374,7 @@ impl Editor {
         entry: &NavEntry,
         depth: usize,
     ) -> Option<ScriptLocation> {
-        let current = self.current_script_location().as_ref() == Some(&entry.location);
+        let current = self.effective_actions_location().as_ref() == Some(&entry.location);
         let row = nf::TreeItem::new(&entry.label, TreeItemType::Symbol(entry.icon))
             .depth(depth)
             .selected(current)
@@ -583,6 +589,234 @@ impl Editor {
                     self.script_target = ScriptTarget::Source;
                     self.selected_source = Some(id);
                 }
+            }
+        }
+        self.activate_current_actions_location();
+    }
+
+    /// Normalize a [`ScriptLocation`] against `self.project`, returning `None` if its owning
+    /// symbol, layer, element, or source file no longer exists.
+    pub(crate) fn canonical_script_location(
+        &self,
+        location: &ScriptLocation,
+    ) -> Option<ScriptLocation> {
+        match location {
+            ScriptLocation::Frame {
+                symbol,
+                layer,
+                frame,
+            } => {
+                let sym = self.project.symbol(symbol)?;
+                if *frame >= sym.timeline.frame_count {
+                    return None;
+                }
+                let resolved_layer = if let Some(layer_id) = layer {
+                    if !sym.timeline.layers.iter().any(|l| &l.id == layer_id) {
+                        return None;
+                    }
+                    Some(layer_id.clone())
+                } else {
+                    sym.timeline
+                        .action_layer_for_frame(*frame)
+                        .and_then(|idx| sym.timeline.layers.get(idx))
+                        .or_else(|| sym.timeline.layers.first())
+                        .map(|l| l.id.clone())
+                };
+                Some(ScriptLocation::Frame {
+                    symbol: symbol.clone(),
+                    layer: resolved_layer,
+                    frame: *frame,
+                })
+            }
+            ScriptLocation::Object {
+                symbol,
+                frame: _,
+                element,
+                event,
+            } => {
+                let sym = self.project.symbol(symbol)?;
+                let key_frame = sym
+                    .timeline
+                    .layers
+                    .iter()
+                    .flat_map(|l| &l.keyframes)
+                    .find(|k| k.elements.iter().any(|e| &e.id == element))
+                    .map(|k| k.frame)?;
+                Some(ScriptLocation::Object {
+                    symbol: symbol.clone(),
+                    frame: key_frame,
+                    element: element.clone(),
+                    event: *event,
+                })
+            }
+            ScriptLocation::Source(id) => self
+                .project
+                .sources
+                .iter()
+                .any(|s| &s.id == id)
+                .then(|| ScriptLocation::Source(id.clone())),
+        }
+    }
+
+    pub(crate) fn prune_stale_pinned_script_tabs(&mut self) {
+        let mut kept = Vec::with_capacity(self.actions_ui.pinned_tabs.len());
+        for loc in &self.actions_ui.pinned_tabs {
+            if let Some(canon) = self.canonical_script_location(loc)
+                && !kept.contains(&canon)
+            {
+                kept.push(canon);
+            }
+        }
+        self.actions_ui.pinned_tabs = kept;
+        if let Some(active) = &self.actions_ui.active_pinned {
+            self.actions_ui.active_pinned = self
+                .canonical_script_location(active)
+                .filter(|canon| self.actions_ui.pinned_tabs.contains(canon));
+        }
+    }
+
+    pub(crate) fn has_pending_explicit_actions_open(&self) -> bool {
+        (self.detached.focus_docked_actions
+            || self.detached.focus == Some(crate::workspace::PanelId::Actions))
+            && !self.detached.pending_placement_focus
+    }
+
+    /// Script location currently open in the `Actions` editor (`active_pinned` when set and valid,
+    /// otherwise the live Stage/Timeline `current_script_location()`).
+    pub(crate) fn effective_actions_location(&self) -> Option<ScriptLocation> {
+        if !self.has_pending_explicit_actions_open()
+            && let Some(pinned) = &self.actions_ui.active_pinned
+            && let Some(valid) = self.canonical_script_location(pinned)
+        {
+            return Some(valid);
+        }
+        self.current_script_location()
+            .and_then(|loc| self.canonical_script_location(&loc).or(Some(loc)))
+    }
+
+    /// Switch `Actions` to follow `current_script_location()` (selecting its pinned tab if that
+    /// location happens to be pinned, or `None` to show the unpinned live-selection tab).
+    pub(crate) fn activate_current_actions_location(&mut self) {
+        self.prune_stale_pinned_script_tabs();
+        let cur = self
+            .current_script_location()
+            .and_then(|loc| self.canonical_script_location(&loc));
+        self.actions_ui.active_pinned = cur.filter(|loc| self.actions_ui.pinned_tabs.contains(loc));
+    }
+
+    pub(crate) fn pin_script_tab(&mut self, location: ScriptLocation) {
+        let Some(canon) = self.canonical_script_location(&location) else {
+            return;
+        };
+        self.prune_stale_pinned_script_tabs();
+        if !self.actions_ui.pinned_tabs.contains(&canon) {
+            self.actions_ui.pinned_tabs.push(canon.clone());
+        }
+        self.actions_ui.active_pinned = Some(canon);
+    }
+
+    pub(crate) fn unpin_script_tab(&mut self, location: &ScriptLocation) {
+        let target = self
+            .canonical_script_location(location)
+            .unwrap_or_else(|| location.clone());
+        self.actions_ui
+            .pinned_tabs
+            .retain(|item| item != &target && item != location);
+        if self
+            .actions_ui
+            .active_pinned
+            .as_ref()
+            .is_some_and(|active| active == &target || active == location)
+        {
+            self.actions_ui.active_pinned = None;
+        }
+    }
+
+    pub(crate) fn unpin_other_script_tabs(&mut self, keep: &ScriptLocation) {
+        let target = self
+            .canonical_script_location(keep)
+            .unwrap_or_else(|| keep.clone());
+        self.actions_ui
+            .pinned_tabs
+            .retain(|item| item == &target || item == keep);
+        if let Some(active) = &self.actions_ui.active_pinned
+            && !self.actions_ui.pinned_tabs.contains(active)
+        {
+            self.actions_ui.active_pinned = self.actions_ui.pinned_tabs.first().cloned();
+        }
+    }
+
+    pub(crate) fn toggle_pin_script_tab(&mut self, location: ScriptLocation) {
+        let target = self
+            .canonical_script_location(&location)
+            .unwrap_or(location);
+        if self.actions_ui.pinned_tabs.contains(&target) {
+            self.unpin_script_tab(&target);
+        } else {
+            self.pin_script_tab(target);
+        }
+    }
+
+    pub(crate) fn script_location_tab_label(&self, location: &ScriptLocation) -> (String, Icon) {
+        match location {
+            ScriptLocation::Frame {
+                symbol,
+                layer,
+                frame,
+            } => {
+                let sym = self.project.symbol(symbol);
+                let sym_name = sym.map_or("Scene", |s| s.name.as_str());
+                let layer_name = sym.and_then(|s| {
+                    layer
+                        .as_deref()
+                        .and_then(|id| s.timeline.layers.iter().find(|l| l.id == id))
+                        .map(|l| l.name.as_str())
+                });
+                let multi_layer = sym.is_some_and(|s| s.timeline.layers.len() > 1);
+                let label = if let Some(lname) = layer_name
+                    && (multi_layer || lname != "Layer 1")
+                {
+                    if symbol != &self.project.root && !self.project.is_scene(symbol) {
+                        format!("{sym_name} · {lname} : Frame {}", frame + 1)
+                    } else {
+                        format!("{lname} : Frame {}", frame + 1)
+                    }
+                } else {
+                    format!("{sym_name} : Frame {}", frame + 1)
+                };
+                (label, i16::FRAME)
+            }
+            ScriptLocation::Object {
+                symbol,
+                element,
+                event,
+                ..
+            } => {
+                let el = self.project.symbol(symbol).and_then(|s| {
+                    s.timeline
+                        .layers
+                        .iter()
+                        .flat_map(|l| &l.keyframes)
+                        .flat_map(|k| &k.elements)
+                        .find(|e| &e.id == element)
+                });
+                let name = el.map_or("Object", |e| {
+                    if e.name.is_empty() {
+                        "Object"
+                    } else {
+                        e.name.as_str()
+                    }
+                });
+                (format!("{name} : {event:?}"), i16::MOVIECLIP)
+            }
+            ScriptLocation::Source(id) => {
+                let path = self
+                    .project
+                    .sources
+                    .iter()
+                    .find(|u| &u.id == id)
+                    .map_or("Source.as", |u| u.path.as_str());
+                (path.to_owned(), i16::FILE_CODE)
             }
         }
     }

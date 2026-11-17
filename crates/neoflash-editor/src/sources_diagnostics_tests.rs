@@ -579,3 +579,176 @@ fn diagnostic_ranges_follow_unicode_tabs_wraps_and_scroll_translation() {
         });
     });
 }
+
+#[test]
+fn t363_status_bar_diagnostics_click_jump_cross_file_and_skipped_foreign() {
+    // 1. In `Actions` (height 650 pt, toolbar 45 pt, bottom bar 32 pt): no `code_feedback` row
+    //    steals height below the editor; clicking `script_status` cycles diagnostics in-file!
+    let (mut editor, ctx, text) = fixture(ThemeMode::Light, ScriptTarget::Frame);
+    jump_to(&ctx, editor.actions_editor_id(), &text, 1, 1);
+    let output = render(&mut editor, &ctx, vec![]);
+    let nodes = &output
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes;
+    assert!(
+        !nodes
+            .iter()
+            .filter_map(|(_, n)| n.label().or(n.value()))
+            .any(|l| l.starts_with("Warning: [") && l.contains("Line 2, column")),
+        "old code_feedback CompilerMessage rows must not render inside Actions"
+    );
+    let status_rect = nodes
+        .iter()
+        .find_map(|(_, n)| {
+            let lbl = n.label().or(n.value())?;
+            (lbl.starts_with("Line 1, Col 1") && lbl.contains("warning"))
+                .then(|| n.bounds())
+                .flatten()
+                .map(|r| {
+                    egui::Rect::from_min_max(
+                        egui::pos2(r.x0 as f32, r.y0 as f32),
+                        egui::pos2(r.x1 as f32, r.y1 as f32),
+                    )
+                })
+        })
+        .expect("bottom script_status button exposes warning summary");
+    // Verify bottom status bar sits right at the bottom (`650 - 8 margin - 32 bar = 610`) and hugs the right side.
+    assert!(status_rect.top() >= 608.0, "status_rect={status_rect:?}");
+    assert!(status_rect.left() > 900.0, "status_rect={status_rect:?}");
+
+    // Tooltip helper formats both passing checks and diagnostic summaries cleanly.
+    let ok_tip = Editor::format_script_status_tooltip(
+        true,
+        "Code accepted for current language support.",
+        &[],
+    );
+    assert_eq!(ok_tip, "✓ Code accepted for current language support.");
+    let fb = editor.code_feedback.as_ref().unwrap();
+    let warn_tip = Editor::format_script_status_tooltip(fb.success, &fb.text, &fb.diagnostics);
+    assert!(
+        warn_tip.contains("Line 2, col ") && warn_tip.contains("— click to jump"),
+        "unexpected tooltip: {warn_tip}"
+    );
+
+    // Click 1 jumps from line 1 to line 2 (`not false`); click 2 jumps to `and true` (line 2 col > first);
+    // click 3 jumps to line 3 (`not true`); click 4 wraps back to line 2!
+    press(&mut editor, &ctx, status_rect.center());
+    let c1 = nf::code::line_col(&text, caret(&editor, &ctx));
+    assert_eq!(c1.0, 2);
+    press(&mut editor, &ctx, status_rect.center());
+    let c2 = nf::code::line_col(&text, caret(&editor, &ctx));
+    assert_eq!(c2.0, 2);
+    assert!(c2.1 > c1.1);
+    press(&mut editor, &ctx, status_rect.center());
+    let c3 = nf::code::line_col(&text, caret(&editor, &ctx));
+    assert_eq!(c3.0, 3);
+    press(&mut editor, &ctx, status_rect.center());
+    let c4 = nf::code::line_col(&text, caret(&editor, &ctx));
+    assert_eq!(c4, c1);
+
+    // 2. `!success && errors == 0` must still report `"1 error"`, never `"No errors"`.
+    editor.code_feedback.as_mut().unwrap().success = false;
+    editor.code_feedback.as_mut().unwrap().diagnostics.clear();
+    let fail_out = render(&mut editor, &ctx, vec![]);
+    let fail_labels: Vec<String> = fail_out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .filter_map(|(_, n)| n.label().or(n.value()).map(str::to_owned))
+        .collect();
+    assert!(
+        fail_labels
+            .iter()
+            .any(|l| l.contains("1 error") && !l.contains("No errors")),
+        "failed check with empty diagnostics must never claim No errors: {fail_labels:?}"
+    );
+
+    // 3. Cross-file `SourceUnit` jump: clicking `script_status` while viewing `good.ts` switches
+    //    `selected_source` to `"bad"` and places the caret on `bad.ts`'s error line!
+    let mut cross_proj = Project::blank();
+    cross_proj.script_language = Some(ScriptLanguage::TypeScript);
+    cross_proj.sources = vec![
+        SourceUnit {
+            id: "good".into(),
+            path: "good.ts".into(),
+            language: ScriptLanguage::TypeScript,
+            source: "export const ok: number = 1;\n".into(),
+        },
+        SourceUnit {
+            id: "bad".into(),
+            path: "bad.ts".into(),
+            language: ScriptLanguage::TypeScript,
+            source: "// line 1\nexport const broken: number = \"oops\";\n".into(),
+        },
+    ];
+    cross_proj.enable_program();
+    let mut cross_ed = Editor::from_project(&ctx, cross_proj);
+    cross_ed.script_target = ScriptTarget::Source;
+    cross_ed.selected_source = Some("good".into());
+    cross_ed.check_project_sources(false);
+    let cross_out = render(&mut cross_ed, &ctx, vec![]);
+    let cross_status = cross_out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .find_map(|(_, n)| {
+            let lbl = n.label().or(n.value())?;
+            (lbl.starts_with("Line 1, Col 1") && lbl.contains("error"))
+                .then(|| n.bounds())
+                .flatten()
+                .map(|r| {
+                    egui::Rect::from_min_max(
+                        egui::pos2(r.x0 as f32, r.y0 as f32),
+                        egui::pos2(r.x1 as f32, r.y1 as f32),
+                    )
+                })
+        })
+        .expect("cross-file error count in script_status");
+    press(&mut cross_ed, &ctx, cross_status.center());
+    assert_eq!(cross_ed.selected_source.as_deref(), Some("bad"));
+    let bad_src = &cross_ed.project.sources[1].source;
+    assert_eq!(nf::code::line_col(bad_src, caret(&cross_ed, &ctx)).0, 2);
+
+    // 4. `SkippedForeign` frame script in a TypeScript project with a missing TS `document_class`
+    //    must show the skipped foreign notice row AND report `No errors` for valid AS2 syntax
+    //    without polluting the skipped script with foreign TS `document_class` errors!
+    let mut skip_proj = Project::blank();
+    skip_proj.script_language = Some(ScriptLanguage::TypeScript);
+    skip_proj.document_class = Some("app.MissingTsDocClass".into());
+    skip_proj.enable_program();
+    let as2_script = Script {
+        language: ScriptLanguage::ActionScript2,
+        source: "stop();\n".into(),
+    };
+    skip_proj.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
+        frame: 0,
+        script: as2_script.clone(),
+    });
+    let mut skip_ed = Editor::from_project(&ctx, skip_proj);
+    skip_ed.script_target = ScriptTarget::Frame;
+    skip_ed.check_action_source(&as2_script, false);
+    let skip_out = render(&mut skip_ed, &ctx, vec![]);
+    let skip_labels: Vec<String> = skip_out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .filter_map(|(_, n)| n.label().or(n.value()).map(str::to_owned))
+        .collect();
+    assert!(
+        skip_labels.iter().any(|l| l.contains("No errors")),
+        "valid skipped AS2 script must report No errors without foreign TS document_class errors: {skip_labels:?}"
+    );
+}

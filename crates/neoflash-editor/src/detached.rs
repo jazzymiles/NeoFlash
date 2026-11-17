@@ -22,6 +22,7 @@ pub(crate) struct DetachedState {
     was_modal_open: bool,
     pub focus: Option<PanelId>,
     pub focus_docked_actions: bool,
+    pub pending_placement_focus: bool,
     monitors: Vec<ScreenRect>,
     checked_monitors: Option<Instant>,
     drag: Option<PanelDrag>,
@@ -1012,6 +1013,9 @@ impl Editor {
     pub(crate) fn focus_dock_panel(&mut self, ctx: &egui::Context, panel: PanelId) {
         self.bottom = self.workspace.active_bottom;
         let surface = self.workspace.panel_surface(panel);
+        if panel == PanelId::Actions {
+            self.detached.pending_placement_focus = true;
+        }
         if surface == DockSurface::Main {
             self.detached.focus_docked_actions = panel == PanelId::Actions;
             if self.detached.focus == Some(panel) {
@@ -1033,6 +1037,9 @@ impl Editor {
         self.workspace.active_bottom = self.bottom;
         self.workspace.set_placement(panel, placement);
         self.bottom = self.workspace.active_bottom;
+        if panel == PanelId::Actions {
+            self.detached.pending_placement_focus = true;
+        }
         if placement == PanelPlacement::Detached {
             self.detached.focus = Some(panel);
         } else {
@@ -1043,26 +1050,31 @@ impl Editor {
     }
 
     pub(crate) fn prepare_docked_panel_focus(&mut self, ctx: &egui::Context) {
-        if std::mem::take(&mut self.detached.focus_docked_actions)
-            && self.workspace.is_panel_docked(PanelId::Actions)
-            && self.workspace.is_panel_visible(PanelId::Actions)
-        {
-            let editor_id = self.actions_editor_id();
-            let has_modal = self.has_modal_dialog_in(ctx);
-            ctx.memory_mut(|memory| {
-                memory.request_focus(editor_id);
-                if !has_modal {
-                    memory.set_focus_lock_filter(
-                        editor_id,
-                        egui::EventFilter {
-                            tab: true,
-                            horizontal_arrows: true,
-                            vertical_arrows: true,
-                            escape: true,
-                        },
-                    );
+        if std::mem::take(&mut self.detached.focus_docked_actions) {
+            let was_placement = std::mem::take(&mut self.detached.pending_placement_focus);
+            if self.workspace.is_panel_docked(PanelId::Actions)
+                && self.workspace.is_panel_visible(PanelId::Actions)
+            {
+                if !was_placement {
+                    self.activate_current_actions_location();
                 }
-            });
+                let editor_id = self.actions_editor_id();
+                let has_modal = self.has_modal_dialog_in(ctx);
+                ctx.memory_mut(|memory| {
+                    memory.request_focus(editor_id);
+                    if !has_modal {
+                        memory.set_focus_lock_filter(
+                            editor_id,
+                            egui::EventFilter {
+                                tab: true,
+                                horizontal_arrows: true,
+                                vertical_arrows: true,
+                                escape: true,
+                            },
+                        );
+                    }
+                });
+            }
         }
     }
 
@@ -1306,6 +1318,11 @@ impl Editor {
             }
             self.detached.active.insert(window_id);
             let focus = self.detached.focus.filter(|panel| panels.contains(panel));
+            let was_placement_focus = if focus == Some(PanelId::Actions) {
+                std::mem::take(&mut self.detached.pending_placement_focus)
+            } else {
+                false
+            };
             if focus.is_some() {
                 self.detached.focus = None;
             }
@@ -1404,6 +1421,9 @@ impl Editor {
                 if let Some(focus) = focus {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                     if focus == PanelId::Actions {
+                        if !was_placement_focus {
+                            self.activate_current_actions_location();
+                        }
                         let editor_id = self.actions_editor_id();
                         let has_modal = self.has_modal_dialog_in(ctx);
                         ctx.memory_mut(|memory| {

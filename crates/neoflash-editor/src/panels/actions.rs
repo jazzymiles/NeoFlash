@@ -94,38 +94,76 @@ impl Editor {
     }
 
     pub(crate) fn actions_editor_id(&self) -> egui::Id {
-        if self.script_target == ScriptTarget::Source {
-            return egui::Id::new((
+        match self.effective_actions_location() {
+            Some(ScriptLocation::Source(id)) => egui::Id::new((
                 "neoflash-project-source-editor",
                 &self.clipboard.session,
-                &self.selected_source,
-            ));
-        }
-        let target = match self.script_target {
-            ScriptTarget::Frame => format!(
-                "frame:{}",
-                self.symbol()
-                    .timeline
-                    .layers
-                    .get(self.layer)
-                    .map_or("", |layer| layer.id.as_str())
-            ),
-            ScriptTarget::Source => {
-                format!("source:{}", self.selected_source.as_deref().unwrap_or(""))
+                &Some(id),
+            )),
+            Some(ScriptLocation::Frame {
+                symbol,
+                layer,
+                frame,
+            }) => {
+                let target = format!("frame:{}", layer.as_deref().unwrap_or(""));
+                egui::Id::new((
+                    "neoflash-actions-editor",
+                    &self.clipboard.session,
+                    symbol.as_str(),
+                    frame,
+                    target,
+                ))
             }
-            ScriptTarget::Object => format!(
-                "object:{}:{:?}",
-                self.selected_element().map_or("", |e| e.id.as_str()),
-                self.script_event
-            ),
-        };
-        egui::Id::new((
-            "neoflash-actions-editor",
-            &self.clipboard.session,
-            self.symbol_id(),
-            self.frame,
-            target,
-        ))
+            Some(ScriptLocation::Object {
+                symbol,
+                frame,
+                element,
+                event,
+            }) => {
+                let target = format!("object:{element}:{event:?}");
+                egui::Id::new((
+                    "neoflash-actions-editor",
+                    &self.clipboard.session,
+                    symbol.as_str(),
+                    frame,
+                    target,
+                ))
+            }
+            None => {
+                if self.script_target == ScriptTarget::Source {
+                    return egui::Id::new((
+                        "neoflash-project-source-editor",
+                        &self.clipboard.session,
+                        &self.selected_source,
+                    ));
+                }
+                let target = match self.script_target {
+                    ScriptTarget::Frame => format!(
+                        "frame:{}",
+                        self.symbol()
+                            .timeline
+                            .layers
+                            .get(self.layer)
+                            .map_or("", |layer| layer.id.as_str())
+                    ),
+                    ScriptTarget::Source => {
+                        format!("source:{}", self.selected_source.as_deref().unwrap_or(""))
+                    }
+                    ScriptTarget::Object => format!(
+                        "object:{}:{:?}",
+                        self.selected_element().map_or("", |e| e.id.as_str()),
+                        self.script_event
+                    ),
+                };
+                egui::Id::new((
+                    "neoflash-actions-editor",
+                    &self.clipboard.session,
+                    self.symbol_id(),
+                    self.frame,
+                    target,
+                ))
+            }
+        }
     }
     pub(crate) fn actions_contents(&mut self, ui: &mut egui::Ui) {
         let id = (
@@ -137,15 +175,24 @@ impl Editor {
     }
 
     /// NF2 Actions toolbar: target select and language badge (`R-102`), object event, Check,
-    /// code tools (format, hints, comments), sidebar toggle, Script assist and help.
+    /// code tools (format, hints, comments), sidebar toggle, pin script tab, Script assist and help.
+    #[allow(clippy::too_many_arguments)]
     fn actions_toolbar(
         &mut self,
         ui: &mut egui::Ui,
         script: &mut Script,
         has_stored_script: bool,
         context: &str,
+        active_target: ScriptTarget,
+        active_loc: &Option<ScriptLocation>,
+        editable: bool,
     ) {
-        let source = self.script_target == ScriptTarget::Source;
+        let source = active_target == ScriptTarget::Source;
+        let active_source_id = match active_loc {
+            Some(ScriptLocation::Source(id)) => Some(id.clone()),
+            _ if source => self.selected_source.clone(),
+            _ => None,
+        };
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(2., space::S1);
             let target_width = (ui.available_width() * 0.3).clamp(140., 280.);
@@ -156,13 +203,18 @@ impl Editor {
                     let frame = format!("Frame {}", self.frame + 1);
                     let items = [
                         (ScriptTarget::Frame, frame.as_str(), true),
-                        (ScriptTarget::Object, "Selected object", self.selected_editable()),
+                        (
+                            ScriptTarget::Object,
+                            "Selected object",
+                            self.selected_editable(),
+                        ),
                         (ScriptTarget::Source, "Project files", true),
                     ];
                     for (target, label, enabled) in items {
-                        let item = nf::MenuItem::new(label).checked(self.script_target == target);
+                        let item = nf::MenuItem::new(label).checked(active_target == target);
                         if ui.add_enabled_semantic(enabled, item).clicked() {
                             self.script_target = target;
+                            self.activate_current_actions_location();
                         }
                     }
                 });
@@ -178,26 +230,60 @@ impl Editor {
                 ui.add_space(space::S1);
                 Self::script_language_badge(ui, script.language, skipped);
             }
-            if self.script_target == ScriptTarget::Object {
+            if active_target == ScriptTarget::Object {
+                let cur_event = match active_loc {
+                    Some(ScriptLocation::Object { event, .. }) => *event,
+                    _ => self.script_event,
+                };
                 ui.add_space(space::S1);
-                let label = format!("Event: {:?}", self.script_event);
+                let label = format!("Event: {cur_event:?}");
                 nf::Select::new("actions_object_event", &label)
                     .width(150.)
                     .show(ui, |ui| {
-                        for event in [ObjectEvent::Click, ObjectEvent::Load, ObjectEvent::EnterFrame] {
+                        for event in [
+                            ObjectEvent::Click,
+                            ObjectEvent::Load,
+                            ObjectEvent::EnterFrame,
+                        ] {
                             let name = format!("{event:?}");
-                            let item = nf::MenuItem::new(&name).checked(self.script_event == event);
+                            let item = nf::MenuItem::new(&name).checked(cur_event == event);
                             if ui.add(item).clicked() {
-                                self.script_event = event;
+                                if let Some(ScriptLocation::Object {
+                                    symbol,
+                                    frame,
+                                    element,
+                                    ..
+                                }) = active_loc
+                                    && self.actions_ui.active_pinned.is_some()
+                                {
+                                    let next_loc = ScriptLocation::Object {
+                                        symbol: symbol.clone(),
+                                        frame: *frame,
+                                        element: element.clone(),
+                                        event,
+                                    };
+                                    if self.actions_ui.pinned_tabs.contains(&next_loc) {
+                                        self.actions_ui.active_pinned = Some(next_loc);
+                                    } else {
+                                        self.open_script_location(next_loc);
+                                    }
+                                } else {
+                                    self.script_event = event;
+                                    self.activate_current_actions_location();
+                                }
                             }
                         }
                     });
             }
             ui.add_space(space::S1);
             nf::divider(ui, true);
-            let check_label = if source { "Check project" } else { "Check script" };
+            let check_label = if source {
+                "Check project"
+            } else {
+                "Check script"
+            };
             let check = ui.add_enabled_semantic(
-                !source || self.selected_source.is_some(),
+                !source || active_source_id.is_some(),
                 nf::IconButton::new(i16::CHECK, check_label),
             );
             if check.clicked() {
@@ -207,18 +293,18 @@ impl Editor {
                     self.check_action_source(script, true);
                 }
             }
-            let editable = if source {
-                self.selected_source.is_some()
+            let source_language = active_source_id.as_ref().and_then(|id| {
+                self.project
+                    .sources
+                    .iter()
+                    .find(|s| &s.id == id)
+                    .map(|s| s.language)
+            });
+            let language = if source {
+                source_language
             } else {
-                self.script_target == ScriptTarget::Frame || self.selected_editable()
+                Some(script.language)
             };
-            let source_language = self
-                .project
-                .sources
-                .iter()
-                .find(|s| Some(&s.id) == self.selected_source.as_ref())
-                .map(|s| s.language);
-            let language = if source { source_language } else { Some(script.language) };
             let has_api = language.and_then(crate::script_api::api).is_some();
             for group in CODE_TOOLS {
                 for (icon, label, command) in group {
@@ -270,10 +356,23 @@ impl Editor {
                 nf::divider(ui, true);
             }
             let sidebar = ui.add(
-                nf::IconButton::new(i16::SIDEBAR, "Show toolbox sidebar").selected(self.actions_ui.sidebar),
+                nf::IconButton::new(i16::SIDEBAR, "Show toolbox sidebar")
+                    .selected(self.actions_ui.sidebar),
             );
             if sidebar.clicked() {
                 self.actions_ui.sidebar = !self.actions_ui.sidebar;
+            }
+            let is_pinned = active_loc
+                .as_ref()
+                .is_some_and(|loc| self.actions_ui.pinned_tabs.contains(loc));
+            let pin_btn = ui.add_enabled_semantic(
+                active_loc.is_some(),
+                nf::IconButton::new(i16::PIN, "Pin script tab").selected(is_pinned),
+            );
+            if pin_btn.clicked()
+                && let Some(loc) = active_loc.clone()
+            {
+                self.toggle_pin_script_tab(loc);
             }
             let right = 140. + neoflash_ui::metrics::control() + 2. * 2.;
             // In a wrapped row `available_width` is the full row width, not what is left of it.
@@ -343,17 +442,20 @@ impl Editor {
     fn foreign_script_notice_row(
         &mut self,
         ui: &mut egui::Ui,
+        active_target: ScriptTarget,
+        active_loc: &Option<ScriptLocation>,
         has_stored_script: bool,
         frame_or_obj_lang: ScriptLanguage,
     ) -> bool {
         let proj_lang = self.project.effective_script_language();
-        let active_foreign = match self.script_target {
+        let active_foreign = match active_target {
             ScriptTarget::Source => {
-                let unit = self
-                    .project
-                    .sources
-                    .iter()
-                    .find(|s| Some(&s.id) == self.selected_source.as_ref())
+                let source_id = match active_loc {
+                    Some(ScriptLocation::Source(id)) => Some(id.as_str()),
+                    _ => self.selected_source.as_deref(),
+                };
+                let unit = source_id
+                    .and_then(|id| self.project.sources.iter().find(|s| s.id == id))
                     .or_else(|| self.project.sources.first());
                 unit.filter(|u| u.language != proj_lang).map(|u| {
                     (
@@ -427,24 +529,44 @@ impl Editor {
         mark_clicked
     }
 
+    fn render_empty_state_with_pinned_tabs(
+        &mut self,
+        ui: &mut egui::Ui,
+        empty_state: nf::EmptyState<'_>,
+    ) {
+        let avail = ui.available_rect_before_wrap();
+        let bar_h = if self.actions_ui.pinned_tabs.is_empty() {
+            0.0
+        } else {
+            neoflash_ui::metrics::script_tab() + 2.0
+        };
+        let empty_rect = egui::Rect::from_min_max(
+            avail.min,
+            egui::pos2(avail.right(), (avail.bottom() - bar_h).max(avail.top())),
+        );
+        ui.scope_builder(egui::UiBuilder::new().max_rect(empty_rect), |ui| {
+            let _ = empty_state.show(ui);
+        });
+        if bar_h > 0.0 {
+            let bar = egui::Rect::from_min_max(
+                egui::pos2(avail.left(), avail.bottom() - bar_h),
+                avail.max,
+            );
+            let p = neoflash_ui::palette(ui.ctx());
+            ui.painter().hline(
+                bar.x_range(),
+                bar.top() + 0.5,
+                egui::Stroke::new(1.0_f32, p.border_subtle),
+            );
+            self.render_actions_script_tabs_bar(ui, bar, "");
+            ui.advance_cursor_after_rect(avail);
+        }
+    }
+
     fn actions_body(&mut self, ui: &mut egui::Ui) {
-        let active_layer_name = self
-            .symbol()
-            .timeline
-            .layers
-            .get(self.layer)
-            .map(|layer| layer.name.clone())
-            .unwrap_or_else(|| "Layer".to_owned());
-        let active_frame_script = self
-            .symbol()
-            .timeline
-            .frame_script_for_layer(self.layer, self.frame)
-            .cloned();
-        let has_frame_script = active_frame_script
-            .as_ref()
-            .is_some_and(|script| !script.script.source.trim().is_empty());
-        let object_id = self.selected_element().map(|element| element.id.clone());
-        if self.script_target == ScriptTarget::Source
+        self.prune_stale_pinned_script_tabs();
+        if self.actions_ui.active_pinned.is_none()
+            && self.script_target == ScriptTarget::Source
             && !self
                 .project
                 .sources
@@ -453,17 +575,148 @@ impl Editor {
         {
             self.selected_source = self.project.sources.first().map(|s| s.id.clone());
         }
+        let location_before = self.effective_actions_location();
+        let active_target = match &location_before {
+            Some(ScriptLocation::Source(_)) => ScriptTarget::Source,
+            Some(ScriptLocation::Frame { .. }) => ScriptTarget::Frame,
+            Some(ScriptLocation::Object { .. }) => ScriptTarget::Object,
+            None => self.script_target,
+        };
         let target_before = self.script_target;
         let event_before = self.script_event;
-        let location_before = self.current_script_location();
-        let stored = match self.script_target {
-            ScriptTarget::Source => None,
-            ScriptTarget::Frame => active_frame_script.map(|s| s.script),
-            ScriptTarget::Object => self
-                .selected_element()
-                .and_then(|e| e.scripts.iter().find(|s| s.event == self.script_event))
-                .map(|s| s.script.clone()),
+
+        let (
+            sym_id,
+            sym_name,
+            sym_kind,
+            resolved_layer_idx,
+            active_layer_name,
+            resolved_frame,
+            active_frame_script,
+            resolved_object_id,
+            resolved_object_name,
+            resolved_event,
+            stored,
+            editable,
+        ) = match &location_before {
+            Some(ScriptLocation::Frame {
+                symbol,
+                layer,
+                frame,
+            }) => {
+                let sym = self.project.symbol(symbol).unwrap_or_else(|| self.symbol());
+                let l_idx = layer
+                    .as_deref()
+                    .and_then(|id| sym.timeline.layers.iter().position(|l| l.id == id))
+                    .or_else(|| sym.timeline.action_layer_for_frame(*frame))
+                    .unwrap_or(0);
+                let l_name = sym
+                    .timeline
+                    .layers
+                    .get(l_idx)
+                    .map(|l| l.name.clone())
+                    .unwrap_or_else(|| "Layer".to_owned());
+                let fs = sym.timeline.frame_script_for_layer(l_idx, *frame).cloned();
+                let st = fs.as_ref().map(|s| s.script.clone());
+                (
+                    sym.id.clone(),
+                    sym.name.clone(),
+                    sym.kind,
+                    l_idx,
+                    l_name,
+                    *frame,
+                    fs,
+                    None,
+                    "Object".to_owned(),
+                    self.script_event,
+                    st,
+                    true,
+                )
+            }
+            Some(ScriptLocation::Object {
+                symbol,
+                frame,
+                element,
+                event,
+            }) => {
+                let sym = self.project.symbol(symbol).unwrap_or_else(|| self.symbol());
+                let el = sym
+                    .timeline
+                    .layers
+                    .iter()
+                    .flat_map(|l| &l.keyframes)
+                    .flat_map(|k| &k.elements)
+                    .find(|e| &e.id == element);
+                let el_name = el
+                    .map(|e| {
+                        if e.name.is_empty() {
+                            "Object".to_owned()
+                        } else {
+                            e.name.clone()
+                        }
+                    })
+                    .unwrap_or_else(|| "Object".to_owned());
+                let st = el
+                    .and_then(|e| e.scripts.iter().find(|s| s.event == *event))
+                    .map(|s| s.script.clone());
+                let is_ed = if self.actions_ui.active_pinned.is_some() {
+                    el.is_some()
+                } else {
+                    self.selected_editable()
+                };
+                (
+                    sym.id.clone(),
+                    sym.name.clone(),
+                    sym.kind,
+                    0,
+                    "Layer".to_owned(),
+                    *frame,
+                    None,
+                    Some(element.clone()),
+                    el_name,
+                    *event,
+                    st,
+                    is_ed,
+                )
+            }
+            Some(ScriptLocation::Source(src_id)) => (
+                self.symbol_id().to_owned(),
+                self.symbol().name.clone(),
+                self.symbol().kind,
+                self.layer,
+                "Layer".to_owned(),
+                self.frame,
+                None,
+                None,
+                "Object".to_owned(),
+                self.script_event,
+                None,
+                self.project.sources.iter().any(|s| &s.id == src_id),
+            ),
+            None => (
+                self.symbol_id().to_owned(),
+                self.symbol().name.clone(),
+                self.symbol().kind,
+                self.layer,
+                self.symbol()
+                    .timeline
+                    .layers
+                    .get(self.layer)
+                    .map(|l| l.name.clone())
+                    .unwrap_or_else(|| "Layer".to_owned()),
+                self.frame,
+                None,
+                None,
+                "Object".to_owned(),
+                self.script_event,
+                None,
+                active_target == ScriptTarget::Frame && !self.symbol().timeline.layers.is_empty(),
+            ),
         };
+
+        let has_frame_script = active_frame_script
+            .as_ref()
+            .is_some_and(|script| !script.script.source.trim().is_empty());
         let proj_lang = self.project.effective_script_language();
         let has_stored_script = stored.as_ref().is_some_and(|s| !s.source.is_empty());
         let original = match &stored {
@@ -474,35 +727,24 @@ impl Editor {
             },
         };
         let mut script = original.clone();
-        let context = match self.script_target {
+        let context = match active_target {
             ScriptTarget::Frame => format!(
-                "{} · {} · Frame {}{}",
-                self.symbol().name,
-                active_layer_name,
-                self.frame + 1,
+                "{sym_name} · {active_layer_name} · Frame {}{}",
+                resolved_frame + 1,
                 if has_frame_script { " · script" } else { "" }
             ),
-            ScriptTarget::Object => format!(
-                "{} · {} · {:?}",
-                self.symbol().name,
-                self.selected_element()
-                    .map_or("Object", |e| e.name.as_str()),
-                self.script_event
-            ),
+            ScriptTarget::Object => {
+                format!("{sym_name} · {resolved_object_name} · {resolved_event:?}")
+            }
             ScriptTarget::Source => "Project files".to_owned(),
         };
-        let tab = match self.script_target {
-            ScriptTarget::Object => format!(
-                "{} : {:?}",
-                self.selected_element()
-                    .map_or("Object", |e| if e.name.is_empty() {
-                        "Object"
-                    } else {
-                        e.name.as_str()
-                    }),
-                self.script_event
-            ),
-            _ => format!("{} : Frame {}", self.symbol().name, self.frame + 1),
+        let tab = match active_target {
+            ScriptTarget::Object => format!("{resolved_object_name} : {resolved_event:?}"),
+            ScriptTarget::Source => location_before
+                .as_ref()
+                .map(|loc| self.script_location_tab_label(loc).0)
+                .unwrap_or_else(|| "Project files".to_owned()),
+            ScriptTarget::Frame => format!("{sym_name} : Frame {}", resolved_frame + 1),
         };
         let saved_y_spacing = ui.spacing().item_spacing.y;
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -511,7 +753,15 @@ impl Editor {
         egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(space::S2 as i8, 6))
             .show(ui, |ui| {
-                self.actions_toolbar(ui, &mut script, has_stored_script, &context)
+                self.actions_toolbar(
+                    ui,
+                    &mut script,
+                    has_stored_script,
+                    &context,
+                    active_target,
+                    &location_before,
+                    editable,
+                )
             });
         let line_y = ui.cursor().top();
         ui.painter().hline(
@@ -519,12 +769,21 @@ impl Editor {
             line_y,
             egui::Stroke::new(1.0_f32, neoflash_ui::palette(ui.ctx()).border_subtle),
         );
-        if target_before != self.script_target || event_before != self.script_event {
+        if self.effective_actions_location() != location_before
+            || (self.actions_ui.active_pinned.is_none()
+                && (target_before != self.script_target || event_before != self.script_event))
+        {
             ui.spacing_mut().item_spacing.y = saved_y_spacing;
             ui.ctx().request_repaint();
             return;
         }
-        if self.foreign_script_notice_row(ui, has_stored_script, script.language) {
+        if self.foreign_script_notice_row(
+            ui,
+            active_target,
+            &location_before,
+            has_stored_script,
+            script.language,
+        ) {
             ui.spacing_mut().item_spacing.y = saved_y_spacing;
             ui.ctx().request_repaint();
             return;
@@ -533,6 +792,10 @@ impl Editor {
         // Sidebar (toolbox + Script navigator) left of the script area, as in the NF2 Actions panel.
         let rest = ui.available_rect_before_wrap();
         ui.advance_cursor_after_rect(rest);
+        let nav_label = location_before
+            .as_ref()
+            .map(|loc| self.script_location_tab_label(loc).0)
+            .unwrap_or_else(|| tab.clone());
         let main = if self.actions_ui.sidebar && rest.width() >= SIDEBAR_MIN_PANEL {
             let side =
                 egui::Rect::from_min_size(rest.min, egui::vec2(SIDEBAR_WIDTH, rest.height()));
@@ -542,7 +805,7 @@ impl Editor {
                         .with_max_x(side.right() - 1. - space::S2),
                 ),
             );
-            self.actions_sidebar_with_js_ts(&mut side_ui, script.language, &tab);
+            self.actions_sidebar_with_js_ts(&mut side_ui, script.language, &nav_label);
             ui.painter().vline(
                 side.right() - 0.5,
                 side.y_range(),
@@ -558,41 +821,44 @@ impl Editor {
                 .max_rect(main),
         );
         let ui = &mut main_ui;
-        if target_before != self.script_target
-            || event_before != self.script_event
-            || self.current_script_location() != location_before
+        if self.effective_actions_location() != location_before
+            || (self.actions_ui.active_pinned.is_none()
+                && (target_before != self.script_target || event_before != self.script_event))
         {
             ui.ctx().request_repaint();
             return;
         }
-        if self.script_target == ScriptTarget::Source {
+        if active_target == ScriptTarget::Source {
             self.project_sources(ui);
             return;
         }
-        if self.script_target == ScriptTarget::Object && !self.selected_editable() {
-            nf::EmptyState {
-                icon: i16::SELECT,
-                title: "No object selected",
-                body: "Select one editable object to edit its actions, or choose Frame.",
-                action: None,
-            }
-            .show(ui);
+        if active_target == ScriptTarget::Object && !editable {
+            self.render_empty_state_with_pinned_tabs(
+                ui,
+                nf::EmptyState {
+                    icon: i16::SELECT,
+                    title: "No object selected",
+                    body: "Select one editable object to edit its actions, or choose Frame.",
+                    action: None,
+                },
+            );
             return;
         }
-        if self.symbol().kind == SymbolKind::Button
-            && self.script_target == ScriptTarget::Frame
+        if sym_kind == SymbolKind::Button
+            && active_target == ScriptTarget::Frame
             && !has_frame_script
         {
-            nf::EmptyState {
-                icon: i16::BUTTON_SYMBOL,
-                title: "Button states contain artwork",
-                body: "Attach actions to the named Button instance on its parent timeline, or use its linked class in Project files.",
-                action: None,
-            }
-            .show(ui);
+            self.render_empty_state_with_pinned_tabs(
+                ui,
+                nf::EmptyState {
+                    icon: i16::BUTTON_SYMBOL,
+                    title: "Button states contain artwork",
+                    body: "Attach actions to the named Button instance on its parent timeline, or use its linked class in Project files.",
+                    action: None,
+                },
+            );
             return;
         }
-        let editable = self.script_target == ScriptTarget::Frame || self.selected_editable();
         let mut text_editing = false;
         let language = script.language;
         ui.add_enabled_ui_semantic(editable, |ui| {
@@ -617,53 +883,83 @@ impl Editor {
                 self.set_playing(false);
             }
             self.finish_edits();
-            if self.script_target == ScriptTarget::Object
-                && let Some(id) = object_id
+            let editing_pinned = self.actions_ui.active_pinned.is_some();
+            if active_target == ScriptTarget::Object
+                && !editing_pinned
+                && let Some(id) = resolved_object_id.clone()
             {
                 self.select_single_id(id);
             }
-            self.transact(|s| match s.script_target {
+            self.transact(|s| match active_target {
                 ScriptTarget::Source => unreachable!("Project files use their own editor"),
                 ScriptTarget::Frame => {
-                    let frame = s.frame;
-                    let layer_index = s.layer;
-                    let layer_id = s.symbol().timeline.layers[layer_index].id.clone();
-                    if has_new_code {
-                        s.ensure_frame_script_key_at(&layer_id, frame);
-                    }
-                    let existing_index = {
-                        let timeline = &s.symbol().timeline;
-                        timeline
-                            .frame_script_for_layer(layer_index, frame)
-                            .and_then(|target| {
-                                timeline
-                                    .scripts
-                                    .iter()
-                                    .position(|script| std::ptr::eq(script, target))
-                            })
+                    let Some(layer_id) = s
+                        .project
+                        .symbol(&sym_id)
+                        .and_then(|sym| sym.timeline.layers.get(resolved_layer_idx))
+                        .map(|l| l.id.clone())
+                    else {
+                        return;
                     };
-                    let scripts = &mut s.symbol_mut().timeline.scripts;
+                    if has_new_code {
+                        let prev_editing = s.editing.clone();
+                        if s.symbol_id() != sym_id {
+                            s.editing = vec![sym_id.clone()];
+                        }
+                        s.ensure_frame_script_key_at(&layer_id, resolved_frame);
+                        s.editing = prev_editing;
+                    }
+                    let Some(sym_mut) = s.project.symbol_mut(&sym_id) else {
+                        return;
+                    };
+                    let existing_index = sym_mut
+                        .timeline
+                        .frame_script_index_for_layer(resolved_layer_idx, resolved_frame);
+                    let scripts = &mut sym_mut.timeline.scripts;
                     if let Some(index) = existing_index {
                         scripts.remove(index);
                     }
                     if has_new_code {
                         scripts.push(FrameScript {
                             layer: Some(layer_id),
-                            frame,
+                            frame: resolved_frame,
                             script,
                         });
                         scripts.sort_by_key(|script| script.frame);
                     }
                 }
                 ScriptTarget::Object => {
-                    let event = s.script_event;
-                    if has_new_code {
-                        s.ensure_selected_key();
-                    }
-                    if let Some(e) = s.selected_element_mut() {
-                        e.scripts.retain(|os| os.event != event);
+                    let event = resolved_event;
+                    if editing_pinned {
+                        let Some(obj_id) = resolved_object_id.as_deref() else {
+                            return;
+                        };
+                        if let Some(sym_mut) = s.project.symbol_mut(&sym_id) {
+                            for l in &mut sym_mut.timeline.layers {
+                                for k in &mut l.keyframes {
+                                    if let Some(e) = k.elements.iter_mut().find(|e| e.id == obj_id)
+                                    {
+                                        e.scripts.retain(|os| os.event != event);
+                                        if has_new_code {
+                                            e.scripts.push(ObjectScript {
+                                                event,
+                                                script: script.clone(),
+                                            });
+                                        }
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
                         if has_new_code {
-                            e.scripts.push(ObjectScript { event, script });
+                            s.ensure_selected_key();
+                        }
+                        if let Some(e) = s.selected_element_mut() {
+                            e.scripts.retain(|os| os.event != event);
+                            if has_new_code {
+                                e.scripts.push(ObjectScript { event, script });
+                            }
                         }
                     }
                 }
@@ -672,11 +968,11 @@ impl Editor {
     }
 
     fn effective_sidebar_language(&self, script_language: ScriptLanguage) -> ScriptLanguage {
-        if self.script_target == ScriptTarget::Source {
+        if let Some(ScriptLocation::Source(id)) = self.effective_actions_location() {
             self.project
                 .sources
                 .iter()
-                .find(|s| Some(&s.id) == self.selected_source.as_ref())
+                .find(|s| s.id == id)
                 .map_or(script_language, |s| s.language)
         } else {
             script_language
@@ -927,10 +1223,10 @@ impl Editor {
             .js_ts_folder_row(ui, "nav:current", "Current selection", i16::TARGET, 0)
             .0
         {
-            let icon = if self.script_target == ScriptTarget::Source {
-                i16::FILE_CODE
-            } else {
-                i16::FRAME
+            let icon = match self.effective_actions_location() {
+                Some(ScriptLocation::Source(_)) => i16::FILE_CODE,
+                Some(ScriptLocation::Object { .. }) => i16::MOVIECLIP,
+                _ => i16::FRAME,
             };
             nf::TreeItem::new(current_label, TreeItemType::Symbol(icon))
                 .depth(1)
@@ -1009,7 +1305,7 @@ impl Editor {
         location: &ScriptLocation,
         depth: usize,
     ) -> Option<ScriptLocation> {
-        let current = self.current_script_location().as_ref() == Some(location);
+        let current = self.effective_actions_location().as_ref() == Some(location);
         let row = nf::TreeItem::new(label, TreeItemType::Symbol(icon))
             .depth(depth)
             .selected(current)
@@ -2339,5 +2635,521 @@ mod tests {
             out_typing.platform_output.cursor_icon,
             egui::CursorIcon::Text
         );
+    }
+
+    #[test]
+    fn t364_pinnable_script_tabs_decouple_selection_switch_in_one_click_and_prune_deleted() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+
+        let mut project = Project::blank();
+        project.script_language = Some(ScriptLanguage::ActionScript2);
+        // Add two editable Stage elements (`hero_mc` and `enemy_mc`), Frame 1 & Frame 2 scripts, and `Main.as`.
+        project.symbols[0].timeline.frame_count = 5;
+        let root_layer_id = project.symbols[0].timeline.layers[0].id.clone();
+        project.symbols[0].timeline.scripts.push(FrameScript {
+            layer: Some(root_layer_id.clone()),
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "stop();".into(),
+            },
+        });
+        project.symbols[0].timeline.scripts.push(FrameScript {
+            layer: Some(root_layer_id.clone()),
+            frame: 1,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "play();".into(),
+            },
+        });
+        let mut hero = Element {
+            id: "el-hero".into(),
+            name: "hero_mc".into(),
+            kind: ElementKind::Rectangle {
+                width: 60.0,
+                height: 40.0,
+                fill: [40, 140, 220, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        hero.scripts.push(ObjectScript {
+            event: ObjectEvent::Load,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "var speed = 5;".into(),
+            },
+        });
+        let mut enemy = Element {
+            id: "el-enemy".into(),
+            name: "enemy_mc".into(),
+            kind: ElementKind::Rectangle {
+                width: 60.0,
+                height: 40.0,
+                fill: [220, 80, 60, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        enemy.scripts.push(ObjectScript {
+            event: ObjectEvent::Load,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "var hp = 10;".into(),
+            },
+        });
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .extend([hero, enemy]);
+        project.sources.push(SourceUnit {
+            id: "src-main".into(),
+            path: "Main.as".into(),
+            language: ScriptLanguage::ActionScript2,
+            source: "class Main {}\n".into(),
+        });
+        project.enable_program();
+        project.upgrade_format_for_features();
+
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.show_panel(PanelId::Actions);
+        editor.script_target = ScriptTarget::Frame;
+        editor.frame = 0;
+
+        let step = |ed: &mut Editor, events: Vec<egui::Event>| -> egui::FullOutput {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 620.0),
+                    )),
+                    focused: true,
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    ed.prepare_docked_panel_focus(ctx);
+                    egui::CentralPanel::default().show(ctx, |ui| ed.actions_contents(ui));
+                },
+            )
+        };
+        let find_ax_rect =
+            |out: &egui::FullOutput, label: &str, min_x: f32, min_y: f32| -> egui::Rect {
+                let nodes = &out.platform_output.accesskit_update.as_ref().unwrap().nodes;
+                nodes
+                    .iter()
+                    .find_map(|(_, n)| {
+                        (n.label().or(n.value()) == Some(label))
+                            .then(|| n.bounds())
+                            .flatten()
+                            .map(|r| {
+                                egui::Rect::from_min_max(
+                                    egui::pos2(r.x0 as f32, r.y0 as f32),
+                                    egui::pos2(r.x1 as f32, r.y1 as f32),
+                                )
+                            })
+                            .filter(|rect| rect.left() >= min_x && rect.top() >= min_y)
+                    })
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing AX node {label:?} (min_x={min_x}, min_y={min_y}); labels={:?}",
+                            nodes
+                                .iter()
+                                .filter_map(|(_, n)| n.label().or(n.value()))
+                                .collect::<Vec<_>>()
+                        )
+                    })
+            };
+        let click_at = |ed: &mut Editor, pos: egui::Pos2, button: egui::PointerButton| {
+            let _ = step(
+                ed,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+            let _ = step(
+                ed,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+        };
+
+        // 1. Pin `Scene 1 : Frame 1` by clicking the `📌` icon on its bottom `ScriptTab`.
+        let out0 = step(&mut editor, vec![]);
+        let pin_frame1 = find_ax_rect(&out0, "Pin script tab: Scene 1 : Frame 1", 250.0, 575.0);
+        click_at(
+            &mut editor,
+            pin_frame1.center(),
+            egui::PointerButton::Primary,
+        );
+        let frame1_loc = ScriptLocation::Frame {
+            symbol: editor.project.root.clone(),
+            layer: Some(root_layer_id.clone()),
+            frame: 0,
+        };
+        assert_eq!(editor.actions_ui.pinned_tabs, vec![frame1_loc.clone()]);
+        assert_eq!(editor.actions_ui.active_pinned, Some(frame1_loc.clone()));
+
+        // 2. Selecting `hero_mc` on Stage updates `current_script_location()` (showing unpinned
+        //    `hero_mc : Load` in the bottom bar) WITHOUT hijacking `Actions` away from `Scene 1 : Frame 1`!
+        editor.select_single_id("el-hero".into());
+        editor.script_target = ScriptTarget::Object;
+        editor.script_event = ObjectEvent::Load;
+        let out_after_stage_sel = step(&mut editor, vec![]);
+        assert_eq!(
+            editor.effective_actions_location(),
+            Some(frame1_loc.clone()),
+            "Stage selection must not hijack active pinned tab"
+        );
+        // Both the pinned `Scene 1 : Frame 1` tab AND the unpinned `hero_mc : Load` tab appear in the bottom bar!
+        let hero_unpinned_tab = find_ax_rect(&out_after_stage_sel, "hero_mc : Load", 250.0, 575.0);
+        let _ = find_ax_rect(&out_after_stage_sel, "Scene 1 : Frame 1", 250.0, 575.0);
+
+        // 3. Click unpinned `hero_mc : Load` tab body -> switches to live `hero_mc : Load`, then pin via toolbar `Pin script tab`!
+        click_at(
+            &mut editor,
+            hero_unpinned_tab.center(),
+            egui::PointerButton::Primary,
+        );
+        assert_eq!(editor.actions_ui.active_pinned, None);
+        let hero_loc = ScriptLocation::Object {
+            symbol: editor.project.root.clone(),
+            frame: 0,
+            element: "el-hero".into(),
+            event: ObjectEvent::Load,
+        };
+        assert_eq!(editor.effective_actions_location(), Some(hero_loc.clone()));
+        let out_hero = step(&mut editor, vec![]);
+        let toolbar_pin = find_ax_rect(&out_hero, "Pin script tab", 0.0, 0.0);
+        assert!(toolbar_pin.bottom() < 100.0);
+        click_at(
+            &mut editor,
+            toolbar_pin.center(),
+            egui::PointerButton::Primary,
+        );
+        assert_eq!(
+            editor.actions_ui.pinned_tabs,
+            vec![frame1_loc.clone(), hero_loc.clone()]
+        );
+        assert_eq!(editor.actions_ui.active_pinned, Some(hero_loc.clone()));
+
+        // 4. Open `Main.as` via `open_script_location` (`Script navigator` gesture) and pin it via
+        //    right-click context menu (`Pin tab`)!
+        let main_loc = ScriptLocation::Source("src-main".into());
+        editor.open_script_location(main_loc.clone());
+        assert_eq!(editor.actions_ui.active_pinned, None);
+        let out_main = step(&mut editor, vec![]);
+        let main_tab = find_ax_rect(&out_main, "Main.as", 250.0, 575.0);
+        click_at(
+            &mut editor,
+            main_tab.center(),
+            egui::PointerButton::Secondary,
+        );
+        let out_ctx_menu = step(&mut editor, vec![]);
+        let pin_menu_item = find_ax_rect(&out_ctx_menu, "Pin tab", 0.0, 0.0);
+        click_at(
+            &mut editor,
+            pin_menu_item.center(),
+            egui::PointerButton::Primary,
+        );
+        assert_eq!(
+            editor.actions_ui.pinned_tabs,
+            vec![frame1_loc.clone(), hero_loc.clone(), main_loc.clone()]
+        );
+        assert_eq!(editor.actions_ui.active_pinned, Some(main_loc.clone()));
+
+        // 5. Deselect Stage AND select `enemy_mc` on Stage — then switch among all 3 pinned tabs
+        //    (`hero_mc : Load`, `Scene 1 : Frame 1`, `Main.as`) in 1 click WITHOUT altering Stage
+        //    selection, edit each tab independently, and verify per-tab Undo!
+        editor.select_single_id("el-enemy".into());
+        editor.script_target = ScriptTarget::Object;
+        editor.script_event = ObjectEvent::Load;
+        let out_three_pinned = step(&mut editor, vec![]);
+        // Bottom bar has 3 pinned tabs + unpinned `enemy_mc : Load`!
+        let _ = find_ax_rect(&out_three_pinned, "enemy_mc : Load", 250.0, 575.0);
+        let hero_tab_rect = find_ax_rect(&out_three_pinned, "hero_mc : Load", 250.0, 575.0);
+
+        // 1-click switch to `hero_mc : Load` while `enemy_mc` stays selected on Stage!
+        click_at(
+            &mut editor,
+            hero_tab_rect.center(),
+            egui::PointerButton::Primary,
+        );
+        assert_eq!(editor.effective_actions_location(), Some(hero_loc.clone()));
+        assert_eq!(
+            editor.selected_element().map(|e| e.id.as_str()),
+            Some("el-enemy"),
+            "switching pinned tab must never alter Stage selection"
+        );
+        let hero_ed_id = editor.actions_editor_id();
+        ctx.memory_mut(|m| m.request_focus(hero_ed_id));
+        let _ = step(&mut editor, vec![]);
+        let _ = step(
+            &mut editor,
+            vec![egui::Event::Text("\ntrace(speed);".into())],
+        );
+        let hero_src = editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .iter()
+            .find(|e| e.id == "el-hero")
+            .unwrap()
+            .scripts[0]
+            .script
+            .source
+            .clone();
+        assert!(hero_src.contains("trace(speed);"), "hero_src={hero_src:?}");
+        // `enemy_mc`'s script is completely untouched!
+        let enemy_src = &editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .iter()
+            .find(|e| e.id == "el-enemy")
+            .unwrap()
+            .scripts[0]
+            .script
+            .source;
+        assert_eq!(enemy_src, "var hp = 10;");
+
+        // Even with Stage completely deselected (`targets.clear()`), `hero_mc : Load` stays editable
+        // and 1-click switching to `Scene 1 : Frame 1` & `Main.as` works seamlessly!
+        editor.selection.targets.clear();
+        let out_deselected = step(&mut editor, vec![]);
+        let frame1_tab_rect = find_ax_rect(&out_deselected, "Scene 1 : Frame 1", 250.0, 575.0);
+        click_at(
+            &mut editor,
+            frame1_tab_rect.center(),
+            egui::PointerButton::Primary,
+        );
+        assert_eq!(
+            editor.effective_actions_location(),
+            Some(frame1_loc.clone())
+        );
+        let frame1_ed_id = editor.actions_editor_id();
+        assert_ne!(frame1_ed_id, hero_ed_id);
+        ctx.memory_mut(|m| m.request_focus(frame1_ed_id));
+        let _ = step(&mut editor, vec![]);
+        let _ = step(
+            &mut editor,
+            vec![egui::Event::Text("\nnextFrame();".into())],
+        );
+        assert!(
+            editor.symbol().timeline.scripts[0]
+                .script
+                .source
+                .contains("nextFrame();")
+        );
+
+        let out_frame1 = step(&mut editor, vec![]);
+        let main_tab_rect = find_ax_rect(&out_frame1, "Main.as", 250.0, 575.0);
+        click_at(
+            &mut editor,
+            main_tab_rect.center(),
+            egui::PointerButton::Primary,
+        );
+        assert_eq!(editor.effective_actions_location(), Some(main_loc.clone()));
+        let main_ed_id = editor.actions_editor_id();
+        assert_ne!(main_ed_id, frame1_ed_id);
+        ctx.memory_mut(|m| m.request_focus(main_ed_id));
+        let _ = step(&mut editor, vec![]);
+        let _ = step(&mut editor, vec![egui::Event::Text("// main\n".into())]);
+        assert!(editor.project.sources[0].source.contains("// main"));
+
+        // Undo reverts `Main.as`, then `Frame 1`, then `hero_mc`, keeping project valid!
+        editor.undo();
+        assert_eq!(editor.project.sources[0].source, "class Main {}\n");
+        editor.undo();
+        assert_eq!(editor.symbol().timeline.scripts[0].script.source, "stop();");
+        editor.undo();
+        assert_eq!(
+            editor.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .iter()
+                .find(|e| e.id == "el-hero")
+                .unwrap()
+                .scripts[0]
+                .script
+                .source,
+            "var speed = 5;"
+        );
+        editor.project.validate().unwrap();
+
+        // 5b. Regression (`#136` #2): `insert_script_assist_snippet` routes to active pinned
+        //     `Frame` and `Object` tabs without mutating live Stage/Timeline selection!
+        let assist_tmpl = crate::sources::ScriptAssistTemplate::default_menu_items()
+            .into_iter()
+            .next()
+            .unwrap()
+            .1;
+        editor.select_single_id("el-enemy".into());
+        editor.script_target = ScriptTarget::Object;
+        editor.frame = 1;
+        editor.actions_ui.active_pinned = Some(frame1_loc.clone());
+        assert!(editor.insert_script_assist_snippet(assist_tmpl.clone()));
+        assert_ne!(editor.symbol().timeline.scripts[0].script.source, "stop();");
+        assert_eq!(
+            editor.symbol().timeline.scripts[1].script.source,
+            "play();",
+            "live Frame 2 must not be mutated when Frame 1 is active_pinned"
+        );
+        assert_eq!(
+            editor.selected_element().map(|e| e.id.as_str()),
+            Some("el-enemy")
+        );
+        editor.undo();
+        assert_eq!(editor.symbol().timeline.scripts[0].script.source, "stop();");
+
+        editor.selection.targets.clear();
+        editor.actions_ui.active_pinned = Some(hero_loc.clone());
+        assert!(
+            editor.insert_script_assist_snippet(assist_tmpl),
+            "pinned Object tab accepts Script assist even when Stage selection is empty"
+        );
+        assert_ne!(
+            editor.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .iter()
+                .find(|e| e.id == "el-hero")
+                .unwrap()
+                .scripts[0]
+                .script
+                .source,
+            "var speed = 5;"
+        );
+        assert!(editor.selection.targets.is_empty());
+        editor.undo();
+
+        // 5c. Regression (`#136` #1): Undocking + redocking `Actions` through the real
+        //     `prepare_docked_panel_focus` -> `detached_panels` order MUST preserve `active_pinned`!
+        editor.select_single_id("el-enemy".into());
+        editor.script_target = ScriptTarget::Object;
+        editor.actions_ui.active_pinned = Some(frame1_loc.clone());
+        ctx.set_embed_viewports(false);
+        egui::Context::set_immediate_viewport_renderer(|ctx, mut viewport| {
+            let id = viewport.ids.this;
+            let mut input = egui::RawInput {
+                viewport_id: id,
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(640.0, 420.0),
+                )),
+                ..Default::default()
+            };
+            input.viewports.insert(
+                id,
+                egui::ViewportInfo {
+                    parent: Some(egui::ViewportId::ROOT),
+                    outer_rect: Some(egui::Rect::from_min_size(
+                        egui::pos2(80.0, 80.0),
+                        egui::vec2(640.0, 420.0),
+                    )),
+                    inner_rect: Some(egui::Rect::from_min_size(
+                        egui::pos2(80.0, 80.0),
+                        egui::vec2(640.0, 420.0),
+                    )),
+                    ..Default::default()
+                },
+            );
+            let _ = ctx.run(input, |ctx| (viewport.viewport_ui_cb)(ctx));
+        });
+        editor.set_panel_placement(
+            &ctx,
+            PanelId::Actions,
+            crate::workspace::PanelPlacement::Detached,
+        );
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 620.0),
+                )),
+                focused: true,
+                ..Default::default()
+            },
+            |ctx| {
+                editor.prepare_docked_panel_focus(ctx);
+                editor.sync_closed_detached_panels(ctx);
+                editor.detached_panels(ctx);
+            },
+        );
+        assert_eq!(
+            editor.actions_ui.active_pinned,
+            Some(frame1_loc.clone()),
+            "undocking Actions must preserve active_pinned across prepare_docked_panel_focus + detached_panels"
+        );
+        editor.set_panel_placement(
+            &ctx,
+            PanelId::Actions,
+            crate::workspace::PanelPlacement::Docked,
+        );
+        let _ = step(&mut editor, vec![]);
+        assert_eq!(
+            editor.actions_ui.active_pinned,
+            Some(frame1_loc.clone()),
+            "redocking Actions must also preserve active_pinned"
+        );
+
+        // 6. Explicit `open_frame_actions()` on Frame 2 switches `Actions` to Frame 2 while keeping
+        //    all 3 pinned tabs intact in the bottom bar!
+        editor.frame = 1;
+        editor.open_frame_actions();
+        let _ = step(&mut editor, vec![]);
+        assert_eq!(editor.actions_ui.active_pinned, None);
+        assert_eq!(editor.actions_ui.pinned_tabs.len(), 3);
+        assert_eq!(
+            editor.effective_actions_location(),
+            Some(ScriptLocation::Frame {
+                symbol: editor.project.root.clone(),
+                layer: Some(root_layer_id),
+                frame: 1,
+            })
+        );
+
+        // 7. Right-click `hero_mc : Load` -> `Unpin other tabs` keeps ONLY `hero_mc : Load`,
+        //    and deleting `el-hero` prunes the stale pinned tab cleanly!
+        let out_f2 = step(&mut editor, vec![]);
+        let hero_rect = find_ax_rect(&out_f2, "hero_mc : Load", 250.0, 575.0);
+        click_at(
+            &mut editor,
+            hero_rect.center(),
+            egui::PointerButton::Secondary,
+        );
+        let out_menu2 = step(&mut editor, vec![]);
+        let unpin_others = find_ax_rect(&out_menu2, "Unpin other tabs", 0.0, 0.0);
+        click_at(
+            &mut editor,
+            unpin_others.center(),
+            egui::PointerButton::Primary,
+        );
+        assert_eq!(editor.actions_ui.pinned_tabs, vec![hero_loc.clone()]);
+
+        // Click `hero_mc : Load` to make it active, then delete `el-hero` from the document:
+        let out_only_hero = step(&mut editor, vec![]);
+        let hero_rect2 = find_ax_rect(&out_only_hero, "hero_mc : Load", 250.0, 575.0);
+        click_at(
+            &mut editor,
+            hero_rect2.center(),
+            egui::PointerButton::Primary,
+        );
+        assert_eq!(editor.actions_ui.active_pinned, Some(hero_loc));
+        editor.transact(|ed| {
+            ed.symbol_mut().timeline.layers[0].keyframes[0]
+                .elements
+                .retain(|e| e.id != "el-hero");
+        });
+        let _ = step(&mut editor, vec![]);
+        assert!(editor.actions_ui.pinned_tabs.is_empty());
+        assert_eq!(editor.actions_ui.active_pinned, None);
+        editor.project.validate().unwrap();
     }
 }
