@@ -276,6 +276,12 @@ mod tests {
             assert_eq!(palette(&ctx), theme.palette());
             assert_eq!(ctx.style().visuals.dark_mode, theme.is_dark());
             assert_eq!(ctx.style().visuals.panel_fill, theme.palette().bg_panel);
+            let p = theme.palette();
+            assert_ne!(p.syntax_identifier, p.text_primary);
+            assert_ne!(p.syntax_identifier, p.text_secondary);
+            assert_ne!(p.syntax_identifier, p.syntax_type);
+            assert_ne!(p.syntax_identifier, p.syntax_function);
+            assert_ne!(p.syntax_identifier, p.syntax_keyword);
         }
     }
 

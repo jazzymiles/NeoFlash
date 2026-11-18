@@ -333,9 +333,38 @@ impl Editor {
                     wrap_if_needed(ui, btn_w);
                     let Some(command) = command else {
                         if *label == "Debug options" {
-                            if ui.add(nf::IconButton::new(*icon, label)).clicked() {
-                                self.open_debug_options(ui.ctx());
-                            }
+                            let dbg_open = self.actions_debugger_open();
+                            let dbg_btn =
+                                ui.add(nf::IconButton::new(*icon, label).selected(dbg_open));
+                            nf::popup_below(&dbg_btn, 232., |ui| {
+                                if ui
+                                    .add(nf::MenuItem::new("Debug movie").shortcut("⇧⌘↵"))
+                                    .clicked()
+                                {
+                                    self.open_debug_options(ui.ctx());
+                                    ui.close();
+                                }
+                                if ui
+                                    .add(
+                                        nf::MenuItem::new("Breakpoints & Watch")
+                                            .checked(dbg_open),
+                                    )
+                                    .clicked()
+                                {
+                                    self.set_actions_debugger_open(!dbg_open);
+                                    ui.close();
+                                }
+                                if !self.debugger.breakpoints.is_empty() {
+                                    nf::menu_separator(ui);
+                                    if ui
+                                        .add(nf::MenuItem::new("Remove all breakpoints"))
+                                        .clicked()
+                                    {
+                                        self.clear_all_session_breakpoints();
+                                        ui.close();
+                                    }
+                                }
+                            });
                             continue;
                         }
                         if *label == "Collapse between braces" {
@@ -379,12 +408,14 @@ impl Editor {
                 divider_if_fits(ui, btn_w);
             }
             wrap_if_needed(ui, btn_w);
+            let sidebar_open = self.workspace.code_editor.actions_sidebar;
             let sidebar = ui.add(
-                nf::IconButton::new(i16::SIDEBAR, "Show toolbox sidebar")
-                    .selected(self.actions_ui.sidebar),
+                nf::IconButton::new(i16::SIDEBAR, "Show toolbox sidebar").selected(sidebar_open),
             );
             if sidebar.clicked() {
-                self.actions_ui.sidebar = !self.actions_ui.sidebar;
+                self.workspace.code_editor.actions_sidebar = !sidebar_open;
+                self.actions_ui.sidebar = self.workspace.code_editor.actions_sidebar;
+                self.persist_workspace_requested = true;
             }
             let is_pinned = active_loc
                 .as_ref()
@@ -845,25 +876,27 @@ impl Editor {
             .as_ref()
             .map(|loc| self.script_location_tab_label(loc).0)
             .unwrap_or_else(|| tab.clone());
-        let main = if self.actions_ui.sidebar && rest.width() >= SIDEBAR_MIN_PANEL {
-            let side =
-                egui::Rect::from_min_size(rest.min, egui::vec2(SIDEBAR_WIDTH, rest.height()));
-            let mut side_ui = ui.new_child(
-                egui::UiBuilder::new().id_salt("actions-sidebar").max_rect(
-                    side.shrink(space::S2)
-                        .with_max_x(side.right() - 1. - space::S2),
-                ),
-            );
-            self.actions_sidebar_with_js_ts(&mut side_ui, script.language, &nav_label);
-            ui.painter().vline(
-                side.right() - 0.5,
-                side.y_range(),
-                egui::Stroke::new(1.0_f32, neoflash_ui::palette(ui.ctx()).border_subtle),
-            );
-            egui::Rect::from_min_max(egui::pos2(side.right(), rest.top()), rest.max)
-        } else {
-            rest
-        };
+        self.actions_ui.sidebar = self.workspace.code_editor.actions_sidebar;
+        let main =
+            if self.workspace.code_editor.actions_sidebar && rest.width() >= SIDEBAR_MIN_PANEL {
+                let side =
+                    egui::Rect::from_min_size(rest.min, egui::vec2(SIDEBAR_WIDTH, rest.height()));
+                let mut side_ui = ui.new_child(
+                    egui::UiBuilder::new().id_salt("actions-sidebar").max_rect(
+                        side.shrink(space::S2)
+                            .with_max_x(side.right() - 1. - space::S2),
+                    ),
+                );
+                self.actions_sidebar_with_js_ts(&mut side_ui, script.language, &nav_label);
+                ui.painter().vline(
+                    side.right() - 0.5,
+                    side.y_range(),
+                    egui::Stroke::new(1.0_f32, neoflash_ui::palette(ui.ctx()).border_subtle),
+                );
+                egui::Rect::from_min_max(egui::pos2(side.right(), rest.top()), rest.max)
+            } else {
+                rest
+            };
         let mut main_ui = ui.new_child(
             egui::UiBuilder::new()
                 .id_salt("actions-main")
@@ -1627,7 +1660,14 @@ mod tests {
         assert!(!editor.should_pause_at_breakpoint(&tab_key, 3));
         assert!(editor.set_breakpoint_enabled(&tab_key, 3, true));
 
-        // 5. Watch expressions & live variable editing through the Actions debugger UI
+        // 5. Watch expressions & live variable editing through the Actions debugger UI:
+        //    Verify the drawer stays hidden by default even when breakpoints & paused scopes exist (`T-378`),
+        //    and only opens when explicitly toggled.
+        assert!(!editor.actions_debugger_open());
+        assert!(!editor.actions_debugger_inspector_visible(&tab_key));
+        editor.set_actions_debugger_open(true);
+        assert!(editor.actions_debugger_inspector_visible(&tab_key));
+
         editor.set_debugger_watch_draft("player.stats.hp + score");
         editor.set_debugger_variable_edit_draft("player.stats.hp", "100");
 
@@ -1723,6 +1763,33 @@ mod tests {
             "100"
         );
         assert_eq!(editor.debugger_watches()[0].last_value, "115");
+
+        // Clicking the close `✕` button on the drawer header dismisses it cleanly (`T-378`).
+        let out_before_close = render(&mut editor, vec![]);
+        let close_pos = find_button_center(&out_before_close, "Close debugger inspector");
+        let _ = render(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(close_pos),
+                egui::Event::PointerButton {
+                    pos: close_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let _ = render(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: close_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(!editor.actions_debugger_open());
+        assert!(!editor.actions_debugger_inspector_visible(&tab_key));
         editor.project.validate().unwrap();
     }
 
@@ -3200,5 +3267,158 @@ mod tests {
         assert!(editor.actions_ui.pinned_tabs.is_empty());
         assert_eq!(editor.actions_ui.active_pinned, None);
         editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn t378_actions_sidebar_persists_and_line_number_clicks_never_open_debugger_or_add_info_markers()
+     {
+        use crate::workspace::WorkspacePrefs;
+
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut project = Project::blank();
+        project.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "TFigure = new Array([0, 1, 0]);\nlFigure = new Array([1, 1]);\n".into(),
+            },
+        });
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.persist_workspace_requested = false;
+        assert!(editor.workspace.code_editor.actions_sidebar);
+
+        let step = |ed: &mut Editor, events: Vec<egui::Event>| -> egui::FullOutput {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1024.0, 600.0),
+                    )),
+                    focused: true,
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| ed.actions_contents(ui));
+                },
+            )
+        };
+
+        let out = step(&mut editor, vec![]);
+        let has_label = |output: &egui::FullOutput, label: &str| {
+            output
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .any(|(_, n)| n.label() == Some(label))
+        };
+        assert!(has_label(&out, "Search toolbox"));
+        assert!(!has_label(&out, "Add watch"));
+
+        // 1. Toggle "Show toolbox sidebar" off: persists in `CodeEditorPrefs::actions_sidebar`
+        //    and sets `persist_workspace_requested = true`.
+        let sidebar_pos = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find_map(|(_, n)| {
+                (n.label() == Some("Show toolbox sidebar"))
+                    .then(|| n.bounds())
+                    .flatten()
+                    .map(|b| egui::pos2(((b.x0 + b.x1) * 0.5) as f32, ((b.y0 + b.y1) * 0.5) as f32))
+            })
+            .expect("Show toolbox sidebar button");
+        let _ = step(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(sidebar_pos),
+                egui::Event::PointerButton {
+                    pos: sidebar_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let out_collapsed = step(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: sidebar_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(!editor.workspace.code_editor.actions_sidebar);
+        assert!(editor.persist_workspace_requested);
+        assert!(!has_label(&out_collapsed, "Search toolbox"));
+
+        // Verify JSON round-trip of collapsed `actions_sidebar`.
+        let json = serde_json::to_string(&editor.workspace).unwrap();
+        let reloaded = WorkspacePrefs::from_json(&json);
+        assert!(!reloaded.code_editor.actions_sidebar);
+
+        // 2. Clicking on the line-number column (`x` between 28..46 inside gutter) must NOT toggle
+        //    a spurious breakpoint or open the `Breakpoints & Watch` drawer!
+        let line_num_click_pos = egui::pos2(36.0, 72.0);
+        let _ = step(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(line_num_click_pos),
+                egui::Event::PointerButton {
+                    pos: line_num_click_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let out_after_ln_click = step(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: line_num_click_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(editor.debugger.breakpoints.is_empty());
+        assert!(!editor.actions_debugger_open());
+        assert!(!has_label(&out_after_ln_click, "Add watch"));
+
+        // 3. Deliberate click in the left marker strip (`x = 12.0`) toggles a breakpoint while STILL
+        //    keeping the `Breakpoints & Watch` drawer closed by default!
+        let marker_strip_pos = egui::pos2(12.0, 64.0);
+        let _ = step(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(marker_strip_pos),
+                egui::Event::PointerButton {
+                    pos: marker_strip_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let out_after_bp = step(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: marker_strip_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(!editor.actions_debugger_open());
+        assert!(!has_label(&out_after_bp, "Add watch"));
     }
 }

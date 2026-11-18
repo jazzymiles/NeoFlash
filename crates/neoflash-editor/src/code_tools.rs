@@ -4,10 +4,9 @@
 //! char ranges (`start <= end`), as in egui's `CCursorRange`. Every command returns the new text and
 //! selection; a command that changes nothing returns `None` so no history entry is created.
 //!
-//! Auto-format is deliberately conservative: it only rewrites leading indentation (brace, paren and
-//! `case` depth, 4 spaces) and trailing spaces. It never moves tokens, so it cannot change program
-//! meaning. Lines inside multi-line comments/strings and XML literal lines keep their text.
-use neoflash_ui::components::code::{Token, tokens};
+//! Auto-format is token-safe and idempotent across AS1/AS2/AS3/JS/TS: it normalizes indentation,
+//! operator/delimiter/statement spacing, and accidental statement-ending colons while keeping
+//! strings, comments, regexes, `#include` directives and E4X/XML literals verbatim.
 
 pub(crate) type Edit = (String, (usize, usize));
 
@@ -59,16 +58,22 @@ pub(crate) fn apply_with_tab_size(
                 .take(selection.1)
                 .filter(|c| *c == '\n')
                 .count();
-            let line_end = |s: &str| {
+            let line_bounds = |s: &str| {
                 let start: usize = s
                     .split('\n')
                     .take(line)
                     .map(|l| l.chars().count() + 1)
                     .sum();
-                start + s.split('\n').nth(line).map_or(0, |l| l.chars().count())
+                let end = start + s.split('\n').nth(line).map_or(0, |l| l.chars().count());
+                (start, end)
             };
-            let from_end = line_end(text).saturating_sub(selection.1);
-            let caret = line_end(&formatted).saturating_sub(from_end);
+            let (_, old_end) = line_bounds(text);
+            let (new_start, new_end) = line_bounds(&formatted);
+            let from_end = old_end.saturating_sub(selection.1);
+            let caret = new_end
+                .saturating_sub(from_end)
+                .max(new_start.min(formatted.chars().count()))
+                .min(formatted.chars().count());
             Some((formatted, (caret, caret)))
         }
         CodeCommand::ShowHints => None,
@@ -516,98 +521,1413 @@ pub(crate) fn uncomment(text: &str, selection: (usize, usize)) -> Option<Edit> {
     replace_lines(text, span, &lines)
 }
 
-/// "Auto-format": re-indent the whole script with 4 spaces. Returns `None` when it is already formatted.
+/// "Auto-format": re-indent and format statement/operator/delimiter spacing with 4 spaces.
+/// Returns `None` when it is already formatted.
 #[cfg(test)]
 pub(crate) fn auto_format(text: &str) -> Option<String> {
     auto_format_with_tab_size(text, 4)
 }
 
-/// "Auto-format": re-indent the whole script using `tab_size` spaces per level (`1..=8`).
-/// Returns `None` when it is already formatted.
-pub(crate) fn auto_format_with_tab_size(text: &str, tab_size: u8) -> Option<String> {
-    let indent = " ".repeat(usize::from(tab_size.clamp(1, 8)));
-    // Classify each line start: inside a multi-line comment/string (keep verbatim) and the
-    // structural depth contributed by braces/parens outside strings, comments and XML.
-    let toks = tokens(text);
-    let mut line_starts = vec![0];
-    line_starts.extend(text.match_indices('\n').map(|(i, _)| i + 1));
-    let verbatim = |offset: usize| {
-        toks.iter().any(|(range, token)| {
-            matches!(token, Token::Comment | Token::String)
-                && range.start < offset
-                && offset < range.end
-        })
-    };
-    let first_token = |offset: usize, end: usize| {
-        toks.iter()
-            .find(|(range, token)| {
-                range.end > offset
-                    && range.start < end
-                    && !(*token == Token::Plain && text[range.clone()].trim().is_empty())
-            })
-            .map(|(_, token)| *token)
-    };
-    // Depth events: (byte offset, delta) for `{ } ( ) [ ]` in punctuation tokens.
-    let mut events: Vec<(usize, i32)> = Vec::new();
-    for (range, token) in &toks {
-        if *token != Token::Punct {
-            continue;
-        }
-        for (i, c) in text[range.clone()].char_indices() {
-            let delta = match c {
-                '{' | '(' | '[' => 1,
-                '}' | ')' | ']' => -1,
-                _ => continue,
-            };
-            events.push((range.start + i, delta));
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum FmtKind {
+    Newline,
+    LineComment,
+    BlockComment,
+    String,
+    Regex,
+    Xml,
+    Directive,
+    Number,
+    Ident,
+    Punct(&'static str),
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PunctRole {
+    Normal,
+    Binary,
+    UnaryPrefix,
+    PrefixIncDec,
+    PostfixIncDec,
+    PostfixNonNull,
+    WildcardAfterDot,
+    GeneratorStar,
+    TypeAny,
+    GenericOpen,
+    GenericClose,
+    TernaryColon,
+    CaseColon,
+    ObjectColon,
+    LabelColon,
+    TypeColon,
+    TrailingColonAsSemi,
+}
+
+#[derive(Clone, Debug)]
+struct FmtTok {
+    range: std::ops::Range<usize>,
+    kind: FmtKind,
+    role: PunctRole,
+}
+
+impl FmtTok {
+    fn text<'a>(&self, src: &'a str) -> &'a str {
+        if self.role == PunctRole::TrailingColonAsSemi {
+            ";"
+        } else {
+            &src[self.range.clone()]
         }
     }
-    let mut out_lines = Vec::new();
-    let mut depth: i32 = 0;
-    let mut event = 0;
-    // Brace depths at which a `case`/`default` label is open (its body is one level deeper).
-    let mut case_depths: Vec<i32> = Vec::new();
-    for (n, &start) in line_starts.iter().enumerate() {
-        let end = line_starts.get(n + 1).map_or(text.len(), |next| next - 1);
-        let line = &text[start..end];
-        let body = line.trim();
-        // Depth changes on this line.
-        let mut line_events = Vec::new();
-        while event < events.len() && events[event].0 < end.max(start) {
-            line_events.push(events[event].1);
-            event += 1;
+
+    fn is_code(&self) -> bool {
+        !matches!(
+            self.kind,
+            FmtKind::Newline | FmtKind::LineComment | FmtKind::BlockComment
+        )
+    }
+}
+
+fn fmt_ident_start(c: u8) -> bool {
+    c.is_ascii_alphabetic() || c == b'_' || c == b'$' || c >= 0x80
+}
+
+fn fmt_ident_char(c: u8) -> bool {
+    fmt_ident_start(c) || c.is_ascii_digit()
+}
+
+const EXPR_PRECEDING_KEYWORDS: &[&str] = &[
+    "return",
+    "throw",
+    "case",
+    "in",
+    "of",
+    "instanceof",
+    "typeof",
+    "void",
+    "delete",
+    "new",
+    "do",
+    "else",
+    "yield",
+    "await",
+];
+
+const SPACE_BEFORE_PAREN_KEYWORDS: &[&str] = &[
+    "if",
+    "for",
+    "while",
+    "switch",
+    "catch",
+    "with",
+    "each",
+    "return",
+    "throw",
+    "case",
+    "typeof",
+    "delete",
+    "void",
+    "in",
+    "of",
+    "instanceof",
+    "new",
+    "await",
+    "yield",
+    "function",
+];
+
+const FMT_TYPE_KEYWORDS: &[&str] = &[
+    "as",
+    "class",
+    "extends",
+    "implements",
+    "instanceof",
+    "interface",
+    "is",
+    "new",
+    "type",
+];
+
+const MULTI_PUNCTS: &[&str] = &[
+    ">>>=", "===", "!==", ">>>", "<<=", ">>=", "&&=", "||=", "??=", "...", "==", "!=", "<>", "<=",
+    ">=", "&&", "||", "??", "<<", ">>", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "++", "--",
+    "=>", "?.", "::", "=", "+", "-", "*", "/", "%", "<", ">", "&", "|", "^", "!", "~", "?", ":",
+    ",", ";", ".", "(", ")", "[", "]", "{", "}",
+];
+
+fn can_precede_regex_or_unary(prev: Option<(&FmtKind, &str)>) -> bool {
+    let Some((kind, text)) = prev else {
+        return true;
+    };
+    match kind {
+        FmtKind::Ident => EXPR_PRECEDING_KEYWORDS.contains(&text),
+        FmtKind::Punct(p) => !matches!(*p, ")" | "]" | "++" | "--"),
+        FmtKind::Directive => true,
+        _ => false,
+    }
+}
+
+fn try_scan_regex(src: &str, start: usize) -> Option<usize> {
+    let b = src.as_bytes();
+    let n = b.len();
+    if b.get(start) != Some(&b'/') || matches!(b.get(start + 1), Some(b'/' | b'*')) {
+        return None;
+    }
+    let mut i = start + 1;
+    let mut in_class = false;
+    while i < n {
+        match b[i] {
+            b'\\' => {
+                if i + 1 >= n || matches!(b[i + 1], b'\n' | b'\r') {
+                    return None;
+                }
+                i += 2;
+            }
+            b'\n' | b'\r' => return None,
+            b'[' => {
+                in_class = true;
+                i += 1;
+            }
+            b']' if in_class => {
+                in_class = false;
+                i += 1;
+            }
+            b'/' if !in_class => {
+                if i == start + 1 {
+                    return None;
+                }
+                i += 1;
+                while i < n && b[i].is_ascii_alphabetic() {
+                    i += 1;
+                }
+                return Some(i);
+            }
+            _ => i += 1,
         }
-        let keep =
-            verbatim(start) || matches!(first_token(start, end), Some(Token::Tag | Token::Attr));
-        let leading_close = body
-            .chars()
-            .take_while(|c| matches!(c, '}' | ')' | ']'))
-            .count() as i32;
+    }
+    None
+}
+
+fn try_scan_xml_literal(src: &str, start: usize) -> Option<usize> {
+    let b = src.as_bytes();
+    let n = b.len();
+    if b.get(start) != Some(&b'<') || !b.get(start + 1).is_some_and(|&c| fmt_ident_start(c)) {
+        return None;
+    }
+    // Verify the initial opening tag `<Name ...>` closes cleanly without unquoted `;` or `{`.
+    let mut probe = start + 1;
+    while probe < n && (fmt_ident_char(b[probe]) || matches!(b[probe], b':' | b'-' | b'.')) {
+        probe += 1;
+    }
+    let mut quote: Option<u8> = None;
+    let mut first_self_closing = false;
+    let mut first_end = None;
+    while probe < n {
+        let ch = b[probe];
+        if let Some(q) = quote {
+            if ch == b'\\' {
+                probe = (probe + 2).min(n);
+                continue;
+            }
+            if ch == q {
+                quote = None;
+            }
+            probe += 1;
+            continue;
+        }
+        match ch {
+            b'"' | b'\'' => {
+                quote = Some(ch);
+                probe += 1;
+            }
+            b'/' if b.get(probe + 1) == Some(&b'>') => {
+                first_self_closing = true;
+                first_end = Some(probe + 2);
+                break;
+            }
+            b'>' => {
+                first_end = Some(probe + 1);
+                break;
+            }
+            b';' | b'{' | b'}' | b'<' => return None,
+            _ => probe += 1,
+        }
+    }
+    let first_end = first_end?;
+    if first_self_closing {
+        return Some(first_end);
+    }
+
+    let mut depth = 1i32;
+    let mut i = first_end;
+    while i < n && depth > 0 {
+        if b[i] == b'<' {
+            if src[i..].starts_with("<!--") {
+                if let Some(rel) = src[i + 4..].find("-->") {
+                    i += 4 + rel + 3;
+                    continue;
+                }
+                return None;
+            }
+            if src[i..].starts_with("<![CDATA[") {
+                if let Some(rel) = src[i + 9..].find("]]>") {
+                    i += 9 + rel + 3;
+                    continue;
+                }
+                return None;
+            }
+            if b.get(i + 1) == Some(&b'/') {
+                let mut j = i + 2;
+                while j < n && b[j] != b'>' {
+                    if matches!(b[j], b'<' | b';') {
+                        return None;
+                    }
+                    j += 1;
+                }
+                if j >= n {
+                    return None;
+                }
+                depth -= 1;
+                i = j + 1;
+                continue;
+            }
+            if b.get(i + 1).is_some_and(|&c| fmt_ident_start(c)) {
+                let mut j = i + 1;
+                let mut q: Option<u8> = None;
+                let mut self_close = false;
+                while j < n {
+                    let ch = b[j];
+                    if let Some(qc) = q {
+                        if ch == b'\\' {
+                            j = (j + 2).min(n);
+                            continue;
+                        }
+                        if ch == qc {
+                            q = None;
+                        }
+                        j += 1;
+                        continue;
+                    }
+                    if ch == b'"' || ch == b'\'' {
+                        q = Some(ch);
+                        j += 1;
+                    } else if ch == b'/' && b.get(j + 1) == Some(&b'>') {
+                        self_close = true;
+                        j += 2;
+                        break;
+                    } else if ch == b'>' {
+                        j += 1;
+                        break;
+                    } else {
+                        j += 1;
+                    }
+                }
+                if j > n {
+                    return None;
+                }
+                if !self_close {
+                    depth += 1;
+                }
+                i = j;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    (depth == 0).then_some(i)
+}
+
+fn lex_fmt_tokens(src: &str) -> Vec<FmtTok> {
+    let b = src.as_bytes();
+    let n = b.len();
+    let at = |idx: usize| b.get(idx).copied().unwrap_or(0);
+    let mut out: Vec<FmtTok> = Vec::new();
+    let mut i = 0usize;
+    let mut at_line_start = true;
+    let mut last_code_idx: Option<usize> = None;
+
+    while i < n {
+        let c = b[i];
+        if c == b'\n' {
+            out.push(FmtTok {
+                range: i..i + 1,
+                kind: FmtKind::Newline,
+                role: PunctRole::Normal,
+            });
+            i += 1;
+            at_line_start = true;
+            continue;
+        }
+        if matches!(c, b' ' | b'\t' | b'\r') {
+            i += 1;
+            continue;
+        }
+
+        if at_line_start && c == b'#' {
+            let rest = &src[i..];
+            if rest.starts_with("#include")
+                || rest.starts_with("#initclip")
+                || rest.starts_with("#endinitclip")
+            {
+                let start = i;
+                while i < n && !matches!(b[i], b'\n' | b'\r') {
+                    if b[i] == b'/' && matches!(at(i + 1), b'/' | b'*') {
+                        break;
+                    }
+                    i += 1;
+                }
+                let end = src[start..i].trim_end_matches([' ', '\t']).len() + start;
+                let idx = out.len();
+                out.push(FmtTok {
+                    range: start..end,
+                    kind: FmtKind::Directive,
+                    role: PunctRole::Normal,
+                });
+                last_code_idx = Some(idx);
+                at_line_start = false;
+                continue;
+            }
+        }
+        at_line_start = false;
+
+        if c == b'/' && at(i + 1) == b'/' {
+            let start = i;
+            while i < n && !matches!(b[i], b'\n' | b'\r') {
+                i += 1;
+            }
+            out.push(FmtTok {
+                range: start..i,
+                kind: FmtKind::LineComment,
+                role: PunctRole::Normal,
+            });
+            continue;
+        }
+        if c == b'/' && at(i + 1) == b'*' {
+            let start = i;
+            i += 2;
+            while i < n && !(b[i] == b'*' && at(i + 1) == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(n);
+            out.push(FmtTok {
+                range: start..i,
+                kind: FmtKind::BlockComment,
+                role: PunctRole::Normal,
+            });
+            continue;
+        }
+        if matches!(c, b'"' | b'\'' | b'`') {
+            let start = i;
+            let quote = c;
+            i += 1;
+            while i < n && b[i] != quote {
+                if b[i] == b'\\' {
+                    i += 1;
+                } else if b[i] == b'\n' && quote != b'`' {
+                    break;
+                }
+                i += 1;
+            }
+            if i < n && b[i] == quote {
+                i += 1;
+            }
+            let idx = out.len();
+            out.push(FmtTok {
+                range: start..i,
+                kind: FmtKind::String,
+                role: PunctRole::Normal,
+            });
+            last_code_idx = Some(idx);
+            continue;
+        }
+
+        let prev_info = last_code_idx.map(|idx| (&out[idx].kind, &src[out[idx].range.clone()]));
+        if c == b'/'
+            && can_precede_regex_or_unary(prev_info)
+            && let Some(end) = try_scan_regex(src, i)
+        {
+            let idx = out.len();
+            out.push(FmtTok {
+                range: i..end,
+                kind: FmtKind::Regex,
+                role: PunctRole::Normal,
+            });
+            last_code_idx = Some(idx);
+            i = end;
+            continue;
+        }
+
+        if c == b'<' {
+            let can_start_xml = match prev_info {
+                None => true,
+                Some((FmtKind::Ident, w)) => EXPR_PRECEDING_KEYWORDS.contains(&w),
+                Some((FmtKind::Punct(p), _)) => {
+                    !matches!(*p, ")" | "]" | "." | "?." | "::" | "++" | "--" | ":")
+                }
+                _ => false,
+            };
+            if can_start_xml && let Some(end) = try_scan_xml_literal(src, i) {
+                let idx = out.len();
+                out.push(FmtTok {
+                    range: i..end,
+                    kind: FmtKind::Xml,
+                    role: PunctRole::Normal,
+                });
+                last_code_idx = Some(idx);
+                i = end;
+                continue;
+            }
+        }
+
+        if c.is_ascii_digit() || (c == b'.' && at(i + 1).is_ascii_digit()) {
+            let start = i;
+            if c == b'0' && matches!(at(i + 1), b'x' | b'X' | b'b' | b'B' | b'o' | b'O') {
+                i += 2;
+                while i < n && (b[i].is_ascii_hexdigit() || b[i] == b'_') {
+                    i += 1;
+                }
+            } else {
+                while i < n && (b[i].is_ascii_digit() || b[i] == b'_') {
+                    i += 1;
+                }
+                if i < n && b[i] == b'.' {
+                    i += 1;
+                    while i < n && (b[i].is_ascii_digit() || b[i] == b'_') {
+                        i += 1;
+                    }
+                }
+                if i < n && matches!(b[i], b'e' | b'E') {
+                    let mut exp = i + 1;
+                    if matches!(at(exp), b'+' | b'-') {
+                        exp += 1;
+                    }
+                    if at(exp).is_ascii_digit() {
+                        i = exp + 1;
+                        while i < n && (b[i].is_ascii_digit() || b[i] == b'_') {
+                            i += 1;
+                        }
+                    }
+                }
+            }
+            if i < n && b[i] == b'n' {
+                i += 1;
+            }
+            let idx = out.len();
+            out.push(FmtTok {
+                range: start..i,
+                kind: FmtKind::Number,
+                role: PunctRole::Normal,
+            });
+            last_code_idx = Some(idx);
+            continue;
+        }
+
+        if fmt_ident_start(c) || (c == b'@' && fmt_ident_start(at(i + 1))) {
+            let start = i;
+            i += 1;
+            while i < n && fmt_ident_char(b[i]) {
+                i += 1;
+            }
+            let idx = out.len();
+            out.push(FmtTok {
+                range: start..i,
+                kind: FmtKind::Ident,
+                role: PunctRole::Normal,
+            });
+            last_code_idx = Some(idx);
+            continue;
+        }
+
+        if let Some(&punct) = MULTI_PUNCTS.iter().find(|&&p| src[i..].starts_with(p)) {
+            let start = i;
+            i += punct.len();
+            let idx = out.len();
+            out.push(FmtTok {
+                range: start..i,
+                kind: FmtKind::Punct(punct),
+                role: PunctRole::Normal,
+            });
+            last_code_idx = Some(idx);
+            continue;
+        }
+
+        let ch_len = src[i..].chars().next().map_or(1, char::len_utf8);
+        let idx = out.len();
+        out.push(FmtTok {
+            range: i..i + ch_len,
+            kind: FmtKind::Other,
+            role: PunctRole::Normal,
+        });
+        last_code_idx = Some(idx);
+        i += ch_len;
+    }
+    out
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FmtScope {
+    BlockBrace,
+    ObjectBrace,
+    Paren,
+    Bracket,
+}
+
+fn find_generic_close_on_line(toks: &[FmtTok], src: &str, lt_idx: usize) -> Option<usize> {
+    let mut depth = 0i32;
+    let mut j = lt_idx;
+    while j < toks.len() {
+        match &toks[j].kind {
+            FmtKind::Newline => return None,
+            FmtKind::LineComment | FmtKind::BlockComment => {}
+            FmtKind::Punct("<") => depth += 1,
+            FmtKind::Punct(">") => {
+                depth -= 1;
+                if depth == 0 {
+                    // Check token after `>` (if any on this line) is compatible with a generic type.
+                    let mut k = j + 1;
+                    while k < toks.len()
+                        && matches!(toks[k].kind, FmtKind::LineComment | FmtKind::BlockComment)
+                    {
+                        k += 1;
+                    }
+                    let after_ok = match toks.get(k).map(|t| (&t.kind, &src[t.range.clone()])) {
+                        None | Some((FmtKind::Newline, _)) => true,
+                        Some((FmtKind::Punct(p), _)) => matches!(
+                            *p,
+                            "(" | ")"
+                                | "["
+                                | "]"
+                                | "{"
+                                | ";"
+                                | ","
+                                | "="
+                                | ":"
+                                | "|"
+                                | "&"
+                                | ">"
+                                | ">>"
+                                | ">>>"
+                                | "?"
+                                | "."
+                                | "=>"
+                        ),
+                        Some((FmtKind::Ident, w)) => matches!(w, "extends" | "implements"),
+                        _ => false,
+                    };
+                    return after_ok.then_some(j);
+                }
+            }
+            FmtKind::Punct(">>") if depth >= 2 => {
+                // Keep simple: nested `>>` is left alone unless split; rare in AS3 (`Vector.<Vector.<int>>` has space or `>>`).
+                return None;
+            }
+            FmtKind::Ident | FmtKind::Number | FmtKind::String => {}
+            FmtKind::Punct(p)
+                if matches!(
+                    *p,
+                    "," | "." | "[" | "]" | "|" | "&" | "?" | ":" | "=>" | "(" | ")" | "*" | "="
+                ) => {}
+            _ => return None,
+        }
+        j += 1;
+    }
+    None
+}
+
+fn annotate_fmt_roles(toks: &mut [FmtTok], src: &str) {
+    let len = toks.len();
+    let mut scopes: Vec<FmtScope> = Vec::new();
+    let mut ternary_stack: Vec<usize> = Vec::new(); // scope depths where `?` opened
+    let mut in_case_label = false;
+    let mut expect_type = false;
+    let mut in_type_alias = false;
+    let mut generic_closes: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    // Helper closures for previous/next code token indices.
+    let prev_code = |toks: &[FmtTok], from: usize| -> Option<(usize, bool)> {
+        let mut same_line = true;
+        let mut idx = from;
+        while idx > 0 {
+            idx -= 1;
+            if toks[idx].kind == FmtKind::Newline {
+                same_line = false;
+            } else if toks[idx].is_code() {
+                return Some((idx, same_line));
+            }
+        }
+        None
+    };
+    let next_code = |toks: &[FmtTok], from: usize| -> Option<(usize, bool)> {
+        let mut same_line = true;
+        let mut idx = from + 1;
+        while idx < len {
+            if toks[idx].kind == FmtKind::Newline {
+                same_line = false;
+            } else if toks[idx].is_code() {
+                return Some((idx, same_line));
+            }
+            idx += 1;
+        }
+        None
+    };
+
+    for idx in 0..len {
+        if !toks[idx].is_code() {
+            continue;
+        }
+        if generic_closes.remove(&idx) {
+            toks[idx].role = PunctRole::GenericClose;
+            continue;
+        }
+        let prev = prev_code(toks, idx);
+        let next = next_code(toks, idx);
+        let prev_kind_text = prev.map(|(pi, _)| (&toks[pi].kind, &src[toks[pi].range.clone()]));
+
+        match toks[idx].kind.clone() {
+            FmtKind::Ident => {
+                let word = &src[toks[idx].range.clone()];
+                let after_dot = matches!(prev_kind_text, Some((FmtKind::Punct("." | "?."), _)));
+                if !after_dot && matches!(word, "case" | "default") {
+                    in_case_label = true;
+                }
+                if !after_dot && word == "type" {
+                    in_type_alias = true;
+                }
+                if !after_dot && FMT_TYPE_KEYWORDS.contains(&word) {
+                    expect_type = true;
+                } else if expect_type {
+                    let next_punct = next.and_then(|(ni, same)| {
+                        same.then_some(&toks[ni].kind).and_then(|k| match k {
+                            FmtKind::Punct(p) => Some(*p),
+                            _ => None,
+                        })
+                    });
+                    expect_type = matches!(next_punct, Some("." | "<" | "|" | "&"));
+                }
+            }
+            FmtKind::Punct("{") => {
+                let is_obj = match prev_kind_text {
+                    Some((FmtKind::Punct(p), _)) => matches!(
+                        *p,
+                        "=" | "("
+                            | "["
+                            | ","
+                            | ":"
+                            | "?"
+                            | "!"
+                            | "+"
+                            | "-"
+                            | "*"
+                            | "%"
+                            | "&"
+                            | "|"
+                            | "^"
+                            | "&&"
+                            | "||"
+                            | "??"
+                    ),
+                    Some((FmtKind::Ident, w)) => {
+                        EXPR_PRECEDING_KEYWORDS.contains(&w) && w != "else" && w != "do"
+                    }
+                    _ => false,
+                };
+                scopes.push(if is_obj {
+                    FmtScope::ObjectBrace
+                } else {
+                    FmtScope::BlockBrace
+                });
+                expect_type = false;
+                in_case_label = false;
+            }
+            FmtKind::Punct("}") => {
+                while matches!(scopes.last(), Some(FmtScope::Paren | FmtScope::Bracket)) {
+                    scopes.pop();
+                }
+                scopes.pop();
+                ternary_stack.retain(|&d| d <= scopes.len());
+                expect_type = false;
+                in_case_label = false;
+            }
+            FmtKind::Punct("(") => {
+                scopes.push(FmtScope::Paren);
+                expect_type = false;
+            }
+            FmtKind::Punct(")") => {
+                if scopes.last() == Some(&FmtScope::Paren) {
+                    scopes.pop();
+                }
+                ternary_stack.retain(|&d| d <= scopes.len());
+                expect_type = false;
+            }
+            FmtKind::Punct("[") => {
+                scopes.push(FmtScope::Bracket);
+            }
+            FmtKind::Punct("]") => {
+                if scopes.last() == Some(&FmtScope::Bracket) {
+                    scopes.pop();
+                }
+                ternary_stack.retain(|&d| d <= scopes.len());
+            }
+            FmtKind::Punct("?") => {
+                let next_is_colon = matches!(
+                    next,
+                    Some((ni, true)) if toks[ni].kind == FmtKind::Punct(":")
+                );
+                if !next_is_colon {
+                    ternary_stack.push(scopes.len());
+                }
+            }
+            FmtKind::Punct(":") => {
+                let at_eol = next.is_none_or(|(_, same_line)| !same_line);
+                let in_paren_or_bracket = scopes
+                    .iter()
+                    .any(|s| matches!(s, FmtScope::Paren | FmtScope::Bracket));
+                let in_obj_brace = scopes.last() == Some(&FmtScope::ObjectBrace);
+
+                if in_case_label {
+                    toks[idx].role = PunctRole::CaseColon;
+                    in_case_label = false;
+                    expect_type = false;
+                } else if ternary_stack.last() == Some(&scopes.len()) {
+                    ternary_stack.pop();
+                    toks[idx].role = PunctRole::TernaryColon;
+                    expect_type = false;
+                } else if in_obj_brace {
+                    toks[idx].role = PunctRole::ObjectColon;
+                    expect_type = false;
+                } else {
+                    // Collect code tokens of the current statement on this line before `:`.
+                    let mut stmt_toks: Vec<usize> = Vec::new();
+                    let mut scan = idx;
+                    while scan > 0 {
+                        scan -= 1;
+                        if toks[scan].kind == FmtKind::Newline {
+                            break;
+                        }
+                        if matches!(toks[scan].kind, FmtKind::Punct(";" | "{" | "}")) {
+                            break;
+                        }
+                        if toks[scan].is_code() {
+                            stmt_toks.push(scan);
+                        }
+                    }
+                    stmt_toks.reverse();
+
+                    let is_single_ident_label = stmt_toks.len() == 1
+                        && toks[stmt_toks[0]].kind == FmtKind::Ident
+                        && !matches!(
+                            &src[toks[stmt_toks[0]].range.clone()],
+                            "break" | "continue" | "return"
+                        );
+                    let has_assign = stmt_toks
+                        .iter()
+                        .any(|&ti| toks[ti].kind == FmtKind::Punct("="));
+                    let first_word = stmt_toks
+                        .first()
+                        .filter(|&&ti| toks[ti].kind == FmtKind::Ident)
+                        .map(|&ti| &src[toks[ti].range.clone()]);
+                    let is_decl_header_without_eq = !has_assign
+                        && matches!(
+                            first_word,
+                            Some(
+                                "var"
+                                    | "let"
+                                    | "const"
+                                    | "function"
+                                    | "public"
+                                    | "private"
+                                    | "protected"
+                                    | "internal"
+                                    | "static"
+                                    | "override"
+                            )
+                        );
+
+                    if is_single_ident_label {
+                        toks[idx].role = PunctRole::LabelColon;
+                        expect_type = false;
+                    } else if at_eol
+                        && !in_paren_or_bracket
+                        && !stmt_toks.is_empty()
+                        && !is_decl_header_without_eq
+                    {
+                        toks[idx].role = PunctRole::TrailingColonAsSemi;
+                        expect_type = false;
+                        in_type_alias = false;
+                    } else {
+                        toks[idx].role = PunctRole::TypeColon;
+                        expect_type = true;
+                    }
+                }
+            }
+            FmtKind::Punct("+" | "-") => {
+                let is_unary = match prev {
+                    None => true,
+                    Some((pi, _)) => {
+                        if matches!(
+                            toks[pi].role,
+                            PunctRole::GenericClose
+                                | PunctRole::PostfixIncDec
+                                | PunctRole::PostfixNonNull
+                        ) {
+                            false
+                        } else {
+                            can_precede_regex_or_unary(Some((
+                                &toks[pi].kind,
+                                &src[toks[pi].range.clone()],
+                            )))
+                        }
+                    }
+                };
+                toks[idx].role = if is_unary {
+                    PunctRole::UnaryPrefix
+                } else {
+                    PunctRole::Binary
+                };
+                expect_type = false;
+            }
+            FmtKind::Punct("++" | "--") => {
+                let is_postfix = matches!(
+                    prev,
+                    Some((pi, true))
+                        if matches!(
+                            toks[pi].kind,
+                            FmtKind::Ident | FmtKind::Punct(")" | "]")
+                        ) && !EXPR_PRECEDING_KEYWORDS.contains(&&src[toks[pi].range.clone()])
+                );
+                toks[idx].role = if is_postfix {
+                    PunctRole::PostfixIncDec
+                } else {
+                    PunctRole::PrefixIncDec
+                };
+                expect_type = false;
+            }
+            FmtKind::Punct("!") => {
+                let prev_value = matches!(
+                    prev,
+                    Some((pi, true))
+                        if matches!(toks[pi].kind, FmtKind::Ident | FmtKind::Punct(")" | "]"))
+                            && !EXPR_PRECEDING_KEYWORDS.contains(&&src[toks[pi].range.clone()])
+                );
+                let next_chain = matches!(
+                    next,
+                    Some((ni, true))
+                        if matches!(
+                            toks[ni].kind,
+                            FmtKind::Punct("." | "?." | "[" | "(" | "," | ";" | ")" | "]" | ":")
+                        )
+                );
+                toks[idx].role = if prev_value && next_chain {
+                    PunctRole::PostfixNonNull
+                } else {
+                    PunctRole::UnaryPrefix
+                };
+                expect_type = false;
+            }
+            FmtKind::Punct("~") => {
+                toks[idx].role = PunctRole::UnaryPrefix;
+                expect_type = false;
+            }
+            FmtKind::Punct("*") => {
+                toks[idx].role = match prev {
+                    Some((pi, true)) if toks[pi].kind == FmtKind::Punct(".") => {
+                        PunctRole::WildcardAfterDot
+                    }
+                    Some((pi, true))
+                        if toks[pi].kind == FmtKind::Ident
+                            && &src[toks[pi].range.clone()] == "function" =>
+                    {
+                        PunctRole::GeneratorStar
+                    }
+                    Some((pi, _)) if toks[pi].role == PunctRole::TypeColon => PunctRole::TypeAny,
+                    _ => PunctRole::Binary,
+                };
+                expect_type = false;
+            }
+            FmtKind::Punct("<") => {
+                let after_dot = matches!(
+                    prev,
+                    Some((pi, true)) if toks[pi].kind == FmtKind::Punct(".")
+                );
+                let prev_ident = prev.and_then(|(pi, same)| {
+                    (same && toks[pi].kind == FmtKind::Ident).then(|| &src[toks[pi].range.clone()])
+                });
+                let prev_prev_word =
+                    prev.and_then(|(pi, _)| prev_code(toks, pi))
+                        .and_then(|(ppi, _)| {
+                            (toks[ppi].kind == FmtKind::Ident)
+                                .then(|| &src[toks[ppi].range.clone()])
+                        });
+                let generic_candidate = after_dot
+                    || expect_type
+                    || !generic_closes.is_empty()
+                    || matches!(
+                        prev_ident,
+                        Some(
+                            "Array"
+                                | "Vector"
+                                | "Map"
+                                | "Set"
+                                | "Promise"
+                                | "Dictionary"
+                                | "ReadonlyArray"
+                                | "Record"
+                                | "Partial"
+                        )
+                    )
+                    || (prev_ident.is_some()
+                        && matches!(
+                            prev_prev_word,
+                            Some("function" | "class" | "interface" | "type")
+                        ));
+                if generic_candidate
+                    && let Some(close_idx) = find_generic_close_on_line(toks, src, idx)
+                {
+                    toks[idx].role = PunctRole::GenericOpen;
+                    generic_closes.insert(close_idx);
+                    expect_type = false;
+                } else {
+                    toks[idx].role = PunctRole::Binary;
+                    expect_type = false;
+                }
+            }
+            FmtKind::Punct("=") => {
+                toks[idx].role = PunctRole::Binary;
+                expect_type = in_type_alias;
+            }
+            FmtKind::Punct(";") => {
+                expect_type = false;
+                in_type_alias = false;
+                in_case_label = false;
+                ternary_stack.retain(|&d| d < scopes.len());
+            }
+            FmtKind::Punct(p) => {
+                if matches!(
+                    p,
+                    ">>>="
+                        | "==="
+                        | "!=="
+                        | ">>>"
+                        | "<<="
+                        | ">>="
+                        | "&&="
+                        | "||="
+                        | "??="
+                        | "=="
+                        | "!="
+                        | "<>"
+                        | "<="
+                        | ">="
+                        | "&&"
+                        | "||"
+                        | "??"
+                        | "<<"
+                        | ">>"
+                        | "+="
+                        | "-="
+                        | "*="
+                        | "/="
+                        | "%="
+                        | "&="
+                        | "|="
+                        | "^="
+                        | "/"
+                        | "%"
+                        | ">"
+                        | "&"
+                        | "|"
+                        | "^"
+                        | "=>"
+                ) {
+                    toks[idx].role = PunctRole::Binary;
+                }
+                if !(matches!(p, "|" | "&") && in_type_alias) && p != "." {
+                    expect_type = false;
+                }
+            }
+            _ => {
+                expect_type = false;
+            }
+        }
+    }
+}
+
+fn space_between(prev: &FmtTok, next: &FmtTok, src: &str, had_space: bool) -> bool {
+    let pt = prev.text(src);
+    let nt = next.text(src);
+
+    if next.kind == FmtKind::LineComment {
+        return true;
+    }
+    if next.kind == FmtKind::BlockComment {
+        return !matches!(pt, "(" | "[");
+    }
+    if prev.kind == FmtKind::BlockComment {
+        return !matches!(nt, ")" | "]" | "," | ";");
+    }
+
+    // Never put space before `,` or `;` (including normalized trailing `:` -> `;`), except when
+    // an incomplete statement ends right after a binary/assignment operator (`var x = ;`).
+    if nt == ";" && prev.role == PunctRole::Binary {
+        return true;
+    }
+    if matches!(nt, "," | ";") {
+        return false;
+    }
+    if pt == "," {
+        return !matches!(nt, "]" | ")");
+    }
+    if pt == ";" {
+        return !matches!(nt, ";" | ")");
+    }
+
+    // Member access & namespace qualifiers.
+    if matches!(pt, "." | "?." | "::") || matches!(nt, "." | "?." | "::") {
+        return false;
+    }
+
+    // Generics `<...>`
+    if next.role == PunctRole::GenericOpen || prev.role == PunctRole::GenericOpen {
+        return false;
+    }
+    if next.role == PunctRole::GenericClose {
+        return false;
+    }
+    if prev.role == PunctRole::GenericClose {
+        return !matches!(nt, "(" | ")" | "[" | "]" | "," | ";" | "." | "?.")
+            && next.role != PunctRole::GenericClose;
+    }
+
+    // Parentheses
+    if pt == "(" || nt == ")" {
+        return false;
+    }
+    if nt == "(" {
+        if prev.kind == FmtKind::Ident {
+            return SPACE_BEFORE_PAREN_KEYWORDS.contains(&pt);
+        }
+        if prev.role == PunctRole::GeneratorStar {
+            return true;
+        }
+        if prev.role == PunctRole::TypeColon {
+            return had_space;
+        }
+        if matches!(pt, ")" | "]" | "(" | "[" | "...")
+            || matches!(
+                prev.role,
+                PunctRole::UnaryPrefix
+                    | PunctRole::PrefixIncDec
+                    | PunctRole::PostfixNonNull
+                    | PunctRole::GenericClose
+            )
+        {
+            return false;
+        }
+        return true;
+    }
+    if pt == ")" {
+        if matches!(nt, ")" | "]" | "(" | "[" | "," | ";")
+            || matches!(
+                next.role,
+                PunctRole::PostfixIncDec | PunctRole::PostfixNonNull | PunctRole::TypeColon
+            )
+        {
+            return false;
+        }
+        return true;
+    }
+
+    // Brackets
+    if pt == "[" || nt == "]" {
+        return false;
+    }
+    if nt == "[" {
+        if prev.kind == FmtKind::Ident {
+            return EXPR_PRECEDING_KEYWORDS.contains(&pt) && pt != "new";
+        }
+        if prev.role == PunctRole::TypeColon {
+            return had_space;
+        }
+        if matches!(pt, ")" | "]" | "(" | "[")
+            || matches!(prev.role, PunctRole::UnaryPrefix | PunctRole::GenericClose)
+        {
+            return false;
+        }
+        return true;
+    }
+    if pt == "]" {
+        if matches!(nt, ")" | "]" | "(" | "[" | "," | ";")
+            || matches!(
+                next.role,
+                PunctRole::PostfixIncDec
+                    | PunctRole::PostfixNonNull
+                    | PunctRole::TypeColon
+                    | PunctRole::GenericClose
+            )
+        {
+            return false;
+        }
+        return true;
+    }
+
+    // Braces
+    if pt == "{" && nt == "}" {
+        return false;
+    }
+    if nt == "{" {
+        return !matches!(pt, "(" | "[");
+    }
+    if pt == "{" || nt == "}" {
+        return true;
+    }
+    if pt == "}" {
+        return !matches!(nt, ";" | "," | ")" | "]");
+    }
+
+    // Question mark (ternary vs optional `?:`)
+    if pt == "?" && next.role == PunctRole::TypeColon {
+        return false;
+    }
+
+    // Colons
+    match next.role {
+        PunctRole::TernaryColon => return true,
+        PunctRole::ObjectColon
+        | PunctRole::CaseColon
+        | PunctRole::LabelColon
+        | PunctRole::TypeColon => return false,
+        _ => {}
+    }
+    match prev.role {
+        PunctRole::TernaryColon
+        | PunctRole::ObjectColon
+        | PunctRole::CaseColon
+        | PunctRole::LabelColon => return true,
+        PunctRole::TypeColon => return had_space,
+        _ => {}
+    }
+
+    // Optional `ident?: Type` — `?` right before `TypeColon` has no space before `?` either.
+    // (Checked by looking at `nt == "?"` when `had_space == false`? Better: handled via `pt`/`nt` below.)
+
+    // Unary / inc-dec / spread / wildcard / type `*`
+    if next.role == PunctRole::PostfixIncDec || next.role == PunctRole::PostfixNonNull {
+        return false;
+    }
+    if prev.role == PunctRole::PrefixIncDec {
+        return false;
+    }
+    if prev.role == PunctRole::PostfixIncDec {
+        return !matches!(nt, ")" | "]" | "," | ";");
+    }
+    if prev.role == PunctRole::PostfixNonNull {
+        return !matches!(nt, "[" | "(" | "," | ";" | ")" | "]")
+            && next.role != PunctRole::TypeColon;
+    }
+    if prev.role == PunctRole::UnaryPrefix {
+        if (pt == "+" && nt.starts_with('+')) || (pt == "-" && nt.starts_with('-')) {
+            return true;
+        }
+        return false;
+    }
+    if next.role == PunctRole::UnaryPrefix || next.role == PunctRole::PrefixIncDec {
+        if prev.role == PunctRole::UnaryPrefix {
+            return (pt == "+" && nt.starts_with('+')) || (pt == "-" && nt.starts_with('-'));
+        }
+        return !matches!(pt, "(" | "[");
+    }
+    if nt == "..." {
+        return !matches!(pt, "(" | "[");
+    }
+    if pt == "..." {
+        return false;
+    }
+    if next.role == PunctRole::GeneratorStar || next.role == PunctRole::WildcardAfterDot {
+        return false;
+    }
+    if prev.role == PunctRole::GeneratorStar {
+        return true;
+    }
+    if prev.role == PunctRole::WildcardAfterDot {
+        return nt != ";";
+    }
+    if prev.role == PunctRole::TypeAny {
+        return !matches!(nt, ")" | "]" | "," | ";");
+    }
+
+    // Binary & assignment operators and ternary `?`
+    if prev.role == PunctRole::Binary || next.role == PunctRole::Binary || pt == "?" || nt == "?" {
+        return true;
+    }
+
+    // Adjacent identifiers, keywords, and literals (`var x`, `new Array`, `return 0`, `else if`).
+    true
+}
+
+/// "Auto-format": re-indent and format statement/operator/delimiter spacing using `tab_size`
+/// spaces per level (`1..=8`). Preserves strings, comments, regexes, `#include` directives and
+/// E4X/XML literals verbatim, normalizes accidental trailing statement `:` into `;`, and returns
+/// `None` when `text` is already formatted.
+pub(crate) fn auto_format_with_tab_size(text: &str, tab_size: u8) -> Option<String> {
+    let indent = " ".repeat(usize::from(tab_size.clamp(1, 8)));
+    let mut toks = lex_fmt_tokens(text);
+    annotate_fmt_roles(&mut toks, text);
+
+    let mut line_starts = vec![0usize];
+    line_starts.extend(text.match_indices('\n').map(|(i, _)| i + 1));
+
+    // Multi-line verbatim spans (`/* ... */`, multi-line strings/templates, multi-line E4X XML).
+    let inside_multiline_verbatim = |line_start: usize| -> bool {
+        toks.iter().any(|tok| {
+            matches!(
+                tok.kind,
+                FmtKind::BlockComment | FmtKind::String | FmtKind::Xml
+            ) && tok.range.start < line_start
+                && line_start < tok.range.end
+        })
+    };
+    let ends_inside_multiline_xml_or_str = |line_end: usize| -> bool {
+        toks.iter().any(|tok| {
+            matches!(
+                tok.kind,
+                FmtKind::BlockComment | FmtKind::String | FmtKind::Xml
+            ) && tok.range.start < line_end
+                && line_end < tok.range.end
+        })
+    };
+
+    let mut tok_cursor = 0usize;
+    let mut out_lines: Vec<String> = Vec::with_capacity(line_starts.len());
+    let mut depth: i32 = 0;
+    let mut case_depths: Vec<i32> = Vec::new();
+
+    for (line_idx, &start) in line_starts.iter().enumerate() {
+        let end = line_starts
+            .get(line_idx + 1)
+            .map_or(text.len(), |next| next - 1);
+        let raw_line = text[start..end]
+            .strip_suffix('\r')
+            .unwrap_or(&text[start..end]);
+
+        // Advance `tok_cursor` past any tokens that ended before `start`.
+        while tok_cursor < toks.len() && toks[tok_cursor].range.end <= start {
+            tok_cursor += 1;
+        }
+
+        // Collect indices of tokens that start on `[start..end)` (or overlap `end` if multiline).
+        let mut line_toks: Vec<usize> = Vec::new();
+        let mut scan = tok_cursor;
+        while scan < toks.len() {
+            if toks[scan].kind == FmtKind::Newline && toks[scan].range.start >= end {
+                break;
+            }
+            if toks[scan].range.start >= end && end > start {
+                break;
+            }
+            if toks[scan].range.start >= start && toks[scan].range.start < end {
+                line_toks.push(scan);
+            }
+            scan += 1;
+        }
+
+        let starts_verbatim = inside_multiline_verbatim(start);
+        // Compute structural depth delta contributed by `{ } ( ) [ ]` on this line.
+        let mut line_delta = 0i32;
+        let mut leading_close = 0i32;
+        let mut seen_non_close = false;
+        for &ti in &line_toks {
+            if let FmtKind::Punct(p) = toks[ti].kind {
+                let d = match p {
+                    "{" | "(" | "[" => 1,
+                    "}" | ")" | "]" => -1,
+                    _ => 0,
+                };
+                if !seen_non_close {
+                    if d == -1 {
+                        leading_close += 1;
+                    } else {
+                        seen_non_close = true;
+                    }
+                }
+                line_delta += d;
+            } else if toks[ti].is_code() {
+                seen_non_close = true;
+            }
+        }
+
+        if starts_verbatim {
+            // If this line closes a multi-line XML tag followed by `;` (e.g. `</a>;`), keep raw line
+            // trimmed on the right so multi-line comment/string/XML interiors are never altered.
+            out_lines.push(raw_line.trim_end_matches([' ', '\t']).to_owned());
+            depth = (depth + line_delta).max(0);
+            continue;
+        }
+
+        if line_toks.is_empty() || raw_line.trim().is_empty() {
+            out_lines.push(String::new());
+            continue;
+        }
+
+        // Format the tokens on this line into `formatted_body`.
+        let spans_into_next = ends_inside_multiline_xml_or_str(end);
+        let mut formatted_body = String::with_capacity(raw_line.len() + 8);
+        for (pos, &ti) in line_toks.iter().enumerate() {
+            let tok = &toks[ti];
+            if pos > 0 {
+                let prev_tok = &toks[line_toks[pos - 1]];
+                let had_space = prev_tok.range.end < tok.range.start;
+                // Optional parameter `ident?: Type`: no space before `?` when followed immediately by `TypeColon`.
+                let is_optional_qmark = tok.kind == FmtKind::Punct("?")
+                    && line_toks
+                        .get(pos + 1)
+                        .is_some_and(|&nti| toks[nti].role == PunctRole::TypeColon);
+                let want_space = if is_optional_qmark {
+                    false
+                } else {
+                    space_between(prev_tok, tok, text, had_space)
+                };
+                if want_space {
+                    formatted_body.push(' ');
+                }
+            }
+            if spans_into_next && pos + 1 == line_toks.len() && tok.range.end > end {
+                // Multi-line token (`/* ...`, `` `... ``, `<a>...`) starts on this line and continues onto next line(s):
+                // emit only the first-line slice up to `end`!
+                let slice = text[tok.range.start..end]
+                    .strip_suffix('\r')
+                    .unwrap_or(&text[tok.range.start..end]);
+                formatted_body.push_str(slice.trim_end_matches([' ', '\t']));
+            } else {
+                formatted_body.push_str(tok.text(text));
+            }
+        }
+
+        let case_line = is_case(&formatted_body);
         while case_depths
             .last()
-            .is_some_and(|&d| d > depth - leading_close || (d == depth && is_case(body)))
+            .is_some_and(|&d| d > depth - leading_close || (d == depth && case_line))
         {
             case_depths.pop();
         }
         let level = (depth - leading_close).max(0) + case_depths.len() as i32;
-        if keep {
-            out_lines.push(line.trim_end_matches([' ', '\t']).to_owned());
-        } else if body.is_empty() {
-            out_lines.push(String::new());
-        } else {
-            out_lines.push(format!("{}{}", indent.repeat(level as usize), body));
-        }
-        if !keep && is_case(body) {
+        out_lines.push(format!(
+            "{}{}",
+            indent.repeat(level as usize),
+            formatted_body
+        ));
+        if case_line {
             case_depths.push(depth);
         }
-        depth = (depth + line_events.iter().sum::<i32>()).max(0);
+        depth = (depth + line_delta).max(0);
     }
+
     let formatted = out_lines.join("\n");
     (formatted != text).then_some(formatted)
 }
 
 fn is_case(body: &str) -> bool {
-    (body.starts_with("case ") || body.starts_with("default")) && body.ends_with(':')
+    (body.starts_with("case ") || body.starts_with("case(") || body == "default:")
+        && body.ends_with(':')
 }
 
 /// Insert `tab_size` spaces at the caret, replace a single-line selection with `tab_size` spaces,
@@ -2925,5 +4245,125 @@ export function clamp(val: number, min: number, max: number): number { return va
             Some("ESC f_: fn (function), fr (for), fi (for..in), fs (fscommand)")
         );
         assert!(expand_esc_chord("keep", (4, 4), 'f', 'z').is_none());
+    }
+
+    #[test]
+    fn t373_auto_format_formats_screenshot_tetris_operators_delimiters_and_stays_idempotent() {
+        let unformatted = "\
+TFigure=new Array([0,1,0],[1,1,1]);
+lFigure = new Array([0,1,0],[0,1,0],[0,1,0],[0,1,0]);
+QFigure = new Array ([1,1],[1,1]);
+LlFigure = new Array ([0,1],[0,1],[1,1]);
+LrFigure = new Array ([1,0],[1,0],[1,1]);
+ZlFigure = new Array ([0,1],[1,1],[1,0]);
+ZrFigure = new Array ([1,0],[1,1],[0,1]);
+
+AllFigures = new Array(TFigure, lFigure, QFigure, LlFigure, LrFigure,ZlFigure, ZrFigure);
+
+function rotateFigure (figure, direction) {
+    var n=figure.length;
+    var m=figure[0].length;
+    //trace (n,m);
+    var tempFigure:Array=new Array();
+    for(i=0;i<m;i++){
+        tempFigure[i]=new Array();
+    }
+}";
+        let expected = "\
+TFigure = new Array([0, 1, 0], [1, 1, 1]);
+lFigure = new Array([0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]);
+QFigure = new Array([1, 1], [1, 1]);
+LlFigure = new Array([0, 1], [0, 1], [1, 1]);
+LrFigure = new Array([1, 0], [1, 0], [1, 1]);
+ZlFigure = new Array([0, 1], [1, 1], [1, 0]);
+ZrFigure = new Array([1, 0], [1, 1], [0, 1]);
+
+AllFigures = new Array(TFigure, lFigure, QFigure, LlFigure, LrFigure, ZlFigure, ZrFigure);
+
+function rotateFigure(figure, direction) {
+    var n = figure.length;
+    var m = figure[0].length;
+    //trace (n,m);
+    var tempFigure:Array = new Array();
+    for (i = 0; i < m; i++) {
+        tempFigure[i] = new Array();
+    }
+}";
+        let formatted = auto_format(unformatted).expect("should format Tetris script");
+        assert_eq!(formatted, expected);
+        assert_eq!(
+            auto_format(&formatted),
+            None,
+            "auto_format must be strictly idempotent"
+        );
+    }
+
+    #[test]
+    fn t373_auto_format_fixes_trailing_colon_typos_and_preserves_valid_colons_strings_regexes() {
+        let src = "\
+#include \"defs:init.as\"
+TFigure = new Array([0, 1, 0]):
+var x:Number = 1e-5 + 1e+5:
+var y :  int = -x + ~0 - -2:
+trace (x,y):
+foo ():
+var obj={a:1,b : 2,nested:{k:TFigure}};
+var pick=ready?TFigure:lFigure;
+var re=/a+b*c:1/gi;
+var str=\"a=1,b:2\";
+var anon = function (a: number, b?: string) {
+    return (a + 1);
+};
+outerLoop:
+for(i=0;i<10;i++){
+    if(i<>5&&i<=8||i>>>1==2){
+        switch(i){
+        case 1 :
+            x+=2:
+            break:
+        default :
+            x>>>=1:
+        }
+    }else{
+        continue:
+    }
+}";
+        let formatted = auto_format(src).expect("should format complex script");
+        let expected = "\
+#include \"defs:init.as\"
+TFigure = new Array([0, 1, 0]);
+var x:Number = 1e-5 + 1e+5;
+var y: int = -x + ~0 - -2;
+trace(x, y);
+foo();
+var obj = { a: 1, b: 2, nested: { k: TFigure } };
+var pick = ready ? TFigure : lFigure;
+var re = /a+b*c:1/gi;
+var str = \"a=1,b:2\";
+var anon = function (a: number, b?: string) {
+    return (a + 1);
+};
+outerLoop:
+for (i = 0; i < 10; i++) {
+    if (i <> 5 && i <= 8 || i >>> 1 == 2) {
+        switch (i) {
+            case 1:
+                x += 2;
+                break;
+            default:
+                x >>>= 1;
+        }
+    } else {
+        continue;
+    }
+}";
+        assert_eq!(formatted, expected);
+        assert_eq!(
+            auto_format(&formatted),
+            None,
+            "auto_format must be strictly idempotent on complex constructs"
+        );
+        // Incomplete/broken expressions with missing RHS must remain stable under format_on_save.
+        assert_eq!(auto_format("var brokenCharacter = ;"), None);
     }
 }

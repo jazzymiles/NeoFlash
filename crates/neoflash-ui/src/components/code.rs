@@ -71,8 +71,10 @@ impl Severity {
 /// Token classes of the NF2 Night scheme.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Token {
-    /// Identifiers and whitespace (`text/primary`).
+    /// Whitespace (`text/primary`).
     Plain,
+    /// User variables, parameters, properties and identifiers (`syntax/identifier`).
+    Identifier,
     /// Operators and punctuation (`text/secondary`).
     Punct,
     Keyword,
@@ -92,6 +94,7 @@ impl Token {
     pub fn color(self, p: &Palette) -> Color32 {
         match self {
             Self::Plain => p.text_primary,
+            Self::Identifier => p.syntax_identifier,
             Self::Punct => p.text_secondary,
             Self::Keyword => p.syntax_keyword,
             Self::Type => p.syntax_type,
@@ -174,11 +177,86 @@ const KEYWORDS: &[&str] = &[
     "yield",
 ];
 
-/// Lower-case built-in types coloured as types after a `:` annotation (`var n:int`, `x: number`).
+/// Lower-case built-in types coloured as types in type contexts (`var n:int`, `x: number`).
 const ANNOTATION_TYPES: &[&str] = &[
     "int", "uint", "any", "number", "string", "boolean", "never", "unknown", "object", "symbol",
     "bigint",
 ];
+
+/// Built-in AS1/AS2/AS3/JS/TS classes and global constructors coloured as [`Token::Type`].
+const BUILTIN_TYPES: &[&str] = &[
+    "Array",
+    "BitmapData",
+    "Boolean",
+    "ByteArray",
+    "Color",
+    "ColorTransform",
+    "Date",
+    "Dictionary",
+    "Error",
+    "Event",
+    "Function",
+    "JSON",
+    "Key",
+    "KeyboardEvent",
+    "LoadVars",
+    "Loader",
+    "Map",
+    "Math",
+    "Matrix",
+    "Mouse",
+    "MouseEvent",
+    "MovieClip",
+    "MovieClipLoader",
+    "NetConnection",
+    "NetStream",
+    "Number",
+    "Object",
+    "Point",
+    "Promise",
+    "Rectangle",
+    "RegExp",
+    "Set",
+    "Shape",
+    "SharedObject",
+    "SimpleButton",
+    "Sound",
+    "Sprite",
+    "Stage",
+    "String",
+    "Symbol",
+    "System",
+    "TextField",
+    "TextFormat",
+    "Timer",
+    "URLLoader",
+    "URLRequest",
+    "Vector",
+    "Video",
+    "Void",
+    "XML",
+    "XMLNode",
+];
+
+const TYPE_CONTEXT_KEYWORDS: &[&str] = &[
+    "as",
+    "class",
+    "extends",
+    "implements",
+    "instanceof",
+    "interface",
+    "is",
+    "new",
+    "type",
+];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LexScope {
+    Block,
+    ObjectLiteral,
+    Paren,
+    Bracket,
+}
 
 fn ident_start(c: u8) -> bool {
     c.is_ascii_alphabetic() || c == b'_' || c == b'$' || c >= 0x80
@@ -200,9 +278,18 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
     let mut i = 0;
     // Last significant byte (outside whitespace and comments): decides `<` = tag vs. less-than.
     let mut prev: u8 = 0;
+    let mut prev2: u8 = 0;
+    let mut last_word: &str = "";
+    let mut prev_was_stmt_start_ident = false;
     let mut in_tag = false;
     let mut tag_name = false;
     let mut after_function = false;
+    let mut expect_type = false;
+    let mut in_type_alias = false;
+    let mut type_angle_depth: u32 = 0;
+    let mut in_case_label = false;
+    let mut ternary_depth: u32 = 0;
+    let mut scopes: Vec<LexScope> = Vec::new();
     while i < n {
         let c = b[i];
         let start = i;
@@ -240,6 +327,9 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
                 i += 1;
             }
             i = (i + 1).min(n);
+            expect_type = false;
+            prev_was_stmt_start_ident = false;
+            last_word = "";
             Token::String
         } else if in_tag {
             if c == b'>' {
@@ -262,6 +352,9 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
                 Token::Punct
             }
         } else if c == b'<'
+            && !expect_type
+            && type_angle_depth == 0
+            && prev != b'.'
             && (ident_start(at(i + 1)) || at(i + 1) == b'/')
             && !(ident_char(prev) || prev == b')' || prev == b']')
         {
@@ -271,11 +364,20 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
             }
             in_tag = true;
             tag_name = true;
+            prev_was_stmt_start_ident = false;
+            last_word = "";
             Token::Tag
         } else if c.is_ascii_digit() || (c == b'.' && at(i + 1).is_ascii_digit()) {
             while i < n && (b[i].is_ascii_alphanumeric() || b[i] == b'.' || b[i] == b'_') {
+                if matches!(b[i], b'e' | b'E') && matches!(at(i + 1), b'+' | b'-') {
+                    i += 2;
+                    continue;
+                }
                 i += 1;
             }
+            expect_type = false;
+            prev_was_stmt_start_ident = false;
+            last_word = "";
             Token::Number
         } else if ident_start(c) {
             while i < n && ident_char(b[i]) {
@@ -286,33 +388,228 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
             while j < n && (b[j] == b' ' || b[j] == b'\t') {
                 j += 1;
             }
-            let t = if after_function && !KEYWORDS.contains(&word) {
+            let is_kw = KEYWORDS.contains(&word);
+            let in_type_ctx = expect_type || type_angle_depth > 0;
+            let t = if after_function && !is_kw {
                 Token::Function
-            } else if KEYWORDS.contains(&word) {
+            } else if is_kw {
                 Token::Keyword
-            } else if at(j) == b'(' {
-                Token::Function
-            } else if word.as_bytes()[0].is_ascii_uppercase()
-                || (prev == b':' && ANNOTATION_TYPES.contains(&word))
+            } else if in_type_ctx
+                || (prev != b'.'
+                    && (BUILTIN_TYPES.contains(&word)
+                        || (in_type_ctx && ANNOTATION_TYPES.contains(&word))))
             {
                 Token::Type
+            } else if at(j) == b'(' {
+                Token::Function
             } else {
-                Token::Plain
+                Token::Identifier
             };
             after_function = matches!(word, "function" | "get" | "set")
                 && (word == "function" || after_function);
+            if prev != b'.' && matches!(word, "case" | "default") {
+                in_case_label = true;
+            }
+            if prev != b'.' && word == "type" {
+                in_type_alias = true;
+            }
+            if prev != b'.' && TYPE_CONTEXT_KEYWORDS.contains(&word) {
+                expect_type = true;
+            } else if expect_type {
+                expect_type = matches!(at(j), b'.' | b'<' | b'|' | b'&');
+            }
+            prev_was_stmt_start_ident = !is_kw && matches!(prev, 0 | b';' | b'{' | b'}');
+            last_word = word;
             push(start..i, t);
+            prev2 = prev;
             prev = b[i - 1];
             continue;
         } else {
             i += 1;
+            let mut next = i;
+            while next < n && (b[next] == b' ' || b[next] == b'\t') {
+                next += 1;
+            }
+            match c {
+                b'{' => {
+                    let is_arrow = prev2 == b'=' && prev == b'>';
+                    let is_obj = !is_arrow
+                        && (matches!(
+                            prev,
+                            b'=' | b'('
+                                | b'['
+                                | b','
+                                | b':'
+                                | b'?'
+                                | b'!'
+                                | b'+'
+                                | b'-'
+                                | b'*'
+                                | b'%'
+                                | b'&'
+                                | b'|'
+                                | b'^'
+                        ) || matches!(
+                            last_word,
+                            "return"
+                                | "throw"
+                                | "case"
+                                | "in"
+                                | "of"
+                                | "yield"
+                                | "await"
+                                | "typeof"
+                                | "void"
+                                | "delete"
+                        ));
+                    scopes.push(if is_obj {
+                        LexScope::ObjectLiteral
+                    } else {
+                        LexScope::Block
+                    });
+                    expect_type = false;
+                    type_angle_depth = 0;
+                    in_case_label = false;
+                }
+                b'}' => {
+                    scopes.pop();
+                    expect_type = false;
+                    type_angle_depth = 0;
+                    in_case_label = false;
+                }
+                b'(' => {
+                    scopes.push(LexScope::Paren);
+                    expect_type = false;
+                    type_angle_depth = 0;
+                }
+                b')' => {
+                    if scopes.last() == Some(&LexScope::Paren) {
+                        scopes.pop();
+                    }
+                    expect_type = false;
+                    type_angle_depth = 0;
+                }
+                b'[' => {
+                    scopes.push(LexScope::Bracket);
+                    if type_angle_depth == 0 && !expect_type {
+                        expect_type = false;
+                    }
+                }
+                b']' => {
+                    if scopes.last() == Some(&LexScope::Bracket) {
+                        scopes.pop();
+                    }
+                }
+                b'?' => {
+                    let next_c = at(next);
+                    if !matches!(next_c, b'.' | b'?' | b':') && prev != b'?' {
+                        ternary_depth = ternary_depth.saturating_add(1);
+                    }
+                }
+                b':' => {
+                    if at(i) == b':' || prev == b':' {
+                        expect_type = false;
+                    } else if in_case_label {
+                        in_case_label = false;
+                        expect_type = false;
+                    } else if ternary_depth > 0 {
+                        ternary_depth -= 1;
+                        expect_type = false;
+                    } else {
+                        expect_type = scopes.last() != Some(&LexScope::ObjectLiteral)
+                            && !prev_was_stmt_start_ident;
+                    }
+                }
+                b'.' => {
+                    if !(expect_type && (ident_start(at(next)) || at(next) == b'<')) {
+                        expect_type = false;
+                    }
+                }
+                b'<' => {
+                    let builtin_generic =
+                        matches!(
+                            last_word,
+                            "Array" | "Map" | "Set" | "Promise" | "Vector" | "Dictionary"
+                        ) && src[i..].split('\n').next().is_some_and(|l| l.contains('>'));
+                    if expect_type
+                        || type_angle_depth > 0
+                        || (prev == b'.' && last_word == "Vector")
+                        || builtin_generic
+                    {
+                        type_angle_depth = type_angle_depth.saturating_add(1);
+                        expect_type = false;
+                    }
+                }
+                b'>' => {
+                    if type_angle_depth > 0 && prev != b'=' {
+                        type_angle_depth -= 1;
+                    }
+                }
+                b'|' | b'&' => {
+                    if at(i) == c {
+                        expect_type = false;
+                        type_angle_depth = 0;
+                    } else if in_type_alias {
+                        expect_type = true;
+                    }
+                }
+                b';' => {
+                    expect_type = false;
+                    in_type_alias = false;
+                    type_angle_depth = 0;
+                    in_case_label = false;
+                    ternary_depth = 0;
+                }
+                b'=' => {
+                    type_angle_depth = 0;
+                    expect_type = in_type_alias && at(i) != b'=' && at(i) != b'>';
+                }
+                b',' => {
+                    if type_angle_depth == 0 {
+                        expect_type = false;
+                    }
+                }
+                _ => {
+                    if type_angle_depth == 0 {
+                        expect_type = false;
+                    }
+                }
+            }
+            prev_was_stmt_start_ident = false;
+            if c != b'.' {
+                last_word = "";
+            }
             Token::Punct
         };
         after_function = false;
         push(start..i, token);
+        prev2 = prev;
         prev = b[i - 1];
     }
     out
+}
+
+fn syntax_palette_id() -> egui::Id {
+    egui::Id::new("nf2-syntax-palette-override")
+}
+
+/// Install an optional custom syntax palette override (`Preferences ▸ Code ▸ Colour scheme`, `T-376`)
+/// scoped to the current [`Theme`]. Passing `None` restores the theme's default [`Palette`].
+pub fn set_syntax_palette(ctx: &egui::Context, custom: Option<Palette>) {
+    let theme = Theme::current(ctx);
+    ctx.data_mut(|d| match custom {
+        Some(p) => d.insert_temp(syntax_palette_id(), (theme, p)),
+        None => d.remove::<(Theme, Palette)>(syntax_palette_id()),
+    });
+}
+
+/// Effective [`Palette`] for code syntax highlighting, gutter markers, current-line band, and
+/// diagnostic chrome in `ctx`.
+pub fn syntax_palette(ctx: &egui::Context) -> Palette {
+    let theme = Theme::current(ctx);
+    ctx.data(|d| d.get_temp::<(Theme, Palette)>(syntax_palette_id()))
+        .and_then(|(saved_theme, p)| (saved_theme == theme).then_some(p))
+        .unwrap_or_else(|| *theme.palette())
 }
 
 /// Colour `text` with the NF2 Night tokens in `NF2/Mono` (uncached; prefer [`highlight`]).
@@ -338,15 +635,15 @@ pub fn layout_job(text: &str, p: &Palette) -> LayoutJob {
 #[derive(Default)]
 struct Highlighter;
 
-impl egui::cache::ComputerMut<(Theme, &str), LayoutJob> for Highlighter {
-    fn compute(&mut self, (theme, text): (Theme, &str)) -> LayoutJob {
-        layout_job(text, theme.palette())
+impl egui::cache::ComputerMut<(Palette, &str), LayoutJob> for Highlighter {
+    fn compute(&mut self, (p, text): (Palette, &str)) -> LayoutJob {
+        layout_job(text, &p)
     }
 }
 
 type HighlightCache = egui::cache::FrameCache<LayoutJob, Highlighter>;
 
-/// Syntax-coloured `LayoutJob` for a code `TextEdit` layouter, cached per text and theme.
+/// Syntax-coloured `LayoutJob` for a code `TextEdit` layouter, cached per text and effective syntax palette.
 /// The caller sets `wrap.max_width` and lays it out:
 ///
 /// ```ignore
@@ -357,8 +654,8 @@ type HighlightCache = egui::cache::FrameCache<LayoutJob, Highlighter>;
 /// };
 /// ```
 pub fn highlight(ctx: &egui::Context, text: &str) -> LayoutJob {
-    let theme = Theme::current(ctx);
-    ctx.memory_mut(|m| m.caches.cache::<HighlightCache>().get((theme, text)))
+    let p = syntax_palette(ctx);
+    ctx.memory_mut(|m| m.caches.cache::<HighlightCache>().get((p, text)))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -391,7 +688,21 @@ pub struct Gutter<'a> {
 impl Gutter<'_> {
     /// `rect` is the gutter column (full editor height); `galley_pos` is where the code galley was painted.
     pub fn paint(&self, ui: &Ui, rect: Rect, code: &egui::Galley, galley_pos: egui::Pos2) {
-        let p = palette(ui.ctx());
+        let p = syntax_palette(ui.ctx());
+        self.paint_with_breakpoints(ui, rect, code, galley_pos, &[], &p);
+    }
+
+    /// Paint the gutter with optional 1-based `breakpoints` (`i16::BREAKPOINT` in `p.syntax_breakpoint`)
+    /// and a resolved syntax [`Palette`].
+    pub fn paint_with_breakpoints(
+        &self,
+        ui: &Ui,
+        rect: Rect,
+        code: &egui::Galley,
+        galley_pos: egui::Pos2,
+        breakpoints: &[usize],
+        p: &Palette,
+    ) {
         let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
         painter.rect_filled(rect, cr(0.0), p.bg_panel);
         painter.vline(
@@ -422,12 +733,28 @@ impl Gutter<'_> {
                     .filter(|(l, _)| *l == line)
                     .map(|(_, s)| *s)
                     .max_by_key(|s| *s as u8);
-                if let Some(severity) = marker {
-                    let icon = Rect::from_center_size(
-                        egui::pos2(rect.left() + space::S1 + 8.0, r.center().y),
-                        egui::vec2(16.0, 16.0),
-                    );
-                    icons::paint(&painter, ui.ctx(), icon, severity.icon(), severity.color(p));
+                let has_bp = breakpoints.contains(&line);
+                let icon_rect = Rect::from_center_size(
+                    egui::pos2(rect.left() + space::S1 + 8.0, r.center().y),
+                    egui::vec2(16.0, 16.0),
+                );
+                match (marker, has_bp) {
+                    (Some(sev @ (Severity::Error | Severity::Warning)), _) => {
+                        icons::paint(&painter, ui.ctx(), icon_rect, sev.icon(), sev.color(p));
+                    }
+                    (_, true) => {
+                        icons::paint(
+                            &painter,
+                            ui.ctx(),
+                            icon_rect,
+                            i16::BREAKPOINT,
+                            p.syntax_breakpoint,
+                        );
+                    }
+                    (Some(sev), false) => {
+                        icons::paint(&painter, ui.ctx(), icon_rect, sev.icon(), sev.color(p));
+                    }
+                    (None, false) => {}
                 }
             }
             first_row = row.ends_with_newline;
@@ -447,7 +774,7 @@ pub fn current_line(
     cursor: egui::text::CCursor,
     x_range: egui::Rangef,
 ) -> egui::Shape {
-    let p = palette(ctx);
+    let p = syntax_palette(ctx);
     let r = galley
         .pos_from_cursor(cursor)
         .translate(galley_pos.to_vec2());
@@ -509,7 +836,7 @@ pub fn script_status(
     lines: usize,
     problems: Option<(usize, usize)>,
 ) -> Response {
-    let p = palette(ui.ctx());
+    let p = &syntax_palette(ui.ctx());
     let dim = p.text_tertiary;
     let lines_str = if lines == 1 {
         "1 line".to_owned()
@@ -909,7 +1236,7 @@ pub fn range_underline_points(x: egui::Rangef, y: f32) -> Vec<egui::Pos2> {
 /// `syntax/warning` for warnings (Info / Success use their [`Severity::color`]). The gutter and
 /// overview marks stay as they are.
 pub fn paint_range_underline(painter: &egui::Painter, x: egui::Rangef, y: f32, severity: Severity) {
-    let p = palette(painter.ctx());
+    let p = &syntax_palette(painter.ctx());
     painter.add(egui::Shape::line(
         range_underline_points(x, y),
         Stroke::new(UNDERLINE_STROKE, severity.color(p)),
@@ -962,7 +1289,7 @@ impl<'a> ErrorPeek<'a> {
     }
 
     pub fn show(self, ui: &mut Ui) -> ErrorPeekResponse {
-        let p = palette(ui.ctx());
+        let p = &syntax_palette(ui.ctx());
         let pad = egui::vec2(10.0, 6.0);
         let action = self
             .action
@@ -1082,6 +1409,109 @@ mod tests {
             k.iter().any(|(s, t)| s.contains('<') && *t == Token::Punct),
             "a < b is an operator: {k:?}"
         );
+    }
+
+    #[test]
+    fn t375_identifiers_highlight_consistently_regardless_of_case_while_types_stay_distinct() {
+        let tetris = "\
+TFigure = new Array([0, 1, 0], [1, 1, 1]);
+lFigure = new Array([0, 1, 0], [0, 1, 0]);
+QFigure = new Array([1, 1], [1, 1]);
+AllFigures = new Array(TFigure, lFigure, QFigure);
+function rotateFigure(figure, direction) {
+    var n = figure.length;
+    var m = figure[0].length;
+    var tempFigure:Array = new Array();
+    for (i = 0; i < m; i++) {
+        tempFigure[i] = new Array();
+    }
+}";
+        let k = kinds(tetris);
+        for ident in [
+            "TFigure",
+            "lFigure",
+            "QFigure",
+            "AllFigures",
+            "figure",
+            "direction",
+            "n",
+            "m",
+            "length",
+            "tempFigure",
+            "i",
+        ] {
+            assert!(
+                k.iter()
+                    .filter(|(s, _)| *s == ident)
+                    .all(|(_, t)| *t == Token::Identifier),
+                "expected `{ident}` to be Token::Identifier everywhere in {k:?}"
+            );
+            assert!(
+                k.iter()
+                    .any(|(s, t)| *s == ident && *t == Token::Identifier),
+                "missing `{ident}` in {k:?}"
+            );
+        }
+        assert!(
+            k.iter()
+                .filter(|(s, _)| *s == "Array")
+                .all(|(_, t)| *t == Token::Type),
+            "expected `Array` in `:Array` and `new Array(...)` to be Token::Type: {k:?}"
+        );
+        assert!(k.contains(&("rotateFigure", Token::Function)));
+        for kw in ["new", "function", "var", "for"] {
+            assert!(k.contains(&(kw, Token::Keyword)));
+        }
+
+        // Object literals, ternaries, and switch cases must NOT misclassify values after `:` as types,
+        // while `class`, `extends`, `implements`, `new`, `is`, `as`, `type`, and `: CustomType` DO.
+        let contexts = "\
+class Board extends MovieClip implements IGrid {
+    var cell:CustomTile = new CustomTile();
+    var vec:Vector.<int> = new Vector.<int>();
+    var map = { piece: TFigure, alt: lFigure };
+    var pick = ready ? TFigure : lFigure;
+    function check(x:CustomTile):Boolean {
+        switch (x) {
+            case TFigure:
+                return x is CustomTile && (x as CustomTile) instanceof Sprite;
+            default:
+                return false;
+        }
+    }
+}
+type GridRow = Array<number>;";
+        let ck = kinds(contexts);
+        for ty in [
+            "Board",
+            "MovieClip",
+            "IGrid",
+            "CustomTile",
+            "Vector",
+            "int",
+            "Boolean",
+            "Sprite",
+            "GridRow",
+            "Array",
+            "number",
+        ] {
+            assert!(
+                ck.iter()
+                    .filter(|(s, _)| *s == ty)
+                    .all(|(_, t)| *t == Token::Type),
+                "expected `{ty}` to be Token::Type: {ck:?}"
+            );
+        }
+        for id in [
+            "cell", "vec", "map", "piece", "TFigure", "alt", "lFigure", "pick", "ready", "x",
+        ] {
+            assert!(
+                ck.iter()
+                    .filter(|(s, _)| *s == id)
+                    .all(|(_, t)| *t == Token::Identifier),
+                "expected `{id}` to be Token::Identifier: {ck:?}"
+            );
+        }
     }
 
     #[test]

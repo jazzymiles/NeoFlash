@@ -2117,6 +2117,13 @@ pub struct CodeEditorPrefs {
     pub tab_size: u8,
     pub format_on_save: bool,
     pub highlight_current_line: bool,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::sources::SyntaxColorOverrides::is_empty"
+    )]
+    pub syntax_colors: crate::sources::SyntaxColorOverrides,
+    #[serde(default = "default_true")]
+    pub actions_sidebar: bool,
 }
 impl Default for CodeEditorPrefs {
     fn default() -> Self {
@@ -2132,6 +2139,8 @@ impl Default for CodeEditorPrefs {
             tab_size: 4,
             format_on_save: true,
             highlight_current_line: true,
+            syntax_colors: crate::sources::SyntaxColorOverrides::default(),
+            actions_sidebar: true,
         }
     }
 }

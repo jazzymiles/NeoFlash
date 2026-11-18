@@ -746,54 +746,77 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
             "Highlight current line",
         );
     });
-    // Custom syntax colour schemes are not supported by the NF2 token palette yet.
-    disabled(ui, |ui| {
-        section(ui, "Colour scheme");
-        ui.horizontal(|ui| {
-            select(ui, "Scheme: NF2 Night", 220.0);
+    section(ui, "Colour scheme");
+    ui.horizontal(|ui| {
+        disabled(ui, |ui| {
+            select(ui, "Scheme: NF2 Night", 200.0);
             let _ = ui.add(c::Button::ghost("Duplicate"));
             let _ = ui.add(c::Button::ghost("Import…"));
         });
-        let tokens: [(&str, Color32); 13] = [
-            ("Keyword", nf.syntax_keyword),
-            ("Type / class", nf.syntax_type),
-            ("Function", nf.syntax_function),
-            ("String", nf.syntax_string),
-            ("Number", nf.syntax_number),
-            ("Comment", nf.syntax_comment),
-            ("XML tag", nf.syntax_tag),
-            ("Attribute", nf.syntax_attr),
-            ("Error", nf.syntax_error),
-            ("Warning", nf.syntax_warning),
-            ("Breakpoint", nf.syntax_breakpoint),
-            ("Selection", nf.syntax_selection),
-            ("Current line", nf.syntax_current_line),
-        ];
-        // Three columns fit the narrower 720 pt dialog (R-055).
-        egui::Grid::new("prefs-syntax")
-            .num_columns(3)
-            .spacing(egui::vec2(space::S3, space::S1))
-            .show(ui, |ui| {
-                for (i, (name, color)) in tokens.iter().enumerate() {
+        if ui.add(c::Button::ghost("Reset colours")).clicked() {
+            draft.code_editor.syntax_colors.clear();
+        }
+    });
+    // Three columns fit the narrower 720 pt dialog (R-055).
+    egui::Grid::new("prefs-syntax")
+        .num_columns(3)
+        .spacing(egui::vec2(space::S3, space::S1))
+        .show(ui, |ui| {
+            for (i, slot) in crate::sources::SyntaxColorSlot::ALL.into_iter().enumerate() {
+                ui.push_id(slot, |ui| {
                     ui.horizontal(|ui| {
-                        c::swatch(ui, *color, 18.0);
-                        form_label(ui, name, 76.0);
+                        let default_color = slot.default_color(nf);
+                        let color = draft.code_editor.syntax_colors.effective_color(slot, nf);
+                        let swatch_resp = c::swatch(ui, color, 18.0);
+                        let a11y_label = format!("{} colour", slot.label());
+                        let enabled = swatch_resp.enabled();
+                        swatch_resp.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::WidgetType::ColorButton,
+                                enabled,
+                                &a11y_label,
+                            )
+                        });
+                        let swatch_resp =
+                            swatch_resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+                        let swatch_resp = c::tooltip(swatch_resp, &a11y_label, None);
+                        form_label(ui, slot.label(), 76.0);
                         let [r, g, b, _] = color.to_srgba_unmultiplied();
-                        ui.label(
-                            rich(format!("{r:02X}{g:02X}{b:02X}"), TextStyle::MonoSmall)
-                                .color(nf.text_tertiary),
+                        let hex_fg = if draft.code_editor.syntax_colors.get(slot).is_some() {
+                            nf.text_primary
+                        } else {
+                            nf.text_tertiary
+                        };
+                        let hex_resp = ui
+                            .add(
+                                egui::Label::new(
+                                    rich(format!("{r:02X}{g:02X}{b:02X}"), TextStyle::MonoSmall)
+                                        .color(hex_fg),
+                                )
+                                .sense(egui::Sense::click()),
+                            )
+                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                        super::dialog_helpers::track_rgba_popup(ui.ctx(), swatch_resp.id);
+                        show_syntax_color_popup(
+                            ui,
+                            &swatch_resp,
+                            swatch_resp.clicked() || hex_resp.clicked(),
+                            slot,
+                            &mut draft.code_editor.syntax_colors,
+                            default_color,
                         );
                     });
-                    if i % 3 == 2 {
-                        ui.end_row();
-                    }
+                });
+                if i % 3 == 2 {
+                    ui.end_row();
                 }
-            });
-        caption(
-            ui,
-            "Red is reserved for errors only. Breakpoints use orange, warnings amber.",
-        );
-    });
+            }
+        });
+    caption(
+        ui,
+        "Red is reserved for errors by default. Click any swatch to customise; Reset colours restores theme defaults.",
+    );
+    let syn = draft.code_editor.syntax_colors.resolve_palette(nf);
     let preview_font = crate::sources::code_font_id(ui.ctx(), &draft.code_editor);
     let row_h = (preview_font.size * draft.code_editor.line_height.clamp(1.0, 3.0))
         .floor()
@@ -818,45 +841,55 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
                 &'a [(&'a str, Color32)],
             );
             let lines: [Line; 5] = [
-                (None, &[("// orbit setup", nf.syntax_comment)]),
+                (None, &[("// orbit setup", syn.syntax_comment)]),
                 (
-                    Some((i16::BREAKPOINT, nf.syntax_breakpoint)),
+                    Some((i16::BREAKPOINT, syn.syntax_breakpoint)),
                     &[
-                        ("var ", nf.syntax_keyword),
-                        ("speed", nf.text_primary),
-                        (":", nf.text_primary),
-                        ("Number", nf.syntax_type),
-                        (" = ", nf.text_primary),
-                        ("2.5", nf.syntax_number),
-                        (";", nf.text_primary),
+                        ("var ", syn.syntax_keyword),
+                        ("speed", syn.syntax_identifier),
+                        (":", nf.text_secondary),
+                        ("Number", syn.syntax_type),
+                        (" = ", nf.text_secondary),
+                        ("2.5", syn.syntax_number),
+                        (";", nf.text_secondary),
                     ],
                 ),
                 (
                     None,
                     &[
-                        ("animator.", nf.text_primary),
-                        ("play", nf.syntax_function),
-                        ("();", nf.text_primary),
+                        ("animator", syn.syntax_identifier),
+                        (".", nf.text_secondary),
+                        ("play", syn.syntax_function),
+                        ("();", nf.text_secondary),
                     ],
                 ),
                 (
-                    Some((i16::WARNING, nf.syntax_warning)),
+                    Some((i16::WARNING, syn.syntax_warning)),
                     &[
-                        ("<Keyframe ", nf.syntax_tag),
-                        ("index", nf.syntax_attr),
-                        ("=", nf.text_primary),
-                        ("\"0\"", nf.syntax_string),
-                        ("/>", nf.syntax_tag),
+                        ("<Keyframe ", syn.syntax_tag),
+                        ("index", syn.syntax_attr),
+                        ("=", nf.text_secondary),
+                        ("\"0\"", syn.syntax_string),
+                        ("/>", syn.syntax_tag),
                     ],
                 ),
                 (
-                    Some((i16::ERROR, nf.syntax_error)),
-                    &[("orbit_mc.rotation += speed;", nf.text_primary)],
+                    Some((i16::ERROR, syn.syntax_error)),
+                    &[
+                        ("orbit_mc", syn.syntax_identifier),
+                        (".", nf.text_secondary),
+                        ("rotation", syn.syntax_identifier),
+                        (" += ", nf.text_secondary),
+                        ("speed", syn.syntax_identifier),
+                        (";", nf.text_secondary),
+                    ],
                 ),
             ];
             for (n, (marker, parts)) in lines.iter().enumerate() {
                 let band = ui.painter().add(egui::Shape::Noop);
+                let sel_band = ui.painter().add(egui::Shape::Noop);
                 let mut gutter_right = 0.0;
+                let mut code_left = 0.0;
                 let row_out = ui.horizontal(|ui| {
                     let (gutter, _) =
                         ui.allocate_exact_size(egui::vec2(gutter_w, row_h), egui::Sense::hover());
@@ -883,6 +916,7 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
                             nf.text_tertiary,
                         );
                     }
+                    code_left = ui.cursor().left();
                     let mut job = egui::text::LayoutJob::default();
                     for (t, color) in parts.iter() {
                         let mut fmt = neoflash_ui::typography::format(TextStyle::Mono, *color);
@@ -892,6 +926,26 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
                     }
                     ui.label(job);
                 });
+                if n == 1 {
+                    let prefix_w = ui.fonts_mut(|f| {
+                        f.layout_no_wrap("var ".to_owned(), preview_font.clone(), Color32::WHITE)
+                            .size()
+                            .x
+                    });
+                    let sel_w = ui.fonts_mut(|f| {
+                        f.layout_no_wrap("speed".to_owned(), preview_font.clone(), Color32::WHITE)
+                            .size()
+                            .x
+                    });
+                    let sel_rect = egui::Rect::from_min_max(
+                        egui::pos2(code_left + prefix_w, row_out.response.rect.top()),
+                        egui::pos2(code_left + prefix_w + sel_w, row_out.response.rect.bottom()),
+                    );
+                    ui.painter().set(
+                        sel_band,
+                        egui::Shape::rect_filled(sel_rect, 2.0, syn.syntax_selection),
+                    );
+                }
                 if draft.code_editor.highlight_current_line && n == 2 {
                     let band_rect = egui::Rect::from_min_max(
                         egui::pos2(gutter_right, row_out.response.rect.top()),
@@ -899,11 +953,146 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
                     );
                     ui.painter().set(
                         band,
-                        egui::Shape::rect_filled(band_rect, 0.0, nf.syntax_current_line),
+                        egui::Shape::rect_filled(band_rect, 0.0, syn.syntax_current_line),
                     );
                 }
             }
         });
+}
+
+fn color32_to_hsb(color: Color32) -> neoflash_ui::components::color_picker::Hsb {
+    let [r, g, b, a] = color.to_srgba_unmultiplied();
+    let (rf, gf, bf, af) = (
+        r as f32 / 255.0,
+        g as f32 / 255.0,
+        b as f32 / 255.0,
+        a as f32 / 255.0,
+    );
+    let max = rf.max(gf).max(bf);
+    let min = rf.min(gf).min(bf);
+    let d = max - min;
+    let h = if d <= 1e-6 {
+        0.0
+    } else if (max - rf).abs() <= 1e-6 {
+        ((gf - bf) / d).rem_euclid(6.0) / 6.0
+    } else if (max - gf).abs() <= 1e-6 {
+        ((bf - rf) / d + 2.0) / 6.0
+    } else {
+        ((rf - gf) / d + 4.0) / 6.0
+    };
+    let s = if max <= 1e-6 { 0.0 } else { d / max };
+    neoflash_ui::components::color_picker::hsv(h, s, max, af)
+}
+
+fn show_syntax_color_popup(
+    ui: &mut Ui,
+    trigger: &egui::Response,
+    clicked: bool,
+    slot: crate::sources::SyntaxColorSlot,
+    overrides: &mut crate::sources::SyntaxColorOverrides,
+    default_color: Color32,
+) {
+    let ctx = ui.ctx().clone();
+    let open_id = trigger.id.with("nf2-rgba-popup-open");
+    let active_slot_key = egui::Id::new("nf2-prefs-active-syntax-slot");
+    let mut is_open = ctx.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
+    if is_open && ctx.data(|d| d.get_temp::<egui::Id>(active_slot_key)) != Some(open_id) {
+        is_open = false;
+        ctx.data_mut(|d| d.insert_temp(open_id, false));
+    }
+    if clicked {
+        is_open = !is_open;
+        ctx.data_mut(|d| {
+            d.insert_temp(open_id, is_open);
+            if is_open {
+                d.insert_temp(active_slot_key, open_id);
+            }
+        });
+    }
+    if !is_open {
+        return;
+    }
+
+    let parent_layer = ui.layer_id();
+    let area_id = trigger.id.with("nf2-syntax-color-area");
+    ctx.set_sublayer(
+        parent_layer,
+        egui::LayerId::new(egui::Order::Foreground, area_id),
+    );
+    let anchor = trigger.rect;
+    let nf = neoflash_ui::palette(&ctx);
+    let mut current = overrides
+        .get(slot)
+        .map(|[r, g, b, a]| Color32::from_rgba_unmultiplied(r, g, b, a))
+        .unwrap_or(default_color);
+    let hsb_id = trigger.id.with("nf2-syntax-hsb");
+    let mut close_now = false;
+
+    let area_resp = egui::Area::new(area_id)
+        .order(egui::Order::Foreground)
+        .constrain(true)
+        .fixed_pos(egui::pos2(anchor.left(), anchor.bottom() + 4.0))
+        .show(&ctx, |ui| {
+            c::popover_frame(&ctx).show(ui, |ui| {
+                let width = neoflash_ui::components::color_picker::COLOR_PICKER.x;
+                ui.set_min_width(width);
+                ui.set_max_width(width);
+                ui.spacing_mut().item_spacing.y = space::S2;
+
+                ui.horizontal(|ui| {
+                    ui.label(rich(slot.label(), TextStyle::BodyStrong).color(nf.text_primary));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.add(c::Button::ghost("Reset")).clicked() {
+                            overrides.set(slot, None);
+                            current = default_color;
+                            ui.data_mut(|d| {
+                                d.remove::<neoflash_ui::components::color_picker::Hsb>(hsb_id)
+                            });
+                            close_now = true;
+                        }
+                    });
+                });
+
+                let cf = c::ColorField::new(&mut current, slot.label())
+                    .width(width)
+                    .show(ui);
+                if cf.response.changed() {
+                    overrides.set(slot, Some(current.to_srgba_unmultiplied()));
+                    ui.data_mut(|d| d.insert_temp(hsb_id, color32_to_hsb(current)));
+                }
+
+                let mut hsb = ui
+                    .data(|d| d.get_temp::<neoflash_ui::components::color_picker::Hsb>(hsb_id))
+                    .filter(|cached| Color32::from(*cached) == current)
+                    .unwrap_or_else(|| color32_to_hsb(current));
+                if ui.add(c::ColorPicker { color: &mut hsb }).changed() {
+                    current = Color32::from(hsb);
+                    overrides.set(slot, Some(current.to_srgba_unmultiplied()));
+                }
+                ui.data_mut(|d| d.insert_temp(hsb_id, hsb));
+            });
+        });
+
+    let popup_rect = area_resp.response.rect;
+    let (pressed, pointer_pos, escape) = ctx.input(|i| {
+        (
+            i.pointer.any_pressed(),
+            i.pointer.interact_pos(),
+            i.key_pressed(egui::Key::Escape),
+        )
+    });
+    let clicked_outside = !clicked
+        && pressed
+        && pointer_pos.is_some_and(|pos| {
+            !popup_rect.contains(pos)
+                && !anchor.contains(pos)
+                && ctx.layer_id_at(pos).is_none_or(|layer| {
+                    layer == parent_layer || layer.order < egui::Order::Foreground
+                })
+        });
+    if close_now || clicked_outside || escape {
+        ctx.data_mut(|d| d.insert_temp(open_id, false));
+    }
 }
 
 fn prefs_timeline(ui: &mut Ui, draft: &mut PreferencesDraft) {
@@ -2505,4 +2694,294 @@ fn prefs_ai(
     ui.add(c::InlineMessage::info(
         "API keys are kept in the system keychain. They are never written to the project, to preferences or to logs.",
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sources::{SyntaxColorOverrides, SyntaxColorSlot};
+    use neoflash_core::{FrameScript, Project, Script, ScriptLanguage};
+
+    #[test]
+    fn t376_syntax_color_pickers_update_live_persist_and_reset_cleanly() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut project = Project::blank();
+        project.symbols[0].timeline.scripts.push(FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "TFigure = new Array([0, 1, 0]);\nlFigure = new Array([1, 1]);\n".into(),
+            },
+        });
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.open_preferences(PAGE_CODE_EDITOR);
+
+        let mut tick = 0.0_f64;
+        let mut step = |ed: &mut Editor, events: Vec<egui::Event>| -> egui::FullOutput {
+            tick += 0.1;
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 1200.0),
+                    )),
+                    time: Some(tick),
+                    focused: true,
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    ed.preferences_dialog(ctx);
+                    super::super::dialog_helpers::record_end_of_frame_focus(ctx);
+                },
+            )
+        };
+
+        let _ = step(&mut editor, vec![]);
+        let out = step(&mut editor, vec![]);
+        let find_center = |output: &egui::FullOutput, label: &str| -> egui::Pos2 {
+            let b = output
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .find_map(|(_, n)| {
+                    (n.label() == Some(label) && !n.is_disabled())
+                        .then(|| n.bounds())
+                        .flatten()
+                })
+                .unwrap_or_else(|| panic!("expected enabled control `{label}`"));
+            egui::pos2(((b.x0 + b.x1) * 0.5) as f32, ((b.y0 + b.y1) * 0.5) as f32)
+        };
+
+        // 1. Every one of the 14 syntax colour swatches is enabled and exposed via AccessKit.
+        for slot in SyntaxColorSlot::ALL {
+            let _ = find_center(&out, &format!("{} colour", slot.label()));
+        }
+        let _ = find_center(&out, "Reset colours");
+
+        // 2. Click "Identifier colour" swatch -> opens NF2 colour picker popover (`Colour mixer`),
+        //    click inside the picker to change the colour, and verify Escape closes ONLY the popover
+        //    while keeping Preferences open!
+        let id_swatch = find_center(&out, "Identifier colour");
+        let _ = step(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(id_swatch),
+                egui::Event::PointerButton {
+                    pos: id_swatch,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let _ = step(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: id_swatch,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        let _ = step(&mut editor, vec![]);
+        let out_popup = step(&mut editor, vec![]);
+        let mixer_center = find_center(&out_popup, "Colour mixer");
+        let pick_pos = mixer_center + egui::vec2(-40.0, -30.0);
+        let _ = step(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(pick_pos),
+                egui::Event::PointerButton {
+                    pos: pick_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let _ = step(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: pick_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        let picked_ident = editor
+            .preferences
+            .as_ref()
+            .unwrap()
+            .code_editor
+            .syntax_colors
+            .identifier
+            .expect("picking on Colour mixer must set identifier colour override");
+
+        // Press Escape -> closes the colour popover without closing Preferences!
+        let _ = step(
+            &mut editor,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: Some(egui::Key::Escape),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        let _ = step(
+            &mut editor,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: Some(egui::Key::Escape),
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(
+            editor.preferences.is_some(),
+            "Escape with colour popover open must dismiss only the popover"
+        );
+
+        // Also set custom overrides for Keyword, Type, Current line, Selection, Error, Warning, Breakpoint.
+        {
+            let sc = &mut editor
+                .preferences
+                .as_mut()
+                .unwrap()
+                .code_editor
+                .syntax_colors;
+            sc.keyword = Some([255, 120, 200, 255]);
+            sc.type_class = Some([80, 240, 180, 255]);
+            sc.current_line = Some([32, 40, 64, 255]);
+            sc.selection = Some([70, 100, 180, 255]);
+            sc.error = Some([255, 60, 60, 255]);
+            sc.warning = Some([240, 190, 40, 255]);
+            sc.breakpoint = Some([255, 140, 40, 255]);
+        }
+
+        // Save Preferences -> persists `syntax_colors` into `editor.workspace.code_editor` and applies to Actions!
+        let out_ready_save = step(&mut editor, vec![]);
+        let save_pos = find_center(&out_ready_save, "Save");
+        let _ = step(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(save_pos),
+                egui::Event::PointerButton {
+                    pos: save_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let _ = step(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: save_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(editor.preferences.is_none());
+        assert_eq!(
+            editor.workspace.code_editor.syntax_colors.identifier,
+            Some(picked_ident)
+        );
+
+        // Verify JSON persistence round-trip AND live syntax palette propagation in `code_layout_with_prefs`!
+        let saved_json = serde_json::to_string(&editor.workspace).unwrap();
+        let reloaded = WorkspacePrefs::from_json(&saved_json);
+        assert_eq!(
+            reloaded.code_editor.syntax_colors,
+            editor.workspace.code_editor.syntax_colors
+        );
+
+        let mut t_fig_color = Color32::TRANSPARENT;
+        let mut l_fig_color = Color32::TRANSPARENT;
+        let mut arr_color = Color32::TRANSPARENT;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let sample = "TFigure = new Array(); lFigure = 1;";
+                let galley = crate::sources::code_layout_with_prefs(
+                    ui,
+                    &sample,
+                    800.0,
+                    &editor.workspace.code_editor,
+                );
+                let job = &galley.job;
+                for sec in &job.sections {
+                    let s = &job.text[sec.byte_range.clone()];
+                    if s == "TFigure" {
+                        t_fig_color = sec.format.color;
+                    } else if s == "lFigure" {
+                        l_fig_color = sec.format.color;
+                    } else if s == "Array" {
+                        arr_color = sec.format.color;
+                    }
+                }
+            });
+        });
+        let expected_ident = Color32::from_rgba_unmultiplied(
+            picked_ident[0],
+            picked_ident[1],
+            picked_ident[2],
+            picked_ident[3],
+        );
+        assert_eq!(t_fig_color, expected_ident);
+        assert_eq!(l_fig_color, expected_ident);
+        assert_eq!(arr_color, Color32::from_rgb(80, 240, 180));
+
+        // 3. Reopen Preferences and click "Reset colours" -> clears all overrides back to empty defaults!
+        editor.open_preferences(PAGE_CODE_EDITOR);
+        let _ = step(&mut editor, vec![]);
+        let out_reopen = step(&mut editor, vec![]);
+        let reset_pos = find_center(&out_reopen, "Reset colours");
+        let _ = step(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(reset_pos),
+                egui::Event::PointerButton {
+                    pos: reset_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let _ = step(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: reset_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert_eq!(
+            editor
+                .preferences
+                .as_ref()
+                .unwrap()
+                .code_editor
+                .syntax_colors,
+            SyntaxColorOverrides::default()
+        );
+        assert!(
+            editor
+                .preferences
+                .as_ref()
+                .unwrap()
+                .code_editor
+                .syntax_colors
+                .is_empty()
+        );
+    }
 }

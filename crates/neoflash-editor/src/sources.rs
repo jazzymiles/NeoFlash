@@ -12,7 +12,225 @@ use neoflash_core::{Script, ScriptLanguage, SourceUnit, SymbolKind, new_id};
 use neoflash_script::{Diagnostic, DiagnosticSeverity};
 use neoflash_ui::components::{self as nf, code::Severity};
 use neoflash_ui::tokens::{radius, space};
+use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
+
+/// Per-token syntax and editor colour overrides (`Preferences ▸ Code ▸ Colour scheme`, `T-376`),
+/// stored as unmultiplied sRGBA `[r, g, b, a]`. `None` uses the active NF2 theme's default token.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyntaxColorOverrides {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keyword: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_class: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub string: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub number: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attr: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub breakpoint: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selection: Option<[u8; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_line: Option<[u8; 4]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SyntaxColorSlot {
+    Keyword,
+    Identifier,
+    TypeClass,
+    Function,
+    String,
+    Number,
+    Comment,
+    Tag,
+    Attr,
+    Error,
+    Warning,
+    Breakpoint,
+    Selection,
+    CurrentLine,
+}
+
+impl SyntaxColorSlot {
+    pub const ALL: [Self; 14] = [
+        Self::Keyword,
+        Self::Identifier,
+        Self::TypeClass,
+        Self::Function,
+        Self::String,
+        Self::Number,
+        Self::Comment,
+        Self::Tag,
+        Self::Attr,
+        Self::Error,
+        Self::Warning,
+        Self::Breakpoint,
+        Self::Selection,
+        Self::CurrentLine,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Keyword => "Keyword",
+            Self::Identifier => "Identifier",
+            Self::TypeClass => "Type / class",
+            Self::Function => "Function",
+            Self::String => "String",
+            Self::Number => "Number",
+            Self::Comment => "Comment",
+            Self::Tag => "XML tag",
+            Self::Attr => "Attribute",
+            Self::Error => "Error",
+            Self::Warning => "Warning",
+            Self::Breakpoint => "Breakpoint",
+            Self::Selection => "Selection",
+            Self::CurrentLine => "Current line",
+        }
+    }
+
+    pub const fn default_color(self, p: &neoflash_ui::Palette) -> egui::Color32 {
+        match self {
+            Self::Keyword => p.syntax_keyword,
+            Self::Identifier => p.syntax_identifier,
+            Self::TypeClass => p.syntax_type,
+            Self::Function => p.syntax_function,
+            Self::String => p.syntax_string,
+            Self::Number => p.syntax_number,
+            Self::Comment => p.syntax_comment,
+            Self::Tag => p.syntax_tag,
+            Self::Attr => p.syntax_attr,
+            Self::Error => p.syntax_error,
+            Self::Warning => p.syntax_warning,
+            Self::Breakpoint => p.syntax_breakpoint,
+            Self::Selection => p.syntax_selection,
+            Self::CurrentLine => p.syntax_current_line,
+        }
+    }
+}
+
+impl SyntaxColorOverrides {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    pub const fn get(&self, slot: SyntaxColorSlot) -> Option<[u8; 4]> {
+        match slot {
+            SyntaxColorSlot::Keyword => self.keyword,
+            SyntaxColorSlot::Identifier => self.identifier,
+            SyntaxColorSlot::TypeClass => self.type_class,
+            SyntaxColorSlot::Function => self.function,
+            SyntaxColorSlot::String => self.string,
+            SyntaxColorSlot::Number => self.number,
+            SyntaxColorSlot::Comment => self.comment,
+            SyntaxColorSlot::Tag => self.tag,
+            SyntaxColorSlot::Attr => self.attr,
+            SyntaxColorSlot::Error => self.error,
+            SyntaxColorSlot::Warning => self.warning,
+            SyntaxColorSlot::Breakpoint => self.breakpoint,
+            SyntaxColorSlot::Selection => self.selection,
+            SyntaxColorSlot::CurrentLine => self.current_line,
+        }
+    }
+
+    pub fn set(&mut self, slot: SyntaxColorSlot, value: Option<[u8; 4]>) {
+        match slot {
+            SyntaxColorSlot::Keyword => self.keyword = value,
+            SyntaxColorSlot::Identifier => self.identifier = value,
+            SyntaxColorSlot::TypeClass => self.type_class = value,
+            SyntaxColorSlot::Function => self.function = value,
+            SyntaxColorSlot::String => self.string = value,
+            SyntaxColorSlot::Number => self.number = value,
+            SyntaxColorSlot::Comment => self.comment = value,
+            SyntaxColorSlot::Tag => self.tag = value,
+            SyntaxColorSlot::Attr => self.attr = value,
+            SyntaxColorSlot::Error => self.error = value,
+            SyntaxColorSlot::Warning => self.warning = value,
+            SyntaxColorSlot::Breakpoint => self.breakpoint = value,
+            SyntaxColorSlot::Selection => self.selection = value,
+            SyntaxColorSlot::CurrentLine => self.current_line = value,
+        }
+    }
+
+    pub fn effective_color(
+        &self,
+        slot: SyntaxColorSlot,
+        base: &neoflash_ui::Palette,
+    ) -> egui::Color32 {
+        match self.get(slot) {
+            Some([r, g, b, a]) => egui::Color32::from_rgba_unmultiplied(r, g, b, a),
+            None => slot.default_color(base),
+        }
+    }
+
+    pub fn resolve_palette(&self, base: &neoflash_ui::Palette) -> neoflash_ui::Palette {
+        let mut p = *base;
+        let to_c32 = |[r, g, b, a]: [u8; 4]| egui::Color32::from_rgba_unmultiplied(r, g, b, a);
+        if let Some(c) = self.keyword {
+            p.syntax_keyword = to_c32(c);
+        }
+        if let Some(c) = self.identifier {
+            p.syntax_identifier = to_c32(c);
+        }
+        if let Some(c) = self.type_class {
+            p.syntax_type = to_c32(c);
+        }
+        if let Some(c) = self.function {
+            p.syntax_function = to_c32(c);
+        }
+        if let Some(c) = self.string {
+            p.syntax_string = to_c32(c);
+        }
+        if let Some(c) = self.number {
+            p.syntax_number = to_c32(c);
+        }
+        if let Some(c) = self.comment {
+            p.syntax_comment = to_c32(c);
+        }
+        if let Some(c) = self.tag {
+            p.syntax_tag = to_c32(c);
+        }
+        if let Some(c) = self.attr {
+            p.syntax_attr = to_c32(c);
+        }
+        if let Some(c) = self.error {
+            p.syntax_error = to_c32(c);
+        }
+        if let Some(c) = self.warning {
+            p.syntax_warning = to_c32(c);
+        }
+        if let Some(c) = self.breakpoint {
+            p.syntax_breakpoint = to_c32(c);
+        }
+        if let Some(c) = self.selection {
+            p.syntax_selection = to_c32(c);
+        }
+        if let Some(c) = self.current_line {
+            p.syntax_current_line = to_c32(c);
+        }
+        p
+    }
+}
 
 #[path = "sources_diagnostics.rs"]
 mod diagnostics_ui;
@@ -413,9 +631,18 @@ impl Editor {
         tab: &str,
     ) -> egui::Response {
         let editor_id = self.actions_editor_id();
-        self.fonts
-            .ensure_loaded(ui.ctx(), &self.workspace.code_editor.font);
-        let code_prefs = self.workspace.code_editor.clone();
+        let code_prefs = self
+            .preferences
+            .as_ref()
+            .map(|d| d.code_editor.clone())
+            .unwrap_or_else(|| self.workspace.code_editor.clone());
+        self.fonts.ensure_loaded(ui.ctx(), &code_prefs.font);
+        let custom_palette = (!code_prefs.syntax_colors.is_empty()).then(|| {
+            code_prefs
+                .syntax_colors
+                .resolve_palette(neoflash_ui::palette(ui.ctx()))
+        });
+        nf::code::set_syntax_palette(ui.ctx(), custom_palette);
         let before_command = source.clone();
         let script = Script {
             language,
@@ -479,7 +706,7 @@ impl Editor {
             })
             .map(|f| (f.success, f.text.clone(), f.diagnostics.clone()));
         let tab_key = self.current_source_tab_key(tab);
-        let mut markers: Vec<(usize, Severity)> = feedback
+        let markers: Vec<(usize, Severity)> = feedback
             .iter()
             .flat_map(|(_, _, diagnostics)| {
                 diagnostics
@@ -488,11 +715,12 @@ impl Editor {
                     .map(|d| (d.line, diagnostic_severity(d.severity)))
             })
             .collect();
-        for bp in self.breakpoints_for(&tab_key) {
-            if bp.enabled && !markers.iter().any(|(line, _)| *line == bp.line) {
-                markers.push((bp.line, Severity::Info));
-            }
-        }
+        let breakpoint_lines: Vec<usize> = self
+            .breakpoints_for(&tab_key)
+            .into_iter()
+            .filter(|bp| bp.enabled)
+            .map(|bp| bp.line)
+            .collect();
         let bar_h = neoflash_ui::metrics::script_tab() + 2.;
         let raw_full = ui.available_rect_before_wrap();
         let bound_right = ui.max_rect().right().min(ui.clip_rect().right());
@@ -546,6 +774,7 @@ impl Editor {
                     source,
                     hint,
                     &markers,
+                    &breakpoint_lines,
                     &hint_context,
                     show_hints,
                     &code_prefs,
@@ -1626,8 +1855,8 @@ pub(crate) fn code_font_id(ctx: &egui::Context, prefs: &CodeEditorPrefs) -> egui
     egui::FontId::new(size, family)
 }
 
-/// Syntax-coloured code layout (NF2 Night tokens) applying `CodeEditorPrefs` font, size, line
-/// height, and word wrap without replacing TextEdit IDs or input state.
+/// Syntax-coloured code layout (NF2 Night tokens + optional `SyntaxColorOverrides`) applying
+/// `CodeEditorPrefs` font, size, line height, and word wrap without replacing TextEdit IDs or input state.
 pub(crate) fn code_layout_with_prefs(
     ui: &egui::Ui,
     text: &dyn egui::TextBuffer,
@@ -1635,6 +1864,12 @@ pub(crate) fn code_layout_with_prefs(
     prefs: &CodeEditorPrefs,
 ) -> std::sync::Arc<egui::Galley> {
     let ctx = ui.ctx();
+    let custom_palette = (!prefs.syntax_colors.is_empty()).then(|| {
+        prefs
+            .syntax_colors
+            .resolve_palette(neoflash_ui::palette(ctx))
+    });
+    nf::code::set_syntax_palette(ctx, custom_palette);
     let font_id = code_font_id(ctx, prefs);
     let line_px = font_id.size * prefs.line_height.clamp(1.0, 3.0);
     let mut job = nf::code::highlight(ctx, text.as_str());
@@ -1654,10 +1889,11 @@ fn paint_marker_gutter(
     ui: &egui::Ui,
     rect: egui::Rect,
     markers: &[(usize, Severity)],
+    breakpoints: &[usize],
     code: &egui::Galley,
     galley_pos: egui::Pos2,
+    p: &neoflash_ui::Palette,
 ) {
-    let p = neoflash_ui::palette(ui.ctx());
     let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
     painter.rect_filled(rect, 0.0, p.bg_panel);
     painter.vline(
@@ -1675,18 +1911,28 @@ fn paint_marker_gutter(
                 .filter(|(l, _)| *l == line)
                 .map(|(_, s)| *s)
                 .max_by_key(|s| *s as u8);
-            if let Some(severity) = marker {
-                let icon = egui::Rect::from_center_size(
-                    egui::pos2(rect.left() + space::S1 + 8.0, r.center().y),
-                    egui::vec2(16.0, 16.0),
-                );
-                neoflash_ui::icons::paint(
-                    &painter,
-                    ui.ctx(),
-                    icon,
-                    severity.icon(),
-                    severity.color(p),
-                );
+            let has_bp = breakpoints.contains(&line);
+            let icon = egui::Rect::from_center_size(
+                egui::pos2(rect.left() + space::S1 + 8.0, r.center().y),
+                egui::vec2(16.0, 16.0),
+            );
+            match (marker, has_bp) {
+                (Some(sev @ (Severity::Error | Severity::Warning)), _) => {
+                    neoflash_ui::icons::paint(&painter, ui.ctx(), icon, sev.icon(), sev.color(p));
+                }
+                (_, true) => {
+                    neoflash_ui::icons::paint(
+                        &painter,
+                        ui.ctx(),
+                        icon,
+                        neoflash_ui::icons::i16::BREAKPOINT,
+                        p.syntax_breakpoint,
+                    );
+                }
+                (Some(sev), false) => {
+                    neoflash_ui::icons::paint(&painter, ui.ctx(), icon, sev.icon(), sev.color(p));
+                }
+                (None, false) => {}
             }
         }
         first_row = row.ends_with_newline;
@@ -1819,6 +2065,7 @@ fn code_editor(
     source: &mut String,
     hint: &str,
     markers: &[(usize, Severity)],
+    breakpoints: &[usize],
     hints: &dyn Fn() -> Option<HintContext<'static>>,
     show_hints: bool,
     prefs: &CodeEditorPrefs,
@@ -2137,28 +2384,34 @@ fn code_editor(
                 .animated(!pending_scroll)
                 .themed()
                 .show(ui, |ui| {
+                    let syn_p = prefs.syntax_colors.resolve_palette(p);
                     let band = ui.painter().add(egui::Shape::Noop);
-                    let mut output = egui::TextEdit::multiline(source)
-                        .id(id)
-                        .code_editor()
-                        .lock_focus(true)
-                        .font(font_id.clone())
-                        .layouter(&mut layouter)
-                        .frame(false)
-                        .margin(egui::Margin {
-                            left: (gutter + space::S3).min(120.0) as i8,
-                            right: space::S2 as i8,
-                            top: space::S1 as i8,
-                            bottom: space::S1 as i8,
-                        })
-                        .desired_width(f32::INFINITY)
-                        .min_size(egui::vec2(viewport_w, viewport_h))
-                        .hint_text(
-                            egui::RichText::new(hint)
+                    let mut output = ui
+                        .scope(|ui| {
+                            ui.visuals_mut().selection.bg_fill = syn_p.syntax_selection;
+                            egui::TextEdit::multiline(source)
+                                .id(id)
+                                .code_editor()
+                                .lock_focus(true)
                                 .font(font_id.clone())
-                                .color(p.text_tertiary),
-                        )
-                        .show(ui);
+                                .layouter(&mut layouter)
+                                .frame(false)
+                                .margin(egui::Margin {
+                                    left: (gutter + space::S3).min(120.0) as i8,
+                                    right: space::S2 as i8,
+                                    top: space::S1 as i8,
+                                    bottom: space::S1 as i8,
+                                })
+                                .desired_width(f32::INFINITY)
+                                .min_size(egui::vec2(viewport_w, viewport_h))
+                                .hint_text(
+                                    egui::RichText::new(hint)
+                                        .font(font_id.clone())
+                                        .color(p.text_tertiary),
+                                )
+                                .show(ui)
+                        })
+                        .inner;
                     if pre_edited {
                         output.response.mark_changed();
                     }
@@ -2205,24 +2458,43 @@ fn code_editor(
                                 None
                             },
                         }
-                        .paint(
+                        .paint_with_breakpoints(
                             ui,
                             gutter_rect,
                             &output.galley,
                             output.galley_pos,
+                            breakpoints,
+                            &syn_p,
                         );
                     } else {
                         paint_marker_gutter(
                             ui,
                             gutter_rect,
                             markers,
+                            breakpoints,
                             &output.galley,
                             output.galley_pos,
+                            &syn_p,
                         );
                     }
-                    if ctx.input(|i| i.pointer.primary_clicked())
+                    let marker_strip = egui::Rect::from_min_max(
+                        gutter_rect.min,
+                        egui::pos2(
+                            (gutter_rect.left() + MARKER_GUTTER).min(gutter_rect.right()),
+                            gutter_rect.bottom(),
+                        ),
+                    );
+                    if ui.is_enabled()
+                        && !host.has_modal_dialog
+                        && !host.has_open_popup
+                        && !host.has_active_drag
+                        && !egui::Popup::is_any_open(&ctx)
+                        && ctx.input(|i| i.pointer.primary_clicked())
                         && let Some(pos) = ctx.input(|i| i.pointer.interact_pos())
-                        && gutter_rect.contains(pos)
+                        && marker_strip.contains(pos)
+                        && ctx.layer_id_at(pos).is_none_or(|layer| {
+                            layer == ui.layer_id() || layer.order == egui::Order::Background
+                        })
                     {
                         let shift = ctx.input(|i| i.modifiers.shift);
                         let mut line = 1usize;
@@ -4366,18 +4638,14 @@ impl Editor {
         self.with_authoring_state(|state| state.actions_debugger_open)
     }
 
-    #[allow(dead_code)]
     pub fn set_actions_debugger_open(&mut self, open: bool) {
         self.with_authoring_state_mut(|state| {
             state.actions_debugger_open = open;
         });
     }
 
-    pub fn actions_debugger_inspector_visible(&self, tab_key: &str) -> bool {
+    pub fn actions_debugger_inspector_visible(&self, _tab_key: &str) -> bool {
         self.actions_debugger_open()
-            || !self.breakpoints_for(tab_key).is_empty()
-            || !self.debugger_watches().is_empty()
-            || !self.paused_debugger_scopes().is_empty()
     }
 
     /// Evaluate whether execution should pause at `(path, line)`, checking breakpoint enabled status,
@@ -4616,6 +4884,29 @@ impl Editor {
 
     pub(crate) fn actions_debugger_inspector_ui(&mut self, ui: &mut egui::Ui, tab_key: &str) {
         use neoflash_ui::icons::i16;
+        let p = neoflash_ui::palette(ui.ctx());
+        let mut close_drawer = false;
+        ui.horizontal(|ui| {
+            ui.label(
+                neoflash_ui::typography::rich(
+                    "Breakpoints & Watch",
+                    neoflash_ui::tokens::TextStyle::Overline,
+                )
+                .color(p.text_secondary),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(nf::IconButton::new(i16::X, "Close debugger inspector").side(24.0))
+                    .clicked()
+                {
+                    close_drawer = true;
+                }
+            });
+        });
+        if close_drawer {
+            self.set_actions_debugger_open(false);
+            return;
+        }
         let session = self.clipboard.session.clone();
         egui::ScrollArea::vertical()
             .id_salt(("actions-debugger-inspector", &session, tab_key))
