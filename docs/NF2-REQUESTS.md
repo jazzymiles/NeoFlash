@@ -1836,3 +1836,13 @@ wires them with the components named in each answer.
   into named submenus, with an explicit maximum visible height and scrolling rule. The design track decides the exact
   grouping, labels and dimensions.
 - **Answer:** *(pending design track)*
+
+### R-106 · Compact `Used colours` and colour-replacement layout in `Swatches` and `Properties`
+- **Status:** open
+- **Requested by / for:** project owner, 18 November 2026 · follow-up to `T-386` (`Used colours` + `Only on stage`) and `R-094` (`T-387`)
+- **Where:** `crates/neoflash-editor/src/panels/swatches.rs` (`Swatches` ▸ `Used colours`), `crates/neoflash-editor/src/panels/properties.rs` (Document `Properties` ▸ `Used colours` and multi-selection `Selection colours`); Figma file `BUz3pseopiuOg2Uiy3Fog7`.
+- **Need:** a much more compact NF2 layout for the `Used colours` list and the batch colour-replacement controls (`From` → `To` replace + `Import palette…`) across all four themes.
+- **Why:** each colour currently occupies two stacked rows (~52–60 pt: a full-width `Colour N` + `#RRGGBB` + `α %` row plus a second usage/select row), followed by four full-width stacked rows at the bottom (`From colour`, `To colour`, `Replace colour across project (JSFL)`, and `Import palette (.act, .clr, .ase)…`), taking excessive vertical space in both `Swatches` and `Properties`.
+- **Checked:** `docs/NF2-REQUESTS.md` (`R-094`), `docs/DESIGN-SYSTEM.md`, `crates/neoflash-editor/src/panels/swatches.rs`.
+- **Proposal (optional):** drop the redundant `"Colour N"` text prefix so each used colour fits on a single compact 28 pt row (swatch trigger + `#HEX` + compact usage count badge `2 stage · 1 lib` / `3×` + right-aligned `Select on stage` icon button), move `Import palette…` into the `Swatches` panel `⋯` header menu, and condense batch `From → To` replacement into a single inline `From [swatch] → To [swatch] [Replace]` bar or a collapsible sub-row. The design track decides the exact composition, spacing and tokens.
+- **Answer:** *(pending design track — assigned on `T-387`)*

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Kept all Classic Flash Frame **Properties** (`<Frame Label>`, `Label type`, `Frame script…`, `Include frame scripts`,
+  `Tween` + `Scale`, `Ease` `-100..=100` `(in)`/`(out)` + `Edit…`, `Rotate: Auto | None | CW | CCW` + `times`, and
+  `Orient to path` · `Sync` · `Snap`) visible across keyframe `0`, held/in-between exposure frames, `Motion` spans
+  (backed by `motion_tracks` and `set_motion_rotation`) and unextended frames without vertical clipping in floating
+  **Properties** (`T-383`); added universal `8 pt` magnetic edge/alignment snapping (`⌘`/`Alt` bypass) across all
+  draggable floating panels while tightening dock-edge acceptance bands (`28–44 pt`) and `Tools` Stage anchors (`28 pt`)
+  without premature four-edge Stage overlays (`T-384`); made left- and right-clicking blank **Timeline** Layers space
+  below the rows deselect all layers and open a compact 10-item contextless menu (`Add new layer`, `Add new folder`,
+  `Add motion guide` | `Paste layers` | `Show all`, `Clear all solo`, `Unlock all`, `Show all as solid` | `Expand all
+  folders`, `Collapse all folders`) (`T-385`); and renamed **Project colours** to **Used colours** with a persisted
+  `[x] Only on stage` toggle (default on), strictly contextual root-scene vs edited-**MovieClip** Stage scoping, and
+  `"X on stage · Y in library"` usage counts and scoped colour replacement when **Only on stage** is unchecked (`T-386`).
 - Kept detached **Actions** and studio panels visible above the main Stage/Timeline window during editing (with macOS
   `hidesOnDeactivate` when switching to external apps such as Safari, while lowering below **Help**, modals, **Test
   Movie** previews and open menus), persisted collapsed floating windows and the **Actions** left toolbox/navigator
@@ -94,9 +106,9 @@
   verification temporaries are removed on early failure. Forced process termination remains outside this
   process-local rollback boundary (`T-350`).
 - Fixed Timeline selection so an ordinary click targets one frame, Shift-click and drag create exact ranges, and
-  switching layers cannot leave a stale range active. Right-clicking blank Layers-column space now opens the existing
-  active-layer menu; right-clicking a selected frame preserves its range, so Remove Frames follows that range in one
-  Undo/Redo operation.
+  switching layers cannot leave a stale range active. Clicking blank Layers-column space deselects layers and right-clicking
+  opens the compact 10-item contextless layer menu; right-clicking a selected frame preserves its range, so Remove Frames
+  follows that range in one Undo/Redo operation.
 - New documents now begin with one frame and one blank keyframe. Convert to Symbol uses the entered Name as the
   default export Identifier while preserving an explicitly edited Identifier and leaving the placed Stage
   `<Instance Name>` empty until named by the author.

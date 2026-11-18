@@ -700,12 +700,15 @@ their own layout.
   `timeline_motion.rs::paint_motion_path`.
 
 **PR-11 · Classic Flash Frame Properties & easing** — done (`panels/properties.rs`)
-- Done: Frame `Properties` removes redundant `Range / duration` (`Layer` / `Layer end`) rows and composes the Classic Flash
-  Frame inspector from existing NF2 components: `Frame` `<Frame Label>`, format-14 `Label type` (`Name` | `Comment` | `Anchor`,
-  where `Comment` labels stay authoring-only and are skipped by `gotoAndPlay`/`gotoAndStop`), `Frame script…`, `Include frame scripts`,
-  `Tween` kind switcher + `Scale`, `Ease` `-100..=100` + `Edit…` (opening `PanelId::Ease`), `Rotate: Auto | None | CW | CCW` +
-  `times`, and `Orient to path` / `Sync` / `Snap` (`[x] Sync` respects per-instance `Element.instance_behavior` when synchronizing
-  `Graphic` placements) (`T-362`, `T-366`).
+- Done: Frame `Properties` removes redundant `Range / duration` (`Layer` / `Layer end`) rows, resolves the active exposure span
+  (`key_at_or_before(frame)`) so controls stay visible across keyframe `0`, held/in-between span frames, `Motion` spans (backed by
+  `motion_tracks` / `set_motion_rotation`) and unextended frames (semantically enabled/disabled per tween kind and fitting floating
+  `Properties` `[340, 560]` without vertical clipping), and composes the Classic Flash Frame inspector from existing NF2 components:
+  `Frame` `<Frame Label>`, format-14 `Label type` (`Name` | `Comment` | `Anchor`, where `Comment` labels stay authoring-only and are
+  skipped by `gotoAndPlay`/`gotoAndStop`), `Frame script…`, `Include frame scripts`, `Tween` kind switcher + `Scale`, `Ease`
+  `-100..=100` (`(in)` / `(out)`) + `Edit…` (opening `PanelId::Ease`), `Rotate: Auto | None | CW | CCW` + `times`, and
+  `Orient to path` / `Sync` / `Snap` (`[x] Sync` respects per-instance `Element.instance_behavior` when synchronizing `Graphic`
+  placements) (`T-362`, `T-366`, `T-383`).
 - Done: Y1/Y2 accept −100…100 (X stays 0–1); "Flash ease" option with an Acceleration field −100…100; a chosen easing applies
   to every existing editable tween span intersecting the selected multi-layer frame range as one Undo step while locked, hidden
   and hold spans remain unchanged.
@@ -889,11 +892,12 @@ refused.
 - Done: `SwatchesPopover` panel with hex + alpha readout, eyedropper, no colour, wheel → Color panel, Recent colours,
   Document colours (derived from `Project` paints + user-added swatches in `WorkspacePrefs.swatches`, also populated by
   Color panel ⋯ `Add swatch`), switchable Palette (`Default`, `Web 216`, `Grayscale`, `Pastels`) and Gradients (default +
-  document `GradientPaint`s, preserving primitive geometry when applied), plus the Figma-style **Project colours** section
-  (`Editor::project_colors_section_ui`, `T-197`) listing every unique colour in the project with its live RGBA popover swatch,
-  `#HEX`, `α %`, usage count & roles (`fill, stroke, gradient, text, swatch`), stage-frame selection button (`Select elements with this colour`),
-  and batch JSFL `change_color.jsfl` replacement bar (`Replace colour across project (JSFL)`). Multi-selection in `Properties`
-  also exposes `Selection colours` (`selection_only = true`) and `Project colours`. Persistent file-stored swatches remain W1.9.
+  document `GradientPaint`s, preserving primitive geometry when applied), plus the **Used colours** section
+  (`Editor::used_colors_section_ui`, `T-197`, `T-386`) with a persisted `[x] Only on stage` toggle (default `true`), strictly
+  contextual Stage scoping (active scene + transitively placed instances at root; only the edited symbol + its nested instances inside
+  a symbol), and unplaced Library symbol colours with `"X on stage · Y in library"` usage counts, roles (`fill, stroke, gradient, text, swatch`),
+  stage-frame selection (`Select elements with this colour`) and scope-matched batch replacement when `Only on stage` is unchecked. Multi-selection in `Properties`
+  also exposes `Selection colours` (`selection_only = true`) and `Used colours`. Persistent file-stored swatches remain W1.9.
 - Controls: hex + alpha, eyedropper, no colour, wheel → Color panel; Recent; Document (+ add); Palette (switchable);
   Gradients.
 - Acceptance: clicking a swatch applies to the active well (drawing colour or selection fill/stroke with one Undo);
@@ -1103,5 +1107,5 @@ These checks do not claim end-to-end acceptance of every context-dependent comma
 | Menu | Still absent or disabled | Depends on |
 | --- | --- | --- |
 | Frame | Working: tweens, Ease…, Clear / Convert keyframes, Select all frames, Remove Frames, Copy / Paste motion, Paste motion special, Reverse frames, Synchronise symbols, and `Utils` submenu (`Tween2Keys` on 2s/3s, `Convert to keyframes (on 2s, keep ease)`, `Split clip at playhead`, `Link video & audio`, `Unlink video & audio`; `Include frame scripts` lives in Frame `Properties`, `T-366`) | Appropriate frame/span selection |
-| Layer | — (Add classic motion guide, Guide / Mask toggles, `Sync layer to timeline` and `Blending` submenu work; `Folder and mask…` also edits layer blend mode and timeline sync; `Window ▸ Panels ▸ Filters` edits layer `Blending` when no stage object is selected). Right-clicking blank Layers-column space below the rows opens this same menu for the active layer. | — |
+| Layer | — (Add classic motion guide, Guide / Mask toggles, `Sync layer to timeline` and `Blending` submenu work; `Folder and mask…` also edits layer blend mode and timeline sync; `Window ▸ Panels ▸ Filters` edits layer `Blending` when no stage object is selected). Left- or right-clicking blank Layers-column space below the rows deselects all layers (`layers_deselected`); right-clicking opens the compact 10-item contextless layer menu (`Add new layer`, `Add new folder`, `Add motion guide` \| `Paste layers` \| `Show all`, `Clear all solo`, `Unlock all`, `Show all as solid` \| `Expand all folders`, `Collapse all folders`, `T-385`). | — |
 | Stage object | Working under every active tool: Edit in place defaults to the exact selected instance with its affine parent context dimmed; Library/Explorer definition editing remains isolated. Nested sessions preserve each level's frame, selection, viewport, ruler zero and Timeline focus, and restore them on exit. Double-clicking genuinely empty canvas with no active draft/gesture consumes the complete gesture and leaves exactly one hierarchy level without changing the sticky tool or reopening the restored child; repeat the gesture to continue upward, while breadcrumbs provide direct deliberate navigation. Swap symbol…, Duplicate symbol…, Create motion tween, Show in library, Break apart (⌘B), Group (⌘G), Ungroup (⇧⌘G) and Distribute to layers ⇧⌘D work. Edit in new window stays disabled; Bitmap Trace awaits R-060. Non-affine 9-slice instances refuse in-place editing. Local guides/grid work for axis-preserving and quarter-turn mappings; signed/reflected ruler labels and arbitrary oblique local guide/grid/ruler chrome await R-063, with a safe screen-ruler fallback. | PR-06, LI-01, R-060, R-063 |
