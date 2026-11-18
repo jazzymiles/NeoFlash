@@ -8,7 +8,16 @@ use std::sync::{LazyLock, Mutex};
 
 type SelectedLayerRows = HashMap<(Id, Id), BTreeSet<Id>>;
 
+#[derive(Clone, PartialEq, Eq)]
+struct DeselectedLayerState {
+    layer_count: usize,
+    layer_index: usize,
+    stage_selection: Vec<Id>,
+}
+
 static SELECTED_LAYER_ROWS: LazyLock<Mutex<SelectedLayerRows>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static DESELECTED_LAYER_SYMBOLS: LazyLock<Mutex<HashMap<(Id, Id), DeselectedLayerState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Clone)]
@@ -302,7 +311,80 @@ impl Editor {
         }
     }
 
+    pub(crate) fn clear_layer_deselection(&self) {
+        if let Ok(mut guard) = DESELECTED_LAYER_SYMBOLS.lock() {
+            guard.remove(&self.selected_layers_key());
+        }
+    }
+
+    pub(crate) fn sync_deselected_layer_index(&self) {
+        if let Ok(mut guard) = DESELECTED_LAYER_SYMBOLS.lock()
+            && let Some(state) = guard.get_mut(&self.selected_layers_key())
+        {
+            state.layer_index = self.layer;
+            state.layer_count = self.symbol().timeline.layers.len();
+        }
+    }
+
+    pub(crate) fn are_layers_deselected(&self) -> bool {
+        let key = self.selected_layers_key();
+        let state = DESELECTED_LAYER_SYMBOLS.lock().ok().and_then(|mut guard| {
+            let st = guard.get_mut(&key)?;
+            if self.selection.targets.is_empty() && !st.stage_selection.is_empty() {
+                st.stage_selection.clear();
+            }
+            Some(st.clone())
+        });
+        let Some(state) = state else {
+            return false;
+        };
+        let stage_reselected = !self.selection.targets.is_empty()
+            && self
+                .selection
+                .targets
+                .iter()
+                .map(|t| t.element.as_str())
+                .ne(state.stage_selection.iter().map(String::as_str));
+        if self.symbol().timeline.layers.len() > state.layer_count
+            || self.layer != state.layer_index
+            || self.timeline_edit.focused
+            || self.frame_range().is_some()
+            || stage_reselected
+        {
+            self.clear_layer_deselection();
+            return false;
+        }
+        true
+    }
+
+    pub(crate) fn deselect_all_layers(&mut self) {
+        self.finish_edits();
+        self.timeline_key_drag = None;
+        let key = self.selected_layers_key();
+        if let Ok(mut guard) = SELECTED_LAYER_ROWS.lock() {
+            guard.remove(&key);
+        }
+        self.clear_timeline_frame_selection();
+        self.timeline_edit.focused = false;
+        let state = DeselectedLayerState {
+            layer_count: self.symbol().timeline.layers.len(),
+            layer_index: self.layer,
+            stage_selection: self
+                .selection
+                .targets
+                .iter()
+                .map(|t| t.element.clone())
+                .collect(),
+        };
+        if let Ok(mut guard) = DESELECTED_LAYER_SYMBOLS.lock() {
+            guard.insert(key, state);
+        }
+    }
+
     pub(crate) fn selected_layer_indices(&self) -> Vec<usize> {
+        if self.are_layers_deselected() {
+            return Vec::new();
+        }
         let layers = &self.symbol().timeline.layers;
         let extra = SELECTED_LAYER_ROWS
             .lock()
@@ -321,6 +403,9 @@ impl Editor {
     }
 
     pub(crate) fn is_layer_row_selected(&self, index: usize) -> bool {
+        if self.are_layers_deselected() {
+            return false;
+        }
         if index == self.layer {
             return true;
         }
@@ -354,9 +439,11 @@ impl Editor {
         if index >= layers.len() {
             return;
         }
+        let was_deselected = self.are_layers_deselected();
+        self.clear_layer_deselection();
         let previous_layer = self.layer;
         let key = self.selected_layers_key();
-        if shift {
+        if shift && !was_deselected {
             let rows = visible_layer_indices(&self.symbol().timeline);
             let anchor_pos = rows.iter().position(|&i| i == self.layer);
             let target_pos = rows.iter().position(|&i| i == index);
@@ -378,7 +465,7 @@ impl Editor {
                 guard.insert(key, set);
             }
             self.layer = index;
-        } else if command {
+        } else if command && !was_deselected {
             let mut set = SELECTED_LAYER_ROWS
                 .lock()
                 .ok()
@@ -408,7 +495,7 @@ impl Editor {
             }
             self.layer = index;
         }
-        if self.layer != previous_layer {
+        if was_deselected || self.layer != previous_layer {
             self.clear_timeline_frame_selection();
         }
     }
@@ -842,6 +929,7 @@ impl Editor {
         let Some(layer) = self.symbol().timeline.layers.get(index).cloned() else {
             return;
         };
+        self.clear_layer_deselection();
         self.layer_change(|p, id| {
             let t = &mut p.symbol_mut(id).unwrap().timeline;
             let folder = blank_layer(
@@ -852,6 +940,71 @@ impl Editor {
             t.layers[index].properties.parent = Some(folder.id.clone());
             t.layers.insert(index, folder);
         });
+    }
+
+    /// Insert a new `LayerRole::Normal` root layer at the top of the timeline and select it in 1 Undo step.
+    pub(crate) fn add_new_layer_at_top(&mut self) {
+        let before_len = self.symbol().timeline.layers.len();
+        self.layer_change(|p, id| {
+            let t = &mut p.symbol_mut(id).unwrap().timeline;
+            let name = format!("Layer {}", t.layers.len() + 1);
+            t.layers.push(blank_layer(name, LayerRole::Normal, None));
+        });
+        if self.symbol().timeline.layers.len() > before_len {
+            let top = self.symbol().timeline.layers.len() - 1;
+            self.select_layer_row(top, false, false);
+        }
+    }
+
+    /// Insert a new `LayerRole::Folder` root layer at the top of the timeline and select it in 1 Undo step.
+    pub(crate) fn add_new_folder_at_top(&mut self) {
+        let before_len = self.symbol().timeline.layers.len();
+        self.layer_change(|p, id| {
+            let t = &mut p.symbol_mut(id).unwrap().timeline;
+            let folder_num = t
+                .layers
+                .iter()
+                .filter(|l| l.properties.role == LayerRole::Folder)
+                .count()
+                + 1;
+            t.layers.push(blank_layer(
+                format!("Folder {folder_num}"),
+                LayerRole::Folder,
+                None,
+            ));
+        });
+        if self.symbol().timeline.layers.len() > before_len {
+            let top = self.symbol().timeline.layers.len() - 1;
+            self.select_layer_row(top, false, false);
+        }
+    }
+
+    /// Insert a motion-guide / `LayerRole::Guide` layer from the contextless blank-space menu in 1 Undo step.
+    pub(crate) fn add_motion_guide_from_blank_menu(&mut self) {
+        if !self.are_layers_deselected() && self.can_add_motion_guide_to(self.layer) {
+            self.add_motion_guide();
+            self.clear_layer_deselection();
+            return;
+        }
+        let before_len = self.symbol().timeline.layers.len();
+        self.layer_change(|p, id| {
+            let t = &mut p.symbol_mut(id).unwrap().timeline;
+            let guide_num = t
+                .layers
+                .iter()
+                .filter(|l| l.properties.role == LayerRole::Guide)
+                .count()
+                + 1;
+            t.layers.push(blank_layer(
+                format!("Guide {guide_num}"),
+                LayerRole::Guide,
+                None,
+            ));
+        });
+        if self.symbol().timeline.layers.len() > before_len {
+            let top = self.symbol().timeline.layers.len() - 1;
+            self.select_layer_row(top, false, false);
+        }
     }
     pub(crate) fn layer_outline_color_popover(&mut self, ctx: &egui::Context) {
         let id = self.outline_draft_id();
@@ -1117,7 +1270,7 @@ impl Editor {
             }
         });
     }
-    fn copy_timeline_layers(&self, ctx: &egui::Context, index: usize) {
+    pub(crate) fn copy_timeline_layers(&self, ctx: &egui::Context, index: usize) {
         let timeline = &self.symbol().timeline;
         let targets = self.target_layer_indices(index);
         let mut indices = BTreeSet::new();
@@ -1142,7 +1295,14 @@ impl Editor {
             )
         });
     }
-    fn paste_timeline_layers(&mut self, clipboard: LayerClipboard, index: usize) {
+    fn paste_timeline_layers_at(
+        &mut self,
+        clipboard: LayerClipboard,
+        insert_pos: usize,
+    ) -> std::ops::Range<usize> {
+        let count = clipboard.layers.len();
+        let before_len = self.symbol().timeline.layers.len();
+        let pos = insert_pos.min(before_len);
         self.layer_change(move |project, symbol| {
             let timeline = &mut project.symbol_mut(symbol).unwrap().timeline;
             let mut layers = clipboard.layers;
@@ -1192,8 +1352,40 @@ impl Editor {
                 }
             }
             timeline.frame_count = timeline.frame_count.max(clipboard.frames);
-            timeline.layers.splice(index + 1..index + 1, layers);
+            let pos = pos.min(timeline.layers.len());
+            timeline.layers.splice(pos..pos, layers);
         });
+        let after_len = self.symbol().timeline.layers.len();
+        if after_len == before_len + count {
+            pos..(pos + count)
+        } else {
+            0..0
+        }
+    }
+
+    fn paste_timeline_layers(&mut self, clipboard: LayerClipboard, index: usize) {
+        let inserted = self.paste_timeline_layers_at(clipboard, index.saturating_add(1));
+        if !inserted.is_empty() {
+            self.clear_layer_deselection();
+        }
+    }
+
+    fn paste_timeline_layers_at_top(&mut self, clipboard: LayerClipboard) {
+        let top_pos = self.symbol().timeline.layers.len();
+        let inserted = self.paste_timeline_layers_at(clipboard, top_pos);
+        if !inserted.is_empty() {
+            let mut first = true;
+            for idx in inserted.clone() {
+                self.select_layer_row(idx, false, !first);
+                first = false;
+            }
+            if let Some(top_visual) = visible_layer_indices(&self.symbol().timeline)
+                .into_iter()
+                .find(|idx| inserted.contains(idx))
+            {
+                self.layer = top_visual;
+            }
+        }
     }
     fn can_merge_timeline_layer(&self, index: usize) -> bool {
         let timeline = &self.symbol().timeline;
@@ -1499,6 +1691,98 @@ impl Editor {
     /// Returns true when the caller should enter its inline name editor.
     pub(crate) fn timeline_layer_menu(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
         crate::ui_icons::menu_contents(ui, 280., |ui| self.timeline_layer_commands(ui, index))
+    }
+
+    /// Contextless 10-item menu opened when right-clicking the empty space below the layer rows (`T-385`).
+    pub(crate) fn timeline_blank_layers_menu(&mut self, ui: &mut egui::Ui) {
+        use crate::ui_icons::{menu_item, menu_item_enabled};
+        use neoflash_ui::components as nf;
+        let ctx = ui.ctx().clone();
+        crate::ui_icons::menu_contents(ui, 220., |ui| {
+            if menu_item(ui, "Add new layer", "").clicked() {
+                self.add_new_layer_at_top();
+                ui.close();
+            }
+            if menu_item(ui, "Add new folder", "").clicked() {
+                self.add_new_folder_at_top();
+                ui.close();
+            }
+            if menu_item(ui, "Add motion guide", "").clicked() {
+                self.add_motion_guide_from_blank_menu();
+                ui.close();
+            }
+            nf::menu_separator(ui);
+            let clipboard =
+                ctx.data(|data| data.get_temp::<LayerClipboard>(self.layer_clipboard_id()));
+            if menu_item_enabled(ui, clipboard.is_some(), "Paste layers", "").clicked() {
+                if let Some(clipboard) = clipboard {
+                    self.paste_timeline_layers_at_top(clipboard);
+                }
+                ui.close();
+            }
+            nf::menu_separator(ui);
+            if menu_item(ui, "Show all", "").clicked() {
+                self.layer_change(|p, id| {
+                    for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
+                        l.visible = true;
+                    }
+                });
+                ui.close();
+            }
+            if menu_item_enabled(ui, self.has_any_solo_layers(), "Clear all solo", "").clicked() {
+                self.clear_all_solo_layers();
+                ui.close();
+            }
+            if menu_item(ui, "Unlock all", "").clicked() {
+                self.layer_change(|p, id| {
+                    for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
+                        l.locked = false;
+                    }
+                });
+                ui.close();
+            }
+            if menu_item(ui, "Show all as solid", "").clicked() {
+                self.layer_change(|p, id| {
+                    for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
+                        l.properties.outline = false;
+                    }
+                });
+                ui.close();
+            }
+            nf::menu_separator(ui);
+            let has_collapsed_folder = self
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .any(|l| l.properties.role == LayerRole::Folder && l.properties.collapsed);
+            if menu_item_enabled(ui, has_collapsed_folder, "Expand all folders", "").clicked() {
+                self.layer_change(|p, id| {
+                    for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
+                        if l.properties.role == LayerRole::Folder {
+                            l.properties.collapsed = false;
+                        }
+                    }
+                });
+                ui.close();
+            }
+            let has_expanded_folder = self
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .any(|l| l.properties.role == LayerRole::Folder && !l.properties.collapsed);
+            if menu_item_enabled(ui, has_expanded_folder, "Collapse all folders", "").clicked() {
+                self.layer_change(|p, id| {
+                    for l in &mut p.symbol_mut(id).unwrap().timeline.layers {
+                        if l.properties.role == LayerRole::Folder {
+                            l.properties.collapsed = true;
+                        }
+                    }
+                });
+                ui.close();
+            }
+        });
     }
     /// Layer (right-click) menu: the design §8 commands in order, then the editor's further layer
     /// commands under "More".

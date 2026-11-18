@@ -465,11 +465,15 @@ impl Editor {
             let layer_indices = visible_layer_indices(&self.symbol().timeline);
             if !layer_indices.contains(&self.layer) {
                 let previous_layer = self.layer;
+                let was_deselected = self.are_layers_deselected();
                 self.layer = layer_indices
                     .iter()
                     .copied()
                     .rfind(|index| *index < self.layer)
                     .unwrap_or(0);
+                if was_deselected {
+                    self.sync_deselected_layer_index();
+                }
                 if self.layer != previous_layer {
                     self.clear_timeline_frame_selection();
                 }
@@ -586,7 +590,7 @@ impl Editor {
                                         kind,
                                         selected: row_selected,
                                         indent: depth,
-                                        editing: idx == self.layer,
+                                        editing: !self.are_layers_deselected() && idx == self.layer,
                                         visible: layer.visible,
                                         locked: layer.locked,
                                         outline: layer.properties.outline,
@@ -937,6 +941,7 @@ impl Editor {
                                 };
                                 grid_rect = rect;
                                 grid_clip = ui.clip_rect().intersect(rect);
+                                let was_deselected = self.are_layers_deselected();
                                 self.timeline_grid_interact(
                                     ui,
                                     &response,
@@ -947,6 +952,9 @@ impl Editor {
                                     &layer_indices,
                                     resize.is_some() || reorder.is_some(),
                                 );
+                                if was_deselected && !self.are_layers_deselected() {
+                                    ui.ctx().request_repaint();
+                                }
                                 let painter = ui.painter_at(rect);
                                 painter.rect_filled(rect, 0, palette.panel_fill);
                                 let mut stats = self.paint_timeline_rows(
@@ -1141,10 +1149,10 @@ impl Editor {
                     data.insert_temp(egui::Id::new(TIMELINE_VIRTUAL_STATS_ID), stats);
                 });
             }
-            // The unused part of the Layers column is still layer context: right-clicking below
-            // the final visible row applies the existing layer menu to the active layer. Keep this
-            // response invisible and outside the frame grid so blank space never becomes a frame
-            // selection target.
+            // Clicking (left or right) in the unused Layers space below the final visible row
+            // deselects all layers; right-clicking opens the compact 10-item contextless menu.
+            // Keep this response invisible and outside the frame grid so blank space never becomes
+            // a frame selection target.
             let blank_layers_rect = Rect::from_min_max(
                 Pos2::new(header.left(), grid_rect.top() + content_height),
                 Pos2::new(divider_x - 3.0, rows.inner_rect.bottom()),
@@ -1157,17 +1165,15 @@ impl Editor {
                     ui.id().with("blank-layers-context"),
                     Sense::click(),
                 );
+                if response.clicked()
+                    || response.secondary_clicked()
+                    || (response.context_menu_opened() && !self.are_layers_deselected())
+                {
+                    self.deselect_all_layers();
+                    ui.ctx().request_repaint();
+                }
                 response.context_menu(|ui| {
-                    if self.timeline_layer_menu(ui, self.layer)
-                        && let Some(layer) = self.symbol().timeline.layers.get(self.layer)
-                    {
-                        rename = Some(LayerRename {
-                            layer: layer.id.clone(),
-                            text: layer.name.clone(),
-                            focus: true,
-                        });
-                        ui.ctx().request_repaint();
-                    }
+                    self.timeline_blank_layers_menu(ui);
                 });
             }
             // Continue an existing frame-range drag at the vertical viewport edge.
@@ -1581,11 +1587,13 @@ impl Editor {
                         } else {
                             frame
                         };
-                        self.select_frame_range(FrameRange {
-                            layers: vec![self.symbol().timeline.layers[self.layer].id.clone()],
-                            start: self.frame,
-                            end: self.frame,
-                        });
+                        if !self.are_layers_deselected() {
+                            self.select_frame_range(FrameRange {
+                                layers: vec![self.symbol().timeline.layers[self.layer].id.clone()],
+                                start: self.frame,
+                                end: self.frame,
+                            });
+                        }
                         self.script_target = ScriptTarget::Frame;
                         self.clear_selection();
                     }
