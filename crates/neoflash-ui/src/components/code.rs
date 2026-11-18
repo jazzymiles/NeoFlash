@@ -254,6 +254,7 @@ const TYPE_CONTEXT_KEYWORDS: &[&str] = &[
 enum LexScope {
     Block,
     ObjectLiteral,
+    TypeObjectLiteral,
     Paren,
     Bracket,
 }
@@ -280,15 +281,18 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
     let mut prev: u8 = 0;
     let mut prev2: u8 = 0;
     let mut last_word: &str = "";
+    let mut last_word_was_type = false;
     let mut prev_was_stmt_start_ident = false;
+    let mut last_colon_was_case_or_label = false;
+    let mut last_star_was_type_any = false;
     let mut in_tag = false;
     let mut tag_name = false;
     let mut after_function = false;
     let mut expect_type = false;
     let mut in_type_alias = false;
     let mut type_angle_depth: u32 = 0;
-    let mut in_case_label = false;
-    let mut ternary_depth: u32 = 0;
+    let mut case_label_depths: Vec<usize> = Vec::new();
+    let mut ternary_depths: Vec<usize> = Vec::new();
     let mut scopes: Vec<LexScope> = Vec::new();
     while i < n {
         let c = b[i];
@@ -329,6 +333,8 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
             i = (i + 1).min(n);
             expect_type = false;
             prev_was_stmt_start_ident = false;
+            last_colon_was_case_or_label = false;
+            last_star_was_type_any = false;
             last_word = "";
             Token::String
         } else if in_tag {
@@ -365,6 +371,8 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
             in_tag = true;
             tag_name = true;
             prev_was_stmt_start_ident = false;
+            last_colon_was_case_or_label = false;
+            last_star_was_type_any = false;
             last_word = "";
             Token::Tag
         } else if c.is_ascii_digit() || (c == b'.' && at(i + 1).is_ascii_digit()) {
@@ -377,6 +385,8 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
             }
             expect_type = false;
             prev_was_stmt_start_ident = false;
+            last_colon_was_case_or_label = false;
+            last_star_was_type_any = false;
             last_word = "";
             Token::Number
         } else if ident_start(c) {
@@ -407,8 +417,16 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
             };
             after_function = matches!(word, "function" | "get" | "set")
                 && (word == "function" || after_function);
-            if prev != b'.' && matches!(word, "case" | "default") {
-                in_case_label = true;
+            let in_obj_key = matches!(
+                scopes.last(),
+                Some(LexScope::ObjectLiteral | LexScope::TypeObjectLiteral)
+            ) && matches!(prev, b'{' | b',' | b';');
+            if prev != b'.'
+                && !in_obj_key
+                && matches!(word, "case" | "default")
+                && case_label_depths.last() != Some(&scopes.len())
+            {
+                case_label_depths.push(scopes.len());
             }
             if prev != b'.' && word == "type" {
                 in_type_alias = true;
@@ -419,6 +437,9 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
                 expect_type = matches!(at(j), b'.' | b'<' | b'|' | b'&');
             }
             prev_was_stmt_start_ident = !is_kw && matches!(prev, 0 | b';' | b'{' | b'}');
+            last_colon_was_case_or_label = false;
+            last_star_was_type_any = false;
+            last_word_was_type = in_type_ctx;
             last_word = word;
             push(start..i, t);
             prev2 = prev;
@@ -433,99 +454,141 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
             match c {
                 b'{' => {
                     let is_arrow = prev2 == b'=' && prev == b'>';
-                    let is_obj = !is_arrow
-                        && (matches!(
-                            prev,
-                            b'=' | b'('
-                                | b'['
-                                | b','
-                                | b':'
-                                | b'?'
-                                | b'!'
-                                | b'+'
-                                | b'-'
-                                | b'*'
-                                | b'%'
-                                | b'&'
-                                | b'|'
-                                | b'^'
-                        ) || matches!(
-                            last_word,
-                            "return"
-                                | "throw"
-                                | "case"
-                                | "in"
-                                | "of"
-                                | "yield"
-                                | "await"
-                                | "typeof"
-                                | "void"
-                                | "delete"
-                        ));
-                    scopes.push(if is_obj {
-                        LexScope::ObjectLiteral
+                    let scope = if !is_arrow && expect_type {
+                        LexScope::TypeObjectLiteral
                     } else {
-                        LexScope::Block
-                    });
+                        let prev_punct_opens_obj = match prev {
+                            b'=' | b'(' | b'[' | b',' | b'?' | b'!' | b'+' | b'-' | b'%' | b'&'
+                            | b'|' | b'^' => true,
+                            b'*' => !last_star_was_type_any,
+                            b':' => !last_colon_was_case_or_label,
+                            _ => false,
+                        };
+                        let prev_kw_opens_obj = ident_char(prev)
+                            && !last_word_was_type
+                            && matches!(
+                                last_word,
+                                "return"
+                                    | "throw"
+                                    | "case"
+                                    | "in"
+                                    | "of"
+                                    | "yield"
+                                    | "await"
+                                    | "typeof"
+                                    | "void"
+                                    | "delete"
+                            );
+                        if !is_arrow && (prev_punct_opens_obj || prev_kw_opens_obj) {
+                            LexScope::ObjectLiteral
+                        } else {
+                            LexScope::Block
+                        }
+                    };
+                    scopes.push(scope);
                     expect_type = false;
                     type_angle_depth = 0;
-                    in_case_label = false;
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                 }
                 b'}' => {
+                    while matches!(scopes.last(), Some(LexScope::Paren | LexScope::Bracket)) {
+                        scopes.pop();
+                    }
                     scopes.pop();
+                    ternary_depths.retain(|&d| d <= scopes.len());
+                    case_label_depths.retain(|&d| d <= scopes.len());
                     expect_type = false;
                     type_angle_depth = 0;
-                    in_case_label = false;
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                 }
                 b'(' => {
                     scopes.push(LexScope::Paren);
                     expect_type = false;
                     type_angle_depth = 0;
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                 }
                 b')' => {
                     if scopes.last() == Some(&LexScope::Paren) {
                         scopes.pop();
                     }
+                    ternary_depths.retain(|&d| d <= scopes.len());
+                    case_label_depths.retain(|&d| d <= scopes.len());
                     expect_type = false;
                     type_angle_depth = 0;
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                 }
                 b'[' => {
                     scopes.push(LexScope::Bracket);
                     if type_angle_depth == 0 && !expect_type {
                         expect_type = false;
                     }
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                 }
                 b']' => {
                     if scopes.last() == Some(&LexScope::Bracket) {
                         scopes.pop();
                     }
+                    ternary_depths.retain(|&d| d <= scopes.len());
+                    case_label_depths.retain(|&d| d <= scopes.len());
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                 }
                 b'?' => {
                     let next_c = at(next);
                     if !matches!(next_c, b'.' | b'?' | b':') && prev != b'?' {
-                        ternary_depth = ternary_depth.saturating_add(1);
+                        ternary_depths.push(scopes.len());
                     }
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                 }
                 b':' => {
+                    last_star_was_type_any = false;
                     if at(i) == b':' || prev == b':' {
                         expect_type = false;
-                    } else if in_case_label {
-                        in_case_label = false;
+                        last_colon_was_case_or_label = false;
+                    } else if ternary_depths.last() == Some(&scopes.len()) {
+                        ternary_depths.pop();
                         expect_type = false;
-                    } else if ternary_depth > 0 {
-                        ternary_depth -= 1;
+                        last_colon_was_case_or_label = false;
+                    } else if case_label_depths.last() == Some(&scopes.len()) {
+                        case_label_depths.pop();
                         expect_type = false;
+                        last_colon_was_case_or_label = true;
+                    } else if scopes.last() == Some(&LexScope::ObjectLiteral) {
+                        expect_type = false;
+                        last_colon_was_case_or_label = false;
+                    } else if prev_was_stmt_start_ident
+                        && scopes.last() != Some(&LexScope::TypeObjectLiteral)
+                    {
+                        expect_type = false;
+                        last_colon_was_case_or_label = true;
                     } else {
-                        expect_type = scopes.last() != Some(&LexScope::ObjectLiteral)
-                            && !prev_was_stmt_start_ident;
+                        expect_type = true;
+                        last_colon_was_case_or_label = false;
+                    }
+                }
+                b'*' => {
+                    last_star_was_type_any = expect_type && prev != b'.';
+                    last_colon_was_case_or_label = false;
+                    if type_angle_depth == 0 {
+                        expect_type = false;
                     }
                 }
                 b'.' => {
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                     if !(expect_type && (ident_start(at(next)) || at(next) == b'<')) {
                         expect_type = false;
                     }
                 }
                 b'<' => {
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                     let builtin_generic =
                         matches!(
                             last_word,
@@ -541,11 +604,15 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
                     }
                 }
                 b'>' => {
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                     if type_angle_depth > 0 && prev != b'=' {
                         type_angle_depth -= 1;
                     }
                 }
                 b'|' | b'&' => {
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                     if at(i) == c {
                         expect_type = false;
                         type_angle_depth = 0;
@@ -557,22 +624,30 @@ pub fn tokens(src: &str) -> Vec<(Range<usize>, Token)> {
                     expect_type = false;
                     in_type_alias = false;
                     type_angle_depth = 0;
-                    in_case_label = false;
-                    ternary_depth = 0;
+                    ternary_depths.retain(|&d| d < scopes.len());
+                    case_label_depths.retain(|&d| d < scopes.len());
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                 }
                 b'=' => {
                     type_angle_depth = 0;
                     expect_type = in_type_alias && at(i) != b'=' && at(i) != b'>';
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                 }
                 b',' => {
                     if type_angle_depth == 0 {
                         expect_type = false;
                     }
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                 }
                 _ => {
                     if type_angle_depth == 0 {
                         expect_type = false;
                     }
+                    last_colon_was_case_or_label = false;
+                    last_star_was_type_any = false;
                 }
             }
             prev_was_stmt_start_ident = false;
@@ -1510,6 +1585,77 @@ type GridRow = Array<number>;";
                     .filter(|(s, _)| *s == id)
                     .all(|(_, t)| *t == Token::Identifier),
                 "expected `{id}` to be Token::Identifier: {ck:?}"
+            );
+        }
+
+        // Regression coverage: `:* {`, `:void {`, `case ...: {`, `label: {`, TS `{ a: MyType }`, and 2D generics.
+        let edge_blocks = "\
+function handle(e:Event):* {
+    var inUntyped:StageItem = rawVal;
+    var grid:Vector.<Vector.<CellNode>> = new Vector.<Vector.<CellNode>>();
+    var typedObj: { prop: PropType; second: NextType } = { prop: firstVal, second: secondVal };
+    outerLabel: {
+        var inLabeled:LabelType = labelVal;
+    }
+    switch (mode) {
+        case (flag ? 1 : 2): {
+            var inCaseBlock:CaseType = caseVal;
+            break;
+        }
+        case build({ k: innerVal }):
+            var afterObjCase:AfterCaseType = afterVal;
+            break;
+    }
+}
+function resetAll():void {
+    var inVoid:VoidBodyType = voidVal;
+}";
+        let ek = kinds(edge_blocks);
+        for ty in [
+            "Event",
+            "StageItem",
+            "Vector",
+            "CellNode",
+            "PropType",
+            "NextType",
+            "LabelType",
+            "CaseType",
+            "AfterCaseType",
+            "VoidBodyType",
+        ] {
+            assert!(
+                ek.iter()
+                    .filter(|(s, _)| *s == ty)
+                    .all(|(_, t)| *t == Token::Type),
+                "expected `{ty}` to be Token::Type in edge_blocks: {ek:?}"
+            );
+        }
+        for id in [
+            "inUntyped",
+            "rawVal",
+            "grid",
+            "typedObj",
+            "prop",
+            "second",
+            "firstVal",
+            "secondVal",
+            "outerLabel",
+            "inLabeled",
+            "labelVal",
+            "mode",
+            "flag",
+            "inCaseBlock",
+            "caseVal",
+            "k",
+            "innerVal",
+            "afterObjCase",
+            "afterVal",
+        ] {
+            assert!(
+                ek.iter()
+                    .filter(|(s, _)| *s == id)
+                    .all(|(_, t)| *t == Token::Identifier),
+                "expected `{id}` to be Token::Identifier in edge_blocks: {ek:?}"
             );
         }
     }

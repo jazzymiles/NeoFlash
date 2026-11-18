@@ -160,7 +160,14 @@ impl PreferencesDraft {
                     ..defaults.general
                 };
             }
-            PAGE_CODE_EDITOR => self.code_editor = defaults.code_editor,
+            PAGE_CODE_EDITOR => {
+                // Keep the Actions panel's sidebar collapse state across Code Editor page resets.
+                let actions_sidebar = self.code_editor.actions_sidebar;
+                self.code_editor = CodeEditorPrefs {
+                    actions_sidebar,
+                    ..defaults.code_editor
+                };
+            }
             PAGE_DRAWING => {
                 self.drawing = defaults.drawing;
                 self.pixels_snap = false;
@@ -2983,5 +2990,44 @@ mod tests {
                 .syntax_colors
                 .is_empty()
         );
+
+        // 4. Collapsing the Actions sidebar (`actions_sidebar = false`) must survive
+        //    `Reset to defaults` on `PAGE_CODE_EDITOR` while other code-editor settings reset.
+        editor.preferences = None;
+        editor.workspace.code_editor.actions_sidebar = false;
+        editor.workspace.code_editor.tab_size = 2;
+        editor.workspace.code_editor.syntax_colors.keyword = Some([200, 100, 255, 255]);
+        editor.open_preferences(PAGE_CODE_EDITOR);
+        let _ = step(&mut editor, vec![]);
+        let out_page_reset = step(&mut editor, vec![]);
+        let reset_page_pos = find_center(&out_page_reset, "Reset to defaults");
+        let _ = step(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(reset_page_pos),
+                egui::Event::PointerButton {
+                    pos: reset_page_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let _ = step(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: reset_page_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        let reset_ce = &editor.preferences.as_ref().unwrap().code_editor;
+        assert!(
+            !reset_ce.actions_sidebar,
+            "Reset to defaults on Code editor page must preserve collapsed actions_sidebar"
+        );
+        assert_eq!(reset_ce.tab_size, 4);
+        assert!(reset_ce.syntax_colors.is_empty());
     }
 }
