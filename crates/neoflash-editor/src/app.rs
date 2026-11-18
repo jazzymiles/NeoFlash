@@ -818,7 +818,10 @@ impl Editor {
         }
     }
     pub(crate) fn set_theme(&mut self, ctx: &egui::Context, theme: ThemeMode) {
-        self.workspace.theme = theme;
+        if self.workspace.theme != theme {
+            self.workspace.theme = theme;
+            self.persist_workspace_requested = true;
+        }
         theme.apply(ctx);
     }
     /// Inspector / Library priority (R-054): show `panel` and give its stacked dock group the larger
@@ -826,10 +829,13 @@ impl Editor {
     pub(crate) fn give_dock_priority(&mut self, panel: PanelId) {
         self.show_panel(panel);
         self.workspace.dock.give_priority(panel);
+        self.persist_workspace_requested = true;
     }
     fn reveal_panel(&mut self, panel: PanelId) {
         self.panels_hidden = false;
-        self.workspace.show_panel(panel);
+        if self.workspace.show_panel(panel) {
+            self.persist_workspace_requested = true;
+        }
         self.bottom = self.workspace.active_bottom;
         if panel.detachable() && !self.workspace.is_panel_docked(panel) {
             self.detached.focus = Some(panel);
@@ -862,7 +868,9 @@ impl Editor {
             }
         }
         self.workspace.active_bottom = self.bottom;
-        self.workspace.set_panel_visible(panel, visible);
+        if self.workspace.set_panel_visible(panel, visible) {
+            self.persist_workspace_requested = true;
+        }
         self.bottom = self.workspace.active_bottom;
     }
     pub fn set_panels_hidden(&mut self, hidden: bool) {
@@ -910,6 +918,7 @@ impl Editor {
             self.workspace
                 .compact_default(ctx.viewport_rect().size().into());
         }
+        self.persist_workspace_requested = true;
         self.reset_workspace_layout_state(ctx);
     }
     pub fn symbol_id(&self) -> &str {
@@ -4397,10 +4406,7 @@ impl eframe::App for Editor {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        self.sync_session_tabs_to_prefs();
-        self.workspace.active_bottom = self.bottom;
-        self.workspace.save(storage);
-        self.persist_workspace_requested = false;
+        self.flush_workspace_to_storage(storage);
     }
 
     fn persist_egui_memory(&self) -> bool {
@@ -4428,13 +4434,16 @@ impl eframe::App for Editor {
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.workspace.active_bottom = self.bottom;
+        let workspace_before = self.workspace.clone();
         self.apply_density(ctx);
         self.poll_preview_output(ctx);
         self.poll_debugger(ctx);
         self.poll_updater(ctx, true);
         self.poll_beta_feedback(ctx);
         let native_quit = crate::native_quit::take_requested();
-        if (native_quit || ctx.input(|i| i.viewport().close_requested())) && !self.allow_close {
+        let close_requested = ctx.input(|i| i.viewport().close_requested());
+        if (native_quit || close_requested) && !self.allow_close {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.request_quit(ctx);
         }
@@ -4518,7 +4527,11 @@ impl eframe::App for Editor {
         crate::native_windows::configure_panels();
         let win_state = crate::macos_menu::sync(self, ctx);
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(win_state.title));
-        if self.persist_workspace_requested {
+        self.workspace.active_bottom = self.bottom;
+        if self.workspace != workspace_before {
+            self.persist_workspace_requested = true;
+        }
+        if self.persist_workspace_requested || self.allow_close || native_quit || close_requested {
             if let Some(storage) = frame.storage_mut() {
                 self.flush_workspace_to_storage(storage);
             } else {

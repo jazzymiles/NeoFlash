@@ -99,6 +99,7 @@ pub enum NativeMenuItemSpec {
         shortcut: Option<Shortcut>,
         shortcut_label: String,
         enabled: bool,
+        checkable: bool,
         checked: bool,
         tooltip: Option<String>,
         action: NativeMenuAction,
@@ -118,10 +119,11 @@ pub enum NativeMenuItemSpec {
     },
 }
 
-/// Editor action dispatched when a native menu item is chosen.
+/// Editor action dispatched when a native or in-window menu item is chosen.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NativeMenuAction {
     Command(CommandId),
+    Unavailable,
     About,
     Quit,
     OpenRecent(PathBuf),
@@ -150,6 +152,7 @@ pub enum NativeMenuAction {
     CombineObjects { op: BooleanOp, crop: bool },
     DistributeToKeyframes,
     TweenToKeys(u32),
+    ConvertToKeyframesStepped2s,
     CopyKeyframeEase,
     ApplyCopiedEase,
     DeleteEmptyLayers,
@@ -165,6 +168,7 @@ pub enum NativeMenuAction {
     PixelSnapSelection,
     AlignSelection { axis: usize, edge: usize },
     ToggleAlignToStage,
+    ShowPanel(PanelId),
     TextSetSize(u16),
     TextSetStyle { bold: bool, italic: bool },
     TextSetAlign(TextAlign),
@@ -529,6 +533,58 @@ pub fn startup_file_args() -> Vec<PathBuf> {
     startup_file_args_from(std::env::args_os())
 }
 
+fn is_command_checkable(cmd: CommandId) -> bool {
+    matches!(
+        cmd,
+        CommandId::ViewZoom100
+            | CommandId::ViewRulers
+            | CommandId::ViewGridShow
+            | CommandId::ViewGridSnap
+            | CommandId::ViewGuidesShow
+            | CommandId::ViewGuidesLock
+            | CommandId::ViewGuidesSnap
+            | CommandId::ViewShowShapeHints
+            | CommandId::ToggleStageAbSplit
+            | CommandId::ModifyFreeTransform
+            | CommandId::ModifyDistort
+            | CommandId::ModifyEnvelope
+            | CommandId::ModifyScale
+            | CommandId::ModifyRotateAndSkew
+            | CommandId::ToggleMotionSketch
+            | CommandId::ControlLoopPlayback
+            | CommandId::ControlPlayAllScenes
+            | CommandId::ControlEnableSimpleButtons
+            | CommandId::ControlMuteSounds
+            | CommandId::WindowHidePanels
+            | CommandId::WindowInspectorPriority
+            | CommandId::WindowLibraryPriority
+            | CommandId::WindowBrushes
+            | CommandId::WindowTimeline
+            | CommandId::WindowTools
+            | CommandId::WindowProperties
+            | CommandId::WindowLibrary
+            | CommandId::WindowActions
+            | CommandId::WindowAlign
+            | CommandId::WindowColor
+            | CommandId::WindowSwatches
+            | CommandId::WindowFilters
+            | CommandId::WindowTransform
+            | CommandId::WindowInfo
+            | CommandId::WindowEase
+            | CommandId::WindowHistory
+            | CommandId::WindowScene
+            | CommandId::WindowCompilerErrors
+            | CommandId::WindowOutput
+            | CommandId::WindowCodeSnippets
+            | CommandId::WindowMovieExplorer
+            | CommandId::WindowAccessibility
+            | CommandId::WindowMotionEditor
+            | CommandId::WindowDebugger
+            | CommandId::WindowProject
+            | CommandId::ToolObjectDrawing
+    )
+}
+
 fn cmd_item(editor: &Editor, ctx: Option<&egui::Context>, cmd: CommandId) -> NativeMenuItemSpec {
     let state = editor.command_menu_state(ctx, cmd);
     NativeMenuItemSpec::Action {
@@ -537,6 +593,7 @@ fn cmd_item(editor: &Editor, ctx: Option<&egui::Context>, cmd: CommandId) -> Nat
         shortcut: state.shortcut,
         shortcut_label: state.shortcut_label,
         enabled: state.enabled,
+        checkable: is_command_checkable(cmd),
         checked: state.checked,
         tooltip: None,
         action: NativeMenuAction::Command(cmd),
@@ -556,6 +613,7 @@ fn cmd_item_labeled(
         shortcut: state.shortcut,
         shortcut_label: state.shortcut_label,
         enabled: state.enabled,
+        checkable: is_command_checkable(cmd),
         checked: state.checked,
         tooltip: None,
         action: NativeMenuAction::Command(cmd),
@@ -576,9 +634,60 @@ fn custom_item(
         shortcut,
         shortcut_label,
         enabled,
+        checkable: false,
         checked,
         tooltip: None,
         action,
+    }
+}
+
+fn custom_check_item(
+    label: impl Into<String>,
+    shortcut: Option<Shortcut>,
+    enabled: bool,
+    checked: bool,
+    action: NativeMenuAction,
+) -> NativeMenuItemSpec {
+    let shortcut_label = shortcut.map(|sc| sc.format()).unwrap_or_default();
+    NativeMenuItemSpec::Action {
+        label: label.into(),
+        command_id: None,
+        shortcut,
+        shortcut_label,
+        enabled,
+        checkable: true,
+        checked,
+        tooltip: None,
+        action,
+    }
+}
+
+fn unavailable_action_item(
+    label: impl Into<String>,
+    shortcut: Option<Shortcut>,
+    checkable: bool,
+    checked: bool,
+) -> NativeMenuItemSpec {
+    let shortcut_label = shortcut.map(|sc| sc.format()).unwrap_or_default();
+    NativeMenuItemSpec::Action {
+        label: label.into(),
+        command_id: None,
+        shortcut,
+        shortcut_label,
+        enabled: false,
+        checkable,
+        checked,
+        tooltip: Some("Not available yet".to_owned()),
+        action: NativeMenuAction::Unavailable,
+    }
+}
+
+fn unavailable_submenu_item(label: impl Into<String>) -> NativeMenuItemSpec {
+    NativeMenuItemSpec::Submenu {
+        label: label.into(),
+        enabled: false,
+        role: None,
+        items: Vec::new(),
     }
 }
 
@@ -614,22 +723,44 @@ fn recent_file_display_labels(paths: &[PathBuf]) -> Vec<String> {
 }
 
 impl NativeMenuSpec {
-    /// Derive the complete macOS menu bar specification from `editor` and the command registry.
+    /// Canonical top-level menu bar order shared 1:1 by the native macOS menu bar and the in-window
+    /// NF2 top bar (`T-377`).
+    pub const TOP_LEVEL_TITLES: [&str; 11] = [
+        "NeoFlash", "File", "Edit", "View", "Insert", "Modify", "Text", "Control", "Debug",
+        "Window", "Help",
+    ];
+
+    /// Build a single top-level menu specification by title (`Self::TOP_LEVEL_TITLES`).
+    pub fn build_top_menu(
+        editor: &Editor,
+        ctx: Option<&egui::Context>,
+        title: &str,
+    ) -> Option<NativeTopMenuSpec> {
+        Some(match title {
+            "NeoFlash" => Self::build_app_menu(editor, ctx),
+            "File" => Self::build_file_menu(editor, ctx),
+            "Edit" => Self::build_edit_menu(editor, ctx),
+            "View" => Self::build_view_menu(editor, ctx),
+            "Insert" => Self::build_insert_menu(editor, ctx),
+            "Modify" => Self::build_modify_menu(editor, ctx),
+            "Text" => Self::build_text_menu(editor),
+            "Control" => Self::build_control_menu(editor, ctx),
+            "Debug" => Self::build_debug_menu(editor, ctx),
+            "Window" => Self::build_window_menu(editor, ctx),
+            "Help" => Self::build_help_menu(editor, ctx),
+            _ => return None,
+        })
+    }
+
+    /// Derive the complete application menu bar specification from `editor` and the command registry.
     pub fn build(editor: &Editor, ctx: Option<&egui::Context>) -> Self {
         Self {
-            menus: vec![
-                Self::build_app_menu(editor, ctx),
-                Self::build_file_menu(editor, ctx),
-                Self::build_edit_menu(editor, ctx),
-                Self::build_view_menu(editor, ctx),
-                Self::build_insert_menu(editor, ctx),
-                Self::build_modify_menu(editor, ctx),
-                Self::build_text_menu(editor),
-                Self::build_control_menu(editor, ctx),
-                Self::build_debug_menu(editor, ctx),
-                Self::build_window_menu(editor, ctx),
-                Self::build_help_menu(editor, ctx),
-            ],
+            menus: Self::TOP_LEVEL_TITLES
+                .into_iter()
+                .map(|title| {
+                    Self::build_top_menu(editor, ctx, title).expect("known top-level menu")
+                })
+                .collect(),
         }
     }
 
@@ -723,6 +854,7 @@ impl NativeMenuSpec {
                 shortcut: None,
                 shortcut_label: String::new(),
                 enabled: true,
+                checkable: false,
                 checked: false,
                 tooltip: Some(path.display().to_string()),
                 action: NativeMenuAction::OpenRecent(path.clone()),
@@ -820,6 +952,11 @@ impl NativeMenuSpec {
             },
         ];
 
+        let mut publish_item = cmd_item(editor, ctx, CommandId::FilePublish);
+        if let NativeMenuItemSpec::Action { tooltip, .. } = &mut publish_item {
+            *tooltip = Some("Choose an output folder and publish the project as HTML5".to_owned());
+        }
+
         NativeTopMenuSpec {
             title: "File".to_owned(),
             enabled: true,
@@ -827,7 +964,7 @@ impl NativeMenuSpec {
                 cmd_item(editor, ctx, CommandId::FileNew),
                 cmd_item(editor, ctx, CommandId::FileOpen),
                 NativeMenuItemSpec::Submenu {
-                    label: "Open Recent".to_owned(),
+                    label: "Open recent".to_owned(),
                     enabled: true,
                     role: None,
                     items: recent_items,
@@ -860,7 +997,9 @@ impl NativeMenuSpec {
                 },
                 NativeMenuItemSpec::Separator,
                 cmd_item(editor, ctx, CommandId::FilePublishSettings),
-                cmd_item(editor, ctx, CommandId::FilePublish),
+                publish_item,
+                NativeMenuItemSpec::Separator,
+                unavailable_action_item("Print…", Some(Shortcut::cmd(Key::P)), false, false),
             ],
         }
     }
@@ -932,6 +1071,9 @@ impl NativeMenuSpec {
             items.push(NativeMenuItemSpec::Separator);
             items.push(cmd_item(editor, ctx, CommandId::EditSendToAi));
         }
+        items.push(NativeMenuItemSpec::Separator);
+        items.push(cmd_item(editor, ctx, CommandId::EditPreferences));
+        items.push(cmd_item(editor, ctx, CommandId::EditKeyboardShortcuts));
 
         NativeTopMenuSpec {
             title: "Edit".to_owned(),
@@ -947,14 +1089,14 @@ impl NativeMenuSpec {
         let ab_mode = editor.stage_ab_mode();
 
         let magnification_items = vec![
-            custom_item(
+            custom_check_item(
                 "25 %",
                 None,
                 has_doc,
                 has_doc && zoom_pct == 25,
                 NativeMenuAction::SetMagnification(25),
             ),
-            custom_item(
+            custom_check_item(
                 "50 %",
                 None,
                 has_doc,
@@ -962,14 +1104,14 @@ impl NativeMenuSpec {
                 NativeMenuAction::SetMagnification(50),
             ),
             cmd_item(editor, ctx, CommandId::ViewZoom100),
-            custom_item(
+            custom_check_item(
                 "200 %",
                 None,
                 has_doc,
                 has_doc && zoom_pct == 200,
                 NativeMenuAction::SetMagnification(200),
             ),
-            custom_item(
+            custom_check_item(
                 "400 %",
                 None,
                 has_doc,
@@ -983,7 +1125,7 @@ impl NativeMenuSpec {
         let grid_items = vec![
             cmd_item(editor, ctx, CommandId::ViewGridShow),
             cmd_item(editor, ctx, CommandId::ViewGridSnap),
-            custom_item(
+            custom_check_item(
                 "Show over objects",
                 None,
                 has_doc,
@@ -1009,14 +1151,14 @@ impl NativeMenuSpec {
         ];
 
         let snapping_items = vec![
-            custom_item(
+            custom_check_item(
                 "Snap to objects",
                 None,
                 has_doc,
                 has_doc && v.objects_snap,
                 NativeMenuAction::ToggleObjectSnap,
             ),
-            custom_item(
+            custom_check_item(
                 "Snap to pixels",
                 None,
                 has_doc,
@@ -1028,21 +1170,21 @@ impl NativeMenuSpec {
         ];
 
         let onion_items = vec![
-            custom_item(
+            custom_check_item(
                 "Onion skin",
                 None,
                 has_doc,
                 has_doc && editor.onion,
                 NativeMenuAction::ToggleOnionSkin,
             ),
-            custom_item(
+            custom_check_item(
                 "Onion skin outlines",
                 None,
                 has_doc,
                 has_doc && editor.onion && editor.onion_outlines,
                 NativeMenuAction::ToggleOnionOutlines,
             ),
-            custom_item(
+            custom_check_item(
                 "Anchor onion markers",
                 None,
                 has_doc,
@@ -1054,7 +1196,7 @@ impl NativeMenuSpec {
         let stage_toolbar_items: Vec<NativeMenuItemSpec> = StageToolbarMode::ALL
             .into_iter()
             .map(|mode| {
-                custom_item(
+                custom_check_item(
                     mode.label(),
                     None,
                     has_doc,
@@ -1092,6 +1234,14 @@ impl NativeMenuSpec {
                     role: None,
                     items: magnification_items,
                 },
+                NativeMenuItemSpec::Separator,
+                unavailable_submenu_item("Preview mode"),
+                unavailable_action_item(
+                    "Pasteboard",
+                    Some(Shortcut::shift_cmd(Key::W)),
+                    true,
+                    true,
+                ),
                 NativeMenuItemSpec::Separator,
                 cmd_item(editor, ctx, CommandId::ViewRulers),
                 NativeMenuItemSpec::Submenu {
@@ -1258,6 +1408,13 @@ impl NativeMenuSpec {
                 false,
                 NativeMenuAction::TweenToKeys(3),
             ),
+            custom_item(
+                "Convert to keyframes (Stepped 2s)",
+                None,
+                can_stepped,
+                false,
+                NativeMenuAction::ConvertToKeyframesStepped2s,
+            ),
             cmd_item(editor, ctx, CommandId::ModifyTimelineClearKeyframe),
             cmd_item(
                 editor,
@@ -1364,6 +1521,9 @@ impl NativeMenuSpec {
             ),
         ];
 
+        let transform_panel_sc = editor
+            .command_menu_state(ctx, CommandId::WindowTransform)
+            .shortcut;
         let transform_items = vec![
             cmd_item(editor, ctx, CommandId::ModifyFreeTransform),
             cmd_item(editor, ctx, CommandId::ModifyDistort),
@@ -1380,7 +1540,13 @@ impl NativeMenuSpec {
             NativeMenuItemSpec::Separator,
             cmd_item(editor, ctx, CommandId::ModifyRemoveTransform),
             NativeMenuItemSpec::Separator,
-            cmd_item_labeled(editor, ctx, "Transform panel", CommandId::WindowTransform),
+            custom_item(
+                "Transform panel",
+                transform_panel_sc,
+                true,
+                false,
+                NativeMenuAction::ShowPanel(PanelId::Transform),
+            ),
         ];
 
         let arrange_items = vec![
@@ -1390,6 +1556,9 @@ impl NativeMenuSpec {
             cmd_item(editor, ctx, CommandId::ModifyArrangeBack),
         ];
 
+        let align_panel_sc = editor
+            .command_menu_state(ctx, CommandId::WindowAlign)
+            .shortcut;
         let align_items = vec![
             custom_item(
                 "Left",
@@ -1435,23 +1604,30 @@ impl NativeMenuSpec {
                 NativeMenuAction::AlignSelection { axis: 1, edge: 2 },
             ),
             NativeMenuItemSpec::Separator,
-            custom_item(
+            custom_check_item(
                 "To stage",
                 None,
                 has_doc,
                 has_doc && editor.authoring_modify.to_stage,
                 NativeMenuAction::ToggleAlignToStage,
             ),
-            cmd_item_labeled(editor, ctx, "Align panel", CommandId::WindowAlign),
+            custom_item(
+                "Align panel",
+                align_panel_sc,
+                true,
+                false,
+                NativeMenuAction::ShowPanel(PanelId::Align),
+            ),
         ];
 
         NativeTopMenuSpec {
             title: "Modify".to_owned(),
             enabled: true,
             items: vec![
-                cmd_item(editor, ctx, CommandId::ModifyDocument),
+                cmd_item_labeled(editor, ctx, "Document…", CommandId::ModifyDocument),
                 NativeMenuItemSpec::Separator,
                 cmd_item(editor, ctx, CommandId::ModifyConvertToSymbol),
+                unavailable_action_item("Convert to Bitmap", None, false, false),
                 cmd_item(editor, ctx, CommandId::ModifyBreakApart),
                 NativeMenuItemSpec::Separator,
                 NativeMenuItemSpec::Submenu {
@@ -1460,6 +1636,7 @@ impl NativeMenuSpec {
                     role: None,
                     items: bitmap_items,
                 },
+                unavailable_submenu_item("Symbol"),
                 NativeMenuItemSpec::Submenu {
                     label: "Shape".to_owned(),
                     enabled: has_doc,
@@ -1544,7 +1721,7 @@ impl NativeMenuSpec {
             .iter()
             .copied()
             .map(|pt| {
-                custom_item(
+                custom_check_item(
                     format!("{pt} pt"),
                     None,
                     can_set_size,
@@ -1555,7 +1732,7 @@ impl NativeMenuSpec {
             .collect();
 
         let style_items = vec![
-            custom_item(
+            custom_check_item(
                 "Regular",
                 None,
                 has_text_box,
@@ -1565,7 +1742,7 @@ impl NativeMenuSpec {
                     italic: false,
                 },
             ),
-            custom_item(
+            custom_check_item(
                 "Bold",
                 None,
                 has_text_box,
@@ -1575,7 +1752,7 @@ impl NativeMenuSpec {
                     italic: false,
                 },
             ),
-            custom_item(
+            custom_check_item(
                 "Italic",
                 None,
                 has_text_box,
@@ -1585,7 +1762,7 @@ impl NativeMenuSpec {
                     italic: true,
                 },
             ),
-            custom_item(
+            custom_check_item(
                 "Bold Italic",
                 None,
                 has_text_box,
@@ -1598,21 +1775,21 @@ impl NativeMenuSpec {
         ];
 
         let align_items = vec![
-            custom_item(
+            custom_check_item(
                 "Align Left",
                 None,
                 has_text_box,
                 has_text_box && align == TextAlign::Left,
                 NativeMenuAction::TextSetAlign(TextAlign::Left),
             ),
-            custom_item(
+            custom_check_item(
                 "Align Center",
                 None,
                 has_text_box,
                 has_text_box && align == TextAlign::Center,
                 NativeMenuAction::TextSetAlign(TextAlign::Center),
             ),
-            custom_item(
+            custom_check_item(
                 "Align Right",
                 None,
                 has_text_box,
@@ -1714,7 +1891,7 @@ impl NativeMenuSpec {
                 cmd_item(editor, ctx, CommandId::ControlMuteSounds),
                 NativeMenuItemSpec::Separator,
                 cmd_item(editor, ctx, CommandId::ControlEnableSimpleButtons),
-                custom_item(
+                custom_check_item(
                     "Live ActionScript",
                     None,
                     has_doc,
@@ -1843,7 +2020,7 @@ impl NativeMenuSpec {
             let checked = editor.workspace.active_named_preset.is_none()
                 && !editor.workspace.unsaved_layout
                 && editor.workspace.template == template;
-            workspace_items.push(custom_item(
+            workspace_items.push(custom_check_item(
                 template.label(),
                 None,
                 true,
@@ -1857,7 +2034,7 @@ impl NativeMenuSpec {
             for name in editor.workspace.named_presets.keys() {
                 let checked =
                     editor.workspace.active_named_preset.as_deref() == Some(name.as_str());
-                workspace_items.push(custom_item(
+                workspace_items.push(custom_check_item(
                     name.clone(),
                     None,
                     true,
@@ -1909,7 +2086,7 @@ impl NativeMenuSpec {
         let appearance_items: Vec<NativeMenuItemSpec> = ThemeMode::ALL
             .into_iter()
             .map(|theme| {
-                custom_item(
+                custom_check_item(
                     theme.label(),
                     None,
                     true,
@@ -1922,7 +2099,7 @@ impl NativeMenuSpec {
         let density_items: Vec<NativeMenuItemSpec> = DensityPref::ALL
             .into_iter()
             .map(|density| {
-                custom_item(
+                custom_check_item(
                     density.label(),
                     None,
                     true,
@@ -1983,6 +2160,12 @@ impl NativeMenuSpec {
                 shortcut_label: String::new(),
                 enabled: true,
             },
+            unavailable_action_item(
+                "Duplicate window",
+                Some(Shortcut::alt_cmd(Key::K)),
+                false,
+                false,
+            ),
             NativeMenuItemSpec::Separator,
             NativeMenuItemSpec::Submenu {
                 label: "Panels".to_owned(),
@@ -2031,7 +2214,7 @@ impl NativeMenuSpec {
                 false,
                 NativeMenuAction::OpenCustomizeTools,
             ),
-            custom_item(
+            custom_check_item(
                 "UI Layout Studio…",
                 None,
                 true,
@@ -2120,6 +2303,7 @@ impl NativeMenuSpec {
                     shortcut: None,
                     shortcut_label: String::new(),
                     enabled: true,
+                    checkable: true,
                     checked: index == editor.active_session,
                     tooltip: Some(tooltip),
                     action: NativeMenuAction::ActivateDocumentTab(index),
@@ -2138,12 +2322,7 @@ impl NativeMenuSpec {
         let mut items = vec![
             cmd_item(editor, ctx, CommandId::HelpSearchFunctions),
             cmd_item(editor, ctx, CommandId::HelpManual),
-            cmd_item_labeled(
-                editor,
-                ctx,
-                "ActionScript Reference",
-                CommandId::HelpScriptingReference,
-            ),
+            cmd_item(editor, ctx, CommandId::HelpScriptingReference),
             NativeMenuItemSpec::Separator,
             cmd_item(editor, ctx, CommandId::HelpOpenExample),
             NativeMenuItemSpec::Separator,
@@ -2152,6 +2331,8 @@ impl NativeMenuSpec {
         if crate::panels::beta_feedback::is_beta_build() {
             items.push(cmd_item(editor, ctx, CommandId::HelpSendBetaFeedback));
         }
+        items.push(NativeMenuItemSpec::Separator);
+        items.push(cmd_item(editor, ctx, CommandId::HelpAbout));
         NativeTopMenuSpec {
             title: "Help".to_owned(),
             enabled: true,
@@ -2198,6 +2379,7 @@ impl Editor {
             NativeMenuAction::Command(cmd) => {
                 let _ = self.execute_menu_command(ctx, cmd);
             }
+            NativeMenuAction::Unavailable => {}
             NativeMenuAction::About => {
                 self.show_about = true;
             }
@@ -2355,6 +2537,11 @@ impl Editor {
                     }
                 }
             }
+            NativeMenuAction::ConvertToKeyframesStepped2s => {
+                if self.has_document() && self.can_convert_to_keyframes_stepped() {
+                    self.convert_to_keyframes_stepped(2, false);
+                }
+            }
             NativeMenuAction::CopyKeyframeEase => {
                 if self.has_document() && self.can_copy_active_keyframe_ease() {
                     let _ = self.copy_active_keyframe_ease();
@@ -2429,6 +2616,9 @@ impl Editor {
                 if self.has_document() {
                     self.authoring_modify.to_stage = !self.authoring_modify.to_stage;
                 }
+            }
+            NativeMenuAction::ShowPanel(panel) => {
+                self.show_panel(panel);
             }
             NativeMenuAction::TextSetSize(pt) => {
                 let size = f64::from(pt).clamp(1.0, 10000.0);
@@ -2620,6 +2810,25 @@ impl Editor {
             }
             NativeMenuAction::PreviousDocumentTab => {
                 self.cycle_document(ctx, true);
+            }
+        }
+    }
+
+    /// Execute a [`NativeSystemItemRole`] from the in-window NF2 menu bar (`T-377`).
+    pub fn execute_native_system_role(&self, ctx: &egui::Context, role: NativeSystemItemRole) {
+        match role {
+            NativeSystemItemRole::MinimizeWindow => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            }
+            NativeSystemItemRole::ZoomWindow => {
+                let maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+            }
+            NativeSystemItemRole::HideApp
+            | NativeSystemItemRole::HideOthers
+            | NativeSystemItemRole::ShowAll => {
+                #[cfg(all(target_os = "macos", not(test)))]
+                native::perform_app_hide_role(role);
             }
         }
     }
@@ -3187,6 +3396,19 @@ mod native {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ctx.clone());
         Ok(())
+    }
+
+    pub(super) fn perform_app_hide_role(role: NativeSystemItemRole) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let app = NSApplication::sharedApplication(mtm);
+        match role {
+            NativeSystemItemRole::HideApp => app.hide(None),
+            NativeSystemItemRole::HideOthers => app.hideOtherApplications(None),
+            NativeSystemItemRole::ShowAll => app.unhideAllApplications(None),
+            NativeSystemItemRole::MinimizeWindow | NativeSystemItemRole::ZoomWindow => {}
+        }
     }
 
     fn alloc_menu(cls: &AnyClass, title: &str) -> Option<Retained<AnyObject>> {

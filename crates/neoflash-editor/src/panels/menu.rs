@@ -1,15 +1,16 @@
-//! Application menu bar inside the NF2 top bar (File · Edit · View · Insert · Modify · Control ·
-//! Document · Window · Help) and the table of converted entry-point routes.
+//! Application menu bar inside the NF2 top bar (`NeoFlash · File · Edit · View · Insert · Modify ·
+//! Text · Control · Debug · Window · Help`) and the table of converted entry-point routes.
 //!
-//! Every item follows one rule: supported commands run directly on the editor, and entry-point
-//! strings shared with context menus and buttons resolve to real dialogs, panels, or previews.
-//! Labels, order, separators and shortcuts follow §8.
+//! Driven directly by [`crate::macos_menu::NativeMenuSpec`] so the in-window NF2 menu bar and the
+//! native macOS system menu bar share 100% 1:1 top-level menus, items, submenus, separators,
+//! dynamic `Undo`/`Redo` labels, shortcuts, enablement, and checkmarks (`T-377`).
 use crate::app::*;
-use crate::clipboard::ClipboardCommand;
+use crate::commands::CommandId;
+use crate::macos_menu::{NativeMenuAction, NativeMenuItemSpec, NativeMenuSpec, NativeSubmenuRole};
 use crate::theme::DesignUi as _;
-use crate::theme::ThemeMode;
-use crate::ui_icons::{menu_item, menu_item_enabled, menu_popup, menu_toggle};
-use crate::workspace::{PanelId, PanelPlacement};
+use crate::ui_icons::{menu_check_enabled, menu_item_enabled, menu_popup};
+#[cfg(test)]
+use crate::workspace::PanelId;
 use eframe::egui;
 use neoflash_core::*;
 use neoflash_ui::components::{self as nf, MenuItem};
@@ -18,6 +19,7 @@ use neoflash_ui::components::{self as nf, MenuItem};
 pub(crate) const NOT_AVAILABLE: &str = "Not available yet";
 
 /// Real panels in Window, in §8 order, with their shortcuts.
+#[cfg(test)]
 const WINDOW_PANELS: [(&str, &str, PanelId); 22] = [
     ("Timeline", "⌥⌘T", PanelId::Timeline),
     ("Tools", "⌘F2", PanelId::Tools),
@@ -43,6 +45,7 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 22] = [
     ("Filters", "", PanelId::Filters),
 ];
 
+#[cfg(test)]
 fn window_detachable_panels() -> impl Iterator<Item = (&'static str, PanelId)> {
     std::iter::once(("Brushes", PanelId::Brushes))
         .chain(WINDOW_PANELS.iter().map(|(name, _, panel)| (*name, *panel)))
@@ -96,12 +99,12 @@ impl ConvertedTrigger {
             "Tool options ▸ Deco tool…" => Some(Self::ToolOptions(Tool::Deco)),
             "Tool options ▸ Bone tool…" => Some(Self::ToolOptions(Tool::Bone)),
             "Library menu ▸ Font embedding…" => Some(Self::FontEmbedding),
-            "Edit ▸ Preferences…" => {
+            "Edit ▸ Preferences…" | "NeoFlash ▸ Preferences…" => {
                 Some(Self::Preferences(crate::panels::preferences::PAGE_GENERAL))
             }
-            "Edit ▸ Keyboard shortcuts…" => Some(Self::Preferences(
-                crate::panels::preferences::PAGE_SHORTCUTS,
-            )),
+            "Edit ▸ Keyboard shortcuts…" | "NeoFlash ▸ Keyboard shortcuts…" => Some(
+                Self::Preferences(crate::panels::preferences::PAGE_SHORTCUTS),
+            ),
             "Edit ▸ Find and replace" => Some(Self::FindReplace),
             "Window ▸ Panels ▸ Debugger" | "Window ▸ Debugger" => {
                 Some(Self::ShowPanel(PanelId::Debugger))
@@ -133,6 +136,32 @@ impl ConvertedTrigger {
             _ => None,
         }
     }
+}
+
+fn widest_menu_entry(items: &[NativeMenuItemSpec]) -> (&str, &str) {
+    let mut best: (&str, &str, usize) = ("", "", 0);
+    for item in items {
+        let (label, sc): (&str, &str) = match item {
+            NativeMenuItemSpec::Action {
+                label,
+                shortcut_label,
+                ..
+            } => (label.as_str(), shortcut_label.as_str()),
+            NativeMenuItemSpec::System {
+                label,
+                shortcut_label,
+                ..
+            } => (label.as_str(), shortcut_label.as_str()),
+            NativeMenuItemSpec::Submenu { label, .. } => (label.as_str(), "▸"),
+            NativeMenuItemSpec::Section(title) => (title.as_str(), ""),
+            NativeMenuItemSpec::Separator => continue,
+        };
+        let score = label.chars().count() + sc.chars().count();
+        if score > best.2 {
+            best = (label, sc, score);
+        }
+    }
+    (best.0, best.1)
 }
 
 #[cfg(test)]
@@ -223,16 +252,6 @@ impl Editor {
         }
     }
 
-    /// Checked menu row for a view setting; true when clicked (the caller toggles the setting).
-    fn view_toggle(ui: &mut egui::Ui, on: bool, label: &str, shortcut: &str) -> bool {
-        let mut value = on;
-        let clicked = menu_toggle(ui, &mut value, label, shortcut).changed();
-        if clicked {
-            ui.close();
-        }
-        clicked
-    }
-
     /// Disabled row for a designed command the editor cannot perform yet. Its shortcut does nothing.
     pub(crate) fn unavailable_item(ui: &mut egui::Ui, label: &str, shortcut: &str) {
         crate::ui_icons::hover_tooltip(
@@ -290,6 +309,131 @@ impl Editor {
         }
     }
 
+    fn render_top_menu_popup(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        title: &str,
+        clipboard_target: &crate::clipboard::ClipboardTarget,
+        edit_open: &mut bool,
+    ) {
+        if false {
+            self.modify_menu_ui(ui);
+        }
+        if title == "Edit" {
+            *edit_open = true;
+            if !self.clipboard.menu_open || self.clipboard.menu_viewport != Some(ctx.viewport_id())
+            {
+                self.clipboard.menu_target = Some(clipboard_target.clone());
+            }
+        }
+        let Some(top_spec) = NativeMenuSpec::build_top_menu(self, Some(ctx), title) else {
+            return;
+        };
+        let (widest_label, widest_shortcut) = widest_menu_entry(&top_spec.items);
+        let width = crate::ui_icons::menu_width(ui, widest_label, widest_shortcut);
+        crate::ui_icons::menu_contents(ui, width, |ui| {
+            self.render_menu_items_ui(ui, ctx, &top_spec.items);
+        });
+    }
+
+    fn render_menu_items_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        items: &[NativeMenuItemSpec],
+    ) {
+        for item in items {
+            match item {
+                NativeMenuItemSpec::Separator => {
+                    nf::menu_separator(ui);
+                }
+                NativeMenuItemSpec::Section(title) => {
+                    nf::menu_section(ui, title);
+                }
+                NativeMenuItemSpec::System {
+                    label,
+                    role,
+                    shortcut_label,
+                    enabled,
+                    ..
+                } => {
+                    if menu_item_enabled(ui, *enabled, label, shortcut_label).clicked() {
+                        self.execute_native_system_role(ctx, *role);
+                        ui.close();
+                    }
+                }
+                NativeMenuItemSpec::Action {
+                    label,
+                    shortcut_label,
+                    enabled,
+                    checkable,
+                    checked,
+                    tooltip,
+                    action,
+                    ..
+                } => {
+                    if *action == NativeMenuAction::Unavailable {
+                        if *checkable {
+                            let resp =
+                                menu_check_enabled(ui, false, label, shortcut_label, *checked);
+                            crate::ui_icons::hover_tooltip(
+                                resp,
+                                label,
+                                (!shortcut_label.is_empty()).then_some(shortcut_label.as_str()),
+                                tooltip.as_deref().or(Some(NOT_AVAILABLE)),
+                            );
+                        } else {
+                            Self::unavailable_item(ui, label, shortcut_label);
+                        }
+                        continue;
+                    }
+                    let resp = if *checkable {
+                        menu_check_enabled(ui, *enabled, label, shortcut_label, *checked)
+                    } else {
+                        menu_item_enabled(ui, *enabled, label, shortcut_label)
+                    };
+                    let resp = if let Some(tip) = tooltip {
+                        nf::tooltip(
+                            resp,
+                            tip,
+                            (!shortcut_label.is_empty()).then_some(shortcut_label.as_str()),
+                        )
+                    } else {
+                        resp
+                    };
+                    if resp.clicked() {
+                        if *action == NativeMenuAction::Command(CommandId::HelpSearchFunctions) {
+                            self.open_function_search_at(ctx, Some(resp.rect));
+                        } else {
+                            self.execute_native_menu_action(ctx, action.clone());
+                        }
+                        ui.close();
+                    }
+                }
+                NativeMenuItemSpec::Submenu {
+                    label,
+                    enabled,
+                    role,
+                    items: sub_items,
+                } => {
+                    if matches!(role, Some(NativeSubmenuRole::Services))
+                        || (!*enabled && sub_items.is_empty())
+                    {
+                        Self::unavailable_submenu(ui, label);
+                    } else {
+                        let (widest_label, widest_shortcut) = widest_menu_entry(sub_items);
+                        ui.add_enabled_ui_semantic(*enabled, |ui| {
+                            menu_popup(ui, label, widest_label, widest_shortcut, |ui| {
+                                self.render_menu_items_ui(ui, ctx, sub_items);
+                            });
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     pub fn menu(&mut self, ctx: &egui::Context) {
         let clipboard_target = self.clipboard_target(ctx);
         let mut edit_open = false;
@@ -304,6 +448,9 @@ impl Editor {
                     .inner_margin(egui::Margin::symmetric(12, 0)),
             )
             .show(ctx, |ui| {
+                if self.has_modal_dialog_in(ctx) {
+                    ui.disable_semantic();
+                }
                 let bar = ui.max_rect();
                 ui.painter().hline(
                     bar.x_range(),
@@ -311,113 +458,42 @@ impl Editor {
                     egui::Stroke::new(1.0_f32, nf.border_subtle),
                 );
                 ui.horizontal_centered(|ui| {
-                    // Figma: logo, 4 pt, product name (Title), then the menu titles.
+                    // Figma: logo, 4 pt, product name (Title, interactive NeoFlash app menu), then the menu titles.
                     ui.spacing_mut().item_spacing.x = 4.;
                     let logo_side = neoflash_ui::metrics::density().pick(28.0, 22.0, 18.0);
                     neoflash_ui::components::logo(ui, logo_side);
-                    ui.label(
-                        neoflash_ui::typography::rich("NeoFlash", neoflash_ui::TextStyle::Title)
-                            .color(nf.text_primary),
-                    );
-                    ui.add_space(12.);
                     let menus_end = neoflash_ui::components::menu_bar(ui, |ui| {
-                        menu_popup(ui, "File", "Publish settings…", "⇧F12", |ui| {
-                            self.file_menu(ui, ctx);
-                        });
-                        let undo_w = self.undo_menu_label();
-                        let redo_w = self.redo_menu_label();
-                        let edit_widest = ["Keyboard shortcuts…", undo_w.as_str(), redo_w.as_str()]
-                            .into_iter()
-                            .max_by_key(|s| s.len())
-                            .unwrap_or("Keyboard shortcuts…");
-                        menu_popup(ui, "Edit", edit_widest, "⌥⇧⌘K", |ui| {
-                            edit_open = true;
-                            if !self.clipboard.menu_open
-                                || self.clipboard.menu_viewport != Some(ctx.viewport_id())
-                            {
-                                self.clipboard.menu_target = Some(clipboard_target.clone());
+                        for title in NativeMenuSpec::TOP_LEVEL_TITLES {
+                            if title == "NeoFlash" {
+                                ui.menu_button(
+                                    neoflash_ui::typography::rich(
+                                        "NeoFlash",
+                                        neoflash_ui::TextStyle::Title,
+                                    )
+                                    .color(nf.text_primary),
+                                    |ui| {
+                                        self.render_top_menu_popup(
+                                            ui,
+                                            ctx,
+                                            title,
+                                            &clipboard_target,
+                                            &mut edit_open,
+                                        );
+                                    },
+                                );
+                                ui.add_space(8.);
+                            } else {
+                                ui.menu_button(title, |ui| {
+                                    self.render_top_menu_popup(
+                                        ui,
+                                        ctx,
+                                        title,
+                                        &clipboard_target,
+                                        &mut edit_open,
+                                    );
+                                });
                             }
-                            self.edit_menu(ui, ctx);
-                        });
-                        menu_popup(ui, "View", "Rulers, guides & grid…", "⌥⇧⌘R", |ui| {
-                            ui.add_enabled_ui_semantic(self.has_document(), |ui| {
-                                self.view_menu(ui)
-                            });
-                        });
-                        menu_popup(ui, "Insert", "Blank keyframe", "⌘F8", |ui| {
-                            ui.add_enabled_ui_semantic(self.has_document(), |ui| {
-                                self.insert_menu(ui)
-                            });
-                        });
-                        ui.add_enabled_ui_semantic(self.has_document(), |ui| {
-                            self.modify_menu_ui(ui)
-                        });
-                        menu_popup(ui, "Control", "Enable simple buttons", "⌥⌘B", |ui| {
-                            ui.add_enabled_ui_semantic(self.has_document(), |ui| {
-                                self.control_menu(ui)
-                            });
-                        });
-                        menu_popup(ui, "Document", "Document settings…", "⌘J", |ui| {
-                            self.document_menu(ui, ctx);
-                        });
-                        menu_popup(ui, "Window", "Compiler errors", "⇧⌘F9", |ui| {
-                            self.window_menu(ui, ctx);
-                        });
-                        menu_popup(ui, "Help", "Scripting Reference…", "F1", |ui| {
-                            use crate::commands::CommandId as C;
-                            let search = menu_item(
-                                ui,
-                                "Search functions…",
-                                &self.sc(C::HelpSearchFunctions),
-                            );
-                            if search.clicked() {
-                                self.open_function_search_at(ctx, Some(search.rect));
-                                ui.close();
-                            }
-                            if menu_item(ui, "Help", &self.sc(C::HelpManual)).clicked() {
-                                self.open_help_manual(ctx);
-                                ui.close();
-                            }
-                            if menu_item(
-                                ui,
-                                "Scripting Reference…",
-                                &self.sc(C::HelpScriptingReference),
-                            )
-                            .clicked()
-                            {
-                                self.open_scripting_reference(ctx);
-                                ui.close();
-                            }
-                            nf::menu_separator(ui);
-                            if menu_item(ui, "Open example", &self.sc(C::HelpOpenExample)).clicked()
-                            {
-                                self.request(Pending::Demo, ctx);
-                                ui.close();
-                            }
-                            nf::menu_separator(ui);
-                            if menu_item(ui, "Check for Updates…", &self.sc(C::HelpCheckForUpdates))
-                                .clicked()
-                            {
-                                let _ = self.execute_menu_command(ctx, C::HelpCheckForUpdates);
-                                ui.close();
-                            }
-                            if crate::panels::beta_feedback::is_beta_build()
-                                && menu_item(
-                                    ui,
-                                    "Send Beta Feedback…",
-                                    &self.sc(C::HelpSendBetaFeedback),
-                                )
-                                .clicked()
-                            {
-                                self.open_beta_feedback();
-                                ui.close();
-                            }
-                            nf::menu_separator(ui);
-                            if menu_item(ui, "About NeoFlash", &self.sc(C::HelpAbout)).clicked() {
-                                self.show_about = true;
-                                ui.close();
-                            }
-                        });
+                        }
                         ui.cursor().left()
                     });
                     let actions = egui::Rect::from_min_max(
@@ -441,939 +517,6 @@ impl Editor {
             self.clipboard.menu_target = None;
             self.clipboard.menu_viewport = None;
         }
-    }
-
-    fn recent_file_label(path: &std::path::Path) -> String {
-        path.file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| path.display().to_string())
-    }
-
-    /// File (§8).
-    fn file_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        use crate::commands::CommandId as C;
-        if menu_item(ui, "New", &self.sc(C::FileNew)).clicked() {
-            self.request(Pending::New, ctx);
-            ui.close();
-        }
-        if menu_item(ui, "Open…", &self.sc(C::FileOpen)).clicked() {
-            self.request(Pending::Open, ctx);
-            ui.close();
-        }
-        let recent = self.workspace.general.existing_recent_files();
-        let widest_recent = recent
-            .iter()
-            .map(|p| Self::recent_file_label(p))
-            .chain(std::iter::once("Clear recent".to_owned()))
-            .max_by_key(|s| s.len())
-            .unwrap_or_else(|| "Clear recent".to_owned());
-        ui.add_enabled_ui_semantic(!recent.is_empty(), |ui| {
-            menu_popup(ui, "Open recent", &widest_recent, "", |ui| {
-                for path in recent {
-                    let label = Self::recent_file_label(&path);
-                    let tooltip = path.display().to_string();
-                    if nf::tooltip(menu_item(ui, &label, ""), &tooltip, None).clicked() {
-                        self.request(Pending::OpenPath(path), ctx);
-                        ui.close();
-                    }
-                }
-                nf::menu_separator(ui);
-                if menu_item(ui, "Clear recent", "").clicked() {
-                    self.workspace.clear_recent_files();
-                    ui.close();
-                }
-            });
-        });
-        ui.add_enabled_ui_semantic(self.has_document(), |ui| {
-            if menu_item(ui, "Close", &self.sc(C::FileClose)).clicked() {
-                self.request(Pending::CloseDocument, ctx);
-                ui.close();
-            }
-            nf::menu_separator(ui);
-            if menu_item(ui, "Save", &self.sc(C::FileSave)).clicked() {
-                self.save(false);
-                ui.close();
-            }
-            if menu_item(ui, "Save as…", &self.sc(C::FileSaveAs)).clicked() {
-                self.save(true);
-                ui.close();
-            }
-            if menu_item_enabled(ui, self.can_revert(), "Revert", &self.sc(C::FileRevert)).clicked()
-            {
-                self.request_revert();
-                ui.close();
-            }
-        });
-        nf::menu_separator(ui);
-        menu_popup(
-            ui,
-            "Import",
-            "Open… (Legacy FLA / XFL / SWF)",
-            &self.sc(C::FileImportLegacyFlash),
-            |ui| {
-                ui.add_enabled_ui_semantic(self.has_document(), |ui| {
-                    if menu_item(
-                        ui,
-                        "Import graphics to Stage…",
-                        &self.sc(C::FileImportGraphics),
-                    )
-                    .clicked()
-                    {
-                        self.import_graphics_dialog();
-                        ui.close();
-                    }
-                    if menu_item(ui, "Import to Library…", "").clicked() {
-                        self.import_to_library_dialog();
-                        ui.close();
-                    }
-                    if menu_item(ui, "Import colour palette…", "").clicked() {
-                        self.import_palette_dialog();
-                        ui.close();
-                    }
-                    if menu_item(ui, "Import video…", "").clicked() {
-                        self.open_import_video(ui.ctx());
-                        ui.close();
-                    }
-                    if menu_item_enabled(ui, self.layer_editable(), "Empty video object", "")
-                        .clicked()
-                    {
-                        self.finish_edits();
-                        self.add_element(
-                            ElementKind::Video {
-                                width: 320.,
-                                height: 240.,
-                            },
-                            80.,
-                            80.,
-                        );
-                        ui.close();
-                    }
-                });
-                nf::menu_separator(ui);
-                if menu_item(
-                    ui,
-                    "Open… (Legacy FLA / XFL / SWF)",
-                    &self.sc(C::FileImportLegacyFlash),
-                )
-                .clicked()
-                {
-                    self.request(Pending::Import, ctx);
-                    ui.close();
-                }
-            },
-        );
-        ui.add_enabled_ui_semantic(self.has_document(), |ui| {
-            menu_popup(
-                ui,
-                "Export",
-                "Export After Effects (.aep)…",
-                &self.sc(C::FileExportAfterEffects),
-                |ui| {
-                    if menu_item(ui, "Export image…", "").clicked() {
-                        self.open_export_image(ui.ctx());
-                        ui.close();
-                    }
-                    if menu_item(ui, "Export video…", &self.sc(C::FileExportVideo)).clicked() {
-                        self.open_export_video(None);
-                        ui.close();
-                    }
-                    if menu_item(ui, "Export audio…", &self.sc(C::FileExportAudio)).clicked() {
-                        self.open_export_audio(ui.ctx(), None);
-                        ui.close();
-                    }
-                    nf::menu_separator(ui);
-                    if menu_item(ui, "Export Lottie…", &self.sc(C::FileExportLottie)).clicked() {
-                        self.export_lottie_dialog(None);
-                        ui.close();
-                    }
-                    if menu_item(
-                        ui,
-                        "Export After Effects (.aep)…",
-                        &self.sc(C::FileExportAfterEffects),
-                    )
-                    .clicked()
-                    {
-                        self.export_aep_dialog(None, None);
-                        ui.close();
-                    }
-                    if menu_item(
-                        ui,
-                        "Export Texture Atlas…",
-                        &self.sc(C::FileExportTextureAtlas),
-                    )
-                    .clicked()
-                    {
-                        self.export_texture_atlas_dialog(None);
-                        ui.close();
-                    }
-                    if menu_item(ui, "Export Flash Movie (.swf)…", &self.sc(C::FileExportSwf))
-                        .clicked()
-                    {
-                        self.export_swf_dialog(None);
-                        ui.close();
-                    }
-                    menu_popup(
-                        ui,
-                        "Export SWF Target",
-                        "Flash Player 10 (Visuals Only)…",
-                        "",
-                        |ui| {
-                            for (label, cmd_id, profile, scriptless) in [
-                                (
-                                    "Flash Player 8 (AVM1)…",
-                                    C::FileExportSwfFp8,
-                                    neoflash_export::SwfPublishProfile::FlashPlayer8Avm1,
-                                    false,
-                                ),
-                                (
-                                    "Flash Player 9 (AVM2)…",
-                                    C::FileExportSwfFp9,
-                                    neoflash_export::SwfPublishProfile::FlashPlayer9Avm2,
-                                    false,
-                                ),
-                                (
-                                    "Flash Player 10 (AVM2)…",
-                                    C::FileExportSwfFp10,
-                                    neoflash_export::SwfPublishProfile::FlashPlayer10Avm2,
-                                    false,
-                                ),
-                                (
-                                    "Flash Player 10 (Visuals Only)…",
-                                    C::FileExportSwfFp10Scriptless,
-                                    neoflash_export::SwfPublishProfile::FlashPlayer10Avm2,
-                                    true,
-                                ),
-                            ] {
-                                if menu_item(ui, label, &self.sc(cmd_id)).clicked() {
-                                    self.export_swf_profile_dialog(profile, scriptless, None);
-                                    ui.close();
-                                }
-                            }
-                        },
-                    );
-                    menu_popup(
-                        ui,
-                        "Export FLA / XFL Target",
-                        "Legacy Binary FLA (Flash CS4 / v10)…",
-                        "",
-                        |ui| {
-                            for profile in neoflash_export::FlaTargetProfile::ALL {
-                                let label = format!("{}…", profile.label());
-                                if menu_item(ui, &label, "").clicked() {
-                                    self.export_fla_profile_dialog(profile, None);
-                                    ui.close();
-                                }
-                            }
-                        },
-                    );
-                },
-            );
-            nf::menu_separator(ui);
-            if menu_item(ui, "Publish settings…", &self.sc(C::FilePublishSettings)).clicked() {
-                self.open_publish_settings();
-                ui.close();
-            }
-            let publish_sc = self.tooltip_sc(C::FilePublish);
-            if nf::tooltip(
-                menu_item(ui, "Publish", &self.sc(C::FilePublish)),
-                "Choose an output folder and publish the project as HTML5",
-                publish_sc.as_deref(),
-            )
-            .clicked()
-            {
-                self.export(false);
-                ui.close();
-            }
-            nf::menu_separator(ui);
-            Self::unavailable_item(ui, "Print…", "⌘P");
-        });
-    }
-
-    /// Edit (§8) with the Edit ▸ Timeline submenu.
-    fn edit_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        use crate::commands::CommandId as C;
-        ui.add_enabled_ui_semantic(self.has_document(), |ui| {
-            let undo_label = self.undo_menu_label();
-            let redo_label = self.redo_menu_label();
-            if menu_item_enabled(
-                ui,
-                self.history.can_undo() || self.vector.draft.is_some(),
-                &undo_label,
-                &self.sc(C::EditUndo),
-            )
-            .clicked()
-            {
-                self.undo();
-                ui.close();
-            }
-            if menu_item_enabled(
-                ui,
-                self.history.can_redo(),
-                &redo_label,
-                &self.sc(C::EditRedo),
-            )
-            .clicked()
-            {
-                self.redo();
-                ui.close();
-            }
-            nf::menu_separator(ui);
-            let text_target = self
-                .clipboard
-                .menu_target
-                .as_ref()
-                .is_some_and(|target| target.is_text());
-            let can_copy = text_target || !self.selection.is_empty();
-            let can_paste = text_target || self.layer_editable();
-            for (label, cmd_id, command, enabled) in [
-                ("Cut", C::EditCut, ClipboardCommand::Cut, can_copy),
-                ("Copy", C::EditCopy, ClipboardCommand::Copy, can_copy),
-                (
-                    "Paste in centre",
-                    C::EditPaste,
-                    ClipboardCommand::Paste,
-                    can_paste,
-                ),
-                (
-                    "Paste in place",
-                    C::EditPasteInPlace,
-                    ClipboardCommand::PasteInPlace,
-                    !text_target && self.layer_editable(),
-                ),
-            ] {
-                if menu_item_enabled(ui, enabled, label, &self.sc(cmd_id)).clicked() {
-                    self.request_clipboard(ctx, command);
-                    ui.close();
-                }
-            }
-            if menu_item_enabled(
-                ui,
-                !self.selection.is_empty(),
-                "Clear",
-                &self.sc(C::EditClear),
-            )
-            .clicked()
-            {
-                self.delete_selected();
-                ui.close();
-            }
-            nf::menu_separator(ui);
-            if menu_item_enabled(
-                ui,
-                !self.selection.is_empty(),
-                "Duplicate",
-                &self.sc(C::EditDuplicate),
-            )
-            .clicked()
-            {
-                self.duplicate();
-                ui.close();
-            }
-            if menu_item(ui, "Select all", &self.sc(C::EditSelectAll)).clicked() {
-                self.select_all();
-                ui.close();
-            }
-            if menu_item_enabled(
-                ui,
-                !self.selection.is_empty(),
-                "Deselect",
-                &self.sc(C::EditDeselect),
-            )
-            .clicked()
-            {
-                self.finish_edits();
-                self.clear_selection();
-                ui.close();
-            }
-            nf::menu_separator(ui);
-            if menu_item(ui, "Find and replace", &self.sc(C::EditFindAndReplace)).clicked() {
-                self.open_find_replace();
-                ui.close();
-            }
-            menu_popup(ui, "Timeline", "Synchronise symbols", "⌥⌘X", |ui| {
-                self.edit_timeline_menu(ui);
-            });
-            nf::menu_separator(ui);
-            let instance = self.selected_instance_symbol();
-            if menu_item_enabled(
-                ui,
-                instance.is_some() || !self.editing_scene(),
-                "Edit symbols",
-                &self.sc(C::EditSymbols),
-            )
-            .clicked()
-            {
-                self.toggle_edit_symbols();
-                ui.close();
-            }
-            if menu_item_enabled(ui, instance.is_some(), "Edit selected", "").clicked() {
-                if let Some(id) = instance.clone() {
-                    self.enter_symbol_isolated(id);
-                }
-                ui.close();
-            }
-            if menu_item_enabled(ui, instance.is_some(), "Edit in place", "").clicked() {
-                self.enter_selected_symbol_in_place();
-                ui.close();
-            }
-            nf::menu_separator(ui);
-            if self.has_ready_ai_connection() {
-                if menu_item(ui, "Send to AI…", &self.sc(C::EditSendToAi)).clicked() {
-                    let _ = self.open_send_to_ai();
-                    ui.close();
-                }
-                nf::menu_separator(ui);
-            }
-        });
-        if menu_item(ui, "Preferences…", &self.sc(C::EditPreferences)).clicked() {
-            self.open_preferences(crate::panels::preferences::PAGE_GENERAL);
-            ui.close();
-        }
-        if menu_item(
-            ui,
-            "Keyboard shortcuts…",
-            &self.sc(C::EditKeyboardShortcuts),
-        )
-        .clicked()
-        {
-            self.open_preferences(crate::panels::preferences::PAGE_SHORTCUTS);
-            ui.close();
-        }
-    }
-
-    /// Edit ▸ Timeline (§8).
-    fn edit_timeline_menu(&mut self, ui: &mut egui::Ui) {
-        use crate::commands::CommandId as C;
-        use crate::timeline_edit::FrameCommand as F;
-        for (label, cmd) in [
-            ("Cut frames", F::Cut),
-            ("Copy frames", F::Copy),
-            ("Paste frames", F::Paste),
-            ("Clear frames", F::Clear),
-            ("Remove frames", F::Remove),
-        ] {
-            let sc = self.sc(C::for_frame_command(cmd));
-            self.frame_command_item(ui, label, &sc, cmd);
-        }
-        nf::menu_separator(ui);
-        if menu_item_enabled(
-            ui,
-            self.can_copy_motion(),
-            "Copy motion",
-            &self.sc(C::EditTimelineCopyMotion),
-        )
-        .clicked()
-        {
-            self.copy_motion();
-            ui.close();
-        }
-        if menu_item_enabled(
-            ui,
-            self.can_paste_motion(),
-            "Paste motion",
-            &self.sc(C::EditTimelinePasteMotion),
-        )
-        .clicked()
-        {
-            self.paste_motion();
-            ui.close();
-        }
-        if menu_item_enabled(ui, self.can_paste_motion(), "Paste motion special…", "").clicked() {
-            self.open_paste_motion_special();
-            ui.close();
-        }
-        let sel_all_sc = self.sc(C::EditTimelineSelectAllFrames);
-        self.frame_command_item(ui, "Select all frames", &sel_all_sc, F::SelectAll);
-        if menu_item_enabled(
-            ui,
-            self.can_reverse_frames(),
-            "Reverse frames",
-            &self.sc(C::EditTimelineReverseFrames),
-        )
-        .clicked()
-        {
-            self.reverse_frames();
-            ui.close();
-        }
-        if menu_item_enabled(
-            ui,
-            self.can_sync_symbols(),
-            "Synchronise symbols",
-            &self.sc(C::EditTimelineSyncSymbols),
-        )
-        .clicked()
-        {
-            self.sync_symbols();
-            ui.close();
-        }
-    }
-
-    /// View (§8) with Magnification, Preview mode, Grid, Guides and Snapping submenus.
-    fn view_menu(&mut self, ui: &mut egui::Ui) {
-        use crate::commands::{CommandId as C, has_override};
-        if menu_item(ui, "Zoom in", &self.sc(C::ViewZoomIn)).clicked() {
-            self.zoom_in();
-            ui.close();
-        }
-        if menu_item(ui, "Zoom out", &self.sc(C::ViewZoomOut)).clicked() {
-            self.zoom_out();
-            ui.close();
-        }
-        menu_popup(ui, "Magnification", "Fit in window", "⌘0", |ui| {
-            for (label, zoom) in [("25 %", 0.25), ("50 %", 0.5)] {
-                if menu_item(ui, label, "").clicked() {
-                    self.finish_edits();
-                    self.zoom = zoom;
-                    self.mark_manual_stage_view();
-                    ui.close();
-                }
-            }
-            if menu_item(ui, "100 %", &self.sc(C::ViewZoom100)).clicked() {
-                self.zoom_actual();
-                ui.close();
-            }
-            for (label, zoom) in [("200 %", 2.), ("400 %", 4.)] {
-                if menu_item(ui, label, "").clicked() {
-                    self.finish_edits();
-                    self.zoom = zoom;
-                    self.mark_manual_stage_view();
-                    ui.close();
-                }
-            }
-            nf::menu_separator(ui);
-            if menu_item(ui, "Fit in window", &self.sc(C::ViewFitInWindow)).clicked() {
-                self.fit_stage();
-                ui.close();
-            }
-        });
-        nf::menu_separator(ui);
-        Self::unavailable_submenu(ui, "Preview mode");
-        // The pasteboard is always shown; hiding it is not available yet.
-        let pasteboard_resp = ui.add_enabled(
-            false,
-            MenuItem::new("Pasteboard").shortcut("⇧⌘W").checked(true),
-        );
-        crate::ui_icons::hover_tooltip(
-            pasteboard_resp,
-            "Pasteboard",
-            Some("⇧⌘W"),
-            Some(NOT_AVAILABLE),
-        );
-        nf::menu_separator(ui);
-        // Rulers, Grid and Guides toggle the same view settings as the zoom control and the View
-        // settings popover (stage_view.rs); the "…" items open that popover.
-        let v = self.stage_view.prefs.clone();
-        if Self::view_toggle(ui, v.rulers, "Rulers", &self.sc(C::ViewRulers)) {
-            self.toggle_rulers();
-        }
-        menu_popup(ui, "Grid", "Show over objects", "⇧⌘'", |ui| {
-            if Self::view_toggle(ui, v.grid_show, "Show grid", &self.sc(C::ViewGridShow)) {
-                self.toggle_grid();
-            }
-            if Self::view_toggle(ui, v.grid_snap, "Snap to grid", &self.sc(C::ViewGridSnap)) {
-                self.toggle_grid_snap();
-            }
-            if Self::view_toggle(ui, v.grid_over_objects, "Show over objects", "") {
-                self.toggle_grid_over_objects();
-            }
-            nf::menu_separator(ui);
-            if menu_item(ui, "Edit grid…", &self.sc(C::ViewGridEdit)).clicked() {
-                self.open_view_settings();
-                ui.close();
-            }
-        });
-        menu_popup(ui, "Guides", "Snap to guides", "⇧⌘;", |ui| {
-            if Self::view_toggle(
-                ui,
-                v.guides_show,
-                "Show guides",
-                &self.sc(C::ViewGuidesShow),
-            ) {
-                self.toggle_guides();
-            }
-            let lock_sc = if has_override(&self.workspace.shortcuts, C::ViewGuidesLock) {
-                self.sc(C::ViewGuidesLock)
-            } else {
-                String::new()
-            };
-            if Self::view_toggle(ui, v.guides_lock, "Lock guides", &lock_sc) {
-                self.toggle_guide_lock();
-            }
-            if Self::view_toggle(
-                ui,
-                v.guides_snap,
-                "Snap to guides",
-                &self.sc(C::ViewGuidesSnap),
-            ) {
-                self.toggle_guide_snap();
-            }
-            nf::menu_separator(ui);
-            if menu_item(ui, "Edit guides…", "").clicked() {
-                self.open_view_settings();
-                ui.close();
-            }
-        });
-        Self::unavailable_submenu(ui, "Snapping");
-        nf::menu_separator(ui);
-        if menu_item(ui, "Rulers, guides & grid…", "").clicked() {
-            self.open_view_settings();
-            ui.close();
-        }
-        let toolbar = self.workspace.stage_toolbar;
-        menu_popup(ui, "Stage toolbar", "Collapsed", "", |ui| {
-            for mode in crate::workspace::StageToolbarMode::ALL {
-                let mut selected = toolbar == mode;
-                if menu_toggle(ui, &mut selected, mode.label(), "").clicked() {
-                    self.workspace.stage_toolbar = mode;
-                    ui.close();
-                }
-            }
-        });
-        let mut show_hints = self.timeline_shape_hints.show;
-        let show_hints_sc = self.sc(C::ViewShowShapeHints);
-        if menu_toggle(ui, &mut show_hints, "Show shape hints", &show_hints_sc).changed() {
-            self.toggle_shape_hints();
-            ui.close();
-        }
-        menu_popup(ui, "Stage A/B", "Capture Snapshot B", "", |ui| {
-            let ab_mode = self.stage_ab_mode();
-            if menu_item(ui, "Capture Snapshot A", &self.sc(C::CaptureStageA)).clicked() {
-                let label = format!("A (F{})", self.frame + 1);
-                let _ = self.capture_stage_snapshot_a(label);
-                ui.close();
-            }
-            if menu_item(ui, "Capture Snapshot B", &self.sc(C::CaptureStageB)).clicked() {
-                let label = format!("B (F{})", self.frame + 1);
-                let _ = self.capture_stage_snapshot_b(label);
-                ui.close();
-            }
-            nf::menu_separator(ui);
-            if Self::view_toggle(
-                ui,
-                ab_mode == crate::stage::StageAbComparisonMode::SplitVertical,
-                "Split A/B View",
-                &self.sc(C::ToggleStageAbSplit),
-            ) {
-                let _ = self.toggle_stage_ab_split();
-            }
-            if menu_item_enabled(
-                ui,
-                ab_mode != crate::stage::StageAbComparisonMode::Off,
-                "Disable A/B View",
-                "",
-            )
-            .clicked()
-            {
-                self.set_stage_ab_mode(crate::stage::StageAbComparisonMode::Off);
-                ui.close();
-            }
-        });
-    }
-
-    /// Insert (§8).
-    fn insert_menu(&mut self, ui: &mut egui::Ui) {
-        use crate::commands::CommandId as C;
-        if menu_item(ui, "New symbol…", &self.sc(C::InsertNewSymbol)).clicked() {
-            self.begin_new_symbol();
-            ui.close();
-        }
-        nf::menu_separator(ui);
-        if menu_item(ui, "Layer", &self.sc(C::InsertLayer)).clicked() {
-            self.insert_timeline_layer();
-            ui.close();
-        }
-        if menu_item(ui, "Layer folder", &self.sc(C::InsertLayerFolder)).clicked() {
-            self.insert_layer_folder(self.layer);
-            ui.close();
-        }
-        if menu_item_enabled(
-            ui,
-            self.can_add_motion_guide_to(self.layer),
-            "Motion guide",
-            &self.sc(C::InsertMotionGuide),
-        )
-        .clicked()
-        {
-            self.add_motion_guide();
-            ui.close();
-        }
-        nf::menu_separator(ui);
-        let editable = self.layer_editable();
-        if menu_item_enabled(ui, editable, "Frame", &self.sc(C::InsertFrame)).clicked() {
-            self.finish_edits();
-            self.insert_frame();
-            ui.close();
-        }
-        if menu_item_enabled(ui, editable, "Keyframe", &self.sc(C::InsertKeyframe)).clicked() {
-            self.finish_edits();
-            self.make_key(false);
-            ui.close();
-        }
-        if menu_item_enabled(
-            ui,
-            editable,
-            "Blank keyframe",
-            &self.sc(C::InsertBlankKeyframe),
-        )
-        .clicked()
-        {
-            self.finish_edits();
-            self.make_key(true);
-            ui.close();
-        }
-        nf::menu_separator(ui);
-        let tweenable = self.can_create_tween();
-        for (label, cmd_id, kind) in [
-            ("Classic tween", C::InsertClassicTween, TweenKind::Classic),
-            ("Shape tween", C::InsertShapeTween, TweenKind::Shape),
-            ("Motion tween", C::InsertMotionTween, TweenKind::Motion),
-        ] {
-            if menu_item_enabled(
-                ui,
-                tweenable && self.current_tween() != Some(kind),
-                label,
-                &self.sc(cmd_id),
-            )
-            .clicked()
-            {
-                self.create_tween(kind);
-                ui.close();
-            }
-        }
-        nf::menu_separator(ui);
-        if menu_item(
-            ui,
-            "Timeline Marker at Playhead",
-            &self.sc(C::AddTimelineMarker),
-        )
-        .clicked()
-        {
-            let _ = self.execute_menu_command(ui.ctx(), C::AddTimelineMarker);
-            ui.close();
-        }
-        if menu_item(ui, "Scene", &self.sc(C::InsertScene)).clicked() {
-            self.new_scene();
-            ui.close();
-        }
-    }
-
-    /// Control (§8).
-    fn control_menu(&mut self, ui: &mut egui::Ui) {
-        use crate::commands::CommandId as C;
-        if menu_item(
-            ui,
-            if self.playing { "Stop" } else { "Play" },
-            &self.sc(C::ControlPlay),
-        )
-        .clicked()
-        {
-            self.set_playing(!self.playing);
-            ui.close();
-        }
-        let last = self.symbol().timeline.frame_count.saturating_sub(1);
-        for (label, cmd_id, frame) in [
-            ("Rewind", C::ControlRewind, 0),
-            ("Go to end", C::ControlGoToEnd, last),
-            (
-                "Step forward one frame",
-                C::ControlStepForward,
-                (self.frame + 1).min(last),
-            ),
-            (
-                "Step back one frame",
-                C::ControlStepBack,
-                self.frame.saturating_sub(1),
-            ),
-        ] {
-            if menu_item(ui, label, &self.sc(cmd_id)).clicked() {
-                self.seek_frame(frame);
-                ui.close();
-            }
-        }
-        nf::menu_separator(ui);
-        if menu_item(ui, "Test movie", &self.sc(C::ControlTestMovie)).clicked() {
-            self.export(true);
-            ui.close();
-        }
-        if menu_item(ui, "Test scene", &self.sc(C::ControlTestScene)).clicked() {
-            self.test_scene();
-            ui.close();
-        }
-        nf::menu_separator(ui);
-        let loop_sc = self.sc(C::ControlLoopPlayback);
-        menu_toggle(
-            ui,
-            &mut self.workspace.timeline.loop_playback,
-            "Loop playback",
-            &loop_sc,
-        );
-        let all_scenes_sc = self.sc(C::ControlPlayAllScenes);
-        menu_toggle(
-            ui,
-            &mut self.timeline_edit.play_all_scenes,
-            "Play all scenes",
-            &all_scenes_sc,
-        );
-        let mut muted = self.timeline_audio.muted;
-        if menu_toggle(
-            ui,
-            &mut muted,
-            "Mute sounds",
-            &self.sc(C::ControlMuteSounds),
-        )
-        .changed()
-        {
-            self.toggle_mute_sounds();
-        }
-        nf::menu_separator(ui);
-        let mut simple = self.enable_simple_buttons;
-        let simple_sc = self.sc(C::ControlEnableSimpleButtons);
-        if menu_toggle(ui, &mut simple, "Enable simple buttons", &simple_sc).changed() {
-            self.set_enable_simple_buttons(simple);
-            ui.close();
-        }
-        let mut live_as = self.live_script_preview;
-        if menu_toggle(ui, &mut live_as, "Live ActionScript", "").changed() {
-            self.set_live_script_preview(live_as);
-            ui.close();
-        }
-    }
-
-    /// Document settings and document navigation, kept together immediately before Window.
-    fn document_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        use crate::commands::CommandId as C;
-        ui.add_enabled_ui_semantic(self.has_document(), |ui| {
-            if menu_item(ui, "Document settings…", &self.sc(C::ModifyDocument)).clicked() {
-                self.open_document_settings();
-                ui.close();
-            }
-        });
-        nf::menu_separator(ui);
-        self.document_list(ui, ctx);
-    }
-
-    /// All panel visibility rows live in one submenu so Window remains compact.
-    fn panels_menu(&mut self, ui: &mut egui::Ui) {
-        use crate::commands::CommandId as C;
-        let mut brushes = !self.panels_hidden && self.workspace.is_panel_active(PanelId::Brushes);
-        if menu_toggle(ui, &mut brushes, "Brushes", "").changed() {
-            self.set_panel_visible(PanelId::Brushes, brushes);
-            ui.close();
-        }
-        nf::menu_separator(ui);
-        let toggle = |editor: &mut Self, ui: &mut egui::Ui, index: usize| {
-            let (name, _, panel) = WINDOW_PANELS[index];
-            let shortcut = editor.sc(C::for_panel(panel));
-            let mut visible = !editor.panels_hidden && editor.workspace.is_panel_active(panel);
-            if menu_toggle(ui, &mut visible, name, &shortcut).changed() {
-                editor.set_panel_visible(panel, visible);
-                ui.close();
-            }
-        };
-        // Timeline · Tools · Properties · Library · Actions · Align · Color · Swatches ·
-        // Transform · Info · Ease · History · Scene · Output · Compiler errors · Accessibility.
-        for index in 0..16 {
-            toggle(self, ui, index);
-        }
-        nf::menu_separator(ui);
-        for index in 16..WINDOW_PANELS.len() {
-            toggle(self, ui, index);
-        }
-    }
-
-    /// Window keeps window/workspace operations; panel toggles are grouped in Panels.
-    fn window_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        use crate::commands::CommandId as C;
-        Self::unavailable_item(ui, "Duplicate window", "⌥⌘K");
-        if menu_item(ui, "Customize tools…", "").clicked() {
-            self.open_customize_tools(ctx);
-            ui.close();
-        }
-        if menu_item(ui, "UI Layout Studio…", "").clicked() {
-            let open = crate::panels::ui_studio::is_studio_open(ctx);
-            crate::panels::ui_studio::set_studio_open(ctx, !open);
-            ui.close();
-        }
-        menu_popup(ui, "Panels", "Compiler errors", "", |ui| {
-            self.panels_menu(ui);
-        });
-        nf::menu_separator(ui);
-        for (label, panel, cmd) in [
-            (
-                "Inspector priority",
-                PanelId::Properties,
-                C::WindowInspectorPriority,
-            ),
-            (
-                "Library priority",
-                PanelId::Library,
-                C::WindowLibraryPriority,
-            ),
-        ] {
-            let mut on = self.workspace.dock.has_priority(panel);
-            if menu_toggle(ui, &mut on, label, &self.sc(cmd)).clicked() {
-                self.give_dock_priority(panel);
-                ui.close();
-            }
-        }
-        nf::menu_separator(ui);
-        menu_popup(ui, "Workspaces", "Reset Developer workspace", "", |ui| {
-            self.workspace_menu(ui, ctx);
-        });
-        let mut hidden = self.panels_hidden;
-        let hide_sc = self.sc(C::WindowHidePanels);
-        if menu_toggle(ui, &mut hidden, "Hide panels", &hide_sc).changed() {
-            self.set_panels_hidden(hidden);
-            ui.close();
-        }
-        nf::menu_separator(ui);
-        for (label, placement, target) in [
-            (
-                "Detach panel",
-                PanelPlacement::Docked,
-                PanelPlacement::Detached,
-            ),
-            (
-                "Dock panel",
-                PanelPlacement::Detached,
-                PanelPlacement::Docked,
-            ),
-        ] {
-            let any = window_detachable_panels()
-                .any(|(_, panel)| self.workspace.placement(panel) == placement);
-            ui.add_enabled_ui_semantic(any, |ui| {
-                menu_popup(ui, label, "Accessibility", "", |ui| {
-                    for (name, panel) in window_detachable_panels() {
-                        if self.workspace.placement(panel) == placement
-                            && menu_item(ui, name, "").clicked()
-                        {
-                            self.set_panel_placement(ctx, panel, target);
-                            ui.close();
-                        }
-                    }
-                })
-            });
-        }
-        menu_popup(ui, "Appearance", self.workspace.theme.label(), "", |ui| {
-            for theme in ThemeMode::ALL {
-                let mut selected = self.workspace.theme == theme;
-                if menu_toggle(ui, &mut selected, theme.label(), "").clicked() {
-                    self.set_theme(ctx, theme);
-                    ui.close();
-                }
-            }
-        });
-        let density = self.workspace.density;
-        menu_popup(ui, "Density", "Classic Flash", "", |ui| {
-            for option in crate::workspace::DensityPref::ALL {
-                let mut selected = density == option;
-                if menu_toggle(ui, &mut selected, option.label(), "").clicked() {
-                    self.set_density(ctx, option);
-                    ui.close();
-                }
-            }
-        });
     }
 }
 

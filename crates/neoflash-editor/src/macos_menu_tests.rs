@@ -133,9 +133,10 @@ fn macos_menu_structure_covers_all_app_and_authoring_menus_and_services() {
     for expected_label in [
         "Search functions…",
         "NeoFlash Help",
-        "ActionScript Reference",
+        "Scripting Reference…",
         "Open example",
         "Check for Updates…",
+        "About NeoFlash",
     ] {
         assert!(
             help_menu.items.iter().any(|item| matches!(
@@ -318,7 +319,7 @@ fn macos_menu_open_recent_lists_existing_files_disambiguates_duplicates_and_clea
 
     let spec = NativeMenuSpec::build(&editor, Some(&ctx));
     let file_menu = spec.menu("File").expect("File menu");
-    let recent_items = find_submenu(&file_menu.items, "Open Recent").expect("Open Recent submenu");
+    let recent_items = find_submenu(&file_menu.items, "Open recent").expect("Open recent submenu");
 
     let labels: Vec<&str> = recent_items
         .iter()
@@ -346,7 +347,7 @@ fn macos_menu_open_recent_lists_existing_files_disambiguates_duplicates_and_clea
     editor.execute_native_menu_action(&ctx, NativeMenuAction::ClearRecent);
     let cleared_spec = NativeMenuSpec::build(&editor, Some(&ctx));
     let cleared_recent =
-        find_submenu(&cleared_spec.menu("File").unwrap().items, "Open Recent").unwrap();
+        find_submenu(&cleared_spec.menu("File").unwrap().items, "Open recent").unwrap();
     assert_eq!(cleared_recent.len(), 1);
     assert!(matches!(
         &cleared_recent[0],
@@ -974,4 +975,254 @@ fn macos_startup_open_files_drain_deduplicates_and_clears_cold_launch_queue() {
         queue.is_empty(),
         "draining cold-launch open_files must leave the lifecycle queue empty"
     );
+}
+
+#[test]
+fn t377_native_macos_menu_and_in_window_menu_bar_match_one_to_one() {
+    fn expected_accessible_label(label: &str, shortcut: &str) -> String {
+        if shortcut.is_empty() {
+            label.to_owned()
+        } else {
+            format!("{label} ({shortcut})")
+        }
+    }
+
+    let (mut editor, ctx, _dir) = setup("menu-1to1-parity");
+    ctx.enable_accesskit();
+    let clock = std::cell::Cell::new(0.0_f64);
+
+    let step = |ed: &mut Editor, events: Vec<egui::Event>| -> egui::FullOutput {
+        let t = clock.get() + 0.1;
+        clock.set(t);
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1920.0, 1080.0),
+                )),
+                time: Some(t),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                ed.menu(ctx);
+                egui::CentralPanel::default().show(ctx, |_| {});
+            },
+        )
+    };
+
+    let spec = NativeMenuSpec::build(&editor, Some(&ctx));
+    let expected_top: Vec<&str> = spec.menus.iter().map(|m| m.title.as_str()).collect();
+    assert_eq!(
+        expected_top,
+        vec![
+            "NeoFlash", "File", "Edit", "View", "Insert", "Modify", "Text", "Control", "Debug",
+            "Window", "Help",
+        ]
+    );
+    assert!(!expected_top.contains(&"Document"));
+
+    // Verify Preferences… and Keyboard shortcuts… appear in BOTH `NeoFlash` AND `Edit`.
+    for menu_name in ["NeoFlash", "Edit"] {
+        let menu = spec.menu(menu_name).expect(menu_name);
+        for (cmd, expected_label) in [
+            (CommandId::EditPreferences, "Preferences…"),
+            (CommandId::EditKeyboardShortcuts, "Keyboard shortcuts…"),
+        ] {
+            assert!(
+                menu.items.iter().any(|item| matches!(
+                    item,
+                    NativeMenuItemSpec::Action {
+                        label,
+                        command_id: Some(found),
+                        enabled: true,
+                        ..
+                    } if *found == cmd && label == expected_label
+                )),
+                "{menu_name} menu must include {expected_label}"
+            );
+        }
+    }
+
+    // Render the in-window NF2 top bar and verify top-level menu buttons match 1:1 left-to-right
+    // and never expose a standalone `Document` menu.
+    let _ = step(&mut editor, vec![]);
+    let bar_out = step(&mut editor, vec![]);
+    let ak = bar_out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .expect("accesskit enabled");
+    assert!(
+        !ak.nodes.iter().any(|(_, n)| n.label() == Some("Document")),
+        "in-window menu bar must not expose top-level Document menu"
+    );
+
+    let mut top_buttons: Vec<(&str, egui::Pos2)> = Vec::new();
+    for &title in &expected_top {
+        let bounds = ak
+            .nodes
+            .iter()
+            .filter(|(_, n)| {
+                n.label() == Some(title)
+                    && n.bounds()
+                        .is_some_and(|b| b.y1 <= f64::from(neoflash_ui::metrics::top_bar()) + 2.0)
+            })
+            .filter_map(|(_, n)| n.bounds())
+            .min_by(|a, b| a.x0.total_cmp(&b.x0))
+            .unwrap_or_else(|| panic!("missing top-level menu button {title:?} in NF2 top bar"));
+        top_buttons.push((
+            title,
+            egui::pos2(
+                ((bounds.x0 + bounds.x1) * 0.5) as f32,
+                ((bounds.y0 + bounds.y1) * 0.5) as f32,
+            ),
+        ));
+    }
+    for pair in top_buttons.windows(2) {
+        assert!(
+            pair[0].1.x < pair[1].1.x,
+            "in-window menu order mismatch: {:?} ({}) must precede {:?} ({})",
+            pair[0].0,
+            pair[0].1.x,
+            pair[1].0,
+            pair[1].1.x
+        );
+    }
+
+    // Open every single one of the 11 top-level menus in the in-window bar and verify every
+    // item, submenu, shortcut, enabled state, and checkmark matches `NativeMenuSpec` 1:1!
+    for (title, btn_pos) in top_buttons {
+        let _ = step(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(btn_pos),
+                egui::Event::PointerButton {
+                    pos: btn_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        let _ = step(
+            &mut editor,
+            vec![egui::Event::PointerButton {
+                pos: btn_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        let _ = step(&mut editor, vec![]);
+        let popup_out = step(&mut editor, vec![]);
+        let live_spec = NativeMenuSpec::build_top_menu(&editor, Some(&ctx), title).unwrap();
+        let popup_ak = popup_out.platform_output.accesskit_update.as_ref().unwrap();
+
+        for item in &live_spec.items {
+            match item {
+                NativeMenuItemSpec::Separator | NativeMenuItemSpec::Section(_) => {}
+                NativeMenuItemSpec::Action {
+                    label,
+                    shortcut_label,
+                    enabled,
+                    checkable,
+                    checked,
+                    ..
+                } => {
+                    let expected = expected_accessible_label(label, shortcut_label);
+                    let matching: Vec<_> = popup_ak
+                        .nodes
+                        .iter()
+                        .filter(|(_, n)| {
+                            n.label() == Some(expected.as_str())
+                                && n.bounds().is_some_and(|b| b.y0 >= 28.0)
+                        })
+                        .collect();
+                    assert!(
+                        !matching.is_empty(),
+                        "in-window {title} menu missing Action row {expected:?}"
+                    );
+                    let node = &matching[0].1;
+                    assert_eq!(
+                        !node.is_disabled(),
+                        *enabled,
+                        "enabled mismatch on {title} ▸ {expected}"
+                    );
+                    if *checkable {
+                        let is_checked = node.toggled() == Some(egui::accesskit::Toggled::True);
+                        assert_eq!(
+                            is_checked, *checked,
+                            "checked mismatch on {title} ▸ {expected}"
+                        );
+                    }
+                }
+                NativeMenuItemSpec::System {
+                    label,
+                    shortcut_label,
+                    enabled,
+                    ..
+                } => {
+                    let expected = expected_accessible_label(label, shortcut_label);
+                    let matching: Vec<_> = popup_ak
+                        .nodes
+                        .iter()
+                        .filter(|(_, n)| {
+                            n.label() == Some(expected.as_str())
+                                && n.bounds().is_some_and(|b| b.y0 >= 28.0)
+                        })
+                        .collect();
+                    assert!(
+                        !matching.is_empty(),
+                        "in-window {title} menu missing System row {expected:?}"
+                    );
+                    assert_eq!(
+                        !matching[0].1.is_disabled(),
+                        *enabled,
+                        "enabled mismatch on System row {title} ▸ {expected}"
+                    );
+                }
+                NativeMenuItemSpec::Submenu {
+                    label,
+                    enabled,
+                    role,
+                    items: sub_items,
+                } => {
+                    let expected_enabled = !matches!(role, Some(NativeSubmenuRole::Services))
+                        && (*enabled || !sub_items.is_empty())
+                        && *enabled;
+                    let matching: Vec<_> = popup_ak
+                        .nodes
+                        .iter()
+                        .filter(|(_, n)| {
+                            n.label() == Some(label.as_str())
+                                && n.bounds().is_some_and(|b| b.y0 >= 28.0)
+                        })
+                        .collect();
+                    assert!(
+                        !matching.is_empty(),
+                        "in-window {title} menu missing Submenu row {label:?}"
+                    );
+                    assert_eq!(
+                        !matching[0].1.is_disabled(),
+                        expected_enabled,
+                        "enabled mismatch on Submenu row {title} ▸ {label}"
+                    );
+                }
+            }
+        }
+
+        // Close popup via Escape before opening the next menu.
+        let _ = step(
+            &mut editor,
+            vec![egui::Event::Key {
+                key: Key::Escape,
+                physical_key: Some(Key::Escape),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        let _ = step(&mut editor, vec![]);
+    }
 }

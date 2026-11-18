@@ -1924,3 +1924,495 @@ fn t319_ctx_data_modal_disables_dock_grid_and_detached_viewports_and_records_chi
     editor.cancel_layer_properties(&ctx);
     assert!(!editor.has_modal_dialog_in(&ctx));
 }
+
+#[test]
+fn t372_floating_actions_and_studio_panels_stay_above_timeline_clicks_and_yield_to_help_modals_and_menus()
+ {
+    use crate::workspace::{PanelId, PanelPlacement};
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::rc::Rc;
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    ctx.set_embed_viewports(false);
+    let observed_levels: Rc<RefCell<HashMap<egui::ViewportId, Option<egui::WindowLevel>>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+    let observed_cmds: Rc<RefCell<HashMap<egui::ViewportId, Vec<egui::ViewportCommand>>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+    let levels_cb = observed_levels.clone();
+    let cmds_cb = observed_cmds.clone();
+    egui::Context::set_immediate_viewport_renderer(move |ctx, mut viewport| {
+        let id = viewport.ids.this;
+        levels_cb
+            .borrow_mut()
+            .insert(id, viewport.builder.window_level);
+        let mut input = egui::RawInput {
+            viewport_id: id,
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(640., 520.),
+            )),
+            ..Default::default()
+        };
+        input.viewports.insert(
+            id,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                outer_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(120., 80.),
+                    egui::vec2(640., 520.),
+                )),
+                inner_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(120., 80.),
+                    egui::vec2(640., 520.),
+                )),
+                ..Default::default()
+            },
+        );
+        let out = ctx.run(input, |ctx| {
+            (viewport.viewport_ui_cb)(ctx);
+        });
+        if let Some(vo) = out.viewport_output.get(&id) {
+            cmds_cb.borrow_mut().insert(id, vo.commands.clone());
+        }
+    });
+
+    let mut project = Project::demo();
+    project.symbols[0].timeline.frame_count = 12;
+    let mut editor = Editor::from_project(&ctx, project);
+    for panel in [
+        PanelId::Actions,
+        PanelId::Properties,
+        PanelId::Library,
+        PanelId::Output,
+        PanelId::Tools,
+    ] {
+        editor.set_panel_visible(panel, true);
+        editor.set_panel_placement(&ctx, panel, PanelPlacement::Detached);
+    }
+
+    let actions_vp = egui::ViewportId::from_hash_of(PanelId::Actions.viewport_key().unwrap());
+    let props_vp = egui::ViewportId::from_hash_of(PanelId::Properties.viewport_key().unwrap());
+    let library_vp = egui::ViewportId::from_hash_of(PanelId::Library.viewport_key().unwrap());
+    let output_vp = egui::ViewportId::from_hash_of(PanelId::Output.viewport_key().unwrap());
+
+    let step = |ed: &mut Editor, events: Vec<egui::Event>| -> egui::FullOutput {
+        observed_levels.borrow_mut().clear();
+        observed_cmds.borrow_mut().clear();
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1440., 900.),
+                )),
+                focused: true,
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                ed.sync_closed_detached_panels(ctx);
+                ed.menu(ctx);
+                ed.dock_grid(ctx);
+                ed.stage(ctx);
+                ed.draw_dialogs(ctx);
+                ed.detached_panels(ctx);
+                crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
+            },
+        )
+    };
+
+    crate::native_windows::set_native_menu_tracking_for_test(false);
+    let _ = step(&mut editor, vec![]);
+    for (vp, title) in [
+        (actions_vp, "Actions — NeoFlash"),
+        (props_vp, "Properties — NeoFlash"),
+        (library_vp, "Library — NeoFlash"),
+        (output_vp, "Output — NeoFlash"),
+    ] {
+        assert_eq!(
+            observed_levels.borrow().get(&vp).copied().flatten(),
+            Some(egui::WindowLevel::AlwaysOnTop),
+            "{title} must float above the root Stage/Timeline window"
+        );
+        assert!(crate::native_windows::window_should_float_for_title(Some(
+            title
+        )));
+    }
+    assert!(!crate::native_windows::should_order_below_root_for_test());
+
+    // Clicking on the Timeline dock or Stage must NEVER hide or lower floating `Actions`.
+    let timeline_rect = editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|g| g.tabs.iter().any(|(id, _)| *id == PanelId::Timeline))
+        .map(|g| g.rect)
+        .expect("Timeline group rendered in bottom dock");
+    let timeline_click = egui::pos2(timeline_rect.left() + 340.0, timeline_rect.center().y);
+    let _ = step(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(timeline_click),
+            crate::tests::primary_button(timeline_click, true),
+            crate::tests::primary_button(timeline_click, false),
+        ],
+    );
+    let _ = step(&mut editor, vec![]);
+    assert!(editor.workspace.is_panel_visible(PanelId::Actions));
+    assert_eq!(
+        observed_levels.borrow().get(&actions_vp).copied().flatten(),
+        Some(egui::WindowLevel::AlwaysOnTop)
+    );
+    assert!(crate::native_windows::window_should_float_for_title(Some(
+        "Actions — NeoFlash"
+    )));
+
+    // 1) Opening Help (`HelpManual` and `Scripting Reference`) drops Actions & all panels to Normal + below root.
+    crate::panels::help_manual::open_help_manual(&ctx);
+    let _ = step(&mut editor, vec![]);
+    assert_eq!(
+        observed_levels.borrow().get(&actions_vp).copied().flatten(),
+        Some(egui::WindowLevel::Normal)
+    );
+    assert!(!crate::native_windows::window_should_float_for_title(Some(
+        "Actions — NeoFlash"
+    )));
+    assert!(crate::native_windows::should_order_below_root_for_test());
+    crate::panels::help_manual::close_help_manual(&ctx);
+    let _ = step(&mut editor, vec![]);
+    assert_eq!(
+        observed_levels.borrow().get(&actions_vp).copied().flatten(),
+        Some(egui::WindowLevel::AlwaysOnTop)
+    );
+    assert!(!crate::native_windows::should_order_below_root_for_test());
+
+    // 2) Modal dialogs (Preferences, Document Settings), in-window menus, and native NSMenu tracking
+    //    drop Actions & all floating panels to Normal and restore cleanly when closed.
+    editor.open_preferences(crate::panels::preferences::PAGE_GENERAL);
+    let _ = step(&mut editor, vec![]);
+    assert_eq!(
+        observed_levels.borrow().get(&actions_vp).copied().flatten(),
+        Some(egui::WindowLevel::Normal)
+    );
+    assert!(crate::native_windows::should_order_below_root_for_test());
+    editor.preferences = None;
+    let _ = step(&mut editor, vec![]);
+    assert_eq!(
+        observed_levels.borrow().get(&actions_vp).copied().flatten(),
+        Some(egui::WindowLevel::AlwaysOnTop)
+    );
+
+    crate::native_windows::set_native_menu_tracking_for_test(true);
+    let _ = step(&mut editor, vec![]);
+    assert_eq!(
+        observed_levels.borrow().get(&actions_vp).copied().flatten(),
+        Some(egui::WindowLevel::Normal)
+    );
+    assert!(!crate::native_windows::window_should_float_for_title(Some(
+        "Actions — NeoFlash"
+    )));
+    crate::native_windows::set_native_menu_tracking_for_test(false);
+    let _ = step(&mut editor, vec![]);
+    assert_eq!(
+        observed_levels.borrow().get(&actions_vp).copied().flatten(),
+        Some(egui::WindowLevel::AlwaysOnTop)
+    );
+}
+
+#[test]
+fn t374_collapsed_floating_windows_persist_across_restarts_preserve_expanded_height_and_reset_on_template()
+ {
+    use crate::workspace::{
+        PanelId, PanelPlacement, WindowGeometry, WorkspacePrefs, WorkspaceTemplate,
+    };
+    use std::cell::RefCell;
+    use std::collections::{BTreeMap, HashMap};
+    use std::rc::Rc;
+
+    #[derive(Default)]
+    struct MemStorage {
+        map: BTreeMap<String, String>,
+        flushes: usize,
+    }
+    impl eframe::Storage for MemStorage {
+        fn get_string(&self, key: &str) -> Option<String> {
+            self.map.get(key).cloned()
+        }
+        fn set_string(&mut self, key: &str, value: String) {
+            self.map.insert(key.to_owned(), value);
+        }
+        fn flush(&mut self) {
+            self.flushes += 1;
+        }
+    }
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    ctx.set_embed_viewports(false);
+    let observed_initial_sizes: Rc<RefCell<HashMap<egui::ViewportId, Option<egui::Vec2>>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+    let live_sizes: Rc<RefCell<HashMap<egui::ViewportId, egui::Vec2>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+    let child_outputs: Rc<RefCell<HashMap<egui::ViewportId, egui::FullOutput>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+    let pending_child_events: Rc<RefCell<HashMap<egui::ViewportId, Vec<egui::Event>>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+    let sizes_cb = observed_initial_sizes.clone();
+    let live_cb = live_sizes.clone();
+    let outs_cb = child_outputs.clone();
+    let events_cb = pending_child_events.clone();
+    egui::Context::set_immediate_viewport_renderer(move |ctx, mut viewport| {
+        let id = viewport.ids.this;
+        sizes_cb
+            .borrow_mut()
+            .insert(id, viewport.builder.inner_size);
+        if let Some(sz) = viewport.builder.inner_size {
+            live_cb.borrow_mut().insert(id, sz);
+        }
+        let events = events_cb.borrow_mut().remove(&id).unwrap_or_default();
+        let inner_sz = live_cb
+            .borrow()
+            .get(&id)
+            .copied()
+            .unwrap_or(egui::vec2(760.0, 520.0));
+        let mut input = egui::RawInput {
+            viewport_id: id,
+            focused: !events.is_empty(),
+            events,
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, inner_sz)),
+            ..Default::default()
+        };
+        input.viewports.insert(
+            id,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                outer_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(160.0, 110.0),
+                    inner_sz,
+                )),
+                inner_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(160.0, 110.0),
+                    inner_sz,
+                )),
+                ..Default::default()
+            },
+        );
+        let out = ctx.run(input, |ctx| {
+            (viewport.viewport_ui_cb)(ctx);
+        });
+        for vo in out.viewport_output.values() {
+            for cmd in &vo.commands {
+                if let egui::ViewportCommand::InnerSize(sz) = cmd {
+                    live_cb.borrow_mut().insert(id, *sz);
+                }
+            }
+        }
+        outs_cb.borrow_mut().insert(id, out);
+    });
+
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.set_panel_visible(PanelId::Actions, true);
+    editor.set_panel_placement(&ctx, PanelId::Actions, PanelPlacement::Detached);
+    editor.workspace.remember_floating_geometry(
+        PanelId::Actions,
+        WindowGeometry {
+            outer_position: [160.0, 110.0],
+            inner_size: [780.0, 540.0],
+        },
+    );
+    editor.persist_workspace_requested = false;
+
+    let actions_vp = egui::ViewportId::from_hash_of(PanelId::Actions.viewport_key().unwrap());
+    let apply_root_cmds = |root_out: &egui::FullOutput| {
+        for (vp_id, vo) in &root_out.viewport_output {
+            for cmd in &vo.commands {
+                if let egui::ViewportCommand::InnerSize(sz) = cmd {
+                    live_sizes.borrow_mut().insert(*vp_id, *sz);
+                }
+            }
+        }
+    };
+    let run_detached = |ed: &mut Editor| {
+        let root_out = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1440.0, 900.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| ed.detached_panels(ctx),
+        );
+        apply_root_cmds(&root_out);
+    };
+
+    run_detached(&mut editor);
+    let collapse_center = child_outputs
+        .borrow()
+        .get(&actions_vp)
+        .and_then(|out| {
+            out.platform_output
+                .accesskit_update
+                .as_ref()?
+                .nodes
+                .iter()
+                .find_map(|(_, node)| {
+                    (node.label() == Some("Collapse panel"))
+                        .then(|| node.bounds())
+                        .flatten()
+                        .map(|b| {
+                            egui::pos2(((b.x0 + b.x1) * 0.5) as f32, ((b.y0 + b.y1) * 0.5) as f32)
+                        })
+                })
+        })
+        .expect("Actions floating header exposes Collapse panel button");
+
+    pending_child_events.borrow_mut().insert(
+        actions_vp,
+        vec![
+            egui::Event::PointerMoved(collapse_center),
+            crate::tests::primary_button(collapse_center, true),
+        ],
+    );
+    run_detached(&mut editor);
+    pending_child_events.borrow_mut().insert(
+        actions_vp,
+        vec![crate::tests::primary_button(collapse_center, false)],
+    );
+    run_detached(&mut editor);
+
+    assert!(
+        editor
+            .workspace
+            .is_floating_window_collapsed(PanelId::Actions)
+    );
+    assert!(
+        editor.persist_workspace_requested,
+        "collapsing a floating window must request workspace persistence immediately"
+    );
+    assert_eq!(
+        editor
+            .workspace
+            .detached_geometry(PanelId::Actions)
+            .map(|g| g.inner_size[1]),
+        Some(540.0),
+        "collapsing must preserve uncollapsed expanded height in WorkspacePrefs"
+    );
+
+    let mut storage = MemStorage::default();
+    editor.flush_workspace_to_storage(&mut storage);
+    assert_eq!(storage.flushes, 1);
+
+    // Simulate a fresh process launch with fresh egui Context (zero temp memory):
+    let restored_prefs = WorkspacePrefs::load_for_viewport(Some(&storage), [800.0, 600.0]);
+    assert!(
+        restored_prefs.is_floating_window_collapsed(PanelId::Actions),
+        "collapsed floating state must survive restart and load_for_viewport"
+    );
+    let ctx2 = egui::Context::default();
+    ctx2.enable_accesskit();
+    ctx2.set_embed_viewports(false);
+    let mut restored_editor = Editor::from_project(&ctx2, Project::blank());
+    restored_editor.workspace = restored_prefs;
+    observed_initial_sizes.borrow_mut().clear();
+    let _ = ctx2.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1440.0, 900.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| restored_editor.detached_panels(ctx),
+    );
+    assert_eq!(
+        observed_initial_sizes
+            .borrow()
+            .get(&actions_vp)
+            .copied()
+            .flatten(),
+        Some(egui::vec2(780.0, neoflash_ui::metrics::panel_tab())),
+        "restarted collapsed floating window must open directly at header height while preserving saved expanded height"
+    );
+    assert_eq!(
+        restored_editor
+            .workspace
+            .detached_geometry(PanelId::Actions)
+            .map(|g| g.inner_size[1]),
+        Some(540.0)
+    );
+
+    // Expanding the restored collapsed window restores its saved 540 pt expanded height.
+    let expand_center = child_outputs
+        .borrow()
+        .get(&actions_vp)
+        .and_then(|out| {
+            out.platform_output
+                .accesskit_update
+                .as_ref()?
+                .nodes
+                .iter()
+                .find_map(|(_, node)| {
+                    (node.label() == Some("Expand panel"))
+                        .then(|| node.bounds())
+                        .flatten()
+                        .map(|b| {
+                            egui::pos2(((b.x0 + b.x1) * 0.5) as f32, ((b.y0 + b.y1) * 0.5) as f32)
+                        })
+                })
+        })
+        .expect("collapsed floating header exposes Expand panel button");
+    pending_child_events.borrow_mut().insert(
+        actions_vp,
+        vec![
+            egui::Event::PointerMoved(expand_center),
+            crate::tests::primary_button(expand_center, true),
+        ],
+    );
+    let root_out = ctx2.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1440.0, 900.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| restored_editor.detached_panels(ctx),
+    );
+    apply_root_cmds(&root_out);
+    pending_child_events.borrow_mut().insert(
+        actions_vp,
+        vec![crate::tests::primary_button(expand_center, false)],
+    );
+    let root_out = ctx2.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1440.0, 900.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| restored_editor.detached_panels(ctx),
+    );
+    apply_root_cmds(&root_out);
+    assert!(
+        !restored_editor
+            .workspace
+            .is_floating_window_collapsed(PanelId::Actions)
+    );
+    assert_eq!(
+        live_sizes.borrow().get(&actions_vp).copied(),
+        Some(egui::vec2(780.0, 540.0)),
+        "expanding after restart must restore the saved 540 pt height"
+    );
+
+    // Re-collapse and verify switching workspace templates clears collapsed_floating cleanly.
+    assert!(
+        restored_editor
+            .workspace
+            .set_floating_window_collapsed(PanelId::Actions, true)
+    );
+    restored_editor.apply_workspace_template(&ctx2, WorkspaceTemplate::Developer);
+    assert!(restored_editor.workspace.collapsed_floating.is_empty());
+}

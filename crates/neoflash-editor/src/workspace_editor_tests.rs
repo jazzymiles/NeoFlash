@@ -1897,3 +1897,238 @@ fn t319_all_6_workspaces_3_densities_4_themes_2_resolutions_matrix() {
     neoflash_ui::metrics::set_density(DensityPref::Comfortable.ui());
     assert_eq!(combinations_run, 144);
 }
+
+#[test]
+fn t372_docked_actions_never_switches_or_hides_on_timeline_or_stage_clicks() {
+    use crate::workspace::{DockDestination, DockEdge, DockLocation};
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut project = Project::demo();
+    project.symbols[0].timeline.frame_count = 16;
+    let mut editor = Editor::from_project(&ctx, project);
+
+    let run = |ed: &mut Editor, events: Vec<egui::Event>| {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1600.0, 960.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                ed.dock_grid(ctx);
+                ed.stage(ctx);
+            },
+        );
+    };
+
+    // Case A: `Actions` docked in right column (`Transform | Align | Actions` like Screenshot 4).
+    let right_group = editor.workspace.dock.right.groups[0].id;
+    editor.dock_panel_at(
+        &ctx,
+        PanelId::Actions,
+        DockDestination::Tabs(DockLocation {
+            edge: DockEdge::Right,
+            group: right_group,
+            index: 99,
+        }),
+    );
+    editor.show_panel(PanelId::Actions);
+    run(&mut editor, vec![]);
+    assert!(editor.workspace.is_panel_active(PanelId::Actions));
+
+    let timeline_rect = editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|g| g.tabs.iter().any(|(id, _)| *id == PanelId::Timeline))
+        .map(|g| g.rect)
+        .expect("Timeline docked at bottom");
+
+    // Click Timeline frame cells, layer header area, and Stage canvas.
+    for pt in [
+        egui::pos2(timeline_rect.left() + 320.0, timeline_rect.center().y),
+        egui::pos2(timeline_rect.left() + 420.0, timeline_rect.top() + 52.0),
+        egui::pos2(timeline_rect.left() + 90.0, timeline_rect.center().y),
+        editor.stage_view.canvas.center(),
+    ] {
+        run(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(pt),
+                egui::Event::PointerButton {
+                    pos: pt,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: pt,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        run(&mut editor, vec![]);
+        assert!(
+            editor.workspace.is_panel_visible(PanelId::Actions)
+                && editor.workspace.is_panel_active(PanelId::Actions),
+            "right-docked Actions tab must remain visible and active after clicking {pt:?}"
+        );
+    }
+
+    // Case B: `Actions` docked in bottom group alongside `Timeline` & `Properties`.
+    let bottom_group = editor.workspace.dock.bottom.groups[0].id;
+    editor.dock_panel_at(
+        &ctx,
+        PanelId::Properties,
+        DockDestination::Tabs(DockLocation {
+            edge: DockEdge::Bottom,
+            group: bottom_group,
+            index: 99,
+        }),
+    );
+    editor.dock_panel_at(
+        &ctx,
+        PanelId::Actions,
+        DockDestination::Tabs(DockLocation {
+            edge: DockEdge::Bottom,
+            group: bottom_group,
+            index: 99,
+        }),
+    );
+    editor.dock_panel_at(
+        &ctx,
+        PanelId::Timeline,
+        DockDestination::Edge(DockEdge::Top),
+    );
+    editor.show_panel(PanelId::Actions);
+    run(&mut editor, vec![]);
+    assert!(editor.workspace.is_panel_active(PanelId::Actions));
+    assert_eq!(editor.bottom, crate::app::BottomTab::Actions);
+
+    let top_timeline_rect = editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|g| g.tabs.iter().any(|(id, _)| *id == PanelId::Timeline))
+        .map(|g| g.rect)
+        .expect("Timeline docked at top");
+    let frame_click = egui::pos2(
+        top_timeline_rect.left() + 340.0,
+        top_timeline_rect.center().y,
+    );
+    run(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(frame_click),
+            egui::Event::PointerButton {
+                pos: frame_click,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::PointerButton {
+                pos: frame_click,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    run(&mut editor, vec![]);
+    assert!(editor.workspace.is_panel_active(PanelId::Actions));
+    assert_eq!(editor.bottom, crate::app::BottomTab::Actions);
+}
+
+#[test]
+fn t374_layout_mutations_request_persist_flush_immediately_and_survive_open_path_and_small_viewport_launch()
+ {
+    use crate::workspace::{PanelPlacement, WorkspacePrefs};
+    use std::collections::BTreeMap;
+
+    #[derive(Default)]
+    struct TestStorage {
+        values: BTreeMap<String, String>,
+        flushes: usize,
+    }
+    impl eframe::Storage for TestStorage {
+        fn get_string(&self, key: &str) -> Option<String> {
+            self.values.get(key).cloned()
+        }
+        fn set_string(&mut self, key: &str, value: String) {
+            self.values.insert(key.to_owned(), value);
+        }
+        fn flush(&mut self) {
+            self.flushes += 1;
+        }
+    }
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.persist_workspace_requested = false;
+
+    // 1. Panel open/close, placement detach/dock, priority, and floating collapse all mark persist_workspace_requested.
+    editor.show_panel(PanelId::History);
+    assert!(editor.persist_workspace_requested);
+    let mut storage = TestStorage::default();
+    editor.flush_workspace_to_storage(&mut storage);
+    assert_eq!(storage.flushes, 1);
+    assert!(!editor.persist_workspace_requested);
+
+    editor.set_panel_placement(&ctx, PanelId::Actions, PanelPlacement::Detached);
+    assert!(editor.persist_workspace_requested);
+    assert!(
+        editor
+            .workspace
+            .set_floating_window_collapsed(PanelId::Actions, true)
+    );
+    editor.workspace.dock.bottom.size = 364.0;
+    eframe::App::save(&mut editor, &mut storage);
+    assert_eq!(
+        storage.flushes, 2,
+        "eframe::App::save must flush storage immediately so Quit never loses layout edits"
+    );
+
+    // 2. Saved WorkspacePrefs must NEVER be overwritten by compact_default on narrow viewport launch
+    //    or when opening documents / restoring session tabs.
+    let saved_snapshot = editor.workspace.clone();
+    let loaded_narrow = WorkspacePrefs::load_for_viewport(Some(&storage), [900.0, 640.0]);
+    assert_eq!(
+        loaded_narrow.dock, saved_snapshot.dock,
+        "load_for_viewport must never overwrite saved user dock layout with compact_default"
+    );
+    assert!(loaded_narrow.is_floating_window_collapsed(PanelId::Actions));
+    assert_eq!(loaded_narrow.dock.bottom.size, 364.0);
+
+    let dir = std::env::temp_dir().join(format!(
+        "neoflash-t374-open-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let doc_path = dir.join("persist-check.nflash");
+    std::fs::write(&doc_path, Project::blank().to_json().unwrap()).unwrap();
+
+    let mut relaunched = Editor::from_project(&ctx, Project::blank());
+    relaunched.workspace = loaded_narrow;
+    relaunched.open_path(doc_path, &ctx);
+    assert!(relaunched.workspace.is_panel_visible(PanelId::History));
+    assert_eq!(
+        relaunched.workspace.placement(PanelId::Actions),
+        PanelPlacement::Detached
+    );
+    assert!(
+        relaunched
+            .workspace
+            .is_floating_window_collapsed(PanelId::Actions)
+    );
+    assert_eq!(relaunched.workspace.dock.bottom.size, 364.0);
+    let _ = std::fs::remove_dir_all(&dir);
+}

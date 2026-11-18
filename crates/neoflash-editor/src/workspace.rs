@@ -8,7 +8,7 @@ pub const PREFS_KEY: &str = "neoflash.workspace.v2";
 pub const MAX_PREFS_BYTES: usize = 1024 * 1024;
 const VERSION: u32 = 7;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PanelId {
     Timeline,
@@ -1759,6 +1759,9 @@ pub struct WorkspacePrefs {
     pub detached: DetachedPanels,
     pub dock: DockLayout,
     pub floating: Vec<FloatingDock>,
+    /// Floating panel windows collapsed to their title header (`T-374`).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub collapsed_floating: std::collections::BTreeSet<PanelId>,
     /// Template the current layout started from (shown in the top-bar workspace select).
     pub template: WorkspaceTemplate,
     /// Timeline frame view and playback options (Frame view ⋯, Control menu).
@@ -1850,6 +1853,8 @@ pub struct WorkspacePreset {
     pub detached: DetachedPanels,
     #[serde(default)]
     pub floating: Vec<FloatingDock>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub collapsed_floating: std::collections::BTreeSet<PanelId>,
     #[serde(default)]
     pub template: WorkspaceTemplate,
 }
@@ -1895,6 +1900,7 @@ impl WorkspacePreset {
             sizes: prefs.sizes,
             detached: prefs.detached,
             floating: prefs.floating.clone(),
+            collapsed_floating: prefs.collapsed_floating.clone(),
             template: prefs.template,
         }
     }
@@ -1906,6 +1912,7 @@ impl WorkspacePreset {
         prefs.sizes = self.sizes;
         prefs.detached = self.detached;
         prefs.floating = self.floating.clone();
+        prefs.collapsed_floating = self.collapsed_floating.clone();
         prefs.template = self.template;
         prefs.sanitize_layout();
     }
@@ -3201,6 +3208,7 @@ impl Default for WorkspacePrefs {
             detached: DetachedPanels::default(),
             dock: DockLayout::default(),
             floating: Vec::new(),
+            collapsed_floating: std::collections::BTreeSet::new(),
             template: WorkspaceTemplate::Classic,
             density: DensityPref::default(),
             stage_toolbar: StageToolbarMode::default(),
@@ -3774,7 +3782,7 @@ impl WorkspacePrefs {
         prefs
     }
     pub fn compact_default(&mut self, size: [f32; 2]) {
-        if size[0] <= 1120. || size[1] <= 800. {
+        if size[0] > 0. && size[1] > 0. && (size[0] <= 1120. || size[1] <= 800.) {
             let tabs = self
                 .dock
                 .right
@@ -3901,6 +3909,8 @@ impl WorkspacePrefs {
                 *self.panels.slot(panel) = visible;
             }
         }
+        self.collapsed_floating
+            .retain(|id| id.detachable() && self.floating.iter().any(|w| w.id == *id));
         self.normalize_active_bottom();
     }
     pub fn is_panel_visible(&self, panel: PanelId) -> bool {
@@ -4358,6 +4368,8 @@ impl WorkspacePrefs {
                 .and_then(|root| root.remove(panel, keep_group));
         }
         self.floating.retain(|window| window.root.is_some());
+        self.collapsed_floating
+            .retain(|id| self.floating.iter().any(|w| w.id == *id));
     }
     /// Tear one tab into its own native window. Existing standalone windows keep
     /// identity and size; group membership never determines viewport identity.
@@ -4425,6 +4437,20 @@ impl WorkspacePrefs {
         let changed = window.geometry != Some(geometry);
         window.geometry = Some(geometry);
         changed
+    }
+    pub fn is_floating_window_collapsed(&self, window_id: PanelId) -> bool {
+        self.collapsed_floating.contains(&window_id)
+    }
+    pub fn set_floating_window_collapsed(&mut self, window_id: PanelId, collapsed: bool) -> bool {
+        if collapsed {
+            if window_id.detachable() && self.floating.iter().any(|w| w.id == window_id) {
+                self.collapsed_floating.insert(window_id)
+            } else {
+                false
+            }
+        } else {
+            self.collapsed_floating.remove(&window_id)
+        }
     }
     fn normalize_active_bottom(&mut self) {
         let active = PanelId::from_bottom_tab(self.active_bottom);

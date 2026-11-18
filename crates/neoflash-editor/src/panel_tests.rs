@@ -1550,7 +1550,16 @@ fn menu_bar_toggles_live_state_without_changing_the_document() {
             egui::PointerButton::Primary,
         );
     };
-    let menus: [(&str, &[&str]); 9] = [
+    let menus: [(&str, &[&str]); 11] = [
+        (
+            "NeoFlash",
+            &[
+                "About NeoFlash",
+                "Preferences… (⌘U)",
+                "Keyboard shortcuts… (⌥⇧⌘K)",
+                "Quit NeoFlash (⌘Q)",
+            ],
+        ),
         (
             "File",
             &["Publish settings… (⇧F12)", "Publish (⇧⌥F12)", "Print… (⌘P)"],
@@ -1560,29 +1569,39 @@ fn menu_bar_toggles_live_state_without_changing_the_document() {
             &[
                 "Find and replace (⌘F)",
                 "Preferences… (⌘U)",
+                "Keyboard shortcuts… (⌥⇧⌘K)",
                 "Edit symbols (⌘E)",
             ],
         ),
         (
             "View",
-            &["Rulers, guides & grid…", "Show shape hints (⌥⌘H)"],
+            &[
+                "Rulers, guides & grid…",
+                "Snapping",
+                "Onion Skin",
+                "Show shape hints (⌥⌘H)",
+            ],
         ),
         (
             "Insert",
             &["New symbol… (⌘F8)", "Layer folder", "Motion tween"],
         ),
-        ("Modify", &["Break apart (⌘B)", "Ungroup (⇧⌘G)"]),
+        (
+            "Modify",
+            &["Document… (⌘J)", "Break apart (⌘B)", "Ungroup (⇧⌘G)"],
+        ),
+        ("Text", &["Size", "Style", "Font Embedding…"]),
         (
             "Control",
             &["Go to end (⌥⇧.)", "Test scene (⌥⌘↵)", "Mute sounds (⌥⌘M)"],
         ),
-        ("Document", &["Document settings… (⌘J)"]),
+        ("Debug", &["Debug Movie", "Toggle Breakpoint", "Debugger"]),
         ("Window", &["Panels", "Workspaces", "Appearance"]),
         (
             "Help",
             &[
                 "Search functions… (F1)",
-                "Help",
+                "NeoFlash Help",
                 "Scripting Reference…",
                 "Open example",
                 "About NeoFlash",
@@ -1596,8 +1615,8 @@ fn menu_bar_toggles_live_state_without_changing_the_document() {
         }
         let unavailable: &[&str] = match title {
             "File" => &["Print… (⌘P)"],
-            "View" => &["Preview mode", "Snapping", "Pasteboard"],
-            "Modify" => &["Symbol"],
+            "View" => &["Preview mode", "Pasteboard (⇧⌘W)"],
+            "Modify" => &["Convert to Bitmap", "Symbol"],
             "Window" => &["Duplicate window (⌥⌘K)"],
             _ => &[],
         };
@@ -1647,7 +1666,7 @@ fn menu_bar_toggles_live_state_without_changing_the_document() {
         ("View", Some("Guides"), "Show guides (⌘;)", |e| {
             e.stage_view.prefs.guides_show
         }),
-        ("View", Some("Guides"), "Lock guides", |e| {
+        ("View", Some("Guides"), "Lock guides (⌥⌘;)", |e| {
             e.stage_view.prefs.guides_lock
         }),
         ("View", Some("Guides"), "Snap to guides (⇧⌘;)", |e| {
@@ -2069,11 +2088,32 @@ impl Driver {
             .iter()
             .find_map(|(_, node)| {
                 (node.label() == Some(label)
+                    && !node.is_disabled()
                     && node.role() != egui::accesskit::Role::Tab
                     && node.toggled().is_none())
                 .then(|| node.bounds())
                 .flatten()
                 .map(to_rect)
+            })
+            .or_else(|| {
+                nodes.iter().find_map(|(_, node)| {
+                    (node.label() == Some(label)
+                        && !node.is_disabled()
+                        && node.role() != egui::accesskit::Role::Tab)
+                        .then(|| node.bounds())
+                        .flatten()
+                        .map(to_rect)
+                })
+            })
+            .or_else(|| {
+                nodes.iter().find_map(|(_, node)| {
+                    (node.label() == Some(label)
+                        && node.role() != egui::accesskit::Role::Tab
+                        && node.toggled().is_none())
+                    .then(|| node.bounds())
+                    .flatten()
+                    .map(to_rect)
+                })
             })
             .or_else(|| {
                 nodes.iter().find_map(|(_, node)| {
@@ -2302,8 +2342,8 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         "New symbol closes with Cancel"
     );
 
-    d.click("Document");
-    d.click("Document settings… (⌘J)");
+    d.click("Modify");
+    d.click("Document… (⌘J)");
     assert!(
         d.editor.document_settings.is_some(),
         "Document settings opens"
@@ -2692,8 +2732,8 @@ fn document_settings_and_library_symbol_commands_commit_atomically_and_preserve_
 
     // Open Document settings via Document ▸ Document settings…, click Match contents,
     // Make default, and OK.
-    d.click("Document");
-    d.click("Document settings… (⌘J)");
+    d.click("Modify");
+    d.click("Document… (⌘J)");
     assert!(d.editor.document_settings.is_some());
     d.click("Match contents");
     {

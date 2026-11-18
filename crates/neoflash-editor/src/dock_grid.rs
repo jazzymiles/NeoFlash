@@ -566,6 +566,7 @@ impl Editor {
                     .first()
                 {
                     self.workspace.dock.give_priority(panel);
+                    self.persist_workspace_requested = true;
                 }
                 // NF2 Splitter: panel surface with a 1 px separator, accent grip while hovered/dragged.
                 ui.painter()
@@ -638,6 +639,7 @@ impl Editor {
                     if let Some(stored) = area.groups.iter_mut().find(|g| g.id == next.id) {
                         stored.weight = second;
                     }
+                    self.persist_workspace_requested = true;
                 }
             }
             cursor = if has_splitter { end + SPLITTER } else { end };
@@ -744,8 +746,11 @@ impl Editor {
             } else {
                 -1.
             };
-            self.workspace.dock.area_mut(edge).size =
-                (saved.size + delta * direction).clamp(minimum, maximum);
+            let next_size = (saved.size + delta * direction).clamp(minimum, maximum);
+            if (self.workspace.dock.area(edge).size - next_size).abs() > f32::EPSILON {
+                self.workspace.dock.area_mut(edge).size = next_size;
+                self.persist_workspace_requested = true;
+            }
             ui.ctx().request_repaint();
         }
         if released {
@@ -1538,6 +1543,7 @@ impl Editor {
                     {
                         window
                             .set_ratio(path, (ratio + delta / space).clamp(minimum, 1. - minimum));
+                        self.persist_workspace_requested = true;
                     }
                 }
             }

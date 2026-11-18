@@ -9,9 +9,13 @@
 //! * Every window except the main one gets `tabbingMode = Disallowed` and the collection behaviour
 //!   `FullScreenAuxiliary` (may appear over a full-screen main window) instead of `FullScreenPrimary`
 //!   (the green button no longer turns a panel into a full-screen space).
-//! * Only compact utility palettes (`Tools`, `Color`, `Swatches`, `Align`, `Transform`, `Info`,
-//!   `Brushes`) use `NSFloatingWindowLevel`, and ALL detached windows temporarily drop to
-//!   `NSNormalWindowLevel` whenever `Help`, a modal dialog, or a menu/popup is open.
+//! * Detached studio panels and palettes (`Actions`, `Properties`, `Library`, `Output`, `Tools`,
+//!   `Color`, `Swatches`, `Align`, `Transform`, `Info`, `Brushes`, etc.) use
+//!   `NSFloatingWindowLevel` with `hidesOnDeactivate = true` so clicking the Stage or Timeline
+//!   never buries them behind the main window, while switching to another app (e.g. Safari) hides
+//!   them cleanly; ALL detached windows temporarily drop to `NSNormalWindowLevel` (and order below
+//!   the root window for root-viewport modals/Help/menus) whenever `Help`, a modal dialog, or a
+//!   menu/popup is open.
 
 use std::collections::HashSet;
 #[cfg(not(test))]
@@ -27,7 +31,7 @@ struct PanelWindowLevelsState {
     lower_below_root: bool,
     #[cfg_attr(any(not(target_os = "macos"), test), allow(dead_code))]
     was_lowered_below_root: bool,
-    compact_palette_titles: HashSet<String>,
+    floating_panel_titles: HashSet<String>,
 }
 
 #[cfg(not(test))]
@@ -69,26 +73,26 @@ pub fn should_order_below_root_for_test() -> bool {
     TEST_PANEL_WINDOW_LEVELS.with(|cell| cell.borrow().lower_below_root)
 }
 
-/// Record which detached window titles belong to compact utility palettes that may float above the
-/// Stage when no modal, `Help`, or menu/popup is open, plus whether floating windows must be
-/// lowered (and ordered below the root window when a root-window modal/Help/menu is active).
+/// Record which detached window titles belong to active studio panels/palettes that float above
+/// the Stage/Timeline when no modal, `Help`, or menu/popup is open, plus whether floating windows
+/// must be lowered (and ordered below the root window when a root-window modal/Help/menu is active).
 pub fn set_panel_window_levels(
     lower_all: bool,
     lower_below_root: bool,
-    compact_palette_titles: HashSet<String>,
+    floating_panel_titles: HashSet<String>,
 ) {
     #[cfg(not(test))]
     if let Ok(mut state) = panel_window_levels().lock() {
         state.lower_all = lower_all;
         state.lower_below_root = lower_below_root;
-        state.compact_palette_titles = compact_palette_titles;
+        state.floating_panel_titles = floating_panel_titles;
     }
     #[cfg(test)]
     TEST_PANEL_WINDOW_LEVELS.with(|cell| {
         let mut state = cell.borrow_mut();
         state.lower_all = lower_all;
         state.lower_below_root = lower_below_root;
-        state.compact_palette_titles = compact_palette_titles;
+        state.floating_panel_titles = floating_panel_titles;
     });
 }
 
@@ -107,13 +111,13 @@ pub fn window_should_float_for_title(title: Option<&str>) -> bool {
         panel_window_levels()
             .lock()
             .ok()
-            .is_some_and(|state| !state.lower_all && state.compact_palette_titles.contains(title))
+            .is_some_and(|state| !state.lower_all && state.floating_panel_titles.contains(title))
     }
     #[cfg(test)]
     {
         TEST_PANEL_WINDOW_LEVELS.with(|cell| {
             let state = cell.borrow();
-            !state.lower_all && state.compact_palette_titles.contains(title)
+            !state.lower_all && state.floating_panel_titles.contains(title)
         })
     }
 }
@@ -314,10 +318,10 @@ mod imp {
             ROOT.store(root, Ordering::Relaxed);
         }
         let native_menu_open = is_native_menu_tracking();
-        let (lower_all, order_below_root, transitioned_below_root, palette_titles) =
+        let (lower_all, order_below_root, transitioned_below_root, floating_titles_set) =
             if let Ok(mut state) = panel_window_levels().lock() {
                 // Native macOS `NSMenu` already renders at `NSPopUpMenuWindowLevel` (101); keep
-                // `lower_all` true so floating palettes drop to `NSNormalWindowLevel`, while only
+                // `lower_all` true so floating panels drop to `NSNormalWindowLevel`, while only
                 // root-window modals, Help, and in-window root menus reorder windows below `root`.
                 let order_below = state.lower_below_root;
                 let transitioned = order_below && !state.was_lowered_below_root;
@@ -326,11 +330,13 @@ mod imp {
                     state.lower_all || native_menu_open,
                     order_below,
                     transitioned,
-                    state.compact_palette_titles.clone(),
+                    state.floating_panel_titles.clone(),
                 )
             } else {
                 (native_menu_open, false, false, HashSet::new())
             };
+        const NS_WINDOW_ABOVE: isize = 1;
+        let app_active = app.isActive();
         let mut live_floating = HashSet::new();
         for window in windows.iter() {
             let number = window.windowNumber();
@@ -380,7 +386,7 @@ mod imp {
             let should_float = !lower_all
                 && resolved_title
                     .as_deref()
-                    .is_some_and(|title| palette_titles.contains(title));
+                    .is_some_and(|title| floating_titles_set.contains(title));
             let desired_level = if should_float {
                 NSFloatingWindowLevel
             } else {
@@ -393,6 +399,11 @@ mod imp {
             if order_below_root && root > 0 && (transitioned_below_root || was_floating) {
                 unsafe {
                     let _: () = msg_send![&*window, orderWindow: NS_WINDOW_BELOW, relativeTo: root];
+                }
+            } else if should_float && !was_floating && root > 0 && app_active && window.isVisible()
+            {
+                unsafe {
+                    let _: () = msg_send![&*window, orderWindow: NS_WINDOW_ABOVE, relativeTo: root];
                 }
             }
             let behavior = (window.collectionBehavior()

@@ -2414,13 +2414,13 @@ mod tests {
             )
         };
 
-        // 1. Idle state: Actions MUST be `WindowLevel::Normal` (never `AlwaysOnTop`),
-        //    while compact palettes (`Tools`, `Color`) are `WindowLevel::AlwaysOnTop`.
+        // 1. Idle state (`T-372`): ALL detached studio panels (`Actions`, `Tools`, `Color`, etc.)
+        //    float at `WindowLevel::AlwaysOnTop` so clicking Stage or Timeline never buries them.
         crate::native_windows::set_native_menu_tracking_for_test(false);
         let _ = step_detached(&mut editor);
         assert_eq!(
             observed_levels.borrow().get(&actions_vp).copied().flatten(),
-            Some(egui::WindowLevel::Normal)
+            Some(egui::WindowLevel::AlwaysOnTop)
         );
         assert_eq!(
             observed_levels.borrow().get(&tools_vp).copied().flatten(),
@@ -2430,7 +2430,7 @@ mod tests {
             observed_levels.borrow().get(&color_vp).copied().flatten(),
             Some(egui::WindowLevel::AlwaysOnTop)
         );
-        assert!(!crate::native_windows::window_should_float_for_title(Some(
+        assert!(crate::native_windows::window_should_float_for_title(Some(
             "Actions — NeoFlash"
         )));
         assert!(crate::native_windows::window_should_float_for_title(Some(
@@ -2441,8 +2441,8 @@ mod tests {
         )));
         assert!(!crate::native_windows::should_order_below_root_for_test());
 
-        // 2. Opening Scripting Reference (`Help`) lowers ALL floating windows (even `Tools`/`Color`)
-        //    to `Normal` AND orders them below `root`!
+        // 2. Opening Scripting Reference (`Help`) lowers ALL floating windows (`Actions`, `Tools`,
+        //    `Color`) to `Normal` AND orders them below `root` (`T-359`)!
         crate::panels::help_manual::open_scripting_reference(&ctx);
         let out = step_detached(&mut editor);
         assert_eq!(
@@ -2469,16 +2469,19 @@ mod tests {
             });
         assert!(tools_got_normal_cmd);
         assert!(!crate::native_windows::window_should_float_for_title(Some(
+            "Actions — NeoFlash"
+        )));
+        assert!(!crate::native_windows::window_should_float_for_title(Some(
             "Tools — NeoFlash"
         )));
         assert!(crate::native_windows::should_order_below_root_for_test());
 
-        // Closing Help restores `Tools` and `Color` to `AlwaysOnTop`, keeping `Actions` at `Normal`.
+        // Closing Help restores `Actions`, `Tools`, and `Color` to `AlwaysOnTop`.
         crate::panels::help_manual::close_help_manual(&ctx);
         let _ = step_detached(&mut editor);
         assert_eq!(
             observed_levels.borrow().get(&actions_vp).copied().flatten(),
-            Some(egui::WindowLevel::Normal)
+            Some(egui::WindowLevel::AlwaysOnTop)
         );
         assert_eq!(
             observed_levels.borrow().get(&tools_vp).copied().flatten(),

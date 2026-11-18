@@ -83,10 +83,6 @@ fn title(panel: PanelId) -> &'static str {
     panel.title()
 }
 
-fn floating_collapsed_id(window: PanelId) -> egui::Id {
-    egui::Id::new(("native-floating-collapsed", window))
-}
-
 const TOOLS_ANCHOR_MARGIN: f32 = 16.;
 const TOOLS_ANCHOR_DISTANCE: f32 = 112.;
 pub(crate) const TOOLS_GRIP: f32 = neoflash_ui::metrics::PANEL_TAB;
@@ -230,27 +226,10 @@ pub(crate) fn snap_tools_stage_anchor(
     Some((anchor.0, geometry))
 }
 
-/// Compact utility tool palettes stay above the main Stage window while no modal, `Help`, or
-/// menu/popup is open (`ai/knowledge/user.md` line 94). Workspace, document, and code windows
-/// (`Actions`, `Output`, `CompilerErrors`, `Debugger`, `Library`, `Timeline`, `MovieExplorer`,
-/// `Accessibility`, etc.) use `WindowLevel::Normal` (`NSNormalWindowLevel`) so clicking `Help` or
-/// the main window naturally brings it in front of `Actions`.
-pub(crate) fn is_compact_utility_palette(panel: PanelId) -> bool {
-    matches!(
-        panel,
-        PanelId::Tools
-            | PanelId::Color
-            | PanelId::Swatches
-            | PanelId::Align
-            | PanelId::Transform
-            | PanelId::Info
-            | PanelId::Brushes
-    )
-}
-
 impl Editor {
     pub(crate) fn should_order_floating_windows_below_root(&self, ctx: &egui::Context) -> bool {
         self.has_modal_dialog_in(ctx)
+            || self.test_movie_preview_open
             || crate::panels::help_manual::is_help_manual_open(ctx)
             || crate::panels::dialog_helpers::is_editor_popup_open_on_viewport(
                 self,
@@ -269,18 +248,10 @@ impl Editor {
         ctx: &egui::Context,
         visible_panels: &[PanelId],
     ) -> egui::WindowLevel {
-        if self.should_lower_all_floating_windows(ctx) {
-            return egui::WindowLevel::Normal;
-        }
-        if !visible_panels.is_empty()
-            && visible_panels
-                .iter()
-                .copied()
-                .all(is_compact_utility_palette)
-        {
-            egui::WindowLevel::AlwaysOnTop
-        } else {
+        if self.should_lower_all_floating_windows(ctx) || visible_panels.is_empty() {
             egui::WindowLevel::Normal
+        } else {
+            egui::WindowLevel::AlwaysOnTop
         }
     }
 
@@ -718,6 +689,7 @@ impl Editor {
             if drag.group.is_some() || whole_window.is_some() {
                 self.workspace
                     .dock_group(&panels, drag.panel, hit.destination);
+                self.persist_workspace_requested = true;
                 self.focus_dock_panel(ctx, drag.panel);
             } else {
                 self.dock_panel_at(ctx, drag.panel, hit.destination);
@@ -765,8 +737,14 @@ impl Editor {
             };
             self.workspace.remember_floating_geometry(window, geometry);
             self.workspace.set_tools_stage_anchor(window, anchor);
+            self.persist_workspace_requested = true;
             self.bottom = self.workspace.active_bottom;
             self.detached.focus = Some(drag.panel);
+            let live_height = if self.workspace.is_floating_window_collapsed(window) {
+                neoflash_ui::metrics::panel_tab()
+            } else {
+                geometry.inner_size[1] / zoom
+            };
             ctx.send_viewport_cmd_to(
                 viewport(window),
                 egui::ViewportCommand::OuterPosition(
@@ -775,9 +753,10 @@ impl Editor {
             );
             ctx.send_viewport_cmd_to(
                 viewport(window),
-                egui::ViewportCommand::InnerSize(
-                    egui::vec2(geometry.inner_size[0], geometry.inner_size[1]) / zoom,
-                ),
+                egui::ViewportCommand::InnerSize(egui::vec2(
+                    geometry.inner_size[0] / zoom,
+                    live_height,
+                )),
             );
         }
         ctx.request_repaint_of(egui::ViewportId::ROOT);
@@ -1006,6 +985,7 @@ impl Editor {
         destination: DockDestination,
     ) {
         self.workspace.dock_panel(panel, destination);
+        self.persist_workspace_requested = true;
         self.focus_dock_panel(ctx, panel);
     }
 
@@ -1031,7 +1011,9 @@ impl Editor {
         placement: PanelPlacement,
     ) {
         self.workspace.active_bottom = self.bottom;
-        self.workspace.set_placement(panel, placement);
+        if self.workspace.set_placement(panel, placement) {
+            self.persist_workspace_requested = true;
+        }
         self.bottom = self.workspace.active_bottom;
         if placement == PanelPlacement::Detached {
             self.detached.focus = Some(panel);
@@ -1118,14 +1100,15 @@ impl Editor {
             DockSurface::Main => true,
             DockSurface::Floating(id) => visible.contains(&id),
         });
-        let modal_open_now =
-            self.has_modal_dialog_in(ctx) || crate::panels::help_manual::is_help_manual_open(ctx);
+        let modal_open_now = self.has_modal_dialog_in(ctx)
+            || self.test_movie_preview_open
+            || crate::panels::help_manual::is_help_manual_open(ctx);
         if modal_open_now && !self.detached.was_modal_open && !visible.is_empty() {
             ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
             ctx.request_repaint_of(egui::ViewportId::ROOT);
         }
         self.detached.was_modal_open = modal_open_now;
-        let mut compact_palette_windows: Vec<(PanelId, String)> = Vec::new();
+        let mut floating_windows: Vec<(PanelId, String)> = Vec::new();
         for window_id in visible {
             let Some(window) = self
                 .workspace
@@ -1142,9 +1125,7 @@ impl Editor {
             };
             let id = viewport(window_id);
             let initial = !self.detached.active.contains(&window_id);
-            let collapsed = ctx
-                .data(|data| data.get_temp::<bool>(floating_collapsed_id(window_id)))
-                .unwrap_or(false);
+            let collapsed = self.workspace.is_floating_window_collapsed(window_id);
             let mut minimum_logical = window
                 .root
                 .as_ref()
@@ -1229,13 +1210,8 @@ impl Editor {
                     .collect::<Vec<_>>()
                     .join(" + ")
             );
-            let is_compact_palette = !visible_panels.is_empty()
-                && visible_panels
-                    .iter()
-                    .copied()
-                    .all(is_compact_utility_palette);
-            if is_compact_palette {
-                compact_palette_windows.push((window_id, title.clone()));
+            if !visible_panels.is_empty() {
+                floating_windows.push((window_id, title.clone()));
             }
             let desired_level = self.desired_floating_window_level(ctx, &visible_panels);
             let mut builder = egui::ViewportBuilder::default()
@@ -1273,17 +1249,23 @@ impl Editor {
                 .applied_levels
                 .insert(window_id, desired_level);
             if initial {
+                let initial_height = if collapsed {
+                    neoflash_ui::metrics::panel_tab()
+                } else {
+                    geometry.inner_size[1] / zoom
+                };
                 builder = builder
                     .with_position([
                         geometry.outer_position[0] / zoom,
                         geometry.outer_position[1] / zoom,
                     ])
-                    .with_inner_size([
-                        geometry.inner_size[0] / zoom,
-                        geometry.inner_size[1] / zoom,
-                    ]);
-                self.workspace
-                    .remember_floating_geometry(window_id, geometry);
+                    .with_inner_size([geometry.inner_size[0] / zoom, initial_height]);
+                if self
+                    .workspace
+                    .remember_floating_geometry(window_id, geometry)
+                {
+                    self.persist_workspace_requested = true;
+                }
             } else if recovering || growing {
                 if recovering {
                     ctx.send_viewport_cmd_to(
@@ -1294,15 +1276,24 @@ impl Editor {
                         )),
                     );
                 }
+                let live_height = if collapsed {
+                    neoflash_ui::metrics::panel_tab()
+                } else {
+                    geometry.inner_size[1] / zoom
+                };
                 ctx.send_viewport_cmd_to(
                     id,
                     egui::ViewportCommand::InnerSize(egui::vec2(
                         geometry.inner_size[0] / zoom,
-                        geometry.inner_size[1] / zoom,
+                        live_height,
                     )),
                 );
-                self.workspace
-                    .remember_floating_geometry(window_id, geometry);
+                if self
+                    .workspace
+                    .remember_floating_geometry(window_id, geometry)
+                {
+                    self.persist_workspace_requested = true;
+                }
             }
             self.detached.active.insert(window_id);
             let focus = self.detached.focus.filter(|panel| panels.contains(panel));
@@ -1339,6 +1330,27 @@ impl Editor {
                     return;
                 }
                 if !initial
+                    && collapsed
+                    && !recovering
+                    && self.detached.drag.is_none()
+                    && self.detached.resize.is_none()
+                    && let Some(outer) = ctx.input(|i| {
+                        let v = i.viewport();
+                        (v.minimized != Some(true)).then_some(v.outer_rect).flatten()
+                    })
+                    && let Some(mut prev) = self
+                        .workspace
+                        .floating
+                        .iter()
+                        .find(|w| w.id == window_id)
+                        .and_then(|w| w.geometry)
+                {
+                    prev.outer_position = [outer.min.x * zoom, outer.min.y * zoom];
+                    if self.workspace.remember_floating_geometry(window_id, prev) {
+                        self.persist_workspace_requested = true;
+                    }
+                }
+                if !initial
                     && !collapsed
                     && !recovering
                     && !growing
@@ -1353,6 +1365,14 @@ impl Editor {
                         let inner = v.inner_rect?;
                         let raw_w = inner.width() * zoom;
                         let raw_h = inner.height() * zoom;
+                        // Skip transitional collapsed-header height while OS applies post-expand InnerSize.
+                        if (inner.height() - neoflash_ui::metrics::panel_tab()).abs() <= 1.5
+                            && saved.is_some_and(|s| {
+                                (s.inner_size[1] / zoom) > neoflash_ui::metrics::panel_tab() + 2.0
+                            })
+                        {
+                            return None;
+                        }
                         Some((
                             raw_w,
                             raw_h,
@@ -1374,8 +1394,9 @@ impl Editor {
                             .find(|w| w.id == window_id)
                             .and_then(|w| w.geometry)
                             .is_some_and(|prev| (prev.inner_size[0] - geometry.inner_size[0]).abs() > 1.5)
+                        && self.workspace.set_tools_stage_anchor(window_id, None)
                     {
-                        self.workspace.set_tools_stage_anchor(window_id, None);
+                        self.persist_workspace_requested = true;
                     }
                     if (raw_w - geometry.inner_size[0]).abs() > 0.5
                         || (raw_h - geometry.inner_size[1]).abs() > 0.5
@@ -1393,8 +1414,12 @@ impl Editor {
                         &self.detached.monitors,
                         fallback,
                     );
-                    self.workspace
-                        .remember_floating_geometry(window_id, geometry);
+                    if self
+                        .workspace
+                        .remember_floating_geometry(window_id, geometry)
+                    {
+                        self.persist_workspace_requested = true;
+                    }
                 }
                 if ctx.input(|i| i.viewport().close_requested()) {
                     self.close_floating_window(window_id);
@@ -1466,11 +1491,7 @@ impl Editor {
                         ctx.request_repaint_of(egui::ViewportId::ROOT);
                         return;
                     }
-                    let collapsed = ctx
-                        .data(|data| {
-                            data.get_temp::<bool>(floating_collapsed_id(window_id))
-                        })
-                        .unwrap_or(false);
+                    let collapsed = self.workspace.is_floating_window_collapsed(window_id);
                     if !collapsed {
                         self.floating_window_resize_borders(
                             ctx, window_id, &panels, minimum, root_maximum, zoom,
@@ -1496,6 +1517,7 @@ impl Editor {
                     ctx.request_repaint_of(egui::ViewportId::ROOT);
                     if self.confirm.is_some()
                         || self.has_modal_dialog_in(ctx)
+                        || self.test_movie_preview_open
                         || crate::panels::help_manual::is_help_manual_open(ctx)
                     {
                         ctx.send_viewport_cmd_to(
@@ -1509,7 +1531,7 @@ impl Editor {
         }
         let lower_all = self.should_lower_all_floating_windows(ctx);
         if lower_all {
-            for (win_id, _) in &compact_palette_windows {
+            for (win_id, _) in &floating_windows {
                 if self.detached.applied_levels.get(win_id).copied()
                     == Some(egui::WindowLevel::AlwaysOnTop)
                 {
@@ -1527,7 +1549,7 @@ impl Editor {
         crate::native_windows::set_panel_window_levels(
             lower_all,
             lower_below_root,
-            compact_palette_windows
+            floating_windows
                 .into_iter()
                 .map(|(_, title)| title)
                 .collect(),
@@ -1634,9 +1656,23 @@ impl Editor {
                 Some(geometry)
             });
             if let Some(geometry) = close_geometry {
-                if let Some(geometry) = geometry {
-                    self.workspace
-                        .remember_floating_geometry(window_id, geometry);
+                if let Some(mut geometry) = geometry {
+                    if self.workspace.is_floating_window_collapsed(window_id)
+                        && let Some(prev) = self
+                            .workspace
+                            .floating
+                            .iter()
+                            .find(|w| w.id == window_id)
+                            .and_then(|w| w.geometry)
+                    {
+                        geometry.inner_size[1] = prev.inner_size[1];
+                    }
+                    if self
+                        .workspace
+                        .remember_floating_geometry(window_id, geometry)
+                    {
+                        self.persist_workspace_requested = true;
+                    }
                 }
                 self.close_floating_window(window_id);
                 ctx.request_repaint_of(egui::ViewportId::ROOT);
@@ -1731,11 +1767,7 @@ impl Editor {
         self.detached
             .dock_groups
             .retain(|target| target.surface != surface);
-        let collapsed_id = floating_collapsed_id(window_id);
-        let collapsed = ui
-            .ctx()
-            .data(|data| data.get_temp::<bool>(collapsed_id))
-            .unwrap_or(false);
+        let mut collapsed = self.workspace.is_floating_window_collapsed(window_id);
         let single_group = self
             .workspace
             .floating
@@ -2123,21 +2155,48 @@ impl Editor {
         }
         if header_collapse {
             let next = !collapsed;
-            ui.ctx()
-                .data_mut(|data| data.insert_temp(collapsed_id, next));
+            if self
+                .workspace
+                .set_floating_window_collapsed(window_id, next)
+            {
+                self.persist_workspace_requested = true;
+            }
+            collapsed = next;
+            let max_logical = self
+                .workspace
+                .floating
+                .iter()
+                .find(|window| window.id == window_id)
+                .and_then(|window| window.root.as_ref())
+                .map_or([4096., 2160.], |root| root.maximum_size());
+            let max_w = max_logical[0].max(minimum_logical[0]);
+            let max_h = max_logical[1].max(minimum_logical[1]);
             let width = ui.ctx().viewport_rect().width().max(minimum_logical[0]);
-            let height = if next {
-                neoflash_ui::metrics::panel_tab()
+            let (min_h, bound_max_h, height) = if next {
+                let tab_h = neoflash_ui::metrics::panel_tab();
+                (tab_h, tab_h, tab_h)
             } else {
-                self.workspace
+                let expanded_h = self
+                    .workspace
                     .floating
                     .iter()
                     .find(|window| window.id == window_id)
                     .and_then(|window| window.geometry)
                     .map_or(minimum_logical[1], |geometry| {
-                        (geometry.inner_size[1] / zoom).max(minimum_logical[1])
-                    })
+                        (geometry.inner_size[1] / zoom).clamp(minimum_logical[1], max_h)
+                    });
+                (minimum_logical[1], max_h, expanded_h)
             };
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+                    minimum_logical[0],
+                    min_h,
+                )));
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::MaxInnerSize(egui::vec2(
+                    max_w,
+                    bound_max_h,
+                )));
             ui.ctx()
                 .send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(width, height)));
         }
@@ -2179,10 +2238,7 @@ impl Editor {
         panels: &[PanelId],
     ) -> bool {
         let id = egui::Id::new(("floating-dock", window_id));
-        let collapsed_id = id.with("collapsed");
-        let collapsed = ctx
-            .data(|d| d.get_temp::<bool>(collapsed_id))
-            .unwrap_or(false);
+        let mut collapsed = self.workspace.is_floating_window_collapsed(window_id);
         let visible: Vec<PanelId> = panels
             .iter()
             .copied()
@@ -2250,7 +2306,14 @@ impl Editor {
                     self.floating_panel_commands(ui, window_id, &clipboard_target);
                 });
                 if header.collapse {
-                    ctx.data_mut(|d| d.insert_temp(collapsed_id, !collapsed));
+                    let next = !collapsed;
+                    if self
+                        .workspace
+                        .set_floating_window_collapsed(window_id, next)
+                    {
+                        self.persist_workspace_requested = true;
+                    }
+                    collapsed = next;
                 }
                 if header.close {
                     open = false;
@@ -2387,8 +2450,12 @@ impl Editor {
                 outer_position: [left_px, top_px],
                 inner_size: [width_px, height_px],
             };
-            self.workspace
-                .remember_floating_geometry(window_id, geometry);
+            if self
+                .workspace
+                .remember_floating_geometry(window_id, geometry)
+            {
+                self.persist_workspace_requested = true;
+            }
             ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
                 left_px / zoom,
                 top_px / zoom,
