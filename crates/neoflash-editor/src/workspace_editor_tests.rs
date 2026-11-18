@@ -2088,6 +2088,7 @@ fn t374_layout_mutations_request_persist_flush_immediately_and_survive_open_path
             .set_floating_window_collapsed(PanelId::Actions, true)
     );
     editor.workspace.dock.bottom.size = 364.0;
+    editor.workspace.code_editor.actions_sidebar = false;
     eframe::App::save(&mut editor, &mut storage);
     assert_eq!(
         storage.flushes, 2,
@@ -2103,6 +2104,7 @@ fn t374_layout_mutations_request_persist_flush_immediately_and_survive_open_path
         "load_for_viewport must never overwrite saved user dock layout with compact_default"
     );
     assert!(loaded_narrow.is_floating_window_collapsed(PanelId::Actions));
+    assert!(!loaded_narrow.code_editor.actions_sidebar);
     assert_eq!(loaded_narrow.dock.bottom.size, 364.0);
 
     let dir = std::env::temp_dir().join(format!(
@@ -2129,6 +2131,23 @@ fn t374_layout_mutations_request_persist_flush_immediately_and_survive_open_path
             .workspace
             .is_floating_window_collapsed(PanelId::Actions)
     );
+    assert!(
+        !relaunched.workspace.code_editor.actions_sidebar,
+        "collapsed Actions left sidebar must stay collapsed across restarts and document opens"
+    );
     assert_eq!(relaunched.workspace.dock.bottom.size, 364.0);
+    assert!(relaunched.workspace.save_named_preset("No Sidebar"));
+    relaunched
+        .workspace
+        .apply_template(crate::workspace::WorkspaceTemplate::Developer);
+    assert!(
+        relaunched.workspace.code_editor.actions_sidebar,
+        "switching to a built-in workspace template restores default Actions sidebar visibility"
+    );
+    assert!(relaunched.workspace.apply_named_preset("No Sidebar"));
+    assert!(
+        !relaunched.workspace.code_editor.actions_sidebar,
+        "named workspace preset restores its saved Actions sidebar state"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

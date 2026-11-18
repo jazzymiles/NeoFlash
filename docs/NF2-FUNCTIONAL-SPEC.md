@@ -86,7 +86,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | CO-03 | Color panel: Swatches tab, panel menu Add swatch, picker area | Color | partial (Add swatch + Swatches panel done) | editor | P1 |
 | LI-01 | Library: delete / duplicate item | Library | done | editor | P1 |
 | LI-02 | Library: bitmap / sound / font / video items, document select, pin | Library | partial (bitmap/sound/video/font items done) | editor | P2 |
-| AC-01 | Actions toolbar: auto-format | Actions | partial (re-indent only) | yes | P2 |
+| AC-01 | Actions toolbar: auto-format | Actions | done (`code_tools.rs`: token-safe indentation, operator/delimiter/statement/type spacing & trailing-`:` statement normalization across AS1/AS2/AS3/JS/TS) | yes | P2 |
 | AC-02 | Actions toolbar: show code hint (+ hint popover) | Actions | done | yes | P2 |
 | AC-03 | Actions toolbar: debug options | Actions | done | yes | P3 |
 | AC-04 | Actions toolbar: collapse between braces / expand all (folding) | Actions | done (`sources.rs`) | editor | P2 |
@@ -933,7 +933,9 @@ page's group. Wired across all 8 working pages:
 - **Code editor:** Font family (`Roboto Mono` + installed system families), font size (`8–32 px`), line height
   (`1.0–3.0`), Line numbers (with marker-only gutter strip when off), Word wrap, Auto-close brackets/quotes, Code hints
   + delay (`0–1000 ms`; `⌃Space` always immediate), Tab size (`2` / `4` / `8` spaces for `Tab`/`⇧Tab`, Auto-format and
-  line comments), Format on save, Highlight current line, plus live 5-line preview.
+  line comments), Format on save, Highlight current line, editable 14-slot syntax colour table (`Keyword`, `Identifier`,
+  `Type / class`, `Function`, `String`, `Number`, `Comment`, `XML tag`, `Attribute`, `Error`, `Warning`, `Breakpoint`,
+  `Selection`, `Current line` + `Reset colours`), plus live 5-line preview.
 - **Timeline:** ordinary click selects one frame; Shift-click and drag select exact ranges; opt-in Span-based selection (`⌘`-click single-cell override), Default frame view and row height, Show seconds,
   Snap playhead to keyframes, Onion range, linear Onion opacity falloff (`15–100 % → 15 %`, unified with the Timeline
   onion popover), Create keyframe on transform (when off, in-between transforms edit the span keyframe), Default ease,
@@ -957,7 +959,7 @@ Screenshot aids: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>` and
 | Page | Controls (from the preview) | Effect when wired | Model / engine | Prio |
 | --- | --- | --- | --- | --- |
 | General | Theme Dark / Light / Mid Neutral Gray / Dark Graphite; UI scale; Accent; Language; On launch; Undo levels; Autosave every N min; tooltips with shortcuts; Shift-select; highlight colour | Theme → `set_theme` with live draft preview and Save/Cancel restoration; Undo levels → `History::new(n)`; Autosave → recovery (`platform-recovery`); UI scale → egui zoom; Follow system, Language and Accent → **request** (no localisation, single accent token) | editor; autosave editor | P1 (theme, undo levels), P2 (autosave), P3 (language, accent) |
-| Code editor | Font, size, line height; line numbers, word wrap, auto-close brackets, code hints + delay, tab size, format on save, highlight current line; colour scheme + Duplicate / Import…; syntax colour table; preview | Code editor rendering options; scheme edits must keep "red = errors only" | editor (`components::code` reads tokens — custom colours need a request) | P2 |
+| Code editor | Font, size, line height; line numbers, word wrap, auto-close brackets, code hints + delay, tab size, format on save, highlight current line; colour scheme + Duplicate / Import…; syntax colour table + Reset colours; preview | Code editor rendering options and live per-token syntax colour overrides; scheme preset Import/Duplicate remain disabled | editor (`components::code` + `SyntaxColorOverrides`) | P2 |
 | Timeline | span-based selection, default frame view, row height, show seconds, snap playhead, named anchor per scene; onion range + tints + opacity falloff; auto keyframe on transform, default ease, tween type on drag | Defaults for TL-09/TL-11, onion state (`onion_before/after/opacity` exist), default `Easing` for new tweens | editor | P1 |
 | Drawing | Merge / Object drawing; pen preview, solid points, precise cursors; connect lines, smooth curves, recognise lines/shapes, click accuracy; snap tolerance, snap to pixels, snap align | Tool defaults (TO-07), snapping (ST-04) | editor | P2 |
 | Text | default font/size/anti-alias; font substitution warning; embed used glyphs; spell check; vertical text; input method | Defaults for new text; warnings exist in `export_warnings` | editor; embedding engine (DL-11) | P3 |

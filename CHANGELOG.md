@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- Kept detached **Actions** and studio panels visible above the main Stage/Timeline window during editing (with macOS
+  `hidesOnDeactivate` when switching to external apps such as Safari, while lowering below **Help**, modals, **Test
+  Movie** previews and open menus), persisted collapsed floating windows and the **Actions** left toolbox/navigator
+  sidebar automatically on change and Quit (restoring on launch until toggled or a workspace template is switched/reset),
+  and unified the native macOS system menu bar and in-window menu bar 1:1 across all eleven top-level menus (`NeoFlash`,
+  `File`, `Edit`, `View`, `Insert`, `Modify`, `Text`, `Control`, `Debug`, `Window`, `Help`), including `Preferences…`
+  (`⌘U`) and `Keyboard shortcuts…` (`⌥⇧⌘K`) (`T-372`, `T-374`, `T-377`).
+- Upgraded **Actions** **Auto format** (`code_tools.rs`) to normalize operator, `,`/`;`, control-statement, call and
+  type-annotation spacing plus accidental statement-ending `:` typos across AS1/AS2/AS3/JS/TS without touching strings,
+  comments, regexes, `#include`, `case`/`default`, ternaries, labels or object literals; unified syntax highlighting of
+  lowercase and uppercase user identifiers (`Token::Identifier`, e.g. `lFigure` and `TFigure`) separate from built-in
+  classes and type contexts (`Token::Type`); enabled live customizable 14-slot syntax colour pickers (`Reset colours` +
+  JSON persistence) in **Preferences ▸ Code editor**; and kept the **Actions** `Breakpoints & Watch` drawer hidden by
+  default with an explicit toggle, `✕` close control and `i16::BREAKPOINT` gutter markers (`T-373`, `T-375`, `T-376`,
+  `T-378`).
+- Supported `0 × 0` empty **MovieClip** instances at their Stage registration point `(X, Y)` across **Align**,
+  **Distribute**, **Space evenly**, **Match size** (with zero-dimension scale guards), **Transform**, **Info**, Stage
+  edge/corner `○+` selection and **Library** drop (clearing stale single-frame Timeline focus so **Properties** inspects
+  the placed instance), **Free Transform** (`Q`) move/halo-rotate/double-click **Edit in Place**, and tightened Stage
+  snapping tolerances (`2 / 4.5 / 8` screen points, grid deadbands, `±4 pt` object snap and discrete-target-only snap
+  ring visibility) (`T-380`, `T-381`).
+- Made **Output** **Clear** (`🗑`) permanently purge stored, coalesced, preview-relay and in-editor playback logs,
+  isolated each **Test Movie** / **Test Scene** launch with a monotonic `nf_run` session token (silencing and pausing
+  stale background browser tabs), and mapped pre-flight compile errors plus Safari/WebKit (`func@url:line:col`,
+  `global code@`, `ErrorEvent`), Chrome and Firefox runtime errors through Source Map v3 and strict-mode disjoint-line
+  DOM `<script>` units into `[Error] <Scene · Layer · Frame>, Line <L>: <reason>` entries in **Output** (humanizing
+  `Reflect.apply` / `.length()` non-function calls) with immediate line highlighting and click-to-jump in **Actions**
+  (`T-379`, `T-382`).
 - Audited and aligned string, array, `eval()`/`set()` and 32-bit bitwise operators across compiled HTML5 (**Test Movie**
   / **Publish** for AS1, AS2, AS3 and JS/TS) and live in-editor **Play** (`Enter`): matched AS1/AS2/AS3 `+`, `+=`,
   `String(...)` and Classic Flash string operators (`add`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `<>`, `chr`, `ord`,

@@ -1855,6 +1855,8 @@ pub struct WorkspacePreset {
     pub floating: Vec<FloatingDock>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     pub collapsed_floating: std::collections::BTreeSet<PanelId>,
+    #[serde(default = "default_true")]
+    pub actions_sidebar: bool,
     #[serde(default)]
     pub template: WorkspaceTemplate,
 }
@@ -1901,6 +1903,7 @@ impl WorkspacePreset {
             detached: prefs.detached,
             floating: prefs.floating.clone(),
             collapsed_floating: prefs.collapsed_floating.clone(),
+            actions_sidebar: prefs.code_editor.actions_sidebar,
             template: prefs.template,
         }
     }
@@ -1913,6 +1916,7 @@ impl WorkspacePreset {
         prefs.detached = self.detached;
         prefs.floating = self.floating.clone();
         prefs.collapsed_floating = self.collapsed_floating.clone();
+        prefs.code_editor.actions_sidebar = self.actions_sidebar;
         prefs.template = self.template;
         prefs.sanitize_layout();
     }
@@ -4038,7 +4042,10 @@ impl WorkspacePrefs {
             text_size: self.text_size,
             paste_in_place: self.paste_in_place,
             general: std::mem::take(&mut self.general),
-            code_editor: std::mem::take(&mut self.code_editor),
+            code_editor: CodeEditorPrefs {
+                actions_sidebar: true,
+                ..std::mem::take(&mut self.code_editor)
+            },
             timeline_prefs: std::mem::take(&mut self.timeline_prefs),
             drawing: std::mem::take(&mut self.drawing),
             tools: std::mem::take(&mut self.tools),
