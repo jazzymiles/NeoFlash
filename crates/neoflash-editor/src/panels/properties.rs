@@ -295,7 +295,7 @@ impl Editor {
             inspector_section(ui, "Selection colours", |ui| {
                 self.project_colors_section_ui(ui, true);
             });
-            inspector_section_with_open(ui, "Project colours", false, |ui| {
+            inspector_section_with_open(ui, "Used colours", false, |ui| {
                 self.project_colors_section_ui(ui, false);
             });
             return;
@@ -1055,17 +1055,21 @@ impl Editor {
                 let frame = self.frame;
                 let frame_context = self.selected_frame_range().is_some();
                 let explicit_frame_range = self.frame_range().is_some();
+                let span_key_frame = active_span_key_frame(&self.symbol().timeline, layer, frame);
                 let original_tween = frame_context.then(|| {
-                    self.symbol()
-                        .timeline
-                        .layers
-                        .get(layer)
-                        .and_then(|target| target.key_at(frame))
-                        .map(|key| key.tween)
+                    span_key_frame.and_then(|kf| {
+                        self.symbol()
+                            .timeline
+                            .layers
+                            .get(layer)
+                            .and_then(|target| target.keyframes.iter().find(|k| k.frame == kf))
+                            .map(|key| key.tween)
+                    })
                 });
-                let can_edit_selected_tween =
-                    self.layer_editable() || self.has_selected_tween_ease_targets();
                 let active_layer_editable = self.layer_editable();
+                let has_range_ease_targets = self.has_selected_tween_ease_targets();
+                let can_edit_selected_tween =
+                    (active_layer_editable && span_key_frame.is_some()) || has_range_ease_targets;
                 if !frame_context {
                 inspector_section(ui, "Stage", |ui| {
                 changes.note(text_row(ui, "Name", &mut document.name));
@@ -1161,10 +1165,21 @@ impl Editor {
                         }
                     }
 
-                    // 1) Frame section (top): <Frame Label> + Label type (Name | Comment | Anchor) + Frame script… (F9).
+                    // 1) Frame section (top): <Frame Label> + Label type (Name | Comment | Anchor).
                     inspector_section(ui, "Frame", |ui| {
-                        ui.add_enabled_ui_semantic(active_layer_editable, |ui| {
-                            if let Some(key) = timeline.layers[layer].key_at_mut(frame) {
+                        let can_edit_frame_key = active_layer_editable && span_key_frame.is_some();
+                        ui.add_enabled_ui_semantic(can_edit_frame_key, |ui| {
+                            const LABEL_TYPES: [(FrameLabelType, &str); 3] = [
+                                (FrameLabelType::Name, "Name"),
+                                (FrameLabelType::Comment, "Comment"),
+                                (FrameLabelType::Anchor, "Anchor"),
+                            ];
+                            if let Some(key) = span_key_frame.and_then(|kf| {
+                                timeline.layers[layer]
+                                    .keyframes
+                                    .iter_mut()
+                                    .find(|k| k.frame == kf)
+                            }) {
                                 let w = ui.available_width();
                                 let mut lbl_resp = ui.add(
                                     nf::TextField::new(&mut key.label, "<Frame Label>")
@@ -1184,11 +1199,6 @@ impl Editor {
                                 });
                                 changes.note(lbl_resp);
 
-                                const LABEL_TYPES: [(FrameLabelType, &str); 3] = [
-                                    (FrameLabelType::Name, "Name"),
-                                    (FrameLabelType::Comment, "Comment"),
-                                    (FrameLabelType::Anchor, "Anchor"),
-                                ];
                                 changes.note(select_row(
                                     ui,
                                     "Label type",
@@ -1199,35 +1209,36 @@ impl Editor {
                             } else {
                                 let mut empty_label = String::new();
                                 let w = ui.available_width();
-                                ui.add_enabled(
-                                    false,
+                                let mut lbl_resp = ui.add(
                                     nf::TextField::new(&mut empty_label, "<Frame Label>")
                                         .prefix("Name")
                                         .width(w),
                                 );
+                                lbl_resp.id = nf::TextField::edit_id(lbl_resp.id);
+                                lbl_resp.widget_info(|| {
+                                    let mut info = egui::WidgetInfo::text_edit(
+                                        ui.is_enabled(),
+                                        &empty_label,
+                                        &empty_label,
+                                        "<Frame Label>",
+                                    );
+                                    info.label = Some("Frame label".into());
+                                    info
+                                });
+                                let mut placeholder_label_type = FrameLabelType::Name;
+                                let _ = select_row(
+                                    ui,
+                                    "Label type",
+                                    "frame-label-type",
+                                    &mut placeholder_label_type,
+                                    &LABEL_TYPES,
+                                );
                             }
                         });
-                        let frame_act_sc = self.tooltip_sc(crate::commands::CommandId::WindowActions);
-                        let mut frame_act_btn = nf::Button::new("Frame script…");
-                        if let Some(sc) = frame_act_sc.as_deref() {
-                            frame_act_btn = frame_act_btn.shortcut(sc);
-                        }
-                        if ui.add(frame_act_btn).clicked() {
-                            self.open_frame_actions();
-                        }
-                        let include_scripts_resp = ui.add(nf::Checkbox::new(
-                            &mut self.timeline_edit.include_scripts,
-                            "Include frame scripts",
-                        ));
-                        nf::tooltip(
-                            include_scripts_resp,
-                            "Include frame scripts in frame copy, move, insert and remove operations (script collisions are rejected)",
-                            None,
-                        );
                     });
 
-                    // 2) Tween section: Tween selector + Scale, Ease (-100..=100 + preset + Edit…), Rotate + times, Orient/Sync/Snap.
-                    let has_range_ease_targets = self.has_selected_tween_ease_targets();
+                    // 2) Tween section: Classic Flash controls always rendered (Tween + Scale, Ease + preset + Edit…,
+                    // Rotate + times, Orient to path / Sync / Snap), semantically enabled/disabled per tween kind.
                     let range_first_easing = has_range_ease_targets.then(|| {
                         let live_tl = &self.symbol().timeline;
                         self.target_tween_spans()
@@ -1245,7 +1256,8 @@ impl Editor {
 
                     let cur_tween_choice = if motion.is_some() {
                         FrameTweenChoice::Motion
-                    } else if let Some(k) = timeline.layers[layer].key_at(frame)
+                    } else if let Some(k) = span_key_frame
+                        .and_then(|kf| timeline.layers[layer].keyframes.iter().find(|k| k.frame == kf))
                         && k.tween.is_some()
                     {
                         match k.tween_kind {
@@ -1257,277 +1269,568 @@ impl Editor {
                         FrameTweenChoice::None
                     };
 
+                    let motion_rot_span = (cur_tween_choice == FrameTweenChoice::Motion)
+                        .then(|| {
+                            if let Some(sp) = &motion {
+                                return Some(sp.clone());
+                            }
+                            let kf = span_key_frame?;
+                            let live_tl = &self.symbol().timeline;
+                            let live_layer = live_tl.layers.get(layer)?;
+                            let live_key = live_layer.keyframes.iter().find(|k| k.frame == kf)?;
+                            let el_id = self
+                                .selected_motion_element(&live_layer.id)
+                                .or_else(|| live_key.elements.first().map(|e| e.id.clone()))?;
+                            let span_end = live_layer
+                                .keyframes
+                                .iter()
+                                .filter(|k| k.frame > kf && k.keyed_properties.is_none())
+                                .map(|k| k.frame)
+                                .min()
+                                .or(live_layer.properties.end_frame)
+                                .unwrap_or(live_tl.frame_count)
+                                .max(kf + 1);
+                            Some(super::ease::TweenSpan {
+                                layer_id: live_layer.id.clone(),
+                                layer_name: live_layer.name.clone(),
+                                kind: TweenKind::Motion,
+                                motion_element: Some(el_id.clone()),
+                                start: kf,
+                                end: span_end,
+                                easing: live_key.motion_easing_for(&el_id),
+                                property_eases: Vec::new(),
+                            })
+                        })
+                        .flatten();
+                    let motion_rot_info = motion_rot_span
+                        .as_ref()
+                        .map(|sp| self.motion_rotation(sp));
+
+                    #[derive(Clone)]
+                    enum PendingMotionFlag {
+                        Orient(super::ease::TweenSpan, bool),
+                        Sync(super::ease::TweenSpan, bool),
+                        Snap(super::ease::TweenSpan, bool),
+                    }
+
                     let mut pending_tween_choice: Option<FrameTweenChoice> = None;
                     let mut pending_ease_edit: Option<(Easing, Option<egui::Id>)> = None;
+                    let mut pending_motion_rotate: Option<(
+                        super::ease::TweenSpan,
+                        ClassicRotateDirection,
+                        u32,
+                        Option<egui::Id>,
+                    )> = None;
+                    let mut pending_motion_flag: Option<PendingMotionFlag> = None;
                     let mut open_ease_panel = false;
 
                     inspector_section(ui, "Tween", |ui| {
-                        ui.add_enabled_ui_semantic(can_edit_selected_tween, |ui| {
-                            let guided = timeline.layers[layer].properties.motion_guide.is_some();
-                            let has_key = timeline.layers[layer].key_at(frame).is_some() || motion.is_some();
-                            if has_key || has_range_ease_targets {
-                                // Row 1: Tween selector (None, Motion, Classic, Shape) + [x] Scale when tweened.
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = space::S2;
-                                    let show_scale = cur_tween_choice != FrameTweenChoice::None;
-                                    let select_w = if show_scale {
-                                        (ui.available_width() - 74.0 - space::S2).max(96.0)
-                                    } else {
-                                        ui.available_width()
-                                    };
-                                    nf::Select::new(
-                                        "frame-tween-kind",
-                                        &format!("Tween: {}", cur_tween_choice.label()),
-                                    )
-                                    .width(select_w)
-                                    .show(ui, |ui| {
-                                        for (choice, label) in FrameTweenChoice::ALL {
-                                            if ui
-                                                .add(
-                                                    MenuItem::new(label)
-                                                        .checked(choice == cur_tween_choice),
-                                                )
-                                                .clicked()
-                                            {
-                                                if choice != cur_tween_choice {
-                                                    pending_tween_choice = Some(choice);
-                                                }
-                                                ui.close();
+                        let is_motion_or_classic = matches!(
+                            cur_tween_choice,
+                            FrameTweenChoice::Classic | FrameTweenChoice::Motion
+                        );
+                        let can_edit_span_props =
+                            active_layer_editable && span_key_frame.is_some() && is_motion_or_classic;
+
+                        // Row 1: Tween selector (None, Motion, Classic, Shape) + [x] Scale on the same row.
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = space::S2;
+                            let select_w = (ui.available_width() - 74.0 - space::S2).max(96.0);
+                            ui.add_enabled_ui_semantic(can_edit_selected_tween, |ui| {
+                                nf::Select::new(
+                                    "frame-tween-kind",
+                                    &format!("Tween: {}", cur_tween_choice.label()),
+                                )
+                                .width(select_w)
+                                .show(ui, |ui| {
+                                    for (choice, label) in FrameTweenChoice::ALL {
+                                        if ui
+                                            .add(
+                                                MenuItem::new(label)
+                                                    .checked(choice == cur_tween_choice),
+                                            )
+                                            .clicked()
+                                        {
+                                            if choice != cur_tween_choice {
+                                                pending_tween_choice = Some(choice);
                                             }
+                                            ui.close();
                                         }
-                                    });
-                                    if show_scale {
-                                        ui.add_enabled_ui_semantic(
-                                            active_layer_editable
-                                                && cur_tween_choice == FrameTweenChoice::Classic,
-                                            |ui| {
-                                                if let Some(key) =
-                                                    timeline.layers[layer].key_at_mut(frame)
-                                                {
-                                                    changes.note(ui.add(nf::Checkbox::new(
-                                                        &mut key.tween_scale,
-                                                        "Scale",
-                                                    )));
-                                                } else {
-                                                    let mut scale_placeholder = true;
-                                                    ui.add(nf::Checkbox::new(
-                                                        &mut scale_placeholder,
-                                                        "Scale",
-                                                    ));
-                                                }
-                                            },
-                                        );
                                     }
                                 });
-
-                                // Row 2 (when tweened): Ease (-100..=100 in/out + preset curve) + Edit… button.
-                                let active_easing = motion
-                                    .as_ref()
-                                    .map(|sp| sp.easing)
-                                    .or_else(|| {
-                                        timeline.layers[layer]
-                                            .key_at(frame)
-                                            .and_then(|k| k.tween)
+                            });
+                            let motion_scale_key = egui::Id::new((
+                                "frame-motion-scale",
+                                &symbol_id,
+                                &layer_id,
+                                span_key_frame,
+                            ));
+                            let motion_has_scale_keys = cur_tween_choice == FrameTweenChoice::Motion
+                                && span_key_frame.is_some_and(|kf| {
+                                    let next_ord = timeline.layers[layer]
+                                        .keyframes
+                                        .iter()
+                                        .filter(|k| k.frame > kf && k.keyed_properties.is_none())
+                                        .map(|k| k.frame)
+                                        .min();
+                                    timeline.layers[layer].keyframes.iter().any(|k| {
+                                        k.frame > kf
+                                            && next_ord.is_none_or(|end| k.frame < end)
+                                            && k.keyed_properties.as_ref().is_some_and(|props| {
+                                                props.contains(&TweenProperty::ScaleX)
+                                                    || props.contains(&TweenProperty::ScaleY)
+                                            })
                                     })
-                                    .or(range_first_easing);
-                                if let Some(cur_ease) = active_easing {
-                                    let (mut ease_val, ease_unit) = match cur_ease {
-                                        Easing::Linear => (0.0, ""),
-                                        Easing::EaseIn => (-100.0, "(in)"),
-                                        Easing::EaseOut => (100.0, "(out)"),
-                                        Easing::Flash { acceleration } if acceleration < 0.0 => {
-                                            (acceleration, "(in)")
-                                        }
-                                        Easing::Flash { acceleration } if acceleration > 0.0 => {
-                                            (acceleration, "(out)")
-                                        }
-                                        Easing::Flash { acceleration } => (acceleration, ""),
-                                        Easing::EaseInOut
-                                        | Easing::Bounce
-                                        | Easing::Elastic
-                                        | Easing::CubicBezier { .. } => (0.0, "(custom)"),
-                                    };
-                                    let preset_label = match cur_ease {
-                                        Easing::Linear => "Linear",
-                                        Easing::EaseIn => "Ease in",
-                                        Easing::EaseOut => "Ease out",
-                                        Easing::EaseInOut => "Ease in/out",
-                                        Easing::Bounce => "Bounce",
-                                        Easing::Elastic => "Elastic",
-                                        Easing::CubicBezier { .. } => "Custom curve",
-                                        Easing::Flash { .. } => "Flash ease",
-                                    };
-                                    ui.horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing.x = space::S2;
-                                        let edit_w = 58.0;
-                                        let rem = (ui.available_width() - edit_w - space::S2).max(120.0);
-                                        let field_w = (rem * 0.52).max(64.0);
-                                        let preset_w = (rem - field_w - space::S2).max(56.0);
-                                        let r_ease = ui.add(
-                                            nf::Field::new(&mut ease_val, "Ease")
-                                                .prefix("Ease")
-                                                .unit(ease_unit)
-                                                .decimals(0)
-                                                .range(-100.0..=100.0)
-                                                .stepper()
-                                                .width(field_w),
-                                        );
-                                        if r_ease.changed() {
-                                            pending_ease_edit = Some((
-                                                Easing::Flash {
-                                                    acceleration: ease_val.round().clamp(-100.0, 100.0),
-                                                },
-                                                Some(r_ease.id),
-                                            ));
-                                        }
-                                        let custom_default =
-                                            if let curve @ Easing::CubicBezier { .. } = cur_ease {
-                                                curve
-                                            } else {
-                                                Easing::CubicBezier {
-                                                    x1: 0.25,
-                                                    y1: 0.1,
-                                                    x2: 0.25,
-                                                    y2: 1.0,
-                                                }
-                                            };
-                                        let flash_default =
-                                            if let flash @ Easing::Flash { .. } = cur_ease {
-                                                flash
-                                            } else {
-                                                Easing::Flash { acceleration: 0.0 }
-                                            };
-                                        let presets = [
-                                            (Easing::Linear, "Linear"),
-                                            (Easing::EaseIn, "Ease in"),
-                                            (Easing::EaseOut, "Ease out"),
-                                            (Easing::EaseInOut, "Ease in/out"),
-                                            (Easing::Bounce, "Bounce"),
-                                            (Easing::Elastic, "Elastic"),
-                                            (custom_default, "Custom curve"),
-                                            (flash_default, "Flash ease"),
-                                        ];
-                                        let (r_preset, _) =
-                                            nf::Select::new("frame-ease-preset", preset_label)
-                                                .width(preset_w)
-                                                .show(ui, |ui| {
-                                                    for (pe, plabel) in presets {
-                                                        if ui
-                                                            .add(
-                                                                MenuItem::new(plabel)
-                                                                    .checked(plabel == preset_label),
-                                                            )
-                                                            .clicked()
-                                                        {
-                                                            if pe != cur_ease {
-                                                                pending_ease_edit =
-                                                                    Some((pe, None));
-                                                            }
-                                                            ui.close();
-                                                        }
-                                                    }
-                                                });
-                                        let _ = r_preset;
-                                        if ui.add(nf::Button::new("Edit…")).clicked() {
-                                            open_ease_panel = true;
-                                        }
-                                    });
-                                }
-
-                                // Rows 3 & 4 (Classic tween): Rotate + times, and Orient to path / Sync / Snap.
-                                if cur_tween_choice == FrameTweenChoice::Classic
-                                    && let Some(key) = timeline.layers[layer].key_at_mut(frame)
+                                });
+                            ui.add_enabled_ui_semantic(can_edit_span_props, |ui| {
+                                if can_edit_span_props
+                                    && let Some(key) = span_key_frame.and_then(|kf| {
+                                        timeline.layers[layer]
+                                            .keyframes
+                                            .iter_mut()
+                                            .find(|k| k.frame == kf)
+                                    })
                                 {
-                                    ui.add_enabled_ui_semantic(active_layer_editable, |ui| {
-                                        let mut turns = key.classic_rotate_turns as f64;
-                                        let old_direction = key.classic_rotate_dir;
-                                        let mut direction = old_direction;
-                                        let dir_label = format!("Rotate: {}", direction.label());
-                                        let (mut r_dir, r_turns) = two_column_row(
-                                            ui,
-                                            |ui, width| {
-                                                let (response, _) =
-                                                    nf::Select::new("classic-direction", &dir_label)
-                                                        .width(width)
-                                                        .show(ui, |ui| {
-                                                            for dir in ClassicRotateDirection::ALL {
-                                                                if ui
-                                                                    .add(
-                                                                        MenuItem::new(dir.label())
-                                                                            .checked(
-                                                                                direction == dir,
-                                                                            ),
-                                                                    )
-                                                                    .clicked()
-                                                                {
-                                                                    direction = dir;
-                                                                    ui.close();
-                                                                }
-                                                            }
-                                                        });
-                                                response
-                                            },
-                                            |ui, width| {
-                                                ui.add(
-                                                    nf::Field::new(&mut turns, "times")
-                                                        .unit("times")
-                                                        .decimals(0)
-                                                        .range(
-                                                            0.0..=(Keyframe::MAX_ROTATE_TURNS
-                                                                as f64),
-                                                        )
-                                                        .stepper()
-                                                        .width(width),
-                                                )
-                                            },
-                                        );
-                                        if r_turns.changed() {
-                                            key.classic_rotate_turns = (turns.round().max(0.0)
-                                                as u32)
-                                                .min(Keyframe::MAX_ROTATE_TURNS);
+                                    if cur_tween_choice == FrameTweenChoice::Motion {
+                                        let old_scale = if motion_has_scale_keys {
+                                            true
+                                        } else {
+                                            ui.data(|d| d.get_temp::<bool>(motion_scale_key))
+                                                .unwrap_or(key.tween_scale)
+                                        };
+                                        let mut scale_val = old_scale;
+                                        let r_scale =
+                                            ui.add(nf::Checkbox::new(&mut scale_val, "Scale"));
+                                        if r_scale.changed() && scale_val != old_scale {
+                                            ui.data_mut(|d| {
+                                                d.insert_temp(motion_scale_key, scale_val);
+                                            });
+                                            key.tween_scale = scale_val;
+                                            changes.note(r_scale);
                                         }
-                                        if direction != old_direction {
-                                            key.classic_rotate_dir = direction;
-                                            r_dir.mark_changed();
-                                        }
-                                        changes.note(r_dir);
-                                        changes.note(r_turns);
-
-                                        ui.horizontal_wrapped(|ui| {
-                                            let orient_resp = ui.add_enabled(
-                                                guided,
-                                                nf::Checkbox::new(
-                                                    &mut key.orient_to_path,
-                                                    "Orient to path",
-                                                ),
-                                            );
-                                            changes.note(crate::ui_icons::hover_tooltip(
-                                                orient_resp,
-                                                "",
-                                                None,
-                                                Some("Needs a motion guide layer"),
-                                            ));
-                                            changes.note(ui.add(nf::Checkbox::new(
-                                                &mut key.sync_symbols,
-                                                "Sync",
-                                            )));
-                                            let snap_resp = ui.add_enabled(
-                                                guided,
-                                                nf::Checkbox::new(&mut key.snap_to_guide, "Snap"),
-                                            );
-                                            changes.note(crate::ui_icons::hover_tooltip(
-                                                snap_resp,
-                                                "",
-                                                None,
-                                                Some("Needs a motion guide layer"),
-                                            ));
-                                        });
-                                    });
+                                    } else {
+                                        changes.note(ui.add(nf::Checkbox::new(
+                                            &mut key.tween_scale,
+                                            "Scale",
+                                        )));
+                                    }
+                                } else {
+                                    let mut scale_placeholder = span_key_frame
+                                        .and_then(|kf| {
+                                            timeline.layers[layer]
+                                                .keyframes
+                                                .iter()
+                                                .find(|k| k.frame == kf)
+                                        })
+                                        .is_none_or(|k| k.tween_scale);
+                                    ui.add(nf::Checkbox::new(&mut scale_placeholder, "Scale"));
                                 }
-                            } else {
-                                hint(ui, "Select a frame with a keyframe to edit its tween.");
-                            }
+                            });
                         });
+
+                        // Row 2: Ease (-100..=100 in/out + preset curve) + Edit… button (always rendered).
+                        let active_easing = motion
+                            .as_ref()
+                            .map(|sp| sp.easing)
+                            .or_else(|| {
+                                span_key_frame
+                                    .and_then(|kf| {
+                                        timeline.layers[layer]
+                                            .keyframes
+                                            .iter()
+                                            .find(|k| k.frame == kf)
+                                    })
+                                    .and_then(|k| k.tween)
+                            })
+                            .or(range_first_easing);
+                        let can_edit_ease = can_edit_selected_tween
+                            && (cur_tween_choice != FrameTweenChoice::None
+                                || has_range_ease_targets);
+                        let cur_ease = active_easing.unwrap_or(Easing::Linear);
+                        let (mut ease_val, ease_unit) = match cur_ease {
+                            Easing::Linear => (0.0, ""),
+                            Easing::EaseIn => (-100.0, "(in)"),
+                            Easing::EaseOut => (100.0, "(out)"),
+                            Easing::Flash { acceleration } if acceleration < 0.0 => {
+                                (acceleration, "(in)")
+                            }
+                            Easing::Flash { acceleration } if acceleration > 0.0 => {
+                                (acceleration, "(out)")
+                            }
+                            Easing::Flash { acceleration } => (acceleration, ""),
+                            Easing::EaseInOut
+                            | Easing::Bounce
+                            | Easing::Elastic
+                            | Easing::CubicBezier { .. } => (0.0, "(custom)"),
+                        };
+                        let preset_label = match cur_ease {
+                            Easing::Linear => "Linear",
+                            Easing::EaseIn => "Ease in",
+                            Easing::EaseOut => "Ease out",
+                            Easing::EaseInOut => "Ease in/out",
+                            Easing::Bounce => "Bounce",
+                            Easing::Elastic => "Elastic",
+                            Easing::CubicBezier { .. } => "Custom curve",
+                            Easing::Flash { .. } => "Flash ease",
+                        };
+                        ui.add_enabled_ui_semantic(can_edit_ease, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S2;
+                                let edit_w = 58.0;
+                                let rem = (ui.available_width() - edit_w - space::S2).max(120.0);
+                                let field_w = (rem * 0.52).max(64.0);
+                                let preset_w = (rem - field_w - space::S2).max(56.0);
+                                let r_ease = ui.add(
+                                    nf::Field::new(&mut ease_val, "Ease")
+                                        .prefix("Ease")
+                                        .unit(ease_unit)
+                                        .decimals(0)
+                                        .range(-100.0..=100.0)
+                                        .stepper()
+                                        .width(field_w),
+                                );
+                                if can_edit_ease && r_ease.changed() {
+                                    pending_ease_edit = Some((
+                                        Easing::Flash {
+                                            acceleration: ease_val.round().clamp(-100.0, 100.0),
+                                        },
+                                        Some(r_ease.id),
+                                    ));
+                                }
+                                let custom_default =
+                                    if let curve @ Easing::CubicBezier { .. } = cur_ease {
+                                        curve
+                                    } else {
+                                        Easing::CubicBezier {
+                                            x1: 0.25,
+                                            y1: 0.1,
+                                            x2: 0.25,
+                                            y2: 1.0,
+                                        }
+                                    };
+                                let flash_default =
+                                    if let flash @ Easing::Flash { .. } = cur_ease {
+                                        flash
+                                    } else {
+                                        Easing::Flash { acceleration: 0.0 }
+                                    };
+                                let presets = [
+                                    (Easing::Linear, "Linear"),
+                                    (Easing::EaseIn, "Ease in"),
+                                    (Easing::EaseOut, "Ease out"),
+                                    (Easing::EaseInOut, "Ease in/out"),
+                                    (Easing::Bounce, "Bounce"),
+                                    (Easing::Elastic, "Elastic"),
+                                    (custom_default, "Custom curve"),
+                                    (flash_default, "Flash ease"),
+                                ];
+                                let (r_preset, _) =
+                                    nf::Select::new("frame-ease-preset", preset_label)
+                                        .width(preset_w)
+                                        .show(ui, |ui| {
+                                            for (pe, plabel) in presets {
+                                                if ui
+                                                    .add(
+                                                        MenuItem::new(plabel)
+                                                            .checked(plabel == preset_label),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    if can_edit_ease && pe != cur_ease {
+                                                        pending_ease_edit = Some((pe, None));
+                                                    }
+                                                    ui.close();
+                                                }
+                                            }
+                                        });
+                                let _ = r_preset;
+                                if ui.add(nf::Button::new("Edit…")).clicked() && can_edit_ease {
+                                    open_ease_panel = true;
+                                }
+                            });
+                        });
+
+                        // Row 3: Rotate (Auto | None | CW | CCW) + times (0..=MAX_ROTATE_TURNS) — always rendered.
+                        let motion_rot_dir_key = egui::Id::new((
+                            "frame-motion-rotate-dir",
+                            &symbol_id,
+                            &layer_id,
+                            span_key_frame,
+                        ));
+                        let motion_el_id = motion_rot_span
+                            .as_ref()
+                            .and_then(|sp| sp.motion_element.as_deref());
+                        let span_key_snapshot = span_key_frame
+                            .and_then(|kf| {
+                                timeline.layers[layer]
+                                    .keyframes
+                                    .iter()
+                                    .find(|k| k.frame == kf)
+                            })
+                            .map(|k| {
+                                let (orient, sync, snap) = if cur_tween_choice
+                                    == FrameTweenChoice::Motion
+                                    && let Some(el_id) = motion_el_id
+                                {
+                                    (
+                                        k.motion_orient_to_path_for(el_id),
+                                        k.motion_sync_symbols_for(el_id),
+                                        k.motion_snap_to_guide_for(el_id),
+                                    )
+                                } else {
+                                    (k.orient_to_path, k.sync_symbols, k.snap_to_guide)
+                                };
+                                (
+                                    k.classic_rotate_dir,
+                                    k.classic_rotate_turns,
+                                    orient,
+                                    sync,
+                                    snap,
+                                )
+                            });
+                        let (old_direction, old_turns_u32) = match cur_tween_choice {
+                            FrameTweenChoice::Motion => {
+                                if let Some((m_turns, m_cw)) = motion_rot_info
+                                    && m_turns > 0
+                                {
+                                    (
+                                        if m_cw {
+                                            ClassicRotateDirection::Cw
+                                        } else {
+                                            ClassicRotateDirection::Ccw
+                                        },
+                                        m_turns,
+                                    )
+                                } else if let Some(saved_dir) = ui.data(|d| {
+                                    d.get_temp::<ClassicRotateDirection>(motion_rot_dir_key)
+                                }) {
+                                    (saved_dir, 0)
+                                } else if let Some((k_dir, k_turns, ..)) = span_key_snapshot
+                                    && !k_dir.is_default()
+                                {
+                                    (k_dir, k_turns)
+                                } else {
+                                    (ClassicRotateDirection::Auto, 0)
+                                }
+                            }
+                            FrameTweenChoice::Classic => span_key_snapshot.map_or(
+                                (ClassicRotateDirection::Auto, 0),
+                                |(k_dir, k_turns, ..)| (k_dir, k_turns),
+                            ),
+                            FrameTweenChoice::None | FrameTweenChoice::Shape => {
+                                (ClassicRotateDirection::Auto, 0)
+                            }
+                        };
+                        let mut direction = old_direction;
+                        let mut turns = old_turns_u32 as f64;
+                        let can_edit_turns = can_edit_span_props
+                            && matches!(
+                                old_direction,
+                                ClassicRotateDirection::Cw | ClassicRotateDirection::Ccw
+                            );
+                        let dir_label = format!("Rotate: {}", direction.label());
+                        let (mut r_dir, r_turns) = two_column_row(
+                            ui,
+                            |ui, width| {
+                                ui.add_enabled_ui_semantic(can_edit_span_props, |ui| {
+                                    let (response, _) =
+                                        nf::Select::new("classic-direction", &dir_label)
+                                            .width(width)
+                                            .show(ui, |ui| {
+                                                for dir in ClassicRotateDirection::ALL {
+                                                    if ui
+                                                        .add(
+                                                            MenuItem::new(dir.label())
+                                                                .checked(direction == dir),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        direction = dir;
+                                                        ui.close();
+                                                    }
+                                                }
+                                            });
+                                    response
+                                })
+                                .inner
+                            },
+                            |ui, width| {
+                                ui.add_enabled_ui_semantic(can_edit_turns, |ui| {
+                                    ui.add(
+                                        nf::Field::new(&mut turns, "times")
+                                            .unit("times")
+                                            .decimals(0)
+                                            .range(0.0..=(Keyframe::MAX_ROTATE_TURNS as f64))
+                                            .stepper()
+                                            .width(width),
+                                    )
+                                })
+                                .inner
+                            },
+                        );
+                        if can_edit_span_props {
+                            let next_turns =
+                                (turns.round().max(0.0) as u32).min(Keyframe::MAX_ROTATE_TURNS);
+                            if cur_tween_choice == FrameTweenChoice::Motion {
+                                if direction != old_direction {
+                                    ui.data_mut(|d| d.insert_temp(motion_rot_dir_key, direction));
+                                    if let Some(ref m_span) = motion_rot_span
+                                        && m_span.end > m_span.start + 1
+                                        && (old_turns_u32 > 0
+                                            || span_key_snapshot
+                                                .is_some_and(|(k_dir, ..)| !k_dir.is_default()))
+                                    {
+                                        let next_span_turns = match direction {
+                                            ClassicRotateDirection::Auto
+                                            | ClassicRotateDirection::None => 0,
+                                            ClassicRotateDirection::Cw
+                                            | ClassicRotateDirection::Ccw => old_turns_u32,
+                                        };
+                                        pending_motion_rotate = Some((
+                                            m_span.clone(),
+                                            direction,
+                                            next_span_turns,
+                                            None,
+                                        ));
+                                    } else if m_span_is_single_frame(&motion_rot_span)
+                                        && let Some(key) = span_key_frame.and_then(|kf| {
+                                            timeline.layers[layer]
+                                                .keyframes
+                                                .iter_mut()
+                                                .find(|k| k.frame == kf)
+                                        })
+                                    {
+                                        key.classic_rotate_dir = direction;
+                                        r_dir.mark_changed();
+                                        changes.note(r_dir);
+                                    }
+                                } else if can_edit_turns && r_turns.changed() {
+                                    if let Some(ref m_span) = motion_rot_span
+                                        && m_span.end > m_span.start + 1
+                                    {
+                                        pending_motion_rotate = Some((
+                                            m_span.clone(),
+                                            direction,
+                                            next_turns,
+                                            Some(r_turns.id),
+                                        ));
+                                    } else if let Some(key) = span_key_frame.and_then(|kf| {
+                                        timeline.layers[layer]
+                                            .keyframes
+                                            .iter_mut()
+                                            .find(|k| k.frame == kf)
+                                    }) {
+                                        key.classic_rotate_turns = next_turns;
+                                        changes.note(r_turns);
+                                    }
+                                }
+                            } else if let Some(key) = span_key_frame.and_then(|kf| {
+                                timeline.layers[layer]
+                                    .keyframes
+                                    .iter_mut()
+                                    .find(|k| k.frame == kf)
+                            }) {
+                                if can_edit_turns && r_turns.changed() {
+                                    key.classic_rotate_turns = next_turns;
+                                }
+                                if direction != old_direction {
+                                    key.classic_rotate_dir = direction;
+                                    r_dir.mark_changed();
+                                }
+                                changes.note(r_dir);
+                                changes.note(r_turns);
+                            }
+                        }
+
+                        // Row 4: [ ] Orient to path · [ ] Sync · [ ] Snap — always rendered.
+                        ui.add_enabled_ui_semantic(can_edit_span_props, |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                if can_edit_span_props
+                                    && cur_tween_choice == FrameTweenChoice::Motion
+                                    && let Some(ref m_span) = motion_rot_span
+                                {
+                                    let (mut orient_v, mut sync_v, mut snap_v) = span_key_snapshot
+                                        .map_or((false, false, false), |(_, _, o, sy, sn)| {
+                                            (o, sy, sn)
+                                        });
+                                    if ui
+                                        .add(nf::Checkbox::new(&mut orient_v, "Orient to path"))
+                                        .changed()
+                                    {
+                                        pending_motion_flag = Some(PendingMotionFlag::Orient(
+                                            m_span.clone(),
+                                            orient_v,
+                                        ));
+                                    }
+                                    if ui
+                                        .add(nf::Checkbox::new(&mut sync_v, "Sync"))
+                                        .changed()
+                                    {
+                                        pending_motion_flag =
+                                            Some(PendingMotionFlag::Sync(m_span.clone(), sync_v));
+                                    }
+                                    if ui
+                                        .add(nf::Checkbox::new(&mut snap_v, "Snap"))
+                                        .changed()
+                                    {
+                                        pending_motion_flag =
+                                            Some(PendingMotionFlag::Snap(m_span.clone(), snap_v));
+                                    }
+                                } else if can_edit_span_props
+                                    && let Some(key) = span_key_frame.and_then(|kf| {
+                                        timeline.layers[layer]
+                                            .keyframes
+                                            .iter_mut()
+                                            .find(|k| k.frame == kf)
+                                    })
+                                {
+                                    changes.note(ui.add(nf::Checkbox::new(
+                                        &mut key.orient_to_path,
+                                        "Orient to path",
+                                    )));
+                                    changes.note(
+                                        ui.add(nf::Checkbox::new(&mut key.sync_symbols, "Sync")),
+                                    );
+                                    changes.note(
+                                        ui.add(nf::Checkbox::new(&mut key.snap_to_guide, "Snap")),
+                                    );
+                                } else {
+                                    let (mut orient_v, mut sync_v, mut snap_v) =
+                                        if is_motion_or_classic {
+                                            span_key_snapshot.map_or(
+                                                (false, false, false),
+                                                |(_, _, o, sy, sn)| (o, sy, sn),
+                                            )
+                                        } else {
+                                            (false, false, false)
+                                        };
+                                    ui.add(nf::Checkbox::new(&mut orient_v, "Orient to path"));
+                                    ui.add(nf::Checkbox::new(&mut sync_v, "Sync"));
+                                    ui.add(nf::Checkbox::new(&mut snap_v, "Snap"));
+                                }
+                            });
+                        });
+                    });
+
+                    // 3) Frame actions section (secondary, below Classic Flash Frame & Tween controls).
+                    inspector_section(ui, "Frame actions", |ui| {
+                        let frame_act_sc = self.tooltip_sc(crate::commands::CommandId::WindowActions);
+                        let mut frame_act_btn = nf::Button::new("Frame script…");
+                        if let Some(sc) = frame_act_sc.as_deref() {
+                            frame_act_btn = frame_act_btn.shortcut(sc);
+                        }
+                        if ui.add(frame_act_btn).clicked() {
+                            self.open_frame_actions();
+                        }
+                        let include_scripts_resp = ui.add(nf::Checkbox::new(
+                            &mut self.timeline_edit.include_scripts,
+                            "Include frame scripts",
+                        ));
+                        nf::tooltip(
+                            include_scripts_resp,
+                            "Include frame scripts in frame copy, move, insert and remove operations (script collisions are rejected)",
+                            None,
+                        );
                     });
 
                     if open_ease_panel {
@@ -1549,6 +1852,24 @@ impl Editor {
                             self.set_selected_motion_tween_ease(span, next_ease, control);
                         } else {
                             self.set_selected_tween_ease(next_ease, control);
+                        }
+                        return;
+                    }
+                    if let Some((m_span, next_dir, next_turns, control)) = pending_motion_rotate {
+                        self.apply_motion_frame_rotation(&m_span, next_dir, next_turns, control);
+                        return;
+                    }
+                    if let Some(flag_edit) = pending_motion_flag {
+                        match flag_edit {
+                            PendingMotionFlag::Orient(m_span, on) => {
+                                self.set_orient_to_path(&m_span, on);
+                            }
+                            PendingMotionFlag::Sync(m_span, on) => {
+                                self.set_motion_sync_symbols(&m_span, on);
+                            }
+                            PendingMotionFlag::Snap(m_span, on) => {
+                                self.set_motion_snap_to_guide(&m_span, on);
+                            }
                         }
                         return;
                     }
@@ -1664,17 +1985,19 @@ impl Editor {
                             self.open_publish_settings();
                         }
                     });
-                    inspector_section_with_open(ui, "Project colours", false, |ui| {
+                    inspector_section_with_open(ui, "Used colours", false, |ui| {
                         self.project_colors_section_ui(ui, false);
                     });
                 }
                 document.fps = fps;
                 let edited_tween = frame_context.then(|| {
-                    document
-                        .symbol(&symbol_id)
-                        .and_then(|symbol| symbol.timeline.layers.get(layer))
-                        .and_then(|target| target.key_at(frame))
-                        .map(|key| key.tween)
+                    span_key_frame.and_then(|kf| {
+                        document
+                            .symbol(&symbol_id)
+                            .and_then(|symbol| symbol.timeline.layers.get(layer))
+                            .and_then(|target| target.keyframes.iter().find(|k| k.frame == kf))
+                            .map(|key| key.tween)
+                    })
                 });
                 let mut handled_range_easing = false;
                 if original_tween != edited_tween
@@ -1704,25 +2027,121 @@ impl Editor {
                         let min=timeline.layers.iter().flat_map(|l|&l.keyframes).map(|k|k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).chain(timeline.layers.iter().filter_map(|l|l.properties.end_frame)).max().unwrap_or(1);
                         timeline.frame_count=draft.frame_count.max(min);
                         if let Some(target)=timeline.layers.iter_mut().find(|l|l.id==layer_id) {
-                            if target.visible && !target.locked && let Some(changed)=draft.layers[layer].key_at(frame) && let Some(key)=target.keyframes.iter_mut().find(|k|k.frame==changed.frame) {
-                                let sync_turned_on = !key.sync_symbols && changed.sync_symbols;
-                                let key_frame = key.frame;
-                                key.label=changed.label.clone();
-                                key.label_type=changed.label_type;
-                                key.tween=changed.tween;
-                                key.orient_to_path=changed.orient_to_path;
-                                key.snap_to_guide=changed.snap_to_guide;
-                                key.classic_rotate_turns=changed.classic_rotate_turns;
-                                key.classic_rotate_dir=changed.classic_rotate_dir;
-                                key.sync_symbols=changed.sync_symbols;
-                                key.tween_scale=changed.tween_scale;
+                            if target.visible
+                                && !target.locked
+                                && let Some(kf) = span_key_frame
+                                && let Some(changed) = draft.layers[layer]
+                                    .keyframes
+                                    .iter()
+                                    .find(|k| k.frame == kf)
+                                    .cloned()
+                            {
+                                let mut sync_turned_on = false;
+                                let mut scale_turned_off_in_motion = false;
+                                if let Some(key) =
+                                    target.keyframes.iter_mut().find(|k| k.frame == kf)
+                                {
+                                    sync_turned_on = !key.sync_symbols && changed.sync_symbols;
+                                    let orient_changed =
+                                        key.orient_to_path != changed.orient_to_path;
+                                    let sync_changed = key.sync_symbols != changed.sync_symbols;
+                                    let snap_changed = key.snap_to_guide != changed.snap_to_guide;
+                                    scale_turned_off_in_motion = key.tween.is_some()
+                                        && key.tween_kind == TweenKind::Motion
+                                        && key.tween_scale
+                                        && !changed.tween_scale;
+                                    key.label = changed.label.clone();
+                                    key.label_type = changed.label_type;
+                                    key.tween = changed.tween;
+                                    key.orient_to_path = changed.orient_to_path;
+                                    key.snap_to_guide = changed.snap_to_guide;
+                                    key.sync_symbols = changed.sync_symbols;
+                                    if orient_changed || sync_changed || snap_changed {
+                                        for track in &mut key.motion_tracks {
+                                            if orient_changed {
+                                                track.orient_to_path = None;
+                                            }
+                                            if sync_changed {
+                                                track.sync_symbols = None;
+                                            }
+                                            if snap_changed {
+                                                track.snap_to_guide = None;
+                                            }
+                                        }
+                                        key.motion_tracks.retain(|track| !track.is_noop());
+                                    }
+                                }
+                                let next_ord_frame = target
+                                    .keyframes
+                                    .iter()
+                                    .filter(|k| k.frame > kf && k.keyed_properties.is_none())
+                                    .map(|k| k.frame)
+                                    .min();
+                                if scale_turned_off_in_motion {
+                                    for ikey in &mut target.keyframes {
+                                        if ikey.frame > kf
+                                            && next_ord_frame.is_none_or(|end| ikey.frame < end)
+                                            && ikey.keyed_properties.is_some()
+                                        {
+                                            ikey.materialize_motion_keys();
+                                            if let Some(mkeys) = &mut ikey.motion_keys {
+                                                for mk in mkeys.iter_mut() {
+                                                    mk.properties.retain(|p| {
+                                                        !matches!(
+                                                            p,
+                                                            TweenProperty::ScaleX
+                                                                | TweenProperty::ScaleY
+                                                        )
+                                                    });
+                                                }
+                                                mkeys.retain(|mk| !mk.properties.is_empty());
+                                            }
+                                            ikey.sync_motion_key_union();
+                                        }
+                                    }
+                                    target.keyframes.retain(|ikey| {
+                                        !(ikey.frame > kf
+                                            && next_ord_frame.is_none_or(|end| ikey.frame < end)
+                                            && ikey
+                                                .keyed_properties
+                                                .as_ref()
+                                                .is_some_and(Vec::is_empty))
+                                    });
+                                }
                                 target.normalize_motion_keys();
+                                if changed.tween.is_some()
+                                    && matches!(
+                                        changed.tween_kind,
+                                        TweenKind::Classic | TweenKind::Motion
+                                    )
+                                    && let Some(key) =
+                                        target.keyframes.iter_mut().find(|k| k.frame == kf)
+                                {
+                                    key.classic_rotate_turns = changed.classic_rotate_turns;
+                                    key.classic_rotate_dir = changed.classic_rotate_dir;
+                                    key.tween_scale = changed.tween_scale;
+                                }
                                 if sync_turned_on {
-                                    let end_frame = target.keyframes.iter().filter(|k| k.frame > key_frame).map(|k| k.frame).min().unwrap_or_else(|| timeline.frame_count.saturating_sub(1));
-                                    neoflash_core::sync_layer_symbols(&project_snapshot, target, key_frame, end_frame);
+                                    let end_frame = next_ord_frame
+                                        .unwrap_or_else(|| timeline.frame_count.saturating_sub(1));
+                                    neoflash_core::sync_layer_symbols(
+                                        &project_snapshot,
+                                        target,
+                                        kf,
+                                        end_frame,
+                                    );
                                 }
                             }
-                            if matches!(draft.layers[layer].key_at(frame).and_then(|k| k.tween), Some(Easing::Flash { .. })) { self.project.format_version = self.project.format_version.max(5); }
+                            if matches!(
+                                span_key_frame
+                                    .and_then(|kf| {
+                                        draft.layers[layer].keyframes.iter().find(|k| k.frame == kf)
+                                    })
+                                    .and_then(|k| k.tween),
+                                Some(Easing::Flash { .. })
+                            ) {
+                                self.project.format_version = self.project.format_version.max(5);
+                            }
                         }
                     }
                     self.project.upgrade_format_for_features();
@@ -2158,6 +2577,147 @@ impl Editor {
         ui.data_mut(|d| d.insert_temp(style_key, style));
         changes.control
     }
+
+    /// Apply Classic-style `Rotate` (`Auto` | `None` | `CW` | `CCW`) + `times` to a `Motion` tween
+    /// span in one Undo step (`T-383`), keeping `start_key.classic_rotate_dir` and the span's
+    /// `Rotation` ◆ key synchronized across `Auto -> CW -> times: N -> Auto / None`.
+    fn apply_motion_frame_rotation(
+        &mut self,
+        span: &super::ease::TweenSpan,
+        direction: ClassicRotateDirection,
+        turns: u32,
+        control: Option<egui::Id>,
+    ) {
+        if !self.layer_editable() {
+            return;
+        }
+        let turns = turns.min(Keyframe::MAX_ROTATE_TURNS);
+        let effective_turns = match direction {
+            ClassicRotateDirection::Cw | ClassicRotateDirection::Ccw => turns,
+            ClassicRotateDirection::Auto | ClassicRotateDirection::None => 0,
+        };
+        let clockwise = direction != ClassicRotateDirection::Ccw;
+        let frames = self.motion_key_frames(span, TweenProperty::Rotation);
+        let start_rot = self.motion_key_value(span, TweenProperty::Rotation, span.start);
+        let target_frame = frames
+            .last()
+            .copied()
+            .filter(|&f| f != span.start)
+            .unwrap_or_else(|| span.end.saturating_sub(1));
+        let (old_turns, _) = self.motion_rotation(span);
+        let end_rot = self
+            .motion_key_value(span, TweenProperty::Rotation, target_frame)
+            .filter(|_| frames.contains(&target_frame))
+            .unwrap_or_else(|| start_rot.unwrap_or(0.0));
+        let rest = if let Some(s) = start_rot {
+            ((end_rot - s).abs() - 360.0 * old_turns as f64).max(0.0)
+        } else {
+            0.0
+        };
+        let span = span.clone();
+        self.motion_edit(control, move |s| {
+            if let (Some(el_id), Some(start_val)) = (span.motion_element.clone(), start_rot)
+                && target_frame > span.start
+            {
+                if effective_turns == 0 && rest < 1e-6 {
+                    if frames.contains(&target_frame) {
+                        let drop_key = if let Some(layer) = s
+                            .symbol_mut()
+                            .timeline
+                            .layers
+                            .iter_mut()
+                            .find(|l| l.id == span.layer_id)
+                            && let Some(tkey) =
+                                layer.keyframes.iter_mut().find(|k| k.frame == target_frame)
+                        {
+                            tkey.materialize_motion_keys();
+                            if let Some(mkeys) = &mut tkey.motion_keys {
+                                if let Some(ok) =
+                                    mkeys.iter_mut().find(|entry| entry.element_id == el_id)
+                                {
+                                    ok.properties.retain(|p| *p != TweenProperty::Rotation);
+                                }
+                                mkeys.retain(|entry| !entry.properties.is_empty());
+                            }
+                            tkey.sync_motion_key_union();
+                            tkey.keyed_properties.as_ref().is_some_and(Vec::is_empty)
+                                && tkey.label.is_empty()
+                                && tkey.sound.is_none()
+                                && tkey.video.is_none()
+                                && tkey.filters.is_empty()
+                        } else {
+                            false
+                        };
+                        if drop_key
+                            && let Some(layer) = s
+                                .symbol_mut()
+                                .timeline
+                                .layers
+                                .iter_mut()
+                                .find(|l| l.id == span.layer_id)
+                        {
+                            layer.keyframes.retain(|k| k.frame != target_frame);
+                        }
+                    }
+                } else {
+                    let sign = if clockwise { 1.0 } else { -1.0 };
+                    let next_deg = start_val + sign * (360.0 * effective_turns as f64 + rest);
+                    s.ensure_key_at(&span.layer_id, target_frame, false);
+                    if let Some(layer) = s
+                        .symbol_mut()
+                        .timeline
+                        .layers
+                        .iter_mut()
+                        .find(|l| l.id == span.layer_id)
+                        && let Some(tkey) =
+                            layer.keyframes.iter_mut().find(|k| k.frame == target_frame)
+                    {
+                        if let Some(el) = tkey.elements.iter_mut().find(|e| e.id == el_id) {
+                            el.transform.rotation = next_deg;
+                        }
+                        let ok = tkey.ensure_motion_property_key(&el_id);
+                        if !ok.properties.contains(&TweenProperty::Rotation) {
+                            ok.properties.push(TweenProperty::Rotation);
+                        }
+                        tkey.sync_motion_key_union();
+                    }
+                }
+            }
+            if let Some(layer) = s
+                .symbol_mut()
+                .timeline
+                .layers
+                .iter_mut()
+                .find(|l| l.id == span.layer_id)
+                && let Some(start_key) = layer.keyframes.iter_mut().find(|k| k.frame == span.start)
+            {
+                start_key.classic_rotate_dir = direction;
+                start_key.classic_rotate_turns = effective_turns;
+            }
+            s.project.upgrade_format_for_features();
+        });
+    }
+}
+
+fn m_span_is_single_frame(span: &Option<super::ease::TweenSpan>) -> bool {
+    span.as_ref().is_none_or(|s| s.end <= s.start + 1)
+}
+
+fn active_span_key_frame(timeline: &Timeline, layer_idx: usize, frame: u32) -> Option<u32> {
+    let layer = timeline.layers.get(layer_idx)?;
+    if frame >= timeline.frame_count || layer.properties.end_frame.is_some_and(|end| frame >= end) {
+        return None;
+    }
+    motion_span(layer, frame)
+        .map(|(start, ..)| start.frame)
+        .or_else(|| {
+            layer
+                .keyframes
+                .iter()
+                .filter(|k| k.frame <= frame)
+                .max_by_key(|k| k.frame)
+                .map(|k| k.frame)
+        })
 }
 
 fn appearance_title(kind: &ElementKind) -> &'static str {

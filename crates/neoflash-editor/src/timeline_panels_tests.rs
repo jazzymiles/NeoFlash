@@ -762,7 +762,7 @@ fn classic_orient_and_snap_controls_follow_guide_state_and_commit_one_undo() {
                     },
                 )
             };
-            for label in ["Orient to path", "Snap"] {
+            for label in ["Orient to path", "Sync", "Snap"] {
                 let output = render(&mut editor, vec![]);
                 let node = &output
                     .platform_output
@@ -774,7 +774,10 @@ fn classic_orient_and_snap_controls_follow_guide_state_and_commit_one_undo() {
                     .find(|(_, node)| node.label() == Some(label))
                     .unwrap()
                     .1;
-                assert_eq!(node.is_disabled(), !guided, "{label}, guided={guided}");
+                assert!(
+                    !node.is_disabled(),
+                    "{label} is always enabled on an editable Classic tween (guided={guided})"
+                );
                 let bounds = node.bounds().unwrap();
                 let at = egui::pos2(
                     ((bounds.x0 + bounds.x1) / 2.) as f32,
@@ -788,23 +791,17 @@ fn classic_orient_and_snap_controls_follow_guide_state_and_commit_one_undo() {
                 render(&mut editor, vec![]);
                 editor.finish_edits();
                 let key = start_key(&editor);
-                assert_eq!(
-                    if label == "Orient to path" {
-                        key.motion_orient_to_path_for("clip")
-                    } else {
-                        key.motion_snap_to_guide_for("clip")
+                assert!(
+                    match label {
+                        "Orient to path" => key.motion_orient_to_path_for("clip"),
+                        "Sync" => key.motion_sync_symbols_for("clip"),
+                        _ => key.motion_snap_to_guide_for("clip"),
                     },
-                    guided,
                     "{label} bound to document"
                 );
                 editor.project.validate().unwrap();
-                if guided {
-                    editor.undo();
-                }
-                assert_eq!(
-                    editor.project, before,
-                    "{label}: disabled is pure / enabled is one Undo"
-                );
+                editor.undo();
+                assert_eq!(editor.project, before, "{label}: enabled is one Undo");
             }
         }
     }
@@ -1938,4 +1935,412 @@ fn stage_graphic_commands_and_classic_sync_respect_instance_behavior_overrides()
     assert_eq!(editor.frame, 3);
     editor.leave_symbol_to_level(0);
     editor.project.validate().unwrap();
+}
+
+#[test]
+fn t383_motion_and_classic_frame_properties_bind_scale_rotate_and_held_span_edits() {
+    use crate::tests::primary_button;
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, neoflash_ui::Theme::Dark);
+
+    let mut editor = motion_editor();
+    let span = editor.motion_tween_span().expect("motion span");
+    editor.set_motion_value(&span, TweenProperty::ScaleX, 6, 200.0, None);
+    editor.set_motion_rotation(&span, 2, true, None);
+    editor.finish_edits();
+    assert_eq!(
+        editor.motion_key_frames(&span, TweenProperty::ScaleX),
+        vec![0, 6]
+    );
+    assert_eq!(editor.motion_rotation(&span), (2, true));
+
+    // Select held in-between frame 3 in the Timeline (Stage object selection cleared).
+    let layer_id = editor.symbol().timeline.layers[0].id.clone();
+    editor.clear_selection();
+    editor.frame = 3;
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id.clone()],
+        start: 3,
+        end: 3,
+    });
+
+    let mut time = 0.0;
+    let mut render = |ed: &mut Editor, events: Vec<egui::Event>| {
+        time += 0.1;
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(420.0, 900.0),
+                )),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ed.properties(ui, ctx);
+                });
+            },
+        )
+    };
+
+    let _ = render(&mut editor, vec![]);
+    let out = render(&mut editor, vec![]);
+    fn find_node<'a>(
+        output: &'a egui::FullOutput,
+        label: &str,
+    ) -> Option<&'a egui::accesskit::Node> {
+        output
+            .platform_output
+            .accesskit_update
+            .as_ref()?
+            .nodes
+            .iter()
+            .find(|(_, n)| n.label() == Some(label))
+            .map(|(_, n)| n)
+    }
+    assert!(
+        find_node(&out, "Rotate: CW").is_some_and(|n| !n.is_disabled()),
+        "Motion tween with 2 CW turns displays enabled 'Rotate: CW' on held frame 3"
+    );
+    assert!(
+        find_node(&out, "times").is_some_and(|n| !n.is_disabled()),
+        "'times' is enabled when Rotate is CW on Motion tween"
+    );
+
+    // Uncheck [x] Scale on held frame 3 of Motion tween -> strips interior ScaleX ◆ key in 1 Undo step!
+    let before_scale = editor.project.clone();
+    let scale_bounds = find_node(&out, "Scale").unwrap().bounds().unwrap();
+    let scale_center = egui::pos2(
+        ((scale_bounds.x0 + scale_bounds.x1) * 0.5) as f32,
+        ((scale_bounds.y0 + scale_bounds.y1) * 0.5) as f32,
+    );
+    let _ = render(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(scale_center),
+            primary_button(scale_center, true),
+        ],
+    );
+    let _ = render(&mut editor, vec![primary_button(scale_center, false)]);
+    let out_after_scale = render(&mut editor, vec![]);
+    editor.finish_edits();
+    assert_eq!(
+        find_node(&out_after_scale, "Scale").unwrap().toggled(),
+        Some(egui::accesskit::Toggled::False),
+        "Scale checkbox reflects unchecked state on Motion tween"
+    );
+    editor.select_single_id("clip".into());
+    let span_after = editor.motion_tween_span().expect("motion span");
+    assert_eq!(
+        editor.motion_key_frames(&span_after, TweenProperty::ScaleX),
+        vec![0],
+        "unchecking Scale on Motion tween clears interior ScaleX ◆ keys"
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_scale);
+
+    // Also test Classic tween Scale + Rotate: CW + times on held frame 3!
+    editor.clear_selection();
+    editor.frame = 3;
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id.clone()],
+        start: 3,
+        end: 3,
+    });
+    editor.create_tween(TweenKind::Classic);
+    let before_classic_scale = editor.project.clone();
+    let _ = render(&mut editor, vec![]);
+    let out_classic = render(&mut editor, vec![]);
+    let classic_scale_bounds = find_node(&out_classic, "Scale").unwrap().bounds().unwrap();
+    let classic_scale_center = egui::pos2(
+        ((classic_scale_bounds.x0 + classic_scale_bounds.x1) * 0.5) as f32,
+        ((classic_scale_bounds.y0 + classic_scale_bounds.y1) * 0.5) as f32,
+    );
+    let _ = render(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(classic_scale_center),
+            primary_button(classic_scale_center, true),
+        ],
+    );
+    let _ = render(
+        &mut editor,
+        vec![primary_button(classic_scale_center, false)],
+    );
+    let _ = render(&mut editor, vec![]);
+    editor.finish_edits();
+    assert!(!start_key(&editor).tween_scale);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_classic_scale);
+
+    // Restore Motion tween for the locked-layer motion_tween_span() coexistence check:
+    editor.create_tween(TweenKind::Motion);
+    editor.select_single_id("clip".into());
+    let span_restore = editor.motion_tween_span().expect("motion span");
+    editor.set_motion_rotation(&span_restore, 2, true, None);
+    editor.finish_edits();
+
+    // Also verify when motion_tween_span() is Some on a Timeline-focused frame (e.g. locked layer
+    // with selected element so selected_authored_pose() is None while motion_tween_span() is Some):
+    // Classic Flash Frame controls remain present alongside Motion tween sections!
+    editor.select_single_id("clip".into());
+    editor.symbol_mut().timeline.layers[0].locked = true;
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id],
+        start: 3,
+        end: 3,
+    });
+    assert!(editor.motion_tween_span().is_some());
+    let _ = render(&mut editor, vec![]);
+    let out_both = render(&mut editor, vec![]);
+    for ctrl in [
+        "Frame label",
+        "Name",
+        "Tween: Motion",
+        "Scale",
+        "Edit…",
+        "Rotate: CW",
+        "times",
+        "Orient to path",
+        "Sync",
+        "Snap",
+    ] {
+        assert!(
+            find_node(&out_both, ctrl).is_some(),
+            "{ctrl} remains present when motion_tween_span() is Some"
+        );
+    }
+}
+
+#[test]
+fn t383_motion_rotate_reset_to_auto_or_none_and_motion_track_flags_sync() {
+    use crate::tests::primary_button;
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, neoflash_ui::Theme::Dark);
+
+    let mut editor = motion_editor();
+    // Attach a motion guide path at y = 50 so checking Snap snaps the X/Y pose onto the guide.
+    let mut guide = editor.symbol().timeline.layers[0].clone();
+    guide.id = "guide".into();
+    guide.name = "Guide".into();
+    guide.properties.role = LayerRole::Guide;
+    guide.keyframes = vec![Keyframe {
+        elements: vec![element(
+            "guide-path",
+            ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0.0, y: 50.0 },
+                    PathCommand::LineTo { x: 100.0, y: 50.0 },
+                ],
+                fill_rule: Default::default(),
+                fill: [0, 0, 0, 0],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 1.0,
+            },
+            0.0,
+        )],
+        ..Default::default()
+    }];
+    editor.symbol_mut().timeline.layers[0]
+        .properties
+        .motion_guide = Some("guide".into());
+    editor.symbol_mut().timeline.layers.push(guide);
+    editor.project.upgrade_format_for_features();
+    editor.project.validate().unwrap();
+
+    let layer_id = editor.symbol().timeline.layers[0].id.clone();
+    editor.clear_selection();
+    editor.frame = 3;
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id.clone()],
+        start: 3,
+        end: 3,
+    });
+
+    let mut time = 0.0;
+    let mut render = |ed: &mut Editor, events: Vec<egui::Event>| {
+        time += 0.1;
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(420.0, 900.0),
+                )),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ed.properties(ui, ctx);
+                });
+            },
+        )
+    };
+    fn find_node<'a>(
+        output: &'a egui::FullOutput,
+        label: &str,
+    ) -> Option<&'a egui::accesskit::Node> {
+        output
+            .platform_output
+            .accesskit_update
+            .as_ref()?
+            .nodes
+            .iter()
+            .find(|(_, n)| n.label() == Some(label))
+            .map(|(_, n)| n)
+    }
+    let click_node = |ed: &mut Editor,
+                      render: &mut dyn FnMut(&mut Editor, Vec<egui::Event>) -> egui::FullOutput,
+                      label: &str| {
+        let out = render(ed, vec![]);
+        let b = find_node(&out, label)
+            .unwrap_or_else(|| panic!("missing node {label:?}"))
+            .bounds()
+            .unwrap();
+        let center = egui::pos2(((b.x0 + b.x1) * 0.5) as f32, ((b.y0 + b.y1) * 0.5) as f32);
+        let _ = render(
+            ed,
+            vec![
+                egui::Event::PointerMoved(center),
+                primary_button(center, true),
+            ],
+        );
+        let _ = render(ed, vec![primary_button(center, false)]);
+        render(ed, vec![])
+    };
+
+    // 1. Rotate: Auto -> CW -> times: 2 -> Auto and -> None (each 1 Undo step, never stuck on CW!)
+    let initial_proj = editor.project.clone();
+    let _ = render(&mut editor, vec![]);
+    let out0 = render(&mut editor, vec![]);
+    assert!(find_node(&out0, "Rotate: Auto").is_some());
+    assert!(find_node(&out0, "times").unwrap().is_disabled());
+
+    // Open Rotate: Auto dropdown and pick CW.
+    let _ = click_node(&mut editor, &mut render, "Rotate: Auto");
+    let out_cw0 = click_node(&mut editor, &mut render, "CW");
+    editor.finish_edits();
+    assert!(
+        find_node(&out_cw0, "Rotate: CW").is_some(),
+        "picking CW switches dropdown to Rotate: CW"
+    );
+    assert!(
+        !find_node(&out_cw0, "times").unwrap().is_disabled(),
+        "times is enabled when Rotate: CW"
+    );
+    editor.project.validate().unwrap();
+
+    // Set 2 turns on the Motion span.
+    editor.select_single_id("clip".into());
+    let span = editor.motion_tween_span().unwrap();
+    editor.set_motion_rotation(&span, 2, true, None);
+    editor.finish_edits();
+    editor.clear_selection();
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id.clone()],
+        start: 3,
+        end: 3,
+    });
+    let after_2_turns = editor.project.clone();
+    let out_cw2 = render(&mut editor, vec![]);
+    assert!(find_node(&out_cw2, "Rotate: CW").is_some());
+
+    // Switch Rotate: CW -> Auto: dropdown updates to Rotate: Auto and clears the 2 turns in 1 Undo!
+    let _ = click_node(&mut editor, &mut render, "Rotate: CW");
+    let out_auto = click_node(&mut editor, &mut render, "Auto");
+    editor.finish_edits();
+    assert!(
+        find_node(&out_auto, "Rotate: Auto").is_some(),
+        "resetting rotated Motion tween to Auto must not stick on Rotate: CW"
+    );
+    assert!(find_node(&out_auto, "times").unwrap().is_disabled());
+    editor.select_single_id("clip".into());
+    let span_chk = editor.motion_tween_span().unwrap();
+    assert_eq!(editor.motion_rotation(&span_chk), (0, true));
+    editor.clear_selection();
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id.clone()],
+        start: 3,
+        end: 3,
+    });
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(
+        editor.project, after_2_turns,
+        "1 Undo restores 2 CW turns after resetting to Auto"
+    );
+
+    // Switch Rotate: CW -> None: dropdown updates to Rotate: None and clears the 2 turns in 1 Undo!
+    let _ = render(&mut editor, vec![]);
+    let _ = click_node(&mut editor, &mut render, "Rotate: CW");
+    let out_none = click_node(&mut editor, &mut render, "None");
+    editor.finish_edits();
+    assert!(
+        find_node(&out_none, "Rotate: None").is_some(),
+        "resetting rotated Motion tween to None must not stick on Rotate: CW"
+    );
+    assert!(find_node(&out_none, "times").unwrap().is_disabled());
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(
+        editor.project, after_2_turns,
+        "1 Undo restores 2 CW turns after resetting to None"
+    );
+    editor.undo();
+    assert_eq!(editor.project, initial_proj);
+
+    // 2. Motion Orient to path / Sync / Snap read & write motion_tracks (`motion_*_for`) and snap X/Y onto guide!
+    editor.select_single_id("clip".into());
+    let span_m = editor.motion_tween_span().unwrap();
+    editor.set_orient_to_path(&span_m, true);
+    editor.set_motion_sync_symbols(&span_m, true);
+    assert!(!start_key(&editor).orient_to_path);
+    assert!(start_key(&editor).motion_orient_to_path_for("clip"));
+    assert!(start_key(&editor).motion_sync_symbols_for("clip"));
+    editor.clear_selection();
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id.clone()],
+        start: 3,
+        end: 3,
+    });
+
+    let _ = render(&mut editor, vec![]);
+    let out_flags = render(&mut editor, vec![]);
+    assert_eq!(
+        find_node(&out_flags, "Orient to path").unwrap().toggled(),
+        Some(egui::accesskit::Toggled::True),
+        "Tween 'Orient to path' reads motion_orient_to_path_for('clip')"
+    );
+    assert_eq!(
+        find_node(&out_flags, "Sync").unwrap().toggled(),
+        Some(egui::accesskit::Toggled::True),
+        "Tween 'Sync' reads motion_sync_symbols_for('clip')"
+    );
+
+    // Clicking Snap in Tween section routes through set_motion_snap_to_guide and snaps Y to guide (50.0) in 1 Undo!
+    let before_snap = editor.project.clone();
+    assert!((start_key(&editor).elements[0].transform.y - 0.0).abs() < 1e-6);
+    let out_snapped = click_node(&mut editor, &mut render, "Snap");
+    editor.finish_edits();
+    assert_eq!(
+        find_node(&out_snapped, "Snap").unwrap().toggled(),
+        Some(egui::accesskit::Toggled::True)
+    );
+    assert!(start_key(&editor).motion_snap_to_guide_for("clip"));
+    assert!(
+        (start_key(&editor).elements[0].transform.y - 50.0).abs() < 1e-6,
+        "checking Snap in Tween snaps Motion tween pose onto motion guide"
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_snap);
 }

@@ -1527,6 +1527,7 @@ pub fn default_window_size(panel: PanelId) -> [f32; 2] {
         PanelId::Brushes => [320., 650.],
         PanelId::Timeline => [900., 280.],
         PanelId::Library => [300., 600.],
+        PanelId::Properties => [340., 560.],
         PanelId::Align | PanelId::Transform | PanelId::Color => [320., 440.],
         PanelId::Swatches => [324., 490.],
         PanelId::Filters => [324., 460.],
@@ -1775,6 +1776,9 @@ pub struct WorkspacePrefs {
     /// User-added swatches (`Add swatch`, `PP-10`, bounded to 64).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_swatches: Vec<neoflash_core::Color>,
+    /// Swatches / Properties ▸ Used colours ▸ Only on stage (`T-386`, default `true`).
+    #[serde(default = "default_true")]
+    pub used_colors_only_on_stage: bool,
     /// Default document settings saved with "Make default" (`DL-02`); `None` = `Project::blank()`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_defaults: Option<DocumentDefaults>,
@@ -3221,6 +3225,7 @@ impl Default for WorkspacePrefs {
             view_defaults: None,
             recent_colors: Vec::new(),
             custom_swatches: Vec::new(),
+            used_colors_only_on_stage: true,
             document_defaults: None,
             ui_scale: 1.0,
             undo_levels: Self::DEFAULT_UNDO_LEVELS,
@@ -4056,6 +4061,7 @@ impl WorkspacePrefs {
             view_defaults: self.view_defaults.take(),
             recent_colors: std::mem::take(&mut self.recent_colors),
             custom_swatches: std::mem::take(&mut self.custom_swatches),
+            used_colors_only_on_stage: self.used_colors_only_on_stage,
             document_defaults: self.document_defaults.take(),
             named_presets: std::mem::take(&mut self.named_presets),
             dock,

@@ -7751,10 +7751,22 @@ fn properties_easing_on_a_hold_only_frame_range_is_a_noop() {
         named_bounds(&output, "Tween: None").is_some(),
         "untweened hold range shows Tween: None"
     );
-    assert!(
-        named_bounds(&output, "Linear").is_none() && named_bounds(&output, "Edit…").is_none(),
-        "untweened hold range hides Ease row"
-    );
+    for disabled_ctrl in [
+        "Scale",
+        "Linear",
+        "Edit…",
+        "Rotate: Auto",
+        "times",
+        "Orient to path",
+        "Sync",
+        "Snap",
+    ] {
+        assert_eq!(
+            named_disabled(&output, disabled_ctrl),
+            Some(true),
+            "untweened hold range renders {disabled_ctrl} semantically disabled"
+        );
+    }
     editor.set_selected_tween_ease(Easing::EaseOut, None);
 
     assert_eq!(
@@ -13250,5 +13262,258 @@ fn t359_t360_t362_properties_empty_symbol_size_independent_instance_behavior_and
         editor.workspace.panels.ease,
         "Edit… button opens Ease panel"
     );
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn t383_frame_properties_always_renders_classic_flash_controls_on_held_motion_and_unextended_frames()
+ {
+    let floating_size =
+        crate::workspace::default_window_size(crate::workspace::PanelId::Properties);
+    assert!(
+        floating_size[1] >= 500.0,
+        "floating Properties default height must be >= 500 pt, got {floating_size:?}"
+    );
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, neoflash_ui::Theme::Dark);
+
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 10;
+    project.symbols[0].timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            elements: vec![Element {
+                id: "box".into(),
+                name: String::new(),
+                transform: Transform::default(),
+                kind: ElementKind::Rectangle {
+                    width: 60.0,
+                    height: 40.0,
+                    fill: [60, 120, 220, 255],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                },
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        Keyframe {
+            frame: 9,
+            elements: vec![Element {
+                id: "box".into(),
+                name: String::new(),
+                transform: Transform {
+                    x: 120.0,
+                    ..Default::default()
+                },
+                kind: ElementKind::Rectangle {
+                    width: 60.0,
+                    height: 40.0,
+                    fill: [60, 120, 220, 255],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                },
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+    ];
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    let layer_id = editor.symbol().timeline.layers[0].id.clone();
+
+    let mut clock = 0.0;
+    let mut render_floating = |ed: &mut Editor, events: Vec<egui::Event>| {
+        clock += 0.1;
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    Pos2::ZERO,
+                    Vec2::new(floating_size[0], floating_size[1]),
+                )),
+                time: Some(clock),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ed.properties(ui, ctx);
+                        });
+                });
+            },
+        )
+    };
+
+    // 0. Stage Properties shows "Used colours", never "Project colours".
+    editor.clear_selection();
+    editor.clear_timeline_frame_selection();
+    let _ = render_floating(&mut editor, vec![]);
+    let out_stage = render_floating(&mut editor, vec![]);
+    assert!(named_bounds(&out_stage, "Used colours").is_some());
+    assert!(named_bounds(&out_stage, "Project colours").is_none());
+
+    // 1. Held in-between frame 5 on an untweened span (Tween: None):
+    // ALL Classic Flash controls are visible and fit inside floating Properties height without clipping!
+    editor.frame = 5;
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id.clone()],
+        start: 5,
+        end: 5,
+    });
+    let _ = render_floating(&mut editor, vec![]);
+    let out_held_none = render_floating(&mut editor, vec![]);
+    let frame_hdr = named_bounds(&out_held_none, "Frame").expect("Frame header");
+    let tween_hdr = named_bounds(&out_held_none, "Tween").expect("Tween header");
+    let script_btn = named_bounds(&out_held_none, "Frame script…").expect("Frame script…");
+    assert!(
+        frame_hdr.top() < tween_hdr.top() && tween_hdr.top() < script_btn.top(),
+        "Tween section must sit right after Frame (Label type) and above Frame script…"
+    );
+    assert_eq!(named_disabled(&out_held_none, "Frame label"), Some(false));
+    assert_eq!(named_disabled(&out_held_none, "Name"), Some(false));
+    assert_eq!(named_disabled(&out_held_none, "Tween: None"), Some(false));
+    for ctrl in [
+        "Frame label",
+        "Name",
+        "Tween: None",
+        "Scale",
+        "Linear",
+        "Edit…",
+        "Rotate: Auto",
+        "times",
+        "Orient to path",
+        "Sync",
+        "Snap",
+    ] {
+        let b = named_bounds(&out_held_none, ctrl)
+            .unwrap_or_else(|| panic!("{ctrl} must be rendered on held frame 5"));
+        assert!(
+            b.bottom() <= floating_size[1],
+            "{ctrl} bottom ({}) must fit inside default floating Properties height ({})",
+            b.bottom(),
+            floating_size[1]
+        );
+    }
+
+    // 2. Motion tween with an interior ◆ property keyframe at frame 4, inspected on held frame 6:
+    editor.create_tween(TweenKind::Motion);
+    editor.select_single_id("box".into());
+    let m_span = editor.motion_tween_span().expect("motion span");
+    editor.set_motion_value(&m_span, TweenProperty::Y, 4, 80.0, None);
+    editor.finish_edits();
+    editor.clear_selection();
+    editor.frame = 6;
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id.clone()],
+        start: 6,
+        end: 6,
+    });
+    let _ = render_floating(&mut editor, vec![]);
+    let out_motion_held = render_floating(&mut editor, vec![]);
+    assert_eq!(
+        named_disabled(&out_motion_held, "Tween: Motion"),
+        Some(false),
+        "held frame after ◆ key inside Motion span must still show Tween: Motion"
+    );
+    for enabled_ctrl in [
+        "Scale",
+        "Linear",
+        "Edit…",
+        "Rotate: Auto",
+        "Orient to path",
+        "Sync",
+        "Snap",
+    ] {
+        assert_eq!(
+            named_disabled(&out_motion_held, enabled_ctrl),
+            Some(false),
+            "{enabled_ctrl} must be enabled on Motion tween"
+        );
+    }
+    assert_eq!(
+        named_disabled(&out_motion_held, "times"),
+        Some(true),
+        "times is disabled while Rotate is Auto"
+    );
+
+    // Toggle Orient to path on held frame 6 of Motion tween -> updates start keyframe 0 in 1 Undo step!
+    let before_orient = editor.project.clone();
+    let orient_center = named_bounds(&out_motion_held, "Orient to path")
+        .unwrap()
+        .center();
+    let _ = render_floating(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(orient_center),
+            primary_button(orient_center, true),
+        ],
+    );
+    let _ = render_floating(&mut editor, vec![primary_button(orient_center, false)]);
+    let _ = render_floating(&mut editor, vec![]);
+    editor.finish_edits();
+    assert!(editor.symbol().timeline.layers[0].keyframes[0].motion_orient_to_path_for("box"));
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_orient);
+
+    // 3. Shape tween: Ease enabled, while Scale / Rotate / times / Orient / Sync / Snap semantically disabled.
+    editor.remove_tween();
+    editor.create_tween(TweenKind::Shape);
+    let _ = render_floating(&mut editor, vec![]);
+    let out_shape = render_floating(&mut editor, vec![]);
+    assert_eq!(named_disabled(&out_shape, "Tween: Shape"), Some(false));
+    assert_eq!(named_disabled(&out_shape, "Linear"), Some(false));
+    assert_eq!(named_disabled(&out_shape, "Edit…"), Some(false));
+    for disabled_on_shape in [
+        "Scale",
+        "Rotate: Auto",
+        "times",
+        "Orient to path",
+        "Sync",
+        "Snap",
+    ] {
+        assert_eq!(
+            named_disabled(&out_shape, disabled_on_shape),
+            Some(true),
+            "{disabled_on_shape} must be semantically disabled on Shape tween"
+        );
+    }
+
+    // 4. Empty unextended frame beyond timeline.frame_count (frame 15):
+    // ALL controls remain rendered and semantically disabled!
+    editor.frame = 15;
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id],
+        start: 15,
+        end: 15,
+    });
+    let _ = render_floating(&mut editor, vec![]);
+    let out_unextended = render_floating(&mut editor, vec![]);
+    for disabled_ctrl in [
+        "Frame label",
+        "Name",
+        "Tween: None",
+        "Scale",
+        "Linear",
+        "Edit…",
+        "Rotate: Auto",
+        "times",
+        "Orient to path",
+        "Sync",
+        "Snap",
+    ] {
+        assert_eq!(
+            named_disabled(&out_unextended, disabled_ctrl),
+            Some(true),
+            "unextended empty frame must render {disabled_ctrl} semantically disabled"
+        );
+    }
     editor.project.validate().unwrap();
 }

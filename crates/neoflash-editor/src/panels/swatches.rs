@@ -10,6 +10,13 @@ use eframe::egui::{self, Color32, Ui};
 use neoflash_core::*;
 use neoflash_ui::components as c;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct UsedColorEntry {
+    pub entry: ProjectColorEntry,
+    pub stage_uses: usize,
+    pub library_uses: usize,
+}
+
 fn to_color32(color: Color) -> Color32 {
     Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3])
 }
@@ -688,7 +695,7 @@ impl Editor {
                 }
                 .show(ui);
                 ui.add_space(neoflash_ui::tokens::space::S2);
-                crate::panels::properties::inspector_section(ui, "Project colours", |ui| {
+                crate::panels::properties::inspector_section(ui, "Used colours", |ui| {
                     self.project_colors_section_ui(ui, false);
                 });
                 pop_out
@@ -789,8 +796,156 @@ impl Editor {
     }
 
     /// All unique visible colours used across the project (`T-197`).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn project_colors(&self) -> Vec<ProjectColorEntry> {
         collect_project_colors(&self.project)
+    }
+
+    /// Partition symbol IDs into `(stage_symbols, library_symbols)` relative to `self.symbol_id()` (`T-386`):
+    /// - `stage_symbols`: `self.symbol_id()` plus every non-scene symbol transitively instantiated inside it (cycle-safe).
+    /// - `library_symbols`: all non-scene Library symbols (`!project.is_scene(&sym.id)`) NOT in `stage_symbols`.
+    pub(crate) fn stage_and_library_symbol_scopes(
+        &self,
+    ) -> (std::collections::HashSet<Id>, std::collections::HashSet<Id>) {
+        let active_sym = self.symbol_id().to_owned();
+        let mut stage_symbols = std::collections::HashSet::new();
+        let mut pending = Vec::new();
+        if self.project.symbol(&active_sym).is_some() {
+            stage_symbols.insert(active_sym.clone());
+            pending.push(active_sym);
+        }
+        while let Some(sym_id) = pending.pop() {
+            let Some(sym) = self.project.symbol(&sym_id) else {
+                continue;
+            };
+            for layer in &sym.timeline.layers {
+                for key in &layer.keyframes {
+                    for el in &key.elements {
+                        if let ElementKind::Instance { symbol_id, .. } = &el.kind
+                            && !self.project.is_scene(symbol_id)
+                            && self.project.symbol(symbol_id).is_some()
+                            && stage_symbols.insert(symbol_id.clone())
+                        {
+                            pending.push(symbol_id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        let library_symbols: std::collections::HashSet<Id> = self
+            .project
+            .symbols
+            .iter()
+            .filter(|sym| !self.project.is_scene(&sym.id) && !stage_symbols.contains(&sym.id))
+            .map(|sym| sym.id.clone())
+            .collect();
+        (stage_symbols, library_symbols)
+    }
+
+    /// Collect `(symbol_id, layer_id, keyframe_frame, element_id)` placements for the active `Used colours`
+    /// scope (`only_on_stage == true` -> `stage_symbols`; `false` -> `stage_symbols ∪ library_symbols`).
+    pub(crate) fn used_color_placements(&self, only_on_stage: bool) -> Vec<(Id, Id, u32, Id)> {
+        let (stage_symbols, library_symbols) = self.stage_and_library_symbol_scopes();
+        let mut placements = Vec::new();
+        for sym in &self.project.symbols {
+            let included = stage_symbols.contains(&sym.id)
+                || (!only_on_stage && library_symbols.contains(&sym.id));
+            if !included {
+                continue;
+            }
+            for layer in &sym.timeline.layers {
+                for key in &layer.keyframes {
+                    for el in &key.elements {
+                        placements.push((
+                            sym.id.clone(),
+                            layer.id.clone(),
+                            key.frame,
+                            el.id.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+        placements
+    }
+
+    /// Context-aware `Used colours` entries with exact `(stage_uses, library_uses)` partition (`T-386`).
+    pub(crate) fn used_colors(&self, only_on_stage: bool) -> Vec<UsedColorEntry> {
+        let (stage_symbols, library_symbols) = self.stage_and_library_symbol_scopes();
+        let slot_uses =
+            |e: &ProjectColorEntry| e.fill_count + e.stroke_count + e.gradient_count + e.text_count;
+        let stage_entries =
+            collect_project_colors_scoped(&self.project, Some(&stage_symbols), None);
+        if only_on_stage {
+            return stage_entries
+                .into_iter()
+                .filter_map(|entry| {
+                    let stage_uses = slot_uses(&entry);
+                    (stage_uses > 0).then_some(UsedColorEntry {
+                        entry,
+                        stage_uses,
+                        library_uses: 0,
+                    })
+                })
+                .collect();
+        }
+        let library_entries =
+            collect_project_colors_scoped(&self.project, Some(&library_symbols), None);
+        let stage_map: std::collections::HashMap<Color, usize> = stage_entries
+            .iter()
+            .map(|e| (e.color, slot_uses(e)))
+            .collect();
+        let lib_map: std::collections::HashMap<Color, usize> = library_entries
+            .iter()
+            .map(|e| (e.color, slot_uses(e)))
+            .collect();
+        let union_symbols: std::collections::HashSet<Id> =
+            stage_symbols.into_iter().chain(library_symbols).collect();
+        collect_project_colors_scoped(&self.project, Some(&union_symbols), None)
+            .into_iter()
+            .filter_map(|entry| {
+                let stage_uses = stage_map.get(&entry.color).copied().unwrap_or(0);
+                let library_uses = lib_map.get(&entry.color).copied().unwrap_or(0);
+                (stage_uses > 0 || library_uses > 0).then_some(UsedColorEntry {
+                    entry,
+                    stage_uses,
+                    library_uses,
+                })
+            })
+            .collect()
+    }
+
+    /// Replace `from` with `to` in the active `Used colours` scope (`only_on_stage == true` -> Stage placements;
+    /// `only_on_stage == false` -> Stage ∪ Library placements) in one Undo step (`T-386`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn replace_used_color(
+        &mut self,
+        from: Color,
+        to: Color,
+        only_on_stage: bool,
+    ) -> usize {
+        if from == to {
+            return 0;
+        }
+        let placements = self.used_color_placements(only_on_stage);
+        if placements.is_empty() {
+            return 0;
+        }
+        let mut opts = ChangeColorOptions::new(from, to);
+        opts.target_elements = Some(placements);
+        opts.include_custom_swatches = false;
+        let mut replaced_total = 0usize;
+        let label = if only_on_stage {
+            "Change Stage Colour"
+        } else {
+            "Change Used Colour"
+        };
+        self.transact_named(label, |editor| {
+            if let Ok(report) = change_project_color(&mut editor.project, &opts) {
+                replaced_total = report.total_replaced();
+            }
+        });
+        replaced_total
     }
 
     /// All unique visible colours used in the current selection (`T-197`).
@@ -954,10 +1109,39 @@ impl Editor {
         parts.join(" · ")
     }
 
-    /// Figma-style interactive list of all colours in the project (or current selection) with live
-    /// RGBA popover replacement, usage counts/roles, stage selection, and JSFL Change Colour (`T-197`).
+    /// Format a colour's usage roles as `"5 × text"` or `"2 × fill · 1 × stroke"` (`R-094`),
+    /// optionally prefixed with `"{stage_uses} on stage · {library_uses} in library"` when
+    /// `Only on stage` is unchecked (`T-386`).
+    pub(crate) fn used_color_usage_text(
+        used: &UsedColorEntry,
+        include_stage_library_counts: bool,
+    ) -> String {
+        let roles = Self::color_usage_text(&used.entry);
+        if include_stage_library_counts {
+            format!(
+                "{} on stage · {} in library · {}",
+                used.stage_uses, used.library_uses, roles
+            )
+        } else {
+            roles
+        }
+    }
+
+    /// Figma-style interactive list of used colours on Stage / in Library (or current selection) with live
+    /// RGBA popover replacement, usage counts/roles, stage selection, and JSFL Change Colour (`T-197`, `T-386`).
     pub(crate) fn project_colors_section_ui(&mut self, ui: &mut Ui, selection_only: bool) {
         let ctx = ui.ctx().clone();
+        if !selection_only
+            && ui
+                .add(c::Checkbox::new(
+                    &mut self.workspace.used_colors_only_on_stage,
+                    "Only on stage",
+                ))
+                .changed()
+        {
+            self.persist_workspace_requested = true;
+        }
+        let only_on_stage = self.workspace.used_colors_only_on_stage;
         let scope_tag = if selection_only {
             "selection-colors"
         } else {
@@ -968,22 +1152,38 @@ impl Editor {
             &self.clipboard.session,
             self.symbol_id(),
             self.frame,
+            !selection_only && only_on_stage,
         ));
         self.property_edit_scope(scope);
 
-        let entries = if selection_only {
+        let used_entries: Vec<UsedColorEntry> = if selection_only {
             self.selection_colors()
+                .into_iter()
+                .map(|entry| {
+                    let stage_uses = entry.fill_count
+                        + entry.stroke_count
+                        + entry.gradient_count
+                        + entry.text_count;
+                    UsedColorEntry {
+                        entry,
+                        stage_uses,
+                        library_uses: 0,
+                    }
+                })
+                .collect()
         } else {
-            self.project_colors()
+            self.used_colors(only_on_stage)
         };
 
-        if entries.is_empty() {
+        if used_entries.is_empty() {
             let p = neoflash_ui::palette(&ctx);
             ui.add(
                 egui::Label::new(
                     neoflash_ui::typography::rich(
                         if selection_only {
                             "No editable colours in the current selection."
+                        } else if only_on_stage {
+                            "No colours on the stage yet."
                         } else {
                             "No colours in the document yet."
                         },
@@ -998,9 +1198,9 @@ impl Editor {
 
         let live_state_id = egui::Id::new(("project-color-live-drag", scope));
         let placements_snapshot = if selection_only {
-            Some(self.selected_element_placements())
+            self.selected_element_placements()
         } else {
-            None
+            self.used_color_placements(only_on_stage)
         };
 
         let p = neoflash_ui::palette(&ctx);
@@ -1008,7 +1208,8 @@ impl Editor {
 
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = neoflash_ui::tokens::space::S3;
-            for (row_idx, entry) in entries.iter().enumerate() {
+            for (row_idx, used) in used_entries.iter().enumerate() {
+                let entry = &used.entry;
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = neoflash_ui::tokens::space::S1;
                     let row_id = format!("{scope_tag}-row-{row_idx}");
@@ -1044,10 +1245,8 @@ impl Editor {
                         };
                         let mut candidate = base_proj.clone();
                         let mut opts = ChangeColorOptions::new(origin_color, edited);
-                        if selection_only {
-                            opts.target_elements = placements_snapshot.clone();
-                            opts.include_custom_swatches = false;
-                        }
+                        opts.target_elements = Some(placements_snapshot.clone());
+                        opts.include_custom_swatches = false;
                         if change_project_color(&mut candidate, &opts).is_ok() {
                             self.project = candidate;
                             ctx.data_mut(|d| {
@@ -1056,17 +1255,11 @@ impl Editor {
                                     (row_idx, origin_color, edited, base_proj),
                                 );
                             });
-                            if !selection_only {
-                                for sw in &mut self.workspace.custom_swatches {
-                                    if *sw == origin_color {
-                                        *sw = edited;
-                                    }
-                                }
-                            }
                         }
                     }
 
-                    let summary = Self::color_usage_text(entry);
+                    let summary =
+                        Self::used_color_usage_text(used, !selection_only && !only_on_stage);
                     if selection_only {
                         ui.add(
                             egui::Label::new(
@@ -1120,15 +1313,18 @@ impl Editor {
         // Batch JSFL Change Colour bar (minimal & scriptable `change_color.jsfl` runner)
         if !selection_only {
             let jsfl_pair_id = egui::Id::new(("jsfl-change-color-pair", &self.clipboard.session));
-            let default_from = entries.first().map(|e| e.color).unwrap_or(self.fill);
+            let default_from = used_entries
+                .first()
+                .map(|u| u.entry.color)
+                .unwrap_or(self.fill);
             let default_to = self.fill;
             let (mut jsfl_from, mut jsfl_to) = ctx
                 .data(|d| d.get_temp::<(Color, Color)>(jsfl_pair_id))
                 .unwrap_or((default_from, default_to));
-            if !entries.iter().any(|e| e.color == jsfl_from)
-                && let Some(first) = entries.first()
+            if !used_entries.iter().any(|u| u.entry.color == jsfl_from)
+                && let Some(first) = used_entries.first()
             {
-                jsfl_from = first.color;
+                jsfl_from = first.entry.color;
             }
             ui.add_space(neoflash_ui::tokens::space::S1);
             let from_resp = crate::paint_controls::color_row(
@@ -1473,5 +1669,325 @@ mod tests {
                 "usage text must not be wrapped in a Badge pill (selection_only={selection_only})"
             );
         }
+    }
+
+    #[test]
+    fn t386_used_colors_only_on_stage_context_scoping_and_stage_library_counts() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        assert!(
+            editor.workspace.used_colors_only_on_stage,
+            "Only on stage must default to true"
+        );
+
+        let c_root_only = [220, 40, 50, 255];
+        let c_hero_only = [40, 140, 220, 255];
+        let c_nested = [120, 80, 210, 255];
+        let c_shared = [50, 190, 110, 255];
+        let c_lib_only = [245, 170, 30, 255];
+        let c_swatch_only = [190, 30, 180, 255];
+        let c_replaced = [20, 20, 20, 255];
+
+        editor.project.set_custom_swatches(&[c_swatch_only]);
+
+        let rect_el = |id: &str, fill: Color| Element {
+            id: id.to_owned(),
+            name: String::new(),
+            transform: Transform::default(),
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 40.0,
+                fill,
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Default::default()
+        };
+
+        // Nested symbol placed inside Hero.
+        let badge_sym = Symbol {
+            id: "sym-badge".into(),
+            name: "Badge".into(),
+            kind: SymbolKind::Graphic,
+            timeline: Timeline {
+                frame_count: 1,
+                layers: vec![Layer {
+                    id: "badge-layer".into(),
+                    name: "Layer 1".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![rect_el("badge-rect", c_nested)],
+                        ..Default::default()
+                    }],
+                    properties: LayerProperties::default(),
+                }],
+                scripts: Vec::new(),
+                guides: Vec::new(),
+            },
+            linkage_id: None,
+            class_name: None,
+            folder: String::new(),
+        };
+
+        // Hero MovieClip placed on root Stage (uses c_hero_only + c_shared + nested Badge).
+        let hero_sym = Symbol {
+            id: "sym-hero".into(),
+            name: "Hero".into(),
+            kind: SymbolKind::MovieClip,
+            timeline: Timeline {
+                frame_count: 1,
+                layers: vec![Layer {
+                    id: "hero-layer".into(),
+                    name: "Layer 1".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![
+                            rect_el("hero-rect", c_hero_only),
+                            rect_el("hero-shared", c_shared),
+                            Element {
+                                id: "hero-badge-inst".into(),
+                                name: String::new(),
+                                transform: Transform::default(),
+                                kind: ElementKind::Instance {
+                                    symbol_id: "sym-badge".into(),
+                                    playback: InstancePlayback::Loop,
+                                },
+                                ..Default::default()
+                            },
+                        ],
+                        ..Default::default()
+                    }],
+                    properties: LayerProperties::default(),
+                }],
+                scripts: Vec::new(),
+                guides: Vec::new(),
+            },
+            linkage_id: None,
+            class_name: None,
+            folder: String::new(),
+        };
+
+        // Unplaced Enemy MovieClip in Library (uses c_lib_only once + c_shared twice).
+        let enemy_sym = Symbol {
+            id: "sym-enemy".into(),
+            name: "Enemy".into(),
+            kind: SymbolKind::MovieClip,
+            timeline: Timeline {
+                frame_count: 1,
+                layers: vec![Layer {
+                    id: "enemy-layer".into(),
+                    name: "Layer 1".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![
+                            rect_el("enemy-only", c_lib_only),
+                            rect_el("enemy-shared-1", c_shared),
+                            rect_el("enemy-shared-2", c_shared),
+                        ],
+                        ..Default::default()
+                    }],
+                    properties: LayerProperties::default(),
+                }],
+                scripts: Vec::new(),
+                guides: Vec::new(),
+            },
+            linkage_id: None,
+            class_name: None,
+            folder: String::new(),
+        };
+
+        let root_id = editor.project.root.clone();
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0].elements = vec![
+            rect_el("root-rect", c_root_only),
+            Element {
+                id: "root-hero-inst".into(),
+                name: "hero".into(),
+                transform: Transform::default(),
+                kind: ElementKind::Instance {
+                    symbol_id: "sym-hero".into(),
+                    playback: InstancePlayback::Independent,
+                },
+                ..Default::default()
+            },
+        ];
+        editor.project.symbols.push(badge_sym);
+        editor.project.symbols.push(hero_sym);
+        editor.project.symbols.push(enemy_sym);
+        editor.project.validate().unwrap();
+
+        // 1. At root with Only on stage = true: lists root + Hero + Badge colours; excludes Enemy & swatch-only.
+        let root_stage = editor.used_colors(true);
+        let root_stage_colors: Vec<Color> = root_stage.iter().map(|u| u.entry.color).collect();
+        assert_eq!(
+            root_stage_colors,
+            vec![c_root_only, c_nested, c_hero_only, c_shared]
+        );
+
+        // 2. At root with Only on stage = false: adds Enemy's c_lib_only and partitions stage_uses vs library_uses.
+        let root_all = editor.used_colors(false);
+        let shared_entry = root_all
+            .iter()
+            .find(|u| u.entry.color == c_shared)
+            .expect("shared colour");
+        assert_eq!(shared_entry.stage_uses, 1);
+        assert_eq!(shared_entry.library_uses, 2);
+        assert_eq!(
+            Editor::used_color_usage_text(shared_entry, true),
+            "1 on stage · 2 in library · 3 × fill"
+        );
+        let lib_only_entry = root_all
+            .iter()
+            .find(|u| u.entry.color == c_lib_only)
+            .expect("library-only colour");
+        assert_eq!(lib_only_entry.stage_uses, 0);
+        assert_eq!(lib_only_entry.library_uses, 1);
+        assert_eq!(
+            Editor::used_color_usage_text(lib_only_entry, true),
+            "0 on stage · 1 in library · 1 × fill"
+        );
+        assert!(
+            !root_all.iter().any(|u| u.entry.color == c_swatch_only),
+            "unused custom swatch is excluded from Used colours"
+        );
+
+        // 3. Scoped replacement at root: Only on stage = true replaces Hero's c_shared, leaving Enemy untouched.
+        let before_replace = editor.project.clone();
+        assert_eq!(editor.replace_used_color(c_shared, c_replaced, true), 1);
+        editor.project.validate().unwrap();
+        assert!(matches!(
+            editor.project.symbol("sym-hero").unwrap().timeline.layers[0].keyframes[0].elements[1].kind,
+            ElementKind::Rectangle { fill, .. } if fill == c_replaced
+        ));
+        assert!(matches!(
+            editor.project.symbol("sym-enemy").unwrap().timeline.layers[0].keyframes[0].elements[1].kind,
+            ElementKind::Rectangle { fill, .. } if fill == c_shared
+        ));
+        editor.undo();
+        assert_eq!(editor.project, before_replace);
+
+        // Only on stage = false replaces both Hero (1) and Enemy (2) in one Undo step.
+        assert_eq!(editor.replace_used_color(c_shared, c_replaced, false), 3);
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before_replace);
+
+        // 4. Enter Hero MovieClip: Stage context excludes parent root's c_root_only!
+        editor.select_single_id("root-hero-inst".into());
+        editor.enter_selected_symbol_in_place();
+        assert_eq!(editor.symbol_id(), "sym-hero");
+
+        let hero_stage = editor.used_colors(true);
+        let hero_stage_colors: Vec<Color> = hero_stage.iter().map(|u| u.entry.color).collect();
+        assert_eq!(hero_stage_colors, vec![c_nested, c_hero_only, c_shared]);
+        assert!(!hero_stage_colors.contains(&c_root_only));
+        assert!(!hero_stage_colors.contains(&c_lib_only));
+
+        let hero_plus_lib = editor.used_colors(false);
+        let hero_plus_lib_colors: Vec<Color> =
+            hero_plus_lib.iter().map(|u| u.entry.color).collect();
+        assert!(hero_plus_lib_colors.contains(&c_lib_only));
+        assert!(
+            !hero_plus_lib_colors.contains(&c_root_only),
+            "parent Scene colours must never leak into an edited MovieClip"
+        );
+        editor.leave_symbol_to_level(0);
+
+        // 5. WorkspacePrefs persistence + Swatches UI header ("Used colours") + checkbox toggle.
+        editor.workspace.used_colors_only_on_stage = false;
+        let saved_json = serde_json::to_string(&editor.workspace).unwrap();
+        let loaded = crate::workspace::WorkspacePrefs::from_json(&saved_json);
+        assert!(!loaded.used_colors_only_on_stage);
+        let mut templated = loaded.clone();
+        templated.apply_template(crate::workspace::WorkspaceTemplate::Animator);
+        assert!(
+            !templated.used_colors_only_on_stage,
+            "apply_template must preserve used_colors_only_on_stage"
+        );
+        let legacy = crate::workspace::WorkspacePrefs::from_json(r#"{"version":7,"theme":"dark"}"#);
+        assert!(
+            legacy.used_colors_only_on_stage,
+            "missing key in saved prefs defaults to true"
+        );
+
+        editor.workspace.used_colors_only_on_stage = true;
+        editor.persist_workspace_requested = false;
+        let run_swatches = |ed: &mut Editor, events: Vec<egui::Event>| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(340.0, 1400.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ed.swatches_panel_ui(ui);
+                    });
+                },
+            )
+        };
+        let _ = run_swatches(&mut editor, vec![]);
+        let out = run_swatches(&mut editor, vec![]);
+        let ak = out.platform_output.accesskit_update.as_ref().unwrap();
+        assert!(
+            ak.nodes
+                .iter()
+                .any(|(_, n)| n.label() == Some("Used colours")),
+            "Swatches renders 'Used colours' section header"
+        );
+        assert!(
+            !ak.nodes
+                .iter()
+                .any(|(_, n)| n.label() == Some("Project colours")),
+            "Swatches must not render legacy 'Project colours' header"
+        );
+        let chk_bounds = ak
+            .nodes
+            .iter()
+            .find(|(_, n)| n.label() == Some("Only on stage"))
+            .expect("Only on stage checkbox")
+            .1
+            .bounds()
+            .unwrap();
+        let center = egui::pos2(
+            ((chk_bounds.x0 + chk_bounds.x1) * 0.5) as f32,
+            ((chk_bounds.y0 + chk_bounds.y1) * 0.5) as f32,
+        );
+        let _ = run_swatches(
+            &mut editor,
+            vec![
+                egui::Event::PointerMoved(center),
+                crate::tests::primary_button(center, true),
+            ],
+        );
+        let out_unchecked = run_swatches(
+            &mut editor,
+            vec![crate::tests::primary_button(center, false)],
+        );
+        assert!(!editor.workspace.used_colors_only_on_stage);
+        assert!(editor.persist_workspace_requested);
+        let rendered_texts: Vec<String> = out_unchecked
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            rendered_texts
+                .iter()
+                .any(|t| t.contains("1 on stage · 2 in library")),
+            "unchecking Only on stage displays stage/library breakdown, got {rendered_texts:?}"
+        );
     }
 }
