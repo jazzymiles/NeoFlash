@@ -1145,3 +1145,142 @@ fn t367_narrow_floating_actions_status_fits_and_pin_never_flickers() {
     assert_eq!(editor.actions_ui.active_pinned, None);
     editor.project.validate().unwrap();
 }
+
+#[test]
+fn t382_runtime_and_preflight_compile_diagnostics_highlight_actions_line_and_clear_cleanly() {
+    use crate::output_pipeline::OutputLocation;
+    use crate::panels::compiler_errors::CompilerDiagnosticItem;
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+
+    let mut project = Project::blank();
+    project.script_language = Some(ScriptLanguage::ActionScript2);
+    let root_id = project.root.clone();
+    let figures_source = [
+        "stop();",
+        "var figure = [[0, 1, 0], [1, 1, 1]];",
+        "function rotateFigure(fig) {",
+        "    var n = fig.length();",
+        "    return n;",
+        "}",
+        "rotateFigure(figure);",
+    ]
+    .join("\n");
+    project.symbol_mut(&root_id).unwrap().timeline.scripts = vec![FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: figures_source.clone(),
+        },
+    }];
+    project.sources.push(SourceUnit {
+        id: "unit-board".into(),
+        path: "src/Board.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: "class Board {\n    function tick():Void {\n        var bad = ; \n    }\n}\n"
+            .into(),
+    });
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.script_target = ScriptTarget::Frame;
+    editor.frame = 0;
+
+    // 1. Valid AS2 syntax (`fig.length()` compiles cleanly, fails at runtime on Line 4):
+    //    recording a runtime diagnostic immediately populates `code_feedback` on Line 4 and
+    //    renders the inline diagnostic span in Actions (hoverable + navigable with F8).
+    let runtime_loc = OutputLocation::for_frame(&root_id, Some("Scene 1".into()), Some(0), 0)
+        .with_line_col(4, 13);
+    editor.record_runtime_diagnostic_for_location(
+        &runtime_loc,
+        "TypeError: 'length' is a numeric property, not a method — use '.length' without '()'.",
+    );
+
+    let fb = editor
+        .code_feedback
+        .as_ref()
+        .expect("runtime error immediately populates code_feedback");
+    assert!(!fb.success);
+    let runtime_diags: Vec<Diagnostic> = fb
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("RUNTIME"))
+        .cloned()
+        .collect();
+    assert_eq!(runtime_diags.len(), 1);
+    let diag = runtime_diags[0].clone();
+    assert_eq!(diag.line, 4);
+
+    // Render Actions and hover the highlighted span on Line 4 -> opens ErrorPeek with the reason!
+    let out = render(&mut editor, &ctx, vec![egui::Event::PointerGone]);
+    let hit = range_hit(&out, &figures_source, &diag);
+    let _ = render(&mut editor, &ctx, vec![egui::Event::PointerMoved(hit)]);
+    let _ = render(&mut editor, &ctx, vec![]);
+    let hover_out = render(&mut editor, &ctx, vec![]);
+    assert!(
+        ui_state(&editor, &ctx).peek.is_some(),
+        "hovering runtime-highlighted Line 4 must open DiagnosticUi peek"
+    );
+    let expected_peek_label = format!("Error: [RUNTIME] {}", diag.message);
+    assert!(named_rect(&hover_out, &expected_peek_label).is_positive());
+
+    // 2. Switch to external SourceUnit `src/Board.as` via CompilerErrors jump -> immediately
+    //    highlights compile syntax error on Line 3 without waiting for the 0.6s live_check timer!
+    editor.compiler_errors.items = vec![CompilerDiagnosticItem {
+        is_error: true,
+        message: "Unexpected token ';'".into(),
+        location_label: "src/Board.as · Line 3".into(),
+        script: Some(crate::panels::actions_sidebar::ScriptLocation::Source(
+            "unit-board".into(),
+        )),
+        line: 3,
+        column: 19,
+        quick_fixes: Vec::new(),
+    }];
+    editor.jump_to_compiler_diagnostic(&ctx, 0);
+    assert!(editor.script_target == ScriptTarget::Source);
+    let board_fb = editor
+        .code_feedback
+        .as_ref()
+        .expect("jumping to CompilerErrors row immediately highlights Line 3 in Actions");
+    assert!(board_fb.diagnostics.iter().any(|d| d.line == 3));
+
+    // 3. Jump back to Frame 1 via OutputLocation -> runtime highlight on Line 4 is preserved!
+    assert!(editor.navigate_to_output_location(&ctx, &runtime_loc));
+    assert!(editor.script_target == ScriptTarget::Frame);
+    assert!(
+        editor.code_feedback.as_ref().is_some_and(|f| f
+            .diagnostics
+            .iter()
+            .any(|d| d.line == 4 && d.code.as_deref() == Some("RUNTIME"))),
+        "navigating from Output row must preserve runtime Line 4 highlight in Actions"
+    );
+
+    // 4. Editing Line 4 (`fig.length()` -> `fig.length`) invalidates the fingerprint so stale
+    //    runtime diagnostics no longer attach, AND `clear_output` wipes stored runtime overlays!
+    editor
+        .project
+        .symbol_mut(&root_id)
+        .unwrap()
+        .timeline
+        .scripts[0]
+        .script
+        .source = figures_source.replace("fig.length()", "fig.length");
+    editor.code_feedback = None;
+    editor.sync_actions_diagnostics_after_navigation();
+    assert!(
+        editor.code_feedback.as_ref().is_none_or(|f| !f
+            .diagnostics
+            .iter()
+            .any(|d| d.code.as_deref() == Some("RUNTIME"))),
+        "editing the offending line must drop the stale runtime diagnostic overlay"
+    );
+
+    editor.clear_output(Some(&ctx));
+    assert!(editor.code_feedback.as_ref().is_none_or(|f| {
+        !f.diagnostics
+            .iter()
+            .any(|d| d.code.as_deref() == Some("RUNTIME"))
+    }));
+}

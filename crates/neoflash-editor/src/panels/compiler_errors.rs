@@ -718,6 +718,7 @@ impl Editor {
         let source = self.script_source_for(&loc).unwrap_or_default();
         self.open_script_location(loc);
         self.open_actions();
+        self.sync_actions_diagnostics_after_navigation();
         let editor_id = self.actions_editor_id();
         crate::sources::jump_to(ctx, editor_id, &source, item.line, item.column);
         true

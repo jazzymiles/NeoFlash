@@ -57,6 +57,385 @@
     const host=String(loc.hostname||'').toLowerCase();
     return host==='127.0.0.1'||host==='localhost'||host==='::1'||host==='[::1]';
   }
+  function extractQueryParam(search,key){
+    const raw=String(search||'').replace(/^\?/,'');
+    if(!raw)return '';
+    for(const part of raw.split('&')){
+      if(!part)continue;
+      const eq=part.indexOf('=');
+      const k=eq<0?part:part.slice(0,eq);
+      const v=eq<0?'':part.slice(eq+1);
+      try{
+        if(decodeURIComponent(k)===key)return decodeURIComponent(v.replace(/\+/g,' '));
+      }catch(_){
+        if(k===key)return v;
+      }
+    }
+    return '';
+  }
+  function stripUrlQueryAndHash(url){
+    return String(url||'').split('#')[0].split('?')[0];
+  }
+  function urlFileName(url){
+    const clean=stripUrlQueryAndHash(url);
+    const slash=clean.lastIndexOf('/');
+    return slash>=0?clean.slice(slash+1):clean;
+  }
+  const INTERNAL_HOST_FILES=new Set([
+    'runtime.js','preview.js','neoflash_web.js','display.js','stage.js','events.js',
+    'text.js','text-input.js','audio.js','video.js','bitmap.js','path.js','filters.js',
+    'geom.js','geom3d.js','net.js','xml.js','loader.js','storage.js','external.js',
+    'air.js','legacy-input.js','dom-layout.js','accessibility.js','byte-array.js',
+    'fte3d.js','number-format.js','date.js','math.js','easing.js','broadcaster.js',
+    'timers.js','amf.js',
+  ]);
+  function isInternalHostUrl(url){
+    const file=urlFileName(url).toLowerCase();
+    if(!file)return false;
+    if(INTERNAL_HOST_FILES.has(file))return true;
+    return /^as[23]-[a-z0-9_-]+\.js$/.test(file);
+  }
+  function parseStackFrameLine(rawLine){
+    const trimmed=String(rawLine||'').trim();
+    if(!trimmed)return null;
+    const isV8=trimmed.startsWith('at ');
+    if(!isV8&&!trimmed.includes('@')){
+      const colonSpace=trimmed.indexOf(': ');
+      if(colonSpace>0){
+        const head=trimmed.slice(0,colonSpace);
+        if(/(?:Error|Exception)$/.test(head))return null;
+      }
+    }
+    let functionName=null,locPart='';
+    if(isV8){
+      const rest=trimmed.slice(3).trim();
+      if(rest.endsWith(')')){
+        let depth=0,openIdx=-1;
+        for(let i=rest.length-1;i>=0;i--){
+          if(rest[i]===')')depth++;
+          else if(rest[i]==='('&&--depth===0){openIdx=i;break;}
+        }
+        if(openIdx>=0){
+          const fnRaw=rest.slice(0,openIdx).trim().replace(/^async\s+/,'').trim();
+          functionName=fnRaw||null;
+          locPart=rest.slice(openIdx+1,-1).trim();
+        }else{
+          locPart=rest;
+        }
+      }else{
+        locPart=rest;
+      }
+    }else{
+      const atIdx=trimmed.indexOf('@');
+      if(atIdx>=0){
+        const rawFn=trimmed.slice(0,atIdx).trim();
+        functionName=rawFn&&rawFn!=='global code'&&rawFn!=='module code'&&rawFn!=='eval code'?rawFn:null;
+        locPart=trimmed.slice(atIdx+1).trim();
+      }else{
+        locPart=trimmed;
+      }
+    }
+    if(!locPart||locPart==='[native code]'||(locPart.startsWith('[')&&locPart.endsWith(']')))return null;
+    const match=locPart.match(/^(.*?):(\d+):(\d+)$/);
+    if(!match)return null;
+    const url=match[1].trim();
+    const line=Number(match[2]);
+    const column=Number(match[3]);
+    if(!url||!Number.isInteger(line)||line<1||!Number.isInteger(column)||column<0)return null;
+    const cleanUrl=stripUrlQueryAndHash(url);
+    return {
+      functionName,
+      url,
+      cleanUrl,
+      fileName:urlFileName(cleanUrl),
+      line,
+      column:Math.max(1,column),
+    };
+  }
+  function parseStackFrames(stack){
+    if(typeof stack!=='string'||!stack)return [];
+    const frames=[];
+    for(const line of stack.split('\n')){
+      const parsed=parseStackFrameLine(line);
+      if(parsed)frames.push(parsed);
+    }
+    return frames;
+  }
+  const B64_ALPHABET='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const B64_LOOKUP=(()=>{
+    const table=new Int8Array(128).fill(-1);
+    for(let i=0;i<B64_ALPHABET.length;i++)table[B64_ALPHABET.charCodeAt(i)]=i;
+    return table;
+  })();
+  const decodedMapCache=new WeakMap();
+  function decodeVlqValue(str,pos){
+    let result=0,shift=0,idx=pos;
+    while(idx<str.length){
+      const code=str.charCodeAt(idx++);
+      const digit=code<128?B64_LOOKUP[code]:-1;
+      if(digit<0)return null;
+      result|=(digit&31)<<shift;
+      shift+=5;
+      if((digit&32)===0){
+        const neg=(result&1)===1;
+        const mag=result>>>1;
+        return [neg?-mag:mag,idx];
+      }
+    }
+    return null;
+  }
+  function utf16ColToCharCol(lineText,utf16Col){
+    if(!lineText||utf16Col<=0)return 1;
+    let units=0,chars=0;
+    for(const ch of lineText){
+      if(units>=utf16Col)break;
+      units+=ch.length;
+      chars++;
+    }
+    return chars+1;
+  }
+  function decodeSourceMapLocations(sourceMap){
+    if(!sourceMap||typeof sourceMap!=='object'||typeof sourceMap.mappings!=='string')return [];
+    if(decodedMapCache.has(sourceMap))return decodedMapCache.get(sourceMap);
+    const sources=Array.isArray(sourceMap.sources)?sourceMap.sources:[];
+    const contents=Array.isArray(sourceMap.sourcesContent)?sourceMap.sourcesContent:[];
+    const names=Array.isArray(sourceMap.names)?sourceMap.names:[];
+    const contentLines=contents.map(text=>typeof text==='string'?text.split('\n'):null);
+    const locations=[];
+    let prevSrc=0,prevOrigLine=0,prevOrigCol=0,prevName=0;
+    const genLines=sourceMap.mappings.split(';');
+    for(let genLine=0;genLine<genLines.length;genLine++){
+      const lineStr=genLines[genLine];
+      if(!lineStr)continue;
+      let prevGenCol=0;
+      for(const seg of lineStr.split(',')){
+        if(!seg)continue;
+        let step=decodeVlqValue(seg,0);
+        if(!step)break;
+        prevGenCol+=step[0];
+        if(step[1]>=seg.length)continue;
+        step=decodeVlqValue(seg,step[1]);if(!step)break;
+        prevSrc+=step[0];
+        step=decodeVlqValue(seg,step[1]);if(!step)break;
+        prevOrigLine+=step[0];
+        step=decodeVlqValue(seg,step[1]);if(!step)break;
+        prevOrigCol+=step[0];
+        let name=null;
+        if(step[1]<seg.length){
+          const nStep=decodeVlqValue(seg,step[1]);
+          if(nStep){prevName+=nStep[0];name=names[Math.max(0,prevName)]||null;}
+        }
+        const srcIdx=Math.max(0,prevSrc);
+        const source=sources[srcIdx];
+        if(typeof source!=='string'||!source)continue;
+        const origLine0=Math.max(0,prevOrigLine);
+        const origCol0=Math.max(0,prevOrigCol);
+        const origText=contentLines[srcIdx]?.[origLine0]??'';
+        locations.push({
+          generated_line:genLine+1,
+          generated_column:Math.max(0,prevGenCol)+1,
+          source,
+          line:origLine0+1,
+          column:utf16ColToCharCol(origText,origCol0),
+          name,
+          sourceLine:origText?origText.trim():null,
+        });
+      }
+    }
+    decodedMapCache.set(sourceMap,locations);
+    return locations;
+  }
+  function lookupGeneratedPosition(locations,generatedLine,generatedColumn){
+    if(!Array.isArray(locations)||locations.length===0||!(generatedLine>=1))return null;
+    let chosen=null,firstOnLine=null;
+    for(const loc of locations){
+      if(loc.generated_line!==generatedLine)continue;
+      if(!firstOnLine||loc.generated_column<firstOnLine.generated_column)firstOnLine=loc;
+      if(loc.generated_column<=generatedColumn&&(!chosen||loc.generated_column>=chosen.generated_column)){
+        chosen=loc;
+      }
+    }
+    return chosen||firstOnLine;
+  }
+  function extractSourceLineFromUnit(unit,sourceName,line1){
+    if(!(line1>=1)||!unit||typeof unit!=='object')return null;
+    if(typeof unit.source==='string'&&(unit.location===sourceName||!sourceName)){
+      const raw=unit.source.split('\n')[line1-1];
+      if(typeof raw==='string'&&raw.trim())return raw.trim();
+    }
+    const sm=unit.source_map;
+    if(sm&&Array.isArray(sm.sources)&&Array.isArray(sm.sourcesContent)){
+      const idx=sm.sources.indexOf(sourceName);
+      if(idx>=0&&typeof sm.sourcesContent[idx]==='string'){
+        const raw=sm.sourcesContent[idx].split('\n')[line1-1];
+        if(typeof raw==='string'&&raw.trim())return raw.trim();
+      }
+    }
+    return null;
+  }
+  function humanizeRuntimeErrorMessage(rawMessage){
+    let msg=String(rawMessage??'').trim();
+    if(!msg)return 'Runtime error';
+    msg=msg.replace(/\s*\((?:In|near)\s+'[^']*__nf[A-Za-z0-9_$]*[^']*'(?:,\s*[^)]*)?\)/g,'');
+    msg=msg.replace(/\b__nf(?:ContainerMethod|ContainerRef|As2Method|As2Value|ArrayMethod|StringMethod|DateMethod|FunctionMethod|Apply|SourceFunction)\b/g,'call');
+    const arrLenMatch=msg.match(/Array\/custom member '([^']+)' is not callable\.?/);
+    if(arrLenMatch){
+      const member=arrLenMatch[1];
+      if(member==='length'){
+        return `TypeError: 'length' is a numeric property, not a method — use '.length' without '()' (${arrLenMatch[0]})`;
+      }
+      return `TypeError: Array member '${member}' is not a function (${arrLenMatch[0]})`;
+    }
+    if(/\.length is not a function\b/i.test(msg)&&!msg.includes("without '()'")){
+      const prefix=/^TypeError:/i.test(msg)?msg:`TypeError: ${msg}`;
+      return `${prefix} ('length' is a property — use '.length' without '()')`;
+    }
+    return msg;
+  }
+  const safeNativeStackGetter=(()=>{
+    try{
+      return Object.getOwnPropertyDescriptor(new Error(),'stack')?.get||Object.getOwnPropertyDescriptor(Error.prototype,'stack')?.get||null;
+    }catch(_){return null;}
+  })();
+  function readOwnErrorProp(obj,prop){
+    try{
+      const desc=Object.getOwnPropertyDescriptor(Object(obj),prop);
+      if(!desc)return undefined;
+      if(Object.hasOwn(desc,'value'))return desc.value;
+      if(prop==='stack'&&desc.get&&desc.get===safeNativeStackGetter)return safeNativeStackGetter.call(obj);
+    }catch(_){}
+    return undefined;
+  }
+  function resolveErrorLocation(errorOrEvent,options={}){
+    const hostGlobal=options.hostGlobal||global;
+    const bundle=options.bundle||hostGlobal?.NeoFlashBundle||null;
+    const units=options.sourceUnits||(bundle?[...(bundle.scripts||[]),...(bundle.program?[bundle.program]:[])]:[]);
+    const explicitSourceMap=options.sourceMap||bundle?.program?.source_map||null;
+    const bodyOffset=options.bodyOffset!==undefined?options.bodyOffset:null;
+    const pageCleanUrl=stripUrlQueryAndHash(options.pageUrl||hostGlobal?.location?.href||'');
+
+    const isErrorEvent=Boolean(
+      errorOrEvent&&typeof errorOrEvent==='object'&&(
+        typeof errorOrEvent.lineno==='number'||typeof errorOrEvent.filename==='string'||'reason' in errorOrEvent
+      )&&!(errorOrEvent instanceof Error)
+    );
+    const rootError=isErrorEvent
+      ?('reason' in errorOrEvent?errorOrEvent.reason:(errorOrEvent.error??null))
+      :errorOrEvent;
+
+    const candidates=[];
+    const visited=new Set();
+    for(let cur=rootError,depth=0;cur!==null&&cur!==undefined&&(typeof cur==='object'||typeof cur==='function')&&depth<16&&!visited.has(cur);depth++){
+      visited.add(cur);
+      const stack=readOwnErrorProp(cur,'stack');
+      if(typeof stack==='string'&&stack){
+        for(const frame of parseStackFrames(stack))candidates.push(frame);
+      }
+      const ownLine=readOwnErrorProp(cur,'line')??readOwnErrorProp(cur,'lineNumber');
+      const ownCol=readOwnErrorProp(cur,'column')??readOwnErrorProp(cur,'columnNumber');
+      const ownUrl=readOwnErrorProp(cur,'sourceURL')??readOwnErrorProp(cur,'fileName');
+      if(Number.isInteger(ownLine)&&ownLine>=1&&typeof ownUrl==='string'&&ownUrl){
+        const cleanUrl=stripUrlQueryAndHash(ownUrl);
+        candidates.push({
+          functionName:null,
+          url:ownUrl,
+          cleanUrl,
+          fileName:urlFileName(cleanUrl),
+          line:ownLine,
+          column:Number.isInteger(ownCol)&&ownCol>=1?ownCol:1,
+        });
+      }
+      cur=readOwnErrorProp(cur,'cause');
+    }
+    if(isErrorEvent&&typeof errorOrEvent.filename==='string'&&errorOrEvent.filename&&Number.isInteger(errorOrEvent.lineno)&&errorOrEvent.lineno>=1){
+      const cleanUrl=stripUrlQueryAndHash(errorOrEvent.filename);
+      candidates.push({
+        functionName:null,
+        url:errorOrEvent.filename,
+        cleanUrl,
+        fileName:urlFileName(cleanUrl),
+        line:errorOrEvent.lineno,
+        column:Number.isInteger(errorOrEvent.colno)&&errorOrEvent.colno>=1?errorOrEvent.colno:1,
+      });
+    }
+
+    for(const frame of candidates){
+      if(isInternalHostUrl(frame.cleanUrl))continue;
+      for(const unit of units){
+        if(!unit||typeof unit!=='object')continue;
+        let generatedLine=null;
+        if(unit.source_url&&(frame.fileName===unit.source_url||frame.cleanUrl===unit.source_url)){
+          if(Number.isInteger(unit.__domBodyStartLine)){
+            generatedLine=frame.line-unit.__domBodyStartLine+1;
+          }else if(Number.isInteger(bodyOffset)){
+            generatedLine=frame.line-bodyOffset-(unit.source_url==='neoflash-project.js'?0:2);
+          }else{
+            generatedLine=frame.line;
+          }
+        }else if(
+          Number.isInteger(unit.__domBodyStartLine)&&
+          Number.isInteger(unit.__domBodyEndLine)&&
+          frame.line>=unit.__domBodyStartLine&&
+          frame.line<=unit.__domBodyEndLine&&
+          (!pageCleanUrl||frame.cleanUrl===pageCleanUrl||frame.fileName==='index.html')
+        ){
+          generatedLine=frame.line-unit.__domBodyStartLine+1;
+        }
+        if(generatedLine===null||generatedLine<1)continue;
+        const unitLocs=Array.isArray(unit.source_locations)&&unit.source_locations.length>0
+          ?unit.source_locations
+          :decodeSourceMapLocations(unit.source_map);
+        const hit=lookupGeneratedPosition(unitLocs,generatedLine,frame.column);
+        if(hit){
+          const sourceLine=hit.sourceLine||extractSourceLineFromUnit(unit,hit.source,hit.line);
+          return {
+            source:hit.source,
+            line:hit.line,
+            column:hit.column,
+            functionName:hit.name||frame.functionName||null,
+            sourceLine:sourceLine||null,
+            source_url:unit.source_url||frame.fileName,
+          };
+        }
+      }
+      if(explicitSourceMap&&(frame.fileName==='bundle.js'||frame.fileName===(explicitSourceMap.file||'')||!units.length)){
+        const mapLocs=decodeSourceMapLocations(explicitSourceMap);
+        const hit=lookupGeneratedPosition(mapLocs,frame.line,frame.column);
+        if(hit){
+          return {
+            source:hit.source,
+            line:hit.line,
+            column:hit.column,
+            functionName:hit.name||frame.functionName||null,
+            sourceLine:hit.sourceLine||null,
+            source_url:frame.fileName||'bundle.js',
+          };
+        }
+      }
+    }
+    return null;
+  }
+  function extractErrorReason(errorOrEvent){
+    if(errorOrEvent&&typeof errorOrEvent==='object'&&!(errorOrEvent instanceof Error)){
+      if('reason' in errorOrEvent){
+        return extractErrorReason(errorOrEvent.reason);
+      }
+      if(errorOrEvent.error!==undefined&&errorOrEvent.error!==null){
+        const inner=extractErrorReason(errorOrEvent.error);
+        if(inner)return inner;
+      }
+      if(typeof errorOrEvent.message==='string'&&errorOrEvent.message)return humanizeRuntimeErrorMessage(errorOrEvent.message);
+    }
+    if(errorOrEvent!==null&&errorOrEvent!==undefined&&(typeof errorOrEvent==='object'||typeof errorOrEvent==='function')){
+      const name=readOwnErrorProp(errorOrEvent,'name')||errorOrEvent.constructor?.name||'';
+      const msg=readOwnErrorProp(errorOrEvent,'message');
+      if(typeof msg==='string'&&msg){
+        const combined=name&&name!=='Error'&&!msg.startsWith(name+':')?`${name}: ${msg}`:msg;
+        return humanizeRuntimeErrorMessage(combined);
+      }
+    }
+    try{return humanizeRuntimeErrorMessage(String(errorOrEvent));}catch(_){return 'Uncaught runtime error';}
+  }
   function installOutputRelay(hostGlobal=global){
     if(!hostGlobal||typeof hostGlobal!=='object')return null;
     if(hostGlobal.__neoflashOutputRelay)return hostGlobal.__neoflashOutputRelay;
@@ -70,9 +449,19 @@
       ''
     ).trim();
     if(!endpoint||!isLoopbackHttpOrigin(hostGlobal.location))return null;
+    const runIdRaw=String(
+      extractQueryParam(hostGlobal.location?.search,'nf_run')||
+      stageEl?.getAttribute?.('data-neoflash-run-id')||
+      stageEl?.dataset?.neoflashRunId||
+      doc?.body?.getAttribute?.('data-neoflash-run-id')||
+      doc?.body?.dataset?.neoflashRunId||
+      ''
+    ).trim();
+    const runId=runIdRaw||null;
     const MAX_BATCH=64,BATCH_WINDOW_MS=16,MAX_TRACE_PER_SEC=5000;
     const nowMs=typeof hostGlobal.performance?.now==='function'?()=>hostGlobal.performance.now():()=>Date.now();
     const session=`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`;
+    const reportedErrors=typeof WeakSet==='function'?new WeakSet():null;
     const queue=[];
     let seq=0,inFlight=false,timerId=0,lastFlushMs=-1e9,disabled=false;
     let rateWindowStartMs=0,rateWindowCount=0,suppressedLines=0;
@@ -82,11 +471,40 @@
         timerId=0;
       }
     }
+    function haltRelay(staleSession=false){
+      disabled=true;
+      queue.length=0;
+      suppressedLines=0;
+      clearTimer();
+      if(staleSession){
+        try{hostGlobal.NeoFlashPlayer?.pause?.();}catch(_){}
+      }
+    }
+    function markReportedError(err){
+      if(!reportedErrors||err===null||err===undefined||(typeof err!=='object'&&typeof err!=='function'))return;
+      try{
+        reportedErrors.add(err);
+        const cause=readOwnErrorProp(err,'cause');
+        if(cause!==null&&cause!==undefined&&(typeof cause==='object'||typeof cause==='function'))reportedErrors.add(cause);
+      }catch(_){}
+    }
+    function wasErrorReported(err){
+      if(!reportedErrors||err===null||err===undefined||(typeof err!=='object'&&typeof err!=='function'))return false;
+      try{
+        if(reportedErrors.has(err))return true;
+        const cause=readOwnErrorProp(err,'cause');
+        if(cause!==null&&cause!==undefined&&(typeof cause==='object'||typeof cause==='function')&&reportedErrors.has(cause))return true;
+      }catch(_){}
+      return false;
+    }
+    function buildBatchPayload(batch){
+      return JSON.stringify(runId?{session,runId,events:batch}:{session,events:batch});
+    }
     function flushSuppressedNotice(){
       if(suppressedLines>0){
         const count=suppressedLines;
         suppressedLines=0;
-        queue.push({seq:++seq,kind:'trace',message:`[trace] ... suppressed ${count} lines ...`,sourcePath:null,line:null,column:null});
+        queue.push({seq:++seq,kind:'trace',message:`[trace] ... suppressed ${count} lines ...`,sourcePath:null,line:null,column:null,sourceLine:null});
       }
     }
     function scheduleNextFlush(){
@@ -105,11 +523,11 @@
     function flushAsync(){
       clearTimer();
       if(disabled||inFlight||queue.length===0)return;
-      if(typeof hostGlobal.fetch!=='function'){disabled=true;queue.length=0;return;}
+      if(typeof hostGlobal.fetch!=='function'){haltRelay(false);return;}
       inFlight=true;
       lastFlushMs=nowMs();
       const batch=queue.splice(0,MAX_BATCH);
-      const payload=JSON.stringify({session,events:batch});
+      const payload=buildBatchPayload(batch);
       let request;
       try{
         request=Promise.resolve(hostGlobal.fetch(endpoint,{
@@ -120,12 +538,15 @@
           keepalive:payload.length<=32768,
         }));
       }catch(_){
-        inFlight=false;disabled=true;queue.length=0;return;
+        inFlight=false;haltRelay(false);return;
       }
       request.then(resp=>{
-        if(!resp||!resp.ok){disabled=true;queue.length=0;}
+        const isStale=resp?.headers?.get?.('x-neoflash-session-stale')==='1';
+        if(!resp||!resp.ok||isStale){
+          haltRelay(Boolean(isStale));
+        }
       },()=>{
-        disabled=true;queue.length=0;
+        haltRelay(false);
       }).finally(()=>{
         inFlight=false;
         if(!disabled&&queue.length>0)scheduleNextFlush();
@@ -137,7 +558,7 @@
       flushSuppressedNotice();
       while(queue.length>0){
         const batch=queue.splice(0,MAX_BATCH);
-        const payload=JSON.stringify({session,events:batch});
+        const payload=buildBatchPayload(batch);
         let sent=false;
         try{
           if(typeof hostGlobal.navigator?.sendBeacon==='function'){
@@ -175,13 +596,15 @@
       }else{
         flushSuppressedNotice();
       }
+      const cleanMessage=kind==='error'?humanizeRuntimeErrorMessage(message):String(message??'');
       queue.push({
         seq:++seq,
         kind,
-        message:String(message??''),
+        message:cleanMessage,
         sourcePath:typeof location?.source==='string'&&location.source?location.source:null,
         line:Number.isInteger(location?.line)&&location.line>0?location.line:null,
         column:Number.isInteger(location?.column)&&location.column>0?location.column:null,
+        sourceLine:typeof location?.sourceLine==='string'&&location.sourceLine?location.sourceLine:null,
       });
       if(kind!=='trace'){
         if(!inFlight)flushAsync();
@@ -192,7 +615,26 @@
     hostGlobal.addEventListener?.('neoflash-script-message',event=>{
       const detail=event?.detail;
       if(!detail||typeof detail.kind!=='string')return;
+      if(detail.error)markReportedError(detail.error);
       record(detail.kind,detail.message,detail.location);
+    });
+    hostGlobal.addEventListener?.('error',event=>{
+      if(disabled||hostGlobal.__neoflashSuppressWindowError)return;
+      const errObj=event?.error;
+      if(errObj&&wasErrorReported(errObj))return;
+      if(errObj)markReportedError(errObj);
+      const loc=resolveErrorLocation(event,{hostGlobal});
+      const reason=extractErrorReason(event);
+      record('error',reason,loc);
+    });
+    hostGlobal.addEventListener?.('unhandledrejection',event=>{
+      if(disabled||hostGlobal.__neoflashSuppressWindowError)return;
+      const reasonObj=event?.reason;
+      if(reasonObj&&wasErrorReported(reasonObj))return;
+      if(reasonObj)markReportedError(reasonObj);
+      const loc=resolveErrorLocation(event,{hostGlobal});
+      const reason=extractErrorReason(event);
+      record('error',`Unhandled promise rejection: ${reason}`,loc);
     });
     if(hostGlobal.console&&typeof hostGlobal.console==='object'&&!hostGlobal.console.__neoflashConsoleRelayInstalled){
       const consoleObj=hostGlobal.console;
@@ -233,14 +675,19 @@
     const relay=Object.freeze({
       endpoint,
       session,
+      runId,
       record,
+      markReportedError,
       flush:()=>{flushSuppressedNotice();flushAsync();},
       flushUnload,
+      get disabled(){return disabled;},
       get pending(){return queue.length;},
       get seq(){return seq;},
     });
     try{Object.defineProperty(hostGlobal,'__neoflashOutputRelay',{value:relay,configurable:true,enumerable:false});}catch(_){}
     return relay;
   }
-  const api={layout,Preview,isLoopbackHttpOrigin,installOutputRelay};if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashPreview=api;
+  const api={layout,Preview,isLoopbackHttpOrigin,parseStackFrameLine,parseStackFrames,decodeSourceMapLocations,resolveErrorLocation,humanizeRuntimeErrorMessage,installOutputRelay};
+  if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashPreview=api;
+  if(typeof document!=='undefined')installOutputRelay(global);
 })(globalThis);

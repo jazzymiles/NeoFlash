@@ -101,8 +101,52 @@
   function color(rgba) { return `rgba(${rgba[0]},${rgba[1]},${rgba[2]},${rgba[3] / 255})`; }
   function sourceKey(script) { return script.language + '\u0000' + script.source; }
 
-  // Generated Function wrappers differ between JavaScript engines. Calibrate against a
-  // known body line instead of treating Chromium's two header lines as universal.
+  // Generated Function wrappers differ between JavaScript engines, and Safari / WebKit
+  // omits sourceURL + line/column from `new Function` stacks when Web Inspector is closed.
+  // In browser DOM hosts we compile user scripts via disjoint-line `<script>` elements so
+  // Safari, Chrome, and Firefox all report exact 1-based line & column numbers; non-DOM
+  // hosts (Node/VM tests) transparently fall back to calibrated `new Function`.
+  let nextDomScriptLineBase = 200;
+  function tryCompileDomScriptUnit(unit, paramList, headerLines, bodyCode, footerCode, url) {
+    if (typeof document === 'undefined' || !document?.head || typeof document.createElement !== 'function' || typeof document.head.appendChild !== 'function') {
+      return null;
+    }
+    const lineBase = nextDomScriptLineBase;
+    const padding = '\n'.repeat(lineBase - 1);
+    const bodyStartLine = lineBase + headerLines.length;
+    const codeLineCount = Math.max(1, String(bodyCode || '').split('\n').length);
+    const bodyEndLine = bodyStartLine + codeLineCount - 1;
+    const scriptText = `${padding}globalThis.__nfCompiledSlot = function(${paramList.join(', ')}) {${headerLines.length > 1 ? '\n' + headerLines.slice(1).join('\n') : ''}\n${bodyCode}\n${footerCode}\n//# sourceURL=${url}`;
+    const prevSuppress = global.__neoflashSuppressWindowError;
+    global.__neoflashSuppressWindowError = true;
+    global.__nfCompiledSlot = null;
+    try {
+      const el = document.createElement('script');
+      el.textContent = scriptText;
+      document.head.appendChild(el);
+      if (typeof el.remove === 'function') el.remove();
+      else if (el.parentNode && typeof el.parentNode.removeChild === 'function') el.parentNode.removeChild(el);
+      const compiledFn = global.__nfCompiledSlot;
+      global.__nfCompiledSlot = null;
+      if (typeof compiledFn === 'function') {
+        nextDomScriptLineBase = bodyEndLine + 8;
+        if (unit && typeof unit === 'object') {
+          try {
+            Object.defineProperties(unit, {
+              __domBodyStartLine: { value: bodyStartLine, configurable: true, enumerable: false, writable: true },
+              __domBodyEndLine: { value: bodyEndLine, configurable: true, enumerable: false, writable: true },
+            });
+          } catch (_) {}
+        }
+        return compiledFn;
+      }
+    } catch (_) {
+      global.__nfCompiledSlot = null;
+    } finally {
+      global.__neoflashSuppressWindowError = prevSuppress;
+    }
+    return null;
+  }
   function functionBodyLineOffset() {
     const stack = new Function('return new Error().stack;\n//# sourceURL=neoflash-offset.js')();
     const match = String(stack || '').match(/neoflash-offset\.js:(\d+):\d+/);
@@ -110,26 +154,156 @@
   }
   function scriptFunction(script, bindings) {
     const url = /^neoflash-script-\d+\.js$/.test(script.source_url || '') ? script.source_url : 'neoflash-user-script.js';
+    const domFn = tryCompileDomScriptUnit(
+      script,
+      bindings,
+      ['"use strict";', 'return (function () {'],
+      script.code,
+      '}).call(this);\n};',
+      url,
+    );
+    if (domFn) return domFn;
     return new Function(...bindings, '"use strict";\nreturn (function () {\n' + script.code + '\n}).call(this);\n//# sourceURL=' + url);
   }
-  function mapScriptStack(stack, sources, bodyOffset) {
-    if (bodyOffset === null) return [];
-    const frames = [];
-    for (const line of String(stack || '').split('\n')) {
-      if (!/^\s*at\s/.test(line) && !/^[^:@\n]*@/.test(line)) continue;
-      const match = line.match(/(neoflash-(?:script-\d+|project)\.js):(\d+):(\d+)/);
-      if (!match) continue;
-      const unit = sources.find(source => source.source_url === match[1]);
-      if (!unit) continue;
-      const generatedLine = Number(match[2]) - bodyOffset - (match[1] === 'neoflash-project.js' ? 0 : 2);
-      const generatedColumn = Number(match[3]);
-      // Rust already decoded the v3 map and converted authored columns for the editor.
-      let found = null;
-      for (const location of unit.source_locations || []) {
-        if (location.generated_line === generatedLine && location.generated_column <= generatedColumn &&
-            (!found || location.generated_column >= found.generated_column)) found = location;
+  function compileProgramUnit(programUnit) {
+    const url = programUnit?.source_url || 'neoflash-project.js';
+    const domFn = tryCompileDomScriptUnit(
+      programUnit,
+      ['__nfBuiltins'],
+      [''],
+      programUnit.code,
+      '};',
+      url,
+    );
+    if (domFn) return domFn;
+    return new Function('__nfBuiltins', programUnit.code + '\n//# sourceURL=' + url);
+  }
+  const runtimeInternalHostFiles = new Set([
+    'runtime.js', 'preview.js', 'neoflash_web.js', 'display.js', 'stage.js', 'events.js',
+    'text.js', 'text-input.js', 'audio.js', 'video.js', 'bitmap.js', 'path.js', 'filters.js',
+    'geom.js', 'geom3d.js', 'net.js', 'xml.js', 'loader.js', 'storage.js', 'external.js',
+    'air.js', 'legacy-input.js', 'dom-layout.js', 'accessibility.js', 'byte-array.js',
+    'fte3d.js', 'number-format.js', 'date.js', 'math.js', 'easing.js', 'broadcaster.js',
+    'timers.js', 'amf.js',
+  ]);
+  function parseRuntimeStackFrame(rawLine) {
+    const trimmed = String(rawLine || '').trim();
+    if (!trimmed) return null;
+    const isV8 = /^\s*at\s/.test(rawLine);
+    if (!isV8 && !trimmed.includes('@')) return null;
+    let locPart = '';
+    if (isV8) {
+      const rest = trimmed.replace(/^at\s+/, '').trim();
+      if (rest.endsWith(')')) {
+        let depth = 0, openIdx = -1;
+        for (let i = rest.length - 1; i >= 0; i--) {
+          if (rest[i] === ')') depth++;
+          else if (rest[i] === '(' && --depth === 0) { openIdx = i; break; }
+        }
+        locPart = openIdx >= 0 ? rest.slice(openIdx + 1, -1).trim() : rest;
+      } else {
+        locPart = rest;
       }
-      if (found) frames.push({source: found.source, line: found.line, column: found.column, source_url: unit.source_url, locations: unit.locations || [found.source]});
+    } else {
+      const atIdx = trimmed.indexOf('@');
+      if (atIdx < 0) return null;
+      locPart = trimmed.slice(atIdx + 1).trim();
+    }
+    if (!locPart || locPart === '[native code]' || (locPart.startsWith('[') && locPart.endsWith(']'))) return null;
+    const match = locPart.match(/^(.*?):(\d+):(\d+)$/);
+    if (!match) return null;
+    const rawUrl = match[1].trim();
+    const line = Number(match[2]);
+    const column = Number(match[3]);
+    if (!rawUrl || !Number.isInteger(line) || line < 1 || !Number.isInteger(column) || column < 0) return null;
+    const cleanUrl = rawUrl.split('#')[0].split('?')[0];
+    const slash = cleanUrl.lastIndexOf('/');
+    const fileName = slash >= 0 ? cleanUrl.slice(slash + 1) : cleanUrl;
+    return { rawUrl, cleanUrl, fileName, line, column: Math.max(1, column) };
+  }
+  function extractAuthoredSourceLine(unit, sourceName, line1) {
+    if (!(line1 >= 1) || !unit || typeof unit !== 'object') return null;
+    if (typeof unit.source === 'string' && (!unit.location || unit.location === sourceName)) {
+      const text = unit.source.split('\n')[line1 - 1];
+      if (typeof text === 'string' && text.trim()) return text.trim();
+    }
+    const sm = unit.source_map;
+    if (sm && Array.isArray(sm.sources) && Array.isArray(sm.sourcesContent)) {
+      const idx = sm.sources.indexOf(sourceName);
+      if (idx >= 0 && typeof sm.sourcesContent[idx] === 'string') {
+        const text = sm.sourcesContent[idx].split('\n')[line1 - 1];
+        if (typeof text === 'string' && text.trim()) return text.trim();
+      }
+    }
+    return null;
+  }
+  function lookupUnitSourceLocation(unit, generatedLine, generatedColumn) {
+    const locations = Array.isArray(unit.source_locations) && unit.source_locations.length > 0
+      ? unit.source_locations
+      : (global?.NeoFlashPreview?.decodeSourceMapLocations?.(unit.source_map) || []);
+    let found = null, firstOnLine = null;
+    for (const location of locations) {
+      if (location.generated_line !== generatedLine) continue;
+      if (!firstOnLine || location.generated_column < firstOnLine.generated_column) firstOnLine = location;
+      if (location.generated_column <= generatedColumn && (!found || location.generated_column >= found.generated_column)) {
+        found = location;
+      }
+    }
+    return found || firstOnLine;
+  }
+  function mapScriptStack(stack, sources, bodyOffset) {
+    if (!Array.isArray(sources) || sources.length === 0) return [];
+    const hasDomUnits = sources.some(s => s && Number.isInteger(s.__domBodyStartLine));
+    const pageCleanUrl = typeof global?.location?.href === 'string' ? global.location.href.split('#')[0].split('?')[0] : '';
+    const frames = [];
+    for (const rawLine of String(stack || '').split('\n')) {
+      const parsed = parseRuntimeStackFrame(rawLine);
+      if (!parsed) continue;
+      const lowerFile = parsed.fileName.toLowerCase();
+      if (runtimeInternalHostFiles.has(lowerFile) || /^as[23]-[a-z0-9_-]+\.js$/.test(lowerFile)) continue;
+      let unit = null;
+      let generatedLine = null;
+      const namedMatch = parsed.fileName.match(/^(neoflash-(?:script-\d+|project)\.js)$/);
+      if (namedMatch) {
+        unit = sources.find(source => source && source.source_url === namedMatch[1]) || null;
+        if (!unit) continue;
+        if (Number.isInteger(unit.__domBodyStartLine)) {
+          generatedLine = parsed.line - unit.__domBodyStartLine + 1;
+        } else if (bodyOffset !== null && bodyOffset !== undefined) {
+          generatedLine = parsed.line - bodyOffset - (namedMatch[1] === 'neoflash-project.js' ? 0 : 2);
+        } else {
+          continue;
+        }
+      } else if (hasDomUnits && (!pageCleanUrl || parsed.cleanUrl === pageCleanUrl || lowerFile === 'index.html')) {
+        unit = sources.find(source =>
+          source &&
+          Number.isInteger(source.__domBodyStartLine) &&
+          Number.isInteger(source.__domBodyEndLine) &&
+          parsed.line >= source.__domBodyStartLine &&
+          parsed.line <= source.__domBodyEndLine
+        ) || null;
+        if (!unit) continue;
+        generatedLine = parsed.line - unit.__domBodyStartLine + 1;
+      } else if (lowerFile === 'bundle.js') {
+        unit = sources.find(source => source && (source.source_url === 'neoflash-project.js' || source.source_map)) || null;
+        if (!unit) continue;
+        generatedLine = parsed.line;
+      } else {
+        continue;
+      }
+      if (!(generatedLine >= 1)) continue;
+      const found = lookupUnitSourceLocation(unit, generatedLine, parsed.column);
+      if (found) {
+        const sourceLine = found.sourceLine || extractAuthoredSourceLine(unit, found.source, found.line);
+        frames.push({
+          source: found.source,
+          line: found.line,
+          column: found.column,
+          ...(sourceLine ? { sourceLine } : {}),
+          source_url: unit.source_url,
+          locations: unit.locations || [found.source],
+        });
+      }
     }
     return frames;
   }
@@ -145,6 +319,17 @@
         if (typeof stack === 'string') {
           const frames = mapScriptStack(stack, sources, bodyOffset);
           if (frames.length) return frames;
+        }
+        // Safari/JSC also exposes own `line`, `column`, and `sourceURL` data properties on Error instances.
+        const lineDesc = Object.getOwnPropertyDescriptor(Object(error), 'line');
+        const colDesc = Object.getOwnPropertyDescriptor(Object(error), 'column');
+        const urlDesc = Object.getOwnPropertyDescriptor(Object(error), 'sourceURL');
+        const ownLine = lineDesc && Object.hasOwn(lineDesc, 'value') ? lineDesc.value : null;
+        const ownCol = colDesc && Object.hasOwn(colDesc, 'value') ? colDesc.value : 1;
+        const ownUrl = urlDesc && Object.hasOwn(urlDesc, 'value') ? urlDesc.value : null;
+        if (Number.isInteger(ownLine) && ownLine >= 1 && typeof ownUrl === 'string' && ownUrl) {
+          const synthetic = mapScriptStack(`@${ownUrl}:${ownLine}:${Number.isInteger(ownCol) && ownCol >= 1 ? ownCol : 1}`, sources, bodyOffset);
+          if (synthetic.length) return synthetic;
         }
         // Do not invoke an authored getter while reporting the original exception.
         error = Object.getOwnPropertyDescriptor(Object(error), 'cause')?.value;
@@ -621,10 +806,10 @@
   function formatTraceArgs(values, options = {}) {
     return values.map(v => formatTraceValue(v, { ...options, topLevel: true, depth: 0 })).join(' ');
   }
-  function emitScriptMessage(kind, message, frames, host = global) {
+  function emitScriptMessage(kind, message, frames, host = global, rawError = null) {
     try {
       if (typeof host.CustomEvent === 'function') host.dispatchEvent(new host.CustomEvent('neoflash-script-message', {
-        detail: {kind, message, location: frames[0] || null, stack: frames},
+        detail: {kind, message, location: frames[0] || null, stack: frames, ...(rawError ? { error: rawError } : {})},
       }));
     } catch (_) { /* Diagnostic observers must never change authored playback. */ }
   }
@@ -671,7 +856,7 @@
     } finally {
       global.__neoflashSuppressConsoleRelay = false;
     }
-    emitScriptMessage('error', describeThrown(error), frames);
+    emitScriptMessage('error', describeThrown(error), frames, typeof global === 'undefined' ? undefined : global, error);
   }
 
   function bundleFontDescriptors(cssRules) {
@@ -828,9 +1013,7 @@
 
   async function boot() {
     let onPageHide = null;
-    let onUnload = null;
     global.addEventListener?.('pagehide', event => onPageHide?.(event));
-    global.addEventListener?.('unload', () => onUnload?.());
     const bundle = global.NeoFlashBundle;
     if (!bundle || typeof NeoFlashWasm !== 'function') throw new Error('The HTML5 runtime is incomplete. Re-export this project from NeoFlash.');
     if (bundle.runtime_id && global.NeoFlashRuntimeId !== bundle.runtime_id) {
@@ -938,6 +1121,10 @@
     let accumulated = 0;
     let lastTrace = '', lastTraceLocation = '';
     const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay', '__nfLegacy', '__nfXML'];
+    const compiledProgramFn = bundle.program ? (() => {
+      try { return compileProgramUnit(bundle.program); }
+      catch (error) { throw new Error(`Project script syntax error: ${describeThrown(error)}`, { cause: error }); }
+    })() : null;
     for (const script of bundle.scripts) {
       try {
         functions.set(sourceKey(script), {
@@ -1960,7 +2147,7 @@
         }
         builtins.__nfMediaEventsVectorFactory=as3MediaEventsHost.setVectorFactory;
       }
-      program=typeof bundle!=='undefined'&&bundle.program ? new Function('__nfBuiltins',bundle.program.code + '\n//# sourceURL=neoflash-project.js')(builtins) : {
+      program=typeof bundle!=='undefined'&&bundle.program ? (typeof compiledProgramFn==='function'?compiledProgramFn:(typeof compileProgramUnit==='function'?compileProgramUnit(bundle.program):new Function('__nfBuiltins', bundle.program.code + '\n//# sourceURL=' + (bundle.program.source_url || 'neoflash-project.js'))))(builtins) : {
         type:name=>{if(!builtins[name])throw new TypeError(`Unsupported built-in class ${name}.`);return builtins[name];},
         is:(value,name)=>Boolean(builtins[name]?.__nfIs?.(value)),
       };
@@ -3417,11 +3604,6 @@
     onPageHide = event => {
       if (runtimeDisposed) return;
       try { completeCleanup([() => storageHost?.flushAll(), () => { if(!event?.persisted)teardownRuntime(); }]); }
-      catch(error) { console.error(error); }
-    };
-    onUnload = () => {
-      if (runtimeDisposed) return;
-      try { completeCleanup([() => storageHost?.flushAll(), teardownRuntime]); }
       catch(error) { console.error(error); }
     };
     stopAsyncOnFailure=()=>completeCleanup([

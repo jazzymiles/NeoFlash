@@ -317,16 +317,19 @@ impl Editor {
         let mut open_compiler_errors = false;
 
         match error {
-            neoflash_export::ExportError::Scripts(_) => {
+            neoflash_export::ExportError::Scripts(details) => {
                 open_compiler_errors = true;
                 if !self.compiler_errors.items.iter().any(|item| item.is_error) {
                     self.compiler_errors.items = collect_compiler_diagnostics(resolved_project);
                 }
                 let items = self.compiler_errors.items.clone();
+                let mut first_err_loc: Option<OutputLocation> = None;
+                let mut emitted_any = false;
                 for item in items {
                     if !item.is_error {
                         continue;
                     }
+                    emitted_any = true;
                     let loc = item.script.as_ref().map(|script_loc| {
                         script_location_to_output_location(
                             resolved_project,
@@ -335,16 +338,37 @@ impl Editor {
                             item.column,
                         )
                     });
-                    let mut event = OutputEvent::new(
-                        OutputSeverity::Error,
-                        OutputSource::Compiler,
-                        format!("{}: {}", item.location_label, item.message),
-                    );
+                    if first_err_loc.is_none() {
+                        first_err_loc = loc.clone();
+                    }
+                    let formatted =
+                        crate::output_pipeline::format_structured_script_diagnostic_message(
+                            resolved_project,
+                            OutputSeverity::Error,
+                            loc.as_ref(),
+                            (!item.location_label.is_empty())
+                                .then_some(item.location_label.as_str()),
+                            (item.line > 0).then_some(item.line),
+                            &item.message,
+                            None,
+                        );
+                    let mut event =
+                        OutputEvent::new(OutputSeverity::Error, OutputSource::Compiler, formatted);
                     if let Some(loc) = loc {
                         event = event.with_location(loc);
                     }
                     let _ = self.push_output_unique(event);
                 }
+                if !emitted_any {
+                    for line in details.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                        let _ = self.push_output_unique(OutputEvent::new(
+                            OutputSeverity::Error,
+                            OutputSource::Compiler,
+                            format!("[Error] {line}"),
+                        ));
+                    }
+                }
+                self.highlight_compiler_error_in_actions(first_err_loc.as_ref());
             }
             neoflash_export::ExportError::UnsupportedScript(_) if is_native_banner => {
                 let banner_diags = neoflash_export::preflight_native_banner(resolved_project);
@@ -550,9 +574,20 @@ fn script_location_to_output_location(
                 .map_or_else(|| PathBuf::from(id), |u| PathBuf::from(&u.path));
             OutputLocation::for_source(id.clone(), path).with_line_col(line, column)
         }
-        ScriptLocation::Frame { symbol, frame, .. } => {
-            let sym_name = project.symbol(symbol).map(|s| s.name.clone());
-            OutputLocation::for_frame(symbol.clone(), sym_name, None, *frame)
+        ScriptLocation::Frame {
+            symbol,
+            layer,
+            frame,
+        } => {
+            let sym = project.symbol(symbol);
+            let sym_name = sym.map(|s| s.name.clone());
+            let layer_idx = sym.and_then(|s| {
+                layer
+                    .as_deref()
+                    .and_then(|id| s.timeline.layers.iter().position(|item| item.id == id))
+                    .or_else(|| s.timeline.action_layer_for_frame(*frame))
+            });
+            OutputLocation::for_frame(symbol.clone(), sym_name, layer_idx, *frame)
                 .with_line_col(line, column)
         }
         ScriptLocation::Object {

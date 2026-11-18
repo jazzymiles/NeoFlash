@@ -43,6 +43,12 @@ struct CachedOutputLines {
     visible_lines: Vec<String>,
 }
 
+/// Drop the cached expanded Output row vector for `session` when `Output` is cleared.
+pub(crate) fn invalidate_output_panel_cache(ctx: &egui::Context, session: &str) {
+    let cache_id = egui::Id::new(("neoflash-output-lines-cache", session));
+    ctx.data_mut(|d| d.remove::<Arc<CachedOutputLines>>(cache_id));
+}
+
 fn cached_output_lines(
     ctx: &egui::Context,
     cache_id: egui::Id,
@@ -282,8 +288,8 @@ impl Editor {
             visible_cache = Some(cache);
         });
         if clear_clicked {
-            self.output.clear();
-            ui.data_mut(|d| d.remove::<Arc<CachedOutputLines>>(cache_id));
+            let ctx = ui.ctx().clone();
+            self.clear_output(Some(&ctx));
         }
         ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
         ui.add_space(space::S2);

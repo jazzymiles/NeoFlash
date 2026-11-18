@@ -1413,6 +1413,8 @@ pub(crate) enum PreviewOutputKind {
 pub(crate) struct PreviewOutputItem {
     #[serde(default)]
     pub(crate) session: Option<String>,
+    #[serde(default, alias = "runId")]
+    pub(crate) run_id: Option<String>,
     #[serde(default)]
     pub(crate) seq: u64,
     pub(crate) kind: PreviewOutputKind,
@@ -1420,6 +1422,8 @@ pub(crate) struct PreviewOutputItem {
     pub(crate) message: String,
     #[serde(default, alias = "sourcePath")]
     pub(crate) source_path: Option<String>,
+    #[serde(default, alias = "sourceLine")]
+    pub(crate) source_line: Option<String>,
     #[serde(default)]
     pub(crate) line: Option<usize>,
     #[serde(default)]
@@ -1430,6 +1434,8 @@ pub(crate) struct PreviewOutputItem {
 struct PreviewOutputBatchPayload {
     #[serde(default)]
     session: Option<String>,
+    #[serde(default, alias = "runId")]
+    run_id: Option<String>,
     events: Vec<PreviewOutputItem>,
 }
 
@@ -1437,6 +1443,7 @@ struct PreviewOutputBatchPayload {
 struct PreviewOutputSink {
     queue: std::sync::Mutex<std::collections::VecDeque<PreviewOutputItem>>,
     last_seq_by_session: std::sync::Mutex<HashMap<String, u64>>,
+    active_run_id: std::sync::Mutex<Option<String>>,
     repaint_ctx: std::sync::Mutex<Option<eframe::egui::Context>>,
 }
 
@@ -1448,11 +1455,41 @@ impl PreviewOutputSink {
     }
 
     fn clear(&self) {
+        if let Ok(mut active) = self.active_run_id.lock() {
+            *active = None;
+        }
         if let Ok(mut q) = self.queue.lock() {
             q.clear();
         }
         if let Ok(mut seqs) = self.last_seq_by_session.lock() {
             seqs.clear();
+        }
+    }
+
+    fn set_active_run_id(&self, run_id: Option<String>) {
+        let normalized = run_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        if let Ok(mut active) = self.active_run_id.lock() {
+            *active = normalized;
+        }
+        if let Ok(mut q) = self.queue.lock() {
+            q.clear();
+        }
+        if let Ok(mut seqs) = self.last_seq_by_session.lock() {
+            seqs.clear();
+        }
+    }
+
+    fn active_run_id(&self) -> Option<String> {
+        self.active_run_id.lock().ok().and_then(|g| g.clone())
+    }
+
+    fn purge_pending_on_clear(&self) {
+        if let Ok(mut q) = self.queue.lock() {
+            q.clear();
         }
     }
 
@@ -1464,9 +1501,32 @@ impl PreviewOutputSink {
         }
     }
 
-    fn push_batch(&self, mut payload: PreviewOutputBatchPayload) {
+    fn push_batch(&self, mut payload: PreviewOutputBatchPayload) -> bool {
+        let batch_run_id = payload
+            .run_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .or_else(|| {
+                payload.events.iter().find_map(|ev| {
+                    ev.run_id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned)
+                })
+            });
+
+        if let Ok(expected_guard) = self.active_run_id.lock()
+            && let Some(expected) = expected_guard.as_deref()
+            && batch_run_id.as_deref() != Some(expected)
+        {
+            return false;
+        }
+
         if payload.events.is_empty() {
-            return;
+            return true;
         }
         if payload.events.iter().all(|ev| ev.seq > 0) {
             payload.events.sort_by_key(|ev| ev.seq);
@@ -1483,6 +1543,9 @@ impl PreviewOutputSink {
             for mut item in payload.events {
                 if item.session.is_none() {
                     item.session = batch_session.clone();
+                }
+                if item.run_id.is_none() {
+                    item.run_id = batch_run_id.clone();
                 }
                 if let Some(sess) = item.session.as_deref()
                     && item.seq > 0
@@ -1503,7 +1566,7 @@ impl PreviewOutputSink {
             accepted = payload.events;
         }
         if accepted.is_empty() {
-            return;
+            return true;
         }
 
         if let Ok(mut q) = self.queue.lock() {
@@ -1519,6 +1582,7 @@ impl PreviewOutputSink {
         {
             ctx.request_repaint();
         }
+        true
     }
 }
 
@@ -1577,6 +1641,18 @@ impl PreviewHttpServer {
 
     pub(crate) fn clear_output_queue(&self) {
         self.output_sink.clear();
+    }
+
+    pub(crate) fn set_active_run_id(&self, run_id: Option<String>) {
+        self.output_sink.set_active_run_id(run_id);
+    }
+
+    pub(crate) fn active_run_id(&self) -> Option<String> {
+        self.output_sink.active_run_id()
+    }
+
+    pub(crate) fn purge_output_on_clear(&self) {
+        self.output_sink.purge_pending_on_clear();
     }
 
     pub(crate) fn drain_output_items(&self) -> Vec<PreviewOutputItem> {
@@ -1686,6 +1762,9 @@ static SHARED_PREVIEW_SERVER: std::sync::Mutex<Option<PreviewHttpServer>> =
 static SHARED_PREVIEW_REPAINT_CTX: std::sync::Mutex<Option<eframe::egui::Context>> =
     std::sync::Mutex::new(None);
 static SHARED_PREVIEW_DOC_SESSION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static SHARED_PREVIEW_ACTIVE_RUN_ID: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static NEXT_PREVIEW_RUN_COUNTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1);
 
 /// Register the editor's `egui::Context` so background `POST /__neoflash/output` requests wake
 /// `Editor::update` immediately while the browser window owns OS focus (`T-356`).
@@ -1700,16 +1779,43 @@ pub(crate) fn register_shared_preview_repaint_context(ctx: &eframe::egui::Contex
     }
 }
 
-/// Clear stale queued preview output items and record the active document session ID when
-/// `Test Movie` (`⌘Return`) or `Test Scene` (`⌘⌥Return`) starts (`T-356`).
-pub(crate) fn begin_shared_preview_output_session(document_session: Option<&str>) {
+/// Clear stale queued preview output items, allocate a fresh monotonic `run_id`, and record the
+/// active document session ID when `Test Movie` (`⌘Return`) or `Test Scene` (`⌘⌥Return`) starts
+/// (`T-356`, `T-379`).
+pub(crate) fn begin_shared_preview_output_session(document_session: Option<&str>) -> String {
+    let run_id = format!(
+        "nf-run-{}",
+        NEXT_PREVIEW_RUN_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
     if let Ok(mut doc_guard) = SHARED_PREVIEW_DOC_SESSION.lock() {
         *doc_guard = document_session.map(str::to_owned);
+    }
+    if let Ok(mut run_guard) = SHARED_PREVIEW_ACTIVE_RUN_ID.lock() {
+        *run_guard = Some(run_id.clone());
     }
     if let Ok(guard) = SHARED_PREVIEW_SERVER.lock()
         && let Some(srv) = guard.as_ref()
     {
-        srv.clear_output_queue();
+        srv.set_active_run_id(Some(run_id.clone()));
+    }
+    run_id
+}
+
+pub(crate) fn current_shared_preview_run_id() -> Option<String> {
+    SHARED_PREVIEW_ACTIVE_RUN_ID
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+}
+
+/// Permanently drop any queued-but-not-yet-drained items from the shared preview server when the
+/// user clicks `Clear output` (`🗑`), while keeping the active `run_id` and per-session sequence
+/// cursor intact so cleared logs can never replay (`T-379`).
+pub(crate) fn purge_shared_preview_output_on_clear() {
+    if let Ok(guard) = SHARED_PREVIEW_SERVER.lock()
+        && let Some(srv) = guard.as_ref()
+    {
+        srv.purge_output_on_clear();
     }
 }
 
@@ -1740,6 +1846,7 @@ pub(crate) fn serve_preview_index(index_file: &std::path::Path) -> Result<String
         .lock()
         .ok()
         .and_then(|g| g.clone());
+    let saved_run_id = current_shared_preview_run_id();
     let mut guard = SHARED_PREVIEW_SERVER
         .lock()
         .map_err(|_| "Preview HTTP server lock poisoned.".to_owned())?;
@@ -1753,6 +1860,7 @@ pub(crate) fn serve_preview_index(index_file: &std::path::Path) -> Result<String
         if let Some(ctx) = saved_ctx {
             srv.set_repaint_context(ctx);
         }
+        srv.set_active_run_id(saved_run_id);
         *guard = Some(srv);
     } else if let (Some(srv), Some(ctx)) = (guard.as_ref(), saved_ctx) {
         srv.set_repaint_context(ctx);
@@ -1764,14 +1872,30 @@ pub(crate) fn serve_preview_index(index_file: &std::path::Path) -> Result<String
 }
 
 /// Serve `index_file` on the reusable loopback HTTP server (with `Cache-Control: no-store`) and
-/// launch it in the user's default browser.
+/// launch it in the user's default browser tagged with `?nf_run=<run_id>` so stale tabs from
+/// earlier runs are cleanly isolated (`T-379`).
 pub(crate) fn open_preview_in_browser(index_file: &std::path::Path) -> Result<String, String> {
-    let url = serve_preview_index(index_file)?;
-    crate::platform_open::open_url(&url)?;
-    Ok(url)
+    let base_url = serve_preview_index(index_file)?;
+    let launch_url = if let Some(run_id) = current_shared_preview_run_id() {
+        let sep = if base_url.contains('?') { '&' } else { '?' };
+        format!(
+            "{base_url}{sep}nf_run={}",
+            percent_encode_url_segment(&run_id)
+        )
+    } else {
+        base_url
+    };
+    crate::platform_open::open_url(&launch_url)?;
+    Ok(launch_url)
 }
 
 pub(crate) fn shutdown_shared_preview_server() {
+    if let Ok(mut run_guard) = SHARED_PREVIEW_ACTIVE_RUN_ID.lock() {
+        *run_guard = None;
+    }
+    if let Ok(mut doc_guard) = SHARED_PREVIEW_DOC_SESSION.lock() {
+        *doc_guard = None;
+    }
     if let Ok(mut guard) = SHARED_PREVIEW_SERVER.lock()
         && let Some(mut srv) = guard.take()
     {
@@ -1866,7 +1990,17 @@ fn handle_preview_output_post(
         return write_preview_error(stream, 413, "Payload Too Large", true, &[]);
     }
 
-    output_sink.push_batch(payload);
+    if !output_sink.push_batch(payload) {
+        return write_preview_response(
+            stream,
+            200,
+            "OK",
+            "application/json; charset=utf-8",
+            b"{\"stale\":true}\n",
+            true,
+            &[("X-NeoFlash-Session-Stale", "1")],
+        );
+    }
     write_preview_response(
         stream,
         204,
@@ -2339,18 +2473,26 @@ fn format_preview_output_event(
     project: &Project,
     document_id: &str,
     item: PreviewOutputItem,
-) -> (crate::output_pipeline::OutputEvent, Option<String>) {
-    use crate::output_pipeline::{OutputEvent, OutputSource, resolve_runtime_output_location};
+) -> (
+    crate::output_pipeline::OutputEvent,
+    Option<String>,
+    Option<String>,
+) {
+    use crate::output_pipeline::{
+        OutputEvent, OutputSeverity, OutputSource, format_structured_script_diagnostic_message,
+        humanize_script_error_reason, resolve_runtime_output_location_with_snippet,
+    };
 
     match item.kind {
         PreviewOutputKind::Trace => {
-            let loc = resolve_runtime_output_location(
+            let loc = resolve_runtime_output_location_with_snippet(
                 project,
                 document_id,
                 item.source_path.as_deref(),
                 item.line,
                 item.column,
                 &item.message,
+                item.source_line.as_deref(),
             );
             let text = if item.message.starts_with("[trace]") {
                 item.message
@@ -2359,67 +2501,72 @@ fn format_preview_output_event(
             } else {
                 format!("[trace] {}", item.message)
             };
-            (OutputEvent::trace(text).with_optional_location(loc), None)
+            (
+                OutputEvent::trace(text).with_optional_location(loc),
+                None,
+                None,
+            )
         }
         PreviewOutputKind::Warning => {
-            let loc = resolve_runtime_output_location(
+            let loc = resolve_runtime_output_location_with_snippet(
                 project,
                 document_id,
                 item.source_path.as_deref(),
                 item.line,
                 item.column,
                 &item.message,
+                item.source_line.as_deref(),
             );
-            let clean_msg = item
-                .source_path
-                .as_deref()
-                .and_then(|src| item.message.strip_prefix(&format!("{src}: ")))
-                .unwrap_or(&item.message);
-            let text = match (item.source_path.as_deref(), item.line) {
-                (Some(src), Some(line)) if !src.is_empty() => {
-                    format!("Warning ({src} · line {line}): {clean_msg}")
-                }
-                (Some(src), None) if !src.is_empty() => format!("Warning ({src}): {clean_msg}"),
-                _ if clean_msg.starts_with("Warning") => clean_msg.to_owned(),
-                _ => format!("Warning: {clean_msg}"),
-            };
+            let text = format_structured_script_diagnostic_message(
+                project,
+                OutputSeverity::Warning,
+                loc.as_ref(),
+                item.source_path.as_deref(),
+                item.line,
+                &item.message,
+                item.source_line.as_deref(),
+            );
             (
                 OutputEvent::warning(OutputSource::Runtime, text).with_optional_location(loc),
+                None,
                 None,
             )
         }
         PreviewOutputKind::Error => {
-            let loc = resolve_runtime_output_location(
+            let loc = resolve_runtime_output_location_with_snippet(
                 project,
                 document_id,
                 item.source_path.as_deref(),
                 item.line,
                 item.column,
                 &item.message,
+                item.source_line.as_deref(),
             );
             let clean_msg = item
                 .source_path
                 .as_deref()
                 .and_then(|src| item.message.strip_prefix(&format!("{src}: ")))
                 .unwrap_or(&item.message);
-            let text = match (item.source_path.as_deref(), item.line) {
-                (Some(src), Some(line)) if !src.is_empty() => {
-                    format!("Runtime error ({src} · line {line}): {clean_msg}")
-                }
-                (Some(src), None) if !src.is_empty() => {
-                    format!("Runtime error ({src}): {clean_msg}")
-                }
-                _ if clean_msg.starts_with("Runtime error") => clean_msg.to_owned(),
-                _ => format!("Runtime error: {clean_msg}"),
-            };
-            let status = text.clone();
+            let reason = humanize_script_error_reason(clean_msg);
+            let text = format_structured_script_diagnostic_message(
+                project,
+                OutputSeverity::Error,
+                loc.as_ref(),
+                item.source_path.as_deref(),
+                item.line,
+                &item.message,
+                item.source_line.as_deref(),
+            );
+            let status = text.lines().next().unwrap_or(&text).to_owned();
             (
                 OutputEvent::error(OutputSource::Runtime, text).with_optional_location(loc),
                 Some(status),
+                Some(reason),
             )
         }
         PreviewOutputKind::Restart => (
             OutputEvent::info(OutputSource::Runtime, "─── Test Movie restarted ───"),
+            None,
             None,
         ),
     }
@@ -2427,11 +2574,12 @@ fn format_preview_output_event(
 
 impl Editor {
     /// Prepare a fresh `Output` telemetry session before `Test Movie` (`⌘Return`) or
-    /// `Test Scene` (`⌘⌥Return`) launches (`T-356`).
+    /// `Test Scene` (`⌘⌥Return`) launches (`T-356`, `T-379`).
     pub(crate) fn begin_preview_output_session(&mut self, banner: impl Into<String>) {
+        self.clear_runtime_diagnostics_in_actions();
         let doc_id =
             (!self.clipboard.session.is_empty()).then_some(self.clipboard.session.as_str());
-        begin_shared_preview_output_session(doc_id);
+        let _ = begin_shared_preview_output_session(doc_id);
         self.push_output_event(crate::output_pipeline::OutputEvent::info(
             crate::output_pipeline::OutputSource::Runtime,
             format!("─── {} ───", banner.into()),
@@ -2439,7 +2587,7 @@ impl Editor {
     }
 
     /// Ingest `PreviewOutputItem`s received from `POST /__neoflash/output` into the owning
-    /// document's `OutputPipeline` (`T-356`).
+    /// document's `OutputPipeline` (`T-356`, `T-382`).
     pub(crate) fn ingest_preview_output_items(
         &mut self,
         target_document_session: Option<&str>,
@@ -2460,7 +2608,7 @@ impl Editor {
             let doc_id = slot.clipboard.session.clone();
             slot.output.set_document_id(doc_id.clone());
             for item in items {
-                let (ev, _) = format_preview_output_event(&slot.project, &doc_id, item);
+                let (ev, _, _) = format_preview_output_event(&slot.project, &doc_id, item);
                 slot.output.push_event(ev);
             }
             return;
@@ -2469,7 +2617,11 @@ impl Editor {
         self.sync_output_document_id();
         let doc_id = self.clipboard.session.clone();
         for item in items {
-            let (ev, next_status) = format_preview_output_event(&self.project, &doc_id, item);
+            let (ev, next_status, err_reason) =
+                format_preview_output_event(&self.project, &doc_id, item);
+            if let (Some(loc), Some(reason)) = (ev.location.as_ref(), err_reason.as_deref()) {
+                self.record_runtime_diagnostic_for_location(loc, reason);
+            }
             if let Some(status) = next_status {
                 self.status = status;
             }
@@ -3260,7 +3412,9 @@ mod timeline_video_preview_tests {
         assert_eq!(events[4].source, OutputSource::Runtime);
         assert_eq!(
             events[4].message,
-            format!("Runtime error ({frame_origin} · line 5): ReferenceError: boom is not defined")
+            format!(
+                "[Error] {root_sym_name} · Layer 1 · Frame 1, Line 5: ReferenceError: boom is not defined\n  > boom();"
+            )
         );
         let frame_err_loc = events[4]
             .location
@@ -3273,7 +3427,7 @@ mod timeline_video_preview_tests {
         assert_eq!(events[5].severity, OutputSeverity::Error);
         assert_eq!(
             events[5].message,
-            "Runtime error (src/Game.as · line 3): Error: game-boom"
+            "[Error] src/Game.as, Line 3: Error: game-boom\n  > throw new Error(\"game-boom\");"
         );
         let source_err_loc = events[5]
             .location

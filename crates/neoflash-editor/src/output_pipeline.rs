@@ -1047,7 +1047,9 @@ impl OutputPipeline {
     /// Clear all retained events in this document pipeline and bump `revision`.
     pub fn clear(&mut self) {
         self.events.clear();
+        self.events.shrink_to(64);
         self.head = 0;
+        self.evicted_count = 0;
         self.bump_revision();
     }
 
@@ -1277,11 +1279,53 @@ impl Editor {
         self.output.push_coalesced(event)
     }
 
+    /// Permanently purge all stored Output events for the active document, drain any pending
+    /// loopback `PreviewHttpServer` items or live-preview traces, and clear runtime error overlays.
+    pub fn clear_output(&mut self, ctx: Option<&egui::Context>) {
+        self.output.clear();
+        crate::preview::purge_shared_preview_output_on_clear();
+        if let Some(preview) = &mut self.authored_preview {
+            let _ = preview.playback.drain_traces();
+            let _ = preview.playback.drain_diagnostics();
+        }
+        self.clear_runtime_diagnostics_in_actions();
+        if let Some(ctx) = ctx {
+            crate::panels::timeline::output::invalidate_output_panel_cache(
+                ctx,
+                &self.clipboard.session,
+            );
+        }
+    }
+
     /// Coalesce a sequence of structured Output events against the trailing events of the active
     /// document's pipeline.
     pub(crate) fn push_output_batch_coalesced(&mut self, batch: Vec<OutputEvent>) {
         self.sync_output_document_id();
-        self.output.push_coalesced_batch(batch);
+        let mut first_compiler_err_loc: Option<OutputLocation> = None;
+        let formatted_batch: Vec<OutputEvent> = batch
+            .into_iter()
+            .map(|mut ev| {
+                if ev.source == OutputSource::Compiler && ev.location.is_some() {
+                    if ev.severity == OutputSeverity::Error && first_compiler_err_loc.is_none() {
+                        first_compiler_err_loc = ev.location.clone();
+                    }
+                    ev.message = format_structured_script_diagnostic_message(
+                        &self.project,
+                        ev.severity,
+                        ev.location.as_ref(),
+                        None,
+                        ev.location.as_ref().and_then(|l| l.line),
+                        &ev.message,
+                        None,
+                    );
+                }
+                ev
+            })
+            .collect();
+        self.output.push_coalesced_batch(formatted_batch);
+        if first_compiler_err_loc.is_some() {
+            self.highlight_compiler_error_in_actions(first_compiler_err_loc.as_ref());
+        }
     }
 
     /// Append a structured [`OutputEvent`] only if its message is not already present in the
@@ -1301,8 +1345,17 @@ impl Editor {
     ) -> u64 {
         let text = msg.into();
         self.status = text.clone();
+        let output_text = if source == OutputSource::Publish
+            && severity == OutputSeverity::Error
+            && text.starts_with("Export failed: script compilation failed:")
+        {
+            "[Error] Export aborted due to script compile error(s) — see exact line(s) below:"
+                .to_owned()
+        } else {
+            text
+        };
         self.push_output_coalesced(
-            OutputEvent::new(severity, source, text).with_optional_location(location),
+            OutputEvent::new(severity, source, output_text).with_optional_location(location),
         )
     }
 
@@ -1501,6 +1554,7 @@ impl Editor {
             let script_loc = ScriptLocation::Source(unit.id.clone());
             self.open_script_location(script_loc);
             self.open_actions();
+            self.sync_actions_diagnostics_after_navigation();
             let editor_id = self.actions_editor_id();
             jump_to_span(
                 ctx,
@@ -1550,6 +1604,7 @@ impl Editor {
                 self.layer = layer_idx;
             }
             self.open_actions();
+            self.sync_actions_diagnostics_after_navigation();
             let editor_id = self.actions_editor_id();
             jump_to_span(
                 ctx,
@@ -1613,6 +1668,7 @@ impl Editor {
             if loc.line.is_some() || frame_source.is_some() {
                 let source = frame_source.unwrap_or_default();
                 self.open_actions();
+                self.sync_actions_diagnostics_after_navigation();
                 let editor_id = self.actions_editor_id();
                 jump_to_span(
                     ctx,
@@ -1633,6 +1689,7 @@ impl Editor {
         {
             let source = self.script_source_for(&cur_loc).unwrap_or_default();
             self.open_actions();
+            self.sync_actions_diagnostics_after_navigation();
             let editor_id = self.actions_editor_id();
             jump_to_span(
                 ctx,
@@ -1650,12 +1707,79 @@ impl Editor {
     }
 }
 
+fn select_matching_frame_script<'a>(
+    symbol: &'a neoflash_core::Symbol,
+    frame_idx: u32,
+    hint_layer_name: Option<&str>,
+    line_1based: Option<usize>,
+    source_line_hint: Option<&str>,
+) -> Option<&'a neoflash_core::FrameScript> {
+    let candidates: Vec<&neoflash_core::FrameScript> = symbol
+        .timeline
+        .scripts
+        .iter()
+        .filter(|fs| fs.frame == frame_idx)
+        .collect();
+    if candidates.is_empty() {
+        return None;
+    }
+    if let Some(layer_name) = hint_layer_name.map(str::trim).filter(|s| !s.is_empty())
+        && let Some(layer) = symbol
+            .timeline
+            .layers
+            .iter()
+            .find(|l| l.name == layer_name || l.name.eq_ignore_ascii_case(layer_name))
+        && let Some(&matched) = candidates
+            .iter()
+            .find(|fs| fs.layer.as_deref() == Some(layer.id.as_str()))
+    {
+        return Some(matched);
+    }
+    if let Some(snippet) = source_line_hint.map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(line_no) = line_1based.filter(|&l| l >= 1)
+            && let Some(&exact) = candidates.iter().find(|fs| {
+                fs.script
+                    .source
+                    .lines()
+                    .nth(line_no - 1)
+                    .is_some_and(|l| l.trim() == snippet)
+            })
+        {
+            return Some(exact);
+        }
+        if let Some(&anywhere) = candidates
+            .iter()
+            .find(|fs| fs.script.source.lines().any(|l| l.trim() == snippet))
+        {
+            return Some(anywhere);
+        }
+    }
+    if let Some(line_no) = line_1based.filter(|&l| l > 1)
+        && let Some(&in_bounds) = candidates
+            .iter()
+            .find(|fs| fs.script.source.lines().count() >= line_no)
+    {
+        return Some(in_bounds);
+    }
+    candidates.into_iter().next()
+}
+
 /// Resolve an exported script origin string (`"Scene 1 / frame 1"`,
-/// `"Symbol / Layer / frame 1 / btn / Click"`, or `"src/Main.as"`) back to an authored
-/// [`ScriptLocation`] in `project`.
+/// `"Scene 1 · figures · Frame 1"`, `"Symbol / Layer / frame 1 / btn / Click"`,
+/// or `"src/Main.as"`) back to an authored [`ScriptLocation`] in `project`.
+#[allow(dead_code)]
 pub(crate) fn resolve_script_location_in_project(
     project: &neoflash_core::Project,
     source: &str,
+) -> Option<ScriptLocation> {
+    resolve_script_location_in_project_with_hint(project, source, None, None)
+}
+
+pub(crate) fn resolve_script_location_in_project_with_hint(
+    project: &neoflash_core::Project,
+    source: &str,
+    line: Option<usize>,
+    source_line: Option<&str>,
 ) -> Option<ScriptLocation> {
     let trimmed = source.trim();
     if trimmed.is_empty() {
@@ -1672,17 +1796,36 @@ pub(crate) fn resolve_script_location_in_project(
         return Some(ScriptLocation::Source(unit.id.clone()));
     }
     for symbol in &project.symbols {
-        for frame in &symbol.timeline.scripts {
-            let frame_no = frame.frame + 1;
-            if format!("{} / frame {}", symbol.name, frame_no) == trimmed
-                || format!("{} · Frame {}", symbol.name, frame_no) == trimmed
-                || format!("{} · frame {}", symbol.name, frame_no) == trimmed
+        for sep in [" / frame ", " · Frame ", " · frame "] {
+            if let Some((prefix, frame_str)) = trimmed.rsplit_once(sep)
+                && let Ok(frame_no) = frame_str.trim().parse::<u32>()
+                && frame_no >= 1
             {
-                return Some(ScriptLocation::Frame {
-                    symbol: symbol.id.clone(),
-                    layer: frame.layer.clone(),
-                    frame: frame.frame,
-                });
+                let frame_idx = frame_no - 1;
+                let prefix_trimmed = prefix.trim();
+                let matched_layer_hint = if prefix_trimmed == symbol.name {
+                    Some(None)
+                } else {
+                    prefix_trimmed
+                        .strip_prefix(&format!("{} · ", symbol.name))
+                        .or_else(|| prefix_trimmed.strip_prefix(&format!("{} / ", symbol.name)))
+                        .map(|layer_part| Some(layer_part.trim()))
+                };
+                if let Some(layer_hint) = matched_layer_hint
+                    && let Some(fs) = select_matching_frame_script(
+                        symbol,
+                        frame_idx,
+                        layer_hint,
+                        line,
+                        source_line,
+                    )
+                {
+                    return Some(ScriptLocation::Frame {
+                        symbol: symbol.id.clone(),
+                        layer: fs.layer.clone(),
+                        frame: fs.frame,
+                    });
+                }
             }
         }
         for layer in &symbol.timeline.layers {
@@ -1788,6 +1931,7 @@ pub(crate) fn output_location_for_project_script(
 
 /// Resolve a runtime `trace()` or exception payload (`source_path`, `line`, `column`, `message`)
 /// from `Test Movie` / `Test Scene` back to a navigable [`OutputLocation`] in `project`.
+#[allow(dead_code)]
 pub(crate) fn resolve_runtime_output_location(
     project: &neoflash_core::Project,
     document_id: &str,
@@ -1796,6 +1940,26 @@ pub(crate) fn resolve_runtime_output_location(
     column: Option<usize>,
     message: &str,
 ) -> Option<OutputLocation> {
+    resolve_runtime_output_location_with_snippet(
+        project,
+        document_id,
+        source_path,
+        line,
+        column,
+        message,
+        None,
+    )
+}
+
+pub(crate) fn resolve_runtime_output_location_with_snippet(
+    project: &neoflash_core::Project,
+    document_id: &str,
+    source_path: Option<&str>,
+    line: Option<usize>,
+    column: Option<usize>,
+    message: &str,
+    source_line: Option<&str>,
+) -> Option<OutputLocation> {
     let inferred_prefix = source_path
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -1803,10 +1967,15 @@ pub(crate) fn resolve_runtime_output_location(
             message
                 .split_once(": ")
                 .map(|(head, _)| head.trim())
-                .filter(|head| resolve_script_location_in_project(project, head).is_some())
+                .filter(|head| {
+                    resolve_script_location_in_project_with_hint(project, head, line, source_line)
+                        .is_some()
+                })
         });
     let raw = inferred_prefix?;
-    if let Some(script_loc) = resolve_script_location_in_project(project, raw) {
+    if let Some(script_loc) =
+        resolve_script_location_in_project_with_hint(project, raw, line, source_line)
+    {
         return Some(output_location_for_project_script(
             project,
             document_id,
@@ -1863,4 +2032,318 @@ pub(crate) fn resolve_runtime_output_location(
         }
     }
     None
+}
+
+/// Format an authored script [`OutputLocation`] into a human-readable header such as
+/// `"Scene 1 · figures · Frame 1, Line 19"` or `"src/Game.as, Line 3"`.
+pub(crate) fn format_authored_output_location(
+    project: &neoflash_core::Project,
+    loc: Option<&OutputLocation>,
+    fallback_source: Option<&str>,
+    fallback_line: Option<usize>,
+) -> Option<String> {
+    let line_num = loc.and_then(|l| l.line).or(fallback_line);
+    let base = if let Some(loc) = loc {
+        if let Some(src_id) = loc.source_id.as_deref()
+            && let Some(unit) = project.sources.iter().find(|u| u.id == src_id)
+        {
+            Some(unit.path.clone())
+        } else if let Some(path) = loc.file_path.as_deref() {
+            Some(path.to_string_lossy().into_owned())
+        } else if let Some(sym) = loc
+            .symbol_id
+            .as_deref()
+            .and_then(|id| project.symbol(id))
+            .or_else(|| {
+                let name = loc.symbol_name.as_deref()?;
+                project.symbols.iter().find(|s| s.name == name)
+            })
+        {
+            let frame_1 = loc.frame_index.unwrap_or(0) + 1;
+            let layer_name = loc
+                .layer_index
+                .and_then(|idx| sym.timeline.layers.get(idx))
+                .or_else(|| {
+                    sym.timeline
+                        .action_layer_for_frame(loc.frame_index.unwrap_or(0))
+                        .and_then(|idx| sym.timeline.layers.get(idx))
+                })
+                .map(|l| l.name.trim())
+                .filter(|n| !n.is_empty());
+            if let (Some(el_id), Some(ev)) = (loc.element_id.as_deref(), loc.object_event) {
+                let target_name = sym
+                    .timeline
+                    .layers
+                    .iter()
+                    .filter_map(|layer| layer.key_at(loc.frame_index.unwrap_or(0)))
+                    .flat_map(|kf| &kf.elements)
+                    .find(|el| el.id == el_id)
+                    .map(|el| {
+                        if el.name.is_empty() {
+                            "object"
+                        } else {
+                            el.name.as_str()
+                        }
+                    })
+                    .unwrap_or("object");
+                match layer_name {
+                    Some(lname) => Some(format!(
+                        "{} · {lname} · Frame {frame_1} ({target_name} · {ev:?})",
+                        sym.name
+                    )),
+                    None => Some(format!(
+                        "{} · Frame {frame_1} ({target_name} · {ev:?})",
+                        sym.name
+                    )),
+                }
+            } else {
+                match layer_name {
+                    Some(lname) => Some(format!("{} · {lname} · Frame {frame_1}", sym.name)),
+                    None => Some(format!("{} · Frame {frame_1}", sym.name)),
+                }
+            }
+        } else {
+            fallback_source
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+        }
+    } else {
+        fallback_source
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    }?;
+
+    Some(match line_num {
+        Some(line) if line >= 1 => format!("{base}, Line {line}"),
+        _ => base,
+    })
+}
+
+/// Look up the trimmed offending line of authored source code for `loc` in `project`.
+pub(crate) fn source_line_snippet_for_output_location(
+    project: &neoflash_core::Project,
+    loc: &OutputLocation,
+) -> Option<String> {
+    let line_1based = loc.line.filter(|&l| l >= 1)?;
+    let source: &str = if let Some(src_id) = loc.source_id.as_deref()
+        && let Some(unit) = project.sources.iter().find(|u| u.id == src_id)
+    {
+        &unit.source
+    } else {
+        let sym = loc
+            .symbol_id
+            .as_deref()
+            .and_then(|id| project.symbol(id))
+            .or_else(|| {
+                let name = loc.symbol_name.as_deref()?;
+                project.symbols.iter().find(|s| s.name == name)
+            })?;
+        let frame = loc.frame_index.unwrap_or(0);
+        if let (Some(el_id), Some(ev)) = (loc.element_id.as_deref(), loc.object_event) {
+            sym.timeline
+                .layers
+                .iter()
+                .filter_map(|layer| layer.key_at(frame))
+                .flat_map(|kf| &kf.elements)
+                .find(|el| el.id == el_id)
+                .and_then(|el| el.scripts.iter().find(|os| os.event == ev))
+                .map(|os| os.script.source.as_str())?
+        } else {
+            let layer_id = loc
+                .layer_index
+                .and_then(|idx| sym.timeline.layers.get(idx))
+                .map(|l| l.id.as_str());
+            sym.timeline
+                .scripts
+                .iter()
+                .find(|fs| {
+                    fs.frame == frame && layer_id.is_some() && fs.layer.as_deref() == layer_id
+                })
+                .or_else(|| {
+                    sym.timeline
+                        .scripts
+                        .iter()
+                        .find(|fs| fs.frame == frame && fs.layer.is_none())
+                })
+                .or_else(|| sym.timeline.scripts.iter().find(|fs| fs.frame == frame))
+                .map(|fs| fs.script.source.as_str())?
+        }
+    };
+
+    let raw_line = source.lines().nth(line_1based - 1)?.trim();
+    if raw_line.is_empty() {
+        return None;
+    }
+    Some(clamp_utf8_bytes(raw_line.to_owned(), 160))
+}
+
+/// Clean internal `__nf...` compiler identifiers and expand cryptic runtime errors (such as calling
+/// numeric `.length` as `.length()`) into clear, actionable explanations.
+pub(crate) fn humanize_script_error_reason(raw: &str) -> String {
+    let mut text = raw.trim().to_owned();
+    if text.is_empty() {
+        return "Script error".to_owned();
+    }
+    for wrapper_prefix in [
+        "Input callback: ",
+        "Timer callback: ",
+        "EnterFrame callback: ",
+        "FrameConstructed callback: ",
+        "ExitFrame callback: ",
+        "FrameLabel callback: ",
+    ] {
+        if let Some(rest) = text.strip_prefix(wrapper_prefix) {
+            text = rest.trim().to_owned();
+        }
+    }
+
+    // Strip Safari/JSC internal `(In '...__nf...')` / `(near '...__nf...')` compiler call-site noise.
+    for marker in [" (In '", " (near '"] {
+        while let Some(idx) = text.find(marker) {
+            let after = &text[idx + 1..];
+            if let Some(end_rel) = after.find(')') {
+                let parenthetical = &after[..=end_rel];
+                if parenthetical.contains("__nf") {
+                    text.replace_range(idx..idx + 1 + end_rel + 1, "");
+                    continue;
+                }
+            }
+            break;
+        }
+    }
+
+    for (internal, clean) in [
+        ("__nfContainerMethod", "method call"),
+        ("__nfContainerRef", "property access"),
+        ("__nfAs2Method", "timeline method"),
+        ("__nfAs2Value", "function value"),
+        ("__nfArrayMethod", "Array member"),
+        ("__nfStringMethod", "String member"),
+        ("__nfDateMethod", "Date member"),
+        ("__nfFunctionMethod", "Function member"),
+        ("__nfApply", "function call"),
+        ("__nfSourceFunction", "function"),
+    ] {
+        if text.contains(internal) {
+            text = text.replace(internal, clean);
+        }
+    }
+
+    if let Some(idx) = text.find("Array/custom member '") {
+        let rest = &text[idx + "Array/custom member '".len()..];
+        if let Some((member, after_quote)) = rest.split_once('\'')
+            && after_quote.starts_with(" is not callable")
+        {
+            return if member == "length" {
+                "TypeError: 'length' is a numeric property, not a method — use '.length' without '()' (Array/custom member 'length' is not callable)."
+                    .to_owned()
+            } else {
+                format!(
+                    "TypeError: Array member '{member}' is not a function (Array/custom member '{member}' is not callable)."
+                )
+            };
+        }
+    }
+    if text.contains(".length is not a function") && !text.contains("without '()'") {
+        let prefixed = if text.starts_with("TypeError:") {
+            text
+        } else {
+            format!("TypeError: {text}")
+        };
+        return format!("{prefixed} ('length' is a property — use '.length' without '()')");
+    }
+    text
+}
+
+fn strip_redundant_diagnostic_prefixes<'a>(
+    mut raw: &'a str,
+    fallback_source: Option<&str>,
+) -> &'a str {
+    raw = raw.trim();
+    for sev_prefix in [
+        "[Error] ",
+        "[Warning] ",
+        "[Info] ",
+        "Warning: ",
+        "Info: ",
+        "Runtime error: ",
+    ] {
+        if let Some(rest) = raw.strip_prefix(sev_prefix) {
+            raw = rest.trim();
+        }
+    }
+    if let Some(rest) = raw.strip_prefix("Error: ")
+        && (rest.starts_with("Line ") || rest.contains(" · Line "))
+    {
+        raw = rest.trim();
+    }
+    if let Some(src) = fallback_source.map(str::trim).filter(|s| !s.is_empty())
+        && let Some(rest) = raw.strip_prefix(&format!("{src}: "))
+    {
+        raw = rest.trim();
+    }
+    // Strip compiler `location_label: ` prefix (`Scene 1 · layer "figures" · frame 1 · Line 19: `)
+    // or `Line N, column M: ` prefix when we already render the authored location header.
+    if let Some((head, tail)) = raw.split_once(": ")
+        && (head.contains(" · Line ")
+            || (head.starts_with("Line ")
+                && head[5..].chars().next().is_some_and(|c| c.is_ascii_digit())))
+    {
+        raw = tail.trim();
+        if let Some((head2, tail2)) = raw.split_once(": ")
+            && head2.starts_with("Line ")
+            && head2[5..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_digit())
+        {
+            raw = tail2.trim();
+        }
+    }
+    // Also strip `<Symbol> / frame <N>: ` prefix added by `executeDispatchedScript` in `runtime.js`!
+    if let Some((head, tail)) = raw.split_once(": ")
+        && (head.contains(" / frame ") || head.starts_with("Shared script "))
+    {
+        raw = tail.trim();
+    }
+    raw
+}
+
+/// Format a located compile or runtime diagnostic into `[Error] Scene · Layer · Frame, Line N: <reason>`
+/// (with `\n  > <offending source line>` appended for errors when available).
+pub(crate) fn format_structured_script_diagnostic_message(
+    project: &neoflash_core::Project,
+    severity: OutputSeverity,
+    loc: Option<&OutputLocation>,
+    fallback_source: Option<&str>,
+    fallback_line: Option<usize>,
+    raw_message: &str,
+    explicit_snippet: Option<&str>,
+) -> String {
+    let badge = match severity {
+        OutputSeverity::Error => "[Error]",
+        OutputSeverity::Warning => "[Warning]",
+        OutputSeverity::Info => "[Info]",
+        OutputSeverity::Trace => "[trace]",
+    };
+    let stripped = strip_redundant_diagnostic_prefixes(raw_message, fallback_source);
+    let reason = humanize_script_error_reason(stripped);
+    let header = format_authored_output_location(project, loc, fallback_source, fallback_line);
+    let first_line = match header {
+        Some(hdr) => format!("{badge} {hdr}: {reason}"),
+        None => format!("{badge} {reason}"),
+    };
+    if severity == OutputSeverity::Error {
+        let snippet = explicit_snippet
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| clamp_utf8_bytes(s.to_owned(), 160))
+            .or_else(|| loc.and_then(|l| source_line_snippet_for_output_location(project, l)));
+        if let Some(code_line) = snippet {
+            return format!("{first_line}\n  > {code_line}");
+        }
+    }
+    first_line
 }

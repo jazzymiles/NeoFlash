@@ -268,10 +268,13 @@ function startPreviewCaptureServer(rootDir) {
   };
   const state = {
     outputRequests: 0,
+    staleRejections: 0,
+    activeRunId: null,
     events: [],
     rejectOutput: false,
     clear() {
       this.outputRequests = 0;
+      this.staleRejections = 0;
       this.events.length = 0;
     },
   };
@@ -294,9 +297,23 @@ function startPreviewCaptureServer(rootDir) {
       req.on('end', () => {
         try {
           const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          if (state.activeRunId && parsed.runId !== state.activeRunId) {
+            state.staleRejections += 1;
+            res.writeHead(200, {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Cache-Control': 'no-store, no-cache, must-revalidate',
+              'X-NeoFlash-Session-Stale': '1',
+            });
+            res.end('{"stale":true}\n');
+            return;
+          }
           if (Array.isArray(parsed.events)) {
             for (const ev of parsed.events) {
-              state.events.push({ ...ev, session: ev.session || parsed.session || null });
+              state.events.push({
+                ...ev,
+                session: ev.session || parsed.session || null,
+                runId: ev.runId || parsed.runId || null,
+              });
             }
           }
           res.writeHead(204, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
@@ -1025,6 +1042,367 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
       ],
     );
     assert.deepEqual(cdp.uncaughtExceptions, []);
+  } finally {
+    if (cdp) {
+      try {
+        cdp.ws.close();
+      } catch (_) {}
+      cdp.chromeProc.kill('SIGKILL');
+    }
+    if (serverInfo) {
+      await new Promise(resolve => serverInfo.server.close(resolve));
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+  }
+});
+
+test('T-382: Safari/WebKit, Chrome/V8, Firefox stack & ErrorEvent SourceMap resolution skips internal host frames and humanizes .length() / __nf errors', () => {
+  const vm = require('node:vm');
+  const previewApi = require('../preview.js');
+
+  const bin = ensureFreshExportBinary();
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'neoflash-t382-sourcemap-'));
+  try {
+    // Export a real multi-layer tetris-like AS2 + class SourceUnit project to extract genuine SourceMaps!
+    const figuresLines = Array.from({ length: 17 }, (_, i) => `// setup line ${i + 1}`);
+    figuresLines.push('function rotateFigure(figure) {'); // line 18
+    figuresLines.push('  var n = figure.length();'); // line 19
+    figuresLines.push('  return n;'); // line 20
+    figuresLines.push('}'); // line 21
+    figuresLines.push('rotateFigure([[0, 1], [1, 1]]);'); // line 22
+
+    const proj = {
+      format_version: 13,
+      name: 'TetrisSafariMap',
+      width: 320,
+      height: 240,
+      fps: 24,
+      background: [16, 18, 24, 255],
+      script_language: 'action_script2',
+      root: 'root',
+      symbols: [
+        {
+          id: 'root',
+          name: 'Scene 1',
+          kind: 'movie_clip',
+          timeline: {
+            frame_count: 1,
+            layers: [
+              { id: 'layer-field', name: 'field', visible: true, locked: false, keyframes: [{ frame: 0, label: '', tween: null, elements: [] }] },
+              { id: 'layer-figures', name: 'figures', visible: true, locked: false, keyframes: [{ frame: 0, label: '', tween: null, elements: [] }] },
+            ],
+            scripts: [
+              { layer: 'layer-field', frame: 0, script: { language: 'action_script2', source: 'var cols = 10;\nvar rows = 20;\n' } },
+              { layer: 'layer-figures', frame: 0, script: { language: 'action_script2', source: figuresLines.join('\n') } },
+            ],
+          },
+        },
+      ],
+      sources: [
+        {
+          id: 'src-rotator',
+          path: 'Rotator.as',
+          language: 'action_script2',
+          source: [
+            'class Rotator {',
+            '  static function spin(matrix:Array):Number {',
+            '    return matrix.length();',
+            '  }',
+            '}',
+          ].join('\n'),
+        },
+      ],
+      resources: [],
+    };
+    const pPath = path.join(tempRoot, 'tetris.nflash');
+    const outDir = path.join(tempRoot, 'preview');
+    fs.writeFileSync(pPath, JSON.stringify(proj, null, 2));
+    execFileSync(bin, ['--runtime', runtimeDir, pPath, '--output', outDir, '--preview'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+
+    const bundleCode = fs.readFileSync(path.join(outDir, 'bundle.js'), 'utf8');
+    const sandbox = { globalThis: {} };
+    sandbox.globalThis = sandbox;
+    vm.runInNewContext(bundleCode, sandbox);
+    const bundle = sandbox.NeoFlashBundle;
+    assert.ok(bundle && Array.isArray(bundle.scripts) && bundle.scripts.length >= 2);
+    assert.ok(bundle.program && bundle.program.source_map, 'exported bundle includes real SourceMap v3');
+
+    // Decode the real SourceMap v3 VLQ mappings from `bundle.program.source_map`:
+    const programLocs = previewApi.decodeSourceMapLocations(bundle.program.source_map);
+    const rotatorLine3 = programLocs.find(l => l.source === 'Rotator.as' && l.line === 3);
+    assert.ok(rotatorLine3, 'VLQ SourceMap decoder must locate Rotator.as Line 3');
+
+    const figuresUnit = bundle.scripts[1];
+    figuresUnit.__domBodyStartLine = 260;
+    figuresUnit.__domBodyEndLine = 260 + figuresUnit.code.split('\n').length;
+    const figLine19Loc = figuresUnit.source_locations.find(l => l.line === 19);
+    assert.ok(figLine19Loc, 'figures script unit maps authored Line 19');
+    const safariDomLine = figuresUnit.__domBodyStartLine + figLine19Loc.generated_line - 1;
+
+    // 1. Safari / WebKit stack frames (`func@url:line:col`, `global code@url:line:col`, `[native code]`):
+    //    Top frames are inside `runtime.js` and `preview.js` — resolver MUST skip them and pick
+    //    `rotateFigure@http://127.0.0.1:54321/m1/index.html?nf_run=nf-run-9:LINE:COL`!
+    const safariErr = new TypeError("figure.length is not a function. (In 'figure.length()', '__nfContainerMethod' is undefined)");
+    Object.defineProperty(safariErr, 'stack', {
+      value: [
+        '__nfContainerMethod@http://127.0.0.1:54321/m1/runtime.js:1420:22',
+        'record@http://127.0.0.1:54321/m1/preview.js:582:11',
+        '[native code]',
+        `rotateFigure@http://127.0.0.1:54321/m1/index.html?nf_run=nf-run-9:${safariDomLine}:${figLine19Loc.generated_column + 2}`,
+        `global code@http://127.0.0.1:54321/m1/index.html?nf_run=nf-run-9:${safariDomLine + 3}:5`,
+      ].join('\n'),
+    });
+    const safariResolved = previewApi.resolveErrorLocation(safariErr, {
+      bundle,
+      pageUrl: 'http://127.0.0.1:54321/m1/index.html?nf_run=nf-run-9',
+    });
+    assert.equal(safariResolved.source, 'Scene 1 / frame 1');
+    assert.equal(safariResolved.line, 19);
+    assert.equal(safariResolved.sourceLine, 'var n = figure.length();');
+
+    // 2. Safari `bundle.js` / `module code@` stack mapped strictly via SourceMap v3 VLQ:
+    const safariBundleErr = new TypeError('matrix.length is not a function');
+    Object.defineProperty(safariBundleErr, 'stack', {
+      value: [
+        '__nfContainerMethod@http://127.0.0.1:54321/m1/runtime.js:1420:22',
+        `spin@http://127.0.0.1:54321/m1/bundle.js:${rotatorLine3.generated_line}:${rotatorLine3.generated_column}`,
+        'module code@http://127.0.0.1:54321/m1/bundle.js:1:1',
+      ].join('\n'),
+    });
+    const bundleResolved = previewApi.resolveErrorLocation(safariBundleErr, {
+      sourceUnits: [],
+      sourceMap: bundle.program.source_map,
+    });
+    assert.equal(bundleResolved.source, 'Rotator.as');
+    assert.equal(bundleResolved.line, 3);
+    assert.equal(bundleResolved.sourceLine, 'return matrix.length();');
+
+    // 3. Chrome / V8 stack frames (`at fn (url:line:col)`): skips `runtime.js`, maps `neoflash-script-1.js`:
+    delete figuresUnit.__domBodyStartLine;
+    delete figuresUnit.__domBodyEndLine;
+    const chromeErr = new TypeError('figure.length is not a function');
+    Object.defineProperty(chromeErr, 'stack', {
+      value: [
+        'TypeError: figure.length is not a function',
+        '    at __nfContainerMethod (http://127.0.0.1:54321/m1/runtime.js:1420:22)',
+        `    at rotateFigure (neoflash-script-1.js:${figLine19Loc.generated_line}:${figLine19Loc.generated_column})`,
+      ].join('\n'),
+    });
+    const chromeResolved = previewApi.resolveErrorLocation(chromeErr, { bundle });
+    assert.equal(chromeResolved.source, 'Scene 1 / frame 1');
+    assert.equal(chromeResolved.line, 19);
+    assert.equal(chromeResolved.sourceLine, 'var n = figure.length();');
+
+    // 4. `ErrorEvent` (`filename` / `lineno` / `colno`) fallback when `event.error` has no stack (e.g. Safari parse SyntaxError):
+    const parseErrEvent = {
+      message: "SyntaxError: Unexpected token ';'",
+      filename: 'http://127.0.0.1:54321/m1/bundle.js',
+      lineno: rotatorLine3.generated_line,
+      colno: rotatorLine3.generated_column,
+      error: null,
+    };
+    const eventResolved = previewApi.resolveErrorLocation(parseErrEvent, {
+      sourceUnits: [],
+      sourceMap: bundle.program.source_map,
+    });
+    assert.equal(eventResolved.source, 'Rotator.as');
+    assert.equal(eventResolved.line, 3);
+
+    // 5. Humanization cleans internal `__nf...` identifiers and explains `.length()` misuse:
+    const humanized = previewApi.humanizeRuntimeErrorMessage(
+      "TypeError: figure.length is not a function. (In 'figure.length()', '__nfContainerMethod' is undefined)",
+    );
+    assert.ok(!humanized.includes('__nf'), `internal __nf must be stripped: ${humanized}`);
+    assert.match(humanized, /without '\(\)'/);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('T-379 & T-382: Test Movie relays figure.length() line + sourceLine, catches uncaught error & unhandledrejection, and halts stale nf_run tabs on X-NeoFlash-Session-Stale', async t => {
+  const chromeBin = findChromeBinary();
+  if (!chromeBin) {
+    t.skip('Google Chrome / Chromium binary not installed');
+    return;
+  }
+  assert.ok(
+    fs.existsSync(path.join(runtimeDir, 'neoflash_web_bg.wasm')),
+    'target/web-runtime/neoflash_web_bg.wasm missing — run ./scripts/build-web.sh first',
+  );
+  const bin = ensureFreshExportBinary();
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'neoflash-t379-t382-'));
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'neoflash-t379-chrome-'));
+  let serverInfo = null;
+  let cdp = null;
+
+  try {
+    // 1) Multi-layer AS2 project (`field` + `figures`) where `figures` Line 19 calls `figure.length()`:
+    const figuresSource = [
+      ...Array.from({ length: 17 }, (_, i) => `// figures header ${i + 1}`),
+      'function rotateFigure(figure) {',
+      '  var n = figure.length();',
+      '  return n;',
+      '}',
+      'rotateFigure([[0, 1, 0], [1, 1, 1]]);',
+    ].join('\n');
+
+    const tetrisProj = {
+      format_version: 13,
+      name: 'TetrisLengthBug',
+      width: 320,
+      height: 240,
+      fps: 24,
+      background: [20, 22, 28, 255],
+      script_language: 'action_script2',
+      root: 'root',
+      symbols: [
+        {
+          id: 'root',
+          name: 'Scene 1',
+          kind: 'movie_clip',
+          timeline: {
+            frame_count: 1,
+            layers: [
+              { id: 'layer-field', name: 'field', visible: true, locked: false, keyframes: [{ frame: 0, label: '', tween: null, elements: [] }] },
+              { id: 'layer-figures', name: 'figures', visible: true, locked: false, keyframes: [{ frame: 0, label: '', tween: null, elements: [] }] },
+            ],
+            scripts: [
+              { layer: 'layer-field', frame: 0, script: { language: 'action_script2', source: 'stop();\ntrace("FIELD_READY");\n' } },
+              { layer: 'layer-figures', frame: 0, script: { language: 'action_script2', source: figuresSource } },
+            ],
+          },
+        },
+      ],
+      sources: [],
+      resources: [],
+    };
+
+    // 2) Continuous 1-frame loop project to verify `nf_run` stale-session isolation & player pause:
+    const loopProj = {
+      format_version: 6,
+      name: 'RunIsolationLoop',
+      width: 320,
+      height: 200,
+      fps: 30,
+      background: [20, 24, 30, 255],
+      script_language: 'java_script',
+      root: 'root',
+      symbols: [
+        {
+          id: 'root',
+          name: 'Scene 1',
+          kind: 'movie_clip',
+          timeline: {
+            frame_count: 1,
+            layers: [
+              { id: 'layer-1', name: 'Main', visible: true, locked: false, keyframes: [{ frame: 0, label: '', tween: null, elements: [] }] },
+            ],
+            scripts: [
+              {
+                frame: 0,
+                script: {
+                  language: 'java_script',
+                  source: [
+                    'stop();',
+                    'trace("LOOP_BOOT");',
+                    'Promise.reject(new Error("ASYNC_REJECT_LINE_3"));',
+                    'let tick = 0;',
+                    'setInterval(() => {',
+                    '  tick += 1;',
+                    '  trace("LOOP_TICK:" + tick);',
+                    '}, 25);',
+                  ].join('\n'),
+                },
+              },
+            ],
+          },
+        },
+      ],
+      sources: [],
+      resources: [],
+    };
+
+    for (const [slug, proj] of [['tetris', tetrisProj], ['loop', loopProj]]) {
+      const pPath = path.join(tempRoot, `${slug}.nflash`);
+      fs.writeFileSync(pPath, JSON.stringify(proj, null, 2));
+      execFileSync(bin, ['--runtime', runtimeDir, pPath, '--output', path.join(tempRoot, `preview-${slug}`), '--preview'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      });
+    }
+
+    serverInfo = await startPreviewCaptureServer(tempRoot);
+    cdp = await launchCdpSession(chromeBin, userDataDir);
+
+    // A. Launch `preview-tetris` with `?nf_run=nf-run-101` -> `figure.length()` maps to exact Line 19 + `sourceLine`!
+    serverInfo.state.clear();
+    serverInfo.state.activeRunId = 'nf-run-101';
+    cdp.consoleErrors.length = 0;
+    cdp.uncaughtExceptions.length = 0;
+
+    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-tetris/index.html?nf_run=nf-run-101`);
+    await waitForCondition(
+      () => serverInfo.state.events.some(e => e.kind === 'error'),
+      'tetris figure.length() runtime error relayed',
+    );
+    const errEvents = serverInfo.state.events.filter(e => e.kind === 'error');
+    assert.equal(errEvents.length, 1, 'runtime error must be reported exactly once (no window.onerror duplicate)');
+    const tetrisErr = errEvents[0];
+    assert.equal(tetrisErr.runId, 'nf-run-101');
+    assert.equal(tetrisErr.sourcePath, 'Scene 1 / frame 1');
+    assert.equal(tetrisErr.line, 19, 'must map figure.length() to exact Line 19');
+    assert.equal(tetrisErr.sourceLine, 'var n = figure.length();');
+    assert.match(tetrisErr.message, /without '\(\)'/);
+    assert.ok(!tetrisErr.message.includes('__nf'), `must not leak __nf helper names: ${tetrisErr.message}`);
+
+    // B. Launch `preview-loop` with `?nf_run=nf-run-201`:
+    //    1) Relays `unhandledrejection` mapped to Line 3 (`Promise.reject(new Error("ASYNC_REJECT_LINE_3"));`);
+    //    2) When server advances `activeRunId` to `nf-run-202`, responds with `X-NeoFlash-Session-Stale: 1`,
+    //       causing the stale tab to disable its relay AND pause `NeoFlashPlayer`!
+    serverInfo.state.clear();
+    serverInfo.state.activeRunId = 'nf-run-201';
+    cdp.consoleErrors.length = 0;
+    cdp.uncaughtExceptions.length = 0;
+
+    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-loop/index.html?nf_run=nf-run-201`);
+    await waitForCondition(
+      () =>
+        serverInfo.state.events.some(e => e.kind === 'error' && e.message.includes('ASYNC_REJECT_LINE_3')) &&
+        serverInfo.state.events.some(e => e.message.startsWith('LOOP_TICK:')),
+      'unhandledrejection + onEnterFrame loop running',
+    );
+    const rejectEv = serverInfo.state.events.find(e => e.kind === 'error' && e.message.includes('ASYNC_REJECT_LINE_3'));
+    assert.equal(rejectEv.sourcePath, 'Scene 1 / frame 1');
+    assert.equal(rejectEv.line, 3);
+
+    // Advance server to `nf-run-202` while `nf-run-201` tab is still open and ticking `onEnterFrame`!
+    serverInfo.state.activeRunId = 'nf-run-202';
+    await waitForCondition(
+      () => serverInfo.state.staleRejections >= 1,
+      'server rejects stale nf-run-201 post with X-NeoFlash-Session-Stale: 1',
+    );
+    await waitForCondition(
+      async () => {
+        const relayDisabled = await cdp.evalJson('Boolean(window.__neoflashOutputRelay && window.__neoflashOutputRelay.disabled)');
+        return relayDisabled;
+      },
+      'stale preview tab disables output relay immediately',
+    );
+    const requestsAfterDisable = serverInfo.state.outputRequests;
+    await new Promise(resolve => setTimeout(resolve, 180));
+    assert.equal(
+      serverInfo.state.outputRequests,
+      requestsAfterDisable,
+      'stale browser tab must emit ZERO further /__neoflash/output requests once marked stale',
+    );
+    assert.equal(
+      serverInfo.state.events.filter(e => e.runId === 'nf-run-202').length,
+      0,
+    );
   } finally {
     if (cdp) {
       try {

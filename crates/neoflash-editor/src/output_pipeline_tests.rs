@@ -1815,3 +1815,413 @@ fn t368_output_filter_preserves_complete_multiline_structured_trace_blocks() {
         "filtering a structured multi-line trace event by one key must keep all nested matrix/closing lines intact"
     );
 }
+
+#[test]
+fn t379_clear_output_permanently_purges_logs_and_run_id_isolates_stale_browser_tabs() {
+    use std::io::Read as _;
+
+    fn raw_post_output(
+        addr: std::net::SocketAddr,
+        mount_path: &str,
+        body: &str,
+    ) -> (String, String) {
+        let mut stream = TcpStream::connect(addr).expect("connect shared preview server");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let req = format!(
+            "POST {mount_path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            addr.port(),
+            body.len()
+        );
+        stream.write_all(req.as_bytes()).unwrap();
+        stream.flush().unwrap();
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw).unwrap();
+        let split = raw
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .expect("CRLF header split");
+        (
+            String::from_utf8_lossy(&raw[..split]).into_owned(),
+            String::from_utf8_lossy(&raw[split + 4..]).into_owned(),
+        )
+    }
+
+    crate::preview::shutdown_shared_preview_server();
+    let temp = TempDir::new("t379-clear-isolation");
+    let index_path = temp.0.join("index.html");
+    std::fs::write(&index_path, b"<!doctype html><title>T379</title>").unwrap();
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut project = Project::blank();
+    project.script_language = Some(ScriptLanguage::ActionScript2);
+    let root_id = project.root.clone();
+    project.symbol_mut(&root_id).unwrap().timeline.scripts = vec![FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "stop();\ntrace(\"in-editor-old\");\n".into(),
+        },
+    }];
+    let mut editor = Editor::from_project(&ctx, project);
+
+    // 1. Start Test Movie Run #1 and verify a fresh run_id is allocated and enforced on the server.
+    editor.begin_preview_output_session("Test Movie · Run 1");
+    let run_id_1 = crate::preview::current_shared_preview_run_id().expect("active run_id #1");
+    let mounted_url = crate::preview::serve_preview_index(&index_path).expect("mount preview");
+    let after_scheme = mounted_url.strip_prefix("http://").unwrap();
+    let (host_port, mount_rest) = after_scheme.split_once('/').unwrap();
+    let addr: std::net::SocketAddr = host_port.parse().unwrap();
+    let (mount_slug, _) = mount_rest.split_once('/').unwrap();
+    let post_target = format!("/{mount_slug}/__neoflash/output");
+
+    let run1_batch_1 = serde_json::json!({
+        "session": "safari-tab-1",
+        "runId": run_id_1,
+        "events": [
+            { "seq": 1, "kind": "trace", "message": "run1-old-alpha" },
+            { "seq": 2, "kind": "trace", "message": "run1-old-beta" }
+        ]
+    })
+    .to_string();
+    let (hdr1, _) = raw_post_output(addr, &post_target, &run1_batch_1);
+    assert!(hdr1.starts_with("HTTP/1.1 204 No Content"), "{hdr1}");
+    editor.poll_preview_output(&ctx);
+    assert!(editor.output.contains("[trace] run1-old-alpha"));
+    assert!(editor.output.contains("[trace] run1-old-beta"));
+
+    // Queue another pre-clear event on the HTTP server before `poll_preview_output` drains it,
+    // AND apply a search filter in Output so we verify Clear wipes everything permanently rather
+    // than hiding filtered rows.
+    let run1_batch_2 = serde_json::json!({
+        "session": "safari-tab-1",
+        "runId": run_id_1,
+        "events": [
+            { "seq": 3, "kind": "trace", "message": "run1-queued-before-clear" }
+        ]
+    })
+    .to_string();
+    let (hdr2, _) = raw_post_output(addr, &post_target, &run1_batch_2);
+    assert!(hdr2.starts_with("HTTP/1.1 204 No Content"), "{hdr2}");
+
+    set_output_filter_text(&editor, &ctx, "alpha");
+    let out_filtered = run_output_frame(&mut editor, &ctx, vec![]);
+    let clear_pos = find_accesskit_button_center(&out_filtered, "Clear output")
+        .expect("Clear output button present");
+    let _ = run_output_frame(&mut editor, &ctx, click_events(clear_pos));
+
+    // 2. Immediately after clicking Clear (`🗑`): buffer is 100% empty, resetting filter reveals
+    //    ZERO hidden events, and polling the preview server drains ZERO pre-clear leftovers!
+    assert!(
+        editor.output.is_empty(),
+        "Clear must wipe all stored events"
+    );
+    set_output_filter_text(&editor, &ctx, "");
+    editor.poll_preview_output(&ctx);
+    assert!(
+        editor.output.is_empty(),
+        "pre-clear queued server events must be permanently purged on Clear, got: {:?}",
+        editor.output.events()
+    );
+    let out_after_unfilter = run_output_frame(&mut editor, &ctx, vec![]);
+    for forbidden in [
+        "Run 1",
+        "run1-old-alpha",
+        "run1-old-beta",
+        "run1-queued-before-clear",
+    ] {
+        assert!(
+            !painted_texts(&out_after_unfilter)
+                .iter()
+                .any(|t| t.contains(forbidden)),
+            "cleared text '{forbidden}' must never reappear when filter resets"
+        );
+    }
+
+    // Replaying duplicate sequence numbers from before Clear is also ignored.
+    let (hdr_dup, _) = raw_post_output(addr, &post_target, &run1_batch_2);
+    assert!(hdr_dup.starts_with("HTTP/1.1 204 No Content"));
+    editor.poll_preview_output(&ctx);
+    assert!(editor.output.is_empty());
+
+    // 3. Start Test Movie Run #2: allocates monotonic `run_id_2 != run_id_1`.
+    //    Still-open Safari/Chrome tab from Run #1 (`run_id_1`) or untagged tab (`runId: null`)
+    //    is rejected with `X-NeoFlash-Session-Stale: 1` and NEVER pollutes Run #2's Output!
+    editor.begin_preview_output_session("Test Movie · Run 2");
+    let run_id_2 = crate::preview::current_shared_preview_run_id().expect("active run_id #2");
+    assert_ne!(run_id_1, run_id_2);
+
+    let stale_tab_post = serde_json::json!({
+        "session": "safari-tab-1",
+        "runId": run_id_1,
+        "events": [
+            { "seq": 4, "kind": "trace", "message": "stale-run1-enter-frame" }
+        ]
+    })
+    .to_string();
+    let (stale_hdr, stale_body) = raw_post_output(addr, &post_target, &stale_tab_post);
+    assert!(stale_hdr.starts_with("HTTP/1.1 200 OK"), "{stale_hdr}");
+    assert!(
+        stale_hdr.contains("X-NeoFlash-Session-Stale: 1"),
+        "stale tab response must carry X-NeoFlash-Session-Stale: 1 so preview.js halts: {stale_hdr}"
+    );
+    assert!(stale_body.contains("\"stale\":true"), "{stale_body}");
+
+    let untagged_post = serde_json::json!({
+        "session": "legacy-tab",
+        "events": [
+            { "seq": 1, "kind": "trace", "message": "untagged-stale-trace" }
+        ]
+    })
+    .to_string();
+    let (untagged_hdr, _) = raw_post_output(addr, &post_target, &untagged_post);
+    assert!(untagged_hdr.contains("X-NeoFlash-Session-Stale: 1"));
+
+    // Fresh Run #2 tab posts cleanly and ONLY Run #2 logs exist in Output!
+    let run2_live_post = serde_json::json!({
+        "session": "safari-tab-2",
+        "runId": run_id_2,
+        "events": [
+            { "seq": 1, "kind": "trace", "message": "run2-fresh-tick" }
+        ]
+    })
+    .to_string();
+    let (live2_hdr, _) = raw_post_output(addr, &post_target, &run2_live_post);
+    assert!(
+        live2_hdr.starts_with("HTTP/1.1 204 No Content"),
+        "{live2_hdr}"
+    );
+
+    editor.poll_preview_output(&ctx);
+    let final_messages: Vec<&str> = editor
+        .output
+        .events()
+        .iter()
+        .map(|e| e.message.as_str())
+        .collect();
+    assert_eq!(
+        final_messages,
+        vec!["─── Test Movie · Run 2 ───", "[trace] run2-fresh-tick"]
+    );
+
+    crate::preview::shutdown_shared_preview_server();
+}
+
+#[test]
+fn t382_multilayer_tetris_safari_error_and_preflight_compile_error_highlight_exact_line() {
+    let temp = TempDir::new("t382-tetris-errors");
+    let runtime_dir = temp.0.join("runtime");
+    std::fs::create_dir_all(&runtime_dir).unwrap();
+    std::fs::write(
+        runtime_dir.join("neoflash_web.js"),
+        "var NeoFlashWasm = {};\n",
+    )
+    .unwrap();
+    std::fs::write(runtime_dir.join("neoflash_web_bg.wasm"), b"\0asm\x01\0\0\0").unwrap();
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+
+    // Build a multi-layer Scene 1 matching `tetris.nflash`: `field` (layer 0), `figures` (layer 1), `controls` (layer 2).
+    let mut project = Project::blank();
+    project.format_version = 13;
+    project.script_language = Some(ScriptLanguage::ActionScript2);
+    let root_id = project.root.clone();
+    let field_layer_id = project.symbol(&root_id).unwrap().timeline.layers[0]
+        .id
+        .clone();
+    let figures_layer_id = "layer-figures".to_owned();
+    let controls_layer_id = "layer-controls".to_owned();
+    {
+        let root_sym = project.symbol_mut(&root_id).unwrap();
+        root_sym.timeline.layers[0].name = "field".into();
+        root_sym.timeline.layers.push(Layer {
+            id: figures_layer_id.clone(),
+            name: "figures".into(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties::default(),
+            keyframes: vec![Keyframe {
+                frame: 0,
+                ..Default::default()
+            }],
+        });
+        root_sym.timeline.layers.push(Layer {
+            id: controls_layer_id.clone(),
+            name: "controls".into(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties::default(),
+            keyframes: vec![Keyframe {
+                frame: 0,
+                ..Default::default()
+            }],
+        });
+
+        let field_src = (1..=10)
+            .map(|i| format!("var fieldRow{i} = {i};"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut figures_lines: Vec<String> = (1..=17)
+            .map(|i| format!("// figures setup line {i}"))
+            .collect();
+        figures_lines.push("function rotateFigure(figure) {".into()); // line 18
+        figures_lines.push("    var n = figure.length();".into()); // line 19
+        figures_lines.push("    return n;".into()); // line 20
+        figures_lines.push("}".into()); // line 21
+        figures_lines.push("rotateFigure([[0, 1], [1, 1]]);".into()); // line 22
+        let figures_src = figures_lines.join("\n");
+        let controls_src = "stop();\ntrace(\"controls ready\");\n".to_owned();
+
+        root_sym.timeline.scripts = vec![
+            FrameScript {
+                layer: Some(field_layer_id),
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: field_src,
+                },
+            },
+            FrameScript {
+                layer: Some(figures_layer_id.clone()),
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: figures_src,
+                },
+            },
+            FrameScript {
+                layer: Some(controls_layer_id),
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: controls_src,
+                },
+            },
+        ];
+    }
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.layer = 0; // Start on `field` layer so navigation to `figures` (layer 1) is proven.
+
+    // 1. Ingest Safari `Test Movie` runtime error on `figures` Line 19 (`var n = figure.length();`)
+    //    with Safari JSC's `(In 'figure.length()', '__nfContainerMethod' is undefined)` suffix.
+    editor.ingest_preview_output_items(
+        Some(&editor.clipboard.session.clone()),
+        vec![crate::preview::PreviewOutputItem {
+            session: Some("safari-tetris".into()),
+            run_id: None,
+            seq: 1,
+            kind: crate::preview::PreviewOutputKind::Error,
+            message: "Scene 1 / frame 1: TypeError: figure.length is not a function. (In 'figure.length()', '__nfContainerMethod' is undefined)".into(),
+            source_path: Some("Scene 1 / frame 1".into()),
+            source_line: Some("    var n = figure.length();".into()),
+            line: Some(19),
+            column: Some(13),
+        }],
+    );
+
+    let err_ev = editor
+        .output
+        .last_event()
+        .expect("runtime error event recorded");
+    assert_eq!(err_ev.severity, OutputSeverity::Error);
+    assert_eq!(err_ev.source, OutputSource::Runtime);
+    assert!(
+        err_ev
+            .message
+            .starts_with("[Error] Scene 1 · figures · Frame 1, Line 19: TypeError:"),
+        "expected Scene 1 · figures · Frame 1, Line 19 header, got: {}",
+        err_ev.message
+    );
+    assert!(
+        err_ev.message.contains("without '()'"),
+        "expected actionable .length property hint, got: {}",
+        err_ev.message
+    );
+    assert!(
+        !err_ev.message.contains("__nf"),
+        "internal __nf helper identifiers must be stripped: {}",
+        err_ev.message
+    );
+    assert!(
+        err_ev.message.ends_with("\n  > var n = figure.length();"),
+        "expected offending source line snippet, got: {}",
+        err_ev.message
+    );
+    assert_eq!(
+        err_ev.location.as_ref().and_then(|l| l.layer_index),
+        Some(1),
+        "sourceLine disambiguation must pick layer 1 ('figures'), not layer 0 ('field')"
+    );
+
+    // Click the Output row -> jumps to `figures` (layer 1), places caret at Line 19, and highlights Line 19 in Actions!
+    let out_initial = run_actions_and_output_frame(&mut editor, &ctx, vec![]);
+    let err_row_pos =
+        find_painted_text_center(&out_initial, "Scene 1 · figures · Frame 1, Line 19")
+            .expect("error row painted in Output");
+    let _ = run_actions_and_output_frame(&mut editor, &ctx, click_events(err_row_pos));
+    assert_eq!(editor.layer, 1, "must select 'figures' layer");
+    let runtime_lines = editor.active_actions_diagnostic_lines();
+    assert!(
+        runtime_lines.contains(&19),
+        "Actions must highlight Line 19 for runtime error, got: {runtime_lines:?}"
+    );
+
+    // 2. Introduce a compile syntax error on `figures` Line 19 (`var n = figure.length(;`) while viewing
+    //    `field` (layer 0), and run pre-flight `publish_html5_atomic` (the exact gate used by Test Movie):
+    //    must abort export, emit `[Error] Scene 1 · figures · Frame 1, Line 19: ...` + snippet into Output,
+    //    and immediately switch Actions to `figures` with Line 19 highlighted!
+    editor.clear_output(Some(&ctx));
+    editor.layer = 0;
+    editor.code_feedback = None;
+    {
+        let root_sym = editor.project.symbol_mut(&root_id).unwrap();
+        let fs = root_sym
+            .timeline
+            .scripts
+            .iter_mut()
+            .find(|s| s.layer.as_deref() == Some(figures_layer_id.as_str()))
+            .unwrap();
+        fs.script.source = fs.script.source.replace(
+            "    var n = figure.length();",
+            "    var n = figure.length(;",
+        );
+    }
+    let out_dir = temp.0.join("preview-out");
+    let publish_prefs = editor.workspace.publish.clone();
+    assert!(
+        !editor.publish_html5_atomic(&out_dir, &runtime_dir, &publish_prefs),
+        "broken script must abort Test Movie / Publish pre-flight"
+    );
+    assert!(!out_dir.join("index.html").exists());
+
+    let compiler_err = editor
+        .output
+        .events()
+        .iter()
+        .find(|e| e.source == OutputSource::Compiler && e.severity == OutputSeverity::Error)
+        .expect("Compiler error emitted to Output");
+    assert!(
+        compiler_err
+            .message
+            .starts_with("[Error] Scene 1 · figures · Frame 1, Line 19:"),
+        "expected structured compile error header, got: {}",
+        compiler_err.message
+    );
+    assert!(
+        compiler_err
+            .message
+            .ends_with("\n  > var n = figure.length(;"),
+        "expected offending compile error snippet, got: {}",
+        compiler_err.message
+    );
+    let compile_lines = editor.active_actions_diagnostic_lines();
+    assert!(
+        compile_lines.contains(&19),
+        "Actions must highlight Line 19 on pre-flight compile failure, got: {compile_lines:?}"
+    );
+}

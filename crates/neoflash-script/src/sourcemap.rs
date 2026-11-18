@@ -318,7 +318,8 @@ impl SourceMap {
         let chosen = segments
             .iter()
             .rev()
-            .find(|s| s.generated_line == target_line && s.generated_column <= target_col)?;
+            .find(|s| s.generated_line == target_line && s.generated_column <= target_col)
+            .or_else(|| segments.iter().find(|s| s.generated_line == target_line))?;
         let source = self
             .sources
             .get(chosen.source_index)
@@ -418,23 +419,43 @@ impl SourceMap {
 }
 
 fn parse_stack_line(line: &str) -> Option<(Option<String>, usize, usize)> {
-    // Matches V8 / SpiderMonkey / JavaScriptCore stack lines:
-    // `at foo (file.js:10:5)` or `at file.js:10:5` or `foo@file.js:10:5`
-    let cleaned = line.strip_prefix("at ").unwrap_or(line).trim();
-    let (fn_name, loc_part) = if let Some((before, after)) = cleaned.rsplit_once('(') {
-        let name = before.trim();
-        let loc = after.trim_end_matches(')');
-        ((!name.is_empty()).then(|| name.to_owned()), loc)
-    } else if let Some((before, after)) = cleaned.split_once('@') {
-        let name = before.trim();
-        ((!name.is_empty()).then(|| name.to_owned()), after.trim())
-    } else {
-        (None, cleaned)
-    };
+    // Matches V8 / SpiderMonkey / JavaScriptCore (Safari) stack lines:
+    // `at foo (file.js:10:5)`, `at file.js:10:5`, `foo@file.js:10:5`,
+    // `global code@http://...:10:5`, `module code@http://...:10:5`, `@http://...:10:5`.
+    let trimmed = line.trim();
+    let has_at_prefix = trimmed.starts_with("at ");
+    if !has_at_prefix
+        && !trimmed.contains('@')
+        && trimmed
+            .split_once(": ")
+            .is_some_and(|(head, _)| head.ends_with("Error") || head == "Exception")
+    {
+        return None;
+    }
+    let cleaned = trimmed.strip_prefix("at ").unwrap_or(trimmed).trim();
+    let (fn_name, loc_part) =
+        if has_at_prefix && let Some((before, after)) = cleaned.rsplit_once('(') {
+            let name = before.trim();
+            let name = name.strip_prefix("async ").unwrap_or(name).trim();
+            let loc = after.trim_end_matches(')');
+            ((!name.is_empty()).then(|| name.to_owned()), loc)
+        } else if !has_at_prefix && let Some((before, after)) = cleaned.split_once('@') {
+            let name = before.trim();
+            let normalized_name = (!name.is_empty()
+                && !matches!(name, "global code" | "module code" | "eval code"))
+            .then(|| name.to_owned());
+            (normalized_name, after.trim())
+        } else {
+            (None, cleaned)
+        };
 
+    if loc_part.starts_with('[') && loc_part.ends_with(']') {
+        return None;
+    }
     let mut parts = loc_part.rsplitn(3, ':');
     let col_str = parts.next()?;
     let line_str = parts.next()?;
+    let _file_part = parts.next()?;
     let col: usize = col_str
         .chars()
         .take_while(|c| c.is_ascii_digit())
@@ -447,7 +468,10 @@ fn parse_stack_line(line: &str) -> Option<(Option<String>, usize, usize)> {
         .collect::<String>()
         .parse()
         .ok()?;
-    Some((fn_name, line_num, col))
+    if line_num == 0 {
+        return None;
+    }
+    Some((fn_name, line_num, col.max(1)))
 }
 
 /// Extract identifier tokens from a line of code with their 0-based character column.
